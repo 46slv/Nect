@@ -17,6 +17,38 @@ Illustrator/Photoshop interoperability, API/MCP and optional Resolve integration
 
 AE is a reference for shape operations, property editing, effects, blend modes and equivalent shortcuts, not a requirement to copy its timeline-oriented workspace.
 
+## Creation preference — instantiate, then parameterize
+
+For parametric primitives, Nect should prefer **instantiate first, then edit parameters** over forcing a draw gesture to define initial geometry.
+
+The user's strongest explicit example is Circle:
+- Add Circle immediately creates a valid parametric circle.
+- Center X/Y and Radius/Diameter are editable in the Inspector, by scrub/numeric input, and optionally by Canvas handles.
+- Click-drag creation may exist as an accelerator, but is not the default or only path.
+- Initial placement/size heuristics are prototype details; changing them must not require a different Circle object type.
+
+This is a durable interaction preference, not a one-off shortcut request. Whether Rectangle/Polygon/Star should default to the same model is evaluated from real use rather than assumed.
+
+## Color workflow — value first, sampling second
+
+Treat Color as a first-class value surface rather than making Eyedropper the primary transfer metaphor.
+
+Candidate Color row:
+
+```text
+Fill   [swatch]  #4A73FF   [Copy] [Paste] [History] [Derive]
+```
+
+- Known colors move by textual copy/paste.
+- Sampling/Eyedropper acquires unknown visual colors from the Canvas/raster and writes into the same Color model/history.
+- Recent colors, document-authored colors, and user-pinned colors are separate scopes.
+- Nect-to-Nect clipboard should support a structured color payload in addition to text/plain so alpha, color space/profile and future spot metadata are not needlessly lost.
+- Hex is a convenient sRGB representation, not the universal color authority. Do not silently collapse CMYK/Lab/Spot/profiled colors to Hex.
+- Complement/analogous/triadic/tint/shade can be derived candidates. The chosen color space and gamut mapping must be explicit before these become canonical behavior.
+- A future linked derived color should use the normal property/reference model rather than a separate color-only dependency engine.
+
+This direction keeps Eyedropper useful without forcing every color transfer through a tool gesture.
+
 ## Automation-first testability
 
 Nect should be operable semantically without a person driving the mouse. GUI, API and MCP are clients of the same edit model; the machine surface is a product capability, not a test-only backdoor.
