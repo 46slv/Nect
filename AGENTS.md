@@ -1,5 +1,7 @@
 # Agent entry
 
+If you arrived from only a GitHub repository link, read `START_HERE.md` first.
+
 Current scope: `CURRENT_GOAL.md`.
 
 Read `ARCHITECTURE.md` when changing ownership or data flow. For model/codec work read
