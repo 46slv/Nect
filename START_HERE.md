@@ -1,94 +1,50 @@
 # START HERE — Nect
 
-This is the single entry point for a fresh implementation agent.
+This is the single entry point for a fresh agent. A repository link is enough to find the current scope; old chat history is not required.
 
 ## What Nect is
 
-Nect is a standalone-first 2D graphics authoring tool with:
-- addressable Bézier point/handle properties
-- non-destructive editing and cross-property references
-- vector + raster + compositing as one long-term product direction
-- Illustrator / Photoshop interoperability
-- first-class API and MCP automation
+A standalone-first 2D graphics authoring tool: addressable Bézier properties, non-destructive editing, useful local shape operations, deeper node/effect authoring, interoperability and API/MCP. The full product roadmap is not the current implementation scope.
 
-Do not infer that every product candidate is in the current implementation scope.
+## Authority and evidence
 
-## Source-of-truth order
-
-For implementation work, use this order:
-
-1. current user instruction
-2. this repository's code, tests, schemas, and runtime evidence
-3. `CURRENT_GOAL.md`
-4. `AGENTS.md`
-5. relevant owner doc only:
-   - ownership/data flow → `ARCHITECTURE.md`
-   - native model → `docs/model-v0.md`
-   - quality/anti-slop → `docs/quality.md`
-   - first usable acceptance → `docs/first-usable.md`
-   - dependencies/stack → `DEPENDENCIES.md`, `docs/technology.md`
-6. linked GitHub issue/PR if the current goal references one
-7. Notion only when a product requirement/decision is missing or disputed
-
-Past chat history is background, not continuity authority.
+- The current user instruction and applicable AGENTS.md instructions determine what work is authorized. Reading a repository for review does not itself authorize implementation or an agent launch.
+- CURRENT_GOAL.md and its live issue select the implementation slice when implementation is requested.
+- Code, schemas, tests and runtime observations establish what currently exists and works. They do not override the user's intended behavior or authorize scope expansion. A test can be wrong; explain a conflict rather than preserving a bug as a requirement.
+- Notion owns product intent/decisions; Git owns implementation contracts and history. docs/product-direction.md is a scoped extract for work without Notion access, not a second full backlog. New explicit user decisions take precedence; reconcile meaningful conflicts at the affected boundary.
+- Past chats and historical receipts are background, not proof of current runtime state.
 
 ## Start sequence
 
-1. Inspect the repo and `git status`.
-2. Read `CURRENT_GOAL.md`.
-3. Read `AGENTS.md`.
-4. Open only the owner docs/code/tests relevant to the current goal.
-5. Run the smallest existing verification that proves the baseline is healthy.
-6. Continue the goal autonomously until Done, a real blocker, or a semantic checkpoint.
+1. Inspect the repository and git status; preserve dirty/uncommitted work.
+2. Read AGENTS.md and CURRENT_GOAL.md.
+3. Read only the relevant owner: ARCHITECTURE.md for data flow/change boundaries, docs/model-v0.md for persistence, docs/first-usable.md for acceptance, docs/quality.md for quality, DEPENDENCIES.md / docs/technology.md for stack changes.
+4. For UI/procedural work, also read docs/product-direction.md. Consult linked Notion material only if the scoped extract lacks a decision; lack of Notion access alone is not a reason to stop a well-specified slice.
+5. Run the smallest relevant baseline check and continue the authorized task to a useful result, a real blocker or a coherent checkpoint.
 
-Do not recursively read every document before acting.
+Do not recursively read every document or copy the full backlog into a prompt.
 
-## Working-tree convention
+## Working tree
 
-When operating on the user's main Windows machine, the intended local working tree is:
-
-`D:\Documents\Nect`
-
-Confirm the actual repository state before changing it. Do not assume the path exists on other hosts.
+On the user's main Windows machine the intended worktree is `D:\Documents\Nect`. Confirm it exists and points to this repository. Do not assume local state matches main, discard dirty files or force-reset the worktree.
 
 ## Astra / Sol execution model
 
-Default: **Astra is the autonomy-first primary executor** when it can access the working tree, build/test tools, and UI.
+Astra is the autonomy-first primary executor when it has working-tree, build/test and UI access. Use Sol when evidence calls for coordination or a difficult decision: unresolved cross-owner architecture, repeated failure without new evidence, difficult interoperability or decomposition of independent goals. Updating a paragraph in ARCHITECTURE.md does not itself require a second agent.
 
-Escalate to Sol only when evidence shows a real coordination/reasoning boundary, such as:
-- an ownership/architecture decision would change `ARCHITECTURE.md`
-- the same failure repeats without new evidence
-- a difficult interoperability boundary is unresolved
-- a change crosses several protected owners/invariants
-- multiple independent goals need decomposition
-- Astra explicitly cannot resolve a decision from repo/runtime evidence
+Do not add permanent coordinator/verifier machinery merely because the project is large.
 
-Do not create permanent coordinator/verifier agents just because the task is large.
+## Context rollover
 
-## Context rollover / next Astra
+Handoff at a coherent checkpoint, not an arbitrary token count. Record in the current issue/PR or existing checkpoint:
+- goal/phase, branch/HEAD and relevant evidence
+- exact dirty state and pending/unknown operations
+- unresolved decisions and the next safe action
 
-A fresh equivalent Astra may take over at a coherent checkpoint. Resume from durable repo state, not a long transcript.
+Prefer a coherent commit when valid; otherwise preserve and identify the unfinished files. The successor verifies the live state and follows the same start sequence. Keep one clear current handoff pointer rather than competing status documents.
 
-Before handoff, preserve:
-- current goal and phase
-- branch and HEAD
-- completed evidence/tests
-- dirty/uncommitted state
-- pending/unknown operations
-- blockers/unresolved decisions
-- next safe action
+This is a handoff protocol, not proof that automatic spawning or model-to-model rollover exists. Start a successor only through an available, authorized runtime. Do not let two agents unknowingly mutate the same live Session/worktree.
 
-Prefer a coherent checkpoint commit when valid. If work must remain dirty, describe exactly what is dirty.
+## Scope and evolution
 
-A successor re-runs the Start sequence above. Old chat context is optional.
-
-## Scope rule
-
-A Candidate requirement or research idea is not implementation authorization.
-
-Implement only:
-- the current user instruction,
-- `CURRENT_GOAL.md`,
-- and any explicitly selected requirement subset.
-
-If those conflict, stop only for the conflicting decision; otherwise continue autonomously.
+Candidate requirements are a discovery shelf. Preserve data meaning and user work, not every prototype class or panel layout. Small core changes with focused migration tests are allowed when real use reveals a limitation; a wholesale rewrite or general-purpose framework needs concrete justification.
