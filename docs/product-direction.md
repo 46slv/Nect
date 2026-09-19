@@ -15,7 +15,44 @@ Illustrator/Photoshop interoperability, API/MCP and optional Resolve integration
 - Trial layout: Canvas center, structure browser left, contextual Inspector right; deep editors are opened when needed. Position, size and residency are adjustable hypotheses, not file-format constraints.
 - Current implementation: M0 Group/Path objects, scalar properties and simple bindings, native JSON and SVG subset. There is no implemented general operator/instance/field system yet. Consult code and capabilities for exact support.
 
-AE is a reference for shape operations, property editing, effects and equivalent shortcuts, not a requirement to copy its timeline-oriented workspace.
+AE is a reference for shape operations, property editing, effects, blend modes and equivalent shortcuts, not a requirement to copy its timeline-oriented workspace.
+
+## Automation-first testability
+
+Nect should be operable semantically without a person driving the mouse. GUI, API and MCP are clients of the same edit model; the machine surface is a product capability, not a test-only backdoor.
+
+Astra/CI should eventually be able to create/open a document, add/delete/reorder/group objects, edit/link/unlink properties, save/reopen, undo/redo, evaluate, render/export and inspect the result through stable IDs and machine-readable receipts. A deterministic seeded scenario may perform many such operations and verify revisions/invariants without GUI event replay.
+
+This does **not** mean every pixel of UI quality can be proven without a human. Semantic correctness, persistence, automation and many performance regressions can be exercised headlessly; discoverability, comfort and visual judgement still need UI evidence when those are the question.
+
+Do not build a second automation document model. Unsupported GUI/API/MCP capability must be explicit instead of silently falling back to mouse simulation.
+
+## Compositing baseline
+
+After Effects' current blend-mode vocabulary and semantics are the compatibility target for Nect's final compositing model where applicable. The target set includes:
+
+- Normal: Normal, Dissolve, Dancing Dissolve
+- Darken: Darken, Multiply, Color Burn, Classic Color Burn, Linear Burn, Darker Color
+- Lighten: Add, Lighten, Screen, Color Dodge, Classic Color Dodge, Linear Dodge, Lighter Color
+- Contrast/complex: Overlay, Soft Light, Hard Light, Linear Light, Vivid Light, Pin Light, Hard Mix
+- Difference: Difference, Classic Difference, Exclusion, Subtract, Divide
+- HSL: Hue, Saturation, Color, Luminosity
+- Matte: Stencil Alpha/Luma, Silhouette Alpha/Luma
+- Utility: Alpha Add, Luminescent Premul
+
+Source: https://helpx.adobe.com/jp/after-effects/desktop/work-with-layers/work-with-layer-blending-modes/blending-modes-layer-styles.html
+
+This is a compatibility target, not an M1 promise that every mode is already implemented. Time-dependent modes, alpha behavior, working color space and higher-bit-depth behavior need fixtures; never silently alias an unsupported mode to another one.
+
+## Artboard interaction performance
+
+The Artboard/Canvas should feel unusually light. The minimum practical interaction contract is **30 fps** on a defined reference machine + representative scene after warm-up, measured as p95 frame interval <= 33.3 ms for pan, zoom, point/handle dragging and basic object transforms. Common lightweight scenes target 60 fps.
+
+Use machine-readable frame timing so Astra/CI can reproduce regressions from seeded fixtures. Average fps alone is insufficient if large stalls remain.
+
+If a heavy effect/operator requires an interactive preview, lower preview quality explicitly while editing and return to the committed/final quality deterministically. Do not freeze input while waiting for export-quality evaluation, and do not let export silently produce a different random/layout result.
+
+Do not prebuild elaborate caching/worker systems solely for the target. Measure the real hot path first, then add dirty-region/cache/background work where the evidence warrants it.
 
 ## UI direction worth retaining across experiments
 
@@ -42,12 +79,14 @@ A preset configures values; a Macro packages a graph with published parameters; 
 | Work | Timing / boundary |
 |---|---|
 | Real path creation, selection, point/handle edits, one-gesture undo, save/reopen, SVG | M1 manual loop first; use it before UI is polished |
+| Script the same semantic create/edit/save/undo path through the command/API surface | Build alongside the manual loop so automated stress/readback is possible |
 | Whip/name binding and formal MCP driving the same live Session | Remaining M1 acceptance, not a prerequisite to the first manual trial |
+| Instrument the reference M1 Canvas interaction and demonstrate >=30 fps p95 floor | M1 performance acceptance; record machine/scene/timing |
 | One local repeater, fill/style and a saved radial design | Next small procedural slice selected explicitly; no full node editor required |
 | A simple explicit hard mask plus overlapping objects | A focused compositing/UX slice; no full PSD writer required |
 | Region scatter and circles/ellipses from per-item values | Following slice once generated identity/domain semantics are defined |
 | Packing, membrane generation, full fields and per-instance overrides | Separate experiments driven by results; not cheap UI additions |
-| Full AI/PSD round-trip, OpenFX host, production typography/color/print | Dedicated capability work with fixtures; small risk probes may run earlier |
+| Full AE blend-mode coverage, AI/PSD round-trip, OpenFX host, production typography/color/print | Dedicated capability work with fixtures; small risk probes may run earlier |
 | RAW, generative providers, 3D assistance, PDF/VT, imposition, marketplace | Backlog unless a current goal explicitly selects one |
 
 The table is a sequencing guide, not a promise that every row is mandatory or equally easy.
@@ -80,5 +119,6 @@ These inform the design; they are not Nect implementation claims:
 - Blender Fields: https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/fields.html
 - Blender developer field context: https://developer.blender.org/docs/features/nodes/fields/
 - Qt undo concepts (command compression/macros): https://doc.qt.io/qt-6/qundo.html
+- Adobe After Effects blend modes: https://helpx.adobe.com/jp/after-effects/desktop/work-with-layers/work-with-layer-blending-modes/blending-modes-layer-styles.html
 
 The existing Session remains the history owner; Qt's undo facilities are reference material, not authorization to add a competing history stack.
