@@ -23,14 +23,17 @@ Native authored state is the single editing authority. Compatibility IR and rend
 
 ## Relationships
 
-- Composition owns root paint order and a coordinate plane.
-- Object children define one ownership/transform tree.
+Keep these relations orthogonal:
+
+- Composition / Structure hierarchy owns root paint order, containment and effect/compositing scope.
 - Folder is currently modeled as a hierarchical Group; the UI label is not a new data type.
-- Artboard is an output rectangle, not a second object parent.
+- Transform Parent is a separate stable-ID dependency for AE-like transform following; it does not reparent the item in Structure or define effect scope.
+- Artboard is an output frame in shared document coordinates, not an object parent.
+- A future Parent Artboard / Artboard Template is a reusable template relation, not object ownership.
 - Collection is a non-owning named set.
 - Binding is a separate directed property dependency graph.
 
-Ownership, membership, and dependency are independent. Changing a Collection must not reparent its source objects, but can change the result of operators that consume the Collection.
+Structure, Transform Parent, Artboard template assignment, Collection membership and property dependency must reject their own cycles/invalid references without being conflated. Changing a Collection must not reparent its source objects, but can change the result of operators that consume the Collection.
 
 ## Reparent/grouping boundary
 
@@ -104,11 +107,35 @@ Do not equate average fps with responsiveness. Avoid long synchronous stalls on 
 
 Do not add broad cache/worker/dirty-region architecture only because the target exists. Profile the real path, then add the smallest measured optimization. Performance instrumentation must not materially become the hot-path cost it measures.
 
-### Procedural evolution
+### Parametric geometry and operator evolution
 
-Keep source geometry and operator parameters authored; evaluated copies are derived. A local stack and graph may share operators without sharing every UI or socket type. Do not keep separate mutable copies of the same processing definition. Only graph subsets with equivalent order/scope may have a linear-stack view.
+A parametric primitive such as Circle owns its generator parameters and evaluates to normal path geometry. Do not make both generator parameters and arbitrary evaluated anchors independent authored authorities. Downstream path operations consume the evaluated geometry.
+
+An explicit `Convert to Path` changes the geometry source from generator-owned parameters to explicit anchors. Before conversion, inspect references to generator-only properties and report/remap/freeze according to the selected conversion contract; never silently leave dangling references.
+
+Keep source geometry and operator parameters authored; evaluated copies are derived. Shape-local processing is ordered. For AE-compatible shape operators, preserve AE-equivalent order/scope semantics where the types correspond. Invalid order/type combinations fail explicitly.
+
+The minimum operator definition is stable type ID + persisted semantic version + typed input/output domain + ordinary property parameters + side-effect-free evaluation. An operator instance has stable identity and enabled/bypass state. Canvas manipulators are optional presentation metadata, not a second evaluator.
+
+A local stack and graph may share operator definitions/evaluation without sharing every UI or socket type. Do not keep separate mutable copies of the same processing definition. Only graph subsets with equivalent order/scope may have a linear-stack view. Add domains such as PointSet/Field only when an actual operator requires them.
 
 When generated elements become editable, define their identity domain and source/operator lineage. An index is not an identity. Rebuilds that invalidate an override must report it or offer an explicit editable snapshot. A stable seed alone does not solve identity, topology changes or cross-version reproducibility.
+
+### Transform pivot and Group compositing
+
+Transformable objects/groups have an authored Anchor Point and a separately derived current bounds/geometry center. Creation initializes Anchor from center; later bounds changes do not silently move Anchor. An anchor-only edit can compensate Position to preserve world placement where the transform is representable.
+
+Transform Parent cycles are invalid. Changing Transform Parent should preserve world placement by default when the required transform conversion is invertible; otherwise reject or require an explicit non-preserving choice.
+
+Normal render visibility does not determine whether an object can be evaluated as a mask source. A hidden source can still feed a mask relation.
+
+A neutral Group should not introduce an unnecessary compositing boundary. When Group-level effect/mask/opacity or other group processing requires one, evaluate each child through its own local appearance/effects, composite the required child result, then apply Group-level processing. Exact Pass Through/Isolated blend semantics require fixtures and are not inferred from Transform Parent.
+
+### Artboard model
+
+Multiple Artboards share the document coordinate space. Each has stable identity/order and frame/output metadata; objects are not owned by Artboards and may cross frames or live outside them.
+
+A future Parent Artboard / Artboard Template may provide repeated frame/layout settings and derived template content to assigned Artboards with local overrides/detach. This relation stays separate from Structure ownership. Moving/resizing an Artboard frame alone does not move artwork unless an explicit content-moving command is invoked.
 
 ### Persistence evolution
 
