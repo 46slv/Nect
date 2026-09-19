@@ -8,13 +8,15 @@ Qt new document -> path creation -> point/handle selection -> Path Inspector num
 pick-whip/name reference -> direct drag -> native save -> full restart/reopen ->
 formal MCP client mutates the same live document -> GUI reflects it -> Undo/Redo -> SVG export.
 
+The same semantic create/edit/save/undo path must also be machine-operable without GUI mouse replay so Astra/CI can stress the document model repeatedly.
+
 ## Build and try in increments
 
-**A — manual editing loop.** Real creation/selection of paths, Canvas plus contextual numeric editing, one-gesture Undo/Redo, cancellation, safe native save/reopen and SVG output. Add the necessary create/edit commands to the existing core; the demo document is not a substitute for creating paths. Let the user try this before every panel, effect or protocol feature is ready.
+**A — manual + semantic automation loop.** Real creation/selection of paths, Canvas plus contextual numeric editing, one-gesture Undo/Redo, cancellation, safe native save/reopen and SVG output. Add the necessary create/edit commands to the existing core; the demo document is not a substitute for creating paths. Expose the same semantic commands through the machine surface as they become available so seeded scripted sessions can create/edit/save/reopen/read back documents without waiting for the final MCP wrapper.
 
-**B — connected properties.** Pick-whip and explicit name/path authoring resolve to stable IDs. A driven value is visibly distinguished from its authored source. Test rename/reorder and unbinding without ambiguous retargeting.
+**B — connected properties.** Pick-whip and explicit name/path authoring resolve to stable IDs. A driven value is visibly distinguished from its authored source. Test rename/reorder and unbinding without ambiguous retargeting. The same cases must be reproducible through API/MCP readback.
 
-**C — same-session automation.** A formal MCP client initializes, lists tools and edits that same live desktop document. The desktop reflects the edit and can undo it. Different sessions/documents and stale revisions must not be confused.
+**C — same-session formal MCP.** A formal MCP client initializes, lists tools and edits that same live desktop document. The desktop reflects the edit and can undo it. Different sessions/documents and stale revisions must not be confused. Run deterministic multi-command scenarios against temporary documents and retain revision/error/readback receipts.
 
 The agent can overlap independent work, but should keep a usable manual loop and not wait for all future features before collecting UX feedback. Mark partial completion as A/B/C, not as M1 Done.
 
@@ -24,10 +26,22 @@ The agent can overlap independent work, but should keep a usable manual loop and
 - F2: point X/Y and all in/out angle/length values are editable in Inspector and by direct manipulation.
 - F3: pick-whip/name authoring resolves to stable IDs and survives rename/reorder.
 - F4: save/reopen preserves values, bindings and order; source files are not silently lost.
-- F5: actual MCP initialize/list/call reaches the same live Session.
+- F5: actual MCP initialize/list/call reaches the same live Session, while the same semantic operations can also be scripted/read back without GUI event replay.
 - F6: failed edits leave no partial state; GUI and API/MCP mutations participate in Undo. A completed drag is one undo entry and a cancelled drag leaves no edit.
 - F7: SVG export is checked by an independent parser/renderer and native bindings remain.
-- F8: UI is canvas-first, low-noise, spatially stable and usable for the actual edit task. The standard still-graphics workspace has no timeline, playhead, video transport or timecode.
+- F8: UI is canvas-first, low-noise, spatially stable and usable for the actual edit task. The standard still-graphics workspace has no timeline, playhead, video transport or timecode. On the recorded reference machine + M1 fixture after warm-up, pan/zoom/point-handle drag/basic transform maintain at least 30 fps equivalent with p95 frame interval <=33.3 ms; lightweight scenes target 60 fps. Record the scene, viewport, hardware and timing used for the claim.
+
+## Automated operation / performance evidence
+
+Human-free testing is expected for semantic correctness, persistence and much of performance:
+
+- construct seeded temporary scenes through the command/API surface
+- run repeated create/edit/link/reorder/save/reopen/undo/export sequences
+- assert revision, stable IDs, errors and evaluated state
+- collect machine-readable p50/p95 frame/evaluation timing where the desktop benchmark exposes it
+- fail on partial commit, stale-session edit, silent unsupported fallback or deterministic-seed drift
+
+This does not replace human/UI evidence when the question is discoverability, comfort, motion feel or visual quality.
 
 ## Hands-on decision loop
 
@@ -39,12 +53,12 @@ Before/after a presentation change, check that the same document still opens, th
 
 ## Excluded from M1
 
-Full AI/PSD writer, all fonts/effects, OFX host, full PointSet/field/packing engine, complete GPU renderer, RAW, generative providers, full print/RIP production, branching history, marketplace, cloud sync. Local repeat/mask/scatter features are later slices unless a current instruction explicitly selects a bounded probe.
+Full AI/PSD writer, all blend modes/effects, OFX host, full PointSet/field/packing engine, complete production renderer, RAW, generative providers, full print/RIP production, branching history, marketplace, cloud sync. Local repeat/mask/scatter features are later slices unless a current instruction explicitly selects a bounded probe.
 
 ## Early risk probes
 
 - Japanese horizontal/vertical shaping, punctuation, IME, fallback.
-- Transparent overlap/group isolation/mask/color-space semantics.
+- Transparent overlap/group isolation/mask/color-space semantics, including a small subset of blend modes before full AE coverage.
 - Representative SVG/PDF/AI interop observations without modifying originals.
 
 These reduce schema risk; they are not gates requiring full product parity. A failed probe may justify a local seam or migration before that capability is implemented, not a wholesale rewrite.
