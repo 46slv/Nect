@@ -84,7 +84,7 @@ As more property types are implemented, keep ID/type/unit/editability metadata n
 
 A committed drag/scrub is one undoable edit; cancellation restores the pre-gesture state. Preview changes must be associated with a Session-owned edit context or equivalent command grouping, not an untracked widget-owned document. Define the conflict behavior when API/MCP edits arrive during a gesture: queue, reject, or explicitly rebase; never silently overwrite.
 
-Start synchronously while sufficient. When a measured operation needs background work, evaluate a snapshot tagged with session/revision/parameters. Discard stale results and support cancellation; only an explicitly committed result becomes authored state. Lower display quality must not silently resample or replace a committed random layout during export.
+Start synchronously while sufficient. When a measured operation needs background work, evaluate a snapshot tagged with session/revision/parameters, discard stale results and support cancellation. Background evaluation publishes matching derived output; it does not write caches back as authored geometry. A solver that intentionally edits authored points must propose a command committed through Session. Lower display quality must not silently resample or replace a committed random layout during export.
 
 ### Procedural evolution
 
