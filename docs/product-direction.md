@@ -29,6 +29,113 @@ The user's strongest explicit example is Circle:
 
 This is a durable interaction preference, not a one-off shortcut request. Whether Rectangle/Polygon/Star should default to the same model is evaluated from real use rather than assumed.
 
+## Geometry source, explicit path and conversion
+
+Prefer one authored authority per shape.
+
+A parametric Circle is best modeled as a **Geometry Source that evaluates to Path geometry**:
+
+```text
+Geometry Source: Circle
+  Center X/Y
+  Radius
+        ↓
+Evaluated Path
+        ↓
+Shape operators / paint / masks / effects
+```
+
+This gives the desired “it is a path, but I can still control Radius” behavior without simultaneously treating Radius and arbitrary anchors as competing truths.
+
+- Direct manipulation that maps cleanly to the source may edit source parameters (move Center, change Radius).
+- Arbitrary anchor/handle editing may be represented by a later path deformation/override when that is semantically useful.
+- `Convert to Path` explicitly replaces the generator with current explicit anchors when the user wants unrestricted Bézier editing.
+- Conversion must inspect dependencies on generator-only properties such as Radius. Do not silently break a reference.
+
+Circle remains immediately instantiated and parameterized; conversion is optional, not required for ordinary downstream path processing.
+
+## Ordered Shape stack — AE as behavioral reference
+
+Shape-local processing is an ordered stack. Repeater/paint/path operations may be moved when the input/output semantics remain valid; ordering is part of the authored result.
+
+For operators with an After Effects counterpart, AE's current group/order/scope behavior is the compatibility reference. Adobe documents Repeater as creating virtual copies of the paths, strokes and fills above it in the same group, and supports multiple Repeaters. Nect does not need AE's Timeline UI, but should avoid inventing subtly different ordering for the same named operation.
+
+Source: https://helpx.adobe.com/after-effects/desktop/drawing-painting-and-paths/shapes-and-shape-attributes/shape-attributes-paint-operations-path.html
+
+## Property references with multi-selection
+
+Multi-selection should make referencing other objects easier, not trap the user inside a mixed-value Inspector.
+
+Candidate interaction:
+
+- A property row can `Copy Value`, `Copy Reference`, `Paste Value` or `Paste Link`.
+- Starting Pick Source / pick-whip freezes the current target property selection while the user navigates to another object/group/effect/property.
+- Choosing the source restores the target selection and creates the stable-ID reference.
+- Applying one source to a common property on multiple selected targets is supported.
+- A future `Relative Link` may preserve each target's existing delta as an offset; it is separate from ordinary absolute linking.
+
+This is a presentation of the existing property dependency model, not a second link engine.
+
+## Transform Parent, masks and Group compositing
+
+Keep four relationships distinct:
+
+1. Structure hierarchy — ownership/render order/effect scope.
+2. Transform Parent — AE-like transform following without moving an item in Structure.
+3. Collection membership — non-owning set membership.
+4. Property dependency — values driving other values.
+
+A Mask source can follow its target by using the target as **Transform Parent**; removing that Parent leaves the mask source in its own coordinate relationship. Parenting is cycle-checked and uses stable IDs.
+
+Normal render visibility and “usable as mask source” are independent. A source may be hidden from ordinary rendering and still be evaluated for the target mask.
+
+Neutral Groups remain appearance-preserving/pass-through where possible. If a Group has a group-level effect/mask/opacity/non-pass-through compositing operation, evaluate child geometry/appearance/effects first, composite the required child result, then apply the Group-level processing. The exact Pass Through versus Isolated blend behavior needs compositing fixtures; Transform Parent does not define effect scope.
+
+## Center and Anchor Point
+
+Every transformable object/group has:
+
+- a **derived center** from current local geometry/bounds, and
+- an **authored Anchor Point** used as the transform pivot.
+
+New objects/groups initialize Anchor to the derived center. Content changes do not automatically chase that center afterward. Anchor can be edited numerically or on Canvas. Moving only the Anchor should preserve the visible world placement by compensating Position where representable. `Center Anchor` explicitly resets it to the current center.
+
+For Circle, geometry Center and transform Anchor begin at the same location but are different properties.
+
+## Multiple Artboards and Parent Artboards
+
+Artboard is an **output frame**, not an object parent. Multiple Artboards live in the shared document coordinate space with stable ID/order and output metadata. Objects may sit outside every Artboard or cross several Artboards; moving/resizing a frame does not silently move artwork.
+
+For repeated multi-Artboard design, explore an InDesign-like **Parent Artboard / Artboard Template** relation instead of turning Artboard into ownership hierarchy.
+
+A Parent Artboard can eventually provide reusable:
+- size/orientation/output defaults
+- margins, grids and guides
+- background/template content
+- placeholders or repeated graphics
+
+An assigned Artboard can override selected attributes or detach. Template content is linked/derived rather than copied into each Artboard by default.
+
+This follows the useful part of InDesign Parent Pages: reusable repeating elements/layout guides across pages with local override/detach, while preserving Nect's shared Canvas model.
+
+References:
+- https://helpx.adobe.com/indesign/desktop/create-and-organize-pages/create-and-manage-parent-pages/about-parent-pages.html
+- https://helpx.adobe.com/indesign/desktop/create-and-organize-pages/create-and-manage-parent-pages/manage-parent-items.html
+
+## Minimal operator contract
+
+Do not design a complete future Geometry Nodes runtime now. The smallest useful operator contract is:
+
+- stable operator type ID
+- semantic/version marker for persisted behavior
+- typed accepted input/output domain
+- normal Nect properties as parameters
+- pure/side-effect-free evaluation for authored inputs
+- stable operator-instance ID and enabled/bypass state
+- optional Canvas manipulator metadata when the operator needs direct handles
+
+Shape Stack and Node Graph may reference the same operator definition/evaluation logic without maintaining separate mutable operator copies. New domains such as PointSet or Field are added only when an actual operator requires them.
+
 ## Color workflow — value first, sampling second
 
 Treat Color as a first-class value surface rather than making Eyedropper the primary transfer metaphor.
