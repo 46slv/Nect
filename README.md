@@ -1,5 +1,8 @@
 # Nect
 
+> **Fresh implementation agent:** start with [START_HERE.md](START_HERE.md).  
+> A repo link plus that file is intended to be enough to resume current work without old chat history.
+
 Nect is an experimental 2D graphics authoring engine/editor focused on:
 
 - fully addressable Bézier points and handles
@@ -60,8 +63,9 @@ python3 scripts/smoke.py --exe build/nect
 
 ## Entry points
 
-- `AGENTS.md` — short orientation for local AI / Codex
+- `START_HERE.md` — single entrypoint for a fresh Astra/Sol/Codex session
 - `CURRENT_GOAL.md` — current implementation scope
+- `AGENTS.md` — protected implementation boundaries
 - `ARCHITECTURE.md` — ownership and data-flow boundaries
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
