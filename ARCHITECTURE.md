@@ -44,6 +44,14 @@ M1 desktop owns the live Session for its document. A future MCP adapter forwards
 
 Headless execution is an explicitly separate lane. A live protocol target must identify the document/session as well as the revision so that a stale request cannot edit another document after open/restart. This targeting contract is to be added with the live adapter; M0 JSON-lines is not that adapter.
 
+### Automation / self-testing boundary
+
+Semantic document operations must be usable without GUI event replay. The command/API/MCP surfaces should converge on the same create/edit/link/reorder/save/reopen/undo/evaluate/render/export semantics and stable IDs. A machine client may build temporary seeded scenes, execute many commands, and read back revisions/changed IDs/errors/evaluated state.
+
+This is not permission to duplicate the model in a test harness. Stress/scenario generators are clients of the real command boundary. A capability unavailable through automation is reported as unavailable instead of being silently replaced by mouse automation.
+
+Human-free automation can prove many structural, persistence, deterministic and performance properties. It does not by itself prove discoverability, ergonomic comfort or visual judgement.
+
 ## Extension / analysis direction
 
 Introduce typed operator inputs/outputs only with actual callers. Image, Mask, RegionSet, PathSet, ObjectCollection, etc. are distinct. OpenFX, if adopted, operates at an image boundary and is not the canonical vector/text model.
@@ -85,6 +93,16 @@ As more property types are implemented, keep ID/type/unit/editability metadata n
 A committed drag/scrub is one undoable edit; cancellation restores the pre-gesture state. Preview changes must be associated with a Session-owned edit context or equivalent command grouping, not an untracked widget-owned document. Define the conflict behavior when API/MCP edits arrive during a gesture: queue, reject, or explicitly rebase; never silently overwrite.
 
 Start synchronously while sufficient. When a measured operation needs background work, evaluate a snapshot tagged with session/revision/parameters, discard stale results and support cancellation. Background evaluation publishes matching derived output; it does not write caches back as authored geometry. A solver that intentionally edits authored points must propose a command committed through Session. Lower display quality must not silently resample or replace a committed random layout during export.
+
+### Interactive Canvas performance budget
+
+Pan, zoom, selection, point/handle dragging and basic transform are latency-sensitive foreground work. The M1 minimum contract is 30 fps equivalent on a recorded reference machine + scene after warm-up, measured with p95 frame interval <=33.3 ms; lightweight scenes target 60 fps.
+
+Record p50/p95 frame time, over-budget frames and relevant command/evaluation timing in a machine-readable benchmark lane. Build the scene through the same semantic API where practical so Astra/CI can reproduce a regression.
+
+Do not equate average fps with responsiveness. Avoid long synchronous stalls on the interaction path. Heavy effects/operators may use an explicitly labeled interactive preview, but input remains responsive and final/export output is tied to a known revision and deterministic parameters.
+
+Do not add broad cache/worker/dirty-region architecture only because the target exists. Profile the real path, then add the smallest measured optimization. Performance instrumentation must not materially become the hot-path cost it measures.
 
 ### Procedural evolution
 
