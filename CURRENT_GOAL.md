@@ -8,7 +8,8 @@ open-ended practical-alpha Mission without a new instruction. Inherited Artboard
 content/templates and other future slices have not been started.
 
 Continuity authority is this repository on `codex/practical-alpha`. This file is
-part of the coherent asset checkpoint after `7b05709`; obtain its exact commit
+the completed asset checkpoint is `195e536` (formerly `4184fe3` before the
+authorized unpublished-history email correction). Obtain the current handoff HEAD
 with `git log -1`. Earlier checkpoint narratives remain in Git history and
 [docs/first-usable.md](docs/first-usable.md), not as active next-step instructions.
 
@@ -84,11 +85,23 @@ rendering passed. No current slice blocker or failing test remains.
 
 ## Stop and handoff
 
-This checkpoint is delivered as a local coherent commit with final HEAD/status
-reported in the handoff. This Astra context ends here. No publication or next
-implementation task is authorized.
-Push remains blocked by the previously observed GitHub GH007 private-author-email
-rejection; no push was retried, account settings changed or history rewritten.
+The current task authorizes GitHub branch synchronization only, then stops. The
+handoff target is [codex/practical-alpha](https://github.com/46slv/Nect/tree/codex/practical-alpha),
+with upstream `origin/codex/practical-alpha`; final local/remote HEAD equality and
+working-tree state are verified in the sync handoff. Do not merge into or push main.
+
+The private-email audit found 16 affected commits among 17 unpublished branch
+commits. No original branch commit was reachable from any advertised origin ref
+(including PR refs) or existing remote/tag ref. Backup
+`backup/practical-alpha-pre-email-rewrite` retains the original `4184fe3` HEAD
+locally; do not push this backup. The 16 author/committer identities were corrected
+to `46slv <254147489+46slv@users.noreply.github.com>`, preserving every commit tree,
+message, timestamp and parent order. Descendant SHAs changed accordingly.
+`origin/main` at `d88e855` was merged without conflict; its only tree change was the
+latest AGENTS.md operating rules. Product code and fixtures match the prior tested
+checkpoint exactly. Only AGENTS.md and this checkpoint record differ in the final
+tree, so the existing 35/35 test and runtime evidence remains applicable; no full
+rerun is needed. Account privacy/protection settings and shared history are intact.
 
 Next safe action for a new operator: read `START_HERE.md` and this file, confirm
 branch/HEAD/status and obtain the new operating scope. Do not automatically start
