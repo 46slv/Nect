@@ -103,7 +103,7 @@ void Canvas::refresh() {
                 item.color = QColor::fromRgbF(value({}, "stroke.r"), value({}, "stroke.g"),
                                              value({}, "stroke.b"), value({}, "stroke.a"));
                 item.stroke_width = value({}, "stroke.width");
-                for (const auto& contour : object.contours) {
+                for (const auto& contour : path_contours(object)) {
                     const auto first = item.points.size();
                     for (const auto& authored : contour.points) {
                         EvaluatedPoint p;
@@ -115,6 +115,19 @@ void Canvas::refresh() {
                         p.incoming = handle(p.anchor, p.in_angle, value(p.id, "in.length"));
                         p.outgoing = handle(p.anchor, p.out_angle, value(p.id, "out.length"));
                         p.driven = authored.x.binding.has_value() || authored.y.binding.has_value();
+                        // Generated topology contains placeholder Scalars. Only
+                        // enabled authored coordinate corrections drive anchors;
+                        // inspect those directly without evaluating per property.
+                        if (object.source && object.point_edit && object.point_edit->enabled) {
+                            const auto correction = object.point_edit->overrides.find(p.id);
+                            if (correction != object.point_edit->overrides.end()) {
+                                for (const auto* field : {"x", "y"}) {
+                                    const auto coordinate = correction->second.find(field);
+                                    if (coordinate != correction->second.end() && coordinate->second.binding)
+                                        p.driven = true;
+                                }
+                            }
+                        }
                         item.points.push_back(std::move(p));
                     }
                     if (first == item.points.size()) continue;

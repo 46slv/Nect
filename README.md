@@ -28,6 +28,10 @@ backups and recovery snapshots are implemented. The Windows 30 fps viewport
 baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 `CURRENT_GOAL.md`; this is not yet the completed practical alpha.
 
+Circle and Rectangle retain their generators after direct point edits, with
+visible Point Edit overrides/bypass and explicit Convert to Path. Native 0.2
+saves procedural state and reads 0.1 files without flattening or reference loss.
+
 Implemented in M0:
 
 1. create/load a small native document
@@ -78,14 +82,15 @@ the build script defaults work. It deploys Qt DLLs/plugins only into the local
 build output. Close the development executable before rebuilding it. No SDK is
 downloaded by configure or the script.
 
-Create a Curve through Add, or choose Draw Path and click anchors (Enter finishes).
+Add a Circle/Rectangle and adjust its parameters, create a Curve, or choose Draw
+Path and click anchors (Enter finishes).
 Drag anchors/handles; Alt-drag an anchor to create handles. Escape cancels a drag.
 Space-drag pans; wheel zooms; Fit frames the artboard. Groups select as a unit;
 double-click enters them and the breadcrumb returns. Inspector fields accept
 numbers and one-shot `+=`/`-=` adjustments. Right-click provides Copy Value,
 Copy Reference, Paste Value, Paste Link and explicit Unlink. Drag ↗ to a source
-field (hover Objects to inspect another source); click ↗ to search. General expressions,
-parametric primitives, fills/text/masks/operators are subsequent slices.
+field (hover Objects to inspect another source); click ↗ to search. General
+expressions, Polygon/Star, fills/text/masks and shape stacks are subsequent slices.
 
 To expose the desktop-owned document to a local automation client:
 
@@ -124,7 +129,7 @@ rejected without altering the source.
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.1.schema.json` — native JSON shape
+- `schemas/native-v0.2.schema.json` — current native JSON shape (0.1 reader retained)
 
 ## Project rules
 

@@ -82,3 +82,27 @@ check(json.loads(duplicate_escaped.stdout)['error']['code']=='DUPLICATE_KEY',
       'escaped duplicate keys rejected')
 
 print(f'PASS {checks} process checks')
+
+# Real pre-migration bytes: linked freeform geometry authored by the 0.1 binary.
+legacy = json.loads((Path(__file__).parent / 'fixtures/native-v0.1-linked.nect').read_text(encoding='utf-8'))
+check(legacy['version'] == '0.1', 'fixture is the historical format')
+with tempfile.TemporaryDirectory() as tmp:
+    path = Path(tmp) / 'legacy.nect'
+    path.write_text(json.dumps(legacy), encoding='utf-8')
+    requests = [dict(op='inspect'), dict(op='apply', expected_revision=0, commands=[
+        dict(type='set', ref=dict(object='path-A', point='point-A1', field='x'), value=321)]),
+        dict(op='get', ref=dict(object='path-B', point='point-B1', field='x')),dict(op='inspect')]
+    result = subprocess.run([exe,'--serve',str(path)], input='\n'.join(map(json.dumps,requests))+'\n',
+        capture_output=True,text=True,timeout=10)
+    replies = [json.loads(line) for line in result.stdout.splitlines()]
+    check(all(r['ok'] for r in replies), 'legacy migration and edit succeed')
+    migrated = replies[0]['result']
+    check(migrated == dict(legacy, version='0.2'), 'migration preserves every authored legacy value and reference')
+    check(replies[2]['result']['evaluated'] == 341, 'legacy stable binding still evaluates after editing')
+    saved = replies[3]['result']
+    path.write_text(json.dumps(saved), encoding='utf-8')
+    reopened = subprocess.run([exe,'--serve',str(path)],input='{"op":"inspect"}\n',
+        capture_output=True,text=True,timeout=10)
+    check(json.loads(reopened.stdout)['result'] == saved, 'upgraded native bytes reopen without authored drift')
+    check(run('--validate',saved).returncode == 0,'upgraded file validates in fresh process')
+print(f'PASS {checks} process and native migration checks')

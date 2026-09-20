@@ -50,6 +50,22 @@ struct Contour {
 
 enum class Kind { group, path };
 
+struct Primitive {
+    Id id;
+    std::string type; // nect.shape.circle / nect.shape.rectangle
+    unsigned version = 1;
+    std::map<std::string,Scalar> parameters;
+};
+
+struct PointEdit {
+    Id id;
+    unsigned version = 1;
+    bool enabled = true;
+    // Absolute, local-space scalar overrides of stable generated point fields.
+    // Fields not present continue to evaluate from the source generator.
+    std::map<Id,std::map<std::string,Scalar>> overrides;
+};
+
 struct Object {
     Id id;
     std::string name;
@@ -59,6 +75,8 @@ struct Object {
     std::array<Scalar,6> transform{{{1,{}},{0,{}},{0,{}},{1,{}},{0,{}},{0,{}}}};
     std::array<Scalar,4> color{{{0,{}},{0,{}},{0,{}},{1,{}}}};
     Scalar stroke_width{2,{}};
+    std::optional<Primitive> source;
+    std::optional<PointEdit> point_edit;
 };
 
 struct Artboard {
@@ -99,12 +117,21 @@ struct RemovePoint { Id object; Id contour; Id point; };
 struct CloseContour { Id object; Id contour; bool closed; };
 struct DeleteObjects { std::vector<Id> objects; };
 struct ReorderObjects { Id composition; Id parent; std::vector<Id> order; };
+struct CreatePrimitive { Id composition; Id parent; Id id; std::string name; Primitive source; };
+struct EnablePointEdit { Id object; bool enabled; };
+struct ConvertToPath { Id object; };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
-    CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects>;
+    CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
+    CreatePrimitive,EnablePointEdit,ConvertToPath>;
 
 std::vector<Ref> properties(const Document& document);
-const Scalar& property(const Document& document, const Ref& ref);
+Scalar property(const Document& document, const Ref& ref);
+std::string property_origin(const Document& document, const Ref& ref);
+// Returns contour topology/IDs. All resolved coordinates, including generated
+// points, come from evaluate(); this is never another authored geometry store.
+std::vector<Contour> path_contours(const Object& object);
+std::vector<Ref> conversion_blockers(const Document& document, const Id& object);
 Ref resolve_name(const Document& document, const std::string& name, const Id& point, const std::string& field);
 std::map<Ref,double> evaluate(const Document& document);
 void validate(const Document& document);

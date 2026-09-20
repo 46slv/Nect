@@ -142,9 +142,52 @@ Contour read_contour(const j::value& v) {
     return out;
 }
 
+Primitive read_primitive(const j::value& v) {
+    const auto& o=v.as_object();keys(o,{"id","type","version","parameters"});
+    Primitive s{text(o.at("id")),text(o.at("type")),j::value_to<unsigned>(o.at("version")),{}};
+    for(const auto& p:o.at("parameters").as_object())
+        s.parameters.emplace(std::string(p.key()),read_scalar(p.value()));
+    return s;
+}
+PointEdit read_point_edit(const j::value& v) {
+    const auto& o=v.as_object();keys(o,{"id","type","version","enabled","overrides"});
+    if(text(o.at("type"))!="nect.path.point-edit")throw Error("UNSUPPORTED_OPERATOR",text(o.at("type")));
+    PointEdit edit{text(o.at("id")),j::value_to<unsigned>(o.at("version")),o.at("enabled").as_bool(),{}};
+    for(const auto& p:o.at("overrides").as_object()) {
+        auto& fields=edit.overrides[std::string(p.key())];
+        for(const auto& f:p.value().as_object())fields.emplace(std::string(f.key()),read_scalar(f.value()));
+    }
+    return edit;
+}
+j::value primitive_json(const Primitive& source) {
+    j::object parameters;for(const auto& [name,value]:source.parameters)parameters[name]=scalar_json(value);
+    return j::object{{"id",source.id},{"type",source.type},{"version",source.version},{"parameters",parameters}};
+}
+j::value point_edit_json(const PointEdit& edit) {
+    j::object overrides;
+    for(const auto& [point,values]:edit.overrides) {
+        j::object fields;for(const auto& [field,value]:values)fields[field]=scalar_json(value);
+        overrides[point]=fields;
+    }
+    return j::object{{"id",edit.id},{"type","nect.path.point-edit"},{"version",edit.version},
+        {"enabled",edit.enabled},{"overrides",overrides}};
+}
+
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type=="create_primitive") {
+        keys(o,{"type","composition","parent","id","name","source"});
+        return CreatePrimitive{text(o.at("composition")),text(o.at("parent")),text(o.at("id")),
+            text(o.at("name")),read_primitive(o.at("source"))};
+    }
+    if(type=="enable_point_edit") {
+        keys(o,{"type","object","enabled"});
+        return EnablePointEdit{text(o.at("object")),o.at("enabled").as_bool()};
+    }
+    if(type=="convert_to_path") {
+        keys(o,{"type","object"});return ConvertToPath{text(o.at("object"))};
+    }
     if(type=="create_path") {
         keys(o,{"type","composition","parent","id","name","contours"});
         std::vector<Contour> contours;
@@ -210,8 +253,9 @@ Document decode(std::string_view input) {
         const auto& root=parsed.as_object();
         keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
 
-        if(text(root.at("format"))!="nect-native" || text(root.at("version"))!="0.1")
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 is supported");
+        const auto version=text(root.at("version"));
+        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"))
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 and 0.2 are supported");
         if(text(root.at("units"))!="du96"||text(root.at("color_space"))!="srgb")
             throw Error("UNSUPPORTED_COLOR_OR_UNIT","v0.1 supports du96 and sRGB only");
 
@@ -238,7 +282,8 @@ Document decode(std::string_view input) {
 
         for(const auto& ov:root.at("objects").as_array()) {
             auto& o=ov.as_object();
-            keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
+            if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
+            else keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
 
             Object obj;
             obj.id=text(o.at("id"));
@@ -253,7 +298,7 @@ Document decode(std::string_view input) {
             for(std::size_t k=0;k<6;++k) obj.transform[k]=read_scalar(transform[k]);
 
             if(obj.kind==Kind::group) {
-                if(o.contains("contours")||o.contains("stroke")||o.contains("fill"))
+                if(o.contains("contours")||o.contains("stroke")||o.contains("fill")||o.contains("source")||o.contains("point_edit"))
                     throw Error("INVALID_OBJECT","Group has path-only fields");
                 obj.children=ids(o.at("children"));
             } else {
@@ -268,23 +313,13 @@ Document decode(std::string_view input) {
                 for(std::size_t k=0;k<4;++k) obj.color[k]=read_scalar(rgba[k]);
                 obj.stroke_width=read_scalar(stroke.at("width"));
 
-                for(const auto& pv:o.at("contours").as_array()) {
-                    auto& path=pv.as_object();
-                    keys(path,{"id","closed","points"});
-                    Contour contour;
-                    contour.id=text(path.at("id"));
-                    contour.closed=path.at("closed").as_bool();
-
-                    for(const auto& v:path.at("points").as_array()) {
-                        auto& p=v.as_object();
-                        keys(p,{"id","x","y","in_angle","in_length","out_angle","out_length"});
-                        contour.points.push_back({
-                            text(p.at("id")),
-                            read_scalar(p.at("x")),read_scalar(p.at("y")),
-                            read_scalar(p.at("in_angle")),read_scalar(p.at("in_length")),
-                            read_scalar(p.at("out_angle")),read_scalar(p.at("out_length"))});
-                    }
-                    obj.contours.push_back(std::move(contour));
+                if(o.contains("source")) {
+                    if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
+                    obj.source=read_primitive(o.at("source"));
+                    if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"));
+                } else {
+                    if(o.contains("point_edit"))throw Error("INVALID_POINT_EDIT","Point Edit needs a retained generator");
+                    for(const auto& c:o.at("contours").as_array())obj.contours.push_back(read_contour(c));
                 }
             }
 
@@ -343,7 +378,10 @@ std::string encode(const Document& d) {
                 contours.push_back({{"id",c.id},{"closed",c.closed},{"points",points}});
             }
 
-            out["contours"]=contours;
+            if(o.source) {
+                out["source"]=primitive_json(*o.source);
+                if(o.point_edit)out["point_edit"]=point_edit_json(*o.point_edit);
+            } else out["contours"]=contours;
             out["fill"]="none";
 
             j::array rgba;
@@ -358,7 +396,7 @@ std::string encode(const Document& d) {
         collections.push_back({{"id",c.id},{"name",c.name},{"members",ids_json(c.members)}});
 
     return j::serialize(j::object{
-        {"format","nect-native"},{"version","0.1"},{"id",d.id},
+        {"format","nect-native"},{"version","0.2"},{"id",d.id},
         {"units","du96"},{"color_space","srgb"},
         {"compositions",comps},{"objects",objects},{"collections",collections}});
 }
@@ -401,7 +439,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
                <<value("","stroke.a")<<"\" stroke-width=\""
                <<value("","stroke.width")<<"\" d=\"";
 
-            for(const auto& c:o.contours) {
+            for(const auto& c:path_contours(o)) {
                 auto xy=[&](const Point& p){return std::array{value(p.id,"x"),value(p.id,"y")};};
                 const auto first=xy(c.points.front());
                 out<<"M "<<first[0]<<' '<<first[1]<<' ';
@@ -450,9 +488,11 @@ std::string request(Session& session,std::string_view input) {
         if(op=="get") {
             keys(o,{"op","ref"});
             auto r=read_ref(o.at("ref"));
+            const auto origin=property_origin(session.document(),r);
             result=j::object{
                 {"ref",ref_json(r)},
-                {"authored",scalar_json(property(session.document(),r))},
+                {"origin",origin},
+                {"authored",origin=="generated"?j::value(nullptr):scalar_json(property(session.document(),r))},
                 {"evaluated",evaluate(session.document()).at(r)}};
         } else if(op=="inspect") {
             keys(o,{"op"});
@@ -461,17 +501,27 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op"});
             j::array list;
             const auto values=evaluate(session.document());
-            for(const auto& ref:properties(session.document()))
+            for(const auto& ref:properties(session.document())) {
+                const auto origin=property_origin(session.document(),ref);
                 list.push_back({{"ref",ref_json(ref)},
                     {"name",session.document().objects.at(ref.object).name},
                     {"type","number"},{"unit",property_unit(ref)},{"space","local"},
-                    {"authored",scalar_json(property(session.document(),ref))},
+                    {"origin",origin},{"authored",origin=="generated"?j::value(nullptr):scalar_json(property(session.document(),ref))},
                     {"evaluated",values.at(ref)}});
+            }
             result=std::move(list);
+        } else if(op=="conversion_plan") {
+            keys(o,{"op","object"});const auto id=text(o.at("object"));
+            j::array blockers;for(const auto& ref:conversion_blockers(session.document(),id))blockers.push_back(ref_json(ref));
+            const auto& object=session.document().objects.at(id);
+            result=j::object{{"object",id},{"allowed",blockers.empty()},{"blockers",blockers},
+                {"source_instance",object.source->id},{"preserves_point_ids",true},
+                {"freezes_generator",true},{"preserves_active_point_bindings",true},
+                {"discards_bypassed_corrections",object.point_edit&&!object.point_edit->enabled}};
         } else if(op=="capabilities") {
             keys(o,{"op"});
             result=j::object{
-                {"native_version","0.1"},
+                {"native_version","0.2"},
                 {"transport","local-json-lines-not-mcp"},
                 {"mcp",false},
                 {"ai_codec",false},

@@ -40,6 +40,8 @@ private:
     void pick_source(Ref target,bool relative=false);
     void save(bool choose);
     void add_curve();
+    void add_primitive(const std::string& type);
+    void convert_to_path();
     void group_selection();
 };
 }

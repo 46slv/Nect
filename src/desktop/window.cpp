@@ -2,6 +2,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QCheckBox>
 #include <QCloseEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -55,6 +56,28 @@ public:
     }
 };
 QString display_value(double value) { return QString::number(value,'g',12); }
+QString primitive_label(const Primitive& source) {
+    return source.type=="nect.shape.circle" ? QStringLiteral("Circle") : QStringLiteral("Rectangle");
+}
+QString parameter_label(const std::string& parameter) {
+    if(parameter=="center_x")return QStringLiteral("Center X");
+    if(parameter=="center_y")return QStringLiteral("Center Y");
+    if(parameter=="radius")return QStringLiteral("Radius");
+    if(parameter=="width")return QStringLiteral("Width");
+    if(parameter=="height")return QStringLiteral("Height");
+    return qs(parameter);
+}
+QString point_label(const Object& object,const Point& point,std::size_t index) {
+    if(object.source) {
+        const auto prefix=object.source->id+"-";
+        if(point.id.starts_with(prefix)) {
+            auto label=qs(point.id.substr(prefix.size())).replace('-', ' ');
+            if(!label.isEmpty())label[0]=label.at(0).toUpper();
+            return label;
+        }
+    }
+    return "Point "+QString::number(index+1);
+}
 QString property_label(const Document& d,const Ref& ref) {
     QStringList path;
     auto object=ref.object;
@@ -68,13 +91,17 @@ QString property_label(const Document& d,const Ref& ref) {
     }
     if(!ref.point.empty()) {
         const auto& o=d.objects.at(ref.object);
-        for(std::size_t c=0;c<o.contours.size();++c)for(std::size_t i=0;i<o.contours[c].points.size();++i)
-            if(o.contours[c].points[i].id==ref.point) {
-                if(o.contours.size()>1)path.append("Contour "+QString::number(c+1));
-                path.append("Point "+QString::number(i+1));
+        const auto contours=path_contours(o);
+        for(std::size_t c=0;c<contours.size();++c)for(std::size_t i=0;i<contours[c].points.size();++i)
+            if(contours[c].points[i].id==ref.point) {
+                if(contours.size()>1)path.append("Contour "+QString::number(c+1));
+                path.append(point_label(o,contours[c].points[i],i));
             }
     }
-    path.append(qs(ref.field));return path.join(" / ");
+    if(ref.field.starts_with("generator.")) {
+        path.append("Generator");path.append(parameter_label(ref.field.substr(10)));
+    } else path.append(qs(ref.field));
+    return path.join(" / ");
 }
 }
 
@@ -137,16 +164,24 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     action(edit,"Close / open contour",{},[this]{
         if(canvas->selected_object.empty()) return;
         const auto& o=host.session.document().objects.at(canvas->selected_object);
-        if(o.contours.empty()) throw Error("NO_CONTOUR","Select a path");
-        const auto& c=o.contours.front();
+        const auto contours=path_contours(o);
+        if(contours.empty()) throw Error("NO_CONTOUR","Select a path");
+        const auto& c=contours.front();
         host.session.apply({CloseContour{o.id,c.id,!c.closed}},host.session.revision());host.edited();
     });
+    auto* convert=action(edit,"Convert to Path…",{},[this]{convert_to_path();});
+    convert->setObjectName("convert-to-path");
+    auto* circle=action(add,"Circle",{},[this]{add_primitive("nect.shape.circle");});
+    circle->setObjectName("add-circle");
+    auto* rectangle=action(add,"Rectangle",{},[this]{add_primitive("nect.shape.rectangle");});
+    rectangle->setObjectName("add-rectangle");
     action(add,"Curve",QKeySequence("Ctrl+Shift+P"),[this]{add_curve();});
     auto* draw=action(add,"Draw Path",QKeySequence("P"),[this]{canvas->set_draw_mode(true);canvas->setFocus();statusBar()->showMessage("Click to add points · Enter finishes the path · Escape exits",10000);});
     action(view,"Fit Artboard",QKeySequence("Ctrl+0"),[this]{canvas->fit_artboard();});
     action(view,"Return to parent Group",{},[this]{canvas->leave_group();});
     view->addAction(structure->toggleViewAction());view->addAction(right->toggleViewAction());
     auto* toolbar=addToolBar("Authoring");toolbar->setMovable(false);
+    toolbar->addAction(circle);toolbar->addAction(rectangle);
     auto* curve=toolbar->addAction("+ Curve"); connect(curve,&QAction::triggered,this,[this]{perform([this]{add_curve();});});
     toolbar->addAction(draw);toolbar->addSeparator();toolbar->addAction(undo_);toolbar->addAction(redo_);
     auto* fit=toolbar->addAction("Fit");connect(fit,&QAction::triggered,canvas,&Canvas::fit_artboard);
@@ -202,7 +237,8 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
             auto point=item->data(0,Qt::UserRole+1).toString().toStdString();
             if(point.empty()&&!whip_target_->point.empty()&&host.session.document().objects.contains(object)) {
                 const auto& o=host.session.document().objects.at(object);
-                if(!o.contours.empty())point=o.contours.front().points.front().id;
+                const auto contours=path_contours(o);
+                if(!contours.empty())point=contours.front().points.front().id;
             }
             canvas->set_selection(object,point);
         }
@@ -245,7 +281,8 @@ void Window::refresh() {
     std::function<void(const Id&)> fingerprint=[&](const Id& id) {
         const auto& o=d.objects.at(id);
         signature+="("+qs(id)+":"+QString::number(o.name.size())+":"+qs(o.name);
-        for(const auto& c:o.contours) {signature+="["+qs(c.id);for(const auto& p:c.points)signature+=":"+qs(p.id);signature+="]";}
+        if(o.source)signature+="|source:"+qs(o.source->type)+":"+qs(o.source->id);
+        for(const auto& c:path_contours(o)) {signature+="["+qs(c.id);for(const auto& p:c.points)signature+=":"+qs(p.id);signature+="]";}
         for(const auto& child:o.children)fingerprint(child);
         signature+=")";
     };
@@ -259,10 +296,12 @@ void Window::refresh() {
         const auto& o=d.objects.at(id);
         auto* item=parent?new QTreeWidgetItem(parent):new QTreeWidgetItem(tree_);
         item->setText(0,qs(o.name));item->setData(0,Qt::UserRole,qs(id));
+        item->setToolTip(0,(o.source?primitive_label(*o.source)+" source · ":QString{})+qs(id));
         for(const auto& child:o.children) append(child,item);
-        for(const auto& c:o.contours) for(std::size_t i=0;i<c.points.size();++i) {
+        for(const auto& c:path_contours(o)) for(std::size_t i=0;i<c.points.size();++i) {
             auto* point=new QTreeWidgetItem(item);
-            point->setText(0,"Point "+QString::number(i+1));point->setData(0,Qt::UserRole,qs(id));point->setData(0,Qt::UserRole+1,qs(c.points[i].id));
+            point->setText(0,point_label(o,c.points[i],i));point->setData(0,Qt::UserRole,qs(id));point->setData(0,Qt::UserRole+1,qs(c.points[i].id));
+            point->setToolTip(0,qs(c.points[i].id));
             if(canvas->selected_object==id&&canvas->selected_point==c.points[i].id) tree_->setCurrentItem(point);
         }
         if(canvas->selected_object==id&&canvas->selected_point.empty()) tree_->setCurrentItem(item);
@@ -288,7 +327,7 @@ void Window::rebuild_inspector() {
     }
     auto* layout=new QVBoxLayout(inspector_);
     const auto& d=host.session.document();
-    if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a Curve or draw a Path.\nSelect a point to edit its handles."));layout->addStretch();return;}
+    if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a Circle, Rectangle or Curve.\nSelect a point to edit its handles."));layout->addStretch();return;}
     const auto& o=d.objects.at(canvas->selected_object);
     inspector_values_=evaluate(d);
     auto* name=new QLineEdit(qs(o.name));name->setAccessibleName("Object name");layout->addWidget(name);
@@ -298,6 +337,46 @@ void Window::rebuild_inspector() {
         perform([&]{host.session.apply({Rename{id,name->text().toStdString()}},host.session.revision());host.edited();});
     });
     auto section=[&](const QString& title){auto* box=new QGroupBox(title);auto* form=new QFormLayout(box);layout->addWidget(box);return form;};
+    if(o.source) {
+        auto* generator=section("1 · "+primitive_label(*o.source)+" source");
+        for(const auto* parameter:{"center_x","center_y","radius","width","height"})
+            if(o.source->parameters.contains(parameter))
+                add_property(generator,{o.id,{},std::string("generator.")+parameter},parameter_label(parameter));
+        auto* correction=section("2 · Point Edit");
+        auto* enabled=new QCheckBox("Enabled");
+        enabled->setObjectName("point-edit-enabled");
+        enabled->setAccessibleName("Point Edit enabled");
+        enabled->setChecked(o.point_edit && o.point_edit->enabled);
+        enabled->setEnabled(o.point_edit.has_value());
+        correction->addRow(enabled);
+        std::size_t field_count=0;
+        if(o.point_edit)for(const auto& [point,fields]:o.point_edit->overrides) { (void)point;field_count+=fields.size(); }
+        auto* summary=new QLabel(o.point_edit
+            ? QString("%1 absolute local overrides across %2 points.")
+                .arg(static_cast<qulonglong>(field_count)).arg(static_cast<qulonglong>(o.point_edit->overrides.size()))
+            : QString("No overrides yet. Edit a point or handle to add a correction."));
+        summary->setObjectName("point-edit-summary");
+        summary->setWordWrap(true);correction->addRow(summary);
+        auto* semantics=new QLabel(o.point_edit && !o.point_edit->enabled
+            ? "Bypassed: the source shape is visible. Editing a point enables its correction again."
+            : "Edited fields hold absolute local values. Other fields continue to follow the source. Disable Point Edit to see the source shape.");
+        semantics->setWordWrap(true);semantics->setStyleSheet("color: #a4acb8; font-size: 11px;");correction->addRow(semantics);
+        const auto frozen_session=host.session_id;
+        connect(enabled,&QCheckBox::toggled,this,[this,enabled,id=o.id,frozen_session](bool checked) {
+            bool applied=false;
+            perform([&] {
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
+                host.session.apply({EnablePointEdit{id,checked}},host.session.revision());
+                applied=true;host.edited();
+            });
+            if(!applied) {const QSignalBlocker blocker(enabled);enabled->setChecked(!checked);}
+        });
+        auto* convert=new QPushButton("Convert to Path…");
+        convert->setObjectName("convert-to-path-button");
+        convert->setToolTip("Review conversion effects and reference blockers before replacing the source.");
+        correction->addRow(convert);
+        connect(convert,&QPushButton::clicked,this,[this]{perform([this]{convert_to_path();});});
+    }
     if(!canvas->selected_point.empty()) {
         auto* form=section("Point && handles");
         for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})
@@ -316,14 +395,30 @@ void Window::rebuild_inspector() {
 }
 void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& label) {
     const auto& d=host.session.document();
-    const auto& scalar=nect::property(d,ref);
+    const auto origin=property_origin(d,ref);
     const auto evaluated=inspector_values_.at(ref);
+    // Generated fallback has no authored Scalar to inspect. Reuse this panel's
+    // evaluation snapshot instead of asking property() to evaluate it again.
+    const auto scalar=origin=="generated" ? Scalar{evaluated,{}} : nect::property(d,ref);
     auto* row=new QWidget;auto* box=new QHBoxLayout(row);box->setContentsMargins(0,0,0,0);box->setSpacing(4);
     auto* input=new QLineEdit(display_value(evaluated));input->setAccessibleName(label);
     const auto reference=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
     input->setProperty("nect-reference",reference);
+    input->setProperty("nect-property-origin",qs(origin));
     input->setToolTip(qs(property_unit(ref))+" · local · "+qs(ref.object+"/"+ref.point+"/"+ref.field));
-    if(scalar.binding) {input->setStyleSheet("color: #84d5eb;");input->setToolTip(input->toolTip()+"\nLinked; unlink explicitly before replacing its value.");}
+    if(origin=="generated")input->setToolTip(input->toolTip()+"\nGenerated by the source. Editing creates a Point Edit override and keeps the source.");
+    else if(origin=="point_edit") {
+        input->setStyleSheet("color: #e4be82;");
+        input->setToolTip(input->toolTip()+"\nPoint Edit: absolute local override; the source remains editable.");
+    } else if(origin=="bypassed_point_edit") {
+        input->setToolTip(input->toolTip()+"\nPoint Edit is bypassed. This value follows the source; editing enables the correction again.");
+    }
+    if(scalar.binding) {
+        input->setStyleSheet("color: #84d5eb;");
+        input->setToolTip(input->toolTip()+(origin=="bypassed_point_edit"
+            ? "\nStored Point Edit link is bypassed. Unlink explicitly before replacing it."
+            : "\nLinked; unlink explicitly before replacing its value."));
+    }
     box->addWidget(input);
     auto* pick=new QPushButton("↗");pick->setFixedWidth(28);pick->setToolTip("Pick property source");box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
@@ -430,6 +525,92 @@ void Window::add_curve() {
     b.x.literal=620;b.y.literal=320;b.in_angle.literal=140;b.in_length.literal=110;
     host.session.apply({CreatePath{comp.id,"",object,"Curve "+std::to_string(host.session.document().objects.size()+1),{{new_id(),false,{a,b}}}}},host.session.revision());
     canvas->set_selection(object,a.id);host.edited();canvas->setFocus();
+}
+void Window::add_primitive(const std::string& type) {
+    canvas->set_draw_mode(false);
+    const auto& document=host.session.document();
+    if(document.compositions.empty())throw Error("MISSING_COMPOSITION","Create a composition before adding a shape");
+    const auto& composition=document.compositions.front();
+    if(composition.artboards.empty())throw Error("MISSING_ARTBOARD","An artboard is needed to place the new shape");
+    const auto& artboard=composition.artboards.front();
+    Primitive source;
+    source.id=new_id();source.type=type;
+    source.parameters.emplace("center_x",Scalar{artboard.x+artboard.width/2,{}});
+    source.parameters.emplace("center_y",Scalar{artboard.y+artboard.height/2,{}});
+    if(type=="nect.shape.circle")source.parameters.emplace("radius",Scalar{100,{}});
+    else if(type=="nect.shape.rectangle") {
+        source.parameters.emplace("width",Scalar{220,{}});
+        source.parameters.emplace("height",Scalar{140,{}});
+    } else throw Error("UNSUPPORTED_GENERATOR","Only Circle and Rectangle sources are available");
+    const auto id=new_id();
+    const auto name=primitive_label(source).toStdString()+" "+std::to_string(document.objects.size()+1);
+    host.session.apply({CreatePrimitive{composition.id,{},id,name,std::move(source)}},host.session.revision());
+    canvas->set_selection(id);host.edited();canvas->setFocus();
+}
+void Window::convert_to_path() {
+    canvas->cancel_interaction();
+    const auto& document=host.session.document();
+    const auto found=document.objects.find(canvas->selected_object);
+    if(found==document.objects.end() || !found->second.source)
+        throw Error("NO_GENERATOR","Select a Circle or Rectangle source to convert");
+    const auto& object=found->second;
+    const auto blockers=conversion_blockers(document,object.id);
+    const auto frozen_session=host.session_id;
+    const auto revision=host.session.revision();
+    auto* dialog=new QDialog(this);
+    dialog->setObjectName("convert-to-path-dialog");
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle("Convert to Path");
+    dialog->setWindowModality(Qt::WindowModal);
+    dialog->resize(620,420);
+    auto* layout=new QVBoxLayout(dialog);
+    auto* heading=new QLabel("Convert "+qs(object.name)+" to an editable path?");
+    heading->setTextFormat(Qt::PlainText);heading->setWordWrap(true);layout->addWidget(heading);
+    auto* plan=new QLabel(
+        "The current evaluated shape becomes path geometry. Center, radius or dimensions and their procedural links are frozen; the source parameters are removed.\n\n"
+        "Stable point and contour IDs are preserved. Active Point Edit values are merged into the path, and active point bindings are kept. The Point Edit entry is removed.\n\n"
+        "Undo restores the source and its corrections.");
+    plan->setWordWrap(true);layout->addWidget(plan);
+    if(object.point_edit && !object.point_edit->enabled) {
+        auto* bypassed=new QLabel("Point Edit is bypassed: conversion uses the source shape. Stored bypassed corrections are discarded.");
+        bypassed->setWordWrap(true);bypassed->setStyleSheet("color: #e4be82;");layout->addWidget(bypassed);
+    }
+    if(!blockers.empty()) {
+        auto* blocked=new QLabel("Conversion is blocked by links to this source's generator parameters. Retarget or explicitly unlink these properties, then reopen this plan.");
+        blocked->setWordWrap(true);blocked->setStyleSheet("color: #e4be82;");layout->addWidget(blocked);
+        auto* list=new QListWidget;
+        list->setObjectName("conversion-blockers");
+        for(const auto& ref:blockers) {
+            auto text=property_label(document,ref);
+            const auto scalar=nect::property(document,ref);
+            if(scalar.binding)text+=" ← "+property_label(document,scalar.binding->source);
+            auto* item=new QListWidgetItem(text,list);
+            item->setToolTip(qs(ref.object+" / "+ref.point+" / "+ref.field));
+        }
+        layout->addWidget(list);
+    }
+    auto* error=new QLabel;
+    error->setObjectName("conversion-error");error->setWordWrap(true);error->setStyleSheet("color: #ecaa95;");
+    layout->addWidget(error);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Cancel);
+    auto* convert=buttons->addButton("Convert to Path",QDialogButtonBox::AcceptRole);
+    convert->setObjectName("confirm-convert-to-path");convert->setEnabled(blockers.empty());convert->setAutoDefault(false);
+    buttons->button(QDialogButtonBox::Cancel)->setDefault(true);
+    layout->addWidget(buttons);
+    connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
+    connect(buttons,&QDialogButtonBox::accepted,dialog,[this,dialog,error,id=object.id,frozen_session,revision] {
+        try {
+            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The conversion plan belongs to another document");
+            if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","The document changed. Reopen Convert to Path to review the current shape and links.");
+            host.session.apply({ConvertToPath{id}},revision);
+            host.edited();dialog->accept();
+        } catch(const Error& exception) {
+            error->setText(qs(exception.code)+": "+QString::fromUtf8(exception.what()));
+        } catch(const std::exception& exception) {
+            error->setText(QString::fromUtf8(exception.what()));
+        }
+    });
+    dialog->show();
 }
 void Window::group_selection() {
     std::set<Id> chosen;

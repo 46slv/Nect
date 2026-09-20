@@ -2,11 +2,11 @@
 
 ## M0 vocabulary
 
-Implemented: Document, Composition, Artboard, Group, Path, Contour, Point, Scalar, Binding, Collection.
+Implemented: Document, Composition, Artboard, Group, Path, Contour, Point, Scalar, Binding, Collection, retained Circle/Rectangle sources and Point Edit.
 
 Layer is the UI presentation of an Object; there is no duplicate Layer state model.
 
-Text, Raster, Resource, Operator, Instance and full compositing are not stubbed ahead of real callers.
+Text, Raster, Resource, general operator stacks, Instance and full compositing are not stubbed ahead of real callers.
 
 ## Identity / ownership
 
@@ -71,6 +71,47 @@ Native JSON stores authored data only, not evaluated caches, Qt widgets, or sess
 Unknown fields/versions/kinds, duplicate JSON keys, invalid references, non-finite values, unsupported color/unit claims are rejected explicitly.
 
 Current M0 limits are safety bounds, not product performance targets.
+
+## Native 0.2: retained primitives and point corrections
+
+The writer emits 0.2; the reader accepts strict 0.1 and 0.2. Migration of 0.1
+preserves authored values, IDs and bindings, with no geometry conversion. The
+historical linked fixture in `tests/fixtures/native-v0.1-linked.nect` is loaded,
+edited, saved and reopened in separate processes. Unknown fields and behavior
+versions remain errors. See `schemas/native-v0.2.schema.json`.
+
+A Path owns either authored contours or one retained primitive source, never
+both. `nect.shape.circle` and `nect.shape.rectangle` version 1 map typed local
+distance parameters to a closed cubic path. Source instance IDs are stable;
+derived contour and point IDs append fixed semantic roles (east/south/west/north
+or corner names). Source IDs have a 64-character bound; generated IDs fit the
+normal 96-character bound. The correction instance namespace is reserved.
+
+Circle has center_x, center_y and radius; Rectangle has center_x, center_y, width
+and height. `generator.*` parameters are ordinary linkable distance properties.
+Derived point/handle fields join the same dependency evaluator; generator/point
+cycles reject atomically. Circle uses four cubic arcs, with handle length
+`radius * 0.5522847498307936` (a cubic approximation, not an exact rational circle).
+
+Setting or linking a generated point field creates/reuses the visible downstream
+`nect.path.point-edit` version 1 instance. Only changed fields are stored, as
+**absolute local scalar overrides**, not a duplicated evaluated path. Unspecified
+fields continue to follow the generator. Disabling Point Edit retains authored
+overrides and evaluates the generator. Editing while bypassed re-enables the
+correction instance. Topology editing requires explicit conversion. Unmapped
+corrections reject; they are never silently assigned by array index.
+
+`get`/`properties` distinguish authored, generated, point_edit and
+bypassed_point_edit origins; generated fallback has `authored: null` and a
+separate evaluated value. Native save stores no derived anchors. SVG and Canvas
+read the same evaluated point values.
+
+`convert_to_path` preserves object, contour and point IDs and active point
+bindings. It freezes generator-derived values and removes source/Point Edit;
+bypassed corrections are discarded explicitly in the conversion plan. Surviving
+references to generator-only properties block conversion until the caller
+explicitly unlinks/retargets them. `conversion_plan` is read-only; the mutation
+still checks the expected revision. Undo restores the complete procedural state.
 
 ## Next contracts
 

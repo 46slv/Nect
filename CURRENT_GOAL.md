@@ -1,4 +1,4 @@
-# Practical alpha Mission — M1 delivered; parametric source slice next
+# Practical alpha Mission — retained primitives delivered; appearance/repetition next
 
 ## Active Mission checkpoint — 2026-09-20
 
@@ -9,7 +9,10 @@ real production dependencies. M1 green alone is not the Mission stopping point.
 Workspace `D:\Documents\Nect` was an empty unborn `master` with only `.git`, no
 remote or dirty files. Fetched the specified repository and created
 `codex/practical-alpha` from `d59691d`. Windows build auto-link fix checkpoint:
-`ff532a7`. The M1 implementation checkpoint follows it on this branch.
+`ff532a7`. M1 implementation checkpoint: `1fa0b21` on this branch. Push was
+rejected by GitHub GH007 (configured commit author email is private). Keep local
+commits; do not change account settings or rewrite history to bypass it. No PR
+or remote feature branch was created.
 
 Current implemented slice:
 - Qt Windows desktop, Canvas/tree/Inspector; empty-document Path creation and
@@ -21,6 +24,11 @@ Current implemented slice:
   driven properties.
 - native atomic manual save, previous-file backups, committed-revision recovery;
   local API and formal MCP stdio sidecar forward to the desktop's live Session.
+- retained Circle/Rectangle sources, normal generator properties and stable
+  generated point roles; direct point/handle edits create visible absolute local
+  Point Edit overrides, with bypass and explicit reference-protected conversion.
+- native 0.2 writer / strict 0.1 reader migration, authored/evaluated origin
+  metadata and conversion plans through the same semantic API.
 
 Evidence collected:
 - MSVC 19.29.30137, Boost 1.85.0, Qt 6.5.3 x64 Release; M0 baseline tests + smoke pass.
@@ -43,10 +51,17 @@ Evidence collected:
   131.75 ms to <=32.82 ms. See `docs/first-usable.md` for exact hardware, measurement
   boundary and table. This meets the recorded 30 fps floor, not the 60 fps target.
 
-Next safe actions: continue with a bounded parametric Circle / Rectangle source
-slice, keeping generator parameters after direct point edits via visible Point Edit,
-explicit Convert to Path and native migration/fixture coverage. Add practical
-appearance/repetition as the next thin slice, not a general operator framework.
+- Primitive slice: seven CTest entries pass, including geometry, correction
+  bypass, generator cycles, atomic failure, conversion blockers/Undo/identity,
+  actual Window actions and legacy save/edit/reopen migration. Real Windows use:
+  added Circle, typed radius 145, dragged its East anchor, observed two overrides
+  and retained radius, then read native 0.2/source/Point Edit through the live API
+  at revision 3 and saved `build/primitive-manual.nect` (ignored).
+
+Next safe actions: add practical ordered Fill/Stroke and Repeater so a radial
+design can be authored and revised from one motif. Read the accepted shape-order
+semantics before choosing the bounded stack representation; do not build a
+general operator framework. Circle/Rectangle slice is complete, not the Mission.
 Preserve all current files and the development document. No release/publication
 or dependency binaries are authorized for distribution. This checkpoint does not
 claim practical-alpha completion or relax F1–F8. Do not stop at M1.
