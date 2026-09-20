@@ -8,6 +8,15 @@ M0 uses:
 
 Qt 6 is intentionally not an M0 dependency; it enters with the M1 desktop client.
 
+Windows development baseline (2026-09-20): MSVC 19.29.30137 (VS 2019),
+Boost 1.85.0 (Boost Software License 1.0), Qt 6.5.3 MSVC 2019 x64
+(Core/Gui/Widgets/Network/Test, LGPLv3/GPLv3/commercial upstream options).
+These are local development dependencies; no distribution license decision is made.
+Archives are kept under ignored `build/deps`; configure never downloads them.
+Qt is dynamically linked outside the core. Boost.JSON is compiled once from
+the installed headers; `BOOST_ALL_NO_LIB` prevents MSVC from also requesting
+separately built Boost libraries via automatic linking.
+
 No font binaries, proprietary SDKs, OpenFX plugins, credentials or paid API entitlements are committed.
 
 ## Rules

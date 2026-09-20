@@ -12,6 +12,7 @@ target_include_directories(nect_core PUBLIC include)
 
 add_library(nect_io src/io.cpp src/boost_json.cpp)
 target_include_directories(nect_io PRIVATE ${BOOST_INCLUDE_DIR})
+target_compile_definitions(nect_io PRIVATE BOOST_ALL_NO_LIB)
 target_link_libraries(nect_io PUBLIC nect_core)
 
 add_executable(nect src/main.cpp)
