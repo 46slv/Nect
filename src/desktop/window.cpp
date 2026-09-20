@@ -168,6 +168,8 @@ QString parameter_label(const std::string& parameter) {
     if(parameter=="end_opacity")return QStringLiteral("End opacity");
     if(parameter=="start_x")return QStringLiteral("Start X");
     if(parameter=="start_y")return QStringLiteral("Start Y");
+    if(parameter=="amount")return QStringLiteral("Amount");
+    if(parameter=="miter_limit")return QStringLiteral("Miter limit");
     if(parameter=="end_x")return QStringLiteral("End X");
     if(parameter=="end_y")return QStringLiteral("End Y");
     return qs(parameter);
@@ -176,6 +178,7 @@ QString operation_label(const ShapeOperation& operation) {
     if(operation.type=="nect.paint.fill")return QStringLiteral("Fill");
     if(operation.type=="nect.paint.stroke")return QStringLiteral("Stroke");
     if(operation.type=="nect.shape.repeater")return QStringLiteral("Repeater");
+    if(operation.type=="nect.shape.offset")return QStringLiteral("Offset Paths");
     return qs(operation.type);
 }
 const ShapeOperation& find_operation(const Document& document,const Id& object,const Id& operation) {
@@ -399,6 +402,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     add->addSeparator();
     auto* fill=action(add,"Fill",{},[this]{add_operation("nect.paint.fill");});fill->setObjectName("add-fill");
     auto* stroke=action(add,"Stroke",{},[this]{add_operation("nect.paint.stroke");});stroke->setObjectName("add-stroke");
+    auto* offset=action(add,"Offset Paths",{},[this]{add_operation("nect.shape.offset");});offset->setObjectName("add-offset");
     auto* repeater=action(add,"Repeater",{},[this]{add_operation("nect.shape.repeater");});repeater->setObjectName("add-repeater");
     auto* radial=action(add,"Radial Repeater · 12 × 30°",{},[this]{add_operation("nect.shape.repeater",true);});
     radial->setObjectName("add-radial-repeater");
@@ -839,6 +843,15 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         name->setModified(false);
         perform([&]{host.session.apply({Rename{id,name->text().toStdString()}},host.session.revision());host.edited();});
     });
+    if(!o.stack.empty()) {
+        auto* jump=new QPushButton(QString("Shape stack · %1").arg(o.stack.size()));jump->setObjectName("stack-jump");
+        jump->setToolTip("Go directly to an existing paint or path operation");auto* menu=new QMenu(jump);
+        for(std::size_t index=0;index<o.stack.size();++index) {
+            const auto& operation=o.stack[index];auto* entry=menu->addAction(QString::number(index+1)+" · "+operation_label(operation));
+            connect(entry,&QAction::triggered,this,[this,id=operation.id]{reveal_operation(id);});
+        }
+        jump->setMenu(menu);layout->addWidget(jump);
+    }
     auto section=[&](const QString& title){auto* box=new QGroupBox(title);auto* form=new QFormLayout(box);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);return form;};
     if(o.text)add_text_properties(layout,o);
@@ -1123,10 +1136,10 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
     heading_layout->addWidget(new QLabel("Shape stack"));heading_layout->addStretch();
     auto* add=new QPushButton("Add…");add->setObjectName("stack-add");
     auto* menu=new QMenu(add);
-    for(const auto* name:{"add-fill","add-stroke","add-repeater","add-radial-repeater"})
+    for(const auto* name:{"add-fill","add-stroke","add-offset","add-repeater","add-radial-repeater"})
         if(auto* action=findChild<QAction*>(QString::fromLatin1(name)))menu->addAction(action);
     add->setMenu(menu);heading_layout->addWidget(add);layout->addWidget(heading);
-    auto* order_hint=new QLabel("Earlier paints default above later paints. Repeater affects the geometry and paints before it; copies share their source points.");
+    auto* order_hint=new QLabel("Earlier paints default above later paints. Path modifiers affect geometry before paint is applied. Repeater affects paths and paints before it; copies share their source points.");
     order_hint->setWordWrap(true);order_hint->setStyleSheet("color: #a4acb8; font-size: 11px;");layout->addWidget(order_hint);
     const auto frozen_session=host.session_id;
     auto apply=[this,frozen_session](const std::vector<Command>& commands) {
@@ -1164,6 +1177,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The shape stack belongs to another document");
             move_operation(id,op,1);});});
         connect(remove,&QPushButton::clicked,this,[this,apply,id=object.id,op=operation.id]{perform([&]{apply({RemoveOperation{id,op}});});});
+        if(operation.type!="nect.shape.offset") {
         auto* composite=new QComboBox;
         composite->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         composite->setMinimumContentsLength(10);
@@ -1177,7 +1191,8 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 apply({OperationOptions{id,op,composite->currentData().toString().toStdString(),current.fill_rule}});applied=true;});
             if(!applied){const QSignalBlocker blocker(composite);composite->setCurrentIndex(before);}
         });
-        if(operation.type=="nect.paint.fill") {
+        }
+        if(operation.type=="nect.paint.fill"||operation.type=="nect.shape.offset") {
             auto* rule=new QComboBox;rule->setObjectName("operation-fill-rule-"+qs(operation.id));
             rule->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
             rule->setMinimumContentsLength(10);
@@ -1228,6 +1243,20 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             for(const auto* parameter:{"width","r","g","b","a"})
                 if(operation.parameters.contains(parameter))add_property(form,operation_ref(object.id,operation.id,parameter),
                     std::string(parameter)=="a"?QStringLiteral("Paint opacity"):parameter_label(parameter));
+        } else if(operation.type=="nect.shape.offset") {
+            for(const auto* parameter:{"amount","miter_limit"})
+                add_property(form,operation_ref(object.id,operation.id,parameter),parameter_label(parameter));
+            auto* join=new QComboBox;join->setObjectName("operation-line-join-"+qs(operation.id));
+            join->addItem("Miter","miter");join->addItem("Round","round");join->addItem("Bevel","bevel");
+            join->setCurrentIndex(join->findData(qs(operation.line_join)));form->addRow("Line join",join);
+            connect(join,&QComboBox::currentIndexChanged,this,[this,join,apply,id=object.id,op=operation.id,before=join->currentIndex()](int) {
+                bool applied=false;
+                perform([&]{const auto& current=find_operation(host.session.document(),id,op);
+                    apply({OperationOptions{id,op,current.composite,current.fill_rule,join->currentData().toString().toStdString()}});applied=true;});
+                if(!applied){const QSignalBlocker blocker(join);join->setCurrentIndex(before);}
+            });
+            auto* note=new QLabel("Positive Amount expands; negative contracts. Closed simple outlines only. Source points stay editable. Offset modifies geometry for all paints; move it across Repeater to change the result.");
+            note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");form->addRow(note);
         } else if(operation.type=="nect.shape.repeater") {
             for(const auto* parameter:{"copies","position_x","position_y","anchor_x","anchor_y","rotation","scale_x","scale_y","offset","start_opacity","end_opacity"})
                 if(operation.parameters.contains(parameter))add_property(form,operation_ref(object.id,operation.id,parameter),parameter_label(parameter));
@@ -1697,7 +1726,17 @@ void Window::add_operation(const std::string& type,bool radial) {
         operation.parameters.at("anchor_x").literal=center_x;
         operation.parameters.at("anchor_y").literal=center_y;
     }
+    const auto added=operation.id;
     host.session.apply({AddOperation{object.id,std::move(operation),object.stack.size()}},host.session.revision());host.edited();
+    QTimer::singleShot(0,this,[this,added]{reveal_operation(added);});
+}
+void Window::reveal_operation(const Id& operation) {
+    for(auto* group:inspector_->findChildren<QGroupBox*>())
+        if(group->isVisible()&&group->objectName()=="stack-operation-"+qs(operation)) {
+            inspector_scroll_->ensureWidgetVisible(group,10,20);
+            // Revealing a full-width section must not pan its labels offscreen.
+            inspector_scroll_->horizontalScrollBar()->setValue(0);return;
+        }
 }
 void Window::move_operation(const Id& object,const Id& operation,int direction) {
     const auto& stack=host.session.document().objects.at(object).stack;

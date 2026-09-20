@@ -1,4 +1,5 @@
 #include "nect/core.hpp"
+#include "offset.hpp"
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -14,6 +15,8 @@ ShapeOperation default_operation(Id id,const std::string& type) {
             {"anchor_x",{0,{}}},{"anchor_y",{0,{}}},{"rotation",{0,{}}},
             {"scale_x",{1,{}}},{"scale_y",{1,{}}},{"offset",{0,{}}},
             {"start_opacity",{1,{}}},{"end_opacity",{1,{}}}};
+    } else if(type=="nect.shape.offset") {
+        op.parameters={{"amount",{10,{}}},{"miter_limit",{4,{}}}};
     } else throw Error("UNSUPPORTED_OPERATOR",type);
     return op;
 }
@@ -51,13 +54,15 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
         source=evaluate_text(*o.text,parameters).contours;
     }
     EvaluatedShape shape;shape.paths.push_back({source,identity_matrix});
-    std::size_t point_count=0;for(const auto& c:*source)point_count+=c.points.size();
-    std::size_t painted_instances=0;
+    const auto anchors=[](const std::vector<PathInstance>& paths) {
+        std::size_t count=0;for(const auto& path:paths)for(const auto& contour:*path.contours)count+=contour.points.size();return count;
+    };
+    const auto painted_anchors=[&] {std::size_t count=0;for(const auto& paint:shape.paints)count+=anchors(paint.paths);return count;};
     for(const auto& op:o.stack) {
         if(!op.enabled)continue;
         auto v=[&](const char* name){return values.at(operation_ref(id,op.id,name));};
         if(op.type=="nect.paint.fill"||op.type=="nect.paint.stroke") {
-            if((painted_instances+shape.paths.size())*point_count>250000)
+            if(painted_anchors()+anchors(shape.paths)>250000)
                 throw Error("OUTPUT_LIMIT","Shape paint output exceeds 250000 cubic anchors per object");
             PaintLayer paint;paint.operation=op.id;paint.type=op.type;
             paint.rgba={v("r"),v("g"),v("b"),v("a")};paint.paths=shape.paths;paint.fill_rule=op.fill_rule;
@@ -73,12 +78,11 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
             if(op.type=="nect.paint.stroke")paint.width=v("width");
             if(op.composite=="above")shape.paints.push_back(std::move(paint));
             else shape.paints.insert(shape.paints.begin(),std::move(paint));
-            painted_instances+=shape.paths.size();
         } else if(op.type=="nect.shape.repeater") {
             const auto copies=static_cast<unsigned>(v("copies"));
             if(shape.paths.size()*copies>4096||shape.paints.size()*copies>8192)
                 throw Error("OUTPUT_LIMIT","Repeated output exceeds 4096 path instances or 8192 paint layers per object");
-            if(shape.paths.size()*copies*point_count>250000||painted_instances*copies*point_count>250000)
+            if(anchors(shape.paths)*copies>250000||painted_anchors()*copies>250000)
                 throw Error("OUTPUT_LIMIT","Repeated output exceeds 250000 cubic anchors per object");
             const auto paths=std::move(shape.paths);const auto paints=std::move(shape.paints);
             shape.paths.clear();shape.paints.clear();
@@ -107,9 +111,12 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
                     shape.paints.push_back(std::move(paint));
                 }
             }
-            painted_instances*=copies;
+        } else if(op.type=="nect.shape.offset") {
+            apply_offset(shape,v("amount"),v("miter_limit"),op.line_join,op.fill_rule);
         } else throw Error("UNSUPPORTED_OPERATOR",op.type);
         if(shape.paints.size()>8192)throw Error("OUTPUT_LIMIT","Paint layer limit 8192 per object");
+        if(shape.paths.size()>4096||anchors(shape.paths)>250000||painted_anchors()>250000)
+            throw Error("OUTPUT_LIMIT","Shape output exceeds 4096 instances or 250000 geometry/paint anchors per object");
     }
     return shape;
 }

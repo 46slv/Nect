@@ -202,7 +202,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.11','current writer uses native 0.11')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.12','current writer uses native 0.12')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -214,7 +214,7 @@ new=replies[0]['result'];remove_migrated_anchor_defaults(new);new['version']='0.
 check(new==old,'0.8 migration preserves linked count, angular correction, all paints and text')
 # Catch the documented field vocabulary falling behind real numeric properties.
 # This checks that specific schema boundary; the native codec remains the validator.
-schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.11.schema.json').read_text())
+schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.12.schema.json').read_text())
 field_rules=schema['$defs']['ref']['properties']['field']['anyOf']
 for property_ in replies[1]['result']:
     if property_['type']!='number': continue
@@ -274,4 +274,40 @@ with tempfile.TemporaryDirectory() as tmp:
     check(replies[-1]['result']==sample,'one Undo restores all masked-group inputs')
     check(run('--validate',native).returncode==0,'masked native reopens in a fresh process')
     native['version']='0.10';check('UNKNOWN_FIELD' in run('--validate',native).stderr,'old format rejects new compositing fields')
+# Native0.11 compositing inputs stay exact; Offset is a new, strict0.12 type.
+mask_path=ornament.with_name('colour-cut.nect')
+old=json.loads(mask_path.read_text(encoding='utf-8'));check(old['version']=='0.11','mask fixture stays historical0.11')
+upgraded=subprocess.run([exe,'--serve',str(mask_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
+new=json.loads(upgraded.stdout)['result'];new['version']='0.11'
+check(new==old,'0.11 migration retains all exact masks, blends, references and geometry')
+with tempfile.TemporaryDirectory() as tmp:
+    path=Path(tmp)/'offset.nect';path.write_text(json.dumps(sample),encoding='utf-8')
+    primitive=dict(id='offset-source',type='nect.shape.rectangle',version=1,
+        parameters={k:dict(literal=v) for k,v in dict(center_x=50,center_y=30,width=100,height=60).items()})
+    offset=dict(id='offset-op',type='nect.shape.offset',version=1,enabled=True,composite='below',fill_rule='nonzero',line_join='miter',
+        parameters=dict(amount=dict(literal=10),miter_limit=dict(literal=4)))
+    commands=[dict(type='create_primitive',composition=comp['id'],parent='',id='offset-box',name='Offset box',source=primitive),
+              dict(type='add_operation',object='offset-box',operation=offset,index=1)]
+    reference=dict(object='offset-box',point='',field='op.offset-op.amount')
+    requests=[dict(op='operator_types'),dict(op='apply',expected_revision=0,commands=commands),dict(op='inspect'),
+              dict(op='export_svg',composition=comp['id'],artboard=comp['artboards'][0]['id']),
+              dict(op='get',ref=reference),dict(op='apply',expected_revision=1,commands=[dict(type='operation_options',object='offset-box',operation='offset-op',composite='below',fill_rule='evenodd',line_join='round')]),
+              dict(op='inspect'),dict(op='undo',expected_revision=2),dict(op='inspect'),dict(op='undo',expected_revision=3),dict(op='inspect')]
+    proc=subprocess.run([exe,'--serve',str(path)],input='\n'.join(json.dumps(r) for r in requests)+'\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
+    replies=[json.loads(line) for line in proc.stdout.splitlines()];check(all(r['ok'] for r in replies),'Offset discovery/commands/native/SVG/options/Undo succeed')
+    definition=next(v for v in replies[0]['result'] if v['type']=='nect.shape.offset')
+    check(definition['template']==dict(offset,id='new-operation') and definition['curve_flattening_tolerance_du']==.1,'Offset template and approximation disclosed')
+    native=replies[2]['result'];obj=next(o for o in native['objects'] if o['id']=='offset-box')
+    check(obj['source']==primitive and obj['stack'][-1]==offset,'native retains source and exact Offset settings')
+    check(replies[4]['result']['evaluated']==10 and next(p for p in definition['parameters'] if p['name']=='amount')['unit']=='du','Offset amount is an ordinary length property')
+    check(next(o for o in replies[6]['result']['objects'] if o['id']=='offset-box')['stack'][-1]['line_join']=='round','join options share commands')
+    check(replies[8]['result']==native and replies[-1]['result']==sample,'each Offset change undoes exactly once')
+    root=ET.fromstring(replies[3]['result']);node=root.find(".//{http://www.w3.org/2000/svg}g[@id='offset-box']")
+    svg_path=node.find('.//{http://www.w3.org/2000/svg}path')
+    numbers=[float(v) for v in re.findall(r'-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?',svg_path.attrib['d'])]
+    check(min(numbers[0::2])==-10 and max(numbers[0::2])==110 and min(numbers[1::2])==-10 and max(numbers[1::2])==70,'SVG exports expanded prior Stroke geometry')
+    check(run('--validate',native).returncode==0,'Offset native reopens in a new process')
+    native['version']='0.11';check('UNKNOWN_FIELD' in run('--validate',native).stderr,'old format rejects Offset line-join field')
+    next(o for o in native['objects'] if o['id']=='offset-box')['stack'][-1].pop('line_join')
+    check('UNSUPPORTED_OPERATOR' in run('--validate',native).stderr,'old format rejects Offset type even without its new field')
 print(f'PASS {checks} process and native migration checks')

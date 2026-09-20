@@ -523,7 +523,7 @@ exclusive with a non-null Binding. Literal remains authored as the inactive
 fallback, just as with Binding. Source text (including whitespace/newlines) is
 preserved exactly; compiled programs/caches and draft text are never serialized.
 Readers0.1–0.9 remain strict and reject the new field. Migration preserves every
-old value/ID/reference; that checkpoint writer emits0.10 (current writer0.11).
+old value/ID/reference; that checkpoint writer emits0.10 (current writer0.12).
 
 The pure language accepts finite decimal/scientific literals, parentheses,
 unary +/-, binary + - * /, and `ref("object-id","point-id-or-empty","field")`.
@@ -649,3 +649,62 @@ Semantics references: [W3C compositing and blending](https://www.w3.org/TR/compo
 (group invariance, isolated transparent backdrop and separable blend functions),
 [Qt QPainter composition modes](https://doc.qt.io/qt-6/qpainter.html#CompositionMode-enum),
 and the [Adobe blend-mode target vocabulary](https://helpx.adobe.com/after-effects/desktop/work-with-layers/work-with-layer-blending-modes/blending-modes-layer-styles.html).
+
+## Native0.12 retained Offset Paths
+
+`nect.shape.offset` version1 is an ordered local path operator. Amount defaults
+to10du, is signed and bounded to magnitude1,000,000; Miter Limit defaults to4 and
+is a dimensionless Scalar in[1,1000]. Both use ordinary links/expressions and batch
+property commands. `line_join` is `miter`, `round` or `bevel`; fill_rule chooses
+nonzero/evenodd region interpretation. Composite remains `below` because Offset
+has no paint-order option. OperationOptions may supply line_join; omission keeps
+its existing value. Unsupported options reject, including nondefault joins on
+other operation types. Native0.1–0.11 readers remain strict and cannot carry Offset;
+their authored state migrates unchanged. The writer emits0.12.
+
+Positive amounts expand filled regions; negative amounts erode them. Complete
+erosion is valid empty evaluated geometry. Zero Amount is an exact no-op, as is
+bypass. Neither changes primitive generators, source IDs, point corrections or
+authored contour topology. Convert to Path still freezes only the source and keeps
+the operator stack. Generated Offset vertices are transient output, not new stable
+point identities that a reference may target.
+
+Offset evaluates preceding geometry in object-local distance after its PathInstance
+transform, before the object's authored/world transform. It also modifies the
+geometry of earlier paint layers: each layer keeps its transform, gradient basis,
+stroke metrics, color and alpha. Resulting contours are pulled back into that
+paint basis, with explicit rejection when no stable inverse exists. Reordering
+Offset across Fill/Stroke therefore does not leave earlier paint on the old path;
+reordering across a nonuniform Repeater can change distance and appearance.
+Separate repeated instances remain separate regions and are not implicitly unioned.
+
+Version1 accepts closed simple contours and nested/disjoint compound boundaries.
+Open paths, zero-area regions, self-intersections and touching/crossing contour
+boundaries reject atomically. Region topology is checked after adaptive cubic
+subdivision into segments: control-hull distance to each segment is at most0.1du,
+depth limited to24. This is a bounded polygon approximation, not an exact analytic
+curve intersection/offset solver. Round joins also choose segments from0.1du
+chord tolerance; miter joins exceeding the limit use a true bevel fallback.
+Boost Geometry1.85 buffer supplies region expansion/erosion, using the already
+required Boost headers; its additional amount-dependent input simplification is
+disabled. Authored curves and their handles remain untouched.
+
+Per projected instance: at most256 contours and32,768 flattened input vertices.
+Each Offset application admits at most1,000,000 conservative estimated join
+vertices over unique geometry/transform projections. Final shape budgets count
+actual evaluated topology, including Offset expansion:4,096 path instances,
+8,192 paint layers,250,000 anchors separately across geometry and paint outputs.
+Finite evaluated coordinates must remain within magnitude1e12. Exceeded work,
+topology, range or output bounds produce explicit errors; none silently skip the
+operator. Per-application reuse of identical contours and transforms is transient.
+
+Qt Canvas, mask sources and SVG consume the same evaluated paths/paint layers.
+SVG contains evaluated vector contours; source operations stay in native, as
+disclosed by export_plan. Add / Shape stack exposes Offset Paths, Amount, joins,
+fill rule, bypass and ordering through the shared Session. New operations scroll
+into view; the Inspector's Shape stack menu jumps directly to existing operations.
+Operator discovery returns exact templates and supported geometry.
+
+Behavioral references: Adobe's [shape render order](https://helpx.adobe.com/after-effects/desktop/drawing-painting-and-paths/vector-graphics-and-raster-images/overview-shape-layers-paths-vector.html)
+and [Offset Paths controls](https://helpx.adobe.com/after-effects/desktop/drawing-painting-and-paths/shapes-and-shape-attributes/use-offset-paths.html).
+This subset does not claim full AE Offset Copies, open-path or self-intersection parity.

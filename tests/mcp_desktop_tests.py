@@ -334,6 +334,24 @@ try:
         mask_svg=core('export_svg',composition=comp['id'],artboard=comp['artboards'][0]['id'])['result']
         assert 'id="mcp-geometry-clip"' in mask_svg and 'mix-blend-mode:screen' in mask_svg
         assert 'id="mcp-mask"' not in mask_svg
+        # Retained Offset also shapes a hidden mask source through formal MCP.
+        offset_template=next(v['template'] for v in core('operator_types')['result'] if v['type']=='nect.shape.offset')
+        offset_template['id']='mcp-offset';offset_template['line_join']='round'
+        before_offset=core('inspect')['result']
+        mask_object=next(o for o in before_offset['objects'] if o['id']=='mcp-mask')
+        rev=apply([dict(type='add_operation',object='mcp-mask',operation=offset_template,index=len(mask_object['stack']))],rev)
+        amount=dict(object='mcp-mask',point='',field='op.mcp-offset.amount')
+        changed=core('apply',expected_revision=rev,commands=[dict(type='set_expression',targets=[amount],
+            expression=dict(version=1,source='ref("mcp-mask","","generator.radius") / 5'),replace_binding=False)])
+        assert changed['ok'] and {'mcp-mask','mcp-masked-group'}.issubset(changed['result']['changed_ids']);rev=changed['revision']
+        assert core('get',ref=amount)['result']['evaluated']==15
+        after_offset=core('inspect')['result']
+        bad=core('apply',expected_revision=rev,commands=[dict(type='operation_options',object='mcp-mask',operation='mcp-offset',composite='below',fill_rule='nonzero',line_join='unknown')])
+        assert not bad['ok'] and core('inspect')['result']==after_offset
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=amount)['result']['evaluated']==10
+        assert core('redo',expected_revision=rev)['ok'];rev+=1
+        assert core('inspect')['result']==after_offset
         # Automatic protection must reach a verified receipt without an explicit
         # Save/recover call, through the real desktop event loop and worker.
         rev=apply([dict(type='set',ref=source,value=156)],rev)

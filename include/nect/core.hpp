@@ -112,13 +112,14 @@ struct Gradient {
 };
 struct ShapeOperation {
     Id id;
-    std::string type; // nect.paint.fill / nect.paint.stroke / nect.shape.repeater
+    std::string type; // nect.paint.fill / nect.paint.stroke / nect.shape.repeater / nect.shape.offset
     unsigned version=1;
     bool enabled=true;
     std::map<std::string,Scalar> parameters;
     std::string composite="below";
     std::string fill_rule="nonzero";
     std::optional<Gradient> gradient;
+    std::string line_join="miter"; // Offset only: miter (bevel fallback), round, bevel.
     bool operator==(const ShapeOperation&) const = default;
 };
 ShapeOperation default_operation(Id id,const std::string& type);
@@ -246,7 +247,7 @@ struct AddOperation { Id object; ShapeOperation operation; std::size_t index; };
 struct RemoveOperation { Id object; Id operation; };
 struct ReorderOperations { Id object; std::vector<Id> order; };
 struct EnableOperation { Id object; Id operation; bool enabled; };
-struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; };
+struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; std::optional<std::string> line_join; };
 struct SetGradient { Id object; Id operation; std::optional<Gradient> gradient; };
 
 struct AddArtboard { Id composition; Artboard artboard; std::size_t index; };

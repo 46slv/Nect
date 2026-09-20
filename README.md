@@ -31,9 +31,9 @@ baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 Circle, Rectangle, Polygon and Star retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
 Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
-0.11 saves geometry masks, common compositing, expression source, procedural state, editable linear/radial gradients, ordered Artboards
+0.12 saves retained Offset Paths, geometry masks, common compositing, expression source, procedural state, editable linear/radial gradients, ordered Artboards
 with parent-size inheritance, editable Text, named colors, retained Polygon/Star,
-authored Anchors and explicit Transform Parents. It migrates 0.1–0.10 without
+authored Anchors and explicit Transform Parents. It migrates 0.1–0.11 without
 reference loss. Windows Text uses installed fonts and supports Japanese horizontal
 and vertical writing, automatic size, fixed-frame wrapping and overflow diagnostics.
 
@@ -118,6 +118,14 @@ and blend aggregate the children. Geometry masks use final Path/Text contours;
 alpha/luma masks and full AE blend parity remain unsupported. SVG retains vector
 clips, Group opacity and CSS blend/isolation, so the reader must support those
 SVG/CSS features. `examples/colour-cut.nect` demonstrates the retained workflow.
+
+**Offset Paths** in Add or Shape stack expands/contracts a retained closed outline.
+Amount supports links and expressions; Miter/Round/Bevel and the fill rule are
+editable. Reorder it around Repeater to change local distance behavior. Earlier
+Fill/Stroke geometry follows Offset while its paint coordinates remain intact.
+Open, self-intersecting or touching compound outlines reject visibly. Curves use
+bounded0.1du polygon approximation in evaluated output; native source points stay
+editable. Zero Amount and bypass preserve input exactly.
 
 Add Text creates an editable source. Use Edit text to compose Japanese or other
 Unicode content, then Apply for one undo step. Select font, writing direction,
@@ -248,7 +256,7 @@ geometry/appearance. See [model contract](docs/model-v0.md#native010-property-ex
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.11.schema.json` — current native JSON shape (0.1–0.10 readers retained)
+- `schemas/native-v0.12.schema.json` — current native JSON shape (0.1–0.11 readers retained)
 
 ## Project rules
 

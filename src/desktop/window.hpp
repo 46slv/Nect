@@ -90,6 +90,7 @@ private:
     void edit_text_content(const Id& object);
     void convert_to_path();
     void add_operation(const std::string& type,bool radial=false);
+    void reveal_operation(const Id& operation);
     void move_operation(const Id& object,const Id& operation,int direction);
     void add_stack(QVBoxLayout* layout,const Object& object);
     void add_gradient(QFormLayout* layout,const Object& object,const ShapeOperation& operation);

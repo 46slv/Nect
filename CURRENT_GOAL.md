@@ -1,6 +1,40 @@
-# Practical alpha Mission — retained Offset Paths next
+# Practical alpha Mission — Linked / Embedded image assets next
 
 ## Active Mission checkpoint — 2026-09-20
+
+VERIFIED checkpoint after mask checkpoint901e7ca: native0.12 retained Offset Paths.
+Core, codec/schema, discovery/API/MCP, ordinary properties/expressions, joins/rules,
+strict earlier migrations and GUI Add/stack are implemented. Core208 checks and
+eight focused tests pass7.53s. Visible24-Offset mixed scene passes30fps: worst
+p9526.49ms, max31.62ms, maximum release29.96ms;60fps remains unmet. Source-preserving
+production examples/contour-study.nect/.svg contain14 Offsets,13 expressions,
+four Named Colors, seven editable Text objects. Controller/API/Undo/native exact.
+Actual GUI on owned build/offset-manual.nect changed Amount18->26 at revision5;
+only that literal changed,14 evaluated amounts followed, native/recovery exact.
+One Undo restored whole original at6, sourceexample unchanged. PID24760 closed.
+Receipt build/offset-manual-receipt.json. Self-use exposed long Inspector scrolling;
+new Shape stack jump menu plus new-operation reveal addresses it. Full32-test run
+passed31 entries and caught a narrow-Inspector horizontal navigation shift. Fixed
+it; five focused Window/Offset/expression/mask/batch UI tests passed4.95s. Actual
+Windows menu click then revealed Amount directly, labels intact; selection-only
+preview PID57688 closed normally. No app/build/helper or worker write remains.
+
+Exact next safe action: freeze bounded PNG/JPEG Linked/Embedded image-asset
+contract, then implement a native Image leaf through core/IO/Host/Canvas/SVG.
+Worker's read-only findings: use document asset IDs and immutable accepted payloads;
+Linked adds an absolute local locator plus cached accepted bytes, Embedded is
+self-contained. Filesystem status is transient and never changes pixels without
+explicit Reload/Relink. Native opening/expressions do not fetch linked files.
+Shared placements retain display size on reload, successful replacement is one
+Undo; missing/changed sources keep labelled accepted output. Existing8MiB native/
+socket/storage caps require coordinated payload/serialized admission budgets.
+Resolve orientation/profile policy with a memory-only PNG/JPEG decoder before
+claiming Canvas/SVG color agreement. Windows WIC is available as an OS component;
+no dependency download or arbitrary codec/URL loading. Image must explicitly
+branch at scene/Canvas/bounds/SVG: non-Group currently implies vector. Geometry
+mask sources stay Path/Text; Image may be a masked/blended target. Image shape
+stacks/point controls/Offset must explicitly reject. Parent Artboard inherited
+content remains required after assets. Do not stop at this checkpoint.
 
 VERIFIED checkpoint after594eae2: native0.11 geometry masks and object/Group compositing.
 All30 CTest entries passed25.86s after performance fixes. Compositing pixels also

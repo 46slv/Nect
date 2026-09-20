@@ -199,7 +199,7 @@ std::string unit(const Ref& r) {
     if(r.field.starts_with("op.")) {
         const auto name=operation_address(r.field).second;
         if(name.starts_with("gradient.")&&(name.ends_with(".start_x")||name.ends_with(".start_y")||name.ends_with(".end_x")||name.ends_with(".end_y")))return "du";
-        if(name=="width"||name=="position_x"||name=="position_y"||name=="anchor_x"||name=="anchor_y")return "du";
+        if(name=="width"||name=="amount"||name=="position_x"||name=="position_y"||name=="anchor_x"||name=="anchor_y")return "du";
         if(name=="rotation")return "degree";
         return "scalar";
     }
@@ -231,6 +231,8 @@ void value_range(const Ref& r,double v) {
         if(name=="r"||name=="g"||name=="b"||name=="a"||name=="start_opacity"||name=="end_opacity")
             require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB/opacity outside [0,1]");
         if(name=="width")require(v>=0,"OUT_OF_RANGE","Negative stroke width");
+        if(name=="amount")require(std::abs(v)<=1e6,"OUT_OF_RANGE","Offset amount magnitude limit 1000000");
+        if(name=="miter_limit")require(v>=1&&v<=1000,"OUT_OF_RANGE","Offset miter limit must be in [1,1000]");
         if(name=="copies")require(v>=0&&v<=1000&&std::floor(v)==v,"OUT_OF_RANGE","Copies must be an integer from 0 to 1000");
         if(name=="scale_x"||name=="scale_y")require(v>0&&v<=100,"OUT_OF_RANGE","Repeater scale must be positive and <=100");
         if(name=="offset")require(std::abs(v)<=1000,"OUT_OF_RANGE","Repeater offset magnitude limit 1000");
@@ -626,7 +628,11 @@ void validate(const Document& d) {
                 for(const auto& [name,value]:op.parameters){(void)value;require(expected.parameters.contains(name),"INVALID_OPERATOR_PARAMETERS",name);}
                 require(op.composite=="above"||op.composite=="below","UNSUPPORTED_COMPOSITE",op.composite);
                 require(op.fill_rule=="nonzero"||op.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",op.fill_rule);
-                if(op.type!="nect.paint.fill")require(op.fill_rule=="nonzero","INVALID_OPERATOR_OPTIONS","Fill rule only applies to Fill");
+                if(op.type!="nect.paint.fill"&&op.type!="nect.shape.offset")require(op.fill_rule=="nonzero","INVALID_OPERATOR_OPTIONS","Fill rule only applies to Fill or Offset");
+                if(op.type=="nect.shape.offset") {
+                    require(op.composite=="below","INVALID_OPERATOR_OPTIONS","Offset has no Above/Below compositing option");
+                    require(op.line_join=="miter"||op.line_join=="round"||op.line_join=="bevel","INVALID_OPERATOR_OPTIONS","Offset joins are miter, round or bevel");
+                } else require(op.line_join=="miter","INVALID_OPERATOR_OPTIONS","Line join only applies to Offset");
                 if(op.gradient) {
                     require(op.type=="nect.paint.fill"||op.type=="nect.paint.stroke","INVALID_DOMAIN","Gradient requires a paint operation");
                     const auto& g=*op.gradient;add(g.id);
@@ -738,7 +744,7 @@ void validate(const Document& d) {
             for(const auto& stop:g.stops)require(offsets.insert(values.at(gradient_ref(id,op.id,g.id,"stop."+stop.id+".offset"))).second,
                 "GRADIENT_STOPS","Coincident gradient stop offsets are not yet supported");
         }
-        bool check_shape=o.stack.size()>1||std::any_of(o.stack.begin(),o.stack.end(),[](const auto& op){return op.enabled&&op.type=="nect.shape.repeater";});
+        bool check_shape=o.stack.size()>1||std::any_of(o.stack.begin(),o.stack.end(),[](const auto& op){return op.enabled&&(op.type=="nect.shape.repeater"||op.type=="nect.shape.offset");});
 #ifdef _WIN32
         check_shape=check_shape||o.kind==Kind::text;
 #else
@@ -1145,6 +1151,7 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
         } else if constexpr(std::is_same_v<T,OperationOptions>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& op=operation(candidate.objects.at(c.object),c.operation);op.composite=c.composite;op.fill_rule=c.fill_rule;
+            if(c.line_join)op.line_join=*c.line_join;
         } else if constexpr(std::is_same_v<T,SetGradient>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             operation(candidate.objects.at(c.object),c.operation).gradient=c.gradient;

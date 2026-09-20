@@ -67,7 +67,7 @@ std::size_t extra(const Primitive& v){return total(extra(v.id),extra(v.type),ext
 std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides));}
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
 std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops));}
-std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.gradient));}
+std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.gradient),extra(v.line_join));}
 std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule));}
 std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.mask));}
 std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.compositing));}

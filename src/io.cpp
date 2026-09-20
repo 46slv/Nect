@@ -288,13 +288,18 @@ j::value gradient_json(const Gradient& g) {
         {"start_x",scalar_json(g.start_x)},{"start_y",scalar_json(g.start_y)},
         {"end_x",scalar_json(g.end_x)},{"end_y",scalar_json(g.end_y)},{"stops",stops}};
 }
-ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool allow_expression=true) {
+ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool allow_expression=true,bool allow_offset=true) {
     const auto& o=v.as_object();
-    if(allow_gradient)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient"});
+    if(allow_offset)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient","line_join"});
+    else if(allow_gradient)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient"});
     else keys(o,{"id","type","version","enabled","parameters","composite","fill_rule"});
     ShapeOperation op;op.id=text(o.at("id"));op.type=text(o.at("type"));
     op.version=j::value_to<unsigned>(o.at("version"));op.enabled=o.at("enabled").as_bool();
     op.composite=text(o.at("composite"));op.fill_rule=text(o.at("fill_rule"));
+    if(op.type=="nect.shape.offset") {
+        if(!allow_offset)throw Error("UNSUPPORTED_OPERATOR","Offset Paths requires native 0.12");
+        op.line_join=text(o.at("line_join"));
+    } else if(o.contains("line_join"))throw Error("INVALID_OPERATOR_OPTIONS","Line join applies only to Offset Paths");
     for(const auto& p:o.at("parameters").as_object())op.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
     if(const auto* g=o.if_contains("gradient"))op.gradient=read_gradient(*g,allow_expression);
     return op;
@@ -304,6 +309,7 @@ j::value operation_json(const ShapeOperation& op) {
     j::object result{{"id",op.id},{"type",op.type},{"version",op.version},{"enabled",op.enabled},
         {"parameters",parameters},{"composite",op.composite},{"fill_rule",op.fill_rule}};
     if(op.gradient)result["gradient"]=gradient_json(*op.gradient);
+    if(op.type=="nect.shape.offset")result["line_join"]=op.line_join;
     return result;
 }
 
@@ -387,8 +393,9 @@ Command read_command(const j::value& v) {
         return EnableOperation{text(o.at("object")),text(o.at("operation")),o.at("enabled").as_bool()};
     }
     if(type=="operation_options") {
-        keys(o,{"type","object","operation","composite","fill_rule"});
-        return OperationOptions{text(o.at("object")),text(o.at("operation")),text(o.at("composite")),text(o.at("fill_rule"))};
+        keys(o,{"type","object","operation","composite","fill_rule","line_join"});
+        return OperationOptions{text(o.at("object")),text(o.at("operation")),text(o.at("composite")),text(o.at("fill_rule")),
+            o.contains("line_join")?std::optional<std::string>{text(o.at("line_join"))}:std::nullopt};
     }
     if(type=="create_primitive") {
         keys(o,{"type","composition","parent","id","name","source"});
@@ -514,10 +521,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,11> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11"};
+        constexpr std::array<std::string_view,12> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.11 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.12 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
         else keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
@@ -576,7 +583,7 @@ Document decode(std::string_view input) {
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
                 if(minor>=3) {
-                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,minor>=4,minor>=10));
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
                     if(text(o.at("fill"))!="none")throw Error("UNSUPPORTED_APPEARANCE","Legacy format only supports stroked paths");
@@ -905,6 +912,7 @@ std::string request(Session& session,std::string_view input) {
             for(const auto& id:comp->roots)walk(id);
             result=j::object{{"format","svg"},{"artboard",artboard_json(board)},{"text",texts},
                 {"property_policy","evaluated_values"},{"expressions_preserved",false},
+                {"shape_policy","evaluated vector contours; live operators preserved only in native"},
                 {"compositing_policy","vector_geometry_clips_group_opacity_css_blend_and_isolation"},{"blend_reader_requirement","SVG CSS mix-blend-mode and isolation support"},
                 {"text_policy","outlines"},{"native_source_preserved",true},{"fonts_embedded",false}};
         } else if(op=="compositing_types") {
@@ -941,13 +949,23 @@ std::string request(Session& session,std::string_view input) {
             result=std::move(definitions);
         } else if(op=="operator_types") {
             keys(o,{"op"});j::array definitions;
-            for(const auto* type:{"nect.paint.fill","nect.paint.stroke","nect.shape.repeater"}) {
+            for(const auto* type:{"nect.paint.fill","nect.paint.stroke","nect.shape.repeater","nect.shape.offset"}) {
                 auto defaults=default_operation("new-operation",type);
                 j::array parameters;for(const auto& [name,scalar]:defaults.parameters)
                     parameters.push_back({{"name",name},{"unit",property_unit(operation_ref("object",defaults.id,name))},{"default",scalar.literal}});
-                definitions.push_back({{"type",type},{"version",1},{"input","local_paths_and_paint"},
+                j::object definition{{"type",type},{"version",1},{"input","local_paths_and_paint"},
                     {"output","local_paths_and_paint"},{"bypass","preserve_input"},
-                    {"parameters",parameters},{"template",operation_json(defaults)}});
+                    {"parameters",parameters},{"template",operation_json(defaults)}};
+                if(defaults.type=="nect.shape.offset") {
+                    definition["space"]="object-local after preceding path operations";
+                    definition["scope"]="current paths and earlier paint geometry; paint coordinate bases retained";
+                    definition["joins"]=j::array{"miter","round","bevel"};
+                    definition["geometry"]="closed simple contours; nested/disjoint rings; nonzero/evenodd; separate instances are not unioned";
+                    definition["unsupported"]=j::array{"open paths","self-intersections","touching/intersecting contour boundaries"};
+                    definition["curve_flattening_tolerance_du"]=0.1;
+                    definition["zero_amount"]="exact input; no geometry conversion";
+                }
+                definitions.push_back(std::move(definition));
             }
             result=std::move(definitions);
         } else if(op=="gradient_types") {

@@ -545,3 +545,54 @@ and error semantics remain. No cache framework or relaxed threshold was added.
 Temporary instrumentation was removed. Original/intermediate/final evidence remains
 in `build/canvas-benchmark-compositing.json`, `canvas-benchmark-compositing-cropped.json`,
 `canvas-benchmark-compositing-profile.json` and `canvas-benchmark-compositing-diagnostics.json`.
+
+## Retained Offset Paths — 2026-09-20
+
+Native0.12 adds signed closed-region Offset through the existing shape stack,
+normal properties and Session.208 core checks cover exact rectangle bounds/areas,
+erosion, round/bevel/true miter-limit fallback, holes and winding, explicit invalid
+topology, source/correction IDs, links/formulas, Undo and topology/work limits.
+Paint-before-Offset and nonuniform Repeater-order fixtures verify that geometry
+changes while prior gradient/Stroke bases remain intact. Zero and bypass are exact.
+Curves use a declared bounded0.1du polygon approximation; open paths and analytic
+self-intersection parity are not claimed. Installed Boost headers provide buffering.
+
+Focused tests include real Add/amount/join/rule/bypass/expression controls, visible
+errors, exact one-step Undo, native0.1–0.11 migration, independent SVG rectangle
+coordinates and formal MCP. The MCP fixture puts Offset on a hidden mask source,
+checks owner changed IDs, rejects invalid join options atomically, and retains the
+Offset expression across automatic save, abnormal exit, restart and recovery.
+
+`scripts/create_offset_demo.py` authored `examples/contour-study.nect` and SVG through
+the live API: seven Circles, seven Stars,14 Offsets,13 expressions, four Named
+Colors and seven editable Text objects. All14 Amounts follow one controller.
+Independent value readbacks, changed IDs, exact single Undo/native/SVG passed.
+Actual Windows view showed clear concentric circle/star contours and readable type.
+On `build/offset-manual.nect`, GUI Amount18->26 changed only the controller literal
+at revision5; all14 evaluated Amounts matched, automatic native/recovery exact.
+One toolbar Undo restored the entire original at revision6; sourceexample unchanged.
+Receipt: `build/offset-manual-receipt.json`; owned app PID24760 closed normally.
+Self-use found excessive scrolling to a later operator. Inspector now offers a
+compact Shape stack jump menu, and newly added operators scroll into view. Both
+are viewport navigation; the GUI test checks no authored revision changes.
+Full32-test validation passed31 and exposed a horizontal shift that clipped the
+new jump target's left edge in a narrow Inspector. Keeping the horizontal origin
+fixed corrected it; five focused Window/Offset/expression/compositing/batch UI
+tests passed4.95s. A final actual Windows menu click revealed Offset Amount and
+labels directly; selection-only preview PID57688 closed normally.
+
+Visible `build/canvas-benchmark-offset.json` uses the same machine and893x824/DPR1
+production viewport,90 paints/89 intervals. Two authored curves plus twelve Circles
+and twelve six-point Stars each retain a round-join Offset after Stroke. All24
+Amounts reference the first curve's X/14, so point movement changes every outline.
+
+| Operation | p50 ms | p95 ms | max ms | intervals >33.333ms | release ms |
+|---|---:|---:|---:|---:|---:|
+| Pan |16.16|16.98|17.82|0|0.02|
+| Zoom |16.10|17.22|17.65|0|0.00|
+| Point |18.89|21.10|21.42|0|24.08|
+| Handle |24.26|25.73|31.44|0|29.96|
+| Object translation |20.03|26.49|31.62|0|20.13|
+
+The30fps floor and release budget pass;60fps remains unmet. This measures the
+mixed fixture and active Offset evaluation, not maximum admitted geometry sizes.

@@ -366,8 +366,8 @@ int main(int argc, char** argv) {
         "QMenu{border:1px solid #49515c;}QMenu::item:selected{background:#43505f;}");
     app.setQuitOnLastWindowClosed(false);
     if (app.arguments().size() < 2 || app.arguments().size()>3 ||
-        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi"&&app.arguments().at(2)!="--expressions"&&app.arguments().at(2)!="--compositing")) {
-        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions|--compositing]\n";
+        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi"&&app.arguments().at(2)!="--expressions"&&app.arguments().at(2)!="--compositing"&&app.arguments().at(2)!="--offset")) {
+        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions|--compositing|--offset]\n";
         return 2;
     }
     const auto output = app.arguments().at(1);
@@ -375,6 +375,7 @@ int main(int argc, char** argv) {
     const bool text_scene=app.arguments().contains("--text");
     const bool polystar_scene=app.arguments().contains("--polystar");
     const bool expression_scene=app.arguments().contains("--expressions");
+    const bool offset_scene=app.arguments().contains("--offset");
     const bool compositing_scene=app.arguments().contains("--compositing");
     const bool multi_scene=app.arguments().contains("--multi")||expression_scene;
     run_clock.start();
@@ -397,7 +398,7 @@ int main(int argc, char** argv) {
         bool all_floor = true;
         bool all_target = true;
         bool all_release_budget = true;
-        for (const auto paths : ((repeated||text_scene||polystar_scene)?std::vector<int>{2}:std::vector<int>{2,80})) {
+        for (const auto paths : ((repeated||text_scene||polystar_scene||offset_scene)?std::vector<int>{2}:std::vector<int>{2,80})) {
             Window window(scratch.path() + "/scene-" + QString::number(paths));
             window.resize(1440, 900);
             window.show();
@@ -428,6 +429,22 @@ int main(int argc, char** argv) {
                     source.parameters.at("points").literal=6;
                     if(i)source.parameters.at("points").binding=Binding{{"bench-primitive-0","","generator.points"},1,0,"copy_local_value"};
                     commands.push_back(CreatePrimitive{comp,"",id,"Linked polystar "+std::to_string(i),source});
+                }
+                window.host.session.apply(commands,window.host.session.revision());window.host.edited();wait_events(40);
+            }
+            if(offset_scene) {
+                std::vector<Command> commands;const auto comp=window.host.session.document().compositions.front().id;
+                for(int i=0;i<24;++i) {
+                    const auto id="bench-offset-"+std::to_string(i);
+                    auto source=default_primitive(id+"-source",i%2?"nect.shape.star":"nect.shape.circle");
+                    source.parameters.at("center_x").literal=105+(i%6)*148;
+                    source.parameters.at("center_y").literal=190+(i/6)*115;
+                    source.parameters.at(i%2?"outer_radius":"radius").literal=35;
+                    if(i%2){source.parameters.at("inner_radius").literal=20;source.parameters.at("points").literal=6;}
+                    commands.push_back(CreatePrimitive{comp,"",id,"Offset study "+std::to_string(i),source});
+                    auto offset=default_operation(id+"-op","nect.shape.offset");offset.line_join="round";
+                    offset.parameters.at("amount").expression=Expression{"ref(\"bench-path-0\",\"bench-point-0-0\",\"x\") / 14",1};
+                    commands.push_back(AddOperation{id,offset,1});
                 }
                 window.host.session.apply(commands,window.host.session.revision());window.host.edited();wait_events(40);
             }
@@ -491,6 +508,10 @@ int main(int argc, char** argv) {
             if(polystar_scene) {
                 scene["name"]="linked-polystar";scene["primitive_count"]=24;scene["generated_point_count"]=216;scene["binding_count"]=23;
                 scene["fixture"]="Two authored four-anchor curves plus twelve six-point Polygons and twelve six-point Stars; 23 live point-count links to the first Polygon. Pan/zoom and curve point/handle/translation exercise complete mixed-scene evaluation in the full Window. Count-changing gesture timing is not measured.";
+            }
+            if(offset_scene) {
+                scene["name"]="mixed-offset";scene["primitive_count"]=24;scene["offset_count"]=24;scene["expression_count"]=24;
+                scene["fixture"]="Two authored four-anchor curves plus twelve Circles and twelve six-point Stars, all with retained round-join Offset after Stroke. Every Amount references the first curve point X / 14, so point dragging changes all24 evaluated outlines. All shapes use normal validation, projection and protection.";
             }
             QJsonArray operations;
             const int selection_count=multi_scene?std::min(paths,12):1;
