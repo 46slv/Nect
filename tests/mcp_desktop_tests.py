@@ -233,6 +233,35 @@ try:
         rejected=core('apply',expected_revision=rev,commands=[dict(type='set_transform_parent',object='path-3',parent='path-2',preserve_world=False)])
         assert not rejected['ok'] and rejected['error']['code']=='TRANSFORM_CYCLE' and rejected['revision']==rev
         assert core('inspect')['result']==before_cycle
+        # One snapshot serves every batch target, including relative links.
+        batch_refs=[dict(object=f'path-{i}',point='',field='transform.tx') for i in (10,11,12)]
+        rev=apply([dict(type='set',ref=ref,value=value) for ref,value in zip(batch_refs,(100,200,300))],rev)
+        batch=core('apply',expected_revision=rev,commands=[dict(type='edit_properties',targets=batch_refs,value=10,relative=True)])
+        assert batch['ok'] and {'path-10','path-11','path-12'}.issubset(batch['result']['changed_ids']);rev=batch['revision']
+        assert [core('get',ref=ref)['result']['evaluated'] for ref in batch_refs]==[110,210,310]
+        before_batch=core('inspect')['result']
+        rev=apply([dict(type='edit_properties',targets=batch_refs,value=400,relative=False)],rev)
+        assert [core('get',ref=ref)['result']['evaluated'] for ref in batch_refs]==[400,400,400]
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('inspect')['result']==before_batch
+        batch_source=dict(object='path-9',point='',field='transform.tx')
+        rev=apply([dict(type='link_properties',targets=batch_refs,source=batch_source,relative=True)],rev)
+        rev=apply([dict(type='set',ref=batch_source,value=10)],rev)
+        assert [core('get',ref=ref)['result']['evaluated'] for ref in batch_refs]==[120,220,320]
+        before_rejected=core('inspect')['result']
+        rejected=core('apply',expected_revision=rev,commands=[dict(type='edit_properties',targets=batch_refs,value=500,relative=False)])
+        assert not rejected['ok'] and rejected['error']['code']=='DRIVEN_PROPERTY' and core('inspect')['result']==before_rejected
+        rev=apply([dict(type='unlink_properties',targets=batch_refs)],rev)
+        rev=apply([dict(type='set',ref=batch_source,value=20)],rev)
+        assert [core('get',ref=ref)['result']['evaluated'] for ref in batch_refs]==[120,220,320]
+        old_transforms=transforms();before_translation=core('inspect')['result']
+        rev=apply([dict(type='translate_objects',objects=['path-3','path-2'],dx=25,dy=-15)],rev)
+        new_transforms=transforms()
+        for id_ in ('path-3','path-2'):
+            expected_world=old_transforms[id_]['world'][:];expected_world[4]+=25;expected_world[5]-=15
+            assert all(abs(v-e)<1e-8 for v,e in zip(new_transforms[id_]['world'],expected_world))
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('inspect')['result']==before_translation
         history_before=core('history')['result'];history_state=history_before['current_id']
         historical_document=core('inspect')['result']
         for step in range(80):

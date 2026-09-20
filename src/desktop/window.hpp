@@ -50,7 +50,12 @@ private:
     bool matrix_expanded_=false;
     std::map<Ref,double> inspector_values_;
     QString tree_signature_;
+    QString inspector_context_;
     std::optional<Ref> whip_target_;
+    std::vector<Ref> whip_targets_;
+    std::vector<Canvas::Selection> whip_selection_;
+    Id whip_composition_,whip_artboard_;
+    std::uint64_t whip_revision_=0;
     QString whip_session_;
     QPoint whip_start_;
     bool whip_dragged_=false;
@@ -58,8 +63,11 @@ private:
     void cancel_whip();
     void reveal_whip_source();
     void rebuild_inspector();
+    void sync_tree_selection();
+    void add_multi_properties(QVBoxLayout* layout);
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
-    void pick_source(Ref target,bool relative=false);
+    void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
+    void pick_source(std::vector<Ref> targets,bool relative=false);
     void save(bool choose);
     void add_curve();
     void add_primitive(const std::string& type);

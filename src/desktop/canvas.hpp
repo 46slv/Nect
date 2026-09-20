@@ -24,6 +24,9 @@ public:
 
     Id selected_object;
     Id selected_point;
+    struct Selection {Id object,point;bool operator==(const Selection&)const=default;};
+    const std::vector<Selection>& selections()const{return selections_;}
+    std::vector<Id> selected_objects()const;
     std::function<void()> selection_changed;
     std::function<void()> document_changed;
     std::function<void()> scope_changed;
@@ -42,6 +45,7 @@ public:
     const Id& active_artboard() const { return active_artboard_; }
     void set_active_artboard(Id composition, Id artboard, bool fit = true);
     void set_selection(Id object, Id point = {});
+    void set_selections(std::vector<Selection> items);
     void set_draw_mode(bool enabled);
     void set_anchor_edit(bool enabled);
     bool anchor_edit() const {return anchor_edit_;}
@@ -123,6 +127,7 @@ private:
     std::vector<Geometry> geometry_;
     std::map<Id, QTransform> world_;
     std::map<Id, Id> parents_;
+    std::vector<Selection> selections_;
     Id scope_;
     Id active_composition_, active_artboard_;
     std::vector<Artboard> artboards_;
@@ -147,6 +152,8 @@ private:
     double start_in_angle_ = 0;
     double start_out_angle_ = 0;
     std::map<std::string, double> start_values_;
+    struct PointStart {Selection target;QPointF anchor;QTransform inverse;};
+    std::vector<PointStart> point_starts_;
     bool gesture_owned_ = false;
     bool drag_moved_ = false;
     QRectF breadcrumb_rect_;
@@ -167,6 +174,8 @@ private:
     const Geometry* hit_path(QPointF screen) const;
     Hit hit_control(QPointF screen) const;
     void select(Id object, Id point = {}, bool enter_parent = false);
+    void select_many(std::vector<Selection> items,bool enter_parent=false);
+    void toggle_selection(Selection item);
     void set_scope(Id scope);
     void begin_drag(Drag kind, QPointF screen);
     void update_drag(QPointF screen);

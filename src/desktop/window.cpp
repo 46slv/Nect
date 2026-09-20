@@ -18,6 +18,7 @@
 #include <QInputDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QListWidget>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -52,6 +53,14 @@ Ref read_ref(const QByteArray& data) {
     if(!o.value("object").isString()||!o.value("point").isString()||!o.value("field").isString())
         throw Error("INVALID_REFERENCE","Clipboard does not contain a Nect property reference");
     return {o["object"].toString().toStdString(),o["point"].toString().toStdString(),o["field"].toString().toStdString()};
+}
+QByteArray refs_json(const std::vector<Ref>& refs) {
+    QJsonArray array;for(const auto& ref:refs)array.append(ref_json(ref));return QJsonDocument(array).toJson(QJsonDocument::Compact);
+}
+std::vector<Ref> read_refs(const QByteArray& data) {
+    std::vector<Ref> refs;for(const auto& value:QJsonDocument::fromJson(data).array())
+        refs.push_back(read_ref(QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact)));
+    return refs;
 }
 const char* reference_mime="application/x-nect-property-reference";
 class FontFamilyCombo final : public QComboBox {
@@ -316,9 +325,14 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     });
     undo_=action(edit,"Undo",QKeySequence::Undo,[this]{canvas->cancel_interaction();host.session.undo(host.session.revision());host.edited();});
     redo_=action(edit,"Redo",QKeySequence::Redo,[this]{canvas->cancel_interaction();host.session.redo(host.session.revision());host.edited();});
-    action(edit,"Delete object",QKeySequence::Delete,[this]{
+    action(edit,"Delete selection",QKeySequence::Delete,[this]{
         if(canvas->selected_object.empty()) return;
-        host.session.apply({DeleteObjects{{canvas->selected_object}}},host.session.revision());host.edited();
+        std::vector<Command> commands;
+        if(canvas->selected_point.empty())commands.push_back(DeleteObjects{canvas->selected_objects()});
+        else for(const auto& selection:canvas->selections())for(const auto& contour:path_contours(host.session.document().objects.at(selection.object),&canvas->evaluated_values()))
+            if(std::any_of(contour.points.begin(),contour.points.end(),[&](const auto& p){return p.id==selection.point;}))
+                commands.push_back(RemovePoint{selection.object,contour.id,selection.point});
+        canvas->cancel_interaction();host.session.apply(commands,host.session.revision());host.edited();
     });
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
     auto* anchor=action(edit,"Edit Anchor",QKeySequence("Y"),[this]{canvas->set_anchor_edit(!canvas->anchor_edit());canvas->setFocus();});
@@ -368,15 +382,19 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     toolbar->addAction(colors);
     breadcrumb_=new QLabel("Composition");toolbar->addWidget(breadcrumb_);
     status_=new QLabel;statusBar()->addPermanentWidget(status_);
-    connect(tree_,&QTreeWidget::currentItemChanged,this,[this](QTreeWidgetItem* item,QTreeWidgetItem*) {
-        if(refreshing_||!item) return;
+    connect(tree_,&QTreeWidget::itemSelectionChanged,this,[this] {
+        if(refreshing_) return;
         artboard_editing_=false;
-        canvas->set_selection(item->data(0,Qt::UserRole).toString().toStdString(),item->data(0,Qt::UserRole+1).toString().toStdString());
+        std::vector<Canvas::Selection> items;
+        auto append=[&](QTreeWidgetItem* item){items.push_back({item->data(0,Qt::UserRole).toString().toStdString(),item->data(0,Qt::UserRole+1).toString().toStdString()});};
+        for(auto* item:tree_->selectedItems())if(item!=tree_->currentItem())append(item);
+        if(tree_->currentItem()&&tree_->currentItem()->isSelected())append(tree_->currentItem());
+        canvas->set_selections(std::move(items));
     });
     host.changed=[this]{refresh();};
     host.status_changed=[this]{status_->setText(host.save_status+"   ·   r"+QString::number(host.session.revision()));};
     canvas->document_changed=[this]{host.edited();};
-    canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;rebuild_inspector();};
+    canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();};
     canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
     canvas->gradient_edit_changed=[this]{rebuild_inspector();};
     canvas->scope_changed=[this]{breadcrumb_->setText(canvas->breadcrumb());};
@@ -396,6 +414,10 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
         const auto* mouse=static_cast<QMouseEvent*>(event);
         if(mouse->button()==Qt::LeftButton&&watched->property("nect-pick-whip").toBool()) {
             whip_target_=read_ref(watched->property("nect-reference").toByteArray());
+            whip_targets_=read_refs(watched->property("nect-targets").toByteArray());
+            if(whip_targets_.empty())whip_targets_={*whip_target_};
+            whip_selection_=canvas->selections();whip_revision_=host.session.revision();
+            whip_composition_=canvas->active_composition();whip_artboard_=canvas->active_artboard();
             whip_session_=host.session_id;whip_start_=mouse->globalPosition().toPoint();whip_dragged_=false;
             grabMouse();
             statusBar()->showMessage("Drag to a property · hover an object to inspect its source · Shift: relative link · Esc: cancel");
@@ -443,7 +465,7 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
         return true;
     }
     if(mouse->button()!=Qt::LeftButton)return true;
-    const auto target=*whip_target_;const auto frozen_session=whip_session_;const auto dragged=whip_dragged_;
+    const auto targets=whip_targets_;const auto expected_revision=whip_revision_;const auto frozen_session=whip_session_;const auto dragged=whip_dragged_;
     QByteArray source_bytes;
     auto* viewport=inspector_scroll_->viewport();
     if(viewport->rect().contains(viewport->mapFromGlobal(position))) {
@@ -451,19 +473,19 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
         // overlay or an off-viewport child whose isVisible() flag is still true.
         for(auto* under=inspector_->childAt(inspector_->mapFromGlobal(position));
             under && under!=inspector_;under=under->parentWidget()) {
+            // A mixed/multiple row is not one unambiguous source property.
+            if(read_refs(under->property("nect-targets").toByteArray()).size()>1)break;
             source_bytes=under->property("nect-reference").toByteArray();
             if(!source_bytes.isEmpty())break;
         }
     }
     cancel_whip();
-    if(!dragged) {pick_source(target);return true;}
+    if(!dragged) {pick_source(targets);return true;}
     perform([&] {
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The pick-whip belongs to another document");
         if(source_bytes.isEmpty())throw Error("NO_SOURCE","Drop the pick-whip on a numeric property field");
         const auto source=read_ref(source_bytes);
-        const auto values=evaluate(host.session.document());
-        const auto offset=mouse->modifiers().testFlag(Qt::ShiftModifier)?values.at(target)-values.at(source):0;
-        host.session.apply({Link{target,{source,1,offset,"copy_local_value"}}},host.session.revision());host.edited();
+        host.session.apply({LinkProperties{targets,source,mouse->modifiers().testFlag(Qt::ShiftModifier)}},expected_revision);host.edited();
     });
     return true;
 }
@@ -483,11 +505,14 @@ void Window::reveal_whip_source() {
 }
 void Window::cancel_whip() {
     if(!whip_target_)return;
-    const auto target=*whip_target_;const auto same_session=whip_session_==host.session_id;
-    whip_target_.reset();releaseMouse();
+    const auto selection=whip_selection_;const auto same_session=whip_session_==host.session_id;
+    whip_target_.reset();whip_targets_.clear();whip_selection_.clear();releaseMouse();
     if(whip_overlay_) {whip_overlay_->hide();whip_overlay_->deleteLater();whip_overlay_=nullptr;}
     statusBar()->clearMessage();
-    if(same_session&&host.session.document().objects.contains(target.object))canvas->set_selection(target.object,target.point);
+    if(same_session) {
+        perform([&]{canvas->set_active_artboard(whip_composition_,whip_artboard_,false);});
+        canvas->set_selections(selection);
+    }
 }
 
 void Window::perform(const std::function<void()>& action) {
@@ -529,14 +554,13 @@ void Window::refresh() {
             auto* point=new QTreeWidgetItem(item);
             point->setText(0,point_label(o,c.points[i],i));point->setData(0,Qt::UserRole,qs(id));point->setData(0,Qt::UserRole+1,qs(c.points[i].id));
             point->setToolTip(0,qs(c.points[i].id));
-            if(canvas->selected_object==id&&canvas->selected_point==c.points[i].id) tree_->setCurrentItem(point);
         }
-        if(canvas->selected_object==id&&canvas->selected_point.empty()) tree_->setCurrentItem(item);
         item->setExpanded(expanded.contains(qs(id)));
     };
     for(const auto& comp:d.compositions) if(comp.id==canvas->active_composition())for(const auto& id:comp.roots) append(id,nullptr);
     tree_signature_=signature;
     }
+    sync_tree_selection();
     rebuild_artboards();
     undo_->setEnabled(host.session.can_undo());redo_->setEnabled(host.session.can_redo());
     status_->setText(host.save_status+"   ·   r"+QString::number(host.session.revision()));
@@ -546,6 +570,16 @@ void Window::refresh() {
     rebuild_inspector();
     color_tools_->refresh();
     refresh_history();
+}
+
+void Window::sync_tree_selection() {
+    const QSignalBlocker blocker(tree_);QTreeWidgetItem* active=nullptr;
+    for(QTreeWidgetItemIterator i(tree_);*i;++i) {
+        const Canvas::Selection item{(*i)->data(0,Qt::UserRole).toString().toStdString(),(*i)->data(0,Qt::UserRole+1).toString().toStdString()};
+        (*i)->setSelected(std::find(canvas->selections().begin(),canvas->selections().end(),item)!=canvas->selections().end());
+        if(item.object==canvas->selected_object&&item.point==canvas->selected_point)active=*i;
+    }
+    tree_->setCurrentItem(active,0,QItemSelectionModel::NoUpdate);
 }
 
 void Window::show_history() {
@@ -738,6 +772,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
 }
 
 void Window::rebuild_inspector() {
+    QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
+    for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
+    const auto scroll=context==inspector_context_?inspector_scroll_->verticalScrollBar()->value():0;
+    inspector_context_=context;
+    // Qt may scroll to a disappearing focused field while the new form lays out.
+    // Restore the previous viewport only for the same editing context.
+    QTimer::singleShot(0,this,[this,context,scroll]{if(inspector_context_==context)inspector_scroll_->verticalScrollBar()->setValue(scroll);});
     // Avoid deleting a focused field synchronously from its editingFinished signal.
     if(auto* old=inspector_->layout()) {
         while(auto* child=old->takeAt(0)) { if(child->widget()) {child->widget()->hide();child->widget()->deleteLater();}delete child; }
@@ -749,6 +790,7 @@ void Window::rebuild_inspector() {
     if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a shape, Curve or Text.\nSelect a point to edit its handles."));layout->addStretch();return;}
     const auto& o=d.objects.at(canvas->selected_object);
     inspector_values_=evaluate(d);
+    if(canvas->selections().size()>1){add_multi_properties(layout);return;}
     auto* name=new QLineEdit(qs(o.name));name->setAccessibleName("Object name");layout->addWidget(name);
     connect(name,&QLineEdit::editingFinished,this,[this,name,id=o.id]{
         if(!name->isModified()) return;
@@ -1247,16 +1289,74 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
     });});
 }
 void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& label) {
+    add_properties(layout,{ref},label);
+}
+
+void Window::add_multi_properties(QVBoxLayout* layout) {
+    const auto& d=host.session.document();const auto selected=canvas->selections();
+    auto* heading=new QLabel(QString::number(selected.size())+(canvas->selected_point.empty()?" objects selected":" points selected"));
+    heading->setObjectName("selection-summary");layout->addWidget(heading);
+    auto* note=new QLabel("Mixed values are blank. Enter a value to set every target; += / -= keeps their differences. Coordinates are local to each target.");
+    note->setWordWrap(true);layout->addWidget(note);
+    auto section=[&](const QString& title){auto* box=new QGroupBox(title);auto* form=new QFormLayout(box);
+        form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);return form;};
+    auto common=[&](QFormLayout* form,const std::string& field,const QString& label){
+        std::vector<Ref> refs;for(const auto& item:selected)refs.push_back({item.object,item.point,field});add_properties(form,refs,label);};
+    if(!canvas->selected_point.empty()) {
+        auto* form=section("Points && handles");
+        for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})common(form,field,QString::fromLatin1(field));
+        layout->addStretch();return;
+    }
+    auto* transform=section("Transform · each object");
+    common(transform,"transform.tx","Translation X");common(transform,"transform.ty","Translation Y");
+    common(transform,"transform.anchor_x","Anchor X");common(transform,"transform.anchor_y","Anchor Y");
+    auto* matrix_toggle=new QPushButton("Affine matrix…");matrix_toggle->setObjectName("batch-matrix-toggle");matrix_toggle->setCheckable(true);matrix_toggle->setChecked(matrix_expanded_);transform->addRow(matrix_toggle);
+    auto* matrix_box=new QWidget;auto* matrix_form=new QFormLayout(matrix_box);matrix_form->setContentsMargins(0,0,0,0);matrix_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    for(const auto* field:{"a","b","c","d"})common(matrix_form,std::string("transform.")+field,QString("Matrix ")+field);
+    transform->addRow(matrix_box);matrix_box->setVisible(matrix_expanded_);
+    connect(matrix_toggle,&QPushButton::toggled,this,[this,matrix_box](bool shown){matrix_expanded_=shown;matrix_box->setVisible(shown);});
+    const auto& first=d.objects.at(selected.front().object);
+    for(const bool text:{false,true}) {
+        const bool compatible=std::all_of(selected.begin(),selected.end(),[&](const auto& item){const auto& o=d.objects.at(item.object);return text?o.text.has_value():o.source.has_value();});
+        if(!compatible)continue;
+        const auto& parameters=text?first.text->parameters:first.source->parameters;
+        auto* form=section(text?"Common Text parameters":"Common source parameters");
+        for(const auto& [name,scalar]:parameters) {
+            (void)scalar;
+            if(std::all_of(selected.begin(),selected.end(),[&](const auto& item){const auto& o=d.objects.at(item.object);return (text?o.text->parameters:o.source->parameters).contains(name);}))
+                common(form,(text?"text.":"generator.")+name,parameter_label(name));
+        }
+    }
+    for(std::size_t slot=0;slot<first.stack.size();++slot) {
+        const auto& operation=first.stack[slot];
+        if(!std::all_of(selected.begin(),selected.end(),[&](const auto& item){const auto& stack=d.objects.at(item.object).stack;
+            return stack.size()>slot&&stack[slot].type==operation.type;}))continue;
+        auto* form=section("Stack "+QString::number(slot+1)+" · "+operation_label(operation));
+        for(const auto& [name,scalar]:operation.parameters) {
+            (void)scalar;std::vector<Ref> refs;
+            for(const auto& item:selected)refs.push_back({item.object,"","op."+d.objects.at(item.object).stack[slot].id+"."+name});
+            add_properties(form,refs,parameter_label(name));
+        }
+    }
+    auto* hint=new QLabel("↗ freezes all these targets while you choose a source. Paint rows match the same operation type at the same stack position.");
+    hint->setWordWrap(true);layout->addWidget(hint);layout->addStretch();
+}
+
+void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label) {
+    const auto& ref=targets.front();
     const auto& d=host.session.document();
     const auto origin=property_origin(d,ref);
     const auto evaluated=inspector_values_.at(ref);
     // Generated fallback has no authored Scalar to inspect. Reuse this panel's
     // evaluation snapshot instead of asking property() to evaluate it again.
-    const auto scalar=origin=="generated" ? Scalar{evaluated,{}} : nect::property(d,ref);
+    const bool mixed=std::any_of(targets.begin(),targets.end(),[&](const auto& target){return inspector_values_.at(target)!=evaluated;});
+    const bool driven=std::any_of(targets.begin(),targets.end(),[&](const auto& target){return property_origin(d,target)!="generated"&&nect::property(d,target).binding.has_value();});
     auto* row=new QWidget;auto* box=new QHBoxLayout(row);box->setContentsMargins(0,0,0,0);box->setSpacing(4);
-    auto* input=new QLineEdit(display_value(evaluated));input->setAccessibleName(label);
+    auto* input=new QLineEdit(mixed?QString{}:display_value(evaluated));input->setAccessibleName(label);
+    input->setPlaceholderText(mixed?"Mixed":QString{});input->setProperty("nect-mixed",mixed);
     const auto reference=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
     input->setProperty("nect-reference",reference);
+    const auto target_data=refs_json(targets);input->setProperty("nect-targets",target_data);
     input->setProperty("nect-property-origin",qs(origin));
     input->setToolTip(qs(property_unit(ref))+" · local · "+qs(ref.object+"/"+ref.point+"/"+ref.field));
     if(origin=="generated")input->setToolTip(input->toolTip()+"\nGenerated by the source. Editing creates a Point Edit override and keeps the source.");
@@ -1266,7 +1366,7 @@ void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& labe
     } else if(origin=="bypassed_point_edit") {
         input->setToolTip(input->toolTip()+"\nPoint Edit is bypassed. This value follows the source; editing enables the correction again.");
     }
-    if(scalar.binding) {
+    if(driven) {
         input->setStyleSheet("color: #84d5eb;");
         input->setToolTip(input->toolTip()+(origin=="bypassed_point_edit"
             ? "\nStored Point Edit link is bypassed. Unlink explicitly before replacing it."
@@ -1275,26 +1375,25 @@ void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& labe
     box->addWidget(input);
     auto* pick=new QPushButton("↗");pick->setFixedWidth(28);pick->setToolTip("Pick property source");box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
+    pick->setProperty("nect-targets",target_data);
     pick->setToolTip("Drag to a source field; hover Objects to inspect another source. Click to search.");
     layout->addRow(label,row);
-    connect(pick,&QPushButton::clicked,this,[this,ref]{pick_source(ref);});
-    connect(input,&QLineEdit::editingFinished,this,[this,input,ref] {
+    connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
+    const auto field_session=host.session_id;
+    connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session] {
         if(!input->isModified()) return;
         input->setModified(false);
         const bool keep_focus=input->hasFocus();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
         const auto frozen_session=host.session_id;
         perform([&]{
-            auto text=input->text().trimmed();bool valid=false;double value=0;
-            if(text.startsWith("+=")||text.startsWith("-=")) {
-                const auto delta=text.mid(2).toDouble(&valid);
-                value=evaluate(host.session.document()).at(ref)+(text.startsWith("-=")?-delta:delta);
-            } else value=text.toDouble(&valid);
+            if(host.session_id!=field_session)throw Error("SESSION_CONFLICT","These properties belong to another document");
+            auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");
+            auto value=(relative?text.mid(2):text).toDouble(&valid);if(relative&&text.startsWith("-="))value=-value;
             if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number or += / -= adjustment; expression authoring is not yet supported");
-            host.session.apply({Set{ref,value}},host.session.revision());host.edited();
-            if(keep_focus)QTimer::singleShot(0,this,[this,ref,scroll,frozen_session]{
-                if(host.session_id!=frozen_session||canvas->selected_object!=ref.object)return;
-                const auto data=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
-                for(auto* current:inspector_->findChildren<QLineEdit*>())if(current->isVisible()&&current->property("nect-reference").toByteArray()==data) {
+            canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},host.session.revision());host.edited();
+            if(keep_focus)QTimer::singleShot(0,this,[this,target_data,scroll,frozen_session]{
+                if(host.session_id!=frozen_session)return;
+                for(auto* current:inspector_->findChildren<QLineEdit*>())if(current->isVisible()&&current->property("nect-targets").toByteArray()==target_data) {
                     current->setFocus(Qt::OtherFocusReason);current->selectAll();
                     inspector_scroll_->verticalScrollBar()->setValue(scroll);break;
                 }
@@ -1302,41 +1401,46 @@ void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& labe
         });
     });
     input->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref](const QPoint& point) {
+    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session](const QPoint& point) {
         QMenu menu;
         auto* copy=menu.addAction("Copy Value");auto* reference=menu.addAction("Copy Reference");
         auto* paste=menu.addAction("Paste Value");auto* link=menu.addAction("Paste Link");
         auto* relative=menu.addAction("Pick Relative Link…");auto* unlink=menu.addAction("Unlink · keep evaluated value");
+        copy->setEnabled(!mixed);reference->setEnabled(targets.size()==1);unlink->setEnabled(driven);
         auto* chosen=menu.exec(input->mapToGlobal(point));if(!chosen)return;
         perform([&] {
-            if(chosen==copy) QApplication::clipboard()->setText(display_value(evaluate(host.session.document()).at(ref)));
+            if(host.session_id!=field_session)throw Error("SESSION_CONFLICT","These properties belong to another document");
+            if(chosen==copy) QApplication::clipboard()->setText(QString::number(evaluate(host.session.document()).at(ref),'g',17));
             else if(chosen==reference) {
                 auto* mime=new QMimeData;const auto data=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
                 mime->setData(reference_mime,data);mime->setText(QString::fromUtf8(data));QApplication::clipboard()->setMimeData(mime);
             } else if(chosen==paste) {
                 bool valid=false;const auto value=QApplication::clipboard()->text().toDouble(&valid);
                 if(!valid)throw Error("INVALID_VALUE","Clipboard is not a numeric value");
-                host.session.apply({Set{ref,value}},host.session.revision());host.edited();
+                host.session.apply({EditProperties{targets,value,false}},host.session.revision());host.edited();
             } else if(chosen==link) {
                 const auto* mime=QApplication::clipboard()->mimeData();
                 const auto source=read_ref(mime->hasFormat(reference_mime)?mime->data(reference_mime):mime->text().toUtf8());
-                host.session.apply({Link{ref,{source,1,0,"copy_local_value"}}},host.session.revision());host.edited();
-            } else if(chosen==unlink) {host.session.apply({Unlink{ref}},host.session.revision());host.edited();}
-            else if(chosen==relative) pick_source(ref,true);
+                host.session.apply({LinkProperties{targets,source,false}},host.session.revision());host.edited();
+            } else if(chosen==unlink) {host.session.apply({UnlinkProperties{targets}},host.session.revision());host.edited();}
+            else if(chosen==relative) pick_source(targets,true);
         });
     });
 }
 
-void Window::pick_source(Ref target,bool relative) {
+void Window::pick_source(std::vector<Ref> targets,bool relative) {
+    const auto target=targets.front();const auto selection=canvas->selections();const auto expected_revision=host.session.revision();
+    const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     auto* dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->resize(720,480);
     dialog->setWindowTitle(relative?"Pick Relative Link source":"Pick property source");
     auto* layout=new QVBoxLayout(dialog);
-    layout->addWidget(new QLabel("Target: "+property_label(host.session.document(),target)));
+    auto* target_note=new QLabel(targets.size()==1?"Target: "+property_label(host.session.document(),target):QString::number(targets.size())+" frozen targets · "+qs(target.field));
+    target_note->setWordWrap(true);layout->addWidget(target_note);
     auto* search=new QLineEdit;search->setPlaceholderText("Search object, point, property or unit…");layout->addWidget(search);
     auto* list=new QListWidget;layout->addWidget(list);
     const auto values=evaluate(host.session.document());
     for(const auto& ref:properties(host.session.document())) {
-        if(ref==target)continue;
+        if(std::find(targets.begin(),targets.end(),ref)!=targets.end())continue;
         const auto text=property_label(host.session.document(),ref)+" ["+qs(property_unit(ref))+", local]  = "+display_value(values.at(ref));
         auto* item=new QListWidgetItem(text,list);item->setData(Qt::UserRole,QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact));
         item->setToolTip(qs(ref.object+" / "+ref.point+" / "+ref.field));
@@ -1356,18 +1460,17 @@ void Window::pick_source(Ref target,bool relative) {
         const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
         if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,source.point);
     });
-    connect(dialog,&QDialog::rejected,this,[this,target,frozen_session]{
-        if(host.session_id==frozen_session&&host.session.document().objects.contains(target.object))canvas->set_selection(target.object,target.point);
+    connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
+        if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
     });
-    auto accept=[this,dialog,list,target,relative,frozen_session] {
+    auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard] {
         perform([&]{
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Source picker belongs to a different document");
             if(!list->currentItem())throw Error("NO_SOURCE","Choose a source property");
             const auto source=read_ref(list->currentItem()->data(Qt::UserRole).toByteArray());
-            const auto values=evaluate(host.session.document());
-            const auto offset=relative?values.at(target)-values.at(source):0;
-            host.session.apply({Link{target,{source,1,offset,"copy_local_value"}}},host.session.revision());
-            canvas->set_selection(target.object,target.point);host.edited();dialog->accept();
+            host.session.apply({LinkProperties{targets,source,relative}},expected_revision);
+            canvas->set_active_artboard(composition,artboard,false);
+            canvas->set_selections(selection);host.edited();dialog->accept();
         });
     };
     connect(buttons,&QDialogButtonBox::accepted,dialog,accept);
@@ -1519,8 +1622,8 @@ void Window::convert_to_path() {
     dialog->show();
 }
 void Window::group_selection() {
-    std::set<Id> chosen;
-    for(const auto* item:tree_->selectedItems())chosen.insert(item->data(0,Qt::UserRole).toString().toStdString());
+    if(!canvas->selected_point.empty())throw Error("INVALID_GROUP","Select objects, not points, to group");
+    const auto objects=canvas->selected_objects();std::set<Id> chosen(objects.begin(),objects.end());
     const auto& comp=find_composition(host.session.document(),canvas->active_composition());
     const auto parent=canvas->drill_scope();
     const auto& siblings=parent.empty()?comp.roots:host.session.document().objects.at(parent).children;

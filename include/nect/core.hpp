@@ -242,6 +242,14 @@ struct CenterAnchor { Id object; };
 struct SetPosition { Id object; double x,y; };
 struct TransformAroundAnchor { Id object; double rotation=0,scale_x=1,scale_y=1; };
 struct SetTransformParent { Id object; std::optional<Id> parent; bool preserve_world=true; };
+// Explicit scalar batches capture one evaluated starting snapshot. Target lists
+// contain 1..1000 unique scalar properties (including legacy alias identity).
+struct EditProperties { std::vector<Ref> targets; double value; bool relative=false; };
+struct LinkProperties { std::vector<Ref> targets; Ref source; bool relative=false; };
+struct UnlinkProperties { std::vector<Ref> targets; };
+// World-space displacement, applied once per selected object across Structure
+// and Transform Parent relationships. Selection is one Composition, 1..1000 IDs.
+struct TranslateObjects { std::vector<Id> objects; double dx,dy; };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
@@ -249,7 +257,8 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     ReorderOperations,EnableOperation,OperationOptions,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
-    CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent>;
+    CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
+    EditProperties,LinkProperties,UnlinkProperties,TranslateObjects>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};

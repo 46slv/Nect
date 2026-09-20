@@ -157,11 +157,16 @@ struct SequenceResult {
 };
 
 SequenceResult sequence(Window& window, Operation operation, int frames, bool commit,
-                        const QStringList& errors,bool text_transform=false) {
+                        const QStringList& errors,bool text_transform=false,int selection_count=1) {
     auto& canvas = *window.canvas;
     require(window.isVisible() && window.windowHandle() && window.windowHandle()->isExposed(),
             "The benchmark window must remain visible and exposed");
     canvas.set_selection(text_transform?"bench-text-0":"bench-path-0", operation == Operation::transform ? Id{} : "bench-point-0-0");
+    if(selection_count>1&&operation!=Operation::handle) {
+        std::vector<Canvas::Selection> selections;
+        for(int i=selection_count-1;i>=0;--i)selections.push_back({"bench-path-"+std::to_string(i),operation==Operation::transform?Id{}:"bench-point-"+std::to_string(i)+"-0"});
+        canvas.set_selections(std::move(selections));
+    }
     canvas.setFocus();
     fit(window);
     canvas.reset_timing();
@@ -174,6 +179,7 @@ SequenceResult sequence(Window& window, Operation operation, int frames, bool co
     if (operation != Operation::zoom) mouse(canvas, QEvent::MouseButtonPress, start, button, button);
     if (edits_document(operation)) require(window.host.session.gesture_active(), "Viewport edit failed to start a gesture");
     const auto revision = window.host.session.revision();
+    const auto initial_values=evaluate(window.host.session.document());
     QElapsedTimer elapsed;
     elapsed.start();
     QPointF end = start;
@@ -195,8 +201,11 @@ SequenceResult sequence(Window& window, Operation operation, int frames, bool co
         check_errors(errors);
         wait_events(static_cast<int>(std::max<qint64>(0,
             static_cast<qint64>(i + 1) * target_interval_ms - elapsed.elapsed())));
-        if (edits_document(operation))
-            require(window.host.session.gesture_active(), "The active gesture was interrupted during measurement");
+        check_errors(errors);
+        if (edits_document(operation)&&!window.host.session.gesture_active())
+            throw std::runtime_error("The active gesture was interrupted during measurement: "+operation_name(operation).toStdString()+
+                "; window active="+(window.isActiveWindow()?"true":"false")+"; Canvas focus="+(canvas.hasFocus()?"true":"false")+
+                "; focused widget="+(QApplication::focusWidget()?std::string(QApplication::focusWidget()->metaObject()->className()):"none"));
     }
     SequenceResult result;
     result.elapsed_ms = elapsed.nsecsElapsed() / 1e6;
@@ -220,6 +229,15 @@ SequenceResult sequence(Window& window, Operation operation, int frames, bool co
             const auto values=evaluate(window.host.session.document());const auto object=text_transform?"bench-text-0":"bench-path-0";
             near(values.at({object,"","transform.tx"}), 54 / zoom, "Object drag produced incorrect translation X");
             near(values.at({object,"","transform.ty"}), 12 / zoom, "Object drag produced incorrect translation Y");
+        }
+        if(selection_count>1&&(operation==Operation::point||operation==Operation::transform)) {
+            const auto values=evaluate(window.host.session.document());
+            for(int i=0;i<selection_count;++i) {
+                const auto object="bench-path-"+std::to_string(i),point=operation==Operation::point?"bench-point-"+std::to_string(i)+"-0":Id{};
+                const Ref x{object,point,operation==Operation::point?"x":"transform.tx"},y{object,point,operation==Operation::point?"y":"transform.ty"};
+                near(values.at(x),initial_values.at(x)+54/zoom,"Every selected target translates once X");
+                near(values.at(y),initial_values.at(y)+12/zoom,"Every selected target translates once Y");
+            }
         }
     } else {
         require(window.host.session.revision() == revision, "View movement or warm-up changed committed state");
@@ -301,14 +319,15 @@ int main(int argc, char** argv) {
         "QMenu{border:1px solid #49515c;}QMenu::item:selected{background:#43505f;}");
     app.setQuitOnLastWindowClosed(false);
     if (app.arguments().size() < 2 || app.arguments().size()>3 ||
-        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar")) {
-        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar]\n";
+        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi")) {
+        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi]\n";
         return 2;
     }
     const auto output = app.arguments().at(1);
     const bool repeated=app.arguments().contains("--repeat");
     const bool text_scene=app.arguments().contains("--text");
     const bool polystar_scene=app.arguments().contains("--polystar");
+    const bool multi_scene=app.arguments().contains("--multi");
     run_clock.start();
     QJsonObject result{{"schema", "nect-visible-viewport-benchmark-1"},
         {"started_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
@@ -419,11 +438,14 @@ int main(int argc, char** argv) {
                 scene["fixture"]="Two authored four-anchor curves plus twelve six-point Polygons and twelve six-point Stars; 23 live point-count links to the first Polygon. Pan/zoom and curve point/handle/translation exercise complete mixed-scene evaluation in the full Window. Count-changing gesture timing is not measured.";
             }
             QJsonArray operations;
+            const int selection_count=multi_scene?std::min(paths,12):1;
+            if(multi_scene){scene["name"]=paths==2?"multi-lightweight":"multi-representative";scene["selected_targets"]=selection_count;
+                scene["fixture"]="Authored four-anchor curves on the standard grid; first 2/12 object or point targets selected together for pan/zoom/point/translation. Handle operation remains a single selected point.";}
             for (const auto operation : {Operation::pan, Operation::zoom, Operation::point, Operation::handle, Operation::transform}) {
-                sequence(window, operation, warmup_frames, false, errors,text_scene&&operation==Operation::transform);
+                sequence(window, operation, warmup_frames, false, errors,text_scene&&operation==Operation::transform,selection_count);
                 const auto before = window.host.session.revision();
                 const auto commits_before = commits;
-                const auto measurement = sequence(window, operation, measured_frames, true, errors,text_scene&&operation==Operation::transform);
+                const auto measurement = sequence(window, operation, measured_frames, true, errors,text_scene&&operation==Operation::transform,selection_count);
                 const auto after = window.host.session.revision();
                 require(commits - commits_before == (edits_document(operation) ? 1 : 0),
                         "Unexpected committed notification count in full application");

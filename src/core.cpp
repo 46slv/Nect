@@ -401,8 +401,11 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
 }
 
 namespace {
-std::map<Ref,double> evaluate_properties(const Document& d) {
-    const auto index = property_index(d);
+std::map<Ref,double> evaluate_properties(const Document& d,const std::vector<Ref>* requested=nullptr) {
+    // Snapshot-dependent commands may need only a few property domains. Reuse
+    // the same dependency traversal without indexing or visiting unrelated data;
+    // complete authored/evaluated validation still runs before any commit.
+    const auto index = requested?std::map<Ref,const Scalar*>{}:property_index(d);
     std::map<Ref,double> values;
     std::set<Ref> active;
     struct Topology {std::vector<std::string> roles;std::map<Id,std::size_t> positions;};
@@ -418,6 +421,16 @@ std::map<Ref,double> evaluate_properties(const Document& d) {
         const auto found = index.find(r);const Scalar* p=found==index.end()?nullptr:found->second;
         const auto object=d.objects.find(r.object);
         const bool generated=object!=d.objects.end()&&object->second.source&&!r.point.empty();
+        if(requested) {
+            if(!generated)p=&lookup_property(d,r);
+            else if(const auto& edit=object->second.point_edit;edit&&edit->enabled) {
+                const auto point=edit->overrides.find(r.point);
+                if(point!=edit->overrides.end()) {
+                    const auto field=point->second.find(r.field);
+                    if(field!=point->second.end())p=&field->second;
+                }
+            }
+        }
         const Topology* roles=nullptr;std::size_t position=0;
         if(generated) {
             require(std::find(point_fields.begin(),point_fields.end(),r.field)!=point_fields.end(),"MISSING_REFERENCE",r.field);
@@ -471,6 +484,10 @@ std::map<Ref,double> evaluate_properties(const Document& d) {
         }
         return topologies.emplace(object.id,std::move(result)).first->second;
     };
+    if(requested) {
+        for(const auto& ref:*requested)visit(ref,0);
+        return values;
+    }
     for (const auto& [ref, scalar] : index) {
         (void)scalar;
         visit(ref, 0);
@@ -722,6 +739,7 @@ Affine local_affine(const Id& id,const std::map<Ref,double>& values) {
     Affine result;for(std::size_t i=0;i<result.size();++i)result[i]=values.at({id,"",affine_fields[i]});return result;
 }
 bool transform_equal(double a,double b) {
+    if(!std::isfinite(a)||!std::isfinite(b))return false;
     return a==b||std::abs(a-b)<=32*std::numeric_limits<double>::epsilon()*std::max({1.0,std::abs(a),std::abs(b)});
 }
 void set_changed_scalar(Document& document,const Ref& ref,double value,const std::map<Ref,double>& values) {
@@ -745,13 +763,113 @@ void center_anchor(Document& document,const Id& id,bool require_geometry) {
     set_changed_scalar(document,{id,"","transform.anchor_x"},bounds->left+(bounds->right-bounds->left)/2,values);
     set_changed_scalar(document,{id,"","transform.anchor_y"},bounds->top+(bounds->bottom-bounds->top)/2,values);
 }
+void scalar_targets(const Document& document,const std::vector<Ref>& targets,const std::map<Ref,double>& values) {
+    require(!targets.empty()&&targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
+    std::set<Ref> unique;
+    const auto expected_unit=unit(targets.front());
+    for(const auto& target:targets) {
+        require(values.contains(target),"MISSING_REFERENCE",target.object+"/"+target.point+"/"+target.field);
+        require(unit(target)==expected_unit,"UNIT_MISMATCH","Property targets must share one scalar unit");
+        auto canonical=target;
+        if(target.point.empty()&&target.field.starts_with("stroke.")) {
+            const auto& object=document.objects.at(target.object);
+            canonical=operation_ref(target.object,object.legacy_stroke,target.field.substr(7));
+        }
+        require(unique.insert(std::move(canonical)).second,"DUPLICATE_TARGET","Each scalar target may occur only once, including aliases");
+    }
+}
+void translate_objects(Document& document,const TranslateObjects& command) {
+    require(!command.objects.empty()&&command.objects.size()<=1000,"INVALID_BATCH","Translation requires 1..1000 unique objects");
+    finite(command.dx);finite(command.dy);
+    std::set<Id> selected;
+    for(const auto& id:command.objects) {
+        require(document.objects.contains(id),"MISSING_OBJECT",id);
+        require(selected.insert(id).second,"DUPLICATE_TARGET","Each translated object may occur only once");
+    }
+    std::vector<Ref> transform_refs;transform_refs.reserve(document.objects.size()*affine_fields.size());
+    for(const auto& [id,object]:document.objects) {
+        (void)object;for(const auto& field:affine_fields)transform_refs.push_back({id,"",field});
+    }
+    const auto values=evaluate_properties(document,&transform_refs);const auto transforms=evaluate_transforms(document,values);
+    std::optional<Id> composition;
+    for(const auto& plane:document.compositions) {
+        std::function<void(const Id&)> own=[&](const Id& id) {
+            if(selected.contains(id)) {
+                require(!composition||*composition==plane.id,"CROSS_COMPOSITION","Translated objects must share one Composition");
+                composition=plane.id;
+            }
+            for(const auto& child:document.objects.at(id).children)own(child);
+        };
+        for(const auto& root:plane.roots)own(root);
+    }
+    if(command.dx==0&&command.dy==0)return;
+    std::map<Id,Affine> desired,prospective;
+    for(const auto& id:selected) {
+        auto world=transforms.at(id).world;world[4]+=command.dx;world[5]+=command.dy;
+        for(const auto number:world)require(std::isfinite(number),"OUTPUT_RANGE","Translated world matrix must be finite");
+        desired.emplace(id,world);
+    }
+    // Selected parents use their desired world matrix even before their local
+    // fields are rewritten. Unselected intervening parents inherit that motion.
+    // This is independent of target order and prevents ancestor/follower doubles.
+    std::function<const Affine&(const Id&)> world=[&](const Id& id)->const Affine& {
+        if(const auto found=prospective.find(id);found!=prospective.end())return found->second;
+        if(const auto found=desired.find(id);found!=desired.end())return prospective.emplace(id,found->second).first->second;
+        const auto& transform=transforms.at(id);
+        const auto result=transform.effective_parent.empty()?transform.local:compose(world(transform.effective_parent),transform.local);
+        return prospective.emplace(id,result).first->second;
+    };
+    for(const auto& id:selected) {
+        const auto& transform=transforms.at(id);
+        const auto basis=transform.effective_parent.empty()?identity_matrix:world(transform.effective_parent);
+        auto ancestor=transform.effective_parent;bool inherited_motion=false;
+        while(!ancestor.empty()) {
+            if(selected.contains(ancestor)){inherited_motion=true;break;}
+            ancestor=transforms.at(ancestor).effective_parent;
+        }
+        // Every selected ancestor receives the same world displacement. Its
+        // effective descendants need no local rewrite (or singular inverse),
+        // even through intervening unselected objects. Keep their Scalars exact.
+        if(inherited_motion)continue;
+        const auto inverse=inverse_affine(basis);
+        // World translation never rewrites the linear matrix or Anchor. Solve
+        // only the local translation difference through the prospective basis.
+        const auto tx=transform.local[4]+inverse[0]*command.dx+inverse[2]*command.dy;
+        const auto ty=transform.local[5]+inverse[1]*command.dx+inverse[3]*command.dy;
+        set_changed_scalar(document,{id,"","transform.tx"},tx,values);
+        set_changed_scalar(document,{id,"","transform.ty"},ty,values);
+    }
+    const auto after=evaluate_transforms(document,evaluate_properties(document,&transform_refs));
+    for(const auto& [id,target]:desired)for(std::size_t i=0;i<target.size();++i)
+        require(transform_equal(after.at(id).world[i],target[i]),"TRANSFORM_PRESERVATION",
+            "Selected world translation changed through dependent bindings or numeric conditioning");
+}
 Document edited(const Document& document,const std::vector<Command>& commands) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
 
     auto candidate=document;
     for(const auto& command:commands) std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
-        if constexpr(std::is_same_v<T,CenterAnchor>) {
+        if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
+            require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
+            const auto values=evaluate(candidate);scalar_targets(candidate,c.targets,values);
+            if constexpr(std::is_same_v<T,EditProperties>)finite(c.value);
+            else if constexpr(std::is_same_v<T,LinkProperties>) {
+                require(values.contains(c.source),"MISSING_REFERENCE",c.source.object+"/"+c.source.point+"/"+c.source.field);
+                require(unit(c.source)==unit(c.targets.front()),"UNIT_MISMATCH","Link source and targets must share one scalar unit");
+            }
+            for(const auto& target:c.targets) {
+                prepare_point_edit(candidate,target);auto& scalar=lookup_property(candidate,target);
+                if constexpr(std::is_same_v<T,EditProperties>) {
+                    require(!scalar.binding,"DRIVEN_PROPERTY","Unlink explicitly before editing a driven property");
+                    scalar.literal=c.relative?values.at(target)+c.value:c.value;
+                } else if constexpr(std::is_same_v<T,LinkProperties>) {
+                    scalar.binding=Binding{c.source,1,c.relative?values.at(target)-values.at(c.source):0,"copy_local_value"};
+                } else scalar=Scalar{values.at(target),{}};
+            }
+        } else if constexpr(std::is_same_v<T,TranslateObjects>) {
+            translate_objects(candidate,c);
+        } else if constexpr(std::is_same_v<T,CenterAnchor>) {
             center_anchor(candidate,c.object,true);
         } else if constexpr(std::is_same_v<T,SetPosition>||std::is_same_v<T,TransformAroundAnchor>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);

@@ -95,12 +95,16 @@ downloaded by configure or the script.
 Add a Circle/Rectangle and adjust its parameters, create a Curve, or choose Draw
 Path and click anchors (Enter finishes).
 Drag anchors/handles; Alt-drag an anchor to create handles. Escape cancels a drag.
+Shift-click adds/removes objects or points; Ctrl/Shift extended selection in the
+tree uses the same selection. Dragging multiple objects or points is one Undo.
 Space-drag pans; wheel zooms; Fit frames the artboard. Groups select as a unit;
 double-click enters them and the breadcrumb returns. Inspector fields accept
 numbers and one-shot `+=`/`-=` adjustments. Right-click provides Copy Value,
 Copy Reference, Paste Value, Paste Link and explicit Unlink. Drag ↗ to a source
 field (hover Objects to inspect another source); click ↗ to search. General
-expressions, Polygon/Star and masks are subsequent slices.
+expressions and masks are subsequent slices. With multiple targets, common
+properties show Mixed; a number sets every target and `+=`/`-=` preserves each
+target's differences. Source picking freezes all targets and returns to them.
 
 Add Text creates an editable source. Use Edit text to compose Japanese or other
 Unicode content, then Apply for one undo step. Select font, writing direction,

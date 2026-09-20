@@ -370,6 +370,35 @@ remain a fixture. Polygon/Star source types are refused in older version envelop
 
 ## Native 0.9: Anchor and Transform Parent
 
+Multi-selection remains desktop view state, not native data. Batch scalar commands
+`edit_properties {targets:[Ref],value,relative}`, `link_properties {targets:[Ref],source,relative}`
+and `unlink_properties {targets:[Ref]}` take1..1000 unique scalar targets with one
+compatible unit. Each command resolves its initial values once. Absolute edits
+assign each target; relative edits add to each target's own starting value.
+Relative links retain each starting difference as an explicit offset; unlink
+freezes all starting evaluated values. Edits reject driven targets until explicit
+unlink. Duplicate aliases, units, cycles, ranges and unresolved topology fail the
+entire Session transaction. Sequential commands in one transaction still run in
+order; the snapshot boundary is each batch command.
+
+`translate_objects {objects:[id],dx,dy}` uses world-space displacement on1..1000
+unique objects in one Composition. A selected descendant/follower already moving
+through a selected effective ancestor keeps its local transform unchanged;
+selected effective roots solve their local translation. The final evaluated
+world matrices must equal the snapshot worlds plus the requested displacement.
+Changed driven fields, necessary singular inverses and binding-induced failure
+reject atomically. Unselected followers continue to follow normally.
+
+The desktop selects objects or points using Shift-click on Canvas and extended
+tree selection; these are distinct editing contexts. Common scalar rows show
+Mixed rather than an average. Matching stack rows use the same operation type at
+the same authored slot, resolving each actual instance to a stable Ref. Multiple
+point drags use each object's initial world inverse; generated points retain
+their source and receive normal Point Edit overrides. Selecting a source freezes
+the whole target set and Session revision; accept/cancel restores the selection.
+Typing a single value assigns all targets, `+=`/`-=` adjusts once, and a negative
+literal remains absolute. A mixed row cannot be copied as a single Value/Reference.
+
 Every Object stores `anchor:[Scalar x,Scalar y]` and `transform_parent:id|null`.
 Old files migrate to Anchor(0,0), null parent, with their exact six affine Scalars,
 references and placement retained. New GUI shapes explicitly Center Anchor once;

@@ -123,6 +123,10 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,SetPosition>)return "Set Position: "+name(c.object);
         else if constexpr(std::is_same_v<T,TransformAroundAnchor>)return "Transform around Anchor: "+name(c.object);
         else if constexpr(std::is_same_v<T,SetTransformParent>)return std::string(c.parent?"Attach Transform Parent: ":"Detach Transform Parent: ")+name(c.object);
+        else if constexpr(std::is_same_v<T,EditProperties>)return std::string(c.relative?"Adjust ":"Set ")+std::to_string(c.targets.size())+" properties: "+property_label(c.targets.front());
+        else if constexpr(std::is_same_v<T,LinkProperties>)return std::string(c.relative?"Relative link ":"Link ")+std::to_string(c.targets.size())+" properties from "+property_label(c.source);
+        else if constexpr(std::is_same_v<T,UnlinkProperties>)return "Unlink "+std::to_string(c.targets.size())+" properties: "+property_label(c.targets.front());
+        else if constexpr(std::is_same_v<T,TranslateObjects>)return "Move "+std::to_string(c.objects.size())+" objects: "+name(c.objects.front());
         else if constexpr(std::is_same_v<T,DeleteObjects>)return "Delete "+std::to_string(c.objects.size())+" object(s): "+name(c.objects.front());
         else if constexpr(std::is_same_v<T,ReorderObjects>)return "Reorder objects: "+name(c.parent.empty()?c.composition:c.parent);
         else if constexpr(std::is_same_v<T,AddArtboard>)return "Add Artboard: "+c.artboard.name;

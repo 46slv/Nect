@@ -228,11 +228,10 @@ void Canvas::refresh() {
 
         if (!scope_.empty() && (!world_.contains(scope_) ||
             document.objects.at(scope_).kind != Kind::group)) set_scope({});
-        if (!selected_object.empty() && !world_.contains(selected_object)) select({});
-        if (!selected_point.empty()) {
-            const auto* item = geometry(selected_object);
-            if (!item || !point(*item, selected_point)) select(selected_object);
-        }
+        auto retained=selections_;
+        std::erase_if(retained,[&](const auto& s){const auto* g=geometry(s.object);
+            return !world_.contains(s.object)||(!s.point.empty()&&(!g||!point(*g,s.point)));});
+        if(retained!=selections_)select_many(std::move(retained));
         if (!drawing_object_.empty() && !world_.contains(drawing_object_)) {
             drawing_object_.clear();
             drawing_contour_.clear();
@@ -316,15 +315,48 @@ void Canvas::set_scope(Id scope) {
 }
 
 void Canvas::select(Id object, Id point_id, bool enter_parent) {
-    if (!object.empty() && !world_.contains(object)) object.clear();
-    if (object.empty()) point_id.clear();
-    if (enter_parent) set_scope(object.empty() ? Id{} : parents_.at(object));
-    if (selected_object == object && selected_point == point_id) return;
-    if (object != gradient_object_ || !point_id.empty()) clear_gradient_edit();
-    selected_object = std::move(object);
-    selected_point = std::move(point_id);
+    select_many(object.empty()?std::vector<Selection>{}:std::vector<Selection>{{object,point_id}},enter_parent);
+}
+
+std::vector<Id> Canvas::selected_objects()const {
+    std::vector<Id> result;
+    for(const auto& item:selections_)if(std::find(result.begin(),result.end(),item.object)==result.end())result.push_back(item.object);
+    return result;
+}
+
+void Canvas::select_many(std::vector<Selection> items,bool enter_parent) {
+    std::vector<Selection> valid;
+    // Object and point selection are distinct editing contexts. The active
+    // (last) item determines the context, including extended tree selection.
+    const bool points=!items.empty()&&!items.back().point.empty();
+    for(const auto& item:items) {
+        if(!world_.contains(item.object)||(!item.point.empty())!=points)continue;
+        const auto* g=geometry(item.object);
+        if(points&&(!g||!point(*g,item.point)))continue;
+        if(std::find(valid.begin(),valid.end(),item)==valid.end())valid.push_back(item);
+    }
+    if(enter_parent)set_scope(valid.empty()?Id{}:parents_.at(valid.back().object));
+    if(valid==selections_)return;
+    if(valid.size()!=1||valid.back().object!=gradient_object_||!valid.back().point.empty())clear_gradient_edit();
+    selections_=std::move(valid);
+    selected_object=selections_.empty()?Id{}:selections_.back().object;
+    selected_point=selections_.empty()?Id{}:selections_.back().point;
     if (selection_changed) selection_changed();
     update();
+}
+
+void Canvas::set_selections(std::vector<Selection> items) {
+    cancel_interaction();
+    // Restoring frozen picker targets may return from another composition.
+    if(!items.empty()&&!world_.contains(items.back().object)&&session_.document().objects.contains(items.back().object))
+        set_selection(items.back().object,items.back().point);
+    refresh();select_many(std::move(items),true);
+}
+
+void Canvas::toggle_selection(Selection item) {
+    auto items=selections_;const auto found=std::find(items.begin(),items.end(),item);
+    if(found==items.end())items.push_back(std::move(item));else items.erase(found);
+    select_many(std::move(items));
 }
 
 void Canvas::set_selection(Id object, Id point_id) {
@@ -468,10 +500,11 @@ Canvas::Hit Canvas::hit_control(QPointF screen) const {
             return {Drag::gradient_end, gradient_object_, {}};
         return {};
     }
-    const auto* item = geometry(selected_object);
-    if (!item) return {};
+    for(const auto& object:selected_objects()) {
+    const auto* item = geometry(object);
+    if (!item) continue;
     const auto transform = item->world * view();
-    if (const auto* selected = point(*item, selected_point)) {
+    if (const auto* selected = point(*item, object==selected_object?selected_point:Id{})) {
         if (distance(transform.map(selected->anchor), screen) <= 5)
             return {Drag::anchor, item->id, selected->id};
         // Zero-length handles deliberately stay at their authored angle. Alt-drag
@@ -486,6 +519,7 @@ Canvas::Hit Canvas::hit_control(QPointF screen) const {
     for (const auto& p : item->points)
         if (distance(transform.map(p.anchor), screen) <= hit_radius)
             return {Drag::anchor, item->id, p.id};
+    }
     return {};
 }
 
@@ -530,8 +564,8 @@ void Canvas::paintEvent(QPaintEvent*) {
         }
         QRectF selected_bounds;
         for (const auto& item : geometry_) {
-            const bool selected = item.id == selected_object ||
-                std::find(item.ancestors.begin(), item.ancestors.end(), selected_object) != item.ancestors.end();
+            const bool selected = std::any_of(selections_.begin(),selections_.end(),[&](const auto& s){return item.id==s.object||
+                (s.point.empty()&&std::find(item.ancestors.begin(),item.ancestors.end(),s.object)!=item.ancestors.end());});
             if (!selected) continue;
             const auto transform = item.world * view();
             const auto screen_path = transform.map(item.path);
@@ -551,9 +585,9 @@ void Canvas::paintEvent(QPaintEvent*) {
                 painter.setPen(QPen(item.text_overflow?QColor("#f6a85b"):accent,1,Qt::DashLine));
                 painter.drawPolygon(outline);
             }
-            if (item.id != selected_object) continue;
+            if (std::none_of(selections_.begin(),selections_.end(),[&](const auto& s){return s.object==item.id;}))continue;
             if (gradient_control_ && item.id == gradient_object_) continue;
-            if (const auto* p = point(item, selected_point)) {
+            if (const auto* p = point(item, item.id==selected_object?selected_point:Id{})) {
                 painter.setPen(QPen(accent, 1));
                 const auto anchor = transform.map(p->anchor);
                 for (const auto handle_point : {p->incoming, p->outgoing}) {
@@ -566,9 +600,10 @@ void Canvas::paintEvent(QPaintEvent*) {
             }
             for (const auto& p : item.points) {
                 const auto screen = transform.map(p.anchor);
-                const auto size = p.id == selected_point ? 8.0 : 6.0;
+                const bool chosen=std::find(selections_.begin(),selections_.end(),Selection{item.id,p.id})!=selections_.end();
+                const auto size = chosen ? 8.0 : 6.0;
                 painter.setPen(QPen(p.driven ? linked : accent, 1.3));
-                painter.setBrush(p.id == selected_point ? (p.driven ? linked : accent) : QColor(250, 250, 250));
+                painter.setBrush(chosen ? (p.driven ? linked : accent) : QColor(250, 250, 250));
                 painter.drawRect(QRectF(screen.x() - size / 2, screen.y() - size / 2, size, size));
             }
         }
@@ -597,7 +632,7 @@ void Canvas::paintEvent(QPaintEvent*) {
             painter.drawText(end_screen + QPointF(10, -10), control.radial ? tr("Radius") : tr("End"));
         }
         if (!selected_object.empty() && document.objects.contains(selected_object) &&
-            document.objects.at(selected_object).kind == Kind::group && !selected_bounds.isNull()) {
+            (selections_.size()>1||document.objects.at(selected_object).kind == Kind::group) && !selected_bounds.isNull()) {
             painter.setPen(QPen(accent, 1, Qt::DashLine));
             painter.setBrush(Qt::NoBrush);
             painter.drawRect(selected_bounds.adjusted(-5, -5, 5, 5));
@@ -616,7 +651,7 @@ void Canvas::paintEvent(QPaintEvent*) {
             ? tr("Add Path · Click for points · Click first point to close · Enter / Esc to finish")
             : anchor_edit_ ? tr("Anchor · Drag the crosshair to change the pivot; artwork stays in place · Esc exits")
             : gradient_control_ ? tr("Gradient · Drag its handles · Esc cancels a drag / exits handles · Space-drag to pan")
-            : tr("Drag to move · Alt-drag point for handles · Space-drag to pan · Wheel to zoom · F to fit");
+            : tr("Shift-click adds/removes objects or points · Drag to move · Alt: handles · Space: pan · F: fit");
         painter.setPen(QColor(166, 174, 186));
         painter.drawText(QRect(14, height() - 30, width() - 100, 22), Qt::AlignVCenter,
                          painter.fontMetrics().elidedText(hint, Qt::ElideRight, width() - 110));
@@ -655,6 +690,7 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
     try {
         bool invertible = false;
         start_values_.clear();
+        point_starts_.clear();
         if (kind == Drag::gradient_start || kind == Drag::gradient_end) {
             if (!gradient_control_) return;
             drag_inverse_ = gradient_control_->world.inverted(&invertible);
@@ -666,12 +702,15 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
             start_anchor_={values_.at({selected_object,"","transform.anchor_x"}),values_.at({selected_object,"","transform.anchor_y"})};
             start_values_.emplace("transform.anchor_x",start_anchor_.x());start_values_.emplace("transform.anchor_y",start_anchor_.y());
         } else if (kind == Drag::object) {
-            const auto parent = transforms_.at(selected_object).effective_parent;
-            drag_inverse_ = (parent.empty() ? QTransform{} : world_.at(parent)).inverted(&invertible);
-            start_translation_ = {values_.at({selected_object, {}, "transform.tx"}),
-                                  values_.at({selected_object, {}, "transform.ty"})};
-            start_values_.emplace("transform.tx", start_translation_.x());
-            start_values_.emplace("transform.ty", start_translation_.y());
+            // The shared command solves the complete effective-parent graph so
+            // selecting an ancestor and its follower never translates twice.
+            drag_inverse_=QTransform{};invertible=true;
+            if(selections_.size()==1) {
+                const auto parent=transforms_.at(selected_object).effective_parent;
+                drag_inverse_=(parent.empty()?QTransform{}:world_.at(parent)).inverted(&invertible);
+                start_translation_={values_.at({selected_object,"","transform.tx"}),values_.at({selected_object,"","transform.ty"})};
+                start_values_.emplace("transform.tx",start_translation_.x());start_values_.emplace("transform.ty",start_translation_.y());
+            }
         } else {
             const auto* item = geometry(selected_object);
             const auto* p = item ? point(*item, selected_point) : nullptr;
@@ -684,6 +723,13 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
             start_out_angle_ = p->out_angle;
             for (const auto* field : {"x", "y", "in.angle", "in.length", "out.angle", "out.length"})
                 start_values_.emplace(field, values_.at({selected_object, selected_point, field}));
+            if(kind==Drag::anchor)for(const auto& selected:selections_) {
+                const auto* g=geometry(selected.object);const auto* selected_anchor=g?point(*g,selected.point):nullptr;
+                if(!selected_anchor)continue;
+                bool valid=false;const auto inverse=g->world.inverted(&valid);
+                if(!valid)throw Error("SINGULAR_TRANSFORM","Cannot drag points through a singular object transform");
+                point_starts_.push_back({selected,selected_anchor->anchor,inverse});
+            }
         }
         if (!invertible) throw Error("SINGULAR_TRANSFORM", "Cannot drag through a singular parent/object transform");
         session_.begin_gesture(session_.revision());
@@ -729,13 +775,17 @@ void Canvas::update_drag(QPointF screen) {
             const auto target=start_anchor_+local-press_local;
             set({},"transform.anchor_x",target.x());set({},"transform.anchor_y",target.y());
         } else if (drag_ == Drag::anchor) {
-            const auto target = start_anchor_ + local - press_local;
-            set(selected_point, "x", target.x());
-            set(selected_point, "y", target.y());
+            const auto world=view().inverted().map(screen),start=view().inverted().map(press_position_);
+            for(const auto& item:point_starts_) {
+                const auto delta=item.inverse.map(world)-item.inverse.map(start);
+                if(std::abs(delta.x())>1e-10)commands.push_back(Set{{item.target.object,item.target.point,"x"},item.anchor.x()+delta.x()});
+                if(std::abs(delta.y())>1e-10)commands.push_back(Set{{item.target.object,item.target.point,"y"},item.anchor.y()+delta.y()});
+            }
         } else if (drag_ == Drag::object) {
-            const auto target = start_translation_ + local - press_local;
-            set({}, "transform.tx", target.x());
-            set({}, "transform.ty", target.y());
+            const auto delta=local-press_local;
+            if(selections_.size()==1) {
+                const auto target=start_translation_+delta;set({},"transform.tx",target.x());set({},"transform.ty",target.y());
+            } else if(std::abs(delta.x())>1e-10||std::abs(delta.y())>1e-10)commands.push_back(TranslateObjects{selected_objects(),delta.x(),delta.y()});
         } else {
             const auto delta = start_handle_ + local - press_local - start_anchor_;
             const auto length = std::hypot(delta.x(), delta.y());
@@ -857,16 +907,26 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         return;
     }
     const auto hit = hit_control(event->position());
+    const bool extend=event->modifiers().testFlag(Qt::ShiftModifier);
     if (hit.kind != Drag::none) {
-        select(hit.object, hit.point);
+        const Selection chosen{hit.object,hit.point};
+        if(extend&&hit.kind==Drag::anchor){toggle_selection(chosen);event->accept();return;}
+        if(std::find(selections_.begin(),selections_.end(),chosen)==selections_.end()||hit.kind!=Drag::anchor)select(hit.object,hit.point);
+        else if(selections_.back()!=chosen){auto items=selections_;std::erase(items,chosen);items.push_back(chosen);select_many(std::move(items));}
         begin_drag(hit.kind == Drag::anchor && event->modifiers().testFlag(Qt::AltModifier)
                        ? Drag::symmetric : hit.kind, event->position());
     } else if (const auto* item = hit_path(event->position())) {
         const auto target = selection_target(*item);
-        select(target);
+        if(extend&&!selected_point.empty()&&target==item->id) {
+            for(const auto& p:item->points)if(distance((item->world*view()).map(p.anchor),event->position())<=hit_radius) {
+                toggle_selection({item->id,p.id});event->accept();return;
+            }
+        }
+        if(extend){toggle_selection({target,{}});event->accept();return;}
+        if(std::find(selections_.begin(),selections_.end(),Selection{target,{}})==selections_.end())select(target);
         if(!anchor_edit_)begin_drag(Drag::object, event->position());
     } else {
-        select({});
+        if(!extend)select({});
     }
     event->accept();
 }

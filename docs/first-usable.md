@@ -395,3 +395,52 @@ duplicate Canvas projection at commit was removed;80-Path point release fell
 from40.31ms to34.42ms, still over target. The two handle stalls remain visible.
 Before/after artifacts: build/canvas-benchmark-transform.json and
 build/canvas-benchmark-transform-release.json; this is not compositor timing.
+
+## Multi-selection and one-snapshot edits — 2026-09-20
+
+Core/API batch commands share one starting value snapshot for absolute/relative
+edits, absolute/relative links and freezing Unlink.274 focused checks cover
+atomic failures, aliases, units, driven fields, topology corrections, gestures,
+Undo, rotated parents and selected ancestors/followers moving exactly once.
+The transform dependency check also follows generated Polygon vertices through
+linked point counts and enabled/bypassed corrections. Full validation remains
+mandatory after the targeted transform evaluation optimization.
+
+Focused existing core/primitive/Polygon/transform/Canvas/Window/process/MCP and
+new UI tests passed. Tests exercise real Ctrl tree selection, Mixed rows,400 to
+all versus +=10 per target, frozen multi-target picker accept/cancel across
+Composition planes, driven refusal, save/reopen and multi-point/object gestures.
+The Inspector now keeps its scroll within the same editing context and hides
+advanced affine entries behind the same explicit disclosure as single selection.
+
+Actual Windows use selected Polygon and Star in a working copy of polystar-field.
+Their Center X280/680 became300/700 with +=20, then400/400 with an absolute edit.
+The entire readback differed only in those two intended literals. Automatic
+native and recovery matched exactly at revision2; each edit undid once and the
+complete migrated original returned at revision4. The0.8 example remained
+unchanged; the owned window closed normally. Receipt: build/batch-manual-receipt.json.
+
+Visible production Window on the previously recorded machine,893×824 Canvas,
+DPR1,90 paints/89 intervals, normal asynchronous protection. The representative
+scene has80 Paths/320 points with12 objects or points selected; the handle run
+edits one point. Both selected and unselected scene content is evaluated/rendered.
+
+| Operation | p50 ms | p95 interval ms | Max ms | >33.333ms | Release ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Pan | 16.03 | 17.01 | 17.27 | 0 | 0.02 |
+| Zoom | 16.08 | 17.19 | 17.85 | 0 | 0.00 |
+| 12-point drag | 22.82 | 28.61 | 31.87 | 0 | 20.01 |
+| Single handle | 26.88 | 29.65 | 36.08 | 1 | 29.32 |
+| 12-object translation | 23.47 | 29.93 | 30.71 | 0 | 25.32 |
+
+The2-Path/2-target scene had worst p9517.37ms, max18.28ms, no33.333ms intervals,
+and maximum release9.89ms. The30fps p95 and release budgets pass, while60fps and
+the single representative handle stall remain limitations. Initial multi-object
+translation p9548.20ms failed; resolving only affine roots and their dependencies
+through the existing evaluator reduced it to29.93ms. No cache or alternate
+transform evaluation semantics were added. One intervening measurement stopped
+with an interrupted gesture before reaching the representative scene; its cause
+was not established and the incomplete data is not a passing measurement.
+The subsequent run with better interruption diagnostics completed normally.
+Artifacts: build/canvas-benchmark-multi.json, build/canvas-benchmark-multi-transform-subset.json
+and build/canvas-benchmark-multi-transform-subset-observed.json.

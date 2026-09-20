@@ -425,6 +425,18 @@ Command read_command(const j::value& v) {
     if(type=="center_anchor") {
         keys(o,{"type","object"});return CenterAnchor{text(o.at("object"))};
     }
+    if(type=="edit_properties"||type=="link_properties"||type=="unlink_properties") {
+        if(type=="edit_properties")keys(o,{"type","targets","value","relative"});
+        else if(type=="link_properties")keys(o,{"type","targets","source","relative"});
+        else keys(o,{"type","targets"});
+        std::vector<Ref> targets;for(const auto& target:o.at("targets").as_array())targets.push_back(read_ref(target));
+        if(type=="edit_properties")return EditProperties{std::move(targets),number(o.at("value")),o.at("relative").as_bool()};
+        if(type=="link_properties")return LinkProperties{std::move(targets),read_ref(o.at("source")),o.at("relative").as_bool()};
+        return UnlinkProperties{std::move(targets)};
+    }
+    if(type=="translate_objects") {
+        keys(o,{"type","objects","dx","dy"});return TranslateObjects{ids(o.at("objects")),number(o.at("dx")),number(o.at("dy"))};
+    }
     if(type=="set_position") {
         keys(o,{"type","object","x","y"});return SetPosition{text(o.at("object")),number(o.at("x")),number(o.at("y"))};
     }

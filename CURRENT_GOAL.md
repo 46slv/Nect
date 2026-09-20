@@ -1,8 +1,8 @@
-# Practical alpha Mission — multi-selection and batch editing
+# Practical alpha Mission — expression authoring next
 
 ## Active Mission checkpoint — 2026-09-20
 
-Checkpoint after `4247ebe`: native0.9 Anchor and Transform Parent are integrated.
+HEAD `3eb86e0`: native0.9 Anchor and Transform Parent are integrated.
 Shared effective-parent transforms, position/relative rotation/scale commands,
 keep-world attach/detach, cubic/stack/Text bounds and GUI Anchor tool/picker use
 the same Session. All23 CTest entries passed (25.21s); after precision/focus and
@@ -21,9 +21,39 @@ Receipt: build/transform-manual-receipt.json. Visible benchmark meets30fps p95;
 Removing duplicate Canvas projection reduced point release from40.31ms, but the
 release target and lightweight60fps target remain unmet. See first-usable evidence.
 
-Next safe action: add multi-object/point selection and compatible batch property
-editing, keeping mixed values visible and relative edits based on one snapshot.
-The worker has handed back all files and is idle; parent owns builds/integration.
+Checkpoint after `3eb86e0`: multi-object/point Canvas/tree selection, common scalar Inspector,
+one-snapshot Edit/Link/UnlinkProperties and effective-parent-aware TranslateObjects,
+frozen target-set picking/pick-whip, IO/MCP and focused core/UI tests. Initial
+syntax/test event-loop issues were repaired. Batch core, Canvas, existing
+Window/transform, process and formal MCP checks passed; final Inspector polish
+passed three focused UI checks (3.90s). Actual polystar working-copy UI selected
+Polygon+Star: Center X280/680→+=20→300/700→400→400/400, exact API/native/recovery
+readback, two one-step Undos to the exact original, source untouched, app closed.
+Receipt: build/batch-manual-receipt.json.
+
+Initial performance failed and was repaired:
+build/canvas-benchmark-multi.json measured80 Paths/320 points with12 selected.
+Point p9526.41ms and handle27.55ms meet30fps, but multi-object translation
+p9548.20ms fails (all89 intervals >33.333ms). Paint itself is only~3ms; extra
+time preceded paint. TranslateObjects now resolves affine roots and dependencies
+through the same property evaluator without eagerly visiting unrelated fields;
+the final complete candidate validation remains mandatory. Generated-point,
+linked-count and bypassed-correction dependency checks pass. Final focused core,
+primitive, transform, batch, Canvas/Window, cross-composition picker, process and
+MCP checks passed (10 checks10.80s plus the repaired batch fixture's274 checks).
+No production failure was waived; test-only correction identity was fixed.
+
+Completed visible measurement:80 Paths/12 selected, point p9528.61ms, handle29.65ms,
+translation29.93ms; maximum release29.32ms. The30fps floor passes; one handle
+interval36.08ms and unmet60fps target remain. An earlier attempt was interrupted
+during a gesture and is retained as incomplete, not counted as a successful run.
+Artifacts: build/canvas-benchmark-multi-transform-subset-observed.json and the
+earlier incomplete build/canvas-benchmark-multi-transform-subset.json.
+Worker is idle/read-only after an expression integration map; no app/build active.
+Next safe action: implement bounded pure expression authoring through Scalar and
+the existing dependency visitor, then native migration/API and numeric-row UI.
+Use stable-ID references, explicit driven-source replacement and bounded parsing;
+no scripting runtime, filesystem/network/process access or second document model.
 Masks/group compositing, assets, expressions, local operators and inherited
 template content remain required. This checkpoint is not alpha completion.
 
