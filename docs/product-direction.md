@@ -1,72 +1,134 @@
 # Product direction — implementation extract
 
-Reviewed: 2026-09-20. This is a small, versioned extract for agents without Notion access, not a second full requirements database. Product discussion remains in the Notion hub linked by README. Current work is selected by CURRENT_GOAL.md; this document does not authorize the whole roadmap.
+Reviewed: 2026-09-20, including the 25-answer interaction interview. This is a scoped extract for agents without Notion access, not a second requirements database. Notion retains product discussion and evidence. CURRENT_GOAL.md selects implementation work; acceptance of a direction here does not add the whole roadmap to M1.
 
-## The product to optimize for
+## Product and evidence boundaries
 
-Make editable, non-destructive **2D graphics** quick to create and revise. Direct Bézier editing, AE-like shape operations and compositing/node capabilities should reinforce that workflow rather than become separate applications.
+Make editable, non-destructive **2D graphics** quick to create and revise. Direct editing, AE-like shape operations and compositing/node capabilities support that workflow rather than becoming separate applications.
 
-Illustrator/Photoshop interoperability, API/MCP and optional Resolve integration remain product goals. They do not require building a complete Photoshop, animation editor, Blender Geometry Nodes implementation, print RIP and plugin marketplace before the editor is usable.
+Illustrator/Photoshop interoperability, API/MCP and optional Resolve integration remain goals. They do not require a complete Photoshop, animation editor, Geometry Nodes implementation, print RIP or marketplace before the editor is useful.
 
-## Intent, trial decisions and implemented capability are different
+- Required behavior includes addressable point/handle controls, source-preserving edits, cross-property links, useful text, masks/effects, standalone authoring and API/MCP.
+- The standard still-graphics workspace has **no timeline, playhead, time ruler, clip lanes, video transport or timecode** (Notion REQ-178).
+- Canvas center / structure left / contextual Inspector right / optional deep editors is a trial layout, not a persistence contract.
+- M0 implements Group/Path objects, scalar properties, limited bindings, native JSON and an SVG subset. General operators, fields, instances, full expressions and the UI described below are not implemented by this document.
 
-- Required behavior: stable point/handle controls, non-destructive editing, cross-property links, useful text, masks/effects, standalone authoring and API/MCP.
-- Current UI constraint: **no timeline, playhead, time ruler, clip lanes, video transport or timecode in the standard still-graphics workspace** (Notion REQ-178).
-- Trial layout: Canvas center, structure browser left, contextual Inspector right; deep editors are opened when needed. Position, size and residency are adjustable hypotheses, not file-format constraints.
-- Current implementation: M0 Group/Path objects, scalar properties and simple bindings, native JSON and SVG subset. There is no implemented general operator/instance/field system yet. Consult code and capabilities for exact support.
+AE is a behavioral reference for shape operations, properties, effects, blend modes and equivalent shortcuts, not a requirement to copy its timeline workspace. The user explicitly favors expert power over beginner simplification and may be the only user. That does not waive safety, data integrity, responsiveness or repository/distribution permissions.
 
-AE is a reference for shape operations, property editing, effects, blend modes and equivalent shortcuts, not a requirement to copy its timeline-oriented workspace.
+## Instantiate, then parameterize
 
-## Creation preference — instantiate, then parameterize
+**Accepted, interview 1–2, 16–17:** Circle, Rectangle, Polygon and Star use Add -> valid primitive -> parameter editing. Drag-creation may be an optional accelerator, not the default or required creation path. Initial placement/size remain tunable UI details.
 
-For parametric primitives, Nect should prefer **instantiate first, then edit parameters** over forcing a draw gesture to define initial geometry.
+Text similarly starts with Add Text. Prefer one editable Text model with switchable layout modes (such as auto-sized versus constrained frame), preserving content, styles and references. Do not require drawing a text box first. For gradients, parameter editing is primary and Canvas handles provide supplementary adjustment.
 
-The user's strongest explicit example is Circle:
-- Add Circle immediately creates a valid parametric circle.
-- Center X/Y and Radius/Diameter are editable in the Inspector, by scrub/numeric input, and optionally by Canvas handles.
-- Click-drag creation may exist as an accelerator, but is not the default or only path.
-- Initial placement/size heuristics are prototype details; changing them must not require a different Circle object type.
+## Parametric source plus direct corrections
 
-This is a durable interaction preference, not a one-off shortcut request. Whether Rectangle/Polygon/Star should default to the same model is evaluated from real use rather than assumed.
-
-## Color workflow — value first, sampling second
-
-Treat Color as a first-class value surface rather than making Eyedropper the primary transfer metaphor.
-
-Candidate Color row:
+**Accepted, interview 1:** arbitrary point/handle edits on a generated shape automatically add or reuse a visible downstream Point Edit / Path Deform operation. Retain the generator and its parameters:
 
 ```text
-Fill   [swatch]  #4A73FF   [Copy] [Paste] [History] [Derive]
+Circle(center, radius)
+    -> generated path
+    -> authored point/handle corrections
+    -> ordered shape/appearance processing
 ```
 
-- Known colors move by textual copy/paste.
-- Sampling/Eyedropper acquires unknown visual colors from the Canvas/raster and writes into the same Color model/history.
-- Recent colors, document-authored colors, and user-pinned colors are separate scopes.
-- Nect-to-Nect clipboard should support a structured color payload in addition to text/plain so alpha, color space/profile and future spot metadata are not needlessly lost.
-- Hex is a convenient sRGB representation, not the universal color authority. Do not silently collapse CMYK/Lab/Spot/profiled colors to Hex.
-- Complement/analogous/triadic/tint/shade can be derived candidates. The chosen color space and gamut mapping must be explicit before these become canonical behavior.
-- A future linked derived color should use the normal property/reference model rather than a separate color-only dependency engine.
+Radius remains editable and disabling the correction restores the generator result. A direct gesture that deliberately edits the radius/center control still changes that source parameter. Do not silently convert the primitive or ask for destructive conversion on every ordinary point edit.
 
-This direction keeps Eyedropper useful without forcing every color transfer through a tool gesture.
+The correction is explicit authored data, not a second authoritative copy of all evaluated anchors. Its IDs, coordinate space and delta/override semantics must be defined when implemented. A radius change with stable topology is not the same problem as changing a Star's point count. Report unmapped corrections rather than reassigning them by list index or promising arbitrary topology-independent editing.
+
+Convert to Path remains an explicit optional operation. It must inspect references to generator-only properties and report/remap/freeze according to the chosen conversion contract; retaining object identity alone does not preserve Radius references.
+
+## Ordered Shape stack and expert power
+
+**Accepted, interview 3–4:** multiple Fill/Stroke entries and movable path/paint/repeat operations. Ordering and group scope are authored parts of the result. Do not impose a fixed Geometry -> Repeat -> Paint sequence merely to simplify the UI.
+
+Use AE behavior for corresponding operations, including Repeater's scope over preceding paths/strokes/fills. AE path operations and paint operations have different evaluation-order rules; a linear list is not necessarily a naive sequence of image filters. Repeater before versus after paint can change compound-path versus individually painted copies. Type-incompatible operations and unsupported behavior must be explicit, not silently aliased.
+
+Primary reference: https://helpx.adobe.com/after-effects/desktop/drawing-painting-and-paths/shapes-and-shape-attributes/shape-attributes-paint-operations-path.html
+
+## One property row for values, links and expressions
+
+**Accepted, interview 5–8:** numeric fields accept expression text, and grow into an inline multiline editor when two or more lines are entered/pasted. Keep the compact numeric/scrub presentation for ordinary values, and distinguish expression source from its evaluated result. Expansion limits, confirmation keys and collapse behavior are prototype details.
+
+A multi-selection absolute edit sets each selected compatible property to that value; it does not move the selection bounds center. A relative edit preserves per-target differences. Example: 100/200/300 -> set 400 -> 400/400/400; relative +10 -> 110/210/310.
+
+**Syntax proposal, not a finalized language:** allow +10 as a relative-edit shorthand and explicit +=10 / -=10 forms; keep a negative literal such as -20 distinguishable from subtraction. A one-shot relative command reads the initial values once and commits atomically; it is not a persistent self-reference. An explicit expression mode/prefix can disambiguate literal arithmetic from a live formula.
+
+Keep draft text separate from committed authored state. Incomplete expressions, IME composition, type/unit failures and evaluation errors must not replace valid data with zero. Preserve/show the last valid preview as such. Do not silently unlink a driven property when typing a value; provide an explicit replacement or offset-edit action. Accepting text does not grant filesystem/network/process authority to the expression evaluator.
+
+## Source selection without losing targets
+
+**Accepted, interview 6–7:** Pick Source / pick-whip freezes the target property set while the user inspects another object/group/effect. Choosing a source returns to those targets; cancel restores the prior editing context.
+
+Provide Copy Value / Copy Reference and Paste Value / Paste Link. Absolute Link and Relative Link are separate: the latter preserves each target's current difference as an explicit offset. Apply compatible targets in one undoable transaction; report incompatible units/types/spaces instead of guessing conversions.
+
+A searchable property palette shows object path, property name, type/unit and relevant value. Human-readable names are discovery aids; confirmed references resolve to stable IDs. Property search is not only an object-name search. Mixed values remain visibly mixed, not an invented average.
+
+## Groups, parenting, anchors and masks
+
+**Accepted, interview 9–12:** a Group behaves as one selectable/transformable object by default, with deliberate drill-in and a visible breadcrumb/return path. Creation initializes its Anchor to the current center; later child changes do not recenter it. Anchor remains editable through an Anchor Point tool and Inspector, with an explicit Center Anchor command. Derived bounds center and authored pivot are different properties.
+
+Keep Structure hierarchy (ownership/order/effect scope), Transform Parent (following), Collection membership and property dependencies distinct. Mask follow uses Transform Parent; no mandatory special mask-only following engine. Before implementing external parenting, define how it replaces/composes with structural transforms so transforms are not applied twice.
+
+Mask With Top / Mask With Bottom / Put Inside belong in the context menu. Identify the source/targets from paint order rather than an unexplained last-click rule and show the intended operation. Keep access through the same semantic commands.
+
+Normal render visibility and use-as-mask-source are independent. With the target selected, show the hidden mask's faint editable outline when requested. It is a viewport overlay, not exported artwork, and must not turn ordinary source visibility on. Editing it targets the real mask source through the normal commands.
+
+For Group-level effects, evaluate child geometry/appearance/effects first, composite the necessary child result, then apply Group processing. A neutral Group should avoid unnecessary isolation. Pass Through/Isolated blend semantics still require fixtures; Transform Parent does not define effect scope. Coordinate-preserving reparenting does not guarantee arbitrary mask/blend/effect appearance preservation.
+
+## Ordered Artboards and editable templates
+
+Artboard remains an output frame, not an object parent. It belongs to a Composition's coordinate plane; do not conflate separate Compositions into one implicit global plane. Objects may cross frames or sit outside them. Frame move/resize alone must not silently move artwork.
+
+**Accepted delegation, interview 15:** prefer an ordered navigator and tidy automatic presentation/placement over free positioning as the main workflow. A grid/list with deliberate page/export order is the initial proposal. Navigator rearrangement, export order and actual frame coordinates are different. Relocating real frames can change crops; show that effect and make content-moving operations explicit. Do not silently reorganize artwork merely to tidy thumbnails.
+
+**Accepted scope, interview 13–14:** Artboard Templates may provide size/orientation, margins, grid, guides, background, logo, header/footer, page numbers and placeholders. These are optional composable settings/content entries, not a monolithic template engine or a requirement to implement them all in M1.
+
+Overrides are per attribute: moving a template logo locally preserves its placement while changes to the source geometry and other inherited attributes propagate. Distinguish Reset Override from Detach. Source item deletion/identity changes need an explicit conflict policy, not silent retargeting. Reuse the shared definition/reference machinery where appropriate.
+
+References:
+- https://helpx.adobe.com/indesign/desktop/create-and-organize-pages/create-and-manage-parent-pages/about-parent-pages.html
+- https://helpx.adobe.com/indesign/desktop/create-and-organize-pages/create-and-manage-parent-pages/manage-parent-items.html
+
+## Color values, inventories and shared references
+
+Known colors should be directly editable/copyable as values. Sampling/Eyedropper remains useful for acquiring an unknown visual color, not as the only transfer method.
+
+**Accepted, interview 18–19:** distinguish Document Used Colors (an inventory of actual document usage) from Copied Color History (explicit copy events, opened through a compact history button). User-pinned and document-authored named colors are separate scopes. Do not record every hover/scrub intermediate or monitor unrelated clipboard contents.
+
+Global/Named Color is a normal typed Color property with stable references. Changing it updates only the Fill/Stroke/gradient stops or other properties that explicitly reference it. Equal HEX values do not imply shared identity. Copy Value creates an independent value; Copy Reference/Paste Link preserves linkage.
+
+Keep color-space/profile/alpha information. A structured Nect clipboard payload may accompany text/plain; HEX is not a universal representation of CMYK/Lab/Spot or all profiled colors. Do not silently discard richer color data. Complement/analogous/triadic/tint/shade remain candidate derived operations pending color-space/gamut decisions; use the ordinary dependency model, not a second color-only engine.
+
+## Reuse, resources, history and recovery
+
+**Interview 22:** favor Composition/Group/graph-source reuse over adding an unrelated Symbol system. One definition may be referenced by many placements, with explicit instance differences. The graph is an authoring surface, not something the user must wire merely to place another logo. Referenced authoring definitions and context-dependent rendered results are not automatically the same cache.
+
+**Accepted, interview 23:** distinguish Linked and Embedded assets. Linked provides change detection, Reload and Relink; Embedded retains self-contained asset bytes. No default mode was selected by this answer. Show missing/changed/version state; a normal native save does not preserve every historical version of an external linked file.
+
+**Accepted, interview 21:** History lists meaningful operations and can return to any retained state. Prefer a useful long history within measured memory/disk budgets; do not store unbounded full-document snapshots. Non-destructive structure preserves editable sources/settings, History restores earlier decisions/deletions/links, and backups recover durable prior states. They are complementary. Cross-restart history and branching are not implied requirements.
+
+**Accepted goal, interview 24:** dependable DaVinci-like saving, interpreted as continuous protection of committed edits, visible pending/saved/failed status, versioned backups and recovery after abnormal exit. Live save can also save mistakes, so it cannot replace History or backups. Manual Save/Save As and recovery access remain discoverable.
+
+Only a known durable revision may be labelled saved. Keep incomplete input drafts separate; protect unnamed documents with a recovery location. Do not destroy the last good file before its replacement is safe. Test interrupted writes, disk/permission failures and actual restore, rather than judging reliability from a successful Save call. Save/recovery work must not block interactive gestures. Choose cadence, retention and bounded recovery-loss behavior when implementing persistence; do not promise perfect recovery from every storage or hardware failure.
+
+Inspiration, not a reliability guarantee: https://www.blackmagicdesign.com/products/davinciresolve/collaboration
 
 ## Automation-first testability
 
-Nect should be operable semantically without a person driving the mouse. GUI, API and MCP are clients of the same edit model; the machine surface is a product capability, not a test-only backdoor.
+GUI, API and MCP are clients of the same edit model. The machine surface is a product capability, not a test-only backdoor. Astra/CI should create/open temporary documents, add/delete/reorder/group objects, edit/link/unlink properties, save/reopen, undo/redo, evaluate and render/export through real semantic commands and stable IDs.
 
-Astra/CI should eventually be able to create/open a document, add/delete/reorder/group objects, edit/link/unlink properties, save/reopen, undo/redo, evaluate, render/export and inspect the result through stable IDs and machine-readable receipts. A deterministic seeded scenario may perform many such operations and verify revisions/invariants without GUI event replay.
+Seeded scenarios should verify revisions, state and errors without requiring a person to perform every action. Do not create a second automation document model. Unsupported capabilities are explicit; mouse simulation is not a silent replacement for a missing semantic API.
 
-This does **not** mean every pixel of UI quality can be proven without a human. Semantic correctness, persistence, automation and many performance regressions can be exercised headlessly; discoverability, comfort and visual judgement still need UI evidence when those are the question.
-
-Do not build a second automation document model. Unsupported GUI/API/MCP capability must be explicit instead of silently falling back to mouse simulation.
+Headless checks do not establish every aspect of UI quality or displayed frame timing. Use real GUI/viewport evidence where that is the question; human review can focus on comfort and artistic preference rather than routine correctness checks.
 
 ## Compositing baseline
 
-After Effects' current blend-mode vocabulary and semantics are the compatibility target for Nect's final compositing model where applicable. The target set includes:
-
+After Effects' blend-mode vocabulary and semantics are the compatibility target where applicable:
 - Normal: Normal, Dissolve, Dancing Dissolve
 - Darken: Darken, Multiply, Color Burn, Classic Color Burn, Linear Burn, Darker Color
 - Lighten: Add, Lighten, Screen, Color Dodge, Classic Color Dodge, Linear Dodge, Lighter Color
-- Contrast/complex: Overlay, Soft Light, Hard Light, Linear Light, Vivid Light, Pin Light, Hard Mix
+- Contrast: Overlay, Soft Light, Hard Light, Linear Light, Vivid Light, Pin Light, Hard Mix
 - Difference: Difference, Classic Difference, Exclusion, Subtract, Divide
 - HSL: Hue, Saturation, Color, Luminosity
 - Matte: Stencil Alpha/Luma, Silhouette Alpha/Luma
@@ -74,83 +136,68 @@ After Effects' current blend-mode vocabulary and semantics are the compatibility
 
 Source: https://helpx.adobe.com/jp/after-effects/desktop/work-with-layers/work-with-layer-blending-modes/blending-modes-layer-styles.html
 
-This is a compatibility target, not an M1 promise that every mode is already implemented. Time-dependent modes, alpha behavior, working color space and higher-bit-depth behavior need fixtures; never silently alias an unsupported mode to another one.
+This is a product target, not full M1 coverage. Time context, alpha representation, working color space and bit depth need fixtures. Never silently alias unsupported modes.
 
 ## Artboard interaction performance
 
-The Artboard/Canvas should feel unusually light. The minimum practical interaction contract is **30 fps** on a defined reference machine + representative scene after warm-up, measured as p95 frame interval <= 33.3 ms for pan, zoom, point/handle dragging and basic object transforms. Common lightweight scenes target 60 fps.
+Minimum practical interaction target: **30 fps** on recorded reference hardware and a representative warm scene, with p95 frame interval <=33.3 ms during pan/zoom/point-handle drag/basic transforms. Lightweight scenes target 60 fps. Record viewport size/DPI, scene/revision and the measurement boundary; average FPS or headless evaluation speed alone does not prove responsiveness.
 
-Use machine-readable frame timing so Astra/CI can reproduce regressions from seeded fixtures. Average fps alone is insufficient if large stalls remain.
+Heavy operations may use visibly provisional preview quality, but final/export output is tied to known inputs/revision and must not silently change seed or layout. Profile the real hot path before adding broad caching/workers. Instrumentation should not itself dominate that path.
 
-If a heavy effect/operator requires an interactive preview, lower preview quality explicitly while editing and return to the committed/final quality deterministically. Do not freeze input while waiting for export-quality evaluation, and do not let export silently produce a different random/layout result.
+## UI priorities across experiments
 
-Do not prebuild elaborate caching/worker systems solely for the target. Measure the real hot path first, then add dirty-region/cache/background work where the evidence warrants it.
+**Accepted, interview 20, 25:** Snap has ON/OFF and a gentle default attraction. Tune its screen-space tolerance through use; do not snap an exact API numeric edit unless explicitly requested.
 
-## UI direction worth retaining across experiments
+Reduce tool switching and repetitive hierarchy expansion without hiding structure. Test contextual controls, clear grouping, property search, pinned controls and breadcrumbs. Simple operations must not require building a graph. Preserve discoverability through GUI commands; shortcuts remain accelerators.
 
-Property rows need precise numeric entry and continuous adjustment where appropriate. A dial, slider, XY control, curve or custom editor is a presentation of a property, not a new property owner. Schema-driven basic controls are a fallback, not a prohibition on purpose-built UI.
+Use neutral low-noise surfaces, restrained accents and subtle proximity feedback without moving hit targets. Panel width, order, density, icons, control widgets and motion remain replaceable UI hypotheses. Numeric precision and expressive controls can coexist. Schema-generated basic rows are a fallback, not a ban on bespoke controls.
 
-Keep the selected point/handle context legible. Panel rearrangement must not change the authored document, references or undo history. Selection, viewport, workspace and temporary gesture state are not extra persistent geometry.
+Keep grid/margin/guide/snap utilities near Canvas. Separate visibility toggles, direct-edit modes and detailed setup. Changing a grid definition does not automatically reflow existing artwork; a deliberate alignment/reflow command can do that.
 
-Grid, margin, guide and snapping utilities belong near the Canvas. Separate fast visibility toggles, direct-edit modes and detailed setup. Changing a grid definition does not implicitly reflow, move or clip existing artwork. An explicit alignment/reflow command may do that.
+## Three surfaces, one processing definition where semantics match
 
-Keep routine functions discoverable without hover-only state or mandatory shortcuts. Use restrained neutral surfaces, limited accents and subtle proximity feedback without moving hit targets. Exact spacing, residency, control choice and motion require hands-on trials; no generated mockup has authority over implemented behavior.
+Direct Canvas/Inspector editing, shape-local stacks and node graphs are different views/workflows, not independently mutable processing engines. Share operator definitions/evaluation when equivalent. Only representable linear subgraphs need a stack view; keep other graphs opaque as a Macro or open the graph rather than discard connections.
 
-## Three authoring surfaces, not three engines
+A Preset configures values, a Macro packages a graph with published parameters, and an Action records commands. Do not turn these into three unrelated scripting runtimes.
 
-1. Direct Canvas/Inspector editing of authored points and properties.
-2. A shape-local stack for convenient linear operations such as a repeater or offset.
-3. A graph for branching, multiple inputs, collections and deeper effect construction.
-
-Reuse operator definitions and evaluation rules when their semantics actually match. Do not maintain separately editable stack and graph copies and attempt bidirectional synchronization. A stack may present a representable linear part of a graph; an arbitrary branching graph need not convert into a stack. Keep it opaque or open the graph rather than discard connections.
-
-A preset configures values; a Macro packages a graph with published parameters; an action records editing commands. These are related reuse tools, not synonyms or three general scripting engines.
+The minimal operator contract is stable type/version, accepted input/output domain, normal property parameters, evaluation without document mutation, stable instance identity and declared bypass behavior. Optional Canvas handles are presentation. Add PointSet/Field or stateful/time-dependent contracts when real operators require them, not as empty scaffolding now.
 
 ## What to prove next
 
 | Work | Timing / boundary |
 |---|---|
-| Real path creation, selection, point/handle edits, one-gesture undo, save/reopen, SVG | M1 manual loop first; use it before UI is polished |
-| Script the same semantic create/edit/save/undo path through the command/API surface | Build alongside the manual loop so automated stress/readback is possible |
-| Whip/name binding and formal MCP driving the same live Session | Remaining M1 acceptance, not a prerequisite to the first manual trial |
-| Instrument the reference M1 Canvas interaction and demonstrate >=30 fps p95 floor | M1 performance acceptance; record machine/scene/timing |
-| One local repeater, fill/style and a saved radial design | Next small procedural slice selected explicitly; no full node editor required |
-| A simple explicit hard mask plus overlapping objects | A focused compositing/UX slice; no full PSD writer required |
-| Region scatter and circles/ellipses from per-item values | Following slice once generated identity/domain semantics are defined |
-| Packing, membrane generation, full fields and per-instance overrides | Separate experiments driven by results; not cheap UI additions |
-| Full AE blend-mode coverage, AI/PSD round-trip, OpenFX host, production typography/color/print | Dedicated capability work with fixtures; small risk probes may run earlier |
-| RAW, generative providers, 3D assistance, PDF/VT, imposition, marketplace | Backlog unless a current goal explicitly selects one |
+| Real path creation/selection, point/handle editing, gesture Undo/Cancel, save/reopen, SVG | M1 manual loop first; use it before UI polish |
+| Same semantic operations via machine commands, seeded readback | Build beside the manual loop |
+| Whip/name links and formal MCP to the same live Session | Remaining M1 acceptance |
+| Actual Canvas timing on a recorded reference fixture/machine | M1 performance evidence |
+| One local repeater, fill/style and a radial design | Explicitly selected next procedural slice, not a full node editor |
+| Simple mask and overlap examples | Focused compositing/UX slice, not full PSD |
+| Point distribution and shape instances | Later slice with generated identity/domain contracts |
+| Packing, membrane, full fields, per-instance overrides | Separate experiments, not cheap UI-only additions |
+| Complete blend coverage, AI/PSD, OpenFX, production text/color/print | Dedicated capability work; early small risk probes allowed |
+| RAW, generative providers, 3D assistance, PDF/VT, imposition, marketplace | Backlog unless explicitly selected |
 
-The table is a sequencing guide, not a promise that every row is mandatory or equally easy.
+Approved interview answers refine behavior; they do not silently add every row to CURRENT_GOAL.
 
-## Reference tasks and corrections
+## Reference tasks and cautions
 
-**Radial ornament.** Start with a manually authored filled Bézier motif and repeated transforms. A dedicated Spark generator is optional. Preserve source edits, change count/spacing, and save/reopen. A changed count may require an explicit fit-to-arc versus fixed-step rule and may not preserve a six-step pattern at the seam.
+**Radial ornament:** begin with an authored motif and repetition. A dedicated Spark generator is optional. Changing count needs an explicit fit-to-arc versus fixed-step rule; a periodic style sequence may not close at every count.
 
-**Bubble/membrane graphic.** The supplied image is a desired visual result, not evidence of how it was made. Overlapping rings, local connectors, mask/field processing and packing are alternative recipes. Do not mandate non-overlap or a physical solver from the image alone. First try editable circles/ellipses and explicit proximity controls. If packing uses per-item radii/aspect, assign those before solving. A filled-disc union that removes all white interiors does not match a hollow-ring target.
+**Bubble/membrane:** the image specifies a visual target, not its manufacturing method. Rings, connectors, masks/fields and packing are alternative recipes. Do not mandate non-overlap. If packing depends on per-item radii/aspect, assign them before solving. A union of filled discs that removes white interiors is not automatically the desired membrane result.
 
-**Mask interaction.** Prefer explicit source/target selection over hidden adjacency requirements. Still define coordinate space, source visibility, evaluation stage, mask mode and cycle handling before calling it correct. An explicit reference is not the entire compositing contract. PSD clipping groups may require grouped blend/opacity semantics and cannot always be translated to independent alpha multiplications.
+**Masks:** explicit references still need spaces, evaluation stages, visibility and dependency semantics. PSD clipping groups can require grouped blend/opacity behavior, not just independent alpha multiplication. Check representability rather than blindly restructuring layers.
 
-Reference images remain research inputs; do not add private or unlicensed image bytes to this public repository. Synthetic fixtures may exercise the same behavior without claiming exact reconstruction.
+Use synthetic fixtures unless rights permit storing the original references. Do not add private images, fonts or plugin binaries to this public repo.
 
-## Corrections to earlier extensibility claims
+A shared Inspector/Add menu does not implement a new evaluator/domain. Authored identity, generated identity and index differ; a seed alone does not preserve per-element values after topology changes or across algorithm versions. A field is evaluated in a domain/context and is not merely a scalar with a longer list. Non-destructive editing is not a promise of unlimited history or arbitrary inverse topology conversion.
 
-- A searchable Add menu and generic Inspector make discovery/presentation extensible; they do not implement new value domains, evaluators or solvers.
-- Authored stable IDs, generated element identity and transient list indices are distinct. A seed alone does not guarantee stable per-item values after topology/order changes. Define generator identity and algorithm-version behavior when that slice starts.
-- A per-item field is evaluated in a domain/context. It is not just an ordinary scalar binding with a longer list of values. Do not prebuild a general field engine for M1.
-- Preview and final quality must not silently change the committed layout or random seed. Any provisional result is visibly provisional; export selects a known revision and declared quality.
-- Non-destructive authoring does not make arbitrary topology changes reversible. Offer an explicit editable copy or scoped override with visible invalidation, not a hidden destructive conversion or a promise of infinite undo.
+## Change policy and references
 
-## Change policy
+Preserve data meaning and user work, not every M0 class, widget or proposed feature name. ARCHITECTURE.md owns change/persistence boundaries; docs/first-usable.md owns M1 acceptance. Prefer focused refactoring/migration over a parallel replacement engine.
 
-Preserve data meaning and user work, not every M0 class or every proposed feature name. Internal refactoring is allowed when a real task exposes a limitation. Prefer a local change with a migration/compatibility test over a parallel replacement engine. ARCHITECTURE.md owns the iteration boundaries; docs/first-usable.md owns M1 acceptance.
+Additional primary references, not claims of Nect capability:
+- https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/fields.html
+- https://developer.blender.org/docs/features/nodes/fields/
+- https://doc.qt.io/qt-6/qundo.html
 
-### Focused primary references
-
-These inform the design; they are not Nect implementation claims:
-- Blender Fields: https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/fields.html
-- Blender developer field context: https://developer.blender.org/docs/features/nodes/fields/
-- Qt undo concepts (command compression/macros): https://doc.qt.io/qt-6/qundo.html
-- Adobe After Effects blend modes: https://helpx.adobe.com/jp/after-effects/desktop/work-with-layers/work-with-layer-blending-modes/blending-modes-layer-styles.html
-
-The existing Session remains the history owner; Qt's undo facilities are reference material, not authorization to add a competing history stack.
+Session remains the history owner; Qt undo documentation is reference material, not permission to create a competing history stack.
