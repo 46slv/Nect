@@ -85,6 +85,10 @@ QString parameter_label(const std::string& parameter) {
     if(parameter=="offset")return QStringLiteral("Offset");
     if(parameter=="start_opacity")return QStringLiteral("Start opacity");
     if(parameter=="end_opacity")return QStringLiteral("End opacity");
+    if(parameter=="start_x")return QStringLiteral("Start X");
+    if(parameter=="start_y")return QStringLiteral("Start Y");
+    if(parameter=="end_x")return QStringLiteral("End X");
+    if(parameter=="end_y")return QStringLiteral("End Y");
     return qs(parameter);
 }
 QString operation_label(const ShapeOperation& operation) {
@@ -102,6 +106,15 @@ const ShapeOperation& find_operation(const Document& document,const Id& object,c
 QString hex_color(const QColor& color) {
     return QString("#%1%2%3%4").arg(color.red(),2,16,QChar('0')).arg(color.green(),2,16,QChar('0'))
         .arg(color.blue(),2,16,QChar('0')).arg(color.alpha(),2,16,QChar('0')).toUpper();
+}
+QColor parse_hex_color(QString text) {
+    text=text.trimmed();if(text.startsWith('#'))text.remove(0,1);
+    if((text.size()!=6&&text.size()!=8)||!std::all_of(text.begin(),text.end(),[](QChar c){return QStringLiteral("0123456789abcdefABCDEF").contains(c);}))
+        throw Error("INVALID_COLOR","Enter sRGB #RRGGBB or #RRGGBBAA");
+    bool valid=false;const auto number=text.toUInt(&valid,16);
+    if(!valid)throw Error("INVALID_COLOR","HEX color is outside its valid range");
+    return text.size()==8?QColor((number>>24)&255,(number>>16)&255,(number>>8)&255,number&255)
+        :QColor((number>>16)&255,(number>>8)&255,number&255);
 }
 QString point_label(const Object& object,const Point& point,std::size_t index) {
     if(object.source) {
@@ -143,7 +156,19 @@ QString property_label(const Document& d,const Ref& ref) {
             const auto& stack=d.objects.at(ref.object).stack;
             const auto found=std::find_if(stack.begin(),stack.end(),[&](const auto& entry){return entry.id==operation;});
             if(found!=stack.end())path.append(QString::number(std::distance(stack.begin(),found)+1)+" · "+operation_label(*found));
-            path.append(parameter_label(ref.field.substr(separator+1)));
+            auto parameter=ref.field.substr(separator+1);
+            if(found!=stack.end()&&found->gradient&&parameter.starts_with("gradient."+found->gradient->id+".")) {
+                path.append("Gradient");parameter=parameter.substr(10+found->gradient->id.size());
+                if(parameter.starts_with("stop.")) {
+                    const auto dot=parameter.find('.',5);
+                    const auto stop_id=parameter.substr(5,dot-5);
+                    const auto& stops=found->gradient->stops;
+                    const auto stop=std::find_if(stops.begin(),stops.end(),[&](const auto& entry){return entry.id==stop_id;});
+                    if(stop!=stops.end())path.append("Stop "+QString::number(std::distance(stops.begin(),stop)+1));
+                    parameter=parameter.substr(dot+1);
+                }
+            }
+            path.append(parameter_label(parameter));
         } else path.append(qs(ref.field));
     } else path.append(qs(ref.field));
     return path.join(" / ");
@@ -247,6 +272,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     host.status_changed=[this]{status_->setText(host.save_status+"   ·   r"+QString::number(host.session.revision()));};
     canvas->document_changed=[this]{host.edited();};
     canvas->selection_changed=[this]{rebuild_inspector();};
+    canvas->gradient_edit_changed=[this]{rebuild_inspector();};
     canvas->scope_changed=[this]{breadcrumb_->setText(canvas->breadcrumb());};
     canvas->error=[this](const QString& message){statusBar()->showMessage(message,10000);};
     qApp->installEventFilter(this);
@@ -554,6 +580,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             });
         }
         if(operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke") {
+            add_gradient(form,object,operation);
             auto channel=[&](const char* parameter){return inspector_values_.at(operation_ref(object.id,operation.id,parameter));};
             const auto color=QColor::fromRgbF(channel("r"),channel("g"),channel("b"),channel("a"));
             auto* color_row=new QWidget;auto* color_layout=new QHBoxLayout(color_row);color_layout->setContentsMargins(0,0,0,0);
@@ -561,7 +588,8 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             swatch->setStyleSheet("border: 3px solid "+color.name()+";");
             auto* hex=new QLineEdit(hex_color(color));hex->setObjectName("operation-hex-"+qs(operation.id));
             hex->setAccessibleName(name+" HEX RGBA");hex->setToolTip("sRGB #RRGGBB or #RRGGBBAA; linked channels require explicit unlinking before replacement.");
-            color_layout->addWidget(swatch);color_layout->addWidget(hex);form->addRow("sRGB",color_row);
+            color_layout->addWidget(swatch);color_layout->addWidget(hex);
+            form->addRow(operation.gradient&&operation.gradient->enabled?"Solid fallback":"sRGB",color_row);
             auto apply_color=[this,apply,id=object.id,op=operation.id](const QColor& selected) {
                 const auto values=evaluate(host.session.document());
                 const std::array<double,4> rgba{selected.redF(),selected.greenF(),selected.blueF(),selected.alphaF()};
@@ -581,18 +609,12 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 if(!hex->isModified())return;
                 hex->setModified(false);
                 perform([&]{
-                    auto text=hex->text().trimmed();if(text.startsWith('#'))text.remove(0,1);
-                    if((text.size()!=6&&text.size()!=8)||!std::all_of(text.begin(),text.end(),[](QChar c){return QStringLiteral("0123456789abcdefABCDEF").contains(c);}))
-                        throw Error("INVALID_COLOR","Enter sRGB #RRGGBB or #RRGGBBAA");
-                    bool valid=false;const auto number=text.toUInt(&valid,16);
-                    if(!valid)throw Error("INVALID_COLOR","HEX color is outside its valid range");
-                    const auto color=text.size()==8?QColor((number>>24)&255,(number>>16)&255,(number>>8)&255,number&255)
-                        :QColor((number>>16)&255,(number>>8)&255,number&255);
-                    apply_color(color);
+                    apply_color(parse_hex_color(hex->text()));
                 });
             });
             for(const auto* parameter:{"width","r","g","b","a"})
-                if(operation.parameters.contains(parameter))add_property(form,operation_ref(object.id,operation.id,parameter),parameter_label(parameter));
+                if(operation.parameters.contains(parameter))add_property(form,operation_ref(object.id,operation.id,parameter),
+                    std::string(parameter)=="a"?QStringLiteral("Paint opacity"):parameter_label(parameter));
         } else if(operation.type=="nect.shape.repeater") {
             for(const auto* parameter:{"copies","position_x","position_y","anchor_x","anchor_y","rotation","scale_x","scale_y","offset","start_opacity","end_opacity"})
                 if(operation.parameters.contains(parameter))add_property(form,operation_ref(object.id,operation.id,parameter),parameter_label(parameter));
@@ -600,6 +622,128 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");form->addRow(note);
         }
     }
+}
+void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOperation& operation) {
+    const auto id=object.id,op=operation.id;
+    const auto frozen_session=host.session_id;
+    auto apply=[this,frozen_session](const std::vector<Command>& commands) {
+        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The gradient belongs to another document");
+        host.session.apply(commands,host.session.revision());host.edited();
+    };
+    auto* mode=new QComboBox;mode->setObjectName("gradient-mode-"+qs(op));
+    mode->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);mode->setMinimumContentsLength(10);
+    mode->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
+    mode->addItem("Solid");mode->addItem("Linear gradient");mode->addItem("Radial gradient");
+    mode->setCurrentIndex(!operation.gradient||!operation.gradient->enabled?0:operation.gradient->type=="radial"?2:1);
+    form->addRow("Paint",mode);
+    connect(mode,&QComboBox::currentIndexChanged,this,[this,mode,id,op,apply,before=mode->currentIndex()](int index) {
+        bool applied=false;
+        perform([&]{
+            auto gradient=find_operation(host.session.document(),id,op).gradient;
+            if(index==0) {
+                if(gradient)gradient->enabled=false;
+            } else {
+                if(!gradient) {
+                    const auto values=evaluate(host.session.document());
+                    Gradient created;created.id=new_id();
+                    QRectF bounds;bool first=true;
+                    for(const auto& contour:path_contours(host.session.document().objects.at(id)))for(const auto& point:contour.points) {
+                        const QPointF position(values.at({id,point.id,"x"}),values.at({id,point.id,"y"}));
+                        if(first){bounds=QRectF(position,position);first=false;}
+                        else bounds=QRectF(QPointF(std::min(bounds.left(),position.x()),std::min(bounds.top(),position.y())),
+                            QPointF(std::max(bounds.right(),position.x()),std::max(bounds.bottom(),position.y())));
+                    }
+                    const auto span=std::max(1.0,bounds.width());
+                    created.start_x.literal=index==2?bounds.center().x():bounds.left();created.start_y.literal=bounds.center().y();
+                    created.end_x.literal=created.start_x.literal+(index==2?span/2:span);created.end_y.literal=created.start_y.literal;
+                    GradientStop start,end;start.id=new_id();end.id=new_id();end.offset.literal=1;
+                    const std::array<std::string,3> channels{"r","g","b"};
+                    for(std::size_t i=0;i<channels.size();++i) {
+                        const auto value=values.at(operation_ref(id,op,channels[i]));
+                        start.rgba[i].literal=value;end.rgba[i].literal=value+(1-value)*0.6;
+                    }
+                    // Paint opacity is multiplied once at rendering; stops start opaque.
+                    start.rgba[3].literal=1;end.rgba[3].literal=1;
+                    created.stops={start,end};gradient=std::move(created);
+                }
+                gradient->type=index==2?"radial":"linear";gradient->enabled=true;
+            }
+            apply({SetGradient{id,op,gradient}});applied=true;
+        });
+        if(!applied){const QSignalBlocker blocker(mode);mode->setCurrentIndex(before);}
+    });
+    if(!operation.gradient||!operation.gradient->enabled)return;
+    const auto& gradient=*operation.gradient;
+    const auto gradient_id=gradient.id;
+    auto* handles=new QPushButton(canvas->gradient_operation()==op?"Finish gradient handles":"Edit gradient handles");
+    handles->setObjectName("gradient-handles-"+qs(op));
+    handles->setToolTip("Edit the source motif's local start/end frame. Repeated copies share this gradient. Escape cancels a drag or exits handles.");
+    form->addRow(handles);
+    connect(handles,&QPushButton::clicked,this,[this,id,op]{canvas->set_gradient_edit(id,op);});
+    for(const auto* field:{"start_x","start_y","end_x","end_y"})
+        add_property(form,gradient_ref(id,op,gradient_id,field),parameter_label(field));
+    auto* note=new QLabel("Local coordinates; radial uses Start as its center and the distance to End as radius. Stops use sRGB. Paint opacity multiplies stop alpha.");
+    note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");form->addRow(note);
+    for(std::size_t index=0;index<gradient.stops.size();++index) {
+        const auto& stop=gradient.stops[index];const auto stop_id=stop.id;
+        auto* group=new QGroupBox("Stop "+QString::number(index+1));
+        auto* stop_form=new QFormLayout(group);stop_form->setRowWrapPolicy(QFormLayout::WrapLongRows);form->addRow(group);
+        auto ref=[&](const std::string& field){return gradient_ref(id,op,gradient_id,"stop."+stop_id+"."+field);};
+        auto* row=new QWidget;auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
+        const auto color=QColor::fromRgbF(inspector_values_.at(ref("r")),inspector_values_.at(ref("g")),
+            inspector_values_.at(ref("b")),inspector_values_.at(ref("a")));
+        auto* hex=new QLineEdit(hex_color(color));hex->setObjectName("gradient-stop-hex-"+qs(stop_id));
+        hex->setAccessibleName("Stop "+QString::number(index+1)+" HEX RGBA");
+        hex->setToolTip("sRGB #RRGGBB or #RRGGBBAA. Linked channels must be explicitly unlinked before editing.");
+        auto* remove=new QPushButton("×");remove->setFixedWidth(28);remove->setEnabled(gradient.stops.size()>2);
+        remove->setObjectName("gradient-stop-remove-"+qs(stop_id));remove->setToolTip("Remove this stop; keep at least two");
+        row_layout->addWidget(hex);row_layout->addWidget(remove);stop_form->addRow("sRGB",row);
+        connect(hex,&QLineEdit::editingFinished,this,[this,hex,id,op,gradient_id,stop_id,apply]{
+            if(!hex->isModified())return;hex->setModified(false);
+            perform([&]{
+                const auto color=parse_hex_color(hex->text());const auto values=evaluate(host.session.document());
+                const std::array<double,4> rgba{color.redF(),color.greenF(),color.blueF(),color.alphaF()};
+                const std::array<std::string,4> fields{"r","g","b","a"};std::vector<Command> commands;
+                for(std::size_t i=0;i<fields.size();++i) {
+                    const auto ref=gradient_ref(id,op,gradient_id,"stop."+stop_id+"."+fields[i]);
+                    if(std::abs(values.at(ref)-rgba[i])>1e-8)commands.push_back(Set{ref,rgba[i]});
+                }
+                if(!commands.empty())apply(commands);
+            });
+        });
+        connect(remove,&QPushButton::clicked,this,[this,id,op,stop_id,apply]{perform([&]{
+            auto current=find_operation(host.session.document(),id,op).gradient;
+            if(!current)throw Error("MISSING_GRADIENT","This gradient no longer exists");
+            std::erase_if(current->stops,[&](const auto& entry){return entry.id==stop_id;});
+            apply({SetGradient{id,op,current}});
+        });});
+        for(const auto* field:{"offset","r","g","b","a"})add_property(stop_form,ref(field),parameter_label(field));
+    }
+    auto* add=new QPushButton("Add color stop");add->setObjectName("gradient-stop-add-"+qs(op));
+    add->setEnabled(gradient.stops.size()<64);form->addRow(add);
+    connect(add,&QPushButton::clicked,this,[this,id,op,apply]{perform([&]{
+        auto current=find_operation(host.session.document(),id,op).gradient;
+        if(!current)throw Error("MISSING_GRADIENT","This gradient no longer exists");
+        const auto values=evaluate(host.session.document());
+        struct StopValue {double offset;std::array<double,4> rgba;};std::vector<StopValue> sorted;
+        const std::array<std::string,4> channels{"r","g","b","a"};
+        for(const auto& stop:current->stops) {
+            auto ref=[&](const auto& field){return gradient_ref(id,op,current->id,"stop."+stop.id+"."+field);};
+            StopValue value;value.offset=values.at(ref("offset"));
+            for(std::size_t i=0;i<channels.size();++i)value.rgba[i]=values.at(ref(channels[i]));
+            sorted.push_back(value);
+        }
+        std::sort(sorted.begin(),sorted.end(),[](const auto& a,const auto& b){return a.offset<b.offset;});
+        auto left=sorted.front(),right=left;left.offset=0;
+        double gap=right.offset-left.offset;
+        for(std::size_t i=1;i<sorted.size();++i)if(sorted[i].offset-sorted[i-1].offset>gap) {
+            left=sorted[i-1];right=sorted[i];gap=right.offset-left.offset;
+        }
+        if(1-sorted.back().offset>gap){left=sorted.back();right=left;right.offset=1;}
+        GradientStop stop;stop.id=new_id();stop.offset.literal=(left.offset+right.offset)/2;
+        for(std::size_t i=0;i<channels.size();++i)stop.rgba[i].literal=(left.rgba[i]+right.rgba[i])/2;
+        current->stops.push_back(stop);apply({SetGradient{id,op,current}});
+    });});
 }
 void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& label) {
     const auto& d=host.session.document();

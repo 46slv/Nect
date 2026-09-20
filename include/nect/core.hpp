@@ -67,6 +67,19 @@ struct PointEdit {
     std::map<Id,std::map<std::string,Scalar>> overrides;
 };
 
+struct GradientStop {
+    Id id;
+    Scalar offset;
+    std::array<Scalar,4> rgba{{{0,{}},{0,{}},{0,{}},{1,{}}}};
+};
+struct Gradient {
+    Id id;
+    std::string type="linear"; // linear / radial, local user-space coordinates
+    unsigned version=1;
+    bool enabled=true;
+    Scalar start_x{0,{}},start_y{0,{}},end_x{100,{}},end_y{0,{}};
+    std::vector<GradientStop> stops;
+};
 struct ShapeOperation {
     Id id;
     std::string type; // nect.paint.fill / nect.paint.stroke / nect.shape.repeater
@@ -75,9 +88,12 @@ struct ShapeOperation {
     std::map<std::string,Scalar> parameters;
     std::string composite="below";
     std::string fill_rule="nonzero";
+    std::optional<Gradient> gradient;
 };
 ShapeOperation default_operation(Id id,const std::string& type);
 Ref operation_ref(const Id& object,const Id& operation,const std::string& parameter);
+// field is start_x/start_y/end_x/end_y or stop.<stable stop ID>.offset/r/g/b/a.
+Ref gradient_ref(const Id& object,const Id& operation,const Id& gradient,const std::string& field);
 
 struct Object {
     Id id;
@@ -140,11 +156,12 @@ struct RemoveOperation { Id object; Id operation; };
 struct ReorderOperations { Id object; std::vector<Id> order; };
 struct EnableOperation { Id object; Id operation; bool enabled; };
 struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; };
+struct SetGradient { Id object; Id operation; std::optional<Gradient> gradient; };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ConvertToPath,AddOperation,RemoveOperation,
-    ReorderOperations,EnableOperation,OperationOptions>;
+    ReorderOperations,EnableOperation,OperationOptions,SetGradient>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
@@ -155,6 +172,12 @@ struct PathInstance {
     std::shared_ptr<const std::vector<EvaluatedContour>> contours;
     Affine transform=identity_matrix;
 };
+struct EvaluatedGradientStop {double offset=0;std::array<double,4> rgba{};};
+struct EvaluatedGradient {
+    std::string type;
+    Vec2 start,end;
+    std::vector<EvaluatedGradientStop> stops;
+};
 struct PaintLayer {
     Id operation;
     std::string type;
@@ -163,6 +186,7 @@ struct PaintLayer {
     std::string fill_rule="nonzero";
     Affine transform=identity_matrix;
     std::vector<PathInstance> paths;
+    std::optional<EvaluatedGradient> gradient;
 };
 struct EvaluatedShape {std::vector<PathInstance> paths;std::vector<PaintLayer> paints;};
 // Matrix composition is outer(inner(point)); independent of renderer convention.

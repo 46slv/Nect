@@ -137,12 +137,28 @@ try:
             plan=core('render_plan',object='path-0')['result']
             assert plan['path_instances']==copies and len(plan['paint_layers'])==2*copies
         expected_svg_paths=23+2*copies
+        gradients=core('gradient_types')['result']
+        gradient=next(x['template'] for x in gradients if x['type']=='linear')
+        gradient['id']='motif-gradient'
+        rev=apply([dict(type='set_gradient',object='path-0',operation='motif-fill',gradient=gradient)],rev)
+        stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
+        rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
+            target=dict(object='path-1',point='',field='stroke.r'),
+            binding=dict(source=stop_ref,scale=1,offset=0,mode='copy_local_value'))],rev)
+        assert core('get',ref=dict(object='path-1',point='',field='stroke.r'))['result']['evaluated']==.75
+        plan=core('render_plan',object='path-0')['result']
+        assert sum('gradient' in x for x in plan['paint_layers'])==copies
         native = temp / 'scenario.nect'
         saved = tool('nect_file', dict(identity, op='save', path=str(native), expected_revision=rev))
         assert saved['ok'], saved
         expected = core('inspect')['result']
         svg = core('export_svg', composition=comp['id'], artboard=comp['artboards'][0]['id'])['result']
         assert len(ET.fromstring(svg).findall('.//{http://www.w3.org/2000/svg}path')) == expected_svg_paths
+        svg_root=ET.fromstring(svg);ns='{http://www.w3.org/2000/svg}'
+        gradient_defs=svg_root.findall('.//'+ns+'linearGradient')
+        assert len(gradient_defs)==copies and len({x.attrib['id'] for x in gradient_defs})==copies
+        assert all(x.attrib['gradientUnits']=='userSpaceOnUse' for x in gradient_defs)
+        assert float(gradient_defs[0].findall(ns+'stop')[0].attrib['offset'])==0
         assert core('inspect')['result'] == expected
         assert json.loads(native.read_text(encoding='utf-8')) == expected
         assert tool('nect_file', dict(identity, op='recover', expected_revision=rev))['ok']

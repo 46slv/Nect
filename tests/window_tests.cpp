@@ -273,6 +273,125 @@ void stack_authoring(Window& window) {
     check(evaluate(session.document()).at(operation_ref(object,stroke,"width"))==7,
         "Additional Stroke width is independently addressable in the Inspector");
 }
+void gradient_authoring(Window& window) {
+    auto& session=window.host.session;
+    named_action(window,"add-rectangle")->trigger();QApplication::processEvents();
+    const auto object=window.canvas->selected_object;
+    named_action(window,"add-fill")->trigger();QApplication::processEvents();
+    const auto op=session.document().objects.at(object).stack.back().id;
+    auto current=[&]() -> const ShapeOperation& {
+        for(const auto& operation:session.document().objects.at(object).stack)if(operation.id==op)return operation;
+        throw std::runtime_error("Gradient operation missing");
+    };
+    auto choose=[&](int index) {
+        auto* mode=visible_child<QComboBox>(window,("gradient-mode-"+op).c_str());reveal(window,mode);
+        mode->setCurrentIndex(index);QApplication::processEvents();
+    };
+    auto click=[&](const std::string& name) {
+        auto* button=visible_child<QPushButton>(window,name.c_str());reveal(window,button);
+        QTest::mouseClick(button,Qt::LeftButton);QApplication::processEvents();
+    };
+    auto hex=[&](const std::string& name,const char* text) {
+        auto* input=visible_child<QLineEdit>(window,name.c_str());reveal(window,input);input->setFocus();
+        QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);
+        QTest::keyClick(input,Qt::Key_Return);QApplication::processEvents();
+    };
+    hex("operation-hex-"+op,"#00000080");choose(1);
+    check(current().gradient&&current().gradient->enabled&&current().gradient->type=="linear",
+        "Paint mode creates an authored linear gradient");
+    const auto gid=current().gradient->id;
+    const auto first=current().gradient->stops.front().id,last=current().gradient->stops.back().id;
+    auto ref=[&](const std::string& field){return gradient_ref(object,op,gid,field);};
+    check(current().gradient->stops.size()==2&&first!=last&&current().gradient->stops[0].rgba[3].literal==1&&
+        current().gradient->stops[1].rgba[3].literal==1,"Initial stable stops do not duplicate the paint opacity");
+    hex("gradient-stop-hex-"+first,"#000000FF");hex("gradient-stop-hex-"+last,"#FFFFFFFF");
+    window.canvas->fit_artboard();QApplication::processEvents();
+    const auto& artboard=session.document().compositions.front().artboards.front();
+    const auto cx=artboard.x+artboard.width/2,cy=artboard.y+artboard.height/2;
+    auto screen=[&](double x,double y) {
+        return QPoint(qRound(window.canvas->width()/2.0+(x-cx)*window.canvas->zoom()),
+            qRound(window.canvas->height()/2.0+(y-cy)*window.canvas->zoom()));
+    };
+    auto pixel=[&](double x,double y) {
+        QApplication::processEvents();const auto image=window.canvas->grab().toImage();
+        const auto position=QPointF(screen(x,y))*image.devicePixelRatio();
+        return image.pixelColor(qRound(position.x()),qRound(position.y()));
+    };
+    const auto left=pixel(cx-55,cy+10),right=pixel(cx+55,cy+10);
+    check(std::abs(left.red()-157)<=5&&std::abs(right.red()-220)<=5,
+        "Canvas linear gradient interpolates sRGB and multiplies overall opacity exactly once");
+    choose(2);
+    check(current().gradient->id==gid&&current().gradient->stops[0].id==first&&
+        current().gradient->stops[1].id==last&&current().gradient->type=="radial",
+        "Changing gradient type preserves stop identities and authored colors");
+    const auto center_text=QString::number(cx).toLatin1();edit_number(window,ref("start_x"),center_text.constData());
+    check(pixel(cx,cy+10).red()+35<pixel(cx+55,cy+10).red(),"Radial paint uses the authored center and radius frame");
+    choose(0);check(!current().gradient->enabled&&current().gradient->id==gid,"Solid bypass retains the authored gradient");
+    choose(1);check(current().gradient->id==gid&&current().gradient->enabled,"Re-enabling restores the same gradient identity");
+    const auto start_text=QString::number(cx-110).toLatin1();edit_number(window,ref("start_x"),start_text.constData());
+    click("gradient-stop-add-"+op);
+    const auto middle=current().gradient->stops.back().id;
+    check(current().gradient->stops.size()==3&&std::abs(evaluate(session.document()).at(ref("stop."+middle+".offset"))-0.5)<1e-8,
+        "Add stop splits the widest evaluated interval with a new stable ID");
+    click("gradient-stop-add-"+op);
+    const auto quarter=current().gradient->stops.back().id;
+    check(current().gradient->stops.size()==4&&quarter!=middle&&
+        std::abs(evaluate(session.document()).at(ref("stop."+quarter+".offset"))-0.25)<1e-8,
+        "Repeated stop insertion chooses a distinct largest-gap midpoint");
+    check(current().gradient->stops[0].id==first&&current().gradient->stops[1].id==last,
+        "Adding stops never reorders the authored stop vector or retargets old IDs");
+    edit_number(window,ref("stop."+middle+".offset"),"0.65");
+    check(current().gradient->stops[2].id==middle&&current().gradient->stops[2].offset.literal==0.65,
+        "Numeric stop editing addresses stable identity independently of evaluation order");
+    click("gradient-stop-remove-"+quarter);history_action(window,"Undo");
+    check(current().gradient->stops.back().id==quarter,"Undo stop removal restores the same identity");
+    history_action(window,"Redo");click("gradient-stop-remove-"+middle);
+    check(current().gradient->stops.size()==2&&
+        !visible_child<QPushButton>(window,("gradient-stop-remove-"+first).c_str())->isEnabled(),
+        "Stop removal keeps the two-stop minimum visible in the controls");
+
+    // Actual Canvas handle events preview through the shared Session; only release
+    // notifies Host, so Inspector replacement cannot interrupt a gesture.
+    click("gradient-handles-"+op);window.canvas->fit_artboard();QApplication::processEvents();
+    check(window.canvas->gradient_operation()==op,"Inspector enables handles for its specific paint operation");
+    const auto initial=evaluate(session.document()).at(ref("end_x"));
+    auto endpoint=screen(initial,cy);const auto revision=session.revision();
+    QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint);
+    QTest::mouseMove(window.canvas,endpoint+QPoint(20,0));QApplication::processEvents();
+    QTest::mouseMove(window.canvas,endpoint+QPoint(40,0));QApplication::processEvents();
+    check(session.gesture_active()&&session.revision()==revision&&
+        evaluate(session.preview_document()).at(ref("end_x"))>initial+20,
+        "Gradient handle motion previews without committing an authored revision");
+    QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint+QPoint(40,0));QApplication::processEvents();
+    check(session.revision()==revision+1&&std::abs(evaluate(session.document()).at(ref("end_x"))-
+        (initial+40/window.canvas->zoom()))<1e-7,"A full gradient handle gesture commits once using local coordinates");
+    history_action(window,"Undo");
+    check(evaluate(session.document()).at(ref("end_x"))==initial,"One Undo restores the entire gradient gesture");
+    const auto cancel_revision=session.revision();window.canvas->setFocus();
+    QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint);
+    QTest::mouseMove(window.canvas,endpoint+QPoint(30,0));QApplication::processEvents();
+    QTest::keyClick(window.canvas,Qt::Key_Escape);
+    QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint+QPoint(30,0));QApplication::processEvents();
+    check(session.revision()==cancel_revision&&!session.gesture_active()&&evaluate(session.document()).at(ref("end_x"))==initial,
+        "Escape cancels a gradient preview without a history entry");
+    const Ref center{object,"","generator.center_x"};
+    session.apply({Link{ref("end_x"),{center,1,110,"copy_local_value"}}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto driven_revision=session.revision();window.canvas->setFocus();
+    QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint);
+    QTest::mouseMove(window.canvas,endpoint+QPoint(35,0));QApplication::processEvents();
+    QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint+QPoint(35,0));QApplication::processEvents();
+    check(session.revision()==driven_revision&&nect::property(session.document(),ref("end_x")).binding&&
+        window.statusBar()->currentMessage().contains("DRIVEN"),"Dragging a driven gradient frame rejects visibly without unlinking");
+    auto* tree=window.findChild<QTreeWidget*>();QTreeWidgetItem* source_row=nullptr;
+    for(int i=0;i<tree->topLevelItemCount();++i)
+        if(tree->topLevelItem(i)->data(0,Qt::UserRole).toString().toStdString()==object)source_row=tree->topLevelItem(i);
+    check(source_row&&source_row->childCount()>0,"Gradient owner retains its editable source points");
+    auto* point_row=source_row->child(0);source_row->setExpanded(true);tree->scrollToItem(point_row);QApplication::processEvents();
+    QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(point_row).center());QApplication::processEvents();
+    check(window.canvas->gradient_operation().empty()&&window.canvas->selected_object==object&&
+        window.canvas->selected_point==point_row->data(0,Qt::UserRole+1).toString().toStdString(),
+        "Selecting a source point in the tree leaves gradient handles and restores direct point editing");
+}
 }
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
@@ -326,6 +445,7 @@ int main(int argc,char** argv) {
             "Pick-whip cancellation preserves document and restores context");
         primitive_authoring(w);
         stack_authoring(w);
-        std::cout<<"PASS Inspector recovery draft, pick-whip, primitive correction/conversion, stack controls and Canvas paints\n";return 0;
+        w.hide();Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
+        std::cout<<"PASS Inspector recovery draft, pick-whip, primitives, stack paints, gradient controls/rendering/gestures\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

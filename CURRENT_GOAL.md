@@ -80,8 +80,25 @@ the durable table is in `docs/first-usable.md`. No intentional GUI app remains o
 Keep the sample and development recovery data. Parent owns future builds; worker
 has completed its bounded UI work.
 
-Next safe actions after this slice: continue the Mission with usable gradient/color
-controls, artboard navigation and editable Text in thin slices; do not treat the
+Gradient checkpoint after `9ca7e1e`: native 0.4 adds retained linear/radial
+gradients, stable stop IDs, scalar/link editing, Solid bypass, Canvas start/end
+gestures and SVG projection. All nine CTest entries pass, including gradient
+identity/removal/cycle/range atomicity, real Window pixel/gesture controls, strict
+0.1/0.2/0.3 migration, and formal MCP gradient edits/save/crash recovery. The final
+point-selection/tool-exit fix was rebuilt and Window/Canvas focus tests passed.
+Actual 1400x900 Windows use authored `examples/gradient-ornament.nect` via the live
+semantic API: five sources, 85 paint layers, three gradients and linked stop colors.
+Dragged the background endpoint from (960,640) to (838.8845,578.8048); live API
+readback confirmed one committed revision, then Undo restored the original frame.
+The manual result is retained in ignored `build/gradient-manual.nect`; original
+example/SVG are saved with readable ray colors. The visible app is closed.
+Coincident stop offsets reject explicitly (Qt would collapse them); radial focal
+offset and alternate spread/color spaces remain unsupported. No new performance
+claim is made from the static gradient example. See `docs/model-v0.md`.
+
+Next safe actions after this slice: continue the Mission with ordered artboard
+navigation/editing and basic parent-size inheritance, then color tools and editable
+Text in thin slices; do not treat the
 radial example as full alpha completion. Masks/compositing, assets, long History,
 continuous save, expressions/multi-edit and the remaining explicit Mission
 requirements still need implementation and real production fixtures.

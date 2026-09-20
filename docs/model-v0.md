@@ -74,8 +74,8 @@ Current M0 limits are safety bounds, not product performance targets.
 
 ## Native 0.2: retained primitives and point corrections
 
-The primitive slice introduced 0.2; the current writer emits 0.3 and the reader
-accepts strict 0.1, 0.2 and 0.3. Migration of 0.1
+The primitive slice introduced 0.2; the current writer emits 0.4 and the reader
+accepts strict 0.1 through 0.4. Migration of 0.1
 preserves authored values, IDs and bindings, with no geometry conversion. The
 historical linked fixture in `tests/fixtures/native-v0.1-linked.nect` is loaded,
 edited, saved and reopened in separate processes. Unknown fields and behavior
@@ -157,10 +157,41 @@ Limits are explicit: 128 entries, 4096 generated path instances, 8192 paint laye
 and 250000 expanded cubic anchors per object's geometry/paint result. Invalid
 parameters, unsupported versions/options, nonfinite transform output and excessive
 expansion reject the whole mutation. Bypass retains authored parameters and links.
-Group-local stacks, arbitrary path operations, dashes, gradients, per-paint blend
+Group-local stacks, arbitrary path operations, dashes, per-paint blend
 modes and full AE interchange remain unsupported at this checkpoint.
 
 Behavior reference: [Adobe shape paint/path operations](https://helpx.adobe.com/after-effects/desktop/drawing-painting-and-paths/shapes-and-shape-attributes/shape-attributes-paint-operations-path.html).
+
+## Native 0.4: retained gradients
+
+Fill/Stroke optionally own a version 1 gradient with document-unique component
+and stop IDs. Linear and centered radial gradients use local start/end coordinates;
+radial radius is their distance. The original solid RGB remains authored as a
+fallback; paint alpha is overall opacity and multiplies each stop's alpha once.
+The gradient enabled flag switches to Solid without deleting stops or links.
+`set_gradient` creates/replaces/removes the component atomically; callers must
+retain existing IDs and Scalars when editing its structure. `gradient_types`
+provides exact creation templates. Native 0.3 files migrate without other changes.
+
+The four coordinates and stop offset/RGBA channels are ordinary linkable Scalars:
+`op.<paint>.gradient.<gradient>.start_x` (also start_y/end_x/end_y) and
+`op.<paint>.gradient.<gradient>.stop.<stop>.offset` (also r/g/b/a). Coordinates
+are distances; offsets/colors are scalars in [0,1]. Reordering stops never retargets
+a reference. Removing a referenced stop/component rejects until surviving links
+are explicitly frozen or retargeted. Undo and gesture preview use the same Session.
+
+Authored stop order is preserved; evaluation sorts by offset. There are 2–64 stops,
+with distinct evaluated offsets, including when bypassed. An enabled gradient
+on an enabled paint requires start/end distance greater than 1e-9. Pad spread and
+independent sRGB component/alpha interpolation are explicit. Coincident hard edges,
+radial focal offsets, repeat/reflect spread and alternate color spaces are not
+yet supported. Qt 6.5.3 [replaces coincident stops](https://github.com/qt/qtbase/blob/v6.5.3/src/gui/painting/qbrush.cpp#L1475-L1527);
+rejecting ties prevents a silent loss between authored state and Canvas rendering.
+
+Canvas uses QGradient ComponentInterpolation, with original-source start/end
+handles. SVG uses userSpaceOnUse, sRGB and pad gradients. Repeating after paint
+transforms its gradient with every copy; repeating before paint shares one gradient
+over compound paths. `render_plan` exposes the same resolved stops and coordinates.
 
 ## Next contracts
 

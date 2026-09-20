@@ -173,23 +173,57 @@ j::value point_edit_json(const PointEdit& edit) {
         {"enabled",edit.enabled},{"overrides",overrides}};
 }
 
-ShapeOperation read_operation(const j::value& v) {
-    const auto& o=v.as_object();keys(o,{"id","type","version","enabled","parameters","composite","fill_rule"});
+Gradient read_gradient(const j::value& v) {
+    const auto& o=v.as_object();keys(o,{"id","type","version","enabled","start_x","start_y","end_x","end_y","stops"});
+    Gradient g;g.id=text(o.at("id"));g.type=text(o.at("type"));g.version=j::value_to<unsigned>(o.at("version"));
+    g.enabled=o.at("enabled").as_bool();g.start_x=read_scalar(o.at("start_x"));g.start_y=read_scalar(o.at("start_y"));
+    g.end_x=read_scalar(o.at("end_x"));g.end_y=read_scalar(o.at("end_y"));
+    for(const auto& entry:o.at("stops").as_array()) {
+        const auto& s=entry.as_object();keys(s,{"id","offset","rgba"});
+        GradientStop stop;stop.id=text(s.at("id"));stop.offset=read_scalar(s.at("offset"));
+        const auto& rgba=s.at("rgba").as_array();if(rgba.size()!=4)throw Error("INVALID_COLOR","Four RGBA channels required");
+        for(std::size_t k=0;k<4;++k)stop.rgba[k]=read_scalar(rgba[k]);
+        g.stops.push_back(std::move(stop));
+    }
+    return g;
+}
+j::value gradient_json(const Gradient& g) {
+    j::array stops;
+    for(const auto& stop:g.stops) {
+        j::array rgba;for(const auto& channel:stop.rgba)rgba.push_back(scalar_json(channel));
+        stops.push_back({{"id",stop.id},{"offset",scalar_json(stop.offset)},{"rgba",rgba}});
+    }
+    return j::object{{"id",g.id},{"type",g.type},{"version",g.version},{"enabled",g.enabled},
+        {"start_x",scalar_json(g.start_x)},{"start_y",scalar_json(g.start_y)},
+        {"end_x",scalar_json(g.end_x)},{"end_y",scalar_json(g.end_y)},{"stops",stops}};
+}
+ShapeOperation read_operation(const j::value& v,bool allow_gradient=true) {
+    const auto& o=v.as_object();
+    if(allow_gradient)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient"});
+    else keys(o,{"id","type","version","enabled","parameters","composite","fill_rule"});
     ShapeOperation op;op.id=text(o.at("id"));op.type=text(o.at("type"));
     op.version=j::value_to<unsigned>(o.at("version"));op.enabled=o.at("enabled").as_bool();
     op.composite=text(o.at("composite"));op.fill_rule=text(o.at("fill_rule"));
     for(const auto& p:o.at("parameters").as_object())op.parameters.emplace(std::string(p.key()),read_scalar(p.value()));
+    if(const auto* g=o.if_contains("gradient"))op.gradient=read_gradient(*g);
     return op;
 }
 j::value operation_json(const ShapeOperation& op) {
     j::object parameters;for(const auto& [name,value]:op.parameters)parameters[name]=scalar_json(value);
-    return j::object{{"id",op.id},{"type",op.type},{"version",op.version},{"enabled",op.enabled},
+    j::object result{{"id",op.id},{"type",op.type},{"version",op.version},{"enabled",op.enabled},
         {"parameters",parameters},{"composite",op.composite},{"fill_rule",op.fill_rule}};
+    if(op.gradient)result["gradient"]=gradient_json(*op.gradient);
+    return result;
 }
 
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type=="set_gradient") {
+        keys(o,{"type","object","operation","gradient"});
+        std::optional<Gradient> g;if(!o.at("gradient").is_null())g=read_gradient(o.at("gradient"));
+        return SetGradient{text(o.at("object")),text(o.at("operation")),std::move(g)};
+    }
     if(type=="add_operation") {
         keys(o,{"type","object","operation","index"});
         return AddOperation{text(o.at("object")),read_operation(o.at("operation")),j::value_to<std::size_t>(o.at("index"))};
@@ -286,8 +320,8 @@ Document decode(std::string_view input) {
         keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
 
         const auto version=text(root.at("version"));
-        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"))
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1, 0.2 and 0.3 are supported");
+        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"&&version!="0.4"))
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.4 are supported");
         if(text(root.at("units"))!="du96"||text(root.at("color_space"))!="srgb")
             throw Error("UNSUPPORTED_COLOR_OR_UNIT","v0.1 supports du96 and sRGB only");
 
@@ -337,8 +371,8 @@ Document decode(std::string_view input) {
                 obj.children=ids(o.at("children"));
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
-                if(version=="0.3") {
-                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry));
+                if(version=="0.3"||version=="0.4") {
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,version=="0.4"));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
                     if(text(o.at("fill"))!="none")throw Error("UNSUPPORTED_APPEARANCE","Legacy format only supports stroked paths");
@@ -435,7 +469,7 @@ std::string encode(const Document& d) {
         collections.push_back({{"id",c.id},{"name",c.name},{"members",ids_json(c.members)}});
 
     return j::serialize(j::object{
-        {"format","nect-native"},{"version","0.3"},{"id",d.id},
+        {"format","nect-native"},{"version","0.4"},{"id",d.id},
         {"units","du96"},{"color_space","srgb"},
         {"compositions",comps},{"objects",objects},{"collections",collections}});
 }
@@ -459,6 +493,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
        <<"px\" height=\""<<art->height<<"px\" viewBox=\""<<art->x<<" "<<art->y
        <<" "<<art->width<<" "<<art->height<<"\">\n";
 
+    std::size_t gradient_serial=0;
     std::function<void(const Id&)> render=[&](const Id& id) {
         const auto& o=d.objects.at(id);
         auto value=[&](const Id& p,const std::string& f){return values.at({id,p,f});};
@@ -473,12 +508,26 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
         } else {
             for(const auto& paint:evaluate_shape(d,id,values).paints) {
                 const bool fill=paint.type=="nect.paint.fill";
+                std::string gradient_id;
+                if(paint.gradient) {
+                    do{gradient_id="nect-gradient-"+std::to_string(++gradient_serial);}while(d.objects.contains(gradient_id));
+                    const auto& g=*paint.gradient;const bool linear=g.type=="linear";
+                    out<<"<defs><"<<(linear?"linearGradient":"radialGradient")<<" id=\""<<gradient_id
+                       <<"\" gradientUnits=\"userSpaceOnUse\" spreadMethod=\"pad\" color-interpolation=\"sRGB\" ";
+                    if(linear)out<<"x1=\""<<g.start.x<<"\" y1=\""<<g.start.y<<"\" x2=\""<<g.end.x<<"\" y2=\""<<g.end.y<<"\"";
+                    else out<<"cx=\""<<g.start.x<<"\" cy=\""<<g.start.y<<"\" r=\""<<std::hypot(g.end.x-g.start.x,g.end.y-g.start.y)<<"\"";
+                    out<<">\n";
+                    for(const auto& stop:g.stops)out<<"<stop offset=\""<<stop.offset<<"\" stop-color=\"rgb("
+                        <<stop.rgba[0]*100<<"%,"<<stop.rgba[1]*100<<"%,"<<stop.rgba[2]*100<<"%)\" stop-opacity=\""<<stop.rgba[3]<<"\"/>\n";
+                    out<<"</"<<(linear?"linearGradient":"radialGradient")<<"></defs>\n";
+                }
                 out<<"<path transform=\"matrix(";for(const auto n:paint.transform)out<<n<<' ';
                 out<<")\" ";
                 if(fill)out<<"stroke=\"none\" fill-rule=\""<<paint.fill_rule<<"\" fill=\"";
                 else out<<"fill=\"none\" stroke-linecap=\"butt\" stroke-linejoin=\"miter\" stroke-miterlimit=\"4\" stroke=\"";
-                out<<"rgb("<<paint.rgba[0]*100<<"%,"<<paint.rgba[1]*100<<"%,"<<paint.rgba[2]*100<<"%)\" "
-                   <<(fill?"fill-opacity":"stroke-opacity")<<"=\""<<paint.rgba[3]<<"\" ";
+                if(paint.gradient)out<<"url(#"<<gradient_id<<")\" ";
+                else out<<"rgb("<<paint.rgba[0]*100<<"%,"<<paint.rgba[1]*100<<"%,"<<paint.rgba[2]*100<<"%)\" ";
+                out<<(fill?"fill-opacity":"stroke-opacity")<<"=\""<<paint.rgba[3]<<"\" ";
                 if(!fill)out<<"stroke-width=\""<<paint.width<<"\" ";
                 out<<"d=\"";
                 for(const auto& instance:paint.paths)for(const auto& c:*instance.contours) {
@@ -560,20 +609,41 @@ std::string request(Session& session,std::string_view input) {
                     {"parameters",parameters},{"template",operation_json(defaults)}});
             }
             result=std::move(definitions);
+        } else if(op=="gradient_types") {
+            keys(o,{"op"});j::array definitions;
+            for(const auto* type:{"linear","radial"}) {
+                Gradient g;g.id="new-gradient";g.type=type;
+                GradientStop first;first.id="start-stop";GradientStop last;last.id="end-stop";last.offset.literal=1;
+                last.rgba[0].literal=last.rgba[1].literal=last.rgba[2].literal=1;g.stops={first,last};
+                definitions.push_back({{"type",type},{"version",1},{"space","local"},{"spread","pad"},
+                    {"interpolation","srgb_components"},{"min_stops",2},{"max_stops",64},{"distinct_offsets",true},
+                    {"template",gradient_json(g)}});
+            }
+            result=std::move(definitions);
         } else if(op=="render_plan") {
             keys(o,{"op","object"});const auto id=text(o.at("object"));
             const auto shape=evaluate_shape(session.document(),id,evaluate(session.document()));
             j::array paints;
             for(const auto& paint:shape.paints) {
                 j::array matrix,rgba;for(const auto n:paint.transform)matrix.push_back(n);for(const auto n:paint.rgba)rgba.push_back(n);
-                paints.push_back({{"operation",paint.operation},{"type",paint.type},{"path_instances",paint.paths.size()},
-                    {"transform",matrix},{"rgba",rgba},{"width",paint.width},{"fill_rule",paint.fill_rule}});
+                j::object entry{{"operation",paint.operation},{"type",paint.type},{"path_instances",paint.paths.size()},
+                    {"transform",matrix},{"rgba",rgba},{"width",paint.width},{"fill_rule",paint.fill_rule}};
+                if(paint.gradient) {
+                    const auto& g=*paint.gradient;j::array stops;
+                    for(const auto& stop:g.stops) {
+                        j::array color;for(const auto channel:stop.rgba)color.push_back(channel);
+                        stops.push_back({{"offset",stop.offset},{"rgba",color}});
+                    }
+                    entry["gradient"]=j::object{{"type",g.type},{"start",j::array{g.start.x,g.start.y}},
+                        {"end",j::array{g.end.x,g.end.y}},{"stops",stops},{"interpolation","srgb_components"},{"spread","pad"}};
+                }
+                paints.push_back(std::move(entry));
             }
             result=j::object{{"path_instances",shape.paths.size()},{"paint_layers",paints}};
         } else if(op=="capabilities") {
             keys(o,{"op"});
             result=j::object{
-                {"native_version","0.3"},
+                {"native_version","0.4"},
                 {"transport","local-json-lines-not-mcp"},
                 {"mcp",false},
                 {"ai_codec",false},

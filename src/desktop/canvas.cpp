@@ -128,6 +128,33 @@ void Canvas::refresh() {
                     Geometry::Paint paint;
                     paint.transform = qt_transform(layer.transform);
                     paint.color = QColor::fromRgbF(layer.rgba[0], layer.rgba[1], layer.rgba[2], layer.rgba[3]);
+                    paint.brush = QBrush(paint.color);
+                    if (layer.gradient) {
+                        const auto& source = *layer.gradient;
+                        QGradientStops stops;
+                        bool visible = false;
+                        for (const auto& stop : source.stops) {
+                            const auto alpha = stop.rgba[3] * layer.rgba[3];
+                            stops.append({stop.offset, QColor::fromRgbF(stop.rgba[0], stop.rgba[1], stop.rgba[2], alpha)});
+                            visible = visible || alpha > 0;
+                        }
+                        auto configure = [&](QGradient& gradient) {
+                            gradient.setCoordinateMode(QGradient::LogicalMode);
+                            gradient.setSpread(QGradient::PadSpread);
+                            gradient.setInterpolationMode(QGradient::ComponentInterpolation);
+                            gradient.setStops(stops);
+                            paint.brush = QBrush(gradient);
+                        };
+                        const QPointF start(source.start.x, source.start.y), end(source.end.x, source.end.y);
+                        if (source.type == "radial") {
+                            QRadialGradient gradient(start, distance(start, end));
+                            configure(gradient);
+                        } else {
+                            QLinearGradient gradient(start, end);
+                            configure(gradient);
+                        }
+                        if (!visible) paint.color.setAlpha(0);
+                    }
                     paint.fill = layer.type == "nect.paint.fill";
                     paint.width = layer.width;
                     for (const auto& instance : layer.paths) {
@@ -193,6 +220,20 @@ void Canvas::refresh() {
             drawing_object_.clear();
             drawing_contour_.clear();
         }
+        gradient_control_.reset();
+        if (!gradient_operation_.empty()) {
+            if (selected_object == gradient_object_ && document.objects.contains(gradient_object_)) {
+                const auto& stack = document.objects.at(gradient_object_).stack;
+                const auto operation = std::find_if(stack.begin(), stack.end(), [&](const auto& op) { return op.id == gradient_operation_; });
+                if (operation != stack.end() && operation->gradient && operation->gradient->enabled) {
+                    const auto& gradient = *operation->gradient;
+                    auto get = [&](const char* field) { return values_.at(gradient_ref(gradient_object_, gradient_operation_, gradient.id, field)); };
+                    gradient_control_ = GradientControl{gradient.id, {get("start_x"), get("start_y")},
+                        {get("end_x"), get("end_y")}, world_.at(gradient_object_), gradient.type == "radial"};
+                }
+            }
+            if (!gradient_control_) clear_gradient_edit();
+        }
     } catch (const std::exception& exception) {
         report_error(exception);
     }
@@ -232,6 +273,7 @@ void Canvas::select(Id object, Id point_id, bool enter_parent) {
     if (object.empty()) point_id.clear();
     if (enter_parent) set_scope(object.empty() ? Id{} : parents_.at(object));
     if (selected_object == object && selected_point == point_id) return;
+    if (object != gradient_object_ || !point_id.empty()) clear_gradient_edit();
     selected_object = std::move(object);
     selected_point = std::move(point_id);
     if (selection_changed) selection_changed();
@@ -267,6 +309,7 @@ void Canvas::leave_group() {
 
 void Canvas::set_draw_mode(bool enabled) {
     cancel_interaction();
+    if (enabled) clear_gradient_edit();
     drawing_object_.clear();
     drawing_contour_.clear();
     if (draw_mode_ == enabled) return;
@@ -274,6 +317,26 @@ void Canvas::set_draw_mode(bool enabled) {
     update_cursor();
     update();
     if (draw_mode_changed) draw_mode_changed(enabled);
+}
+
+void Canvas::clear_gradient_edit() {
+    const bool active = !gradient_operation_.empty();
+    gradient_object_.clear(); gradient_operation_.clear(); gradient_control_.reset();
+    if (active && gradient_edit_changed) gradient_edit_changed();
+    update();
+}
+
+void Canvas::set_gradient_edit(Id object, Id operation) {
+    cancel_interaction();
+    if (operation.empty() || (object == gradient_object_ && operation == gradient_operation_)) {
+        clear_gradient_edit(); return;
+    }
+    set_draw_mode(false);
+    select(object, {}, true);
+    gradient_object_ = std::move(object); gradient_operation_ = std::move(operation);
+    refresh();
+    if (gradient_edit_changed) gradient_edit_changed();
+    setFocus();
 }
 
 Id Canvas::selection_target(const Geometry& item) const {
@@ -316,6 +379,14 @@ const Canvas::Geometry* Canvas::hit_path(QPointF screen) const {
 }
 
 Canvas::Hit Canvas::hit_control(QPointF screen) const {
+    if (gradient_control_) {
+        const auto transform = gradient_control_->world * view();
+        if (distance(transform.map(gradient_control_->start), screen) <= hit_radius)
+            return {Drag::gradient_start, gradient_object_, {}};
+        if (distance(transform.map(gradient_control_->end), screen) <= hit_radius)
+            return {Drag::gradient_end, gradient_object_, {}};
+        return {};
+    }
     const auto* item = geometry(selected_object);
     if (!item) return {};
     const auto transform = item->world * view();
@@ -358,10 +429,10 @@ void Canvas::paintEvent(QPaintEvent*) {
                 painter.setWorldTransform(paint.transform * item.world * view());
                 if (paint.fill) {
                     painter.setPen(Qt::NoPen);
-                    painter.setBrush(paint.color);
+                    painter.setBrush(paint.brush);
                 } else {
                     painter.setBrush(Qt::NoBrush);
-                    QPen pen(paint.color, paint.width, Qt::SolidLine, Qt::FlatCap, Qt::SvgMiterJoin);
+                    QPen pen(paint.brush, paint.width, Qt::SolidLine, Qt::FlatCap, Qt::SvgMiterJoin);
                     pen.setMiterLimit(4);painter.setPen(pen);
                 }
                 painter.drawPath(paint.path);
@@ -386,6 +457,7 @@ void Canvas::paintEvent(QPaintEvent*) {
             }
             painter.drawPath(screen_path);
             if (item.id != selected_object) continue;
+            if (gradient_control_ && item.id == gradient_object_) continue;
             if (const auto* p = point(item, selected_point)) {
                 painter.setPen(QPen(accent, 1));
                 const auto anchor = transform.map(p->anchor);
@@ -405,6 +477,23 @@ void Canvas::paintEvent(QPaintEvent*) {
                 painter.drawRect(QRectF(screen.x() - size / 2, screen.y() - size / 2, size, size));
             }
         }
+        if (gradient_control_) {
+            const auto& control = *gradient_control_;
+            const auto transform = control.world * view();
+            const auto start_screen = transform.map(control.start), end_screen = transform.map(control.end);
+            painter.setPen(QPen(accent, 1.5)); painter.setBrush(Qt::NoBrush);
+            if (control.radial) {
+                QPainterPath circle;
+                const auto radius = distance(control.start, control.end);
+                circle.addEllipse(control.start, radius, radius);
+                painter.drawPath(transform.map(circle));
+            }
+            painter.drawLine(start_screen, end_screen);
+            painter.setBrush(QColor(39, 42, 47)); painter.drawEllipse(start_screen, 6, 6);
+            painter.drawRect(QRectF(end_screen.x()-5, end_screen.y()-5, 10, 10));
+            painter.drawText(start_screen + QPointF(10, -10), control.radial ? tr("Center") : tr("Start"));
+            painter.drawText(end_screen + QPointF(10, -10), control.radial ? tr("Radius") : tr("End"));
+        }
         if (!selected_object.empty() && document.objects.contains(selected_object) &&
             document.objects.at(selected_object).kind == Kind::group && !selected_bounds.isNull()) {
             painter.setPen(QPen(accent, 1, Qt::DashLine));
@@ -423,6 +512,7 @@ void Canvas::paintEvent(QPaintEvent*) {
                              static_cast<int>(breadcrumb_rect_.width() - 20)));
         const auto hint = draw_mode_
             ? tr("Add Path · Click for points · Click first point to close · Enter / Esc to finish")
+            : gradient_control_ ? tr("Gradient · Drag its handles · Esc cancels a drag / exits handles · Space-drag to pan")
             : tr("Drag to move · Alt-drag point for handles · Space-drag to pan · Wheel to zoom · F to fit");
         painter.setPen(QColor(166, 174, 186));
         painter.drawText(QRect(14, height() - 30, width() - 100, 22), Qt::AlignVCenter,
@@ -462,7 +552,13 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
     try {
         bool invertible = false;
         start_values_.clear();
-        if (kind == Drag::object) {
+        if (kind == Drag::gradient_start || kind == Drag::gradient_end) {
+            if (!gradient_control_) return;
+            drag_inverse_ = gradient_control_->world.inverted(&invertible);
+            start_anchor_ = kind == Drag::gradient_start ? gradient_control_->start : gradient_control_->end;
+            for (const auto* field : {"start_x", "start_y", "end_x", "end_y"})
+                start_values_.emplace(field, values_.at(gradient_ref(gradient_object_, gradient_operation_, gradient_control_->id, field)));
+        } else if (kind == Drag::object) {
             const auto parent = parents_.at(selected_object);
             drag_inverse_ = (parent.empty() ? QTransform{} : world_.at(parent)).inverted(&invertible);
             start_translation_ = {values_.at({selected_object, {}, "transform.tx"}),
@@ -503,20 +599,26 @@ void Canvas::update_drag(QPointF screen) {
     }
     if (!drag_moved_ && distance(screen, press_position_) < QApplication::startDragDistance()) return;
     drag_moved_ = true;
-    const auto operation = drag_ == Drag::object ? QStringLiteral("transform") : QStringLiteral("point-handle");
+    const bool gradient_drag = drag_ == Drag::gradient_start || drag_ == Drag::gradient_end;
+    const auto operation = gradient_drag ? QStringLiteral("gradient") : drag_ == Drag::object ? QStringLiteral("transform") : QStringLiteral("point-handle");
     request_frame(operation);
     const auto local = drag_inverse_.map(view().inverted().map(screen));
     const auto press_local = drag_inverse_.map(view().inverted().map(press_position_));
     std::vector<Command> commands;
     auto set = [&](const Id& point_id, const char* field, double value) {
-        const Ref ref{selected_object, point_id, field};
+        const Ref ref = gradient_drag ? gradient_ref(gradient_object_, gradient_operation_, gradient_control_->id, field)
+            : Ref{selected_object, point_id, field};
         // Unchanged axes need no Set and must not cause a spurious driven error.
         // Session still validates every changed target atomically.
         const auto original = start_values_.at(field);
         if (std::abs(original - value) > 1e-10) commands.push_back(Set{ref, value});
     };
     try {
-        if (drag_ == Drag::anchor) {
+        if (gradient_drag) {
+            const auto target = start_anchor_ + local - press_local;
+            set({}, drag_ == Drag::gradient_start ? "start_x" : "end_x", target.x());
+            set({}, drag_ == Drag::gradient_start ? "start_y" : "end_y", target.y());
+        } else if (drag_ == Drag::anchor) {
             const auto target = start_anchor_ + local - press_local;
             set(selected_point, "x", target.x());
             set(selected_point, "y", target.y());
@@ -702,6 +804,7 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) {
         if (drag_ != Drag::none) cancel_interaction();
         else if (draw_mode_) set_draw_mode(false);
+        else if (gradient_control_) clear_gradient_edit();
         else if (!scope_.empty()) leave_group();
         else select({});
     } else if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
@@ -764,7 +867,8 @@ void Canvas::update_cursor() {
     if (drag_ == Drag::pan) setCursor(Qt::ClosedHandCursor);
     else if (space_down_) setCursor(Qt::OpenHandCursor);
     else if (draw_mode_ || drag_ == Drag::anchor || drag_ == Drag::incoming ||
-             drag_ == Drag::outgoing || drag_ == Drag::symmetric) setCursor(Qt::CrossCursor);
+             drag_ == Drag::outgoing || drag_ == Drag::symmetric || drag_ == Drag::gradient_start ||
+             drag_ == Drag::gradient_end) setCursor(Qt::CrossCursor);
     else if (drag_ == Drag::object) setCursor(Qt::SizeAllCursor);
     else setCursor(Qt::ArrowCursor);
 }

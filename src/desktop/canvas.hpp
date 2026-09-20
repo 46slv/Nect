@@ -3,6 +3,7 @@
 #include "nect/core.hpp"
 
 #include <QColor>
+#include <QBrush>
 #include <QElapsedTimer>
 #include <QPainterPath>
 #include <QPointF>
@@ -27,6 +28,7 @@ public:
     std::function<void()> document_changed;
     std::function<void()> scope_changed;
     std::function<void(bool)> draw_mode_changed;
+    std::function<void()> gradient_edit_changed;
     std::function<void(QString)> error;
 
     void refresh();
@@ -34,6 +36,8 @@ public:
     void set_selection(Id object, Id point = {});
     void set_draw_mode(bool enabled);
     bool draw_mode() const { return draw_mode_; }
+    void set_gradient_edit(Id object, Id operation);
+    const Id& gradient_operation() const { return gradient_operation_; }
     void cancel_interaction();
     const Id& drill_scope() const { return scope_; }
     QString breadcrumb() const;
@@ -83,6 +87,7 @@ private:
             QPainterPath path;
             QTransform transform;
             QColor color;
+            QBrush brush;
             bool fill = false;
             double width = 0;
         };
@@ -93,7 +98,7 @@ private:
         std::vector<Paint> paints;
         std::vector<EvaluatedPoint> points;
     };
-    enum class Drag { none, pan, anchor, incoming, outgoing, symmetric, object };
+    enum class Drag { none, pan, anchor, incoming, outgoing, symmetric, object, gradient_start, gradient_end };
     struct Hit {
         Drag kind = Drag::none;
         Id object;
@@ -106,6 +111,9 @@ private:
     std::map<Id, QTransform> world_;
     std::map<Id, Id> parents_;
     Id scope_;
+    struct GradientControl { Id id; QPointF start, end; QTransform world; bool radial = false; };
+    Id gradient_object_, gradient_operation_;
+    std::optional<GradientControl> gradient_control_;
     bool draw_mode_ = false;
     Id drawing_object_;
     Id drawing_contour_;
@@ -151,6 +159,7 @@ private:
     void report_error(const std::exception&);
     void request_frame(const QString& operation, bool new_sequence = false);
     void update_cursor();
+    void clear_gradient_edit();
 };
 
 } // namespace nect::desktop

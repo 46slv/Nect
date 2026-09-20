@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from session_client import call
 
 
-def create(endpoint, output):
+def create(endpoint, output, gradients=False):
     live = call(endpoint, {'op': 'hello'})
     identity = {k: live[k] for k in ('session_id', 'document_id')}
     revision = live['revision']
@@ -70,6 +70,35 @@ def create(endpoint, output):
         binding=dict(source=dict(object='petal',point='',field='op.petal-repeat.rotation'),scale=.25,offset=0,mode='copy_local_value')))
     commands.append(dict(type='group_contiguous',composition=comp['id'],parent='',members=['petal','ray','orbit','heart'],id='ornament',name='Radial ornament'))
     apply(commands)
+    if gradients:
+        templates={item['type']:item['template'] for item in core('gradient_types')['result']}
+
+        def gradient(object_, kind, start, end, colors):
+            base=templates[kind]
+            stops=[]
+            for index,(offset,color) in enumerate(colors):
+                stops.append(dict(id=f'{object_}-color-{index}',offset=scalar(offset),
+                    rgba=[scalar(int(color[i:i+2],16)/255) for i in (0,2,4)]+[scalar(1)]))
+            return dict(type='set_gradient',object=object_,operation=object_+'-fill',
+                gradient=dict(base,id=object_+'-gradient',start_x=scalar(start[0]),start_y=scalar(start[1]),
+                    end_x=scalar(end[0]),end_y=scalar(end[1]),stops=stops))
+
+        commands=[gradient('paper','linear',(0,0),(960,640),[(0,'091D3B'),(.55,'173D63'),(1,'3E355F')]),
+            gradient('petal','linear',(480,140),(480,310),[(0,'62DDD8'),(.52,'708BEB'),(1,'EC8FAA')]),
+            gradient('heart','radial',(468,310),(509,324),[(0,'FFF9C4'),(.6,'F6C77E'),(1,'E9889C')])]
+        for object_ in ('petal','orbit','ray','heart'):
+            opid=objects[object_]['legacy_stroke']
+            for channel,value in zip('rgb',(.70,.83,.91)):
+                commands.append(dict(type='set',ref=dict(object=object_,point='',field=f'op.{opid}.{channel}'),value=value))
+        for channel in 'rgb':
+            commands.append(dict(type='link',target=dict(object='heart',point='',
+                field=f'op.heart-fill.gradient.heart-gradient.stop.heart-color-2.{channel}'),
+                binding=dict(source=dict(object='petal',point='',
+                    field=f'op.petal-fill.gradient.petal-gradient.stop.petal-color-2.{channel}'),
+                    scale=1,offset=0,mode='copy_local_value')))
+        for channel,value in zip('rgb',(.70,.83,.91)):
+            commands.append(dict(type='set',ref=dict(object='ray',point='',field=f'op.ray-fill.{channel}'),value=value))
+        apply(commands)
     plan=core('render_plan',object='petal')['result']
     assert plan['path_instances']==8 and len(plan['paint_layers'])==16
     output=Path(output).resolve()
@@ -80,12 +109,13 @@ def create(endpoint, output):
     paths=ET.fromstring(svg).findall('.//{http://www.w3.org/2000/svg}path')
     assert len(paths)==85
     output.with_suffix('.svg').write_text(svg,encoding='utf-8')
-    return dict(native=str(output),svg=str(output.with_suffix('.svg')),revision=revision,paint_layers=len(paths),source_preserved=True)
+    return dict(native=str(output),svg=str(output.with_suffix('.svg')),revision=revision,paint_layers=len(paths),source_preserved=True,gradients=gradients)
 
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--endpoint',required=True)
     parser.add_argument('--output',required=True)
+    parser.add_argument('--gradients',action='store_true',help='Author the linked linear/radial gradient variant')
     args=parser.parse_args()
-    print(create(args.endpoint,args.output))
+    print(create(args.endpoint,args.output,args.gradients))

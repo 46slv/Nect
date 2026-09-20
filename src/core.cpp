@@ -51,6 +51,23 @@ std::pair<Id,std::string> operation_address(const std::string& field) {
     require(end!=std::string::npos,"MISSING_REFERENCE",field);
     return {field.substr(3,end-3),field.substr(end+1)};
 }
+template<class O> auto& gradient_property(O& op,const std::string& parameter) {
+    require(op.gradient.has_value(),"MISSING_REFERENCE",parameter);
+    const auto prefix="gradient."+op.gradient->id+".";
+    require(parameter.starts_with(prefix),"MISSING_REFERENCE",parameter);
+    auto& g=*op.gradient;const auto field=parameter.substr(prefix.size());
+    if(field=="start_x")return g.start_x;if(field=="start_y")return g.start_y;
+    if(field=="end_x")return g.end_x;if(field=="end_y")return g.end_y;
+    for(auto& stop:g.stops) {
+        const auto root="stop."+stop.id+".";
+        if(!field.starts_with(root))continue;
+        const auto component=field.substr(root.size());
+        if(component=="offset")return stop.offset;
+        static const std::array<std::string,4> channels{"r","g","b","a"};
+        for(std::size_t i=0;i<channels.size();++i)if(component==channels[i])return stop.rgba[i];
+    }
+    throw Error("MISSING_REFERENCE",parameter);
+}
 template<class D>
 auto& lookup_property(D& d,const Ref& r) {
     auto it=d.objects.find(r.object);
@@ -70,6 +87,7 @@ auto& lookup_property(D& d,const Ref& r) {
                     std::pair{o.legacy_stroke,r.field.substr(7)};
                 require(!address.first.empty(),"MISSING_REFERENCE",r.field);
                 auto& op=operation(o,address.first);
+                if(address.second.starts_with("gradient."))return gradient_property(op,address.second);
                 require(op.parameters.contains(address.second),"MISSING_REFERENCE",r.field);
                 return op.parameters.at(address.second);
             }
@@ -96,6 +114,7 @@ auto& lookup_property(D& d,const Ref& r) {
 std::string unit(const Ref& r) {
     if(r.field.starts_with("op.")) {
         const auto name=operation_address(r.field).second;
+        if(name.starts_with("gradient.")&&(name.ends_with(".start_x")||name.ends_with(".start_y")||name.ends_with(".end_x")||name.ends_with(".end_y")))return "du";
         if(name=="width"||name=="position_x"||name=="position_y"||name=="anchor_x"||name=="anchor_y")return "du";
         if(name=="rotation")return "degree";
         return "scalar";
@@ -115,6 +134,8 @@ void value_range(const Ref& r,double v) {
         require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB/alpha channel outside [0,1]");
     if(r.field.starts_with("op.")) {
         const auto name=operation_address(r.field).second;
+        if(name.starts_with("gradient.")&&name.find(".stop.")!=std::string::npos)
+            require(v>=0&&v<=1,"OUT_OF_RANGE","Gradient offsets/color channels must lie in [0,1]");
         if(name=="r"||name=="g"||name=="b"||name=="a"||name=="start_opacity"||name=="end_opacity")
             require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB/opacity outside [0,1]");
         if(name=="width")require(v>=0,"OUT_OF_RANGE","Negative stroke width");
@@ -135,9 +156,23 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
 
         if (object.kind != Kind::path) continue;
 
-        for(const auto& op:object.stack)for(const auto& [name,value]:op.parameters) {
-            index.emplace(operation_ref(id,op.id,name),&value);
-            if(op.id==object.legacy_stroke)index.emplace(Ref{id,"","stroke."+name},&value);
+        for(const auto& op:object.stack) {
+            for(const auto& [name,value]:op.parameters) {
+                index.emplace(operation_ref(id,op.id,name),&value);
+                if(op.id==object.legacy_stroke)index.emplace(Ref{id,"","stroke."+name},&value);
+            }
+            if(op.gradient) {
+                const auto& g=*op.gradient;
+                index.emplace(gradient_ref(id,op.id,g.id,"start_x"),&g.start_x);
+                index.emplace(gradient_ref(id,op.id,g.id,"start_y"),&g.start_y);
+                index.emplace(gradient_ref(id,op.id,g.id,"end_x"),&g.end_x);
+                index.emplace(gradient_ref(id,op.id,g.id,"end_y"),&g.end_y);
+                const std::array<std::string,4> channels{"r","g","b","a"};
+                for(const auto& stop:g.stops) {
+                    index.emplace(gradient_ref(id,op.id,g.id,"stop."+stop.id+".offset"),&stop.offset);
+                    for(std::size_t i=0;i<channels.size();++i)index.emplace(gradient_ref(id,op.id,g.id,"stop."+stop.id+"."+channels[i]),&stop.rgba[i]);
+                }
+            }
         }
 
         if(object.source) {
@@ -180,7 +215,9 @@ void add_default_stroke(Document& d,const Id& object) {
     for(const auto& c:d.compositions){ids.insert(c.id);for(const auto& a:c.artboards)ids.insert(a.id);}
     for(const auto& c:d.collections)ids.insert(c.id);
     for(const auto& [id,item]:d.objects) {
-        ids.insert(id);for(const auto& op:item.stack)ids.insert(op.id);
+        ids.insert(id);for(const auto& op:item.stack) {
+            ids.insert(op.id);if(op.gradient){ids.insert(op.gradient->id);for(const auto& stop:op.gradient->stops)ids.insert(stop.id);}
+        }
         if(item.source){ids.insert(item.source->id);ids.insert(item.source->id+"-point-edit");}
         for(const auto& contour:path_contours(item)){ids.insert(contour.id);for(const auto& p:contour.points)ids.insert(p.id);}
     }
@@ -345,6 +382,14 @@ void validate(const Document& d) {
                 require(op.composite=="above"||op.composite=="below","UNSUPPORTED_COMPOSITE",op.composite);
                 require(op.fill_rule=="nonzero"||op.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",op.fill_rule);
                 if(op.type!="nect.paint.fill")require(op.fill_rule=="nonzero","INVALID_OPERATOR_OPTIONS","Fill rule only applies to Fill");
+                if(op.gradient) {
+                    require(op.type=="nect.paint.fill"||op.type=="nect.paint.stroke","INVALID_DOMAIN","Gradient requires a paint operation");
+                    const auto& g=*op.gradient;add(g.id);
+                    require(g.version==1,"UNSUPPORTED_GRADIENT_VERSION","Only gradient version 1 is supported");
+                    require(g.type=="linear"||g.type=="radial","UNSUPPORTED_GRADIENT",g.type);
+                    require(g.stops.size()>=2&&g.stops.size()<=64,"INVALID_GRADIENT","Gradient requires 2..64 stable color stops");
+                    for(const auto& stop:g.stops)add(stop.id);
+                }
             }
             if(!o.legacy_stroke.empty())require(operation(o,o.legacy_stroke).type=="nect.paint.stroke","INVALID_LEGACY_ADDRESS","Legacy stroke must refer to a retained Stroke operation");
             if(o.source) {
@@ -418,6 +463,15 @@ void validate(const Document& d) {
 
     const auto values=evaluate(d);
     for(const auto& [id,o]:d.objects) {
+        for(const auto& op:o.stack)if(op.gradient) {
+            const auto& g=*op.gradient;
+            auto v=[&](const char* field){return values.at(gradient_ref(id,op.id,g.id,field));};
+            if(op.enabled&&g.enabled)require(std::hypot(v("end_x")-v("start_x"),v("end_y")-v("start_y"))>1e-9,
+                    "GRADIENT_GEOMETRY","Gradient start and end must differ");
+            std::set<double> offsets;
+            for(const auto& stop:g.stops)require(offsets.insert(values.at(gradient_ref(id,op.id,g.id,"stop."+stop.id+".offset"))).second,
+                "GRADIENT_STOPS","Coincident gradient stop offsets are not yet supported");
+        }
         if(o.stack.size()>1||std::any_of(o.stack.begin(),o.stack.end(),[](const auto& op){return op.enabled&&op.type=="nect.shape.repeater";}))
             (void)evaluate_shape(d,id,values);
     }
@@ -521,6 +575,9 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
         } else if constexpr(std::is_same_v<T,OperationOptions>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& op=operation(candidate.objects.at(c.object),c.operation);op.composite=c.composite;op.fill_rule=c.fill_rule;
+        } else if constexpr(std::is_same_v<T,SetGradient>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            operation(candidate.objects.at(c.object),c.operation).gradient=c.gradient;
         } else if constexpr(std::is_same_v<T,EnablePointEdit>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);

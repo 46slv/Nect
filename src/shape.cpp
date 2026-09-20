@@ -20,6 +20,9 @@ ShapeOperation default_operation(Id id,const std::string& type) {
 Ref operation_ref(const Id& object,const Id& operation,const std::string& parameter) {
     return {object,"","op."+operation+"."+parameter};
 }
+Ref gradient_ref(const Id& object,const Id& operation,const Id& gradient,const std::string& field) {
+    return operation_ref(object,operation,"gradient."+gradient+"."+field);
+}
 Vec2 map_point(const Affine& m,Vec2 p) {return {m[0]*p.x+m[2]*p.y+m[4],m[1]*p.x+m[3]*p.y+m[5]};}
 Affine compose(const Affine& a,const Affine& b) {
     return {a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],
@@ -52,6 +55,15 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
                 throw Error("OUTPUT_LIMIT","Shape paint output exceeds 250000 cubic anchors per object");
             PaintLayer paint;paint.operation=op.id;paint.type=op.type;
             paint.rgba={v("r"),v("g"),v("b"),v("a")};paint.paths=shape.paths;paint.fill_rule=op.fill_rule;
+            if(op.gradient&&op.gradient->enabled) {
+                const auto& g=*op.gradient;EvaluatedGradient resolved;resolved.type=g.type;
+                auto gv=[&](const std::string& field){return values.at(gradient_ref(id,op.id,g.id,field));};
+                resolved.start={gv("start_x"),gv("start_y")};resolved.end={gv("end_x"),gv("end_y")};
+                for(const auto& stop:g.stops)resolved.stops.push_back({gv("stop."+stop.id+".offset"),
+                    {gv("stop."+stop.id+".r"),gv("stop."+stop.id+".g"),gv("stop."+stop.id+".b"),gv("stop."+stop.id+".a")}});
+                std::stable_sort(resolved.stops.begin(),resolved.stops.end(),[](const auto& a,const auto& b){return a.offset<b.offset;});
+                paint.gradient=std::move(resolved);
+            }
             if(op.type=="nect.paint.stroke")paint.width=v("width");
             if(op.composite=="above")shape.paints.push_back(std::move(paint));
             else shape.paints.insert(shape.paints.begin(),std::move(paint));

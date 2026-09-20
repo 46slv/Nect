@@ -137,4 +137,14 @@ with tempfile.TemporaryDirectory() as tmp:
         'new paint identity avoids all existing document identities')
     check(result[1]['result']['evaluated']==5,'legacy stroke binding survives stack migration')
     check(run('--validate',new).returncode==0,'migrated source, correction and stack reopen')
+# Real 0.3 production scene must retain its complete procedural state in 0.4.
+ornament = Path(__file__).parent.parent / 'examples/radial-ornament.nect'
+old = json.loads(ornament.read_text(encoding='utf-8'))
+check(old['version']=='0.3','production fixture remains historical 0.3')
+migrated_run = subprocess.run([exe,'--serve',str(ornament)],input='{"op":"inspect"}\n',
+    capture_output=True,text=True,timeout=10)
+new=json.loads(migrated_run.stdout)['result'];new['version']='0.3'
+check(new==old,'0.3 migration retains all paint, repeat, binding and correction state')
+check(run('--svg',old).stdout==(ornament.with_suffix('.svg')).read_text(encoding='utf-8'),
+    'solid 0.3 scene exports identical SVG after migration')
 print(f'PASS {checks} process and native migration checks')
