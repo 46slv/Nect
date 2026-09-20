@@ -29,10 +29,15 @@ public:
     std::function<void()> scope_changed;
     std::function<void(bool)> draw_mode_changed;
     std::function<void()> gradient_edit_changed;
+    std::function<void()> active_artboard_changed;
     std::function<void(QString)> error;
 
     void refresh();
     void fit_artboard();
+    void fit_all_artboards();
+    const Id& active_composition() const { return active_composition_; }
+    const Id& active_artboard() const { return active_artboard_; }
+    void set_active_artboard(Id composition, Id artboard, bool fit = true);
     void set_selection(Id object, Id point = {});
     void set_draw_mode(bool enabled);
     bool draw_mode() const { return draw_mode_; }
@@ -111,6 +116,8 @@ private:
     std::map<Id, QTransform> world_;
     std::map<Id, Id> parents_;
     Id scope_;
+    Id active_composition_, active_artboard_;
+    std::vector<Artboard> artboards_;
     struct GradientControl { Id id; QPointF start, end; QTransform world; bool radial = false; };
     Id gradient_object_, gradient_operation_;
     std::optional<GradientControl> gradient_control_;
@@ -160,6 +167,7 @@ private:
     void request_frame(const QString& operation, bool new_sequence = false);
     void update_cursor();
     void clear_gradient_edit();
+    void fit_bounds(QRectF bounds);
 };
 
 } // namespace nect::desktop

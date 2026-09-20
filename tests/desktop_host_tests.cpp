@@ -53,6 +53,12 @@ int main(int argc,char** argv) {
         const auto before=encode(host.session.document());
         try {host.open(invalid.fileName());throw std::runtime_error("Expected open failure");} catch(const Error&) {}
         check(encode(host.session.document())==before,"Failed open preserves live document");
+        auto multiple=empty_document("multiple","empty-plane","temporary-frame");
+        multiple.compositions.front().artboards.clear();
+        multiple.compositions.push_back({"visible-plane","Visible",{},{{"visible-frame","Page",100,200,640,480}}});
+        QFile planes(temp.path()+"/planes.nect");check(planes.open(QIODevice::WriteOnly),"Create multiple-plane fixture");
+        planes.write(QByteArray::fromStdString(encode(multiple)));planes.close();host.open(planes.fileName());
+        check(host.session.document().id=="multiple","Desktop accepts a visible frame after an empty Composition");
         std::cout<<"PASS desktop persistence, backup restore, preview isolation and session identity\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

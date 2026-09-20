@@ -96,12 +96,27 @@ const Canvas::EvaluatedPoint* Canvas::point(const Geometry& item, const Id& id) 
 
 void Canvas::refresh() {
     const auto& document = session_.preview_document();
+    const auto previous_composition = active_composition_, previous_artboard = active_artboard_;
     try {
+        auto composition = std::find_if(document.compositions.begin(), document.compositions.end(),
+            [&](const auto& item) { return item.id == active_composition_; });
+        if (composition == document.compositions.end() || composition->artboards.empty())
+            composition = std::find_if(document.compositions.begin(), document.compositions.end(),
+                [](const auto& item) { return !item.artboards.empty(); });
+        if (composition == document.compositions.end()) composition = document.compositions.begin();
+        artboards_.clear();
+        if (composition != document.compositions.end()) {
+            active_composition_ = composition->id;
+            if (std::none_of(composition->artboards.begin(), composition->artboards.end(),
+                [&](const auto& board) { return board.id == active_artboard_; }))
+                active_artboard_ = composition->artboards.empty() ? Id{} : composition->artboards.front().id;
+            for (const auto& board : composition->artboards) artboards_.push_back(evaluate_artboard(*composition, board.id));
+        } else { active_composition_.clear(); active_artboard_.clear(); }
         values_ = evaluate(document);
         geometry_.clear();
         world_.clear();
         parents_.clear();
-        if (!document.compositions.empty()) {
+        if (composition != document.compositions.end()) {
             std::function<void(const Id&, const QTransform&, std::vector<Id>)> visit;
             visit = [&](const Id& id, const QTransform& parent, std::vector<Id> ancestors) {
                 const auto& object = document.objects.at(id);
@@ -206,7 +221,7 @@ void Canvas::refresh() {
                 }
                 geometry_.push_back(std::move(item));
             };
-            for (const auto& root : document.compositions.front().roots) visit(root, {}, {});
+            for (const auto& root : composition->roots) visit(root, {}, {});
         }
 
         if (!scope_.empty() && (!world_.contains(scope_) ||
@@ -238,14 +253,27 @@ void Canvas::refresh() {
         report_error(exception);
     }
     update();
+    if (!previous_artboard.empty() && (previous_composition != active_composition_ || previous_artboard != active_artboard_))
+        fit_artboard();
+    if ((previous_composition != active_composition_ || previous_artboard != active_artboard_) && active_artboard_changed)
+        active_artboard_changed();
 }
 
 void Canvas::fit_artboard() {
-    const auto& document = session_.preview_document();
-    if (document.compositions.empty()) return;
     QRectF bounds;
-    for (const auto& artboard : document.compositions.front().artboards)
+    for (const auto& artboard : artboards_) if (artboard.id == active_artboard_)
+        bounds = {artboard.x, artboard.y, artboard.width, artboard.height};
+    fit_bounds(bounds);
+}
+
+void Canvas::fit_all_artboards() {
+    QRectF bounds;
+    for (const auto& artboard : artboards_)
         bounds = bounds.united({artboard.x, artboard.y, artboard.width, artboard.height});
+    fit_bounds(bounds);
+}
+
+void Canvas::fit_bounds(QRectF bounds) {
     if (bounds.isEmpty()) {
         for (const auto& item : geometry_) {
             bounds = bounds.united(item.world.map(item.path).boundingRect());
@@ -259,6 +287,23 @@ void Canvas::fit_artboard() {
     pan_ = QPointF(width() / 2.0, height() / 2.0) - bounds.center() * zoom_;
     initial_fit_ = false;
     request_frame(QStringLiteral("fit"), true);
+}
+
+void Canvas::set_active_artboard(Id composition, Id artboard, bool fit) {
+    const auto& document = session_.document();
+    const auto found = std::find_if(document.compositions.begin(), document.compositions.end(),
+        [&](const auto& item) { return item.id == composition; });
+    if (found == document.compositions.end() || std::none_of(found->artboards.begin(), found->artboards.end(),
+        [&](const auto& item) { return item.id == artboard; }))
+        throw Error("MISSING_ARTBOARD", "Choose an artboard in its owning composition");
+    const bool changed = composition != active_composition_ || artboard != active_artboard_;
+    cancel_interaction();
+    if (changed) set_draw_mode(false);
+    if (composition != active_composition_) { select({}); set_scope({}); }
+    active_composition_ = std::move(composition); active_artboard_ = std::move(artboard);
+    refresh();
+    if (fit) fit_artboard();
+    if (changed && active_artboard_changed) active_artboard_changed();
 }
 
 void Canvas::set_scope(Id scope) {
@@ -282,6 +327,21 @@ void Canvas::select(Id object, Id point_id, bool enter_parent) {
 
 void Canvas::set_selection(Id object, Id point_id) {
     cancel_interaction();
+    // A property picker may deliberately navigate to another composition plane.
+    if (!object.empty()) {
+        const auto& document = session_.document();
+        std::function<bool(const Id&)> contains = [&](const Id& id) {
+            if (id == object) return true;
+            const auto& children = document.objects.at(id).children;
+            return std::any_of(children.begin(), children.end(), contains);
+        };
+        for (const auto& composition : document.compositions)
+            if (composition.id != active_composition_ && !composition.artboards.empty() &&
+                std::any_of(composition.roots.begin(), composition.roots.end(), contains)) {
+                set_active_artboard(composition.id, composition.artboards.front().id);
+                break;
+            }
+    }
     // A caller may select the object immediately after its core Create command,
     // before the window-wide document callback has rebuilt our derived cache.
     refresh();
@@ -291,8 +351,11 @@ void Canvas::set_selection(Id object, Id point_id) {
 QString Canvas::breadcrumb() const {
     const auto& document = session_.preview_document();
     QStringList names;
-    if (!document.compositions.empty())
-        names.push_back(QString::fromStdString(document.compositions.front().name));
+    for (const auto& composition : document.compositions) if (composition.id == active_composition_) {
+        names.push_back(QString::fromStdString(composition.name));
+        for (const auto& board : composition.artboards) if (board.id == active_artboard_)
+            names.push_back(QString::fromStdString(board.name));
+    }
     std::vector<Id> chain;
     for (auto id = scope_; !id.empty() && parents_.contains(id); id = parents_.at(id)) chain.push_back(id);
     for (auto i = chain.rbegin(); i != chain.rend(); ++i)
@@ -415,9 +478,9 @@ void Canvas::paintEvent(QPaintEvent*) {
         painter.setRenderHint(QPainter::Antialiasing);
         painter.fillRect(rect(), QColor(39, 42, 47));
         const auto& document = session_.preview_document();
-        if (!document.compositions.empty()) {
+        if (!artboards_.empty()) {
             painter.setWorldTransform(view());
-            for (const auto& artboard : document.compositions.front().artboards) {
+            for (const auto& artboard : artboards_) {
                 const QRectF area(artboard.x, artboard.y, artboard.width, artboard.height);
                 painter.fillRect(area.translated(3 / zoom_, 3 / zoom_), QColor(20, 22, 26));
                 painter.fillRect(area, QColor(250, 250, 250));
@@ -439,6 +502,14 @@ void Canvas::paintEvent(QPaintEvent*) {
             }
         }
         painter.resetTransform();
+        for (const auto& artboard : artboards_) {
+            const auto frame = view().mapRect(QRectF(artboard.x, artboard.y, artboard.width, artboard.height));
+            const bool active = artboard.id == active_artboard_;
+            painter.setBrush(Qt::NoBrush); painter.setPen(QPen(active ? accent : QColor(122, 131, 145), active ? 2 : 1));
+            painter.drawRect(frame);
+            painter.drawText(QRectF(frame.left(), frame.top()-23, std::max(100.0, frame.width()), 20),
+                Qt::AlignLeft | Qt::AlignVCenter, QString::fromStdString(artboard.name) + (active ? tr(" · active") : QString{}));
+        }
         QRectF selected_bounds;
         for (const auto& item : geometry_) {
             const bool selected = item.id == selected_object ||
@@ -683,8 +754,7 @@ void Canvas::cancel_interaction() {
 
 void Canvas::append_draw_point(QPointF screen) {
     try {
-        const auto& document = session_.document();
-        if (document.compositions.empty()) throw Error("MISSING_COMPOSITION", "Create a composition before drawing");
+        if (active_composition_.empty()) throw Error("MISSING_COMPOSITION", "Create a composition before drawing");
         const auto parent_world = scope_.empty() ? QTransform{} : world_.at(scope_);
         bool invertible = false;
         const auto inverse = parent_world.inverted(&invertible);
@@ -710,7 +780,7 @@ void Canvas::append_draw_point(QPointF screen) {
         if (object_id.empty()) {
             object_id = unique_id("path-");
             contour_id = unique_id("contour-");
-            session_.apply({CreatePath{document.compositions.front().id, scope_, object_id,
+            session_.apply({CreatePath{active_composition_, scope_, object_id,
                                       "Path", {{contour_id, false, {p}}}}}, session_.revision());
         } else {
             session_.apply({AddPoint{object_id, contour_id, p}}, session_.revision());

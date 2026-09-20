@@ -11,6 +11,7 @@
 #include <QDateTime>
 #include <limits>
 #include <memory>
+#include <algorithm>
 
 namespace nect::desktop {
 Id new_id() { return QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString(); }
@@ -84,7 +85,7 @@ void Host::protect() {
 }
 void Host::reset(Document document,const QString& path) {
     if(session.gesture_active()) throw Error("GESTURE_ACTIVE","Finish the current gesture first");
-    if(document.compositions.empty()||document.compositions.front().artboards.empty())
+    if(std::none_of(document.compositions.begin(),document.compositions.end(),[](const auto& c){return !c.artboards.empty();}))
         throw Error("DESKTOP_DOCUMENT_REQUIREMENT","The desktop needs a Composition with an Artboard; source file is unchanged");
     // Protect the outgoing document before replacing the live Session.
     protect();

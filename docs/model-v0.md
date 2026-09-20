@@ -74,8 +74,8 @@ Current M0 limits are safety bounds, not product performance targets.
 
 ## Native 0.2: retained primitives and point corrections
 
-The primitive slice introduced 0.2; the current writer emits 0.4 and the reader
-accepts strict 0.1 through 0.4. Migration of 0.1
+The primitive slice introduced 0.2; the current writer emits 0.5 and the reader
+accepts strict 0.1 through 0.5. Migration of 0.1
 preserves authored values, IDs and bindings, with no geometry conversion. The
 historical linked fixture in `tests/fixtures/native-v0.1-linked.nect` is loaded,
 edited, saved and reopened in separate processes. Unknown fields and behavior
@@ -192,6 +192,32 @@ Canvas uses QGradient ComponentInterpolation, with original-source start/end
 handles. SVG uses userSpaceOnUse, sRGB and pad gradients. Repeating after paint
 transforms its gradient with every copy; repeating before paint shares one gradient
 over compound paths. `render_plan` exposes the same resolved stops and coordinates.
+
+## Native 0.5: ordered output frames and parent size
+
+An Artboard remains an output rectangle on its owning Composition's plane. Its
+stable ID is independent of vector position and display name. `add_artboard`,
+`update_artboard`, `delete_artboard` and `reorder_artboards` are atomic Session
+commands. Reorder changes page/export order only; x/y/size edits change the crop
+only. No Artboard operation moves artwork or changes object ownership. The
+`artboards` read operation returns ordered authored/evaluated frame pairs.
+Changed IDs include frames whose inherited dimensions change, not just their
+owning Composition. Deleting the last frame through commands rejects explicitly.
+
+Optional `parent_size: {artboard, width, height}` references a frame in the same
+Composition. Each Boolean chooses whether that dimension follows its parent;
+false keeps the frame's local width/height. The retained local values are valid
+fallbacks, not a second evaluated authority. Reset Override means enabling the
+corresponding Boolean. `detach_artboard_parent` freezes both effective dimensions
+and removes the reference. Position/name never inherit. Chained parents are
+supported; cycles, cross-plane references and deletion of a referenced parent
+reject atomically. A caller may detach/retarget children and delete their parent
+in one explicit batch. Limits: 1024 frames per Composition, parent depth 256.
+
+This is the size-inheritance foundation of Parent Artboards, not reusable content
+or logo/guide/page-number inheritance. Those require the shared definition/instance
+contract and remain pending. Native 0.1–0.4 frames migrate with no parent binding;
+their coordinates, order, authored artwork and SVG output remain unchanged.
 
 ## Next contracts
 

@@ -147,4 +147,18 @@ new=json.loads(migrated_run.stdout)['result'];new['version']='0.3'
 check(new==old,'0.3 migration retains all paint, repeat, binding and correction state')
 check(run('--svg',old).stdout==(ornament.with_suffix('.svg')).read_text(encoding='utf-8'),
     'solid 0.3 scene exports identical SVG after migration')
+gradient_path=ornament.with_name('gradient-ornament.nect')
+old=json.loads(gradient_path.read_text(encoding='utf-8'))
+check(old['version']=='0.4','gradient fixture remains historical 0.4')
+upgraded=subprocess.run([exe,'--serve',str(gradient_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,timeout=10)
+new=json.loads(upgraded.stdout)['result'];new['version']='0.4'
+check(new==old,'0.4 migration preserves gradients and their linked stable stops')
+check(run('--svg',old).stdout==gradient_path.with_suffix('.svg').read_text(encoding='utf-8'),
+    'gradient 0.4 scene exports identical SVG after frame migration')
+frames=json.loads(json.dumps(sample));frames['version']='0.5'
+composition=frames['compositions'][0]
+composition['artboards'].append(dict(id='requested-crop',name='Crop',x=100,y=50,width=300,height=250))
+requested=subprocess.run([exe,'--svg',composition['id'],'requested-crop'],input=json.dumps(frames),capture_output=True,text=True,timeout=10)
+check(requested.returncode==0 and ET.fromstring(requested.stdout).attrib['viewBox']=='100 50 300 250',
+    'CLI can export a non-first frame by stable Composition/Artboard IDs')
 print(f'PASS {checks} process and native migration checks')

@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from session_client import call
 
 
-def create(endpoint, output, gradients=False):
+def create(endpoint, output, gradients=False, persist=True):
     live = call(endpoint, {'op': 'hello'})
     identity = {k: live[k] for k in ('session_id', 'document_id')}
     revision = live['revision']
@@ -101,6 +101,8 @@ def create(endpoint, output, gradients=False):
         apply(commands)
     plan=core('render_plan',object='petal')['result']
     assert plan['path_instances']==8 and len(plan['paint_layers'])==16
+    if not persist:
+        return dict(revision=revision,source_preserved=True,gradients=gradients)
     output=Path(output).resolve()
     saved=call(endpoint,dict(identity,op='save',path=str(output),expected_revision=revision))
     if not saved['ok']:

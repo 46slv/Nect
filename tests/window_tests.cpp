@@ -16,6 +16,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QStatusBar>
+#include <QFile>
 #include <cmath>
 #include <iostream>
 
@@ -392,6 +393,121 @@ void gradient_authoring(Window& window) {
         window.canvas->selected_point==point_row->data(0,Qt::UserRole+1).toString().toStdString(),
         "Selecting a source point in the tree leaves gradient handles and restores direct point editing");
 }
+void artboard_authoring(Window& window) {
+    auto& session=window.host.session;
+    auto button=[&](const char* name) {
+        auto* control=visible_child<QPushButton>(window,name);
+        if(window.findChild<QScrollArea*>()->widget()->isAncestorOf(control))reveal(window,control);
+        QTest::mouseClick(control,Qt::LeftButton);QApplication::processEvents();
+    };
+    auto input=[&](const char* name,const char* value) {
+        auto* control=visible_child<QLineEdit>(window,name);reveal(window,control);control->setFocus();
+        QTest::keyClick(control,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(control,value);
+        QTest::keyClick(control,Qt::Key_Return);QApplication::processEvents();
+    };
+    auto select=[&](const Id& board) {
+        auto* list=window.findChild<QListWidget*>("artboards");QListWidgetItem* selected=nullptr;
+        for(int i=0;i<list->count();++i)if(list->item(i)->data(Qt::UserRole+1).toString().toStdString()==board)selected=list->item(i);
+        check(selected!=nullptr,"Frame navigator contains its stable board ID");list->scrollToItem(selected);QApplication::processEvents();
+        QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(selected).center());QApplication::processEvents();
+        button("artboard-edit");
+    };
+    const auto original=session.document().compositions.front().artboards.front().id;
+    auto authored=[&](const Id& id) {
+        for(const auto& board:session.document().compositions.front().artboards)if(board.id==id)return board;
+        throw std::runtime_error("Authored artboard missing");
+    };
+    auto resolved=[&](const Id& id){return evaluate_artboard(session.document().compositions.front(),id);};
+    named_action(window,"add-circle")->trigger();QApplication::processEvents();
+    const auto geometry=evaluate(session.document());const auto roots=session.document().compositions.front().roots;
+    button("artboard-add");const auto child=window.canvas->active_artboard();
+    check(child!=original&&session.document().compositions.front().artboards.size()==2&&authored(child).x==1000,
+        "Add frame creates a unique ordered board to the right with a gap");
+    input("artboard-name","Alternative crop");input("artboard-x","1234");input("artboard-y","34");
+    check(authored(child).name=="Alternative crop"&&authored(child).x==1234&&authored(child).y==34&&
+        evaluate(session.document())==geometry,"Frame name and crop position edit without moving any artwork");
+    window.canvas->fit_artboard();const auto frame_zoom=window.canvas->zoom();window.canvas->fit_all_artboards();
+    check(window.canvas->zoom()<frame_zoom,"Fit all includes the resolved union of frames in the active composition");
+    window.canvas->fit_artboard();
+    const auto before_reorder=authored(child);button("artboard-up");
+    check(session.document().compositions.front().artboards.front().id==child&&authored(child).x==before_reorder.x&&
+        authored(child).y==before_reorder.y&&authored(original).x==0&&evaluate(session.document())==geometry,
+        "Changing frame order changes neither crop coordinates nor authored geometry");
+    button("artboard-duplicate");const auto copy=window.canvas->active_artboard();
+    check(copy!=child&&authored(copy).width==authored(child).width&&authored(copy).x>authored(child).x&&
+        session.document().compositions.front().roots==roots,"Duplicate frame copies settings and leaves artwork ownership unchanged");
+    button("artboard-remove");
+    check(window.canvas->active_artboard()==child&&session.document().compositions.front().artboards.size()==2,
+        "Removing the active frame reconciles to a surviving frame");
+    select(child);
+    auto* parent=visible_child<QComboBox>(window,"artboard-parent");reveal(window,parent);
+    parent->setCurrentIndex(parent->findData(QString::fromStdString(original)));QApplication::processEvents();
+    check(authored(child).parent_size&&authored(child).parent_size->width&&authored(child).parent_size->height,
+        "Parent picker authors explicit width and height inheritance in the same composition");
+    select(original);input("artboard-width","800");input("artboard-height","450");
+    check(resolved(child).width==800&&resolved(child).height==450,"Parent frame resizing propagates evaluated child size");
+    const auto protected_revision=session.revision();button("artboard-remove");
+    check(session.revision()==protected_revision&&authored(child).parent_size&&window.statusBar()->currentMessage().contains("MISSING_ARTBOARD"),
+        "Removing a referenced parent rejects visibly without changing the document");
+    select(child);input("artboard-width","900");
+    check(!authored(child).parent_size->width&&authored(child).parent_size->height&&resolved(child).width==900,
+        "Typing inherited width explicitly creates only a local width override");
+    select(original);input("artboard-width","700");input("artboard-height","500");
+    check(resolved(child).width==900&&resolved(child).height==500,"An overridden dimension stays fixed while the other still inherits");
+    select(child);auto* inherit=visible_child<QCheckBox>(window,"artboard-inherit-width");reveal(window,inherit);
+    QTest::mouseClick(inherit,Qt::LeftButton,Qt::NoModifier,QPoint(8,inherit->height()/2));QApplication::processEvents();
+    check(resolved(child).width==700&&authored(child).parent_size->width,"Inherit reset restores the current parent dimension");
+    auto* detach=visible_child<QPushButton>(window,"artboard-detach");reveal(window,detach);button("artboard-detach");
+    check(!authored(child).parent_size&&authored(child).width==700&&authored(child).height==500,"Detach freezes both evaluated dimensions");
+    history_action(window,"Undo");check(authored(child).parent_size.has_value(),"Undo detach restores the parent relationship");
+    history_action(window,"Redo");select(original);input("artboard-width","650");input("artboard-height","400");
+    check(resolved(child).width==700&&resolved(child).height==500&&evaluate(session.document())==geometry,
+        "Detached dimensions and artwork stay fixed when the former parent changes");
+
+    // Open a real native fixture with an empty leading composition and two
+    // independent planes. Empty legacy compositions must not break navigation.
+    auto document=empty_document("navigation-doc","plane-a","board-a");
+    document.compositions.insert(document.compositions.begin(),Composition{"empty-plane","Empty plane",{}, {}});
+    document.compositions.push_back(Composition{"plane-b","Second plane",{},{{"board-b","Offset frame",2000,100,400,300}}});
+    QTemporaryDir files;const auto path=files.filePath("planes.nect");QFile file(path);
+    check(file.open(QIODevice::WriteOnly),"Multi-plane fixture can be written");const auto bytes=QByteArray::fromStdString(encode(document));
+    check(file.write(bytes)==bytes.size(),"Multi-plane fixture write is complete");file.close();window.host.open(path);QApplication::processEvents();
+    check(window.canvas->active_composition()=="plane-a"&&window.canvas->active_artboard()=="board-a",
+        "Open reconciles invalid view state to the first composition with an artboard");
+    named_action(window,"add-circle")->trigger();QApplication::processEvents();const auto first_circle=window.canvas->selected_object;
+    select("board-b");
+    check(window.canvas->active_composition()=="plane-b"&&window.findChild<QTreeWidget*>()->topLevelItemCount()==0,
+        "Switching frames switches composition planes and hides other-plane objects");
+    named_action(window,"add-rectangle")->trigger();QApplication::processEvents();const auto rectangle=window.canvas->selected_object;
+    const auto values=evaluate(session.document());
+    check(values.at({rectangle,"","generator.center_x"})==2200&&values.at({rectangle,"","generator.center_y"})==250&&
+        session.document().compositions.back().roots==std::vector<Id>{rectangle},
+        "New primitives use the active frame center and active composition ownership");
+    named_action(window,"add-curve")->trigger();QApplication::processEvents();const auto curve=window.canvas->selected_object;
+    const auto curve_point=path_contours(session.document().objects.at(curve)).front().points.front().id;
+    check(evaluate(session.document()).at({curve,curve_point,"x"})==2100&&session.document().compositions.back().roots.size()==2,
+        "New Curve uses the active crop and composition instead of the first plane");
+    window.canvas->fit_artboard();window.canvas->set_draw_mode(true);window.canvas->setFocus();
+    QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,window.canvas->rect().center());QApplication::processEvents();
+    window.canvas->set_draw_mode(false);
+    check(session.document().compositions.back().roots.size()==3&&session.document().compositions[1].roots==std::vector<Id>{first_circle},
+        "Canvas draw-path commands stay on the active plane");
+    auto* tree=window.findChild<QTreeWidget*>();tree->clearSelection();
+    for(int index=0;index<tree->topLevelItemCount();++index)tree->topLevelItem(index)->setSelected(true);
+    for(auto* action:window.findChildren<QAction*>())if(action->text()=="Group selected siblings")action->trigger();
+    QApplication::processEvents();
+    check(session.document().compositions.back().roots.size()==1&&session.document().objects.at(session.document().compositions.back().roots.front()).children.size()==3,
+        "Grouping selected roots uses their active composition instead of the first plane");
+    const auto svg=export_svg(session.document(),window.canvas->active_composition(),window.canvas->active_artboard());
+    check(svg.find("viewBox=\"2000 100 400 300\"")!=std::string::npos&&svg.find(first_circle)==std::string::npos,
+        "Active export identifiers select the offset frame and exclude other composition content");
+    const auto active_zoom=window.canvas->zoom();window.canvas->fit_all_artboards();
+    check(std::abs(window.canvas->zoom()-active_zoom)<1e-8,"Fit all uses only the active composition plane");
+    window.host.create_document();QApplication::processEvents();
+    check(window.canvas->active_composition()==session.document().compositions.front().id&&
+        window.canvas->active_artboard()==session.document().compositions.front().artboards.front().id,
+        "New document resets stale composition and artboard view identities");
+}
 }
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
@@ -446,6 +562,7 @@ int main(int argc,char** argv) {
         primitive_authoring(w);
         stack_authoring(w);
         w.hide();Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
-        std::cout<<"PASS Inspector recovery draft, pick-whip, primitives, stack paints, gradient controls/rendering/gestures\n";return 0;
+        gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
+        std::cout<<"PASS Inspector, pick-whip, shape/gradient authoring, ordered frames, parent sizes and composition navigation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

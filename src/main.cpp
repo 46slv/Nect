@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <algorithm>
 
 namespace {
 std::string read_bounded(std::istream& stream) {
@@ -20,7 +21,7 @@ int main(int argc,char** argv) {
     try {
         const std::string mode=argc>1?argv[1]:"--help";
         if(mode=="--help") {
-            std::cout<<"nect --demo | --validate | --normalize | --svg | --serve [native-file]\n"
+            std::cout<<"nect --demo | --validate | --normalize | --svg [composition-id artboard-id] | --serve [native-file]\n"
                         "Input for validate/normalize/svg is native JSON on stdin. No file writes or network. "
                         "--serve is JSON-lines, not MCP.\n";
             return 0;
@@ -55,12 +56,16 @@ int main(int argc,char** argv) {
             throw nect::Error("USAGE","Unknown CLI mode");
 
         auto d=nect::decode(read_bounded(std::cin));
-        if(mode=="--validate") std::cout<<"{\"ok\":true,\"native_version\":\"0.4\"}\n";
+        if(mode=="--validate") std::cout<<"{\"ok\":true,\"native_version\":\"0.5\"}\n";
         else if(mode=="--normalize") std::cout<<nect::encode(d)<<'\n';
         else {
-            if(d.compositions.empty()||d.compositions.front().artboards.empty())
-                throw nect::Error("MISSING_ARTBOARD","SVG CLI requires a first artboard");
-            std::cout<<nect::export_svg(d,d.compositions.front().id,d.compositions.front().artboards.front().id);
+            if(argc!=2&&argc!=4)throw nect::Error("USAGE","--svg accepts both composition-id and artboard-id, or neither");
+            if(argc==4)std::cout<<nect::export_svg(d,argv[2],argv[3]);
+            else {
+                const auto comp=std::find_if(d.compositions.begin(),d.compositions.end(),[](const auto& c){return !c.artboards.empty();});
+                if(comp==d.compositions.end())throw nect::Error("MISSING_ARTBOARD","SVG CLI requires an Artboard");
+                std::cout<<nect::export_svg(d,comp->id,comp->artboards.front().id);
+            }
         }
         return 0;
     } catch(const nect::Error& e) {

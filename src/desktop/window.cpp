@@ -103,6 +103,16 @@ const ShapeOperation& find_operation(const Document& document,const Id& object,c
     if(found==stack.end())throw Error("MISSING_OPERATION","The selected operation no longer exists");
     return *found;
 }
+const Composition& find_composition(const Document& document,const Id& id) {
+    const auto found=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& entry){return entry.id==id;});
+    if(found==document.compositions.end())throw Error("MISSING_COMPOSITION","Choose an artboard in a composition");
+    return *found;
+}
+const Artboard& find_artboard(const Composition& composition,const Id& id) {
+    const auto found=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& entry){return entry.id==id;});
+    if(found==composition.artboards.end())throw Error("MISSING_ARTBOARD","Choose an artboard");
+    return *found;
+}
 QString hex_color(const QColor& color) {
     return QString("#%1%2%3%4").arg(color.red(),2,16,QChar('0')).arg(color.green(),2,16,QChar('0'))
         .arg(color.blue(),2,16,QChar('0')).arg(color.alpha(),2,16,QChar('0')).toUpper();
@@ -184,8 +194,37 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     tree_->setHeaderHidden(true);
     tree_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     tree_->setMinimumWidth(180);
-    auto* structure=new QDockWidget("Objects",this);
-    structure->setObjectName("structure"); structure->setWidget(tree_);
+    auto* structure=new QDockWidget("Artboards & Objects",this);
+    structure->setObjectName("structure");
+    auto* navigator=new QWidget;auto* navigation=new QVBoxLayout(navigator);navigation->setContentsMargins(6,6,6,6);
+    navigation->addWidget(new QLabel("Artboards · ordered frames"));
+    artboards_=new QListWidget;artboards_->setObjectName("artboards");artboards_->setMaximumHeight(150);
+    artboards_->setTextElideMode(Qt::ElideRight);artboards_->setWordWrap(false);
+    artboards_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    artboards_->setMinimumHeight(82);navigation->addWidget(artboards_);
+    auto* board_controls=new QWidget;auto* board_row=new QHBoxLayout(board_controls);
+    board_row->setContentsMargins(0,0,0,0);board_row->setSpacing(3);
+    auto board_button=[&](const char* name,const QString& text,const QString& tip,auto action) {
+        auto* button=new QPushButton(text);button->setObjectName(name);button->setToolTip(tip);button->setAccessibleName(tip);
+        button->setFixedWidth(32);board_row->addWidget(button);
+        connect(button,&QPushButton::clicked,this,[this,action]{perform(action);});
+    };
+    board_button("artboard-add","+","Add artboard to the right",[this]{add_artboard(false);});
+    board_button("artboard-duplicate","⧉","Duplicate frame to the right",[this]{add_artboard(true);});
+    board_button("artboard-remove","×","Remove frame; artwork remains",[this]{
+        canvas->cancel_interaction();host.session.apply({DeleteArtboard{canvas->active_composition(),canvas->active_artboard()}},host.session.revision());host.edited();});
+    board_button("artboard-up","↑","Move earlier in artboard order; coordinates stay unchanged",[this]{move_artboard(-1);});
+    board_button("artboard-down","↓","Move later in artboard order; coordinates stay unchanged",[this]{move_artboard(1);});
+    board_row->addStretch();navigation->addWidget(board_controls);
+    auto* frame_settings=new QPushButton("Edit active frame…");frame_settings->setObjectName("artboard-edit");
+    connect(frame_settings,&QPushButton::clicked,this,[this]{canvas->set_selection({});artboard_editing_=true;rebuild_inspector();});navigation->addWidget(frame_settings);
+    navigation->addWidget(new QLabel("Objects · active composition"));navigation->addWidget(tree_,1);structure->setWidget(navigator);
+    connect(artboards_,&QListWidget::currentItemChanged,this,[this](QListWidgetItem* item,QListWidgetItem*) {
+        if(refreshing_||!item)return;
+        perform([&]{canvas->set_selection({});artboard_editing_=true;
+            canvas->set_active_artboard(item->data(Qt::UserRole).toString().toStdString(),item->data(Qt::UserRole+1).toString().toStdString());
+            rebuild_inspector();});
+    });
     addDockWidget(Qt::LeftDockWidgetArea,structure);
     auto* right=new QDockWidget("Properties",this);
     right->setObjectName("properties");
@@ -217,8 +256,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         const auto path=QFileDialog::getSaveFileName(this,"Export current artboard",{},"SVG (*.svg)");
         if(path.isEmpty()) return;
         if(QFileInfo(path).absoluteFilePath()==host.file_path) throw Error("EXPORT_TARGET","Export cannot replace the native source file");
-        const auto& comp=host.session.document().compositions.front();
-        const auto bytes=QByteArray::fromStdString(export_svg(host.session.document(),comp.id,comp.artboards.front().id));
+        const auto bytes=QByteArray::fromStdString(export_svg(host.session.document(),canvas->active_composition(),canvas->active_artboard()));
         QSaveFile output(path);output.setDirectWriteFallback(false);
         if(!output.open(QIODevice::WriteOnly)||output.write(bytes)!=bytes.size()||!output.commit())
             throw Error("IO_ERROR",output.errorString().toStdString());
@@ -252,9 +290,10 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* radial=action(add,"Radial Repeater · 12 × 30°",{},[this]{add_operation("nect.shape.repeater",true);});
     radial->setObjectName("add-radial-repeater");
     add->addSeparator();
-    action(add,"Curve",QKeySequence("Ctrl+Shift+P"),[this]{add_curve();});
+    auto* add_curve_action=action(add,"Curve",QKeySequence("Ctrl+Shift+P"),[this]{add_curve();});add_curve_action->setObjectName("add-curve");
     auto* draw=action(add,"Draw Path",QKeySequence("P"),[this]{canvas->set_draw_mode(true);canvas->setFocus();statusBar()->showMessage("Click to add points · Enter finishes the path · Escape exits",10000);});
     action(view,"Fit Artboard",QKeySequence("Ctrl+0"),[this]{canvas->fit_artboard();});
+    action(view,"Fit all artboards",QKeySequence("Ctrl+Shift+0"),[this]{canvas->fit_all_artboards();});
     action(view,"Return to parent Group",{},[this]{canvas->leave_group();});
     view->addAction(structure->toggleViewAction());view->addAction(right->toggleViewAction());
     auto* toolbar=addToolBar("Authoring");toolbar->setMovable(false);
@@ -266,12 +305,14 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     status_=new QLabel;statusBar()->addPermanentWidget(status_);
     connect(tree_,&QTreeWidget::currentItemChanged,this,[this](QTreeWidgetItem* item,QTreeWidgetItem*) {
         if(refreshing_||!item) return;
+        artboard_editing_=false;
         canvas->set_selection(item->data(0,Qt::UserRole).toString().toStdString(),item->data(0,Qt::UserRole+1).toString().toStdString());
     });
     host.changed=[this]{refresh();};
     host.status_changed=[this]{status_->setText(host.save_status+"   ·   r"+QString::number(host.session.revision()));};
     canvas->document_changed=[this]{host.edited();};
-    canvas->selection_changed=[this]{rebuild_inspector();};
+    canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;rebuild_inspector();};
+    canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
     canvas->gradient_edit_changed=[this]{rebuild_inspector();};
     canvas->scope_changed=[this]{breadcrumb_->setText(canvas->breadcrumb());};
     canvas->error=[this](const QString& message){statusBar()->showMessage(message,10000);};
@@ -389,7 +430,9 @@ void Window::perform(const std::function<void()>& action) {
     catch(const std::exception& e) {statusBar()->showMessage(QString::fromUtf8(e.what()),12000);}
 }
 void Window::refresh() {
+    if(refreshing_)return;
     refreshing_=true;
+    canvas->refresh();
     const QSignalBlocker blocker(tree_);
     const auto& d=host.session.document();
     QString signature=host.session_id;
@@ -401,7 +444,9 @@ void Window::refresh() {
         for(const auto& child:o.children)fingerprint(child);
         signature+=")";
     };
-    for(const auto& comp:d.compositions) {signature+="{"+qs(comp.id);for(const auto& id:comp.roots)fingerprint(id);signature+="}";}
+    for(const auto& comp:d.compositions) if(comp.id==canvas->active_composition()) {
+        signature+="{"+qs(comp.id);for(const auto& id:comp.roots)fingerprint(id);signature+="}";
+    }
     if(signature!=tree_signature_) {
     std::set<QString> expanded;
     QTreeWidgetItemIterator previous(tree_);
@@ -422,16 +467,154 @@ void Window::refresh() {
         if(canvas->selected_object==id&&canvas->selected_point.empty()) tree_->setCurrentItem(item);
         item->setExpanded(expanded.contains(qs(id)));
     };
-    for(const auto& comp:d.compositions) for(const auto& id:comp.roots) append(id,nullptr);
+    for(const auto& comp:d.compositions) if(comp.id==canvas->active_composition())for(const auto& id:comp.roots) append(id,nullptr);
     tree_signature_=signature;
     }
-    canvas->refresh();
+    rebuild_artboards();
     undo_->setEnabled(host.session.can_undo());redo_->setEnabled(host.session.can_redo());
     status_->setText(host.save_status+"   ·   r"+QString::number(host.session.revision()));
     setWindowTitle((host.file_path.isEmpty()?"Untitled":QFileInfo(host.file_path).fileName())+" — Nect α");
     breadcrumb_->setText(canvas->breadcrumb());
     refreshing_=false;
     rebuild_inspector();
+}
+
+void Window::rebuild_artboards() {
+    const QSignalBlocker blocker(artboards_);const auto scroll=artboards_->verticalScrollBar()->value();
+    artboards_->clear();
+    std::size_t selected_index=0,selected_count=0;
+    const auto& compositions=host.session.document().compositions;
+    const bool multiple_planes=std::count_if(compositions.begin(),compositions.end(),
+        [](const auto& comp){return !comp.artboards.empty();})>1;
+    for(const auto& comp:host.session.document().compositions)for(std::size_t index=0;index<comp.artboards.size();++index) {
+        const auto& board=comp.artboards[index];const auto resolved=evaluate_artboard(comp,board.id);
+        const auto prefix=multiple_planes?qs(comp.name)+" / ":QString{};
+        auto* item=new QListWidgetItem(prefix+QString::number(index+1)+" · "+qs(board.name),artboards_);
+        item->setData(Qt::UserRole,qs(comp.id));item->setData(Qt::UserRole+1,qs(board.id));
+        item->setToolTip(qs(comp.name)+"\n"+qs(board.name)+" · "+display_value(resolved.width)+" × "+display_value(resolved.height)+
+            "\nIndependent composition plane; changing order does not move frames or artwork.");
+        if(comp.id==canvas->active_composition()&&board.id==canvas->active_artboard()) {
+            artboards_->setCurrentItem(item);selected_index=index;selected_count=comp.artboards.size();
+        }
+    }
+    artboards_->verticalScrollBar()->setValue(scroll);
+    if(artboards_->currentItem())artboards_->scrollToItem(artboards_->currentItem());
+    findChild<QPushButton*>("artboard-remove")->setEnabled(selected_count>1);
+    findChild<QPushButton*>("artboard-up")->setEnabled(selected_count>0&&selected_index>0);
+    findChild<QPushButton*>("artboard-down")->setEnabled(selected_count>0&&selected_index+1<selected_count);
+}
+
+void Window::add_artboard(bool duplicate) {
+    canvas->cancel_interaction();
+    const auto& comp=find_composition(host.session.document(),canvas->active_composition());
+    const auto& selected=find_artboard(comp,canvas->active_artboard());
+    auto board=duplicate?selected:evaluate_artboard(comp,selected.id);
+    if(!duplicate)board.parent_size.reset();
+    double right=board.x+board.width;
+    for(const auto& entry:comp.artboards) {const auto resolved=evaluate_artboard(comp,entry.id);right=std::max(right,resolved.x+resolved.width);}
+    board.id=new_id();board.name=duplicate?selected.name+" copy":"Artboard "+std::to_string(comp.artboards.size()+1);
+    board.x=right+40;
+    const auto index=static_cast<std::size_t>(std::find_if(comp.artboards.begin(),comp.artboards.end(),[&](const auto& entry){return entry.id==selected.id;})-comp.artboards.begin())+1;
+    const auto comp_id=comp.id,board_id=board.id;
+    host.session.apply({AddArtboard{comp_id,board,index}},host.session.revision());
+    canvas->set_selection({});artboard_editing_=true;canvas->set_active_artboard(comp_id,board_id);host.edited();
+}
+
+void Window::move_artboard(int direction) {
+    canvas->cancel_interaction();
+    const auto& comp=find_composition(host.session.document(),canvas->active_composition());
+    std::vector<Id> order;for(const auto& board:comp.artboards)order.push_back(board.id);
+    const auto selected=std::find(order.begin(),order.end(),canvas->active_artboard());
+    if(selected==order.end())throw Error("MISSING_ARTBOARD","Select a frame to reorder");
+    const auto index=static_cast<std::ptrdiff_t>(selected-order.begin()),target=index+direction;
+    if(target<0||target>=static_cast<std::ptrdiff_t>(order.size()))return;
+    std::swap(order[index],order[target]);
+    host.session.apply({ReorderArtboards{comp.id,order}},host.session.revision());host.edited();
+}
+
+void Window::edit_artboard(QVBoxLayout* layout) {
+    if(canvas->active_composition().empty()||canvas->active_artboard().empty()) {
+        layout->addWidget(new QLabel("No active artboard"));layout->addStretch();return;
+    }
+    const auto& comp=find_composition(host.session.document(),canvas->active_composition());
+    const auto& board=find_artboard(comp,canvas->active_artboard());
+    const auto resolved=evaluate_artboard(comp,board.id);
+    const auto composition=comp.id,id=board.id;const auto frozen_session=host.session_id;
+    auto apply=[this,frozen_session](const std::vector<Command>& commands) {
+        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","This frame belongs to another document");
+        canvas->cancel_interaction();host.session.apply(commands,host.session.revision());host.edited();
+    };
+    auto read=[this,composition,id]{return find_artboard(find_composition(host.session.document(),composition),id);};
+    auto* title=new QLabel("Artboard frame · "+qs(comp.name));title->setWordWrap(true);layout->addWidget(title);
+    auto* note=new QLabel("Frame X/Y changes the crop only. Artwork stays at its existing composition coordinates. List order does not change placement.");
+    note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");layout->addWidget(note);
+    auto* group=new QGroupBox("Frame");auto* form=new QFormLayout(group);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(group);
+    auto* name=new QLineEdit(qs(board.name));name->setObjectName("artboard-name");form->addRow("Name",name);
+    connect(name,&QLineEdit::editingFinished,this,[this,name,composition,read,apply]{
+        if(!name->isModified())return;name->setModified(false);
+        perform([&]{auto board=read();board.name=name->text().toStdString();apply({UpdateArtboard{composition,board}});});
+    });
+    auto number=[&](const char* key,const QString& label,double Artboard::* member) {
+        auto* input=new QLineEdit(display_value(resolved.*member));input->setObjectName(QString("artboard-")+key);
+        input->setAccessibleName(label);form->addRow(label,input);
+        if(std::string(key)=="width"||std::string(key)=="height")
+            input->setToolTip("Typing a size creates a local override. Use Inherit below to reset to the parent size.");
+        else input->setToolTip("Crop position only; this does not move any artwork.");
+        connect(input,&QLineEdit::editingFinished,this,[this,input,composition,read,apply,member,key=std::string(key)]{
+            if(!input->isModified())return;input->setModified(false);
+            perform([&]{bool valid=false;const auto value=input->text().trimmed().toDouble(&valid);
+                if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite frame coordinate or size");
+                auto board=read();board.*member=value;
+                if(board.parent_size) {
+                    if(key=="width")board.parent_size->width=false;
+                    if(key=="height")board.parent_size->height=false;
+                }
+                apply({UpdateArtboard{composition,board}});
+            });
+        });
+    };
+    number("x","Frame X · crop",&Artboard::x);number("y","Frame Y · crop",&Artboard::y);
+    number("width","Width",&Artboard::width);number("height","Height",&Artboard::height);
+    auto* parent_group=new QGroupBox("Parent size");auto* parent_form=new QFormLayout(parent_group);
+    parent_form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(parent_group);
+    auto* parent=new QComboBox;parent->setObjectName("artboard-parent");
+    parent->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);parent->setMinimumContentsLength(10);
+    parent->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);parent->addItem("None · independent",QString{});
+    for(const auto& candidate:comp.artboards)if(candidate.id!=id)parent->addItem(qs(candidate.name),qs(candidate.id));
+    if(board.parent_size)parent->setCurrentIndex(parent->findData(qs(board.parent_size->artboard)));
+    parent_form->addRow("Parent frame",parent);
+    connect(parent,&QComboBox::currentIndexChanged,this,[this,parent,composition,id,read,apply,before=parent->currentIndex()](int){
+        bool applied=false;perform([&]{const auto parent_id=parent->currentData().toString().toStdString();
+            if(parent_id.empty())apply({DetachArtboardParent{composition,id}});
+            else {auto board=read();board.parent_size=ArtboardParent{parent_id,true,true};apply({UpdateArtboard{composition,board}});}
+            applied=true;
+        });
+        if(!applied){const QSignalBlocker blocker(parent);parent->setCurrentIndex(before);}
+    });
+    for(const bool width:{true,false}) {
+        auto* inherit=new QCheckBox(width?"Inherit width · reset":"Inherit height · reset");
+        inherit->setObjectName(width?"artboard-inherit-width":"artboard-inherit-height");
+        inherit->setEnabled(board.parent_size.has_value());
+        inherit->setChecked(board.parent_size&&(width?board.parent_size->width:board.parent_size->height));parent_form->addRow(inherit);
+        inherit->setToolTip("Checked: use the parent's evaluated size. Unchecked: freeze this dimension as a local override.");
+        connect(inherit,&QCheckBox::toggled,this,[this,inherit,width,composition,id,read,apply](bool checked){
+            bool applied=false;perform([&]{auto board=read();
+                if(!board.parent_size)throw Error("MISSING_PARENT","Choose a parent frame first");
+                const auto resolved=evaluate_artboard(find_composition(host.session.document(),composition),id);
+                if(width){board.parent_size->width=checked;if(!checked)board.width=resolved.width;}
+                else {board.parent_size->height=checked;if(!checked)board.height=resolved.height;}
+                apply({UpdateArtboard{composition,board}});applied=true;
+            });
+            if(!applied){const QSignalBlocker blocker(inherit);inherit->setChecked(!checked);}
+        });
+    }
+    auto* detach=new QPushButton("Detach · keep current size");detach->setObjectName("artboard-detach");
+    detach->setEnabled(board.parent_size.has_value());parent_form->addRow(detach);
+    connect(detach,&QPushButton::clicked,this,[this,composition,id,apply]{perform([&]{apply({DetachArtboardParent{composition,id}});});});
+    auto* parent_note=new QLabel("Only width and height inherit. Frame placement and artwork remain independent; template content is not inherited.");
+    parent_note->setWordWrap(true);parent_form->addRow(parent_note);
+    auto* fit=new QPushButton("Fit active frame");fit->setObjectName("artboard-fit");layout->addWidget(fit);
+    connect(fit,&QPushButton::clicked,canvas,&Canvas::fit_artboard);layout->addStretch();
 }
 
 void Window::rebuild_inspector() {
@@ -441,6 +624,7 @@ void Window::rebuild_inspector() {
         delete old;
     }
     auto* layout=new QVBoxLayout(inspector_);
+    if(artboard_editing_) {edit_artboard(layout);return;}
     const auto& d=host.session.document();
     if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a Circle, Rectangle or Curve.\nSelect a point to edit its handles."));layout->addStretch();return;}
     const auto& o=d.objects.at(canvas->selected_object);
@@ -870,11 +1054,12 @@ void Window::save(bool choose) {
     if(!path.isEmpty())host.save(path);
 }
 void Window::add_curve() {
-    const auto& comp=host.session.document().compositions.front();
+    const auto& comp=find_composition(host.session.document(),canvas->active_composition());
+    const auto board=evaluate_artboard(comp,canvas->active_artboard());
     const auto object=new_id();
     Point a,b;a.id=new_id();b.id=new_id();
-    a.x.literal=240;a.y.literal=280;a.out_angle.literal=-40;a.out_length.literal=110;
-    b.x.literal=620;b.y.literal=320;b.in_angle.literal=140;b.in_length.literal=110;
+    a.x.literal=board.x+board.width*0.25;a.y.literal=board.y+board.height*0.4375;a.out_angle.literal=-40;a.out_length.literal=110;
+    b.x.literal=board.x+board.width*0.6458333333333333;b.y.literal=board.y+board.height*0.5;b.in_angle.literal=140;b.in_length.literal=110;
     host.session.apply({CreatePath{comp.id,"",object,"Curve "+std::to_string(host.session.document().objects.size()+1),{{new_id(),false,{a,b}}}}},host.session.revision());
     canvas->set_selection(object,a.id);host.edited();canvas->setFocus();
 }
@@ -882,9 +1067,9 @@ void Window::add_primitive(const std::string& type) {
     canvas->set_draw_mode(false);
     const auto& document=host.session.document();
     if(document.compositions.empty())throw Error("MISSING_COMPOSITION","Create a composition before adding a shape");
-    const auto& composition=document.compositions.front();
+    const auto& composition=find_composition(document,canvas->active_composition());
     if(composition.artboards.empty())throw Error("MISSING_ARTBOARD","An artboard is needed to place the new shape");
-    const auto& artboard=composition.artboards.front();
+    const auto artboard=evaluate_artboard(composition,canvas->active_artboard());
     Primitive source;
     source.id=new_id();source.type=type;
     source.parameters.emplace("center_x",Scalar{artboard.x+artboard.width/2,{}});
@@ -1012,7 +1197,7 @@ void Window::convert_to_path() {
 void Window::group_selection() {
     std::set<Id> chosen;
     for(const auto* item:tree_->selectedItems())chosen.insert(item->data(0,Qt::UserRole).toString().toStdString());
-    const auto& comp=host.session.document().compositions.front();
+    const auto& comp=find_composition(host.session.document(),canvas->active_composition());
     const auto parent=canvas->drill_scope();
     const auto& siblings=parent.empty()?comp.roots:host.session.document().objects.at(parent).children;
     std::vector<Id> ordered;for(const auto& id:siblings)if(chosen.contains(id))ordered.push_back(id);

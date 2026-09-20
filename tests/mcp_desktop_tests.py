@@ -148,6 +148,20 @@ try:
         assert core('get',ref=dict(object='path-1',point='',field='stroke.r'))['result']['evaluated']==.75
         plan=core('render_plan',object='path-0')['result']
         assert sum('gradient' in x for x in plan['paint_layers'])==copies
+        first=comp['artboards'][0]
+        child=dict(id='alternate-frame',name='Alternate crop',x=100,y=50,width=160,height=240,
+            parent_size=dict(artboard=first['id'],width=True,height=False))
+        rev=apply([dict(type='add_artboard',composition=comp['id'],artboard=child,index=1)],rev)
+        first=dict(first,width=700)
+        changed=core('apply',expected_revision=rev,commands=[dict(type='update_artboard',composition=comp['id'],artboard=first)])
+        assert changed['ok'] and first['id'] in changed['result']['changed_ids'] and child['id'] in changed['result']['changed_ids']
+        rev=changed['revision']
+        rev=apply([dict(type='reorder_artboards',composition=comp['id'],order=[child['id'],first['id']])],rev)
+        boards=core('artboards',composition=comp['id'])['result']
+        assert boards[0]['authored']['id']==child['id'] and boards[0]['authored']['width']==160
+        assert boards[0]['evaluated']['width']==700 and boards[0]['evaluated']['height']==240
+        crop_svg=core('export_svg',composition=comp['id'],artboard=child['id'])['result']
+        assert ET.fromstring(crop_svg).attrib['viewBox']=='100 50 700 240'
         native = temp / 'scenario.nect'
         saved = tool('nect_file', dict(identity, op='save', path=str(native), expected_revision=rev))
         assert saved['ok'], saved

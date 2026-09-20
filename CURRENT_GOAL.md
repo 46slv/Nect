@@ -1,4 +1,4 @@
-# Practical alpha Mission — ordered appearance/repetition delivered; gradients next
+# Practical alpha Mission — ordered Artboards delivered; editable Text next
 
 ## Active Mission checkpoint — 2026-09-20
 
@@ -27,7 +27,7 @@ Current implemented slice:
 - retained Circle/Rectangle sources, normal generator properties and stable
   generated point roles; direct point/handle edits create visible absolute local
   Point Edit overrides, with bypass and explicit reference-protected conversion.
-- native 0.3 writer / strict 0.1/0.2 migrations, authored/evaluated origin metadata,
+- native 0.5 frames/parent-size checkpoint / strict earlier migrations, authored/evaluated origin metadata,
   conversion plans and ordered operation discovery through the same semantic API.
 
 Evidence collected:
@@ -80,7 +80,7 @@ the durable table is in `docs/first-usable.md`. No intentional GUI app remains o
 Keep the sample and development recovery data. Parent owns future builds; worker
 has completed its bounded UI work.
 
-Gradient checkpoint after `9ca7e1e`: native 0.4 adds retained linear/radial
+Gradient checkpoint `73815b8` after `9ca7e1e`: native 0.4 adds retained linear/radial
 gradients, stable stop IDs, scalar/link editing, Solid bypass, Canvas start/end
 gestures and SVG projection. All nine CTest entries pass, including gradient
 identity/removal/cycle/range atomicity, real Window pixel/gesture controls, strict
@@ -96,9 +96,26 @@ Coincident stop offsets reject explicitly (Qt would collapse them); radial focal
 offset and alternate spread/color spaces remain unsupported. No new performance
 claim is made from the static gradient example. See `docs/model-v0.md`.
 
-Next safe actions after this slice: continue the Mission with ordered artboard
-navigation/editing and basic parent-size inheritance, then color tools and editable
-Text in thin slices; do not treat the
+Artboard checkpoint after `73815b8`: native 0.5 frame CRUD/order and same-Composition
+width/height inheritance. UI-only active frame/Composition, compact ordered list,
+crop-only numeric editor, per-dimension override/reset/detach, Fit active/all,
+active-plane object tree and add/export routing are implemented. Core/GUI/Host/
+formal MCP and 0.1–0.4 migration checks pass: all ten CTest entries. Parent deletion
+cannot break children; cross-plane/cyclic parent bindings reject atomically.
+Empty leading Compositions no longer hide a later valid output plane.
+Actual Windows use created `examples/artboard-studies.nect` with three ordered crops
+and numbered SVG exports through the live API. In the GUI, Banner height 300→320
+preserved inherited width 600 and every artwork object. API readback confirmed
+one revision; Undo restored the complete authored document. Manual edit retained
+in ignored `build/artboard-manual.nect`; visible app closed. Actual use identified
+a redundant Composition prefix clipping names in the narrow navigator: removed
+for single-plane files, explicit elision/tooltips retained, no horizontal scroll.
+Parent owns builds; worker is idle. Parent size is a foundation only; inherited
+template content/layout attributes remain pending.
+
+Next safe actions after this slice: save a coherent checkpoint, then continue
+with editable Text and color tools in
+thin slices; do not treat the
 radial example as full alpha completion. Masks/compositing, assets, long History,
 continuous save, expressions/multi-edit and the remaining explicit Mission
 requirements still need implementation and real production fixtures.

@@ -216,9 +216,41 @@ j::value operation_json(const ShapeOperation& op) {
     return result;
 }
 
+Artboard read_artboard(const j::value& v,bool allow_parent=true) {
+    const auto& a=v.as_object();
+    if(allow_parent)keys(a,{"id","name","x","y","width","height","parent_size"});
+    else keys(a,{"id","name","x","y","width","height"});
+    Artboard result{text(a.at("id")),text(a.at("name")),number(a.at("x")),number(a.at("y")),number(a.at("width")),number(a.at("height"))};
+    if(const auto* p=a.if_contains("parent_size")) {
+        const auto& parent=p->as_object();keys(parent,{"artboard","width","height"});
+        result.parent_size=ArtboardParent{text(parent.at("artboard")),parent.at("width").as_bool(),parent.at("height").as_bool()};
+    }
+    return result;
+}
+j::object artboard_json(const Artboard& a) {
+    j::object result{{"id",a.id},{"name",a.name},{"x",a.x},{"y",a.y},{"width",a.width},{"height",a.height}};
+    if(a.parent_size)result["parent_size"]=j::object{{"artboard",a.parent_size->artboard},{"width",a.parent_size->width},{"height",a.parent_size->height}};
+    return result;
+}
+
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type=="add_artboard") {
+        keys(o,{"type","composition","artboard","index"});
+        return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard")),j::value_to<std::size_t>(o.at("index"))};
+    }
+    if(type=="update_artboard") {
+        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"))};
+    }
+    if(type=="delete_artboard"||type=="detach_artboard_parent") {
+        keys(o,{"type","composition","artboard"});
+        if(type=="delete_artboard")return DeleteArtboard{text(o.at("composition")),text(o.at("artboard"))};
+        return DetachArtboardParent{text(o.at("composition")),text(o.at("artboard"))};
+    }
+    if(type=="reorder_artboards") {
+        keys(o,{"type","composition","order"});return ReorderArtboards{text(o.at("composition")),ids(o.at("order"))};
+    }
     if(type=="set_gradient") {
         keys(o,{"type","object","operation","gradient"});
         std::optional<Gradient> g;if(!o.at("gradient").is_null())g=read_gradient(o.at("gradient"));
@@ -320,8 +352,8 @@ Document decode(std::string_view input) {
         keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
 
         const auto version=text(root.at("version"));
-        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"&&version!="0.4"))
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.4 are supported");
+        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"&&version!="0.4"&&version!="0.5"))
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.5 are supported");
         if(text(root.at("units"))!="du96"||text(root.at("color_space"))!="srgb")
             throw Error("UNSUPPORTED_COLOR_OR_UNIT","v0.1 supports du96 and sRGB only");
 
@@ -337,13 +369,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array()) {
-                auto& a=av.as_object();
-                keys(a,{"id","name","x","y","width","height"});
-                c.artboards.push_back({
-                    text(a.at("id")),text(a.at("name")),number(a.at("x")),number(a.at("y")),
-                    number(a.at("width")),number(a.at("height"))});
-            }
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,version=="0.5"));
             d.compositions.push_back(std::move(c));
         }
 
@@ -371,8 +397,8 @@ Document decode(std::string_view input) {
                 obj.children=ids(o.at("children"));
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
-                if(version=="0.3"||version=="0.4") {
-                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,version=="0.4"));
+                if(version=="0.3"||version=="0.4"||version=="0.5") {
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,version!="0.3"));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
                     if(text(o.at("fill"))!="none")throw Error("UNSUPPORTED_APPEARANCE","Legacy format only supports stroked paths");
@@ -424,10 +450,7 @@ std::string encode(const Document& d) {
 
     for(const auto& c:d.compositions) {
         j::array boards;
-        for(const auto& a:c.artboards)
-            boards.push_back({
-                {"id",a.id},{"name",a.name},{"x",a.x},{"y",a.y},
-                {"width",a.width},{"height",a.height}});
+        for(const auto& a:c.artboards)boards.push_back(artboard_json(a));
         comps.push_back({
             {"id",c.id},{"name",c.name},{"roots",ids_json(c.roots)},{"artboards",boards}});
     }
@@ -469,7 +492,7 @@ std::string encode(const Document& d) {
         collections.push_back({{"id",c.id},{"name",c.name},{"members",ids_json(c.members)}});
 
     return j::serialize(j::object{
-        {"format","nect-native"},{"version","0.4"},{"id",d.id},
+        {"format","nect-native"},{"version","0.5"},{"id",d.id},
         {"units","du96"},{"color_space","srgb"},
         {"compositions",comps},{"objects",objects},{"collections",collections}});
 }
@@ -482,9 +505,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
         [&](const auto& c){return c.id==comp_id;});
     if(comp==d.compositions.end()) throw Error("MISSING_COMPOSITION",comp_id);
 
-    auto art=std::find_if(comp->artboards.begin(),comp->artboards.end(),
-        [&](const auto& a){return a.id==art_id;});
-    if(art==comp->artboards.end()) throw Error("MISSING_ARTBOARD",art_id);
+    const auto resolved=evaluate_artboard(*comp,art_id);const auto* art=&resolved;
 
     std::ostringstream out;
     out.imbue(std::locale::classic());
@@ -563,7 +584,12 @@ std::string request(Session& session,std::string_view input) {
         const bool mutation=op=="apply"||op=="undo"||op=="redo";
         j::value prior;
         std::map<Ref,double> prior_values;
-        if(mutation) {prior=j::parse(encode(session.document()));prior_values=evaluate(session.document());}
+        std::map<Id,j::value> prior_frames;
+        if(mutation) {
+            prior=j::parse(encode(session.document()));prior_values=evaluate(session.document());
+            for(const auto& c:session.document().compositions)for(const auto& a:c.artboards)
+                prior_frames.emplace(a.id,j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluate_artboard(c,a.id))}});
+        }
 
         if(op=="get") {
             keys(o,{"op","ref"});
@@ -598,6 +624,14 @@ std::string request(Session& session,std::string_view input) {
                 {"source_instance",object.source->id},{"preserves_point_ids",true},
                 {"freezes_generator",true},{"preserves_active_point_bindings",true},
                 {"discards_bypassed_corrections",object.point_edit&&!object.point_edit->enabled}};
+        } else if(op=="artboards") {
+            keys(o,{"op","composition"});const auto id=text(o.at("composition"));
+            const auto& comps=session.document().compositions;
+            const auto comp=std::find_if(comps.begin(),comps.end(),[&](const auto& c){return c.id==id;});
+            if(comp==comps.end())throw Error("MISSING_COMPOSITION",id);
+            j::array frames;for(const auto& a:comp->artboards)frames.push_back(j::object{
+                {"authored",artboard_json(a)},{"evaluated",artboard_json(evaluate_artboard(*comp,a.id))}});
+            result=std::move(frames);
         } else if(op=="operator_types") {
             keys(o,{"op"});j::array definitions;
             for(const auto* type:{"nect.paint.fill","nect.paint.stroke","nect.shape.repeater"}) {
@@ -643,7 +677,7 @@ std::string request(Session& session,std::string_view input) {
         } else if(op=="capabilities") {
             keys(o,{"op"});
             result=j::object{
-                {"native_version","0.4"},
+                {"native_version","0.5"},
                 {"transport","local-json-lines-not-mcp"},
                 {"mcp",false},
                 {"ai_codec",false},
@@ -693,6 +727,12 @@ std::string request(Session& session,std::string_view input) {
             }
             for(const auto& [ref,value]:evaluate(session.document()))
                 if(!prior_values.contains(ref)||prior_values.at(ref)!=value)changed.insert(ref.object);
+            for(const auto& c:session.document().compositions)for(const auto& a:c.artboards) {
+                const j::value frame=j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluate_artboard(c,a.id))}};
+                if(!prior_frames.contains(a.id)||prior_frames.at(a.id)!=frame)changed.insert(a.id);
+                prior_frames.erase(a.id);
+            }
+            for(const auto& [id,frame]:prior_frames){(void)frame;changed.insert(id);}
             result.as_object()["changed_ids"]=ids_json(std::vector<Id>(changed.begin(),changed.end()));
         }
         return j::serialize(j::object{

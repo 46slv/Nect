@@ -8,6 +8,7 @@
 #include <QLineEdit>
 #include <QVBoxLayout>
 #include <QScrollArea>
+#include <QListWidget>
 
 namespace nect::desktop {
 class Window : public QMainWindow {
@@ -23,6 +24,8 @@ protected:
     bool eventFilter(QObject* watched,QEvent* event) override;
 private:
     QTreeWidget* tree_;
+    QListWidget* artboards_;
+    bool artboard_editing_=false;
     QWidget* inspector_;
     QScrollArea* inspector_scroll_;
     QLabel* status_;
@@ -51,5 +54,9 @@ private:
     void add_stack(QVBoxLayout* layout,const Object& object);
     void add_gradient(QFormLayout* layout,const Object& object,const ShapeOperation& operation);
     void group_selection();
+    void rebuild_artboards();
+    void add_artboard(bool duplicate);
+    void move_artboard(int direction);
+    void edit_artboard(QVBoxLayout* layout);
 };
 }

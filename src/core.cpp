@@ -341,6 +341,27 @@ std::map<Ref,double> evaluate(const Document& d) {
     return values;
 }
 
+Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
+    std::vector<const Artboard*> chain;std::set<Id> seen;auto next=artboard;
+    for(;;) {
+        require(seen.insert(next).second,"ARTBOARD_CYCLE","Parent artboard size dependency cycle");
+        require(chain.size()<256,"LIMIT","Artboard parent depth limit 256");
+        const auto found=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& a){return a.id==next;});
+        require(found!=composition.artboards.end(),"MISSING_ARTBOARD",next);
+        chain.push_back(&*found);
+        if(!found->parent_size)break;
+        next=found->parent_size->artboard;
+    }
+    Artboard result=*chain.back();
+    for(auto it=chain.rbegin()+1;it!=chain.rend();++it) {
+        auto child=**it;
+        if(child.parent_size->width)child.width=result.width;
+        if(child.parent_size->height)child.height=result.height;
+        result=std::move(child);
+    }
+    return result;
+}
+
 void validate(const Document& d) {
     require(d.objects.size()<=10000 && d.compositions.size()<=128,"LIMIT","Document size limit");
     std::set<Id> ids;
@@ -352,10 +373,16 @@ void validate(const Document& d) {
     add(d.id);
     for(const auto& comp:d.compositions) {
         add(comp.id);
+        require(comp.artboards.size()<=1024,"LIMIT","Artboards per Composition limit 1024");
         for(const auto& a:comp.artboards) {
             add(a.id);
             finite(a.x); finite(a.y); finite(a.width); finite(a.height);
             require(a.width>0&&a.height>0&&a.width<=1e7&&a.height<=1e7,"INVALID_ARTBOARD",a.id);
+            require(std::abs(a.x)<=1e9&&std::abs(a.y)<=1e9,"INVALID_ARTBOARD","Frame position exceeds 1e9");
+            require(a.name.size()<=4096,"LIMIT","Artboard name too long");
+            for(unsigned char ch:a.name)require(ch>=32||ch==9||ch==10||ch==13,"INVALID_NAME","XML-incompatible control character");
+            if(a.parent_size)identity(a.parent_size->artboard);
+            (void)evaluate_artboard(comp,a.id);
         }
     }
 
@@ -515,7 +542,33 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
     auto candidate=document;
     for(const auto& command:commands) std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
-        if constexpr(std::is_same_v<T,Set>) {
+        if constexpr(std::is_same_v<T,AddArtboard>||std::is_same_v<T,UpdateArtboard>||std::is_same_v<T,DeleteArtboard>||
+            std::is_same_v<T,ReorderArtboards>||std::is_same_v<T,DetachArtboardParent>) {
+            auto comp=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),[&](const auto& item){return item.id==c.composition;});
+            require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);
+            auto& boards=comp->artboards;
+            if constexpr(std::is_same_v<T,AddArtboard>) {
+                require(c.index<=boards.size(),"INVALID_ORDER","Artboard insertion index outside range");
+                boards.insert(boards.begin()+static_cast<std::ptrdiff_t>(c.index),c.artboard);
+            } else if constexpr(std::is_same_v<T,ReorderArtboards>) {
+                std::map<Id,Artboard> old;for(const auto& board:boards)old.emplace(board.id,board);
+                require(c.order.size()==old.size(),"INVALID_ORDER","Artboard order must be a permutation");
+                boards.clear();for(const auto& id:c.order) {
+                    require(old.contains(id),"INVALID_ORDER",id);boards.push_back(old.at(id));old.erase(id);
+                }
+            } else {
+                const auto id=[&]{if constexpr(std::is_same_v<T,UpdateArtboard>)return c.artboard.id;else return c.artboard;}();
+                auto board=std::find_if(boards.begin(),boards.end(),[&](const auto& a){return a.id==id;});
+                require(board!=boards.end(),"MISSING_ARTBOARD",id);
+                if constexpr(std::is_same_v<T,UpdateArtboard>)*board=c.artboard;
+                else if constexpr(std::is_same_v<T,DeleteArtboard>) {
+                    require(boards.size()>1,"LAST_ARTBOARD","Keep at least one output frame per Composition");
+                    boards.erase(board);
+                } else {
+                    auto resolved=evaluate_artboard(*comp,id);resolved.parent_size.reset();*board=std::move(resolved);
+                }
+            }
+        } else if constexpr(std::is_same_v<T,Set>) {
             prepare_point_edit(candidate,c.ref);
             auto& p=lookup_property(candidate,c.ref);
             require(!p.binding,"DRIVEN_PROPERTY","Unlink explicitly before setting a driven property");

@@ -31,8 +31,8 @@ baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 Circle and Rectangle retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
 Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
-0.4 saves procedural state and editable linear/radial gradients, and migrates
-0.1/0.2/0.3 without reference loss.
+0.5 saves procedural state, editable linear/radial gradients and ordered Artboards
+with parent-size inheritance. It migrates 0.1–0.4 without reference loss.
 
 Implemented in M0:
 
@@ -123,6 +123,16 @@ The editable result and SVG are checked in as `examples/gradient-ornament.*`.
 Select a paint's Linear/Radial mode, edit coordinates/stops numerically, or enable
 Edit gradient handles in its Inspector. Solid bypass retains its stops and links.
 
+The Artboards list selects a frame and its Composition. Add/Duplicate places a
+frame to the right; up/down changes export order without moving artwork. Edit
+active frame exposes crop coordinates and dimensions, with independent width/
+height overrides of a same-Composition parent. Detach keeps the current size.
+Fit focuses the active frame; View > Fit all artboards shows that Composition.
+SVG export uses the active frame. CLI callers can use
+`nect --svg <composition-id> <artboard-id>` with native JSON on stdin.
+`scripts/create_artboard_demo.py --endpoint <name> --output <file.nect>` builds
+the three-frame `examples/artboard-studies.nect` fixture and numbered SVG crops.
+
 `scripts/session_client.py` calls that same desktop API directly. The original
 `nect --serve` remains a separate headless JSON-lines lane, **not MCP**.
 `tests/mcp_desktop_tests.py` demonstrates seeded creation, edits, linking,
@@ -146,7 +156,7 @@ rejected without altering the source.
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.4.schema.json` — current native JSON shape (0.1/0.2/0.3 readers retained)
+- `schemas/native-v0.5.schema.json` — current native JSON shape (0.1–0.4 readers retained)
 
 ## Project rules
 

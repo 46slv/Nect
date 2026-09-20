@@ -110,10 +110,15 @@ struct Object {
     std::optional<PointEdit> point_edit;
 };
 
+struct ArtboardParent {
+    Id artboard;
+    bool width=true,height=true;
+};
 struct Artboard {
     Id id;
     std::string name;
     double x=0,y=0,width=640,height=480;
+    std::optional<ArtboardParent> parent_size;
 };
 
 struct Composition {
@@ -122,6 +127,9 @@ struct Composition {
     std::vector<Id> roots;
     std::vector<Artboard> artboards;
 };
+
+// Resolves only dimensions; frame position, ownership and artwork do not move.
+Artboard evaluate_artboard(const Composition& composition,const Id& artboard);
 
 struct Collection {
     Id id;
@@ -158,10 +166,17 @@ struct EnableOperation { Id object; Id operation; bool enabled; };
 struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; };
 struct SetGradient { Id object; Id operation; std::optional<Gradient> gradient; };
 
+struct AddArtboard { Id composition; Artboard artboard; std::size_t index; };
+struct UpdateArtboard { Id composition; Artboard artboard; };
+struct DeleteArtboard { Id composition; Id artboard; };
+struct ReorderArtboards { Id composition; std::vector<Id> order; };
+struct DetachArtboardParent { Id composition; Id artboard; };
+
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ConvertToPath,AddOperation,RemoveOperation,
-    ReorderOperations,EnableOperation,OperationOptions,SetGradient>;
+    ReorderOperations,EnableOperation,OperationOptions,SetGradient,AddArtboard,UpdateArtboard,
+    DeleteArtboard,ReorderArtboards,DetachArtboardParent>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
