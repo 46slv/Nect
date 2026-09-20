@@ -108,9 +108,7 @@ Ref clipboard_reference(const Document& document) {
     return {ref["object"].toString().toStdString(),ref["point"].toString().toStdString(),ref["field"].toString().toStdString()};
 }
 bool same_scalar(const Scalar& a,const Scalar& b) {
-    if(a.literal!=b.literal||a.binding.has_value()!=b.binding.has_value())return false;
-    if(!a.binding)return true;
-    return a.binding->source==b.binding->source&&a.binding->scale==b.binding->scale&&a.binding->offset==b.binding->offset&&a.binding->mode==b.binding->mode;
+    return a==b;
 }
 void replace_actions(QVBoxLayout* layout,QWidget* widget) {
     while(auto* item=layout->takeAt(0)){if(item->widget()){item->widget()->hide();item->widget()->deleteLater();}delete item;}
@@ -293,7 +291,7 @@ void ColorTools::load_editor(const Id& id,const std::map<Ref,double>& values) {
     replace_actions(named_actions_,menu_button({id,"","color"}));
     const auto link=color_link(document,{id,"","color"});
     if(link)editor_status_->setText("Linked to "+qs(property_name(document,*link))+". Unlink explicitly before changing RGBA.");
-    else if(std::any_of(editor_base_->rgba.begin(),editor_base_->rgba.end(),[](const auto& scalar){return scalar.binding.has_value();}))
+    else if(std::any_of(editor_base_->rgba.begin(),editor_base_->rgba.end(),[](const auto& scalar){return scalar.binding.has_value()||scalar.expression.has_value();}))
         editor_status_->setText("Some channels have individual links. Unlink explicitly before replacing this color.");
     else editor_status_->setText("Independent sRGB color · straight alpha. RGBA inputs retain full numeric precision; HEX is an 8-bit view.");
 }

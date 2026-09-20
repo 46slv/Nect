@@ -111,6 +111,17 @@ Templates may provide optional frame/layout settings and repeated content with p
 
 Linked and Embedded resources are explicit. Show link change/missing/version state; reload uses the normal document command boundary where it changes the result. Embedded bytes are self-contained; saving a linked reference is not a backup of all external historical bytes.
 
+## Property expression boundary
+
+Scalar has one driven source: Binding or versioned Expression, never both.
+Expression compilation is pure and transient; stable property references re-enter
+the existing property dependency visitor for units, cycles and generated topology.
+Requested-root transform evaluation uses that same path. The bounded v1 arithmetic
+language has no script runtime or external authority. Numeric-row multiline drafts
+and their validation result are UI state; only explicit Session commands modify
+and persist source. A stale draft revision rejects rather than overwriting edits
+from the API. SVG is an evaluated projection; native source remains authored.
+
 ## Interchange and source preservation
 
 Native persistence preserves authored intent; interchange is a projection. Plan direct mapping -> geometry expansion -> bounded appearance bake -> explicit refusal. A safe bake boundary includes necessary inputs, masks, backdrop, filter support, resolution and color context; it is not guaranteed to be one layer/subtree. Preserve unrelated editability where possible and report the actual loss.

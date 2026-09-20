@@ -262,6 +262,17 @@ try:
             assert all(abs(v-e)<1e-8 for v,e in zip(new_transforms[id_]['world'],expected_world))
         assert core('undo',expected_revision=rev)['ok'];rev+=1
         assert core('inspect')['result']==before_translation
+        # Formulas use the live Session and survive its normal save/restart path.
+        formula='ref("path-9","","transform.tx") * 2 + 5'
+        rev=apply([dict(type='set_expression',targets=batch_refs,expression=dict(source=formula,version=1),replace_binding=False)],rev)
+        assert all(core('get',ref=ref)['result']['evaluated']==45 for ref in batch_refs)
+        formula_before=core('inspect')['result']
+        rejected=core('apply',expected_revision=rev,commands=[dict(type='set_expression',targets=batch_refs,expression=dict(source='1 / 0',version=1),replace_binding=False)])
+        assert not rejected['ok'] and core('inspect')['result']==formula_before
+        changed=core('apply',expected_revision=rev,commands=[dict(type='set',ref=batch_source,value=30)])
+        assert changed['ok'] and {'path-9','path-10','path-11','path-12'}.issubset(changed['result']['changed_ids']);rev=changed['revision']
+        assert all(core('get',ref=ref)['result']['evaluated']==65 for ref in batch_refs)
+        assert core('expression_language')['result']['source_bytes']==4096
         history_before=core('history')['result'];history_state=history_before['current_id']
         historical_document=core('inspect')['result']
         for step in range(80):

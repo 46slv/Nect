@@ -1,4 +1,5 @@
 #include "nect/core.hpp"
+#include "nect/expression.hpp"
 #include <algorithm>
 #include <cmath>
 #include <charconv>
@@ -18,6 +19,13 @@ void require(bool ok, const char* code, const std::string& message) {
 }
 void finite(double n) {
     require(std::isfinite(n),"NON_FINITE","Non-finite numeric value");
+}
+bool driven(const Scalar& scalar){return scalar.binding.has_value()||scalar.expression.has_value();}
+using ExpressionCache=std::map<std::pair<unsigned,std::string>,CompiledExpression>;
+const CompiledExpression& compiled_expression(ExpressionCache& cache,const Expression& expression) {
+    const auto key=std::pair{expression.version,expression.source};
+    if(const auto found=cache.find(key);found!=cache.end())return found->second;
+    return cache.emplace(key,compile_expression(expression)).first->second;
 }
 void text_utf8(const std::string& value) {
     for(std::size_t i=0;i<value.size();) {
@@ -354,7 +362,7 @@ std::vector<Contour> path_contours(const Object& o,const std::map<Ref,double>* v
         if(values) {
             const auto found=values->find({o.id,"","generator.points"});
             require(found!=values->end(),"EVALUATION_REQUIRED","Evaluated point count is missing from the snapshot");count=found->second;
-        } else {require(!points.binding,"EVALUATION_REQUIRED","Bound point count requires an evaluated snapshot");count=points.literal;}
+        } else {require(!driven(points),"EVALUATION_REQUIRED","Driven point count requires an evaluated snapshot");count=points.literal;}
     }
     Contour c{o.source->id+"-contour",true,{}};
     for(const auto& role:source_roles(*o.source,count)) {Point p;p.id=o.source->id+"-"+role;c.points.push_back(p);}
@@ -366,13 +374,16 @@ std::vector<Ref> conversion_blockers(const Document& d,const Id& object) {
     const auto& o=d.objects.at(object);
     require(o.source.has_value(),"NOT_PRIMITIVE","Select a parametric primitive");
     std::vector<Ref> blockers;
+    ExpressionCache expressions;
     for(const auto& [ref,scalar]:property_index(d,true)) {
-        if(!scalar||!scalar->binding)continue;
+        if(!scalar||!driven(*scalar))continue;
         if(ref.point.empty()&&ref.field.starts_with("stroke."))continue;
         if(ref.object==object&&ref.field.starts_with("generator."))continue;
         if(ref.object==object&&!ref.point.empty()&&o.point_edit&&!o.point_edit->enabled)continue;
-        const auto& source=scalar->binding->source;
-        if(source.object==object&&source.point.empty()&&source.field.starts_with("generator."))blockers.push_back(ref);
+        const auto removed=[&](const Ref& source){return source.object==object&&source.point.empty()&&source.field.starts_with("generator.");};
+        bool blocked=scalar->binding&&removed(scalar->binding->source);
+        if(scalar->expression)for(const auto& source:expression_dependencies(compiled_expression(expressions,*scalar->expression)))blocked=blocked||removed(source);
+        if(blocked)blockers.push_back(ref);
     }
     return blockers;
 }
@@ -408,6 +419,7 @@ std::map<Ref,double> evaluate_properties(const Document& d,const std::vector<Ref
     const auto index = requested?std::map<Ref,const Scalar*>{}:property_index(d);
     std::map<Ref,double> values;
     std::set<Ref> active;
+    ExpressionCache expressions;
     struct Topology {std::vector<std::string> roles;std::map<Id,std::size_t> positions;};
     std::map<Id,Topology> topologies;
     std::size_t points=0;
@@ -457,6 +469,9 @@ std::map<Ref,double> evaluate_properties(const Document& d,const std::vector<Ref
                 const auto radius=param(s.type=="nect.shape.polygon"?"radius":role.starts_with("inner-")?"inner_radius":"outer_radius");
                 v=r.field=="x"?param("center_x")+radius*std::cos(angle):param("center_y")+radius*std::sin(angle);
             }
+        } else if(p->expression) {
+            require(!p->binding,"SCALAR_SOURCE_CONFLICT","A Scalar cannot have both Binding and Expression");
+            v=evaluate_expression(compiled_expression(expressions,*p->expression),unit(r),[&](const Ref& source){return visit(source,depth+1);});
         } else if(p->binding) {
             const auto& b=*p->binding;
             require(b.mode=="copy_local_value","UNSUPPORTED_BINDING","Explicit copy_local_value binding required");
@@ -656,9 +671,12 @@ void validate(const Document& d) {
     }
 
     const auto authored=property_index(d,true);
+    ExpressionCache expressions;
     for (const auto& [ref, scalar] : authored) {
         if(!scalar)continue;
         value_range(ref, scalar->literal);
+        require(!scalar->binding||!scalar->expression,"SCALAR_SOURCE_CONFLICT","A Scalar cannot have both Binding and Expression");
+        if(scalar->expression)validate_expression_unit(compiled_expression(expressions,*scalar->expression),unit(ref));
         if(scalar->binding) {
             const auto& binding=*scalar->binding;
             require(binding.mode=="copy_local_value","UNSUPPORTED_BINDING","Explicit copy_local_value binding required");
@@ -672,6 +690,11 @@ void validate(const Document& d) {
         const auto& source=scalar->binding->source;
         require(values.contains(source),"MISSING_REFERENCE",source.object+"/"+source.point+"/"+source.field);
         require(unit(ref)==unit(source),"UNIT_MISMATCH","Implicit unit conversion is not supported");
+    }
+    for(const auto& [ref,scalar]:authored)if(scalar&&scalar->expression) {
+        (void)ref;
+        for(const auto& source:expression_dependencies(compiled_expression(expressions,*scalar->expression)))
+            require(values.contains(source),"MISSING_REFERENCE",source.object+"/"+source.point+"/"+source.field);
     }
     for(const auto& [id,object]:d.objects)if(object.source) {
         (void)id;
@@ -748,8 +771,8 @@ void set_changed_scalar(Document& document,const Ref& ref,double value,const std
     if(before==value)return;
     // Matrix inversion/composition can introduce roundoff in an unchanged axis.
     // Keep its exact authored binding; a genuinely changed driven axis rejects.
-    if(scalar.binding&&transform_equal(before,value))return;
-    require(!scalar.binding,"DRIVEN_PROPERTY","Unlink explicitly before changing a driven transform property");
+    if(driven(scalar)&&transform_equal(before,value))return;
+    require(!driven(scalar),"DRIVEN_PROPERTY","Unlink explicitly before changing a driven transform property");
     scalar.literal=value;
 }
 void set_affine(Document& document,const Id& id,const Affine& matrix,const std::map<Ref,double>& values) {
@@ -777,6 +800,11 @@ void scalar_targets(const Document& document,const std::vector<Ref>& targets,con
         }
         require(unique.insert(std::move(canonical)).second,"DUPLICATE_TARGET","Each scalar target may occur only once, including aliases");
     }
+}
+Ref canonical_target(const Document& document,const Ref& target) {
+    if(target.point.empty()&&target.field.starts_with("stroke."))
+        return operation_ref(target.object,document.objects.at(target.object).legacy_stroke,target.field.substr(7));
+    return target;
 }
 void translate_objects(Document& document,const TranslateObjects& command) {
     require(!command.objects.empty()&&command.objects.size()<=1000,"INVALID_BATCH","Translation requires 1..1000 unique objects");
@@ -850,7 +878,18 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
     auto candidate=document;
     for(const auto& command:commands) std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
-        if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
+        if constexpr(std::is_same_v<T,SetExpression>) {
+            require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Expression targets must contain 1..1000 unique Scalars");
+            const auto expression=compile_expression(c.expression);const auto expected_unit=unit(c.targets.front());
+            validate_expression_unit(expression,expected_unit);std::set<Ref> unique;
+            for(const auto& target:c.targets) {
+                require(unit(target)==expected_unit,"UNIT_MISMATCH","Expression targets must share one scalar unit");
+                prepare_point_edit(candidate,target);auto& scalar=lookup_property(candidate,target);
+                require(unique.insert(canonical_target(candidate,target)).second,"DUPLICATE_TARGET","Each scalar target may occur only once, including aliases");
+                require(!scalar.binding||c.replace_binding,"DRIVEN_PROPERTY","Replacing an existing Binding requires replace_binding=true");
+                scalar.binding.reset();scalar.expression=c.expression;
+            }
+        } else if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
             require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
             const auto values=evaluate(candidate);scalar_targets(candidate,c.targets,values);
             if constexpr(std::is_same_v<T,EditProperties>)finite(c.value);
@@ -861,10 +900,11 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
             for(const auto& target:c.targets) {
                 prepare_point_edit(candidate,target);auto& scalar=lookup_property(candidate,target);
                 if constexpr(std::is_same_v<T,EditProperties>) {
-                    require(!scalar.binding,"DRIVEN_PROPERTY","Unlink explicitly before editing a driven property");
+                    require(!driven(scalar),"DRIVEN_PROPERTY","Unlink explicitly before editing a driven property");
                     scalar.literal=c.relative?values.at(target)+c.value:c.value;
                 } else if constexpr(std::is_same_v<T,LinkProperties>) {
                     scalar.binding=Binding{c.source,1,c.relative?values.at(target)-values.at(c.source):0,"copy_local_value"};
+                    scalar.expression.reset();
                 } else scalar=Scalar{values.at(target),{}};
             }
         } else if constexpr(std::is_same_v<T,TranslateObjects>) {
@@ -925,12 +965,14 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
             require(c.value.space=="srgb"&&c.value.profile=="srgb"&&c.value.alpha=="straight","UNSUPPORTED_COLOR","Only sRGB, sRGB profile, straight alpha colors are supported");
             const auto channels=color_channels(candidate,c.ref);
             for(std::size_t i=0;i<4;++i) {
-                auto& scalar=lookup_property(candidate,channels[i]);require(!scalar.binding,"DRIVEN_PROPERTY","Unlink the color explicitly before replacing its value");
+                auto& scalar=lookup_property(candidate,channels[i]);require(!driven(scalar),"DRIVEN_PROPERTY","Unlink the color explicitly before replacing its value");
                 scalar.literal=c.value.rgba[i];
             }
         } else if constexpr(std::is_same_v<T,LinkColor>) {
             const auto targets=color_channels(candidate,c.target),sources=color_channels(candidate,c.source);
-            for(std::size_t i=0;i<4;++i)lookup_property(candidate,targets[i]).binding=Binding{sources[i],1,0,"copy_local_value"};
+            for(std::size_t i=0;i<4;++i) {
+                auto& scalar=lookup_property(candidate,targets[i]);scalar.binding=Binding{sources[i],1,0,"copy_local_value"};scalar.expression.reset();
+            }
         } else if constexpr(std::is_same_v<T,UnlinkColor>) {
             const auto channels=color_channels(candidate,c.ref);const auto values=evaluate(candidate);
             for(const auto& ref:channels)lookup_property(candidate,ref)=Scalar{values.at(ref),{}};
@@ -963,11 +1005,11 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
         } else if constexpr(std::is_same_v<T,Set>) {
             prepare_point_edit(candidate,c.ref);
             auto& p=lookup_property(candidate,c.ref);
-            require(!p.binding,"DRIVEN_PROPERTY","Unlink explicitly before setting a driven property");
+            require(!driven(p),"DRIVEN_PROPERTY","Unlink explicitly before setting a driven property");
             p.literal=c.value;
         } else if constexpr(std::is_same_v<T,Link>) {
             prepare_point_edit(candidate,c.target);
-            lookup_property(candidate,c.target).binding=c.binding;
+            auto& scalar=lookup_property(candidate,c.target);scalar.binding=c.binding;scalar.expression.reset();
         } else if constexpr(std::is_same_v<T,Unlink>) {
             const auto value=evaluate(candidate).at(c.target);
             prepare_point_edit(candidate,c.target);

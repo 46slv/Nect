@@ -16,7 +16,7 @@ TOOLS = [
      'annotations': {'readOnlyHint': True, 'openWorldHint': False}},
     {'name': 'nect_command',
      'description': ('Inspect/evaluate/export_svg or edit the desktop-owned Session. request.op: '
-                     'inspect, properties, get, resolve_name, evaluate, export_svg, artboards, operator_types, gradient_types, render_plan, conversion_plan, apply, undo, redo, history, restore_history. '
+                     'inspect, properties, get, resolve_name, evaluate, expression_language, export_svg, artboards, operator_types, gradient_types, render_plan, conversion_plan, apply, undo, redo, history, restore_history. '
                      'history lists stable state IDs and bounded retained memory estimates for this live Session only. '
                      'restore_history takes state_id and expected_revision, atomically returns to a retained state in one revision, '
                      'and keeps future states available until a new edit replaces the redo branch. '
@@ -40,6 +40,10 @@ TOOLS = [
                      'Batch commands: edit_properties {targets:[Ref],value:number,relative:bool}; link_properties {targets:[Ref],source:Ref,relative:bool}; unlink_properties {targets:[Ref]}. '
                      'Targets are 1..1000 unique compatible scalar refs. Absolute edits assign each target, relative edits add to each initial value once; driven edits reject until explicitly unlinked. '
                      'Relative links preserve each initial difference and unlink freezes each initial evaluated value; all target values come from one snapshot. '
+                     'set_expression {targets:[Ref],expression:{source:string,version:1},replace_binding:bool} assigns a bounded pure expression to compatible scalars. '
+                     'Use expression_language for limits/functions; ref("object-id","point-id-or-empty","field") uses stable IDs. '
+                     'Typing numbers cannot replace a formula. Unlink freezes its result; link commands explicitly replace it. Existing binding replacement needs replace_binding:true. '
+                     'Formula errors/cycles/units/ranges reject the whole command; expressions persist in native 0.10 and SVG contains evaluated values only. '
                      'translate_objects {objects:[id],dx:number,dy:number} translates selected world matrices once, including selected ancestors/followers, in one Composition. '
                      'set_gradient replaces the authored gradient on one paint; preserve its IDs and existing bindings when editing stops. '
                      'Gradient numeric refs are op.OP_ID.gradient.GRADIENT_ID.start_x/start_y/end_x/end_y or stop.STOP_ID.offset/r/g/b/a. '

@@ -194,7 +194,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.9','current writer uses native 0.9')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.10','current writer uses native 0.10')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -206,11 +206,37 @@ new=replies[0]['result'];remove_migrated_anchor_defaults(new);new['version']='0.
 check(new==old,'0.8 migration preserves linked count, angular correction, all paints and text')
 # Catch the documented field vocabulary falling behind real numeric properties.
 # This checks that specific schema boundary; the native codec remains the validator.
-schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.9.schema.json').read_text())
+schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.10.schema.json').read_text())
 field_rules=schema['$defs']['ref']['properties']['field']['anyOf']
 for property_ in replies[1]['result']:
     if property_['type']!='number': continue
     name=property_['ref']['field']
     check(any(name in rule.get('enum',[]) or ('pattern' in rule and re.fullmatch(rule['pattern'],name)) for rule in field_rules),
           'schema accepts emitted numeric field '+name)
+# Native expressions remain authored and are forbidden in all earlier versions.
+expression_doc=json.loads(json.dumps(sample))
+target=next(o for o in expression_doc['objects'] if o['id']=='path-B')
+formula='ref("path-A","point-A1","x") * 2 + 3'
+target['transform'][4]['expression']={'source':formula,'version':1}
+check(run('--validate',expression_doc).returncode==0,'expression document validates')
+for version in ('0.8','0.9'):
+    legacy_expr=json.loads(json.dumps(expression_doc));legacy_expr['version']=version
+    if version=='0.8': remove_migrated_anchor_defaults(legacy_expr)
+    check('UNKNOWN_FIELD' in run('--validate',legacy_expr).stderr,'legacy '+version+' rejects expression source')
+for invalid in ({'source':'1','version':2},{'source':'1','version':1,'javascript':True}):
+    bad=json.loads(json.dumps(expression_doc));next(o for o in bad['objects'] if o['id']=='path-B')['transform'][4]['expression']=invalid
+    check(run('--validate',bad).returncode==2,'unknown formula semantic/field rejects')
+with tempfile.TemporaryDirectory() as tmp:
+    path=Path(tmp)/'expression.nect';path.write_text(json.dumps(expression_doc),encoding='utf-8')
+    ref={'object':'path-B','point':'','field':'transform.tx'}
+    commands=[{'op':'inspect'},{'op':'get','ref':ref},{'op':'expression_language'},
+              {'op':'apply','expected_revision':0,'commands':[{'type':'set_expression','targets':[ref],
+                 'expression':{'source':formula+' + 7','version':1},'replace_binding':False}]},
+              {'op':'get','ref':ref},{'op':'undo','expected_revision':1},{'op':'inspect'}]
+    proc=subprocess.run([exe,'--serve',str(path)],input='\n'.join(json.dumps(c) for c in commands)+'\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
+    replies=[json.loads(line) for line in proc.stdout.splitlines()]
+    check(all(r['ok'] for r in replies),'formula discovery/apply/readback/undo succeeds')
+    check(replies[0]['result']==expression_doc and replies[-1]['result']==expression_doc,'native formula source and literals survive exact roundtrip and Undo')
+    check(replies[1]['result']['evaluated']==203 and replies[4]['result']['evaluated']==210,'formula command uses the shared evaluator')
+    check(replies[2]['result']['trigonometry']=='degrees','formula language is discoverable')
 print(f'PASS {checks} process and native migration checks')

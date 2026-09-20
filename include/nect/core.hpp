@@ -35,9 +35,16 @@ struct Binding {
     bool operator==(const Binding&) const = default;
 };
 
+struct Expression {
+    std::string source;
+    unsigned version = 1;
+    bool operator==(const Expression&) const = default;
+};
+
 struct Scalar {
     double literal = 0;
     std::optional<Binding> binding;
+    std::optional<Expression> expression;
     bool operator==(const Scalar&) const = default;
 };
 
@@ -247,6 +254,7 @@ struct SetTransformParent { Id object; std::optional<Id> parent; bool preserve_w
 struct EditProperties { std::vector<Ref> targets; double value; bool relative=false; };
 struct LinkProperties { std::vector<Ref> targets; Ref source; bool relative=false; };
 struct UnlinkProperties { std::vector<Ref> targets; };
+struct SetExpression { std::vector<Ref> targets; Expression expression; bool replace_binding=false; };
 // World-space displacement, applied once per selected object across Structure
 // and Transform Parent relationships. Selection is one Composition, 1..1000 IDs.
 struct TranslateObjects { std::vector<Id> objects; double dx,dy; };
@@ -258,7 +266,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
-    EditProperties,LinkProperties,UnlinkProperties,TranslateObjects>;
+    EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,SetExpression>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
@@ -328,6 +336,7 @@ void validate(const Document& document);
 Document demo_document();
 Document empty_document(Id document, Id composition, Id artboard);
 std::string property_unit(const Ref& ref);
+std::vector<Ref> expression_dependencies(const Expression& expression);
 
 struct HistoryLimits {
     std::size_t max_entries=1024;

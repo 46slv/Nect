@@ -1,61 +1,44 @@
-# Practical alpha Mission — expression authoring next
+# Practical alpha Mission — masks and Group compositing next
 
 ## Active Mission checkpoint — 2026-09-20
 
-HEAD `3eb86e0`: native0.9 Anchor and Transform Parent are integrated.
-Shared effective-parent transforms, position/relative rotation/scale commands,
-keep-world attach/detach, cubic/stack/Text bounds and GUI Anchor tool/picker use
-the same Session. All23 CTest entries passed (25.21s); after precision/focus and
-release-path repairs, six focused Host/Canvas/Window/transform/process/MCP checks
-passed (10.53s). Production use found one-ULP inspect/native drift for cos(12°);
-all native/request/DOM parsing now selects Boost JSON precise number conversion.
-Exact bit-identity checks and native/API production readback pass.
+Branch `codex/practical-alpha`; parent checkpoint `c7621c3` delivered multi-selection
+and atomic batch property edits after `3eb86e0` Anchor/Transform Parent. This next
+coherent checkpoint delivers native0.10 bounded property expressions. Core pure
+parser/compiler uses the existing dependency visitor for stable refs, unit/cycle
+checks, generated point count/corrections and transform requested roots. One driven
+source per Scalar, explicit Binding replacement, Unlink freeze, conversion/deletion
+reference protection and History source accounting are integrated. No scripting
+runtime or external authority. Old native0.1–0.9 readers remain strict.
 
-Live API created examples/pivot-follow.nect/.svg. Actual Windows UI moved Anchor
-without changing any matrix/source or exported SVG, then rotated the Mobile Group
-while four explicitly parented objects followed it independently of structure.
-Each action undid in one step; the original document, native and recovery matched
-exactly at revision8. Source example unchanged; owned app closed normally.
-Receipt: build/transform-manual-receipt.json. Visible benchmark meets30fps p95;
-80-Path worst p95 31.44ms, two handle intervals >33.333ms, point release34.42ms.
-Removing duplicate Canvas projection reduced point release from40.31ms, but the
-release target and lightweight60fps target remain unmet. See first-usable evidence.
+Numeric =input, fx, multiline paste, inline draft result, stable-reference insertion,
+Ctrl+Enter/Esc and frozen Session revision are implemented. Drafts survive Inspector
+refresh; failures never zero/flatten valid artwork. All27 CTest entries passed26.26s
+including core, codec migrations, Qt draft/conflict/replacement and formal MCP
+expression changed-ID/save/restart coverage. The initial QObject::property naming
+collision was fixed. No application failure was waived.
 
-Checkpoint after `3eb86e0`: multi-object/point Canvas/tree selection, common scalar Inspector,
-one-snapshot Edit/Link/UnlinkProperties and effective-parent-aware TranslateObjects,
-frozen target-set picking/pick-whip, IO/MCP and focused core/UI tests. Initial
-syntax/test event-loop issues were repaired. Batch core, Canvas, existing
-Window/transform, process and formal MCP checks passed; final Inspector polish
-passed three focused UI checks (3.90s). Actual polystar working-copy UI selected
-Polygon+Star: Center X280/680→+=20→300/700→400→400/400, exact API/native/recovery
-readback, two one-step Undos to the exact original, source untouched, app closed.
-Receipt: build/batch-manual-receipt.json.
+Production: scripts/create_expression_demo.py created examples/phase-form.nect/.svg:
+16 retained Circles,32 formulas, Star controller, five Named Colors, editable Text,
+31 paint paths. Controller angle/radius changes propagated to all16; numeric oracles,
+exact Undo and native readback passed. Actual Windows UI on an owned working copy
+edited Center Y to a multiline formula; draft375 left Canvas/revision4 unchanged,
+Ctrl+Enter committed at5, native/recovery exact, one Undo at6 restored whole original.
+Source example untouched, app PID43532 closed normally. Receipt:
+build/expression-manual-receipt.json. No app/build/helper process remains active.
 
-Initial performance failed and was repaired:
-build/canvas-benchmark-multi.json measured80 Paths/320 points with12 selected.
-Point p9526.41ms and handle27.55ms meet30fps, but multi-object translation
-p9548.20ms fails (all89 intervals >33.333ms). Paint itself is only~3ms; extra
-time preceded paint. TranslateObjects now resolves affine roots and dependencies
-through the same property evaluator without eagerly visiting unrelated fields;
-the final complete candidate validation remains mandatory. Generated-point,
-linked-count and bypassed-correction dependency checks pass. Final focused core,
-primitive, transform, batch, Canvas/Window, cross-composition picker, process and
-MCP checks passed (10 checks10.80s plus the repaired batch fixture's274 checks).
-No production failure was waived; test-only correction identity was fixed.
+Performance: build/canvas-benchmark-expressions.json,80 Paths/320 points/80 live
+stroke-width expressions with12 selected. Point p9528.67ms, handle25.69ms,
+object translation31.78ms; all intervals <=32.06ms, maximum release30.61ms.
+30fps p95/release floor passes; lightweight worst p9517.45ms and60fps target unmet.
+See docs/first-usable.md for full boundaries/table. Earlier batch/transform evidence
+is retained there. Worker canvas is idle after core and production script handoff.
 
-Completed visible measurement:80 Paths/12 selected, point p9528.61ms, handle29.65ms,
-translation29.93ms; maximum release29.32ms. The30fps floor passes; one handle
-interval36.08ms and unmet60fps target remain. An earlier attempt was interrupted
-during a gesture and is retained as incomplete, not counted as a successful run.
-Artifacts: build/canvas-benchmark-multi-transform-subset-observed.json and the
-earlier incomplete build/canvas-benchmark-multi-transform-subset.json.
-Worker is idle/read-only after an expression integration map; no app/build active.
-Next safe action: implement bounded pure expression authoring through Scalar and
-the existing dependency visitor, then native migration/API and numeric-row UI.
-Use stable-ID references, explicit driven-source replacement and bounded parsing;
-no scripting runtime, filesystem/network/process access or second document model.
-Masks/group compositing, assets, expressions, local operators and inherited
-template content remain required. This checkpoint is not alpha completion.
+Exact next safe action: inspect the existing compositing/selection/render owners,
+then implement a bounded mask + Group opacity/blend slice with the same Session,
+explicit source/space/paint-order semantics and Qt/SVG parity evidence. Do not
+silently declare full blend parity. Local Offset, Linked/Embedded assets and
+inherited Artboard content also remain required; this is not alpha completion.
 
 The current user explicitly authorizes continuing beyond M1 toward a practical
 2D authoring alpha, selecting small slices from accepted product direction and

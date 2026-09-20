@@ -42,11 +42,20 @@ Binding read_binding(const j::value& v) {
     keys(o,{"source","scale","offset","mode"});
     return {read_ref(o.at("source")),number(o.at("scale")),number(o.at("offset")),text(o.at("mode"))};
 }
-Scalar read_scalar(const j::value& v) {
+Expression read_expression(const j::value& v) {
+    const auto& o=v.as_object();keys(o,{"source","version"});
+    return {text(o.at("source")),j::value_to<unsigned>(o.at("version"))};
+}
+j::object expression_json(const Expression& expression) {
+    return {{"source",expression.source},{"version",expression.version}};
+}
+Scalar read_scalar(const j::value& v,bool allow_expression=true) {
     const auto& o=v.as_object();
-    keys(o,{"literal","binding"});
+    if(allow_expression)keys(o,{"literal","binding","expression"});
+    else keys(o,{"literal","binding"});
     Scalar s{number(o.at("literal")),{}};
     if(auto* b=o.if_contains("binding");b&&!b->is_null()) s.binding=read_binding(*b);
+    if(auto* e=o.if_contains("expression");e&&!e->is_null())s.expression=read_expression(*e);
     return s;
 }
 j::value scalar_json(const Scalar& s) {
@@ -56,6 +65,7 @@ j::value scalar_json(const Scalar& s) {
         o["binding"]=j::object{
             {"source",ref_json(b.source)},{"scale",b.scale},{"offset",b.offset},{"mode",b.mode}};
     }
+    if(s.expression)o["expression"]=expression_json(*s.expression);
     return o;
 }
 std::vector<Id> ids(const j::value& v) {
@@ -134,28 +144,28 @@ j::value parse(std::string_view s) {
     return j::parse(s,{},options);
 }
 
-Point read_point(const j::value& v) {
+Point read_point(const j::value& v,bool allow_expression=true) {
     const auto& p=v.as_object();
     keys(p,{"id","x","y","in_angle","in_length","out_angle","out_length"});
-    return {text(p.at("id")),read_scalar(p.at("x")),read_scalar(p.at("y")),
-        read_scalar(p.at("in_angle")),read_scalar(p.at("in_length")),
-        read_scalar(p.at("out_angle")),read_scalar(p.at("out_length"))};
+    return {text(p.at("id")),read_scalar(p.at("x"),allow_expression),read_scalar(p.at("y"),allow_expression),
+        read_scalar(p.at("in_angle"),allow_expression),read_scalar(p.at("in_length"),allow_expression),
+        read_scalar(p.at("out_angle"),allow_expression),read_scalar(p.at("out_length"),allow_expression)};
 }
-Contour read_contour(const j::value& v) {
+Contour read_contour(const j::value& v,bool allow_expression=true) {
     const auto& c=v.as_object();
     keys(c,{"id","closed","points"});
     Contour out{text(c.at("id")),c.at("closed").as_bool(),{}};
-    for(const auto& p:c.at("points").as_array()) out.points.push_back(read_point(p));
+    for(const auto& p:c.at("points").as_array()) out.points.push_back(read_point(p,allow_expression));
     return out;
 }
 
-TextSource read_text(const j::value& v) {
+TextSource read_text(const j::value& v,bool allow_expression=true) {
     const auto& o=v.as_object();keys(o,{"id","version","content","family","locale","layout","direction","alignment","weight","italic","parameters"});
     TextSource s;s.id=text(o.at("id"));s.version=j::value_to<unsigned>(o.at("version"));
     s.content=text(o.at("content"));s.family=text(o.at("family"));s.locale=text(o.at("locale"));
     s.layout=text(o.at("layout"));s.direction=text(o.at("direction"));s.alignment=text(o.at("alignment"));
     s.weight=j::value_to<unsigned>(o.at("weight"));s.italic=o.at("italic").as_bool();
-    for(const auto& p:o.at("parameters").as_object())s.parameters.emplace(std::string(p.key()),read_scalar(p.value()));
+    for(const auto& p:o.at("parameters").as_object())s.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
     return s;
 }
 j::value color_json(const ColorValue& color) {
@@ -171,11 +181,11 @@ ColorValue read_color(const j::value& value) {
     ColorValue color;const auto& rgba=o.at("rgba").as_array();if(rgba.size()!=4)throw Error("INVALID_COLOR","Four RGBA channels required");
     for(std::size_t i=0;i<4;++i)color.rgba[i]=number(rgba[i]);return color;
 }
-NamedColor read_named_color(const j::value& value) {
+NamedColor read_named_color(const j::value& value,bool allow_expression=true) {
     const auto& o=value.as_object();keys(o,{"id","name","space","profile","alpha","rgba"});color_format(o);
     NamedColor color;color.id=text(o.at("id"));color.name=text(o.at("name"));const auto& rgba=o.at("rgba").as_array();
     if(rgba.size()!=4)throw Error("INVALID_COLOR","Four RGBA channels required");
-    for(std::size_t i=0;i<4;++i)color.rgba[i]=read_scalar(rgba[i]);return color;
+    for(std::size_t i=0;i<4;++i)color.rgba[i]=read_scalar(rgba[i],allow_expression);return color;
 }
 j::object named_color_json(const NamedColor& color) {
     j::array rgba;for(const auto& scalar:color.rgba)rgba.push_back(scalar_json(scalar));
@@ -205,22 +215,22 @@ j::object text_layout_json(const Document& d,const Id& id) {
         {"used_fonts",ids_json(layout.used_fonts)},{"svg_text","outlined"},{"font_embedded",false}};
 }
 
-Primitive read_primitive(const j::value& v,bool allow_polystar=true) {
+Primitive read_primitive(const j::value& v,bool allow_polystar=true,bool allow_expression=true) {
     const auto& o=v.as_object();keys(o,{"id","type","version","parameters"});
     Primitive s{text(o.at("id")),text(o.at("type")),j::value_to<unsigned>(o.at("version")),{}};
     if(!allow_polystar&&(s.type=="nect.shape.polygon"||s.type=="nect.shape.star"))
         throw Error("UNSUPPORTED_OPERATOR","Polygon and Star require native 0.8");
     for(const auto& p:o.at("parameters").as_object())
-        s.parameters.emplace(std::string(p.key()),read_scalar(p.value()));
+        s.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
     return s;
 }
-PointEdit read_point_edit(const j::value& v) {
+PointEdit read_point_edit(const j::value& v,bool allow_expression=true) {
     const auto& o=v.as_object();keys(o,{"id","type","version","enabled","overrides"});
     if(text(o.at("type"))!="nect.path.point-edit")throw Error("UNSUPPORTED_OPERATOR",text(o.at("type")));
     PointEdit edit{text(o.at("id")),j::value_to<unsigned>(o.at("version")),o.at("enabled").as_bool(),{}};
     for(const auto& p:o.at("overrides").as_object()) {
         auto& fields=edit.overrides[std::string(p.key())];
-        for(const auto& f:p.value().as_object())fields.emplace(std::string(f.key()),read_scalar(f.value()));
+        for(const auto& f:p.value().as_object())fields.emplace(std::string(f.key()),read_scalar(f.value(),allow_expression));
     }
     return edit;
 }
@@ -238,16 +248,16 @@ j::value point_edit_json(const PointEdit& edit) {
         {"enabled",edit.enabled},{"overrides",overrides}};
 }
 
-Gradient read_gradient(const j::value& v) {
+Gradient read_gradient(const j::value& v,bool allow_expression=true) {
     const auto& o=v.as_object();keys(o,{"id","type","version","enabled","start_x","start_y","end_x","end_y","stops"});
     Gradient g;g.id=text(o.at("id"));g.type=text(o.at("type"));g.version=j::value_to<unsigned>(o.at("version"));
-    g.enabled=o.at("enabled").as_bool();g.start_x=read_scalar(o.at("start_x"));g.start_y=read_scalar(o.at("start_y"));
-    g.end_x=read_scalar(o.at("end_x"));g.end_y=read_scalar(o.at("end_y"));
+    g.enabled=o.at("enabled").as_bool();g.start_x=read_scalar(o.at("start_x"),allow_expression);g.start_y=read_scalar(o.at("start_y"),allow_expression);
+    g.end_x=read_scalar(o.at("end_x"),allow_expression);g.end_y=read_scalar(o.at("end_y"),allow_expression);
     for(const auto& entry:o.at("stops").as_array()) {
         const auto& s=entry.as_object();keys(s,{"id","offset","rgba"});
-        GradientStop stop;stop.id=text(s.at("id"));stop.offset=read_scalar(s.at("offset"));
+        GradientStop stop;stop.id=text(s.at("id"));stop.offset=read_scalar(s.at("offset"),allow_expression);
         const auto& rgba=s.at("rgba").as_array();if(rgba.size()!=4)throw Error("INVALID_COLOR","Four RGBA channels required");
-        for(std::size_t k=0;k<4;++k)stop.rgba[k]=read_scalar(rgba[k]);
+        for(std::size_t k=0;k<4;++k)stop.rgba[k]=read_scalar(rgba[k],allow_expression);
         g.stops.push_back(std::move(stop));
     }
     return g;
@@ -262,15 +272,15 @@ j::value gradient_json(const Gradient& g) {
         {"start_x",scalar_json(g.start_x)},{"start_y",scalar_json(g.start_y)},
         {"end_x",scalar_json(g.end_x)},{"end_y",scalar_json(g.end_y)},{"stops",stops}};
 }
-ShapeOperation read_operation(const j::value& v,bool allow_gradient=true) {
+ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool allow_expression=true) {
     const auto& o=v.as_object();
     if(allow_gradient)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient"});
     else keys(o,{"id","type","version","enabled","parameters","composite","fill_rule"});
     ShapeOperation op;op.id=text(o.at("id"));op.type=text(o.at("type"));
     op.version=j::value_to<unsigned>(o.at("version"));op.enabled=o.at("enabled").as_bool();
     op.composite=text(o.at("composite"));op.fill_rule=text(o.at("fill_rule"));
-    for(const auto& p:o.at("parameters").as_object())op.parameters.emplace(std::string(p.key()),read_scalar(p.value()));
-    if(const auto* g=o.if_contains("gradient"))op.gradient=read_gradient(*g);
+    for(const auto& p:o.at("parameters").as_object())op.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
+    if(const auto* g=o.if_contains("gradient"))op.gradient=read_gradient(*g,allow_expression);
     return op;
 }
 j::value operation_json(const ShapeOperation& op) {
@@ -425,6 +435,11 @@ Command read_command(const j::value& v) {
     if(type=="center_anchor") {
         keys(o,{"type","object"});return CenterAnchor{text(o.at("object"))};
     }
+    if(type=="set_expression") {
+        keys(o,{"type","targets","expression","replace_binding"});
+        std::vector<Ref> targets;for(const auto& r:o.at("targets").as_array())targets.push_back(read_ref(r));
+        return SetExpression{std::move(targets),read_expression(o.at("expression")),o.at("replace_binding").as_bool()};
+    }
     if(type=="edit_properties"||type=="link_properties"||type=="unlink_properties") {
         if(type=="edit_properties")keys(o,{"type","targets","value","relative"});
         else if(type=="link_properties")keys(o,{"type","targets","source","relative"});
@@ -469,10 +484,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,9> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9"};
+        constexpr std::array<std::string_view,10> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.9 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.10 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
         else keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
@@ -514,11 +529,11 @@ Document decode(std::string_view input) {
 
             auto& transform=o.at("transform").as_array();
             if(transform.size()!=6) throw Error("INVALID_TRANSFORM","Six matrix entries required");
-            for(std::size_t k=0;k<6;++k) obj.transform[k]=read_scalar(transform[k]);
+            for(std::size_t k=0;k<6;++k) obj.transform[k]=read_scalar(transform[k],minor>=10);
             if(minor>=9) {
                 const auto& anchor=o.at("anchor").as_array();
                 if(anchor.size()!=2)throw Error("INVALID_TRANSFORM","Two anchor entries required");
-                for(std::size_t k=0;k<2;++k)obj.anchor[k]=read_scalar(anchor[k]);
+                for(std::size_t k=0;k<2;++k)obj.anchor[k]=read_scalar(anchor[k],minor>=10);
                 if(!o.at("transform_parent").is_null())obj.transform_parent=text(o.at("transform_parent"));
             }
 
@@ -529,7 +544,7 @@ Document decode(std::string_view input) {
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
                 if(minor>=3) {
-                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,version!="0.3"));
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,minor>=4,minor>=10));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
                     if(text(o.at("fill"))!="none")throw Error("UNSUPPORTED_APPEARANCE","Legacy format only supports stroked paths");
@@ -538,20 +553,20 @@ Document decode(std::string_view input) {
                     if(rgba.size()!=4)throw Error("INVALID_COLOR","Four RGBA channels required");
                     auto paint=default_operation("","nect.paint.stroke");
                     const std::array<std::string,4> channels{"r","g","b","a"};
-                    for(std::size_t k=0;k<4;++k)paint.parameters[channels[k]]=read_scalar(rgba[k]);
-                    paint.parameters["width"]=read_scalar(stroke.at("width"));legacy_paints.emplace(obj.id,std::move(paint));
+                    for(std::size_t k=0;k<4;++k)paint.parameters[channels[k]]=read_scalar(rgba[k],minor>=10);
+                    paint.parameters["width"]=read_scalar(stroke.at("width"),minor>=10);legacy_paints.emplace(obj.id,std::move(paint));
                 }
 
                 if(obj.kind==Kind::text) {
                     if(o.contains("source")||o.contains("point_edit")||o.contains("contours"))throw Error("INVALID_OBJECT","Text has incompatible geometry fields");
-                    obj.text=read_text(o.at("text"));
+                    obj.text=read_text(o.at("text"),minor>=10);
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
-                    obj.source=read_primitive(o.at("source"),minor>=8);
-                    if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"));
+                    obj.source=read_primitive(o.at("source"),minor>=8,minor>=10);
+                    if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"),minor>=10);
                 } else {
                     if(o.contains("point_edit"))throw Error("INVALID_POINT_EDIT","Point Edit needs a retained generator");
-                    for(const auto& c:o.at("contours").as_array())obj.contours.push_back(read_contour(c));
+                    for(const auto& c:o.at("contours").as_array())obj.contours.push_back(read_contour(c,minor>=10));
                 }
             }
 
@@ -566,7 +581,7 @@ Document decode(std::string_view input) {
 
         // All original IDs are present before allocating migration instances.
         if(minor>=7)for(const auto& entry:root.at("named_colors").as_array()) {
-            auto color=read_named_color(entry);const auto id=color.id;
+            auto color=read_named_color(entry,minor>=10);const auto id=color.id;
             if(!d.named_colors.emplace(id,std::move(color)).second)throw Error("DUPLICATE_ID",id);
         }
         for(const auto& [id,paint]:legacy_paints) {
@@ -813,7 +828,15 @@ std::string request(Session& session,std::string_view input) {
                 if(object.text)texts.push_back(text_layout_json(d,id));for(const auto& child:object.children)walk(child);};
             for(const auto& id:comp->roots)walk(id);
             result=j::object{{"format","svg"},{"artboard",artboard_json(board)},{"text",texts},
+                {"property_policy","evaluated_values"},{"expressions_preserved",false},
                 {"text_policy","outlines"},{"native_source_preserved",true},{"fonts_embedded",false}};
+        } else if(op=="expression_language") {
+            keys(o,{"op"});
+            result=j::object{{"version",1},{"reference","ref(\"object-id\",\"point-id-or-empty\",\"field\")"},
+                {"operators",j::array{"+","-","*","/"}},{"functions",j::array{"abs","min","max","clamp","floor","ceil","round","sin","cos","sqrt"}},
+                {"trigonometry","degrees"},{"source_bytes",4096},{"nodes",256},{"depth",32},{"references",64},
+                {"units","Addition requires compatible units; multiplication needs a dimensionless factor; division needs a dimensionless divisor or equal units. Literal-only terms adopt context. sqrt is dimensionless."},
+                {"effects","none"},{"drafts","UI-only until an atomic set_expression command succeeds"}};
         } else if(op=="primitive_types") {
             keys(o,{"op"});j::array definitions;
             for(const auto* type:{"nect.shape.circle","nect.shape.rectangle","nect.shape.polygon","nect.shape.star"}) {
@@ -872,7 +895,7 @@ std::string request(Session& session,std::string_view input) {
                 {"mcp",false},
                 {"ai_codec",false},
                 {"gui",false},
-                {"expression_subset","copy_local_value * scale + offset"}};
+                {"expression_subset","bounded arithmetic and stable-ID references v1; see expression_language"}};
         } else if(op=="resolve_name") {
             keys(o,{"op","name","point","field"});
             result=ref_json(resolve_name(

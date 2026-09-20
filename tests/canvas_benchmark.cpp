@@ -319,15 +319,16 @@ int main(int argc, char** argv) {
         "QMenu{border:1px solid #49515c;}QMenu::item:selected{background:#43505f;}");
     app.setQuitOnLastWindowClosed(false);
     if (app.arguments().size() < 2 || app.arguments().size()>3 ||
-        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi")) {
-        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi]\n";
+        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi"&&app.arguments().at(2)!="--expressions")) {
+        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions]\n";
         return 2;
     }
     const auto output = app.arguments().at(1);
     const bool repeated=app.arguments().contains("--repeat");
     const bool text_scene=app.arguments().contains("--text");
     const bool polystar_scene=app.arguments().contains("--polystar");
-    const bool multi_scene=app.arguments().contains("--multi");
+    const bool expression_scene=app.arguments().contains("--expressions");
+    const bool multi_scene=app.arguments().contains("--multi")||expression_scene;
     run_clock.start();
     QJsonObject result{{"schema", "nect-visible-viewport-benchmark-1"},
         {"started_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
@@ -361,6 +362,11 @@ int main(int argc, char** argv) {
             }
             require(window.windowHandle() && window.windowHandle()->isExposed(), "Benchmark window did not become exposed");
             seed(window, paths);
+            if(expression_scene) {
+                std::vector<Ref> targets;for(int i=0;i<paths;++i)targets.push_back({"bench-path-"+std::to_string(i),"","stroke.width"});
+                window.host.session.apply({SetExpression{targets,{"ref(\"bench-path-0\",\"bench-point-0-0\",\"x\") / 100 + 1",1},false}},window.host.session.revision());
+                window.host.edited();wait_events(40);
+            }
             if(polystar_scene) {
                 std::vector<Command> commands;const auto comp=window.host.session.document().compositions.front().id;
                 for(int i=0;i<24;++i) {
@@ -441,6 +447,8 @@ int main(int argc, char** argv) {
             const int selection_count=multi_scene?std::min(paths,12):1;
             if(multi_scene){scene["name"]=paths==2?"multi-lightweight":"multi-representative";scene["selected_targets"]=selection_count;
                 scene["fixture"]="Authored four-anchor curves on the standard grid; first 2/12 object or point targets selected together for pan/zoom/point/translation. Handle operation remains a single selected point.";}
+            if(expression_scene){scene["expression_count"]=paths;scene["name"]=paths==2?"expression-lightweight":"expression-representative";
+                scene["fixture"]=scene["fixture"].toString()+" Each stroke width is driven by the first point X / 100 + 1, so point dragging reevaluates all paints.";}
             for (const auto operation : {Operation::pan, Operation::zoom, Operation::point, Operation::handle, Operation::transform}) {
                 sequence(window, operation, warmup_frames, false, errors,text_scene&&operation==Operation::transform,selection_count);
                 const auto before = window.host.session.revision();

@@ -444,3 +444,49 @@ was not established and the incomplete data is not a passing measurement.
 The subsequent run with better interruption diagnostics completed normally.
 Artifacts: build/canvas-benchmark-multi.json, build/canvas-benchmark-multi-transform-subset.json
 and build/canvas-benchmark-multi-transform-subset-observed.json.
+
+
+## Expression authoring evidence — 2026-09-20
+
+Native0.10 adds bounded expressions through the existing property graph and Session,
+with strict old-version readers, source-preserving History/save, driven protections,
+inline multiline drafts and searchable reference insertion. All27 CTest entries
+passed in26.26s, including syntax/unit/cycle/range/topology/conversion failures,
+native0.1–0.9 migration, Qt inline input/stale drafts/link replacement, formal MCP
+changed-ID propagation and saved/restarted expression source. Initial desktop build
+found unqualified `property` colliding with QObject; qualification fixed it.
+No failure was waived. Tests are evidence for the supported language, not JS parity.
+
+`scripts/create_expression_demo.py` created `examples/phase-form.nect` and SVG through
+an empty live desktop Session:16 retained Circles,32 expressions, one Star controller,
+five Named Colors and editable type,31 SVG paint paths. Changing controller angle
+and radius updated all16 wave objects; independent numeric oracles and exact one-step
+Undo/native readback passed. Native retains source; export_plan discloses evaluated
+SVG values. The actual Windows viewport showed a coherent poster and legible controls.
+
+Actual UI worked on `build/expression-manual.nect`, never the source example:
+Center Y's fx editor accepted `330 +` newline
+`ref("phase","","generator.outer_radius")`. Draft showed375 while Canvas and revision4
+stayed unchanged; Ctrl+Enter committed375 at revision5. Native/recovery saved the
+exact multiline source. One toolbar Undo restored the complete original at revision6;
+native/recovery/example readbacks were exact and the owned app closed normally.
+Receipt: `build/expression-manual-receipt.json`. The helper's accessibility tree lagged
+some new controls; screenshot-grounded inputs and semantic readback verified them.
+
+Visible benchmark: `build/canvas-benchmark-expressions.json`, same hardware/Window and
+measurement boundary as above, viewport893x824, DPR1,90 paints/89 intervals per action.
+Every Path's Stroke width references the first point's X, so dragging it reevaluates
+all paints. Representative80 Paths/320 points/80 expressions,12 selected for point
+and object movement (handle remains one point):
+
+| Operation | p50 ms | p95 ms | max ms | intervals >33.333ms | release ms |
+|---|---:|---:|---:|---:|---:|
+| Pan |16.00|17.52|18.84|0|0.02|
+| Zoom |15.99|17.38|21.71|0|0.00|
+|12 points|23.08|28.67|30.92|0|23.74|
+| Handle |22.80|25.69|26.45|0|30.61|
+|12 objects|24.08|31.78|32.06|0|22.64|
+
+Lightweight2 Paths/2 expressions: worst p9517.45ms, max19.74ms, maximum release10.59ms.
+The30fps p95 and release floor passes in this run; the60fps target remains unmet.
+This measures bounded arithmetic/reference sources, not all worst-case256-node formulas.

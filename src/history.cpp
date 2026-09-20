@@ -20,6 +20,7 @@ template<class... T>std::size_t total(T... values) {std::size_t result=0;((resul
 std::size_t extra(const std::string& value){return total(value.capacity(),std::size_t{1},allocation_overhead);}
 std::size_t extra(const Ref&);
 std::size_t extra(const Binding&);
+std::size_t extra(const Expression&);
 std::size_t extra(const Scalar&);
 std::size_t extra(const Point&);
 std::size_t extra(const Contour&);
@@ -55,7 +56,8 @@ template<class K,class V>std::size_t extra(const std::map<K,V>& values) {
 }
 std::size_t extra(const Ref& v){return total(extra(v.object),extra(v.point),extra(v.field));}
 std::size_t extra(const Binding& v){return total(extra(v.source),extra(v.mode));}
-std::size_t extra(const Scalar& v){return extra(v.binding);}
+std::size_t extra(const Expression& v){return extra(v.source);}
+std::size_t extra(const Scalar& v){return total(extra(v.binding),extra(v.expression));}
 std::size_t extra(const Point& v){return total(extra(v.id),extra(v.x),extra(v.y),extra(v.in_angle),extra(v.in_length),extra(v.out_angle),extra(v.out_length));}
 std::size_t extra(const Contour& v){return total(extra(v.id),extra(v.points));}
 std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content),extra(v.family),extra(v.locale),extra(v.layout),extra(v.direction),extra(v.alignment),extra(v.parameters));}
@@ -104,6 +106,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
     auto label=std::visit([&](const auto& c)->std::string {
         using T=std::decay_t<decltype(c)>;
         if constexpr(std::is_same_v<T,Set>)return "Set "+property_label(c.ref);
+        else if constexpr(std::is_same_v<T,SetExpression>)return "Expression: "+std::to_string(c.targets.size())+" properties: "+property_label(c.targets.front());
         else if constexpr(std::is_same_v<T,Link>)return "Link "+property_label(c.target);
         else if constexpr(std::is_same_v<T,Unlink>)return "Unlink "+property_label(c.target);
         else if constexpr(std::is_same_v<T,SetColor>)return "Set color: "+property_label(c.ref);

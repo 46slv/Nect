@@ -194,7 +194,7 @@ void Canvas::refresh() {
                         p.out_angle = value(p.id, "out.angle");
                         p.incoming = handle(p.anchor, p.in_angle, value(p.id, "in.length"));
                         p.outgoing = handle(p.anchor, p.out_angle, value(p.id, "out.length"));
-                        p.driven = authored.x.binding.has_value() || authored.y.binding.has_value();
+                        p.driven = authored.x.binding.has_value() || authored.y.binding.has_value() || authored.x.expression.has_value() || authored.y.expression.has_value();
                         // Generated topology contains placeholder Scalars. Only
                         // enabled authored coordinate corrections drive anchors;
                         // inspect those directly without evaluating per property.
@@ -203,7 +203,7 @@ void Canvas::refresh() {
                             if (correction != object.point_edit->overrides.end()) {
                                 for (const auto* field : {"x", "y"}) {
                                     const auto coordinate = correction->second.find(field);
-                                    if (coordinate != correction->second.end() && coordinate->second.binding)
+                                    if (coordinate != correction->second.end() && (coordinate->second.binding||coordinate->second.expression))
                                         p.driven = true;
                                 }
                             }

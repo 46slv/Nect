@@ -51,6 +51,12 @@ private:
     std::map<Ref,double> inspector_values_;
     QString tree_signature_;
     QString inspector_context_;
+    struct ExpressionDraft {
+        QString session,source;
+        std::uint64_t revision=0;
+        bool replace_binding=false;
+    };
+    std::map<QByteArray,ExpressionDraft> expression_drafts_;
     std::optional<Ref> whip_target_;
     std::vector<Ref> whip_targets_;
     std::vector<Canvas::Selection> whip_selection_;
@@ -67,6 +73,7 @@ private:
     void add_multi_properties(QVBoxLayout* layout);
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
+    void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);
     void pick_source(std::vector<Ref> targets,bool relative=false);
     void save(bool choose);
     void add_curve();

@@ -63,6 +63,36 @@ std::vector<Ref> read_refs(const QByteArray& data) {
     return refs;
 }
 const char* reference_mime="application/x-nect-property-reference";
+class PropertyInput final : public QLineEdit {
+public:
+    using QLineEdit::QLineEdit;
+    std::function<void(QString)> multiline;
+    void keyPressEvent(QKeyEvent* event) override {
+        if(event->matches(QKeySequence::Paste)) {
+            const auto paste=QApplication::clipboard()->text();
+            if((paste.contains('\n')||paste.contains('\r'))&&multiline) {
+                auto draft=text();const auto start=selectionStart()<0?cursorPosition():selectionStart();
+                draft.replace(start,selectedText().size(),paste);setModified(false);multiline(draft);event->accept();return;
+            }
+        }
+        QLineEdit::keyPressEvent(event);
+    }
+};
+class ExpressionInput final : public QPlainTextEdit {
+public:
+    std::function<void()> apply,cancel;
+    void keyPressEvent(QKeyEvent* event) override {
+        if((event->key()==Qt::Key_Return||event->key()==Qt::Key_Enter)&&event->modifiers()==Qt::ControlModifier) {
+            if(apply)apply();event->accept();return;
+        }
+        if(event->key()==Qt::Key_Escape) {if(cancel)cancel();event->accept();return;}
+        QPlainTextEdit::keyPressEvent(event);
+    }
+};
+QString expression_ref(const Ref& ref) {
+    auto args=QJsonDocument(QJsonArray{qs(ref.object),qs(ref.point),qs(ref.field)}).toJson(QJsonDocument::Compact);
+    return "ref("+QString::fromUtf8(args.mid(1,args.size()-2))+")";
+}
 class FontFamilyCombo final : public QComboBox {
     QStringListModel* families_;
 public:
@@ -772,6 +802,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
 }
 
 void Window::rebuild_inspector() {
+    std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
     QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
     for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
     const auto scroll=context==inspector_context_?inspector_scroll_->verticalScrollBar()->value():0;
@@ -1342,6 +1373,59 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     hint->setWordWrap(true);layout->addWidget(hint);layout->addStretch();
 }
 
+void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label) {
+    const auto draft=expression_drafts_.at(key);
+    auto* panel=new QWidget;panel->setObjectName("nect-expression-panel");auto* column=new QVBoxLayout(panel);
+    column->setContentsMargins(0,3,0,3);column->setSpacing(4);layout->addWidget(panel);
+    auto* editor=new ExpressionInput;editor->setPlainText(draft.source);editor->setAccessibleName(label+" expression");
+    editor->setProperty("nect-targets",key);editor->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
+    editor->setTabChangesFocus(true);editor->setMinimumHeight(82);editor->setMaximumHeight(180);column->addWidget(editor);
+    auto* result=new QLabel("Draft · canvas keeps the committed result");result->setWordWrap(true);result->setObjectName("nect-expression-result");column->addWidget(result);
+    auto* replace=new QCheckBox("Replace existing link");replace->setChecked(draft.replace_binding);
+    replace->setVisible(std::any_of(targets.begin(),targets.end(),[&](const Ref& ref){return property_origin(host.session.document(),ref)!="generated"&&nect::property(host.session.document(),ref).binding.has_value();}));column->addWidget(replace);
+    auto* actions=new QHBoxLayout;auto* insert=new QPushButton("Insert reference…");auto* apply=new QPushButton("Apply");auto* cancel=new QPushButton("Cancel");
+    apply->setToolTip("Apply expression · Ctrl+Enter");cancel->setToolTip("Discard draft · Esc");actions->addWidget(insert);actions->addStretch();actions->addWidget(apply);actions->addWidget(cancel);column->addLayout(actions);
+    auto* timer=new QTimer(editor);timer->setSingleShot(true);timer->setInterval(250);
+    const auto preview=[this,key,targets,result] {
+        const auto found=expression_drafts_.find(key);if(found==expression_drafts_.end())return;
+        const auto& current=found->second;
+        try {
+            if(host.session_id!=current.session||host.session.revision()!=current.revision)
+                throw Error("DRAFT_CONFLICT","Document changed. Cancel and reopen the draft against the current values.");
+            Session preview(host.session.document());preview.apply({SetExpression{targets,{current.source.toStdString(),1},current.replace_binding}},preview.revision());
+            const auto values=evaluate(preview.document());const auto first=values.at(targets.front());
+            const bool mixed=std::any_of(targets.begin(),targets.end(),[&](const auto& r){return values.at(r)!=first;});
+            result->setText("Draft result: "+(mixed?QString("Mixed"):display_value(first))+" · not applied");result->setStyleSheet("color: #84d5eb;");
+        } catch(const std::exception& e) {result->setText(QString::fromUtf8(e.what())+"\nCommitted result is unchanged.");result->setStyleSheet("color: #e4be82;");}
+    };
+    connect(timer,&QTimer::timeout,editor,preview);
+    connect(editor,&QPlainTextEdit::textChanged,this,[this,key,editor,timer]{
+        if(auto it=expression_drafts_.find(key);it!=expression_drafts_.end()){it->second.source=editor->toPlainText();timer->start();}
+    });
+    connect(replace,&QCheckBox::toggled,this,[this,key,timer](bool enabled){if(auto it=expression_drafts_.find(key);it!=expression_drafts_.end()){it->second.replace_binding=enabled;timer->start();}});
+    auto commit=[this,key,targets,result] {
+        const auto found=expression_drafts_.find(key);if(found==expression_drafts_.end())return;
+        const auto current=found->second;
+        try {
+            if(host.session_id!=current.session)throw Error("SESSION_CONFLICT","Expression belongs to another document");
+            canvas->cancel_interaction();host.session.apply({SetExpression{targets,{current.source.toStdString(),1},current.replace_binding}},current.revision);
+            expression_drafts_.erase(key);host.edited();
+        } catch(const std::exception& e){result->setText(QString::fromUtf8(e.what())+"\nCommitted result is unchanged.");result->setStyleSheet("color: #e4be82;");}
+    };
+    auto discard=[this,key]{expression_drafts_.erase(key);rebuild_inspector();};
+    editor->apply=commit;editor->cancel=discard;connect(apply,&QPushButton::clicked,this,commit);connect(cancel,&QPushButton::clicked,this,discard);
+    connect(insert,&QPushButton::clicked,this,[this,editor] {
+        auto* dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setWindowTitle("Insert expression reference");dialog->resize(660,450);
+        auto* content=new QVBoxLayout(dialog);auto* search=new QLineEdit;search->setPlaceholderText("Search properties");content->addWidget(search);auto* list=new QListWidget;content->addWidget(list);
+        for(const auto& ref:properties(host.session.document())) {auto* item=new QListWidgetItem(property_label(host.session.document(),ref),list);item->setData(Qt::UserRole,expression_ref(ref));}
+        connect(search,&QLineEdit::textChanged,dialog,[list](const QString& text){const auto terms=text.split(' ',Qt::SkipEmptyParts);for(int i=0;i<list->count();++i)list->item(i)->setHidden(!std::all_of(terms.begin(),terms.end(),[&](const auto& term){return list->item(i)->text().contains(term,Qt::CaseInsensitive);}));});
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);content->addWidget(buttons);
+        const QPointer<ExpressionInput> safe_editor(editor);
+        auto accept=[safe_editor,list,dialog]{if(safe_editor&&list->currentItem()){safe_editor->insertPlainText(list->currentItem()->data(Qt::UserRole).toString());safe_editor->setFocus();dialog->accept();}};
+        connect(buttons,&QDialogButtonBox::accepted,dialog,accept);connect(list,&QListWidget::itemDoubleClicked,dialog,[accept](QListWidgetItem*){accept();});connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);dialog->show();search->setFocus();
+    });
+    timer->start();editor->setFocus();
+}
 void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label) {
     const auto& ref=targets.front();
     const auto& d=host.session.document();
@@ -1350,9 +1434,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     // Generated fallback has no authored Scalar to inspect. Reuse this panel's
     // evaluation snapshot instead of asking property() to evaluate it again.
     const bool mixed=std::any_of(targets.begin(),targets.end(),[&](const auto& target){return inspector_values_.at(target)!=evaluated;});
-    const bool driven=std::any_of(targets.begin(),targets.end(),[&](const auto& target){return property_origin(d,target)!="generated"&&nect::property(d,target).binding.has_value();});
-    auto* row=new QWidget;auto* box=new QHBoxLayout(row);box->setContentsMargins(0,0,0,0);box->setSpacing(4);
-    auto* input=new QLineEdit(mixed?QString{}:display_value(evaluated));input->setAccessibleName(label);
+    const bool driven=std::any_of(targets.begin(),targets.end(),[&](const auto& target){if(property_origin(d,target)=="generated")return false;const auto& s=nect::property(d,target);return s.binding.has_value()||s.expression.has_value();});
+    const auto formula=origin=="generated"?std::optional<Expression>{}:nect::property(d,ref).expression;
+    auto* row=new QWidget;auto* column=new QVBoxLayout(row);column->setContentsMargins(0,0,0,0);column->setSpacing(0);
+    auto* box=new QHBoxLayout;column->addLayout(box);box->setContentsMargins(0,0,0,0);box->setSpacing(4);
+    auto* input=new PropertyInput(mixed?QString{}:display_value(evaluated));input->setAccessibleName(label);
     input->setPlaceholderText(mixed?"Mixed":QString{});input->setProperty("nect-mixed",mixed);
     const auto reference=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
     input->setProperty("nect-reference",reference);
@@ -1369,10 +1455,14 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(driven) {
         input->setStyleSheet("color: #84d5eb;");
         input->setToolTip(input->toolTip()+(origin=="bypassed_point_edit"
-            ? "\nStored Point Edit link is bypassed. Unlink explicitly before replacing it."
-            : "\nLinked; unlink explicitly before replacing its value."));
+            ? "\nStored Point Edit source is bypassed. Unlink explicitly before replacing its value."
+            : "\nDriven; unlink explicitly before replacing its value."));
     }
+    if(formula)input->setToolTip(input->toolTip()+"\nExpression: "+qs(formula->source)+"\nDisplayed number is the evaluated result.");
+    input->setToolTip(input->toolTip()+"\nEnter =expression or use fx. += / -= makes a one-time relative edit.");
     box->addWidget(input);
+    auto* fx=new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");fx->setToolTip("Edit expression · =prefix · multiline draft");box->addWidget(fx);
+    if(formula)fx->setStyleSheet("color: #84d5eb;");
     auto* pick=new QPushButton("↗");pick->setFixedWidth(28);pick->setToolTip("Pick property source");box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
     pick->setProperty("nect-targets",target_data);
@@ -1380,7 +1470,19 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     layout->addRow(label,row);
     connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
     const auto field_session=host.session_id;
-    connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session] {
+    const auto field_revision=host.session.revision();
+    auto expand=[this,column,row,input,targets,target_data,label,field_session,field_revision](QString source) {
+        if(host.session_id!=field_session)return;
+        if(source.startsWith('='))source.remove(0,1);
+        input->setModified(false);
+        if(!expression_drafts_.contains(target_data))expression_drafts_.emplace(target_data,ExpressionDraft{field_session,source,field_revision,false});
+        if(!row->findChild<QWidget*>("nect-expression-panel"))add_expression_editor(column,target_data,targets,label);
+    };
+    const auto initial_expression=formula?qs(formula->source):(mixed?QString{}:QString::number(evaluated,'g',17));
+    connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
+    input->multiline=expand;
+    if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
+    connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand] {
         if(!input->isModified()) return;
         input->setModified(false);
         const bool keep_focus=input->hasFocus();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
@@ -1388,8 +1490,13 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         perform([&]{
             if(host.session_id!=field_session)throw Error("SESSION_CONFLICT","These properties belong to another document");
             auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");
+            if(text.startsWith('=')) {
+                try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);host.edited();}
+                catch(const Error&){expand(text);input->setText(display_value(inspector_values_.at(ref)));}
+                return;
+            }
             auto value=(relative?text.mid(2):text).toDouble(&valid);if(relative&&text.startsWith("-="))value=-value;
-            if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number or += / -= adjustment; expression authoring is not yet supported");
+            if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number, += / -= adjustment, or =expression");
             canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},host.session.revision());host.edited();
             if(keep_focus)QTimer::singleShot(0,this,[this,target_data,scroll,frozen_session]{
                 if(host.session_id!=frozen_session)return;
@@ -1401,16 +1508,19 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         });
     });
     input->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session](const QPoint& point) {
+    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session,expand,initial_expression](const QPoint& point) {
         QMenu menu;
         auto* copy=menu.addAction("Copy Value");auto* reference=menu.addAction("Copy Reference");
         auto* paste=menu.addAction("Paste Value");auto* link=menu.addAction("Paste Link");
         auto* relative=menu.addAction("Pick Relative Link…");auto* unlink=menu.addAction("Unlink · keep evaluated value");
+        menu.addSeparator();auto* expression=menu.addAction("Edit expression…");auto* paste_expression=menu.addAction("Paste expression…");
         copy->setEnabled(!mixed);reference->setEnabled(targets.size()==1);unlink->setEnabled(driven);
         auto* chosen=menu.exec(input->mapToGlobal(point));if(!chosen)return;
         perform([&] {
             if(host.session_id!=field_session)throw Error("SESSION_CONFLICT","These properties belong to another document");
-            if(chosen==copy) QApplication::clipboard()->setText(QString::number(evaluate(host.session.document()).at(ref),'g',17));
+            if(chosen==expression)expand(initial_expression);
+            else if(chosen==paste_expression)expand(QApplication::clipboard()->text());
+            else if(chosen==copy) QApplication::clipboard()->setText(QString::number(evaluate(host.session.document()).at(ref),'g',17));
             else if(chosen==reference) {
                 auto* mime=new QMimeData;const auto data=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
                 mime->setData(reference_mime,data);mime->setText(QString::fromUtf8(data));QApplication::clipboard()->setMimeData(mime);
@@ -1593,6 +1703,7 @@ void Window::convert_to_path() {
             auto text=property_label(document,ref);
             const auto scalar=nect::property(document,ref);
             if(scalar.binding)text+=" ← "+property_label(document,scalar.binding->source);
+            if(scalar.expression)text+=" · fx "+qs(scalar.expression->source);
             auto* item=new QListWidgetItem(text,list);
             item->setToolTip(qs(ref.object+" / "+ref.point+" / "+ref.field));
         }

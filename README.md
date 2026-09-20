@@ -31,9 +31,9 @@ baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 Circle, Rectangle, Polygon and Star retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
 Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
-0.9 saves procedural state, editable linear/radial gradients, ordered Artboards
+0.10 saves expression source, procedural state, editable linear/radial gradients, ordered Artboards
 with parent-size inheritance, editable Text, named colors, retained Polygon/Star,
-authored Anchors and explicit Transform Parents. It migrates 0.1–0.8 without
+authored Anchors and explicit Transform Parents. It migrates 0.1–0.9 without
 reference loss. Windows Text uses installed fonts and supports Japanese horizontal
 and vertical writing, automatic size, fixed-frame wrapping and overflow diagnostics.
 
@@ -101,8 +101,8 @@ Space-drag pans; wheel zooms; Fit frames the artboard. Groups select as a unit;
 double-click enters them and the breadcrumb returns. Inspector fields accept
 numbers and one-shot `+=`/`-=` adjustments. Right-click provides Copy Value,
 Copy Reference, Paste Value, Paste Link and explicit Unlink. Drag ↗ to a source
-field (hover Objects to inspect another source); click ↗ to search. General
-expressions and masks are subsequent slices. With multiple targets, common
+field (hover Objects to inspect another source); click ↗ to search.
+Expressions use the same row (see below); masks are a subsequent slice. With multiple targets, common
 properties show Mixed; a number sets every target and `+=`/`-=` preserves each
 target's differences. Source picking freezes all targets and returns to them.
 
@@ -212,6 +212,20 @@ to8 MiB; unsupported fields/versions reject without altering the source. This
 does not promise survival of all hardware failures or non-cooperating external
 writes in the final rename race. See the persistence contract in `docs/model-v0.md`.
 
+## Property expressions
+
+Type `=expression` in a numeric field, or click **fx**. Use **Insert reference…**
+for searchable stable property references. Arithmetic, min/max/clamp, rounding,
+sqrt and degree-based sin/cos are supported; units and normal property ranges
+still apply. Multiline paste grows into an inline draft. Apply/Ctrl+Enter commits;
+Cancel/Esc discards. The number remains the evaluated result, separate from source.
+An invalid or stale draft cannot replace valid artwork, and typing a number cannot
+silently unlink a formula. Formula drafts are not saved until Apply.
+
+API/MCP `expression_language` reports the exact subset. `set_expression` authors
+it through the same Session. Native0.10 retains source; SVG exports evaluated
+geometry/appearance. See [model contract](docs/model-v0.md#native010-property-expressions).
+
 ## Entry points
 
 - `START_HERE.md` — single entrypoint for a fresh Astra/Sol/Codex session
@@ -221,7 +235,7 @@ writes in the final rename race. See the persistence contract in `docs/model-v0.
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.9.schema.json` — current native JSON shape (0.1–0.8 readers retained)
+- `schemas/native-v0.10.schema.json` — current native JSON shape (0.1–0.9 readers retained)
 
 ## Project rules
 

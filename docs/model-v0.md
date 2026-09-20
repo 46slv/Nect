@@ -3,7 +3,7 @@
 ## M0 vocabulary
 
 Implemented: Document, Composition, Artboard, Group, Path, Text, Contour, Point,
-Scalar, Binding, Collection, Named Color, retained Circle/Rectangle/Polygon/Star sources,
+Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/Polygon/Star sources,
 Point Edit, gradients and local Fill/Stroke/Repeater stacks.
 
 Layer is the UI presentation of an Object; there is no duplicate Layer state model.
@@ -44,7 +44,8 @@ Driven properties reject direct Set until explicitly unlinked. Unlink freezes th
 
 Bindings must have compatible units and may not form cycles.
 
-General expressions later compile into the same typed property/dependency owner; do not create a second JavaScript document state.
+Native0.10 expressions compile into the same typed property/dependency visitor;
+there is no JavaScript runtime or second document state. See the bounded language below.
 
 ## Session
 
@@ -514,3 +515,60 @@ Extend Text only with demonstrated shaping/layout requirements.
 Add Raster only with immutable source/provenance and explicit color semantics.
 Add Operator/Instance only with identity and regeneration contracts.
 Add compositing only after alpha/group/color-space semantics are defined.
+
+## Native0.10 property expressions
+
+Scalar adds optional `expression:{source:string,version:1}`. It is mutually
+exclusive with a non-null Binding. Literal remains authored as the inactive
+fallback, just as with Binding. Source text (including whitespace/newlines) is
+preserved exactly; compiled programs/caches and draft text are never serialized.
+Readers0.1–0.9 remain strict and reject the new field. Migration preserves every
+old value/ID/reference; the current writer emits0.10.
+
+The pure language accepts finite decimal/scientific literals, parentheses,
+unary +/-, binary + - * /, and `ref("object-id","point-id-or-empty","field")`.
+References use the normal stable property IDs, never names/array positions.
+Functions: abs, floor, ceil, round, sqrt, sin, cos (one argument); min/max (two);
+clamp(value,lower,upper). Trigonometry uses degrees. Round halves away from zero.
+No variables, assignment, loops, time, random, JS, filesystem, network or processes.
+
+Addition/subtraction/min/max/clamp require compatible units. Multiplication needs
+one dimensionless factor; division needs a dimensionless divisor or equal units
+(the latter yields a dimensionless ratio). sqrt requires dimensionless input;
+sin/cos require degree properties or literal angles. Literal-only subexpressions
+may adopt their surrounding/target unit. A dimensionless property/result does
+not implicitly turn into a distance; use a distance property for amplitude,
+e.g. `sin(ref("phase","","generator.rotation")) * ref("phase","","generator.outer_radius")`.
+Compound units are unsupported. Division by zero, negative sqrt, reversed clamp,
+non-finite intermediates and existing property-range violations reject atomically.
+
+Bounds:4096 source bytes,256 AST nodes,32 AST/parser depth,64 reference occurrences;
+property dependency traversal retains its128-depth bound. Parsing is locale
+independent. Each evaluation locally reuses compiled identical sources; no global
+mutable cache or parallel expression evaluator is introduced. References enter
+the same dependency visitor, including generated topology and transform requests.
+All authored formulas (also bypassed corrections/operations) receive static syntax,
+unit and reference validation. Only active properties execute, preserving existing
+dormant-cycle/domain behavior. Deletion/topology change cannot silently retarget a
+reference. Convert to Path retains active point formulas; references to discarded
+generator properties block conversion.
+
+`set_expression {targets:[Ref],expression:{source,version},replace_binding:bool}`
+applies to1..1000 unique compatible Scalars in one candidate/Undo. Formula edits
+replace earlier formulas; replacing a Binding requires explicit true. Set,
+EditProperties and SetColor reject driven channels. Link/LinkProperties/LinkColor
+explicitly install a Binding and clear the formula; Unlink variants freeze the
+initial evaluated result and clear either source. History accounts for source
+strings. API `expression_language` describes the language/limits. `get` and
+`properties` retain authored source beside evaluated output. SVG exports current
+values; `export_plan` discloses `property_policy:evaluated_values` and no formula
+preservation. Native source is untouched by export.
+
+GUI numeric fields accept `=expression`. Their compact state displays evaluated
+numbers, with an fx control/source tooltip. fx or a multiline paste opens an
+inline draft, with searchable stable-reference insertion and a separate draft
+result. Apply/Ctrl+Enter commits; Cancel/Esc discards. Invalid drafts keep the
+committed Canvas value. Drafts survive same-session Inspector refresh; a changed
+Session revision rejects Apply until the draft is explicitly cancelled/reopened.
+A visible checkbox authorizes replacement of an existing link. Drafts are view
+state, excluded from save/recovery and Undo. Numeric +/-= remains a one-shot edit.
