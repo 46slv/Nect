@@ -28,11 +28,11 @@ backups and recovery snapshots are implemented. The Windows 30 fps viewport
 baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 `CURRENT_GOAL.md`; this is not yet the completed practical alpha.
 
-Circle and Rectangle retain their generators after direct point edits, with
+Circle, Rectangle, Polygon and Star retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
 Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
-0.7 saves procedural state, editable linear/radial gradients, ordered Artboards
-with parent-size inheritance, editable Text and named colors. It migrates 0.1–0.6 without
+0.8 saves procedural state, editable linear/radial gradients, ordered Artboards
+with parent-size inheritance, editable Text, named colors and retained Polygon/Star. It migrates 0.1–0.7 without
 reference loss. Windows Text uses installed fonts and supports Japanese horizontal
 and vertical writing, automatic size, fixed-frame wrapping and overflow diagnostics.
 
@@ -127,6 +127,14 @@ it in an empty live desktop with `scripts/create_radial_demo.py --endpoint nect-
 --output build/radial.nect`. The script uses the production Session API and refuses
 to replace existing artwork.
 
+Add → Polygon / Star exposes center, point count, rotation and radii. Count is a
+normal linkable integer property. Point edits follow stable angular roles; a
+count change that would remove an edited/referenced vertex rejects atomically.
+Reset point edits explicitly removes corrections in one undoable command.
+`examples/polystar-field.nect` combines linked counts, a retained point edit,
+Repeater, gradient, named colors and editable Text; recreate it with
+`scripts/create_polystar_demo.py --endpoint <name> --output <file.nect>`.
+
 To expose the desktop-owned document to a local automation client:
 
 ```powershell
@@ -195,7 +203,7 @@ writes in the final rename race. See the persistence contract in `docs/model-v0.
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.7.schema.json` — current native JSON shape (0.1–0.6 readers retained)
+- `schemas/native-v0.8.schema.json` — current native JSON shape (0.1–0.7 readers retained)
 
 ## Project rules
 

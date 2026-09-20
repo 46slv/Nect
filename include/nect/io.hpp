@@ -3,6 +3,7 @@
 #include <string_view>
 
 namespace nect {
+inline constexpr const char* native_version="0.8";
 Document decode(std::string_view input);
 void validate_json(std::string_view input);
 std::string encode(const Document& document);

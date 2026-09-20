@@ -1,8 +1,11 @@
 #include "nect/core.hpp"
 #include <algorithm>
 #include <cmath>
+#include <charconv>
 #include <functional>
 #include <set>
+#include <numeric>
+#include <numbers>
 #include <type_traits>
 
 namespace nect {
@@ -36,14 +39,49 @@ void identity(const Id& id) {
         require((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-',"INVALID_ID",id);
 }
 const std::array<std::string,6> point_fields{"x","y","in.angle","in.length","out.angle","out.length"};
-std::array<std::string,4> source_roles(const Primitive& source) {
+bool polystar(const Primitive& source){return source.type=="nect.shape.polygon"||source.type=="nect.shape.star";}
+unsigned primitive_point_count(const Primitive& source,double value) {
+    require(std::isfinite(value)&&std::floor(value)==value&&value>=(source.type=="nect.shape.star"?2:3)&&value<=256,
+        "OUT_OF_RANGE","Polygon points must be integral 3..256; Star points integral 2..256");
+    return static_cast<unsigned>(value);
+}
+std::string phase_role(const char* lineage,unsigned numerator,unsigned denominator) {
+    const auto divisor=std::gcd(numerator,denominator);
+    return std::string(lineage)+"-"+std::to_string(numerator/divisor)+"-"+std::to_string(denominator/divisor);
+}
+std::vector<std::string> source_roles(const Primitive& source,std::optional<double> count={}) {
     require(source.version==1,"UNSUPPORTED_OPERATOR_VERSION","Unsupported primitive behavior version");
     if(source.type=="nect.shape.circle")return {"east","south","west","north"};
     if(source.type=="nect.shape.rectangle")return {"top-left","top-right","bottom-right","bottom-left"};
+    if(polystar(source)) {
+        require(count.has_value(),"EVALUATION_REQUIRED","Dynamic primitive topology needs an evaluated point count");
+        const auto points=primitive_point_count(source,*count);std::vector<std::string> roles;
+        for(unsigned i=0;i<points;++i) {
+            roles.push_back(phase_role("outer",i,points));
+            if(source.type=="nect.shape.star")roles.push_back(phase_role("inner",2*i+1,2*points));
+        }
+        return roles;
+    }
     throw Error("UNSUPPORTED_OPERATOR",source.type);
 }
 bool generated_point(const Object& o,const Id& point) {
     if(!o.source||point.empty())return false;
+    if(polystar(*o.source)) {
+        // Structural address recognition only; active membership is resolved
+        // through generator.points by the recursive evaluator below.
+        const auto prefix=o.source->id+"-";if(!point.starts_with(prefix))return false;
+        auto role=point.substr(prefix.size());
+        if(role.starts_with("outer-"))role.erase(0,6);
+        else if(o.source->type=="nect.shape.star"&&role.starts_with("inner-"))role.erase(0,6);
+        else return false;
+        const auto dash=role.find('-');if(dash==std::string::npos)return false;
+        unsigned numerator=0,denominator=0;
+        const auto a=std::from_chars(role.data(),role.data()+dash,numerator);
+        const auto b=std::from_chars(role.data()+dash+1,role.data()+role.size(),denominator);
+        return a.ec==std::errc{}&&a.ptr==role.data()+dash&&b.ec==std::errc{}&&b.ptr==role.data()+role.size()&&
+            denominator>0&&denominator<=512&&numerator<denominator&&std::gcd(numerator,denominator)==1&&
+            role==std::to_string(numerator)+"-"+std::to_string(denominator);
+    }
     for(const auto& role:source_roles(*o.source))if(point==o.source->id+"-"+role)return true;
     return false;
 }
@@ -137,6 +175,8 @@ auto& lookup_property(D& d,const Ref& r) {
     throw Error("MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
 }
 std::string unit(const Ref& r) {
+    if(r.field=="generator.points")return "scalar";
+    if(r.field=="generator.rotation")return "degree";
     if(r.field.starts_with("color."))return "scalar";
     if(r.field.starts_with("text."))return "du";
     if(r.field.starts_with("op.")) {
@@ -160,8 +200,9 @@ void value_range(const Ref& r,double v) {
     if(r.field=="text.line_spacing")require(v>=0&&v<=10000,"OUT_OF_RANGE","Line spacing must be in [0,10000], with zero for automatic");
     if(r.field=="text.tracking")require(std::abs(v)<=10000,"OUT_OF_RANGE","Tracking magnitude limit 10000");
     if(r.field.ends_with(".length")||r.field=="stroke.width"||r.field=="generator.radius"||
-       r.field=="generator.width"||r.field=="generator.height")
+       r.field=="generator.width"||r.field=="generator.height"||r.field=="generator.outer_radius"||r.field=="generator.inner_radius")
         require(v>=0,"OUT_OF_RANGE","Negative length");
+    if(r.field=="generator.points")require(v>=2&&v<=256&&std::floor(v)==v,"OUT_OF_RANGE","Points must be an integer from 2 to 256");
     if(r.field.starts_with("stroke.")&&r.field!="stroke.width")
         require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB/alpha channel outside [0,1]");
     if(r.field.starts_with("op.")) {
@@ -214,20 +255,9 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
 
         if(object.source) {
             for(const auto& [name,value]:object.source->parameters)index.emplace(Ref{id,"","generator."+name},&value);
-            for(const auto& role:source_roles(*object.source)) {
-                const auto point=object.source->id+"-"+role;
-                for(const auto& field:point_fields) {
-                    const Scalar* scalar=nullptr;
-                    if(object.point_edit&&(object.point_edit->enabled||include_disabled)) {
-                        const auto p=object.point_edit->overrides.find(point);
-                        if(p!=object.point_edit->overrides.end()) {
-                            const auto f=p->second.find(field);
-                            if(f!=p->second.end())scalar=&f->second;
-                        }
-                    }
-                    index.emplace(Ref{id,point,field},scalar);
-                }
-            }
+            if(object.point_edit&&(object.point_edit->enabled||include_disabled))
+                for(const auto& [point,fields]:object.point_edit->overrides)
+                    for(const auto& [field,value]:fields)index.emplace(Ref{id,point,field},&value);
         }
 
         for (const auto& contour : object.contours) {
@@ -245,6 +275,20 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
 }
 }
 
+Primitive default_primitive(Id id,const std::string& type) {
+    Primitive source;source.id=std::move(id);source.type=type;
+    source.parameters={{"center_x",{0,{}}},{"center_y",{0,{}}}};
+    if(type=="nect.shape.circle")source.parameters.emplace("radius",Scalar{100,{}});
+    else if(type=="nect.shape.rectangle") {source.parameters.emplace("width",Scalar{220,{}});source.parameters.emplace("height",Scalar{140,{}});}
+    else if(type=="nect.shape.polygon"||type=="nect.shape.star") {
+        source.parameters.emplace("points",Scalar{type=="nect.shape.star"?5.0:6.0,{}});
+        source.parameters.emplace("rotation",Scalar{-90,{}});
+        if(type=="nect.shape.polygon")source.parameters.emplace("radius",Scalar{100,{}});
+        else {source.parameters.emplace("outer_radius",Scalar{100,{}});source.parameters.emplace("inner_radius",Scalar{50,{}});}
+    } else throw Error("UNSUPPORTED_OPERATOR",type);
+    return source;
+}
+
 void add_default_paint(Document& d,const Id& object,const std::string& type) {
     auto& o=d.objects.at(object);
     require(o.kind!=Kind::group&&o.stack.empty(),"INVALID_OBJECT","Default paint needs a new Shape source");
@@ -256,13 +300,19 @@ void add_default_paint(Document& d,const Id& object,const std::string& type) {
         ids.insert(id);for(const auto& op:item.stack) {
             ids.insert(op.id);if(op.gradient){ids.insert(op.gradient->id);for(const auto& stop:op.gradient->stops)ids.insert(stop.id);}
         }
-        if(item.source){ids.insert(item.source->id);ids.insert(item.source->id+"-point-edit");}
+        if(item.source){ids.insert(item.source->id);ids.insert(item.source->id+"-point-edit");ids.insert(item.source->id+"-contour");}
         if(item.text)ids.insert(item.text->id);
-        for(const auto& contour:path_contours(item)){ids.insert(contour.id);for(const auto& p:contour.points)ids.insert(p.id);}
+        for(const auto& contour:item.contours){ids.insert(contour.id);for(const auto& p:contour.points)ids.insert(p.id);}
     }
     const auto stem=object.substr(0,74)+(type=="nect.paint.fill"?"-fill":"-stroke");
     auto id=stem;unsigned suffix=0;
-    while(ids.contains(id))id=stem+"-"+std::to_string(++suffix);
+    // Reserve generated role addresses structurally. Do not evaluate an interim
+    // transaction just to choose a paint ID: later commands may repair its links.
+    auto occupied=[&](const Id& candidate) {
+        if(ids.contains(candidate))return true;
+        return std::any_of(d.objects.begin(),d.objects.end(),[&](const auto& entry){return generated_point(entry.second,candidate);});
+    };
+    while(occupied(id))id=stem+"-"+std::to_string(++suffix);
     if(type=="nect.paint.stroke")o.legacy_stroke=id;
     o.stack.push_back(default_operation(id,type));
 }
@@ -272,7 +322,8 @@ Scalar property(const Document& d,const Ref& r) {
     const auto object=d.objects.find(r.object);
     if(object!=d.objects.end()&&generated_point(object->second,r.point)) {
         if(property_origin(d,r)!="generated")return lookup_property(d,r);
-        return {evaluate(d).at(r),{}};
+        const auto values=evaluate(d);const auto found=values.find(r);
+        require(found!=values.end(),"MISSING_REFERENCE",r.point+"/"+r.field);return {found->second,{}};
     }
     return lookup_property(d,r);
 }
@@ -288,10 +339,19 @@ std::string property_origin(const Document& d,const Ref& r) {
     return edit->enabled?"point_edit":"bypassed_point_edit";
 }
 
-std::vector<Contour> path_contours(const Object& o) {
+std::vector<Contour> path_contours(const Object& o,const std::map<Ref,double>* values) {
     if(!o.source)return o.contours;
+    std::optional<double> count;
+    if(polystar(*o.source)) {
+        require(o.source->parameters.contains("points"),"INVALID_GENERATOR_PARAMETERS","Missing points parameter");
+        const auto& points=o.source->parameters.at("points");
+        if(values) {
+            const auto found=values->find({o.id,"","generator.points"});
+            require(found!=values->end(),"EVALUATION_REQUIRED","Evaluated point count is missing from the snapshot");count=found->second;
+        } else {require(!points.binding,"EVALUATION_REQUIRED","Bound point count requires an evaluated snapshot");count=points.literal;}
+    }
     Contour c{o.source->id+"-contour",true,{}};
-    for(const auto& role:source_roles(*o.source)) {Point p;p.id=o.source->id+"-"+role;c.points.push_back(p);}
+    for(const auto& role:source_roles(*o.source,count)) {Point p;p.id=o.source->id+"-"+role;c.points.push_back(p);}
     return {c};
 }
 
@@ -315,8 +375,8 @@ std::string property_unit(const Ref& r) { return unit(r); }
 
 std::vector<Ref> properties(const Document& document) {
     std::vector<Ref> refs;
-    for (const auto& [ref, scalar] : property_index(document)) {
-        (void)scalar;
+    for (const auto& [ref, value] : evaluate(document)) {
+        (void)value;
         if(ref.point.empty()&&ref.field.starts_with("stroke."))continue;
         refs.push_back(ref);
     }
@@ -334,54 +394,91 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     return r;
 }
 
-std::map<Ref,double> evaluate(const Document& d) {
+namespace {
+std::map<Ref,double> evaluate_properties(const Document& d) {
     const auto index = property_index(d);
     std::map<Ref,double> values;
     std::set<Ref> active;
+    struct Topology {std::vector<std::string> roles;std::map<Id,std::size_t> positions;};
+    std::map<Id,Topology> topologies;
+    std::size_t points=0;
+    for(const auto& [id,object]:d.objects){(void)id;for(const auto& contour:object.contours)points+=contour.points.size();}
+    require(points<=50000,"LIMIT","Point limit 50000");
+    std::function<const Topology&(const Object&,unsigned)> topology;
     std::function<double(const Ref&,unsigned)> visit=[&](const Ref& r,unsigned depth)->double {
         require(depth<=128,"DEPENDENCY_DEPTH","v0.1 dependency depth limit 128");
         if(auto i=values.find(r);i!=values.end()) return i->second;
         require(active.insert(r).second,"DEPENDENCY_CYCLE","Property dependency cycle");
-        const auto found = index.find(r);
-        require(found != index.end(), "MISSING_REFERENCE", r.object + "/" + r.point + "/" + r.field);
-        const auto* p = found->second;
+        const auto found = index.find(r);const Scalar* p=found==index.end()?nullptr:found->second;
+        const auto object=d.objects.find(r.object);
+        const bool generated=object!=d.objects.end()&&object->second.source&&!r.point.empty();
+        const Topology* roles=nullptr;std::size_t position=0;
+        if(generated) {
+            require(std::find(point_fields.begin(),point_fields.end(),r.field)!=point_fields.end(),"MISSING_REFERENCE",r.field);
+            roles=&topology(object->second,depth+1);const auto role=roles->positions.find(r.point);
+            require(role!=roles->positions.end(),"MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);position=role->second;
+        } else require(p,"MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
         double v=p?p->literal:0;
         if(!p) {
-            const auto& o=d.objects.at(r.object);
+            const auto& o=object->second;
             const auto& s=*o.source;
-            const auto roles=source_roles(s);
-            const auto role=r.point.substr(s.id.size()+1);
+            const auto& role=roles->roles[position];
             const auto param=[&](const char* name){return visit({r.object,"",std::string("generator.")+name},depth+1);};
             if(s.type=="nect.shape.circle") {
-                const auto position=std::find(roles.begin(),roles.end(),role)-roles.begin();
                 if(r.field=="x") {v=param("center_x");if(position==0)v+=param("radius");else if(position==2)v-=param("radius");}
                 else if(r.field=="y") {v=param("center_y");if(position==1)v+=param("radius");else if(position==3)v-=param("radius");}
                 else if(r.field.ends_with(".length"))v=param("radius")*0.5522847498307936;
                 else if(r.field=="in.angle")v=static_cast<double>(position)*90-90;
                 else if(r.field=="out.angle")v=static_cast<double>(position)*90+90;
-            } else {
+            } else if(s.type=="nect.shape.rectangle") {
                 if(r.field=="x")v=param("center_x")+param("width")*(role=="top-left"||role=="bottom-left"?-0.5:0.5);
                 else if(r.field=="y")v=param("center_y")+param("height")*(role=="top-left"||role=="top-right"?-0.5:0.5);
+            } else if(r.field=="x"||r.field=="y") {
+                const auto angle=(param("rotation")+static_cast<double>(position)*360/static_cast<double>(roles->roles.size()))*std::numbers::pi/180;
+                const auto radius=param(s.type=="nect.shape.polygon"?"radius":role.starts_with("inner-")?"inner_radius":"outer_radius");
+                v=r.field=="x"?param("center_x")+radius*std::cos(angle):param("center_y")+radius*std::sin(angle);
             }
         } else if(p->binding) {
             const auto& b=*p->binding;
             require(b.mode=="copy_local_value","UNSUPPORTED_BINDING","Explicit copy_local_value binding required");
             finite(b.scale);
             finite(b.offset);
+            const auto source=visit(b.source,depth+1);
             require(unit(r)==unit(b.source),"UNIT_MISMATCH","Implicit unit conversion is not supported");
-            v=visit(b.source,depth+1)*b.scale+b.offset;
+            v=source*b.scale+b.offset;
         }
         value_range(r,v);
         active.erase(r);
         values.emplace(r,v);
         return v;
     };
+    topology=[&](const Object& object,unsigned depth)->const Topology& {
+        if(const auto found=topologies.find(object.id);found!=topologies.end())return found->second;
+        const auto& source=*object.source;std::optional<double> count;
+        if(polystar(source))count=visit({object.id,"","generator.points"},depth+1);
+        Topology result;result.roles=source_roles(source,count);points+=result.roles.size();
+        require(points<=50000,"LIMIT","Point limit 50000");
+        for(std::size_t i=0;i<result.roles.size();++i)result.positions.emplace(source.id+"-"+result.roles[i],i);
+        // Even bypassed corrections remain authored and may not silently lose roles.
+        if(object.point_edit)for(const auto& [point,fields]:object.point_edit->overrides) {
+            (void)fields;require(result.positions.contains(point),"UNRESOLVED_POINT_EDIT",point);
+        }
+        return topologies.emplace(object.id,std::move(result)).first->second;
+    };
     for (const auto& [ref, scalar] : index) {
         (void)scalar;
         visit(ref, 0);
     }
+    for(const auto& [id,object]:d.objects)if(object.source) {
+        const auto& generated=topology(object,0);
+        for(const auto& [point,position]:generated.positions) {
+            (void)position;for(const auto& field:point_fields)visit({id,point,field},0);
+        }
+    }
     return values;
 }
+}
+std::map<Ref,double> evaluate(const Document& d){return evaluate_properties(d);}
 
 Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
     std::vector<const Artboard*> chain;std::set<Id> seen;auto next=artboard;
@@ -485,12 +582,11 @@ void validate(const Document& d) {
                 require(s.id.size()<=64,"INVALID_ID","Generator ID is limited to 64 characters for stable role identities");
                 add(s.id);
                 add(s.id+"-point-edit"); // reserved correction instance namespace
-                (void)source_roles(s);
-                const std::set<std::string> expected=s.type=="nect.shape.circle"?
-                    std::set<std::string>{"center_x","center_y","radius"}:
-                    std::set<std::string>{"center_x","center_y","width","height"};
-                std::set<std::string> actual;for(const auto& [name,value]:s.parameters){(void)value;actual.insert(name);}
-                require(actual==expected,"INVALID_GENERATOR_PARAMETERS","Missing or unsupported primitive parameters");
+                require(s.version==1,"UNSUPPORTED_OPERATOR_VERSION","Unsupported primitive behavior version");
+                const auto expected=default_primitive(s.id,s.type).parameters;
+                require(s.parameters.size()==expected.size(),"INVALID_GENERATOR_PARAMETERS","Missing or unsupported primitive parameters");
+                for(const auto& [name,value]:s.parameters){(void)value;require(expected.contains(name),"INVALID_GENERATOR_PARAMETERS",name);}
+                if(polystar(s))(void)primitive_point_count(s,s.parameters.at("points").literal);
                 if(o.point_edit) {
                     const auto& edit=*o.point_edit;
                     require(edit.id==s.id+"-point-edit","INVALID_POINT_EDIT","Correction instance must retain its source identity");
@@ -504,7 +600,7 @@ void validate(const Document& d) {
                     }
                 }
             } else require(!o.point_edit,"INVALID_POINT_EDIT","Point Edit needs its retained generator");
-            for(const auto& c:path_contours(o)) {
+            for(const auto& c:o.contours) {
                 add(c.id);
                 require(!c.points.empty(),"INVALID_PATH","Contour needs at least one point");
                 for(const auto& p:c.points) {
@@ -541,14 +637,24 @@ void validate(const Document& d) {
         value_range(ref, scalar->literal);
         if(scalar->binding) {
             const auto& binding=*scalar->binding;
-            require(authored.contains(binding.source),"MISSING_REFERENCE",binding.source.object+"/"+binding.source.field);
-            require(unit(ref)==unit(binding.source),"UNIT_MISMATCH","Implicit unit conversion is not supported");
             require(binding.mode=="copy_local_value","UNSUPPORTED_BINDING","Explicit copy_local_value binding required");
             finite(binding.scale);finite(binding.offset);
         }
     }
 
     const auto values=evaluate(d);
+    for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
+        const auto& source=scalar->binding->source;
+        require(values.contains(source),"MISSING_REFERENCE",source.object+"/"+source.point+"/"+source.field);
+        require(unit(ref)==unit(source),"UNIT_MISMATCH","Implicit unit conversion is not supported");
+    }
+    for(const auto& [id,object]:d.objects)if(object.source) {
+        (void)id;
+        for(const auto& contour:path_contours(object,&values)) {
+            add(contour.id);for(const auto& point:contour.points){add(point.id);++point_count;}
+        }
+    }
+    require(point_count<=50000,"LIMIT","Point limit 50000");
     for(const auto& [id,o]:d.objects) {
         for(const auto& op:o.stack)if(op.gradient) {
             const auto& g=*op.gradient;
@@ -731,18 +837,23 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
             auto& o=candidate.objects.at(c.object);
             require(o.point_edit.has_value(),"NO_POINT_EDIT","Primitive has no authored point corrections");
             o.point_edit->enabled=c.enabled;
+        } else if constexpr(std::is_same_v<T,ClearPointEdit>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& o=candidate.objects.at(c.object);
+            require(o.source.has_value(),"NOT_PRIMITIVE","Point Edit reset requires a retained primitive");
+            o.point_edit.reset();
         } else if constexpr(std::is_same_v<T,ConvertToPath>) {
             require(conversion_blockers(candidate,c.object).empty(),"CONVERSION_REFERENCE",
                 "Generator properties are referenced; explicitly unlink/freeze dependent targets before conversion");
             auto& o=candidate.objects.at(c.object);
             const auto values=evaluate(candidate);
             const auto authored=property_index(candidate,true);
-            auto contours=path_contours(o);
+            auto contours=path_contours(o,&values);
             for(auto& ct:contours)for(auto& p:ct.points) {
                 const std::array<Scalar*,6> fields{&p.x,&p.y,&p.in_angle,&p.in_length,&p.out_angle,&p.out_length};
                 for(std::size_t i=0;i<fields.size();++i) {
                     const Ref ref{o.id,p.id,point_fields[i]};
-                    const auto* override_value=authored.at(ref);
+                    const auto found=authored.find(ref);const auto* override_value=found==authored.end()?nullptr:found->second;
                     *fields[i]=o.point_edit&&o.point_edit->enabled&&override_value?*override_value:Scalar{values.at(ref),{}};
                 }
             }

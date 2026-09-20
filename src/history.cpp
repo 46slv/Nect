@@ -114,7 +114,8 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,CreateNamedColor>)return "Add named color: "+c.color.name;
         else if constexpr(std::is_same_v<T,DeleteNamedColor>)return "Delete named color: "+name(c.color);
         else if constexpr(std::is_same_v<T,CreatePath>)return "Add Path: "+c.name;
-        else if constexpr(std::is_same_v<T,CreatePrimitive>)return std::string(c.source.type=="nect.shape.circle"?"Add Circle: ":"Add Rectangle: ")+c.name;
+        else if constexpr(std::is_same_v<T,CreatePrimitive>)return std::string(c.source.type=="nect.shape.circle"?"Add Circle: ":
+            c.source.type=="nect.shape.rectangle"?"Add Rectangle: ":c.source.type=="nect.shape.polygon"?"Add Polygon: ":"Add Star: ")+c.name;
         else if constexpr(std::is_same_v<T,CreateText>)return "Add Text: "+c.name;
         else if constexpr(std::is_same_v<T,UpdateText>)return "Edit Text: "+name(c.object);
         else if constexpr(std::is_same_v<T,GroupContiguous>)return "Group: "+c.name;
@@ -130,6 +131,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,CloseContour>)return std::string(c.closed?"Close contour: ":"Open contour: ")+name(c.object);
         else if constexpr(std::is_same_v<T,ReorderPoints>)return "Reorder points: "+name(c.object);
         else if constexpr(std::is_same_v<T,EnablePointEdit>)return std::string(c.enabled?"Enable Point Edit: ":"Bypass Point Edit: ")+name(c.object);
+        else if constexpr(std::is_same_v<T,ClearPointEdit>)return "Clear Point Edit: "+name(c.object);
         else if constexpr(std::is_same_v<T,ConvertToPath>)return "Convert source to Path: "+name(c.object);
         else if constexpr(std::is_same_v<T,AddOperation>)return "Add "+operation_name(c.operation.type)+": "+name(c.object);
         else if constexpr(std::is_same_v<T,RemoveOperation>)return "Remove operation: "+name(c.object);

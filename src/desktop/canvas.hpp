@@ -33,6 +33,7 @@ public:
     std::function<void(QString)> error;
 
     void refresh();
+    const std::map<Ref,double>& evaluated_values() const {return values_;}
     void fit_artboard();
     void fit_all_artboards();
     const Id& active_composition() const { return active_composition_; }

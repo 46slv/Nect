@@ -318,3 +318,37 @@ Final case-alias and monotonic backup-cadence hardening passed four focused
 storage/protection/live-save/Window checks after rebuilding (12.02 seconds).
 Raw artifacts: build/canvas-benchmark-live-save.json and
 build/canvas-benchmark-live-save-paths.json.
+
+## Retained Polygon/Star evidence — 2026-09-20
+
+All21 CTest entries passed (23.68s). New core/UI checks cover linked integer count,
+reduced angular-role identity, preserved corrections on6→12, atomic refusal when
+edited/referenced vertices disappear, reset/Undo, conversion and native0.8 reopen.
+Earlier native fixtures remain unchanged; the0.7 named-color poster migrates with
+all values/links intact. Formal MCP exercises the same commands before its
+history, native restart and abnormal-exit recovery scenario.
+
+The live desktop API created examples/polystar-field.nect and SVG, with Polygon,
+Star, linked count, an outer1/6 point correction, two Repeaters, gradient, three
+named colors and five editable Text objects (22 exported paint layers). Actual
+1402×932 Windows UI changed Polygon count6→12 on a saved working copy. Star
+followed12, correction X846 persisted, and exact live/native readback differed
+only in the intended count literal. The original example remained unchanged.
+
+Visible benchmark on the same recorded hardware,1440×900 Window,893×824 Canvas,
+DPR1: two authored curves plus twelve Polygons/twelve Stars,216 generated vertices
+and23 live count links. Measurement is the production queued QWidget paint path,
+including full-scene evaluation and normal asynchronous protection; it does not
+measure compositor presentation or count-changing gestures.
+
+| Operation | p50 interval ms | p95 interval ms | Max interval ms | >33.333 ms | Release ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Pan | 16.03 | 17.15 | 20.68 | 0 | 0.03 |
+| Zoom | 16.10 | 18.53 | 21.23 | 0 | 0.00 |
+| Point drag | 16.46 | 19.32 | 27.22 | 0 | 23.47 |
+| Handle drag | 16.45 | 19.81 | 22.28 | 0 | 23.78 |
+| Object translation | 16.00 | 21.10 | 26.15 | 0 | 30.36 |
+
+Each sequence observed90 paints/89 intervals after12 warmup inputs. The30fps p95
+floor and33.333ms release target pass;60fps remains unmet. Raw evidence:
+build/canvas-benchmark-polystar.json and build/polystar-manual-receipt.json.

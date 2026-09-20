@@ -198,9 +198,11 @@ j::object text_layout_json(const Document& d,const Id& id) {
         {"used_fonts",ids_json(layout.used_fonts)},{"svg_text","outlined"},{"font_embedded",false}};
 }
 
-Primitive read_primitive(const j::value& v) {
+Primitive read_primitive(const j::value& v,bool allow_polystar=true) {
     const auto& o=v.as_object();keys(o,{"id","type","version","parameters"});
     Primitive s{text(o.at("id")),text(o.at("type")),j::value_to<unsigned>(o.at("version")),{}};
+    if(!allow_polystar&&(s.type=="nect.shape.polygon"||s.type=="nect.shape.star"))
+        throw Error("UNSUPPORTED_OPERATOR","Polygon and Star require native 0.8");
     for(const auto& p:o.at("parameters").as_object())
         s.parameters.emplace(std::string(p.key()),read_scalar(p.value()));
     return s;
@@ -364,6 +366,9 @@ Command read_command(const j::value& v) {
         keys(o,{"type","object","enabled"});
         return EnablePointEdit{text(o.at("object")),o.at("enabled").as_bool()};
     }
+    if(type=="clear_point_edit") {
+        keys(o,{"type","object"});return ClearPointEdit{text(o.at("object"))};
+    }
     if(type=="convert_to_path") {
         keys(o,{"type","object"});return ConvertToPath{text(o.at("object"))};
     }
@@ -431,10 +436,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        if(version=="0.7")keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
+        if(version=="0.7"||version=="0.8")keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
         else keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
-        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"&&version!="0.4"&&version!="0.5"&&version!="0.6"&&version!="0.7"))
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.7 are supported");
+        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"&&version!="0.4"&&version!="0.5"&&version!="0.6"&&version!="0.7"&&version!="0.8"))
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.8 are supported");
         if(text(root.at("units"))!="du96"||text(root.at("color_space"))!="srgb")
             throw Error("UNSUPPORTED_COLOR_OR_UNIT","v0.1 supports du96 and sRGB only");
 
@@ -450,7 +455,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,version=="0.5"||version=="0.6"||version=="0.7"));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,version=="0.5"||version=="0.6"||version=="0.7"||version=="0.8"));
             d.compositions.push_back(std::move(c));
         }
 
@@ -458,7 +463,7 @@ Document decode(std::string_view input) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
             else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
-            else if(version=="0.6"||version=="0.7")keys(o,{"id","name","kind","transform","children","contours","source","point_edit","text","stack","legacy_stroke"});
+            else if(version=="0.6"||version=="0.7"||version=="0.8")keys(o,{"id","name","kind","transform","children","contours","source","point_edit","text","stack","legacy_stroke"});
             else keys(o,{"id","name","kind","transform","children","contours","source","point_edit","stack","legacy_stroke"});
 
             Object obj;
@@ -466,7 +471,7 @@ Document decode(std::string_view input) {
             obj.name=text(o.at("name"));
 
             auto kind=text(o.at("kind"));
-            if(kind!="group"&&kind!="path"&&!((version=="0.6"||version=="0.7")&&kind=="text")) throw Error("UNSUPPORTED_OBJECT",kind);
+            if(kind!="group"&&kind!="path"&&!((version=="0.6"||version=="0.7"||version=="0.8")&&kind=="text")) throw Error("UNSUPPORTED_OBJECT",kind);
             obj.kind=kind=="group"?Kind::group:kind=="text"?Kind::text:Kind::path;
             if(o.contains("text")&&obj.kind!=Kind::text)throw Error("INVALID_OBJECT","Only Text may carry a text source");
 
@@ -480,7 +485,7 @@ Document decode(std::string_view input) {
                 obj.children=ids(o.at("children"));
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
-                if(version=="0.3"||version=="0.4"||version=="0.5"||version=="0.6"||version=="0.7") {
+                if(version=="0.3"||version=="0.4"||version=="0.5"||version=="0.6"||version=="0.7"||version=="0.8") {
                     for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,version!="0.3"));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
@@ -499,7 +504,7 @@ Document decode(std::string_view input) {
                     obj.text=read_text(o.at("text"));
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
-                    obj.source=read_primitive(o.at("source"));
+                    obj.source=read_primitive(o.at("source"),version=="0.8");
                     if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"));
                 } else {
                     if(o.contains("point_edit"))throw Error("INVALID_POINT_EDIT","Point Edit needs a retained generator");
@@ -517,7 +522,7 @@ Document decode(std::string_view input) {
         }
 
         // All original IDs are present before allocating migration instances.
-        if(version=="0.7")for(const auto& entry:root.at("named_colors").as_array()) {
+        if(version=="0.7"||version=="0.8")for(const auto& entry:root.at("named_colors").as_array()) {
             auto color=read_named_color(entry);const auto id=color.id;
             if(!d.named_colors.emplace(id,std::move(color)).second)throw Error("DUPLICATE_ID",id);
         }
@@ -584,7 +589,7 @@ std::string encode(const Document& d) {
         collections.push_back({{"id",c.id},{"name",c.name},{"members",ids_json(c.members)}});
 
     return j::serialize(j::object{
-        {"format","nect-native"},{"version","0.7"},{"id",d.id},
+        {"format","nect-native"},{"version",native_version},{"id",d.id},
         {"units","du96"},{"color_space","srgb"},
         {"compositions",comps},{"objects",objects},{"collections",collections},{"named_colors",named_colors}});
 }
@@ -758,6 +763,14 @@ std::string request(Session& session,std::string_view input) {
             for(const auto& id:comp->roots)walk(id);
             result=j::object{{"format","svg"},{"artboard",artboard_json(board)},{"text",texts},
                 {"text_policy","outlines"},{"native_source_preserved",true},{"fonts_embedded",false}};
+        } else if(op=="primitive_types") {
+            keys(o,{"op"});j::array definitions;
+            for(const auto* type:{"nect.shape.circle","nect.shape.rectangle","nect.shape.polygon","nect.shape.star"}) {
+                const auto source=default_primitive("new-source",type);
+                definitions.push_back(j::object{{"type",type},{"version",1},{"template",primitive_json(source)},
+                    {"point_edit","absolute_local_override"},{"topology_change","reject_unmapped_corrections_or_references"}});
+            }
+            result=std::move(definitions);
         } else if(op=="operator_types") {
             keys(o,{"op"});j::array definitions;
             for(const auto* type:{"nect.paint.fill","nect.paint.stroke","nect.shape.repeater"}) {
@@ -803,7 +816,7 @@ std::string request(Session& session,std::string_view input) {
         } else if(op=="capabilities") {
             keys(o,{"op"});
             result=j::object{
-                {"native_version","0.7"},
+                {"native_version",native_version},
                 {"transport","local-json-lines-not-mcp"},
                 {"mcp",false},
                 {"ai_codec",false},

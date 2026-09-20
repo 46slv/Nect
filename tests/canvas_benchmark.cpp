@@ -301,13 +301,14 @@ int main(int argc, char** argv) {
         "QMenu{border:1px solid #49515c;}QMenu::item:selected{background:#43505f;}");
     app.setQuitOnLastWindowClosed(false);
     if (app.arguments().size() < 2 || app.arguments().size()>3 ||
-        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text")) {
-        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text]\n";
+        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar")) {
+        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar]\n";
         return 2;
     }
     const auto output = app.arguments().at(1);
     const bool repeated=app.arguments().contains("--repeat");
     const bool text_scene=app.arguments().contains("--text");
+    const bool polystar_scene=app.arguments().contains("--polystar");
     run_clock.start();
     QJsonObject result{{"schema", "nect-visible-viewport-benchmark-1"},
         {"started_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
@@ -328,7 +329,7 @@ int main(int argc, char** argv) {
         bool all_floor = true;
         bool all_target = true;
         bool all_release_budget = true;
-        for (const auto paths : ((repeated||text_scene)?std::vector<int>{2}:std::vector<int>{2,80})) {
+        for (const auto paths : ((repeated||text_scene||polystar_scene)?std::vector<int>{2}:std::vector<int>{2,80})) {
             Window window(scratch.path() + "/scene-" + QString::number(paths));
             window.resize(1440, 900);
             window.show();
@@ -341,6 +342,21 @@ int main(int argc, char** argv) {
             }
             require(window.windowHandle() && window.windowHandle()->isExposed(), "Benchmark window did not become exposed");
             seed(window, paths);
+            if(polystar_scene) {
+                std::vector<Command> commands;const auto comp=window.host.session.document().compositions.front().id;
+                for(int i=0;i<24;++i) {
+                    const auto id="bench-primitive-"+std::to_string(i);
+                    auto source=default_primitive(id+"-source",i%2?"nect.shape.star":"nect.shape.polygon");
+                    source.parameters.at("center_x").literal=105+(i%6)*148;
+                    source.parameters.at("center_y").literal=190+(i/6)*115;
+                    source.parameters.at(i%2?"outer_radius":"radius").literal=42;
+                    if(i%2)source.parameters.at("inner_radius").literal=19;
+                    source.parameters.at("points").literal=6;
+                    if(i)source.parameters.at("points").binding=Binding{{"bench-primitive-0","","generator.points"},1,0,"copy_local_value"};
+                    commands.push_back(CreatePrimitive{comp,"",id,"Linked polystar "+std::to_string(i),source});
+                }
+                window.host.session.apply(commands,window.host.session.revision());window.host.edited();wait_events(40);
+            }
             if(text_scene) {
                 std::vector<Command> commands;const auto comp=window.host.session.document().compositions.front().id;
                 for(int i=0;i<8;++i) {
@@ -397,6 +413,10 @@ int main(int argc, char** argv) {
             if(text_scene) {
                 scene["name"]="mixed-text";scene["text_count"]=8;
                 scene["fixture"]="Two authored four-anchor curves plus eight editable mixed Japanese/Latin Text objects, Yu Gothic 21 du. Pan/zoom, curve point/handle and Text object translation in the full Window with all text visible.";
+            }
+            if(polystar_scene) {
+                scene["name"]="linked-polystar";scene["primitive_count"]=24;scene["generated_point_count"]=216;scene["binding_count"]=23;
+                scene["fixture"]="Two authored four-anchor curves plus twelve six-point Polygons and twelve six-point Stars; 23 live point-count links to the first Polygon. Pan/zoom and curve point/handle/translation exercise complete mixed-scene evaluation in the full Window. Count-changing gesture timing is not measured.";
             }
             QJsonArray operations;
             for (const auto operation : {Operation::pan, Operation::zoom, Operation::point, Operation::handle, Operation::transform}) {

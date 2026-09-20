@@ -1,4 +1,4 @@
-# Practical alpha Mission — continuous protection integrated; retained Polygon/Star next
+# Practical alpha Mission — Polygon/Star integrated; Anchor and Transform Parent next
 
 ## Active Mission checkpoint — 2026-09-20
 
@@ -192,7 +192,7 @@ Preserve all current files and the development document. No release/publication
 or dependency binaries are authorized for distribution. This checkpoint does not
 claim practical-alpha completion or relax F1–F8. Do not stop at M1.
 
-Continuous protection checkpoint after `7323ec1`: committed snapshots at edit
+Continuous protection checkpoint `b42ad1f` after `7323ec1`: committed snapshots at edit
 completion, one running worker plus newest pending copy, one-second non-postponed
 cadence. Encoding/backup/atomic writes/readback/retention run off the UI thread.
 Known native/recovery revisions, writing/pending revisions and independent errors
@@ -240,6 +240,38 @@ on80Paths remains slightly over33.333ms;2Path pan has one68.14ms outlier. All
 scenes meet30fps p95 floor,60fps target remains unmet. Raw results:
 build/canvas-benchmark-live-save.json and canvas-benchmark-live-save-paths.json.
 Worker finished; parent owns builds, no GUI process remains.
+
+Polygon/Star checkpoint after `b42ad1f`: native0.8 retains integer-linked Polygon
+and Star sources, reduced angular-fraction outer/inner vertex IDs, explicit
+unresolved-correction/reference rejection and undoable ClearPointEdit. Existing
+Circle/Rectangle IDs and dormant bypass-cycle behavior remain compatible.
+Templates/discovery, GUI Add/source controls/reset, conversion, shared shape
+evaluation, history, API/MCP and0.1–0.7 migration all use the same model.
+All21 CTest entries pass (23.68s), including linked-count topology, correction
+identity, strict failures, actual Window controls and formal MCP restart/recovery.
+
+Actual live API production created examples/polystar-field.nect and SVG: linked
+six-point Polygon/Star, retained outer1/6.x=846 correction, two Repeaters, gradient,
+three named colors, five editable Text objects and22 SVG paint layers. API changed
+count6→12→6 preserving exact authored state and rejected7 without mutation.
+GUI on build/polystar-manual.nect changed6→12 at revision5; live API and automatic
+native save matched the exact expected document, Star followed12 and correction
+remained846. Original example unchanged; app closed. Receipt:
+build/polystar-manual-receipt.json. The color demo now Save-As selects its output
+before making palette edits so live save cannot modify its input fixture.
+
+Visible production Window mixed fixture:24 Polygon/Stars,216 generated vertices,
+23 count links plus two curves. Worst p95 interval21.10ms, max27.22ms, zero intervals
+>33.333ms; maximum release30.36ms. The30fps floor passes,60fps target remains unmet.
+Count-changing gesture timing is not claimed. Raw build/canvas-benchmark-polystar.json.
+
+Exact next safe action: implement authored Anchor and shared world transforms,
+then explicit keep-world Transform Parent while preserving all existing affine
+references. Structure continues to own order/effect scope; explicit transform
+parent replaces structural transform inheritance to avoid double application.
+Worker completed bounded read-only investigation, no pending writes/builds/apps.
+Mission still requires masks/group compositing, assets, expressions/multi-edit,
+local operators and inherited template content; this is not alpha completion.
 
 ---
 

@@ -188,7 +188,7 @@ void Canvas::refresh() {
                     paint.path.setFillRule(layer.fill_rule == "evenodd" ? Qt::OddEvenFill : Qt::WindingFill);
                     item.paints.push_back(std::move(paint));
                 }
-                for (const auto& contour : path_contours(object)) {
+                for (const auto& contour : path_contours(object,&values_)) {
                     const auto first = item.points.size();
                     for (const auto& authored : contour.points) {
                         EvaluatedPoint p;

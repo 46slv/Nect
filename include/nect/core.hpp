@@ -71,11 +71,12 @@ std::vector<std::string> text_fonts();
 
 struct Primitive {
     Id id;
-    std::string type; // nect.shape.circle / nect.shape.rectangle
+    std::string type; // nect.shape.circle / rectangle / polygon / star
     unsigned version = 1;
     std::map<std::string,Scalar> parameters;
     bool operator==(const Primitive&) const = default;
 };
+Primitive default_primitive(Id id,const std::string& type);
 
 struct PointEdit {
     Id id;
@@ -210,6 +211,7 @@ struct DeleteObjects { std::vector<Id> objects; };
 struct ReorderObjects { Id composition; Id parent; std::vector<Id> order; };
 struct CreatePrimitive { Id composition; Id parent; Id id; std::string name; Primitive source; };
 struct EnablePointEdit { Id object; bool enabled; };
+struct ClearPointEdit { Id object; };
 struct ConvertToPath { Id object; };
 struct AddOperation { Id object; ShapeOperation operation; std::size_t index; };
 struct RemoveOperation { Id object; Id operation; };
@@ -234,7 +236,7 @@ struct UnlinkColor { Ref ref; };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
-    CreatePrimitive,EnablePointEdit,ConvertToPath,AddOperation,RemoveOperation,
+    CreatePrimitive,EnablePointEdit,ClearPointEdit,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,OperationOptions,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor>;
@@ -287,7 +289,8 @@ Scalar property(const Document& document, const Ref& ref);
 std::string property_origin(const Document& document, const Ref& ref);
 // Returns contour topology/IDs. All resolved coordinates, including generated
 // points, come from evaluate(); this is never another authored geometry store.
-std::vector<Contour> path_contours(const Object& object);
+// A bound dynamic point count requires the caller's evaluated snapshot.
+std::vector<Contour> path_contours(const Object& object,const std::map<Ref,double>* values=nullptr);
 std::vector<Ref> conversion_blockers(const Document& document, const Id& object);
 Ref resolve_name(const Document& document, const std::string& name, const Id& point, const std::string& field);
 std::map<Ref,double> evaluate(const Document& document);

@@ -190,6 +190,27 @@ try:
         blocked=core('apply',expected_revision=rev,commands=[dict(type='delete_named_color',color='brand-color')])
         assert not blocked['ok'] and blocked['error']['code']=='MISSING_REFERENCE' and blocked['revision']==rev
         assert core('used_colors')['result']['equal_values_imply_link'] is False
+        primitives={item['type']:item['template'] for item in core('primitive_types')['result']}
+        polygon=primitives['nect.shape.polygon'];polygon['id']='linked-polygon-source'
+        polygon['parameters']['points']={'literal':6}
+        star=primitives['nect.shape.star'];star['id']='linked-star-source'
+        polygon_count=dict(object='linked-polygon',point='',field='generator.points')
+        star_count=dict(object='linked-star',point='',field='generator.points')
+        star['parameters']['points']={'literal':5,'binding':dict(source=polygon_count,scale=1,offset=0,mode='copy_local_value')}
+        rev=apply([dict(type='create_primitive',composition=comp['id'],parent='',id='linked-polygon',name='Linked polygon',source=polygon),
+                   dict(type='create_primitive',composition=comp['id'],parent='',id='linked-star',name='Linked star',source=star)],rev)
+        assert core('get',ref=star_count)['result']['evaluated']==6
+        corrected_vertex=dict(object='linked-star',point='linked-star-source-outer-1-6',field='x')
+        rev=apply([dict(type='set',ref=corrected_vertex,value=123)],rev)
+        before_topology=core('inspect')['result']
+        blocked=core('apply',expected_revision=rev,commands=[dict(type='set',ref=polygon_count,value=7)])
+        assert not blocked['ok'] and blocked['error']['code']=='UNRESOLVED_POINT_EDIT' and blocked['revision']==rev
+        assert core('inspect')['result']==before_topology
+        rev=apply([dict(type='clear_point_edit',object='linked-star'),dict(type='set',ref=polygon_count,value=7)],rev)
+        assert core('get',ref=star_count)['result']['evaluated']==7
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('inspect')['result']==before_topology and core('get',ref=corrected_vertex)['result']['evaluated']==123
+        expected_svg_paths+=2
         history_before=core('history')['result'];history_state=history_before['current_id']
         historical_document=core('inspect')['result']
         for step in range(80):

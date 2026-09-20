@@ -21,6 +21,7 @@ def check(value, message):
 
 sample = json.loads(run('--demo').stdout)
 check(run('--validate', sample).returncode == 0, 'demo validates in new process')
+check(json.loads(run('--validate',sample).stdout)['native_version']==sample['version'],'validation reports the current writer version')
 
 future = dict(sample, version='999')
 check(run('--validate', future).returncode == 2, 'future schema rejected')
@@ -179,4 +180,10 @@ upgraded=subprocess.run([exe,'--serve',str(text_path)],input='{"op":"inspect"}\n
 new=json.loads(upgraded.stdout)['result'];new['version']='0.6'
 check(new.pop('named_colors')==[], '0.6 migration starts with no named colors')
 check(new==old,'0.6 migration preserves all editable Text and shape inputs')
+color_path=ornament.with_name('named-color-poster.nect')
+old=json.loads(color_path.read_text(encoding='utf-8'))
+check(old['version']=='0.7','named-color fixture remains historical 0.7')
+upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.8','current writer uses native 0.8')
+new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 print(f'PASS {checks} process and native migration checks')

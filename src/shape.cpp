@@ -33,7 +33,7 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
     const auto& o=d.objects.at(id);
     if(o.kind==Kind::group)throw Error("INVALID_DOMAIN","Shape stack accepts one Path or Text source");
     auto contours=std::make_shared<std::vector<EvaluatedContour>>();
-    for(const auto& contour:path_contours(o)) {
+    for(const auto& contour:path_contours(o,&values)) {
         EvaluatedContour result;result.closed=contour.closed;
         for(const auto& p:contour.points) {
             auto v=[&](const char* field){return values.at({id,p.id,field});};

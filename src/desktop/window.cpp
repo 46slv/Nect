@@ -90,7 +90,11 @@ public:
 };
 QString display_value(double value) { return QString::number(value,'g',12); }
 QString primitive_label(const Primitive& source) {
-    return source.type=="nect.shape.circle" ? QStringLiteral("Circle") : QStringLiteral("Rectangle");
+    if(source.type=="nect.shape.circle")return QStringLiteral("Circle");
+    if(source.type=="nect.shape.rectangle")return QStringLiteral("Rectangle");
+    if(source.type=="nect.shape.polygon")return QStringLiteral("Polygon");
+    if(source.type=="nect.shape.star")return QStringLiteral("Star");
+    return qs(source.type);
 }
 QString parameter_label(const std::string& parameter) {
     if(parameter=="origin_x")return QStringLiteral("Origin X");
@@ -103,6 +107,9 @@ QString parameter_label(const std::string& parameter) {
     if(parameter=="center_x")return QStringLiteral("Center X");
     if(parameter=="center_y")return QStringLiteral("Center Y");
     if(parameter=="radius")return QStringLiteral("Radius");
+    if(parameter=="points")return QStringLiteral("Points");
+    if(parameter=="outer_radius")return QStringLiteral("Outer radius");
+    if(parameter=="inner_radius")return QStringLiteral("Inner radius");
     if(parameter=="width")return QStringLiteral("Width");
     if(parameter=="height")return QStringLiteral("Height");
     if(parameter=="r")return QStringLiteral("Red");
@@ -165,7 +172,12 @@ QString point_label(const Object& object,const Point& point,std::size_t index) {
     if(object.source) {
         const auto prefix=object.source->id+"-";
         if(point.id.starts_with(prefix)) {
-            auto label=qs(point.id.substr(prefix.size())).replace('-', ' ');
+            const auto role=qs(point.id.substr(prefix.size()));const auto parts=role.split('-');
+            if(parts.size()==3&&(parts[0]=="outer"||parts[0]=="inner")) {
+                bool n_ok=false,d_ok=false;const auto n=parts[1].toUInt(&n_ok),d=parts[2].toUInt(&d_ok);
+                if(n_ok&&d_ok&&d>0)return (parts[0]=="outer"?QString("Outer"):QString("Inner"))+" · "+display_value(360.0*n/d)+"°";
+            }
+            auto label=role;label.replace('-', ' ');
             if(!label.isEmpty())label[0]=label.at(0).toUpper();
             return label;
         }
@@ -186,7 +198,8 @@ QString property_label(const Document& d,const Ref& ref) {
     }
     if(!ref.point.empty()) {
         const auto& o=d.objects.at(ref.object);
-        const auto contours=path_contours(o);
+        if(o.source)path.append(point_label(o,Point{ref.point},0));
+        const auto contours=o.source?std::vector<Contour>{}:path_contours(o);
         for(std::size_t c=0;c<contours.size();++c)for(std::size_t i=0;i<contours[c].points.size();++i)
             if(contours[c].points[i].id==ref.point) {
                 if(contours.size()>1)path.append("Contour "+QString::number(c+1));
@@ -311,7 +324,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     action(edit,"Close / open contour",{},[this]{
         if(canvas->selected_object.empty()) return;
         const auto& o=host.session.document().objects.at(canvas->selected_object);
-        const auto contours=path_contours(o);
+        const auto contours=path_contours(o,&canvas->evaluated_values());
         if(contours.empty()) throw Error("NO_CONTOUR","Select a path");
         const auto& c=contours.front();
         host.session.apply({CloseContour{o.id,c.id,!c.closed}},host.session.revision());host.edited();
@@ -322,6 +335,8 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     circle->setObjectName("add-circle");
     auto* rectangle=action(add,"Rectangle",{},[this]{add_primitive("nect.shape.rectangle");});
     rectangle->setObjectName("add-rectangle");
+    auto* polygon=action(add,"Polygon",{},[this]{add_primitive("nect.shape.polygon");});polygon->setObjectName("add-polygon");
+    auto* star=action(add,"Star",{},[this]{add_primitive("nect.shape.star");});star->setObjectName("add-star");
     auto* text=action(add,"Text",{},[this]{add_text();});text->setObjectName("add-text");
     add->addSeparator();
     auto* fill=action(add,"Fill",{},[this]{add_operation("nect.paint.fill");});fill->setObjectName("add-fill");
@@ -409,7 +424,7 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
             auto point=item->data(0,Qt::UserRole+1).toString().toStdString();
             if(point.empty()&&!whip_target_->point.empty()&&host.session.document().objects.contains(object)) {
                 const auto& o=host.session.document().objects.at(object);
-                const auto contours=path_contours(o);
+                const auto contours=path_contours(o,&canvas->evaluated_values());
                 if(!contours.empty())point=contours.front().points.front().id;
             }
             const bool changed=canvas->selected_object!=object || canvas->selected_point!=point;
@@ -483,7 +498,7 @@ void Window::refresh() {
         const auto& o=d.objects.at(id);
         signature+="("+qs(id)+":"+QString::number(o.name.size())+":"+qs(o.name);
         if(o.source)signature+="|source:"+qs(o.source->type)+":"+qs(o.source->id);
-        for(const auto& c:path_contours(o)) {signature+="["+qs(c.id);for(const auto& p:c.points)signature+=":"+qs(p.id);signature+="]";}
+        for(const auto& c:path_contours(o,&canvas->evaluated_values())) {signature+="["+qs(c.id);for(const auto& p:c.points)signature+=":"+qs(p.id);signature+="]";}
         for(const auto& child:o.children)fingerprint(child);
         signature+=")";
     };
@@ -501,7 +516,7 @@ void Window::refresh() {
         item->setText(0,qs(o.name));item->setData(0,Qt::UserRole,qs(id));
         item->setToolTip(0,(o.source?primitive_label(*o.source)+" source · ":QString{})+qs(id));
         for(const auto& child:o.children) append(child,item);
-        for(const auto& c:path_contours(o)) for(std::size_t i=0;i<c.points.size();++i) {
+        for(const auto& c:path_contours(o,&canvas->evaluated_values())) for(std::size_t i=0;i<c.points.size();++i) {
             auto* point=new QTreeWidgetItem(item);
             point->setText(0,point_label(o,c.points[i],i));point->setData(0,Qt::UserRole,qs(id));point->setData(0,Qt::UserRole+1,qs(c.points[i].id));
             point->setToolTip(0,qs(c.points[i].id));
@@ -722,7 +737,7 @@ void Window::rebuild_inspector() {
     auto* layout=new QVBoxLayout(inspector_);
     if(artboard_editing_) {edit_artboard(layout);return;}
     const auto& d=host.session.document();
-    if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a Circle, Rectangle, Curve or Text.\nSelect a point to edit its handles."));layout->addStretch();return;}
+    if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a shape, Curve or Text.\nSelect a point to edit its handles."));layout->addStretch();return;}
     const auto& o=d.objects.at(canvas->selected_object);
     inspector_values_=evaluate(d);
     auto* name=new QLineEdit(qs(o.name));name->setAccessibleName("Object name");layout->addWidget(name);
@@ -736,7 +751,7 @@ void Window::rebuild_inspector() {
     if(o.text)add_text_properties(layout,o);
     if(o.source) {
         auto* generator=section("1 · "+primitive_label(*o.source)+" source");
-        for(const auto* parameter:{"center_x","center_y","radius","width","height"})
+        for(const auto* parameter:{"center_x","center_y","points","rotation","radius","outer_radius","inner_radius","width","height"})
             if(o.source->parameters.contains(parameter))
                 add_property(generator,{o.id,{},std::string("generator.")+parameter},parameter_label(parameter));
         auto* correction=section("2 · Point Edit");
@@ -758,6 +773,21 @@ void Window::rebuild_inspector() {
             ? "Bypassed: the source shape is visible. Editing a point enables its correction again."
             : "Edited fields hold absolute local values. Other fields continue to follow the source. Disable Point Edit to see the source shape.");
         semantics->setWordWrap(true);semantics->setStyleSheet("color: #a4acb8; font-size: 11px;");correction->addRow(semantics);
+        if(o.source->type=="nect.shape.polygon"||o.source->type=="nect.shape.star") {
+            auto* topology=new QLabel("Point edits stay at their angular positions. Changing Points is blocked if an edited or linked vertex would disappear.");
+            topology->setObjectName("primitive-topology-note");topology->setWordWrap(true);correction->addRow(topology);
+        }
+        if(o.point_edit) {
+            auto* reset=new QPushButton("Reset point edits…");reset->setObjectName("point-edit-reset");correction->addRow(reset);
+            connect(reset,&QPushButton::clicked,this,[this,id=o.id,frozen_session=host.session_id,field_count]{perform([&]{
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
+                const auto before=host.session.revision();
+                const auto choice=QMessageBox::question(this,"Reset point edits",QString("Remove all %1 point/handle overrides and their bindings? The generator and appearance stay editable. This is one undoable edit.").arg(field_count),QMessageBox::Reset|QMessageBox::Cancel,QMessageBox::Cancel);
+                if(choice!=QMessageBox::Reset)return;
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Document changed while reviewing Point Edit reset");
+                canvas->cancel_interaction();host.session.apply({ClearPointEdit{id}},before);host.edited();
+            });});
+        }
         const auto frozen_session=host.session_id;
         connect(enabled,&QCheckBox::toggled,this,[this,enabled,id=o.id,frozen_session](bool checked) {
             bool applied=false;
@@ -1020,7 +1050,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                     const auto values=evaluate(host.session.document());
                     Gradient created;created.id=new_id();
                     QRectF bounds;bool first=true;
-                    for(const auto& contour:path_contours(host.session.document().objects.at(id)))for(const auto& point:contour.points) {
+                    for(const auto& contour:path_contours(host.session.document().objects.at(id),&values))for(const auto& point:contour.points) {
                         const QPointF position(values.at({id,point.id,"x"}),values.at({id,point.id,"y"}));
                         if(first){bounds=QRectF(position,position);first=false;}
                         else bounds=QRectF(QPointF(std::min(bounds.left(),position.x()),std::min(bounds.top(),position.y())),
@@ -1274,15 +1304,9 @@ void Window::add_primitive(const std::string& type) {
     const auto& composition=find_composition(document,canvas->active_composition());
     if(composition.artboards.empty())throw Error("MISSING_ARTBOARD","An artboard is needed to place the new shape");
     const auto artboard=evaluate_artboard(composition,canvas->active_artboard());
-    Primitive source;
-    source.id=new_id();source.type=type;
-    source.parameters.emplace("center_x",Scalar{artboard.x+artboard.width/2,{}});
-    source.parameters.emplace("center_y",Scalar{artboard.y+artboard.height/2,{}});
-    if(type=="nect.shape.circle")source.parameters.emplace("radius",Scalar{100,{}});
-    else if(type=="nect.shape.rectangle") {
-        source.parameters.emplace("width",Scalar{220,{}});
-        source.parameters.emplace("height",Scalar{140,{}});
-    } else throw Error("UNSUPPORTED_GENERATOR","Only Circle and Rectangle sources are available");
+    auto source=default_primitive(new_id(),type);
+    source.parameters.at("center_x").literal=artboard.x+artboard.width/2;
+    source.parameters.at("center_y").literal=artboard.y+artboard.height/2;
     const auto id=new_id();
     const auto name=primitive_label(source).toStdString()+" "+std::to_string(document.objects.size()+1);
     host.session.apply({CreatePrimitive{composition.id,{},id,name,std::move(source)}},host.session.revision());
@@ -1293,7 +1317,7 @@ void Window::add_operation(const std::string& type,bool radial) {
     const auto& document=host.session.document();
     const auto found=document.objects.find(canvas->selected_object);
     if(found==document.objects.end()||found->second.kind==Kind::group)
-        throw Error("INVALID_DOMAIN","Select a Path, Circle, Rectangle or Text. Group stacks are not supported yet.");
+        throw Error("INVALID_DOMAIN","Select a Path, primitive or Text. Group stacks are not supported yet.");
     const auto& object=found->second;
     auto operation=default_operation(new_id(),type);
     if(radial) {
@@ -1307,7 +1331,7 @@ void Window::add_operation(const std::string& type,bool radial) {
             const auto layout=evaluate_text(*object.text,parameters);center_x=layout.x+layout.width/2;center_y=layout.y+layout.height/2;
         } else {
             QRectF bounds;bool first=true;
-            for(const auto& contour:path_contours(object))for(const auto& point:contour.points) {
+            for(const auto& contour:path_contours(object,&values))for(const auto& point:contour.points) {
                 const QPointF position(values.at({object.id,point.id,"x"}),values.at({object.id,point.id,"y"}));
                 if(first){bounds=QRectF(position,position);first=false;}
                 else {bounds.setLeft(std::min(bounds.left(),position.x()));bounds.setRight(std::max(bounds.right(),position.x()));

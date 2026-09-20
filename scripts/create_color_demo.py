@@ -1,7 +1,7 @@
 """Link a named palette in an opened typography-poster.nect live document.
 
-All edits use the desktop-owned Session. The source file is preserved by saving
-the study under the explicitly supplied output path.
+All edits use the desktop-owned Session. Save As selects the output before any
+palette mutation, so continuous saving cannot modify the opened source file.
 """
 import argparse
 import json
@@ -20,6 +20,12 @@ def create_palette(endpoint, output):
     doc=core('inspect')['result']
     if doc['named_colors'] or not {'japanese-title','english-title','petal','heart'}.issubset({x['id'] for x in doc['objects']}):
         raise RuntimeError('Open the original typography poster without a named palette first.')
+    output=Path(output).resolve()
+    if live['file'] and Path(live['file']).resolve()==output:
+        raise RuntimeError('Choose a separate output file to preserve the original typography poster.')
+    initial_save=call(endpoint,dict(identity,op='save',path=str(output),expected_revision=revision))
+    if not initial_save['ok']:
+        raise RuntimeError(initial_save)
     def ref(owner,field): return dict(object=owner,point='',field=field)
     def paint(owner): return ref(owner,f'op.{owner}-fill.color')
     petal=ref('petal','op.petal-fill.gradient.petal-gradient.stop.petal-color-2.color')
@@ -41,7 +47,6 @@ def create_palette(endpoint, output):
             rgba=[int(hex_[i:i+2],16)/255 for i in (0,2,4)]+[1])))
     changed=core('apply',expected_revision=revision,commands=commands);revision=changed['revision']
     assert {'palette-ivory','palette-mist','palette-warm','japanese-title','english-title','description','edition','japanese-subtitle','dates','fictional-note','petal','heart'}.issubset(changed['result']['changed_ids'])
-    output=Path(output).resolve()
     result=call(endpoint,dict(identity,op='save',path=str(output),expected_revision=revision))
     if not result['ok']:
         raise RuntimeError(result)

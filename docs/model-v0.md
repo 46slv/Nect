@@ -3,7 +3,7 @@
 ## M0 vocabulary
 
 Implemented: Document, Composition, Artboard, Group, Path, Text, Contour, Point,
-Scalar, Binding, Collection, Named Color, retained Circle/Rectangle sources,
+Scalar, Binding, Collection, Named Color, retained Circle/Rectangle/Polygon/Star sources,
 Point Edit, gradients and local Fill/Stroke/Repeater stacks.
 
 Layer is the UI presentation of an Object; there is no duplicate Layer state model.
@@ -97,8 +97,8 @@ Current M0 limits are safety bounds, not product performance targets.
 
 ## Native 0.2: retained primitives and point corrections
 
-The primitive slice introduced 0.2; the current writer emits 0.7 and the reader
-accepts strict 0.1 through 0.7. Migration of 0.1
+The primitive slice introduced 0.2; the current writer emits 0.8 and the reader
+accepts strict 0.1 through 0.8. Migration of 0.1
 preserves authored values, IDs and bindings, with no geometry conversion. The
 historical linked fixture in `tests/fixtures/native-v0.1-linked.nect` is loaded,
 edited, saved and reopened in separate processes. Unknown fields and behavior
@@ -322,6 +322,49 @@ and clipping/crops/transparency do not imply additional color identities.
 Native 0.1–0.6 migration adds an empty named palette and preserves all existing
 paint/channel bindings. SVG evaluates named references into the declared export
 subset; the native document remains the source for editable identities.
+
+## Native 0.8: retained Polygon and Star
+
+`nect.shape.polygon` and `nect.shape.star` version 1 use the existing retained
+Primitive and Point Edit model. Polygon has `center_x`, `center_y`, `radius`,
+`points` and `rotation`. Star has `outer_radius` and `inner_radius` instead of
+`radius`. Coordinates/radii use local du, rotation uses degrees, and points uses
+dimensionless integral values (Polygon 3–256; Star 2–256). All are ordinary Scalar
+properties, including point count bindings. Radii are nonnegative; inner radius
+larger than outer intentionally creates an inverted Star. Defaults use rotation
+−90°, so the first outer point faces up. These generators make straight edges
+with zero initial handle lengths. Fractional point counts and source roundness
+are not implemented; direct Point Edit handles remain available.
+
+Generated identities follow outer/inner role plus reduced rational angular phase
+around the source: `<source>-outer-1-5` is the same role in a five- or ten-point
+source. Star inner phases are odd half-steps. Angle zero is canonically `0-1`.
+Rotation/radius/center edits retain roles. IDs are not list indexes: count changes
+that remove corrected vertices (including bypassed corrections) reject with
+`UNRESOLVED_POINT_EDIT`; references to removed roles reject `MISSING_REFERENCE`.
+The entire candidate fails atomically. Existing Circle/cardinal and Rectangle/
+corner IDs are unchanged. No point identity is silently reassigned.
+
+`clear_point_edit {object}` explicitly removes all overrides and their bindings,
+retaining the source and paint stack, as one undoable operation. The GUI reviews
+that loss before Reset point edits. Clearing and changing count can be one API
+batch; external users of a disappearing point must still be detached explicitly.
+Convert to Path freezes current active topology with the existing reference
+blockers and correction-binding preservation rules. Disabled-only cycles keep
+their earlier bypass behavior; enabling an actual cycle fails.
+
+Evaluation resolves source count dependencies and generated references with the
+same cycle detection and units. It memoizes each object's resolved topology,
+then enumerates active generated properties. Canvas/tree/shape evaluation use
+the same evaluated snapshot; they never infer a linked count from its fallback
+literal. `path_contours` requires that snapshot for a linked count and reports
+`EVALUATION_REQUIRED` if absent. No generated contour is persisted as a competing
+authored copy. API/MCP `primitive_types` supplies exact source templates.
+
+Native 0.8 is an additive operator-type change; earlier authored data migrates
+without geometric conversion. Historical native 0.7 named-color poster bytes
+remain a fixture. Polygon/Star source types are refused in older version envelopes.
+`schemas/native-v0.8.schema.json` defines the current structural schema.
 
 ## Desktop continuous protection (native format unchanged)
 
