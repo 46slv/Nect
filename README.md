@@ -162,14 +162,29 @@ the three-frame `examples/artboard-studies.nect` fixture and numbered SVG crops.
 `tests/mcp_desktop_tests.py` demonstrates seeded creation, edits, linking,
 reordering, failure readback, Undo, native save/restart and crash recovery.
 
-Recovery protects committed revisions at a one-second timer cadence (synchronous
-IO in this first small-document slice); drafts remain separate. Manual Save uses
-atomic replacement with direct-write fallback disabled and keeps ten previous
-native files in `<file>.backups`. Recovery files are in the local Nect app-data
-folder, or `--recovery-dir`. File > Open Recovery opens one as an unnamed document.
-This is not yet continuous saving to the named source file, asynchronous IO, or
-bounded recovery-directory retention. Unsupported native fields/versions are
-rejected without altering the source.
+Committed edits live-save to the named file and recovery storage in the background
+at a one-second cadence. Incomplete fields and gesture previews remain separate.
+One running snapshot plus the newest pending snapshot bounds the queue. Status and
+API `hello.persistence` distinguish pending, writing, verified native/recovery
+revisions and destination failures. A slow or failed disk extends the loss window;
+pending work is not yet protected. Manual Save and normal open/new/close explicitly
+drain earlier writes and protect the latest committed state before changing targets.
+
+Atomic replacement has direct-write fallback disabled and verifies written bytes.
+Content fingerprints plus cooperative locks reject external native changes; use
+Save As to another path or reopen. Recovery continues through native conflicts.
+File > Open Recovery (API/MCP `open_recovery`) opens an unnamed copy. Recovery lives
+in local Nect app-data, or `--recovery-dir`.
+
+Manual saves and the first live replacement after opening/saving retain the prior
+file, then automatic generations are sampled about every30 seconds. Native and
+recovery `<file>.backups` target ten owned generations. Inactive managed recovery
+sessions target20 /128 MiB, newest first; active sessions and legacy, modified or
+unrecognized files are excluded. Cleanup is best effort and never invalidates a
+verified save. History is separate from these backups. Native files are limited
+to8 MiB; unsupported fields/versions reject without altering the source. This
+does not promise survival of all hardware failures or non-cooperating external
+writes in the final rename race. See the persistence contract in `docs/model-v0.md`.
 
 ## Entry points
 

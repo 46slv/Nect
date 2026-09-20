@@ -11,7 +11,7 @@ from session_client import call, LIMIT
 
 IDENTITY = {'session_id': {'type': 'string'}, 'document_id': {'type': 'string'}}
 TOOLS = [
-    {'name': 'nect_session', 'description': 'Read the live desktop document/session identity and revision.',
+    {'name': 'nect_session', 'description': 'Read live desktop identity, revision and persistence receipts: pending/writing/native saved/recovery revisions and explicit errors.',
      'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False},
      'annotations': {'readOnlyHint': True, 'openWorldHint': False}},
     {'name': 'nect_command',
@@ -50,10 +50,13 @@ TOOLS = [
      'annotations': {'readOnlyHint': False, 'destructiveHint': True, 'openWorldHint': False}},
     {'name': 'nect_file',
      'description': ('Create/open/save a native document or protect recovery in the live desktop. '
-                     'new/open rotate session identity; read returned identity before subsequent edits. '
-                     'open protects outgoing work in recovery. save preserves previous file backups.'),
+                     'new/open/open_recovery rotate session identity; read returned identity before subsequent edits. '
+                     'open protects outgoing work. open_recovery opens an unnamed copy without overwriting its source. '
+                     'Committed edits live-save about once per second in the background. recover explicitly flushes committed protection. '
+                     'save preserves previous file backups; external native changes reject with FILE_CHANGED, use another Save As path or reopen. '
+                     'Read nect_session.persistence for verified per-destination revisions; queued data is not saved.'),
      'inputSchema': {'type': 'object', 'properties': dict(IDENTITY,
-         op={'type': 'string', 'enum': ['new', 'open', 'save', 'recover']},
+         op={'type': 'string', 'enum': ['new', 'open', 'open_recovery', 'save', 'recover']},
          expected_revision={'type': 'integer', 'minimum': 0}, path={'type': 'string'}),
          'required': ['session_id', 'document_id', 'op', 'expected_revision'], 'additionalProperties': False},
      'annotations': {'readOnlyHint': False, 'destructiveHint': True, 'openWorldHint': False}},

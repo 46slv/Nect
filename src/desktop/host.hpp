@@ -1,16 +1,21 @@
 #pragma once
 #include "nect/io.hpp"
+#include "protection.hpp"
 #include <QObject>
 #include <QLocalServer>
 #include <QTimer>
 #include <QString>
 #include <functional>
+#include <future>
+#include <QJsonObject>
+#include <QElapsedTimer>
 
 namespace nect::desktop {
 Id new_id();
 class Host : public QObject {
 public:
-    explicit Host(QString recovery_directory, QObject* parent=nullptr);
+    explicit Host(QString recovery_directory, QObject* parent=nullptr,ProtectionWriter writer=protect_snapshot);
+    ~Host() override;
     Session session;
     QString session_id;
     QString file_path;
@@ -23,18 +28,37 @@ public:
     void edited();
     void create_document();
     void open(const QString& path);
+    void open_recovery(const QString& path);
     void save(const QString& path);
     void recover();
+    void flush();
     QString recovery_directory() const { return recovery_directory_; }
     bool dirty() const { return saved_revision_ != session.revision() || file_path.isEmpty(); }
+    QJsonObject persistence() const;
 private:
     QLocalServer server_;
     QTimer recovery_timer_;
+    QTimer completion_timer_;
     QString recovery_directory_;
-    std::uint64_t saved_revision_ = 0;
-    QString protected_session_;
-    std::uint64_t protected_revision_ = ~std::uint64_t(0);
-    void protect();
-    void reset(Document document, const QString& path);
+    std::optional<std::uint64_t> saved_revision_,protected_revision_;
+    FileStamp file_stamp_;
+    QString protected_file_;
+    StorageError native_error_,recovery_error_;
+    ProtectionWriter writer_;
+    std::optional<ProtectionSnapshot> pending_;
+    std::future<ProtectionResult> running_;
+    std::optional<std::uint64_t> running_revision_;
+    bool pending_due_=false;
+    QElapsedTimer backup_clock_;
+    qint64 last_native_backup_=-30000,last_recovery_backup_=-30000;
+    std::shared_ptr<QLockFile> recovery_lease_;
+    ProtectionSnapshot snapshot() const;
+    void queue_protection();
+    void start_protection();
+    void collect_protection();
+    void drain_protection();
+    void accept(ProtectionResult result);
+    void refresh_status();
+    void reset(Document document,const QString& path,FileStamp stamp={});
 };
 }

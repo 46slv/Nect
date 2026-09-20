@@ -289,12 +289,12 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     action(file,"Save As…",QKeySequence::SaveAs,[this]{save(true);});
     action(file,"Open Recovery…",{},[this]{
         const auto path=QFileDialog::getOpenFileName(this,"Recover a protected document",host.recovery_directory(),"Nect (*.nect)");
-        if(!path.isEmpty()) {canvas->cancel_interaction();host.open(path);host.file_path.clear();host.edited();canvas->fit_artboard();}
+        if(!path.isEmpty()) {canvas->cancel_interaction();host.open_recovery(path);canvas->fit_artboard();}
     });
     action(file,"Export SVG…",QKeySequence("Ctrl+Shift+E"),[this]{
         const auto path=QFileDialog::getSaveFileName(this,"Export current artboard",{},"SVG (*.svg)");
         if(path.isEmpty()) return;
-        if(QFileInfo(path).absoluteFilePath()==host.file_path) throw Error("EXPORT_TARGET","Export cannot replace the native source file");
+        if(same_native_path(path,host.file_path)) throw Error("EXPORT_TARGET","Export cannot replace the native source file");
         const auto bytes=QByteArray::fromStdString(export_svg(host.session.document(),canvas->active_composition(),canvas->active_artboard()));
         QSaveFile output(path);output.setDirectWriteFallback(false);
         if(!output.open(QIODevice::WriteOnly)||output.write(bytes)!=bytes.size()||!output.commit())
@@ -1415,7 +1415,7 @@ void Window::group_selection() {
 void Window::closeEvent(QCloseEvent* event) {
     cancel_whip();
     canvas->cancel_interaction();
-    try {host.recover();event->accept();}
+    try {host.flush();event->accept();}
     catch(const std::exception& e) {QMessageBox::warning(this,"Recovery failed",QString::fromUtf8(e.what())+"\nSave your document before closing.");event->ignore();}
 }
 }

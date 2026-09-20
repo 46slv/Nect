@@ -6,45 +6,33 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QLocalSocket>
-#include <QSaveFile>
 #include <QUuid>
 #include <QDateTime>
 #include <limits>
 #include <memory>
 #include <algorithm>
+#include <chrono>
 
 namespace nect::desktop {
 Id new_id() { return QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString(); }
 namespace {
-void write_atomic(const QString& path,const QByteArray& bytes) {
-    QSaveFile out(path);
-    out.setDirectWriteFallback(false);
-    if(!out.open(QIODevice::WriteOnly) || out.write(bytes)!=bytes.size() || !out.commit())
-        throw Error("IO_ERROR",out.errorString().toStdString());
-}
-Document read_native(const QString& path) {
-    QFile input(path);
-    if(!input.open(QIODevice::ReadOnly)) throw Error("IO_ERROR",input.errorString().toStdString());
-    if(input.size()>8*1024*1024) throw Error("INPUT_LIMIT","Native file exceeds 8 MiB");
-    const auto data=input.readAll();
-    if(input.error()!=QFileDevice::NoError) throw Error("IO_ERROR",input.errorString().toStdString());
-    return decode(std::string_view(data.constData(),static_cast<std::size_t>(data.size())));
-}
 QString string(const QJsonObject& o,const char* key) {
     if(!o.value(key).isString()) throw Error("INVALID_REQUEST",std::string("String required: ")+key);
     return o.value(key).toString();
 }
 }
 
-Host::Host(QString recovery_directory,QObject* parent)
+Host::Host(QString recovery_directory,QObject* parent,ProtectionWriter writer)
     :QObject(parent),session(empty_document(new_id(),new_id(),new_id())),
-     session_id(QString::fromStdString(new_id())),recovery_directory_(std::move(recovery_directory)) {
+     session_id(QString::fromStdString(new_id())),recovery_directory_(std::move(recovery_directory)),writer_(std::move(writer)) {
+    backup_clock_.start();
     recovery_timer_.setSingleShot(true);
     recovery_timer_.setInterval(1000);
     connect(&recovery_timer_,&QTimer::timeout,this,[this] {
-        try { protect(); } catch(const std::exception& e) { save_status="Recovery failed: "+QString::fromUtf8(e.what()); }
-        if(status_changed) status_changed();
+        pending_due_=true;start_protection();
     });
+    completion_timer_.setInterval(25);
+    connect(&completion_timer_,&QTimer::timeout,this,[this]{collect_protection();});
     server_.setSocketOptions(QLocalServer::UserAccessOption);
     connect(&server_,&QLocalServer::newConnection,this,[this] {
         while(auto* socket=server_.nextPendingConnection()) {
@@ -64,63 +52,167 @@ Host::Host(QString recovery_directory,QObject* parent)
         }
     });
 }
+Host::~Host() {
+    changed={};status_changed={};recovery_timer_.stop();completion_timer_.stop();
+    pending_.reset();pending_due_=false;drain_protection();
+}
 void Host::listen(const QString& endpoint) {
     if(!server_.listen(endpoint)) throw Error("IPC_ERROR",server_.errorString().toStdString());
 }
 void Host::edited() {
-    save_status="Unsaved · recovery pending";
-    // Periodic protection under continuous editing: don't postpone indefinitely.
-    if(!recovery_timer_.isActive()) recovery_timer_.start();
+    queue_protection();
     if(changed) changed();
 }
-void Host::protect() {
-    if(protected_session_==session_id && protected_revision_==session.revision()) return;
-    if(!QDir().mkpath(recovery_directory_)) throw Error("IO_ERROR","Cannot create recovery directory");
-    auto bytes=QByteArray::fromStdString(encode(session.document()));
-    const auto base=QDir(recovery_directory_).filePath(session_id);
-    write_atomic(base+".nect",bytes);
-    protected_session_=session_id; protected_revision_=session.revision();
-    save_status=dirty()?(file_path.isEmpty()?"Recovery protected · not saved to a file":"Changes protected in recovery"):
-        "Saved · revision "+QString::number(saved_revision_);
+ProtectionSnapshot Host::snapshot() const {
+    ProtectionSnapshot result;result.document=session.document();result.session_id=session_id;
+    result.revision=session.revision();result.native_file=file_path;result.recovery_directory=recovery_directory_;
+    return result;
 }
-void Host::reset(Document document,const QString& path) {
+void Host::queue_protection() {
+    // Session::document is the last committed state even while a gesture has a
+    // preview. Only one newest pending copy is retained beside the running job.
+    pending_=snapshot();
+    if(!pending_due_&&!recovery_timer_.isActive())recovery_timer_.start();
+    if(pending_due_)start_protection();
+    refresh_status();
+}
+void Host::start_protection() {
+    if(running_.valid()||!pending_||!pending_due_)return;
+    auto job=std::move(*pending_);pending_.reset();pending_due_=false;
+    job.expected_native=file_stamp_;job.recovery_lease=recovery_lease_;
+    job.write_native=!file_path.isEmpty()&&saved_revision_!=job.revision&&native_error_.code!="FILE_CHANGED";
+    const auto now=backup_clock_.elapsed();
+    job.native_backup=now-last_native_backup_>=30000;job.recovery_backup=now-last_recovery_backup_>=30000;
+    running_revision_=job.revision;
+    try {
+        running_=std::async(std::launch::async,[writer=writer_,job=std::move(job)]() mutable {return writer(std::move(job));});
+        completion_timer_.start();
+    } catch(const std::exception& e) {
+        running_revision_.reset();recovery_error_={"IO_ERROR",QString::fromUtf8(e.what())};
+    }
+    refresh_status();
+}
+void Host::accept(ProtectionResult result) {
+    // Session replacement drains the worker. This guard also prevents accidental
+    // publication if a future caller ever violates that ordering.
+    if(result.session_id!=session_id)return;
+    recovery_lease_=std::move(result.recovery_lease);
+    if(result.recovery_written) {
+        protected_revision_=result.revision;protected_file_=result.native_file;recovery_error_={};
+        if(result.recovery_backup)last_recovery_backup_=backup_clock_.elapsed();
+    } else if(!result.recovery_error.empty())recovery_error_=std::move(result.recovery_error);
+    if(result.native_file==file_path) {
+        if(result.native_written) {
+            saved_revision_=result.revision;file_stamp_=std::move(result.native_stamp);native_error_={};
+            if(result.native_backup)last_native_backup_=backup_clock_.elapsed();
+        } else if(!result.native_error.empty())native_error_=std::move(result.native_error);
+    }
+}
+void Host::drain_protection() {
+    completion_timer_.stop();
+    if(running_.valid())try {accept(running_.get());}
+    catch(const std::exception& e) {recovery_error_={"IO_ERROR",QString::fromUtf8(e.what())};}
+    running_revision_.reset();
+}
+void Host::collect_protection() {
+    if(!running_.valid()||running_.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
+    drain_protection();
+    if(pending_due_)start_protection();
+    refresh_status();
+}
+QJsonObject Host::persistence() const {
+    auto revision=[](const auto& value)->QJsonValue{return value?QJsonValue(static_cast<qint64>(*value)):QJsonValue(QJsonValue::Null);};
+    auto error=[](const StorageError& value)->QJsonValue{return value.empty()?QJsonValue(QJsonValue::Null):
+        QJsonValue(QJsonObject{{"code",value.code},{"message",value.message}});};
+    const auto phase=!native_error_.empty()||!recovery_error_.empty()?"failed":running_revision_?"writing":pending_?"pending":
+        !dirty()?"saved":protected_revision_==session.revision()?"protected":"unprotected";
+    return {{"phase",phase},{"live_revision",static_cast<qint64>(session.revision())},
+        {"saved_revision",revision(saved_revision_)},{"recovery_revision",revision(protected_revision_)},
+        {"writing_revision",revision(running_revision_)},{"pending_revision",pending_?QJsonValue(static_cast<qint64>(pending_->revision)):QJsonValue(QJsonValue::Null)},
+        {"native_error",error(native_error_)},{"recovery_error",error(recovery_error_)},
+        {"recovery_file",QDir(recovery_directory_).filePath(session_id+".nect")},
+        {"cadence_ms",1000},{"backup_interval_ms",30000},{"backup_generations",10},
+        {"retained_inactive_recovery_sessions",20},{"inactive_recovery_budget_bytes",128*1024*1024}};
+}
+void Host::refresh_status() {
+    const auto recovery=protected_revision_?"Recovery r"+QString::number(*protected_revision_):QString("Recovery pending");
+    if(!native_error_.empty())save_status=(native_error_.code=="FILE_CHANGED"?
+        QString("Source changed externally · Save As or reopen"):"Save failed: "+native_error_.message)+" · "+recovery;
+    else if(!recovery_error_.empty())save_status="Recovery failed: "+recovery_error_.message+
+        (!dirty()?" · Saved r"+QString::number(*saved_revision_):QString());
+    else if(running_revision_||pending_)save_status=(running_revision_?"Writing r"+QString::number(*running_revision_):QString("Save pending"))+
+        (pending_?" · latest r"+QString::number(pending_->revision):QString())+" · "+recovery;
+    else if(!dirty())save_status="Saved · revision "+QString::number(*saved_revision_);
+    else save_status=recovery+" · choose Save As for a native file";
+    if(status_changed)status_changed();
+}
+void Host::reset(Document document,const QString& path,FileStamp stamp) {
     if(session.gesture_active()) throw Error("GESTURE_ACTIVE","Finish the current gesture first");
     if(std::none_of(document.compositions.begin(),document.compositions.end(),[](const auto& c){return !c.artboards.empty();}))
         throw Error("DESKTOP_DOCUMENT_REQUIREMENT","The desktop needs a Composition with an Artboard; source file is unchanged");
     // Protect the outgoing document before replacing the live Session.
-    protect();
+    flush();
     session=Session(std::move(document));
     session_id=QString::fromStdString(new_id());
-    file_path=path; saved_revision_=0;
-    save_status=path.isEmpty()?"New document":"Opened · saved";
-    recovery_timer_.stop();
+    file_path=path;file_stamp_=std::move(stamp);
+    saved_revision_=path.isEmpty()?std::nullopt:std::optional<std::uint64_t>(0);
+    protected_revision_.reset();protected_file_.clear();recovery_lease_.reset();native_error_={};recovery_error_={};
+    last_native_backup_=-30000;last_recovery_backup_=-30000;
+    queue_protection();
     if(changed) changed();
 }
 void Host::create_document() { reset(empty_document(new_id(),new_id(),new_id()),{}); }
-void Host::open(const QString& path) { reset(read_native(path),QFileInfo(path).absoluteFilePath()); }
+void Host::open(const QString& path) {
+    const auto absolute=native_path(path);
+    if(same_native_path(absolute,file_path))flush();
+    auto loaded=load_native(absolute);reset(std::move(loaded.document),absolute,std::move(loaded.stamp));
+}
+void Host::open_recovery(const QString& path) {
+    auto loaded=load_native(native_path(path));reset(std::move(loaded.document),{});
+}
 void Host::save(const QString& path) {
     if(session.gesture_active()) throw Error("GESTURE_ACTIVE","Finish the gesture before saving");
     if(path.isEmpty()) throw Error("IO_ERROR","Choose a native file path");
-    const auto absolute=QFileInfo(path).absoluteFilePath();
+    const auto absolute=native_path(path);
+    drain_protection();
     const auto bytes=QByteArray::fromStdString(encode(session.document()));
-    // Retain the previous file before replacement; failure leaves it untouched.
-    if(QFile::exists(absolute)) {
-        const auto backups=absolute+".backups";
-        if(!QDir().mkpath(backups)) throw Error("IO_ERROR","Cannot create backup directory");
-        const auto name=QDateTime::currentDateTimeUtc().toString("yyyyMMdd-HHmmsszzz")+"-"+
-            QString::fromStdString(new_id())+".nect";
-        if(!QFile::copy(absolute,QDir(backups).filePath(name))) throw Error("IO_ERROR","Cannot retain previous save");
-        // No pruning before the replacement has succeeded.
+    FileStamp stamp;
+    const auto current_target=same_native_path(absolute,file_path);
+    try {stamp=store_native(absolute,bytes,current_target?std::optional<FileStamp>(file_stamp_):std::nullopt,true);}
+    catch(const Error& error) {
+        if(current_target)native_error_={QString::fromStdString(error.code),QString::fromUtf8(error.what())};
+        save_status="Save failed: "+QString::fromUtf8(error.what());if(status_changed)status_changed();throw;
     }
-    write_atomic(absolute,bytes);
-    file_path=absolute; saved_revision_=session.revision();
-    save_status="Saved · revision "+QString::number(saved_revision_);
-    const QDir backups(absolute+".backups");
-    const auto files=backups.entryList({"*.nect"},QDir::Files,QDir::Name);
-    for(qsizetype i=0;i<files.size()-10;++i) QFile::remove(backups.filePath(files[i]));
+    file_path=absolute;file_stamp_=std::move(stamp);saved_revision_=session.revision();native_error_={};
+    // Preserve this explicit save on the next background replacement, even if
+    // it occurs inside the normal thirty-second generation cadence.
+    last_native_backup_=-30000;queue_protection();
     if(changed) changed();
 }
-void Host::recover() { protect(); }
+void Host::recover() {
+    // Explicit flush/open/new/close may wait; periodic jobs never wait on the UI
+    // thread. Flush uses committed authority even when invoked during a preview.
+    recovery_timer_.stop();pending_.reset();pending_due_=false;drain_protection();
+    if(protected_revision_!=session.revision()||protected_file_!=file_path||(!file_path.isEmpty()&&dirty()&&native_error_.code!="FILE_CHANGED")) {
+        auto job=snapshot();job.expected_native=file_stamp_;job.recovery_lease=recovery_lease_;
+        job.write_native=!file_path.isEmpty()&&dirty()&&native_error_.code!="FILE_CHANGED";
+        const auto now=backup_clock_.elapsed();
+        job.native_backup=now-last_native_backup_>=30000;job.recovery_backup=now-last_recovery_backup_>=30000;
+        accept(writer_(std::move(job)));
+    }
+    refresh_status();
+    if(protected_revision_!=session.revision())throw Error(recovery_error_.empty()?"IO_ERROR":recovery_error_.code.toStdString(),
+        recovery_error_.empty()?"Committed revision is not protected":recovery_error_.message.toStdString());
+}
+void Host::flush() {
+    try {recover();}
+    catch(const Error&) {
+        // A broken recovery folder must not trap a document whose exact latest
+        // native bytes are still readable. Explicit recover remains strict.
+        if(!dirty())try {if(load_native(file_path).stamp==file_stamp_)return;}catch(const std::exception&) {}
+        throw;
+    }
+}
 
 QByteArray Host::dispatch(const QByteArray& input) {
     QJsonObject response;
@@ -136,6 +228,7 @@ QByteArray Host::dispatch(const QByteArray& input) {
         if(string(outer,"op")=="hello") {
             response={{"ok",true},{"session_id",session_id},{"document_id",QString::fromStdString(session.document().id)},
                 {"revision",static_cast<qint64>(session.revision())},{"file",file_path},{"save_status",save_status},
+                {"persistence",persistence()},
                 {"transport","nect-local-session"},{"protocol",1}};
         } else {
             if(string(outer,"session_id")!=session_id || string(outer,"document_id").toStdString()!=session.document().id)
@@ -154,6 +247,7 @@ QByteArray Host::dispatch(const QByteArray& input) {
                     throw Error("REVISION_CONFLICT","Refresh revision before file/session operations");
                 if(op=="save") save(string(outer,"path"));
                 else if(op=="open") open(string(outer,"path"));
+                else if(op=="open_recovery") open_recovery(string(outer,"path"));
                 else if(op=="new") create_document();
                 else if(op=="recover") recover();
                 else throw Error("UNSUPPORTED_OPERATION",op.toStdString());

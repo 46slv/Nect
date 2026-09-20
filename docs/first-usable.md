@@ -274,3 +274,47 @@ All release operations now meet33.333 ms. The30 fps p95 floor passes, while one
 Text interval stall and the unmet60 fps target remain explicit limitations.
 Raw evidence: ignored `build/canvas-benchmark-text-history-font.json`. Temporary
 profiling code is removed; this result uses the production build.
+
+## Continuous protection evidence — 2026-09-20
+
+All19 CTest entries passed after asynchronous live save integration. A deliberately
+blocked worker retained only revisions1 and12 while the main event loop and local
+API remained responsive; the active gesture preview999 never appeared on disk.
+New-session creation drained the worker and protected the latest outgoing edit.
+Native conflict and failed recovery destinations advanced only the independently
+verified destination. Save As preserved external changes and recovery opened as
+an unnamed copy through formal MCP.
+
+Storage tests use actual Windows handles denying writes/replacement, repeated
+failed saves, locked backup generations, exact backup restore and a helper killed
+after QSaveFile staged/flush but before commit. That helper uses the same disabled
+direct-write fallback; it is evidence for interruption at that boundary, not a
+power-loss test. Managed retention kept20 of24 inactive recoveries while retaining
+active/legacy/modified/foreign files. The128MiB threshold is not stress-tested.
+The MCP scenario edits through the real desktop, waits for automatic per-target
+receipts, verifies exact disk bytes, terminates abnormally and reopens both the
+native and recovery data without loss of the verified revision.
+
+Actual Windows poster use copied the example into ignored build storage, moved
+English Title via Canvas, and observed Save pending→Saved revision1 without a
+Save command. API readback matched the entire native and recovery documents, and
+the exact original poster was retained as a backup. The example source remained
+unchanged; the edited copy and receipt are build/live-save-manual.nect and
+build/live-save-manual-receipt.json. The window closed normally.
+
+Visible production Window performance with automatic protection enabled:
+
+| Fixture | Worst p95 interval ms | Worst interval ms | >33.333 ms intervals | Maximum release ms |
+| --- | ---: | ---: | ---: | ---: |
+| Mixed Text | 19.28 | 23.98 | 0 | 24.63 |
+| 80 Paths /320 points | 25.25 | 26.03 | 0 | 34.07 |
+| 2 Paths | 18.61 | 68.14 | 1 | 10.88 |
+
+All scenes meet the30fps p95 floor. The80-Path point/handle release34.07/33.94ms
+slightly exceeds the33.333ms release target; the single2-Path pan outlier and unmet
+60fps target remain explicit limitations. No favorable rerun replaces these
+measurements. Hardware/viewport/input boundaries match the earlier benchmark.
+Final case-alias and monotonic backup-cadence hardening passed four focused
+storage/protection/live-save/Window checks after rebuilding (12.02 seconds).
+Raw artifacts: build/canvas-benchmark-live-save.json and
+build/canvas-benchmark-live-save-paths.json.

@@ -219,20 +219,39 @@ try:
         assert float(gradient_defs[0].findall(ns+'stop')[0].attrib['offset'])==0
         assert core('inspect')['result'] == expected
         assert json.loads(native.read_text(encoding='utf-8')) == expected
-        assert tool('nect_file', dict(identity, op='recover', expected_revision=rev))['ok']
+        # Automatic protection must reach a verified receipt without an explicit
+        # Save/recover call, through the real desktop event loop and worker.
+        rev=apply([dict(type='set',ref=source,value=156)],rev)
+        expected=core('inspect')['result']
+        deadline=time.monotonic()+8
+        while time.monotonic()<deadline:
+            durable=tool('nect_session')['persistence']
+            if durable['saved_revision']==rev and durable['recovery_revision']==rev:
+                break
+            time.sleep(.05)
+        else:
+            raise AssertionError(('Live save did not finish',durable))
+        assert json.loads(native.read_text(encoding='utf-8'))==expected
         recovery = temp / 'recovery' / (identity['session_id'] + '.nect')
         # Actual abnormal termination: recover the exact committed snapshot in a new process.
         desktop.kill();desktop.wait(timeout=5)
-        desktop, _ = start(endpoint, temp, recovery)
+        desktop, _ = start(endpoint, temp, native)
         assert core('apply', expected_revision=0, commands=[dict(type='set', ref=source, value=1)])['error']['code'] == 'SESSION_CONFLICT'
         live = tool('nect_session'); identity = {key: live[key] for key in ('session_id', 'document_id')}
         assert core('inspect')['result'] == expected
-        assert core('get', ref=target)['result']['evaluated'] == 167
+        assert core('get', ref=target)['result']['evaluated'] == 168
         assert len(core('history')['result']['states'])==1
+        # Recovery is opened through the same formal MCP surface as an unnamed
+        # document, so subsequent live saves cannot replace the recovery source.
+        assert tool('nect_file',dict(identity,op='open_recovery',path=str(recovery),expected_revision=0))['ok']
+        live=tool('nect_session');identity={key:live[key] for key in ('session_id','document_id')}
+        assert live['file']=='' and live['persistence']['saved_revision'] is None
+        assert core('inspect')['result']==expected
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,
             mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,
-            independent_svg_parser_paths=expected_svg_paths, ordered_stack_readback=True, gui_performance_claim=False)
+            independent_svg_parser_paths=expected_svg_paths, ordered_stack_readback=True,
+            automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, gui_performance_claim=False)
         print(json.dumps(receipt, indent=2))
 finally:
     if mcp:

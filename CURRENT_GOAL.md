@@ -1,4 +1,4 @@
-# Practical alpha Mission — long History integrated; live save next
+# Practical alpha Mission — continuous protection integrated; retained Polygon/Star next
 
 ## Active Mission checkpoint — 2026-09-20
 
@@ -155,7 +155,7 @@ still passes the 30 fps p95 floor (worst20.49 ms, zero intervals >33.333 ms);
 Text release/Inspector refresh39.23 ms exceeds the33.333 ms release target and
 needs follow-up. The 60 fps target also remains unmet. See first-usable evidence.
 
-History checkpoint after `8b63d5b`: compact reversible deltas retain up to
+History checkpoint `7323ec1` after `8b63d5b`: compact reversible deltas retain up to
 1,024 edits / estimated 64 MiB, with stable state IDs, atomic state jumps, explicit
 pruning and oversized-edit rejection. GUI View > History and the shared API/MCP
 use the same Session timeline. New edits discard only the redo branch. Native
@@ -184,32 +184,62 @@ passes, but this is not zero-stall or60 fps evidence. Raw result:
 build/canvas-benchmark-text-history-font.json. Profiling code removed; no GUI
 process remains. Worker finished; parent owns all builds and source files.
 
-Next safe actions after this slice: implement dependable nonblocking live protection in
-thin slices; do not treat the
-radial example as full alpha completion. Masks/compositing, assets,
-continuous save, expressions/multi-edit and the remaining explicit Mission
+Next safe actions after this slice: extend retained primitives with Polygon/Star and explicit topology/correction
+identity. Do not treat the radial example as full alpha completion. Masks/compositing,
+assets, Anchor/Transform Parent, expressions/multi-edit and the remaining explicit Mission
 requirements still need implementation and real production fixtures.
 Preserve all current files and the development document. No release/publication
 or dependency binaries are authorized for distribution. This checkpoint does not
 claim practical-alpha completion or relax F1–F8. Do not stop at M1.
 
-Next persistence boundary: automatic protection currently encodes and writes on
-the UI thread and protects only recovery copies. Capture committed snapshots at
-edit completion; serialize/write off the UI thread with at most one running job
-and the newest pending revision. Keep source/recovery durability revisions
-separate from the live revision, never label queued data saved, and drain earlier
-jobs before explicit save/open/new/close can change target identity. Normal named
-documents should live-save atomically; protect external file changes with a known
-file fingerprint and a single-writer file lock, retaining recovery on conflict.
-For a potentially slow storage job, disable age-based stale-lock expiry; a live
-writer must not lose its lock merely because storage takes more than 30 seconds.
-Qt documents cooperative locking only (external editors need not honor it):
-https://doc.qt.io/qt-6/qlockfile.html. Continue QSaveFile with direct-write fallback
-disabled: https://doc.qt.io/qt-6/qsavefile.html. Do not promise hardware-failure immunity.
-Choose bounded backup/recovery retention and disclose cadence/loss boundaries.
-Exercise slow/failed/interrupted writes and actual restore; keep GUI drafts and
-gesture previews out of persistent authority. No history/native migration needed
-for this host-only slice. Existing saved examples must remain unchanged.
+Continuous protection checkpoint after `7323ec1`: committed snapshots at edit
+completion, one running worker plus newest pending copy, one-second non-postponed
+cadence. Encoding/backup/atomic writes/readback/retention run off the UI thread.
+Known native/recovery revisions, writing/pending revisions and independent errors
+are exposed in hello.persistence and the status bar. Manual save/open/new/close
+drain earlier writes before changing target identity. Recovery errors cannot trap
+a closing document when its exact current native bytes still verify on disk.
+
+Content SHA256 and canonical cooperative locks protect native replacements;
+external change/deletion gives FILE_CHANGED while recovery continues. Windows
+case aliases cannot bypass the check; SVG cannot replace the same native alias.
+QSaveFile direct-write fallback remains disabled; age-based stale-lock expiry is
+disabled. Qt's cooperative-lock and atomic-file contracts were checked against
+https://doc.qt.io/qt-6/qlockfile.html and https://doc.qt.io/qt-6/qsavefile.html.
+The final non-cooperating writer race and arbitrary hardware failures are not
+claimed solved. IO_VERIFY_FAILED discloses uncertain post-replacement readback.
+
+Manual/first-live replacements preserve previous bytes; subsequent automatic
+generations use a monotonic30-second cadence, ten owned backups per file. Closed
+managed recovery targets20 sessions/128 MiB; active leases, legacy/unrecognized,
+modified or unreadable files remain outside cleanup. Metadata records hash and
+revision; recovery data with incomplete metadata remains manually recoverable.
+Cleanup is best effort, never an asserted hard disk cap. API/MCP open_recovery
+opens an unnamed copy. Native0.7 unchanged; examples preserved.
+
+All19 CTest entries passed21.76s, including new storage/protection/live-save
+contracts. Slow injected writer allows UI events/API while coalescing revisions
+1..12 into two jobs, persists committed12 rather than active preview999, and
+drains latest work before Session replacement. Real Windows deny-write/delete
+handles, locked backup retention, exact backup restore, external edits/deletion,
+independent recovery/native failures and killed QSaveFile staging helper pass.
+Formal MCP waits for automatic native+recovery receipts, kills/restarts the real
+desktop and reads exact authored data; no explicit Save/recover was used for the
+last edit. Retention test covers24 inactive snapshots ->20 plus active/legacy/
+modified exclusions;128MiB boundary is not stress-tested. Final Windows case-alias
+and monotonic-cadence hardening rebuilt and passed four focused storage/protection/
+live-save/Window checks in12.02s.
+
+Actual Windows self-use: copied poster to ignored build/live-save-manual.nect,
+dragged English Title to tx38.453038674/ty-17.2375690608, observed pending→Savedr1
+without Save. API verified complete live/native/recovery equality and exact
+original backup. Source fixture unchanged, app closed. Raw receipt retained in
+build/live-save-manual-receipt.json. Visible Text p95<=19.28ms,zero>33.333ms,
+release24.63ms;80Path p95<=25.25ms,zero>33.333ms. Point/handle release34.07/33.94ms
+on80Paths remains slightly over33.333ms;2Path pan has one68.14ms outlier. All
+scenes meet30fps p95 floor,60fps target remains unmet. Raw results:
+build/canvas-benchmark-live-save.json and canvas-benchmark-live-save-paths.json.
+Worker finished; parent owns builds, no GUI process remains.
 
 ---
 

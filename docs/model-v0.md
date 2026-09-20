@@ -323,6 +323,61 @@ Native 0.1–0.6 migration adds an empty named palette and preserves all existin
 paint/channel bindings. SVG evaluates named references into the declared export
 subset; the native document remains the source for editable identities.
 
+## Desktop continuous protection (native format unchanged)
+
+Host captures only `Session::document()` committed snapshots. One asynchronous
+worker validates/encodes and writes; one newest pending snapshot replaces queued
+intermediate edits. The one-second timer is not restarted by continuous input.
+Completed storage receipts update only matching Session/path identities. An old
+receipt may advance its own known durable revision but cannot claim the current
+newer revision is saved. Storage completion updates the status label only, leaving
+focused inputs and incomplete drafts intact.
+
+`hello.persistence` reports live, pending, writing, native saved and recovery
+revisions, independent destination errors, and recovery location. Null means no
+verified revision. Recover explicitly flushes committed state; native failure
+does not prevent recovery, and recovery failure does not prevent native saving.
+Manual save/open/new/normal close wait for earlier jobs before replacing identities
+or paths. Normal close/session replacement can proceed with a failed recovery
+destination only when the exact current native bytes are independently reread and
+verified. Explicit `recover` still reports that recovery failure. Opening recovery
+uses `open_recovery`, creates an unnamed Session and never edits its source file.
+
+Native writes compare SHA256 of the actual loaded bytes, including old-format
+spelling, under a canonical-path QLockFile. Age-based stale expiry is disabled;
+live slow writers must not lose their lock. A second comparison before commit
+catches external changes during preparation. QSaveFile stages the replacement
+with direct-write fallback disabled, then content is reread and hashed. Failure
+before commit preserves the prior file. `IO_VERIFY_FAILED` after replacement is
+explicitly ambiguous: replacement may have succeeded but cannot be labelled
+verified. External edits/deletion reject as `FILE_CHANGED`; reopen or Save As to
+another destination. Locks are cooperative; the final non-cooperating writer
+race and hardware/power-loss guarantees remain outside this contract.
+
+The first automatic replacement after open/manual save and subsequent automatic
+replacements at least30 seconds apart retain exact previous bytes. Manual saves
+request a generation whenever bytes differ. Owned timestamp+SHA256 backups are
+deduplicated and target ten generations per native/recovery file; pruning follows
+verified replacement only. Legacy names, modified bytes and unreadable/locked
+generations are preserved, so cleanup is best effort rather than a hard disk cap.
+
+Recovery data has a separately atomic `nect-recovery-1` receipt containing source
+path, document/Session ID, revision, timestamp and content hash. Data success with
+receipt failure is not reported as completed protection. A live Session holds an
+active lock; eligible closed recoveries target twenty sessions and128 MiB including
+their owned backup sizes, newest first. Legacy/foreign/mismatched receipts, modified
+files and active sessions are excluded from pruning. A crash between the data and
+receipt writes can leave a valid recoverable file with stale metadata; it is kept
+and can be opened manually, without trusting the stale receipt. Abrupt exit may
+leave a temporary staging file; unknown files are not automatically deleted.
+
+The normal recovery-loss window is the one-second scheduling cadence plus queue
+and storage latency. Slow or failed storage can extend it without a fixed bound;
+the UI and API report the last verified revisions. Uncommitted drafts/gestures,
+OS/device cache loss, external linked asset history, and cross-restart operation
+History are not covered by a native save. All native read/write payloads are
+bounded to8 MiB. No document migration or second mutable document model is added.
+
 ## Next contracts
 
 Extend Text only with demonstrated shaping/layout requirements.
