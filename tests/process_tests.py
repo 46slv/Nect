@@ -99,6 +99,7 @@ with tempfile.TemporaryDirectory() as tmp:
     migrated = replies[0]['result']
     projected = json.loads(json.dumps(migrated))
     projected['version'] = '0.1'
+    check(projected.pop('named_colors')==[], 'legacy migration does not invent named colors')
     for obj in projected['objects']:
         if obj['kind'] != 'path':
             continue
@@ -144,6 +145,7 @@ check(old['version']=='0.3','production fixture remains historical 0.3')
 migrated_run = subprocess.run([exe,'--serve',str(ornament)],input='{"op":"inspect"}\n',
     capture_output=True,text=True,timeout=10)
 new=json.loads(migrated_run.stdout)['result'];new['version']='0.3'
+check(new.pop('named_colors')==[], '0.3 migration starts with no named colors')
 check(new==old,'0.3 migration retains all paint, repeat, binding and correction state')
 check(run('--svg',old).stdout==(ornament.with_suffix('.svg')).read_text(encoding='utf-8'),
     'solid 0.3 scene exports identical SVG after migration')
@@ -152,10 +154,12 @@ old=json.loads(gradient_path.read_text(encoding='utf-8'))
 check(old['version']=='0.4','gradient fixture remains historical 0.4')
 upgraded=subprocess.run([exe,'--serve',str(gradient_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,timeout=10)
 new=json.loads(upgraded.stdout)['result'];new['version']='0.4'
+check(new.pop('named_colors')==[], '0.4 migration starts with no named colors')
 check(new==old,'0.4 migration preserves gradients and their linked stable stops')
 check(run('--svg',old).stdout==gradient_path.with_suffix('.svg').read_text(encoding='utf-8'),
     'gradient 0.4 scene exports identical SVG after frame migration')
 frames=json.loads(json.dumps(sample));frames['version']='0.5'
+frames.pop('named_colors')
 composition=frames['compositions'][0]
 composition['artboards'].append(dict(id='requested-crop',name='Crop',x=100,y=50,width=300,height=250))
 requested=subprocess.run([exe,'--svg',composition['id'],'requested-crop'],input=json.dumps(frames),capture_output=True,text=True,timeout=10)
@@ -166,5 +170,13 @@ old=json.loads(frames_path.read_text(encoding='utf-8'))
 check(old['version']=='0.5','frame fixture remains historical 0.5')
 upgraded=subprocess.run([exe,'--serve',str(frames_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
 new=json.loads(upgraded.stdout)['result'];new['version']='0.5'
+check(new.pop('named_colors')==[], '0.5 migration starts with no named colors')
 check(new==old,'0.5 migration preserves ordered frames, inheritance and all authored artwork')
+text_path=ornament.with_name('typography-poster.nect')
+old=json.loads(text_path.read_text(encoding='utf-8'))
+check(old['version']=='0.6','Text fixture remains historical 0.6')
+upgraded=subprocess.run([exe,'--serve',str(text_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
+new=json.loads(upgraded.stdout)['result'];new['version']='0.6'
+check(new.pop('named_colors')==[], '0.6 migration starts with no named colors')
+check(new==old,'0.6 migration preserves all editable Text and shape inputs')
 print(f'PASS {checks} process and native migration checks')

@@ -85,6 +85,12 @@ template<class O> auto& gradient_property(O& op,const std::string& parameter) {
 }
 template<class D>
 auto& lookup_property(D& d,const Ref& r) {
+    if(auto color=d.named_colors.find(r.object);color!=d.named_colors.end()&&r.point.empty()) {
+        const std::array<std::string,4> fields{"color.r","color.g","color.b","color.a"};
+        const auto found=std::find(fields.begin(),fields.end(),r.field);
+        require(found!=fields.end(),"MISSING_REFERENCE",r.field);
+        return color->second.rgba[static_cast<std::size_t>(std::distance(fields.begin(),found))];
+    }
     auto it=d.objects.find(r.object);
     require(it!=d.objects.end(),"MISSING_REFERENCE",r.object);
     auto& o=it->second;
@@ -131,6 +137,7 @@ auto& lookup_property(D& d,const Ref& r) {
     throw Error("MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
 }
 std::string unit(const Ref& r) {
+    if(r.field.starts_with("color."))return "scalar";
     if(r.field.starts_with("text."))return "du";
     if(r.field.starts_with("op.")) {
         const auto name=operation_address(r.field).second;
@@ -147,6 +154,7 @@ std::string unit(const Ref& r) {
 void value_range(const Ref& r,double v) {
     finite(v);
     require(std::abs(v)<=1e9,"OUT_OF_RANGE","Magnitude limit is 1e9 in v0.1");
+    if(r.field.starts_with("color."))require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB color channels must be in [0,1]");
     if(r.field=="text.font_size")require(v>0&&v<=10000,"OUT_OF_RANGE","Text size must be in (0,10000]");
     if(r.field=="text.frame_width"||r.field=="text.frame_height")require(v>0&&v<=1e6,"OUT_OF_RANGE","Text frame dimensions must be in (0,1000000]");
     if(r.field=="text.line_spacing")require(v>=0&&v<=10000,"OUT_OF_RANGE","Line spacing must be in [0,10000], with zero for automatic");
@@ -174,6 +182,10 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
     static const std::array<std::string, 6> transform_fields{
         "transform.a", "transform.b", "transform.c", "transform.d", "transform.tx", "transform.ty"};
 
+    for(const auto& [id,color]:document.named_colors) {
+        const std::array<std::string,4> fields{"color.r","color.g","color.b","color.a"};
+        for(std::size_t i=0;i<4;++i)index.emplace(Ref{id,"",fields[i]},&color.rgba[i]);
+    }
     for (const auto& [id, object] : document.objects) {
         for (std::size_t i = 0; i < transform_fields.size(); ++i)
             index.emplace(Ref{id, "", transform_fields[i]}, &object.transform[i]);
@@ -237,6 +249,7 @@ void add_default_paint(Document& d,const Id& object,const std::string& type) {
     auto& o=d.objects.at(object);
     require(o.kind!=Kind::group&&o.stack.empty(),"INVALID_OBJECT","Default paint needs a new Shape source");
     std::set<Id> ids{d.id};
+    for(const auto& [id,color]:d.named_colors){(void)color;ids.insert(id);}
     for(const auto& c:d.compositions){ids.insert(c.id);for(const auto& a:c.artboards)ids.insert(a.id);}
     for(const auto& c:d.collections)ids.insert(c.id);
     for(const auto& [id,item]:d.objects) {
@@ -313,6 +326,7 @@ std::vector<Ref> properties(const Document& document) {
 Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std::string& f) {
     std::vector<Id> matches;
     for(const auto& [id,o]:d.objects) if(o.name==name) matches.push_back(id);
+    for(const auto& [id,color]:d.named_colors)if(color.name==name)matches.push_back(id);
     require(!matches.empty(),"MISSING_NAME","No matching object: "+name);
     require(matches.size()==1,"AMBIGUOUS_NAME","Name must resolve to exactly one object: "+name);
     Ref r{matches.front(),p,f};
@@ -399,6 +413,11 @@ void validate(const Document& d) {
     };
 
     add(d.id);
+    require(d.named_colors.size()<=1024,"LIMIT","Named color limit 1024");
+    for(const auto& [id,color]:d.named_colors) {
+        add(id);require(id==color.id,"ID_MISMATCH",id);
+        require(!color.name.empty()&&color.name.size()<=4096,"INVALID_NAME","Named color requires a name of 1..4096 bytes");text_utf8(color.name);
+    }
     for(const auto& comp:d.compositions) {
         add(comp.id);
         require(comp.artboards.size()<=1024,"LIMIT","Artboards per Composition limit 1024");
@@ -589,7 +608,26 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
     auto candidate=document;
     for(const auto& command:commands) std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
-        if constexpr(std::is_same_v<T,AddArtboard>||std::is_same_v<T,UpdateArtboard>||std::is_same_v<T,DeleteArtboard>||
+        if constexpr(std::is_same_v<T,CreateNamedColor>) {
+            require(candidate.named_colors.emplace(c.color.id,c.color).second,"DUPLICATE_ID",c.color.id);
+        } else if constexpr(std::is_same_v<T,RenameNamedColor>||std::is_same_v<T,DeleteNamedColor>) {
+            const auto found=candidate.named_colors.find(c.color);require(found!=candidate.named_colors.end(),"MISSING_COLOR",c.color);
+            if constexpr(std::is_same_v<T,RenameNamedColor>)found->second.name=c.name;
+            else candidate.named_colors.erase(found);
+        } else if constexpr(std::is_same_v<T,SetColor>) {
+            require(c.value.space=="srgb"&&c.value.profile=="srgb"&&c.value.alpha=="straight","UNSUPPORTED_COLOR","Only sRGB, sRGB profile, straight alpha colors are supported");
+            const auto channels=color_channels(candidate,c.ref);
+            for(std::size_t i=0;i<4;++i) {
+                auto& scalar=lookup_property(candidate,channels[i]);require(!scalar.binding,"DRIVEN_PROPERTY","Unlink the color explicitly before replacing its value");
+                scalar.literal=c.value.rgba[i];
+            }
+        } else if constexpr(std::is_same_v<T,LinkColor>) {
+            const auto targets=color_channels(candidate,c.target),sources=color_channels(candidate,c.source);
+            for(std::size_t i=0;i<4;++i)lookup_property(candidate,targets[i]).binding=Binding{sources[i],1,0,"copy_local_value"};
+        } else if constexpr(std::is_same_v<T,UnlinkColor>) {
+            const auto channels=color_channels(candidate,c.ref);const auto values=evaluate(candidate);
+            for(const auto& ref:channels)lookup_property(candidate,ref)=Scalar{values.at(ref),{}};
+        } else if constexpr(std::is_same_v<T,AddArtboard>||std::is_same_v<T,UpdateArtboard>||std::is_same_v<T,DeleteArtboard>||
             std::is_same_v<T,ReorderArtboards>||std::is_same_v<T,DetachArtboardParent>) {
             auto comp=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),[&](const auto& item){return item.id==c.composition;});
             require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);

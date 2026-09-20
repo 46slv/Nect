@@ -171,6 +171,25 @@ try:
         layout=core('text_layout',object='title')['result'];assert layout['glyph_count']>0 and layout['used_fonts']
         assert core('export_plan',composition=comp['id'],artboard=first['id'])['result']['text_policy']=='outlines'
         expected_svg_paths+=1
+        brand=dict(id='brand-color',name='Brand accent',space='srgb',profile='srgb',alpha='straight',
+            rgba=[{'literal':v} for v in (.2,.4,.6,.8)])
+        brand_ref=dict(object='brand-color',point='',field='color')
+        title_color=dict(object='title',point='',field='op.title-fill.color')
+        gradient_color=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.color')
+        independent_color=dict(object='path-2',point='',field='op.path-2-stroke.color')
+        rev=apply([dict(type='create_named_color',color=brand),dict(type='link_color',target=title_color,source=brand_ref),
+            dict(type='link_color',target=gradient_color,source=brand_ref),dict(type='set_color',ref=independent_color,
+            value=dict(space='srgb',profile='srgb',alpha='straight',rgba=[.2,.4,.6,.8]))],rev)
+        changed=core('apply',expected_revision=rev,commands=[dict(type='rename_named_color',color='brand-color',name='Linked accent'),
+            dict(type='set_color',ref=brand_ref,value=dict(space='srgb',profile='srgb',alpha='straight',rgba=[.7,.3,.2,.9]))])
+        assert changed['ok'] and {'brand-color','title','path-0','path-1'}.issubset(changed['result']['changed_ids'])
+        assert 'path-2' not in changed['result']['changed_ids'];rev=changed['revision']
+        assert core('get',ref=title_color)['result']['evaluated']['rgba']==[.7,.3,.2,.9]
+        assert core('get',ref=independent_color)['result']['evaluated']['rgba']==[.2,.4,.6,.8]
+        assert core('get',ref=gradient_color)['result']['link']==brand_ref
+        blocked=core('apply',expected_revision=rev,commands=[dict(type='delete_named_color',color='brand-color')])
+        assert not blocked['ok'] and blocked['error']['code']=='MISSING_REFERENCE' and blocked['revision']==rev
+        assert core('used_colors')['result']['equal_values_imply_link'] is False
         native = temp / 'scenario.nect'
         saved = tool('nect_file', dict(identity, op='save', path=str(native), expected_revision=rev))
         assert saved['ok'], saved

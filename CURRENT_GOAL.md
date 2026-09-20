@@ -1,4 +1,4 @@
-# Practical alpha Mission — editable Text delivered; color tools next
+# Practical alpha Mission — named colors delivered; History next
 
 ## Active Mission checkpoint — 2026-09-20
 
@@ -27,7 +27,7 @@ Current implemented slice:
 - retained Circle/Rectangle sources, normal generator properties and stable
   generated point roles; direct point/handle edits create visible absolute local
   Point Edit overrides, with bypass and explicit reference-protected conversion.
-- native 0.6 editable Text / strict earlier migrations, authored/evaluated origin metadata,
+- native 0.7 editable Text and named/global colors / strict earlier migrations, authored/evaluated origin metadata,
   conversion plans and ordered operation discovery through the same semantic API.
 
 Evidence collected:
@@ -113,7 +113,7 @@ for single-plane files, explicit elision/tooltips retained, no horizontal scroll
 Parent owns builds; worker is idle. Parent size is a foundation only; inherited
 template content/layout attributes remain pending.
 
-Text checkpoint after `132434d`: native 0.6 retains editable UTF-8 text, installed
+Text checkpoint `957e090` after `132434d`: native 0.6 retains editable UTF-8 text, installed
 font references, weight/italic/locale, auto/frame sizing, Japanese horizontal and
 vertical layout, alignment/tracking/leading and normal linked distance properties.
 DirectWrite glyph outlines feed the same Fill/Stroke/Repeater Canvas/SVG pipeline.
@@ -134,8 +134,29 @@ point/handle edits and Text translation (worst p95 18.96 ms, release31.84 ms,
 zero measured intervals above33.333 ms). 60 fps remains a target. Full evidence
 is in docs/first-usable.md. Visible app closed; worker idle, parent owns builds.
 
-Next safe actions after this slice: save a coherent checkpoint, then continue
-with named/global colors, color inventory and color history in
+Color checkpoint after `957e090`: native 0.7 adds stable named RGBA colors and
+typed aggregate color properties backed by the ordinary Scalar dependency graph.
+GUI/API/MCP share Set/Link/Unlink; deleting a referenced source rejects atomically.
+Colors UI separates named colors, exact evaluated paint-input inventory, and
+explicit-copy history (32 values, current Window only). Rich clipboard values
+retain double precision and explicit sRGB/profile/straight-alpha metadata;
+unsupported metadata, duplicate JSON keys and cross-document links reject.
+Equal HEX values never establish identity. User-pinned/cross-restart history and
+other working color spaces remain pending. All fourteen CTest entries passed;
+the subsequent swatch-only fix passed focused Color UI checks.
+
+Actual Windows use produced `examples/named-color-poster.nect` and SVG through
+the live API (three palette entries, nine linked paints/stops). GUI HEX change
+FFF4D6FF -> FFB8C8FF updated three Text paints; API verified exact values/links,
+saved `build/colors-manual.nect`, and GUI Undo restored the complete fixture.
+Qt selected icons had tinted swatches: explicit identical mode/state pixmaps
+fix this, with an eight-state image check. Full Window mixed-Text performance
+still passes the 30 fps p95 floor (worst20.49 ms, zero intervals >33.333 ms);
+Text release/Inspector refresh39.23 ms exceeds the33.333 ms release target and
+needs follow-up. The60 fps target also remains unmet. See first-usable evidence.
+
+Next safe actions after this slice: save a coherent checkpoint, then implement
+bounded long operation History and dependable nonblocking live protection in
 thin slices; do not treat the
 radial example as full alpha completion. Masks/compositing, assets, long History,
 continuous save, expressions/multi-edit and the remaining explicit Mission

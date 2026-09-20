@@ -34,6 +34,13 @@ TOOLS = [
                      'Text source includes content,family,locale,weight,italic,layout auto/frame,direction horizontal/vertical,alignment start/center/end. '
                      'Numeric text.* refs: origin_x,origin_y,font_size,frame_width,frame_height,tracking,line_spacing (0=font default). '
                      'text_layout {object} reports bounds, overflow, actual fonts and warnings. export_plan {composition,artboard} discloses outlined SVG text; native text stays editable. '
+                     'Typed colors: color_properties or properties lists aggregate color refs and four ordinary numeric channels; get supports both types. '
+                     'used_colors inventories enabled paint inputs grouped by exact RGBA; equal values do not imply links. '
+                     'create_named_color {color:{id,name,space:"srgb",profile:"srgb",alpha:"straight",rgba:[four Scalars]}}; '
+                     'rename_named_color {color:id,name}; delete_named_color {color:id} rejects while referenced. '
+                     'set_color {ref,value:{space:"srgb",profile:"srgb",alpha:"straight",rgba:[four numbers]}} rejects driven channels. '
+                     'link_color {target,source} links all four channels; unlink_color {ref} freezes the resolved value. '
+                     'Aggregate refs use point:"", field:"color" for a named color owner ID, op.OP.color for paint, or op.OP.gradient.GRAD.stop.STOP.color for a gradient stop. '
                      'Use properties to discover stable refs and units. All mutations are atomic and undoable.'),
      'inputSchema': {'type': 'object', 'properties': dict(IDENTITY, request={'type': 'object'}),
                      'required': ['session_id', 'document_id', 'request'], 'additionalProperties': False},

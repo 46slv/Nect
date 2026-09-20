@@ -11,6 +11,7 @@
 #include <QListWidget>
 
 namespace nect::desktop {
+class ColorTools;
 class Window : public QMainWindow {
 public:
     explicit Window(QString recovery_directory);
@@ -23,6 +24,7 @@ protected:
     void closeEvent(QCloseEvent* event) override;
     bool eventFilter(QObject* watched,QEvent* event) override;
 private:
+    ColorTools* color_tools_;
     QTreeWidget* tree_;
     QListWidget* artboards_;
     bool artboard_editing_=false;

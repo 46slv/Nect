@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include "colors.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
@@ -147,6 +148,7 @@ QString point_label(const Object& object,const Point& point,std::size_t index) {
     return "Point "+QString::number(index+1);
 }
 QString property_label(const Document& d,const Ref& ref) {
+    if(d.named_colors.contains(ref.object))return "Named color / "+qs(property_name(d,ref))+" / "+qs(ref.field);
     QStringList path;
     auto object=ref.object;
     for(;;) {
@@ -200,6 +202,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     resize(1400,900);
     setMinimumSize(1000,650);
     canvas=new Canvas(host.session,this);
+    color_tools_=new ColorTools(*this);
     setCentralWidget(canvas);
     tree_=new QTreeWidget;
     tree_->setHeaderHidden(true);
@@ -307,12 +310,14 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     action(view,"Fit Artboard",QKeySequence("Ctrl+0"),[this]{canvas->fit_artboard();});
     action(view,"Fit all artboards",QKeySequence("Ctrl+Shift+0"),[this]{canvas->fit_all_artboards();});
     action(view,"Return to parent Group",{},[this]{canvas->leave_group();});
+    auto* colors=action(view,"Colors…",{},[this]{color_tools_->show_manager();});colors->setObjectName("show-colors");
     view->addAction(structure->toggleViewAction());view->addAction(right->toggleViewAction());
     auto* toolbar=addToolBar("Authoring");toolbar->setMovable(false);
     toolbar->addAction(circle);toolbar->addAction(rectangle);toolbar->addAction(text);
     auto* curve=toolbar->addAction("+ Curve"); connect(curve,&QAction::triggered,this,[this]{perform([this]{add_curve();});});
     toolbar->addAction(draw);toolbar->addSeparator();toolbar->addAction(undo_);toolbar->addAction(redo_);
     auto* fit=toolbar->addAction("Fit");connect(fit,&QAction::triggered,canvas,&Canvas::fit_artboard);
+    toolbar->addAction(colors);
     breadcrumb_=new QLabel("Composition");toolbar->addWidget(breadcrumb_);
     status_=new QLabel;statusBar()->addPermanentWidget(status_);
     connect(tree_,&QTreeWidget::currentItemChanged,this,[this](QTreeWidgetItem* item,QTreeWidgetItem*) {
@@ -489,6 +494,7 @@ void Window::refresh() {
     breadcrumb_->setText(canvas->breadcrumb());
     refreshing_=false;
     rebuild_inspector();
+    color_tools_->refresh();
 }
 
 void Window::rebuild_artboards() {
@@ -872,6 +878,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             hex->setAccessibleName(name+" HEX RGBA");hex->setToolTip("sRGB #RRGGBB or #RRGGBBAA; linked channels require explicit unlinking before replacement.");
             color_layout->addWidget(swatch);color_layout->addWidget(hex);
             form->addRow(operation.gradient&&operation.gradient->enabled?"Solid fallback":"sRGB",color_row);
+            form->addRow(color_tools_->menu_button(operation_ref(object.id,operation.id,"color")));
             auto apply_color=[this,apply,id=object.id,op=operation.id](const QColor& selected) {
                 const auto values=evaluate(host.session.document());
                 const std::array<double,4> rgba{selected.redF(),selected.greenF(),selected.blueF(),selected.alphaF()};
@@ -984,6 +991,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         auto* remove=new QPushButton("×");remove->setFixedWidth(28);remove->setEnabled(gradient.stops.size()>2);
         remove->setObjectName("gradient-stop-remove-"+qs(stop_id));remove->setToolTip("Remove this stop; keep at least two");
         row_layout->addWidget(hex);row_layout->addWidget(remove);stop_form->addRow("sRGB",row);
+        stop_form->addRow(color_tools_->menu_button(ref("color")));
         connect(hex,&QLineEdit::editingFinished,this,[this,hex,id,op,gradient_id,stop_id,apply]{
             if(!hex->isModified())return;hex->setModified(false);
             perform([&]{
@@ -1139,7 +1147,7 @@ void Window::pick_source(Ref target,bool relative) {
     connect(list,&QListWidget::currentItemChanged,dialog,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
         if(!item||host.session_id!=frozen_session)return;
         const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
-        canvas->set_selection(source.object,source.point);
+        if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,source.point);
     });
     connect(dialog,&QDialog::rejected,this,[this,target,frozen_session]{
         if(host.session_id==frozen_session&&host.session.document().objects.contains(target.object))canvas->set_selection(target.object,target.point);

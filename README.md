@@ -31,8 +31,8 @@ baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 Circle and Rectangle retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
 Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
-0.6 saves procedural state, editable linear/radial gradients, ordered Artboards
-with parent-size inheritance, and editable Text. It migrates 0.1–0.5 without
+0.7 saves procedural state, editable linear/radial gradients, ordered Artboards
+with parent-size inheritance, editable Text and named colors. It migrates 0.1–0.6 without
 reference loss. Windows Text uses installed fonts and supports Japanese horizontal
 and vertical writing, automatic size, fixed-frame wrapping and overflow diagnostics.
 
@@ -103,6 +103,16 @@ Frame overflow and missing-font fallback are visible in the Inspector. Text is
 outlined in SVG exports; the native document retains editable content and font
 references. Fonts are not embedded.
 
+Colors opens three separate views: document-authored named colors, actual enabled
+paint inputs grouped by exact RGBA, and colors explicitly copied through Nect's
+Color menu during this Window session. Each paint and gradient stop has Copy
+Value/Reference, Paste Value/Link and explicit Unlink actions. Value copies remain
+independent; linked colors follow the stable source even after renaming. A named
+color cannot be removed while referenced. Clipboard values preserve sRGB profile,
+straight alpha and full numeric precision; unsupported richer structured colors
+reject instead of silently becoming HEX. Pinned user palettes and copied history
+across application restarts are not implemented in this slice.
+
 The Shape stack supports multiple solid Fill/Stroke entries, HEX RGBA/color
 editing, enable/reorder/remove and Repeater. Add a radial repeater for a fixed-step
 12 × 30° starting point. Repeater before paint creates a compound path; after
@@ -165,7 +175,7 @@ rejected without altering the source.
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.6.schema.json` — current native JSON shape (0.1–0.5 readers retained)
+- `schemas/native-v0.7.schema.json` — current native JSON shape (0.1–0.6 readers retained)
 
 ## Project rules
 

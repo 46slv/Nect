@@ -150,12 +150,33 @@ struct Collection {
     std::vector<Id> members;
 };
 
+struct ColorValue {
+    std::string space="srgb",profile="srgb",alpha="straight";
+    std::array<double,4> rgba{0,0,0,1};
+    bool operator==(const ColorValue&) const = default;
+};
+struct NamedColor {
+    Id id;
+    std::string name;
+    std::array<Scalar,4> rgba{{{0,{}},{0,{}},{0,{}},{1,{}}}};
+};
 struct Document {
     Id id;
     std::vector<Composition> compositions;
     std::map<Id,Object> objects;
     std::vector<Collection> collections;
+    std::map<Id,NamedColor> named_colors;
 };
+
+// Color properties aggregate ordinary Scalar channels, using the same evaluator.
+// Ref.field is color, op.ID.color, or op.ID.gradient.ID.stop.ID.color.
+// Named color channel fields are color.r/g/b/a.
+std::string property_name(const Document&,const Ref&);
+std::vector<Ref> color_properties(const Document&);
+std::array<Ref,4> color_channels(const Document&,const Ref&);
+ColorValue color_value(const Document&,const Ref&,const std::map<Ref,double>&);
+std::optional<Ref> color_link(const Document&,const Ref&);
+bool color_is_used(const Document&,const Ref&);
 
 struct Set { Ref ref; double value; };
 struct Link { Ref target; Binding binding; };
@@ -186,12 +207,19 @@ struct ReorderArtboards { Id composition; std::vector<Id> order; };
 struct DetachArtboardParent { Id composition; Id artboard; };
 struct CreateText { Id composition; Id parent; Id id; std::string name; TextSource source; };
 struct UpdateText { Id object; TextSource source; };
+struct CreateNamedColor { NamedColor color; };
+struct RenameNamedColor { Id color; std::string name; };
+struct DeleteNamedColor { Id color; };
+struct SetColor { Ref ref; ColorValue value; };
+struct LinkColor { Ref target; Ref source; };
+struct UnlinkColor { Ref ref; };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,OperationOptions,SetGradient,AddArtboard,UpdateArtboard,
-    DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText>;
+    DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText,
+    CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};

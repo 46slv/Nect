@@ -151,6 +151,36 @@ TextSource read_text(const j::value& v) {
     for(const auto& p:o.at("parameters").as_object())s.parameters.emplace(std::string(p.key()),read_scalar(p.value()));
     return s;
 }
+j::value color_json(const ColorValue& color) {
+    j::array rgba;for(const auto value:color.rgba)rgba.push_back(value);
+    return j::object{{"space",color.space},{"profile",color.profile},{"alpha",color.alpha},{"rgba",rgba}};
+}
+void color_format(const j::object& o) {
+    if(text(o.at("space"))!="srgb"||text(o.at("profile"))!="srgb"||text(o.at("alpha"))!="straight")
+        throw Error("UNSUPPORTED_COLOR","Only sRGB, sRGB profile, straight alpha colors are supported");
+}
+ColorValue read_color(const j::value& value) {
+    const auto& o=value.as_object();keys(o,{"space","profile","alpha","rgba"});color_format(o);
+    ColorValue color;const auto& rgba=o.at("rgba").as_array();if(rgba.size()!=4)throw Error("INVALID_COLOR","Four RGBA channels required");
+    for(std::size_t i=0;i<4;++i)color.rgba[i]=number(rgba[i]);return color;
+}
+NamedColor read_named_color(const j::value& value) {
+    const auto& o=value.as_object();keys(o,{"id","name","space","profile","alpha","rgba"});color_format(o);
+    NamedColor color;color.id=text(o.at("id"));color.name=text(o.at("name"));const auto& rgba=o.at("rgba").as_array();
+    if(rgba.size()!=4)throw Error("INVALID_COLOR","Four RGBA channels required");
+    for(std::size_t i=0;i<4;++i)color.rgba[i]=read_scalar(rgba[i]);return color;
+}
+j::object named_color_json(const NamedColor& color) {
+    j::array rgba;for(const auto& scalar:color.rgba)rgba.push_back(scalar_json(scalar));
+    return {{"id",color.id},{"name",color.name},{"space","srgb"},{"profile","srgb"},{"alpha","straight"},{"rgba",rgba}};
+}
+j::object color_property_json(const Document& d,const Ref& ref,const std::map<Ref,double>& values) {
+    j::array channels,authored;for(const auto& channel:color_channels(d,ref)){channels.push_back(ref_json(channel));authored.push_back(scalar_json(property(d,channel)));}
+    const auto link=color_link(d,ref);
+    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","color"},{"authored",authored},
+        {"evaluated",color_json(color_value(d,ref,values))},{"channels",channels},{"used",color_is_used(d,ref)},
+        {"link",link?j::value(ref_json(*link)):j::value(nullptr)}};
+}
 j::value text_json(const TextSource& s) {
     j::object parameters;for(const auto& [name,value]:s.parameters)parameters[name]=scalar_json(value);
     return j::object{{"id",s.id},{"version",s.version},{"content",s.content},{"family",s.family},{"locale",s.locale},
@@ -262,6 +292,24 @@ j::object artboard_json(const Artboard& a) {
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type=="create_named_color") {
+        keys(o,{"type","color"});return CreateNamedColor{read_named_color(o.at("color"))};
+    }
+    if(type=="rename_named_color") {
+        keys(o,{"type","color","name"});return RenameNamedColor{text(o.at("color")),text(o.at("name"))};
+    }
+    if(type=="delete_named_color") {
+        keys(o,{"type","color"});return DeleteNamedColor{text(o.at("color"))};
+    }
+    if(type=="set_color") {
+        keys(o,{"type","ref","value"});return SetColor{read_ref(o.at("ref")),read_color(o.at("value"))};
+    }
+    if(type=="link_color") {
+        keys(o,{"type","target","source"});return LinkColor{read_ref(o.at("target")),read_ref(o.at("source"))};
+    }
+    if(type=="unlink_color") {
+        keys(o,{"type","ref"});return UnlinkColor{read_ref(o.at("ref"))};
+    }
     if(type=="create_text") {
         keys(o,{"type","composition","parent","id","name","source"});
         return CreateText{text(o.at("composition")),text(o.at("parent")),text(o.at("id")),text(o.at("name")),read_text(o.at("source"))};
@@ -382,11 +430,11 @@ Document decode(std::string_view input) {
     try {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
-        keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
-
         const auto version=text(root.at("version"));
-        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"&&version!="0.4"&&version!="0.5"&&version!="0.6"))
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.6 are supported");
+        if(version=="0.7")keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
+        else keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
+        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"&&version!="0.4"&&version!="0.5"&&version!="0.6"&&version!="0.7"))
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.7 are supported");
         if(text(root.at("units"))!="du96"||text(root.at("color_space"))!="srgb")
             throw Error("UNSUPPORTED_COLOR_OR_UNIT","v0.1 supports du96 and sRGB only");
 
@@ -402,7 +450,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,version=="0.5"||version=="0.6"));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,version=="0.5"||version=="0.6"||version=="0.7"));
             d.compositions.push_back(std::move(c));
         }
 
@@ -410,7 +458,7 @@ Document decode(std::string_view input) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
             else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
-            else if(version=="0.6")keys(o,{"id","name","kind","transform","children","contours","source","point_edit","text","stack","legacy_stroke"});
+            else if(version=="0.6"||version=="0.7")keys(o,{"id","name","kind","transform","children","contours","source","point_edit","text","stack","legacy_stroke"});
             else keys(o,{"id","name","kind","transform","children","contours","source","point_edit","stack","legacy_stroke"});
 
             Object obj;
@@ -418,7 +466,7 @@ Document decode(std::string_view input) {
             obj.name=text(o.at("name"));
 
             auto kind=text(o.at("kind"));
-            if(kind!="group"&&kind!="path"&&!(version=="0.6"&&kind=="text")) throw Error("UNSUPPORTED_OBJECT",kind);
+            if(kind!="group"&&kind!="path"&&!((version=="0.6"||version=="0.7")&&kind=="text")) throw Error("UNSUPPORTED_OBJECT",kind);
             obj.kind=kind=="group"?Kind::group:kind=="text"?Kind::text:Kind::path;
             if(o.contains("text")&&obj.kind!=Kind::text)throw Error("INVALID_OBJECT","Only Text may carry a text source");
 
@@ -432,7 +480,7 @@ Document decode(std::string_view input) {
                 obj.children=ids(o.at("children"));
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
-                if(version=="0.3"||version=="0.4"||version=="0.5"||version=="0.6") {
+                if(version=="0.3"||version=="0.4"||version=="0.5"||version=="0.6"||version=="0.7") {
                     for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,version!="0.3"));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
@@ -469,6 +517,10 @@ Document decode(std::string_view input) {
         }
 
         // All original IDs are present before allocating migration instances.
+        if(version=="0.7")for(const auto& entry:root.at("named_colors").as_array()) {
+            auto color=read_named_color(entry);const auto id=color.id;
+            if(!d.named_colors.emplace(id,std::move(color)).second)throw Error("DUPLICATE_ID",id);
+        }
         for(const auto& [id,paint]:legacy_paints) {
             add_default_stroke(d,id);d.objects.at(id).stack.front().parameters=paint.parameters;
         }
@@ -484,7 +536,8 @@ Document decode(std::string_view input) {
 std::string encode(const Document& d) {
     validate(d);
 
-    j::array comps,objects,collections;
+    j::array comps,objects,collections,named_colors;
+    for(const auto& [id,color]:d.named_colors){(void)id;named_colors.push_back(named_color_json(color));}
 
     for(const auto& c:d.compositions) {
         j::array boards;
@@ -531,9 +584,9 @@ std::string encode(const Document& d) {
         collections.push_back({{"id",c.id},{"name",c.name},{"members",ids_json(c.members)}});
 
     return j::serialize(j::object{
-        {"format","nect-native"},{"version","0.6"},{"id",d.id},
+        {"format","nect-native"},{"version","0.7"},{"id",d.id},
         {"units","du96"},{"color_space","srgb"},
-        {"compositions",comps},{"objects",objects},{"collections",collections}});
+        {"compositions",comps},{"objects",objects},{"collections",collections},{"named_colors",named_colors}});
 }
 
 std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
@@ -634,12 +687,15 @@ std::string request(Session& session,std::string_view input) {
         if(op=="get") {
             keys(o,{"op","ref"});
             auto r=read_ref(o.at("ref"));
+            if(r.point.empty()&&(r.field=="color"||r.field.ends_with(".color")))result=color_property_json(session.document(),r,evaluate(session.document()));
+            else {
             const auto origin=property_origin(session.document(),r);
             result=j::object{
                 {"ref",ref_json(r)},
                 {"origin",origin},
                 {"authored",origin=="generated"?j::value(nullptr):scalar_json(property(session.document(),r))},
                 {"evaluated",evaluate(session.document()).at(r)}};
+            }
         } else if(op=="inspect") {
             keys(o,{"op"});
             result=j::parse(encode(session.document()));
@@ -650,12 +706,26 @@ std::string request(Session& session,std::string_view input) {
             for(const auto& ref:properties(session.document())) {
                 const auto origin=property_origin(session.document(),ref);
                 list.push_back({{"ref",ref_json(ref)},
-                    {"name",session.document().objects.at(ref.object).name},
+                    {"name",property_name(session.document(),ref)},
                     {"type","number"},{"unit",property_unit(ref)},{"space","local"},
                     {"origin",origin},{"authored",origin=="generated"?j::value(nullptr):scalar_json(property(session.document(),ref))},
                     {"evaluated",values.at(ref)}});
             }
+            for(const auto& ref:color_properties(session.document()))list.push_back(color_property_json(session.document(),ref,values));
             result=std::move(list);
+        } else if(op=="color_properties") {
+            keys(o,{"op"});j::array list;const auto values=evaluate(session.document());
+            for(const auto& ref:color_properties(session.document()))list.push_back(color_property_json(session.document(),ref,values));
+            result=std::move(list);
+        } else if(op=="used_colors") {
+            keys(o,{"op"});const auto& d=session.document();const auto values=evaluate(d);
+            std::map<std::array<double,4>,std::vector<Ref>> grouped;
+            for(const auto& ref:color_properties(d))if(color_is_used(d,ref))grouped[color_value(d,ref,values).rgba].push_back(ref);
+            j::array inventory;for(const auto& [rgba,refs]:grouped) {
+                j::array uses;for(const auto& ref:refs)uses.push_back(ref_json(ref));ColorValue value;value.rgba=rgba;
+                inventory.push_back({{"value",color_json(value)},{"uses",uses},{"count",refs.size()}});
+            }
+            result=j::object{{"scope","enabled_paint_inputs"},{"equal_values_imply_link",false},{"colors",inventory}};
         } else if(op=="conversion_plan") {
             keys(o,{"op","object"});const auto id=text(o.at("object"));
             j::array blockers;for(const auto& ref:conversion_blockers(session.document(),id))blockers.push_back(ref_json(ref));
@@ -733,7 +803,7 @@ std::string request(Session& session,std::string_view input) {
         } else if(op=="capabilities") {
             keys(o,{"op"});
             result=j::object{
-                {"native_version","0.6"},
+                {"native_version","0.7"},
                 {"transport","local-json-lines-not-mcp"},
                 {"mcp",false},
                 {"ai_codec",false},
@@ -771,7 +841,7 @@ std::string request(Session& session,std::string_view input) {
         if(mutation) {
             std::set<Id> changed;
             const auto after=j::parse(encode(session.document()));
-            for(const auto* category:{"objects","compositions","collections"}) {
+            for(const auto* category:{"objects","compositions","collections","named_colors"}) {
                 std::map<Id,j::value> old;
                 for(const auto& item:prior.as_object().at(category).as_array())old.emplace(text(item.as_object().at("id")),item);
                 for(const auto& item:after.as_object().at(category).as_array()) {

@@ -2,7 +2,9 @@
 
 ## M0 vocabulary
 
-Implemented: Document, Composition, Artboard, Group, Path, Contour, Point, Scalar, Binding, Collection, retained Circle/Rectangle sources, Point Edit and local Fill/Stroke/Repeater stacks.
+Implemented: Document, Composition, Artboard, Group, Path, Text, Contour, Point,
+Scalar, Binding, Collection, Named Color, retained Circle/Rectangle sources,
+Point Edit, gradients and local Fill/Stroke/Repeater stacks.
 
 Layer is the UI presentation of an Object; there is no duplicate Layer state model.
 
@@ -74,8 +76,8 @@ Current M0 limits are safety bounds, not product performance targets.
 
 ## Native 0.2: retained primitives and point corrections
 
-The primitive slice introduced 0.2; the current writer emits 0.6 and the reader
-accepts strict 0.1 through 0.6. Migration of 0.1
+The primitive slice introduced 0.2; the current writer emits 0.7 and the reader
+accepts strict 0.1 through 0.7. Migration of 0.1
 preserves authored values, IDs and bindings, with no geometry conversion. The
 historical linked fixture in `tests/fixtures/native-v0.1-linked.nect` is loaded,
 edited, saved and reopened in separate processes. Unknown fields and behavior
@@ -261,6 +263,44 @@ of Inspector/recovery refresh and commits one undo step on Apply. Cancel discard
 only that draft. Concurrent content changes or document replacement reject Apply
 while retaining the draft for copying. Style and numeric edits use the same
 Session commands and references as the API.
+
+## Native 0.7: typed colors and named definitions
+
+Document `named_colors` contains document-unique stable IDs, names and four
+ordinary RGBA Scalars. Definitions do not belong to a Composition or object tree.
+Their channels are normal `{object: color-ID, point: "", field: "color.r"}`
+references (and g/b/a), evaluated with the same unit checks, range checks,
+dependencies and cycle rejection as other properties. Names may change without
+retargeting references. Deleting a referenced definition rejects unless its users
+are explicitly detached or retargeted in the same atomic batch.
+
+A typed Color property aggregates four existing channels rather than duplicating
+paint data. Its Ref has empty point and field `color` for a named owner,
+`op.OP.color` for Fill/Stroke, or `op.OP.gradient.GRAD.stop.STOP.color` for a stop.
+`get` and `properties` expose typed Color values alongside numeric properties.
+Each value declares `space: srgb`, `profile: srgb`, `alpha: straight` and four
+normalized channels. Other spaces/profiles/alpha modes reject explicitly; HEX
+alone is never treated as a lossless encoding of richer color data.
+
+`set_color` changes independent channel literals and rejects driven channels.
+`link_color` creates four ordinary exact channel bindings; `unlink_color` freezes
+their evaluated values. Copying equal RGBA values does not create a link. An
+aggregate link is reported only when every channel references the corresponding
+source channel with scale 1 and offset 0. Partial/channel-expression bindings
+remain valid ordinary dependencies and are visible in channel inspection.
+
+`create_named_color`, `rename_named_color`, `delete_named_color` and all typed
+color mutations use Session revision/undo/atomicity. `color_properties` reports
+the full addressable inventory. `used_colors` groups exact evaluated RGBA values
+and returns their usage refs under `scope: enabled_paint_inputs`: active solid
+paint colors and enabled gradient stops. It excludes palette definitions,
+bypassed paints and a gradient's inactive solid fallback. This is an inventory of
+authored paint inputs, not sampled rendered pixels: repeats do not inflate counts,
+and clipping/crops/transparency do not imply additional color identities.
+
+Native 0.1–0.6 migration adds an empty named palette and preserves all existing
+paint/channel bindings. SVG evaluates named references into the declared export
+subset; the native document remains the source for editable identities.
 
 ## Next contracts
 

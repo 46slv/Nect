@@ -197,3 +197,33 @@ preview path, not compositor/GPU presentation.
 The 30 fps p95 floor passes; the 60 fps interval target remains unmet. Raw timing
 is retained locally in ignored `build/canvas-benchmark-text.json`. This bounded
 fixture does not establish performance for arbitrarily large typography documents.
+
+## Color workflow evidence — 2026-09-20
+
+All fourteen CTest entries pass with native 0.7 migration, named-color propagation,
+reference-protected deletion, strict rich clipboard handling, draft conflicts,
+copy-only bounded history and formal MCP native restart/crash recovery. A later
+swatch fix passed focused GUI tests: identical pixels across all eight Qt icon
+mode/state combinations prevent selection tint from misrepresenting colors.
+
+`create_color_demo.py` produced `examples/named-color-poster.nect` plus SVG from
+the native 0.6 typography poster. Three named colors explicitly drive nine paint
+or gradient-stop properties. Windows GUI changed Ivory typography FFF4D6FF to
+FFB8C8FF; API readback verified all three dependent Text colors and links. Saved
+manual result is in ignored `build/colors-manual.nect`. One GUI Undo restored the
+complete authored example, including every unrelated value.
+
+The same visible mixed-Text benchmark after Colors integration recorded:
+
+| Operation | p95 interval ms | Max interval ms | >33.333 ms | Release/UI commit ms |
+| --- | ---: | ---: | ---: | ---: |
+| Pan | 17.99 | 22.89 | 0 | 0.02 |
+| Zoom | 17.68 | 23.38 | 0 | 0.00 |
+| Point drag | 19.38 | 25.26 | 0 | 15.46 |
+| Handle drag | 19.00 | 22.49 | 0 | 14.31 |
+| Text translation | 20.49 | 26.55 | 0 | 39.23 |
+
+The 30 fps p95 floor passes; 60 fps remains unmet. Text release/Inspector rebuild
+exceeds the 33.333 ms release target and is an open performance item. Raw evidence
+is in ignored `build/canvas-benchmark-colors.json`; hardware, viewport and input
+cadence match the Text table above. No claim is made for a large open color list.
