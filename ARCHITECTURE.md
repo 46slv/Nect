@@ -1,156 +1,140 @@
 # Nect architecture baseline v0.1
 
-Status: M0 engineering baseline. Product requirements and decisions live in Notion; this file owns implementation boundaries. The iteration contracts below guide future changes; they are not claims that those changes already exist.
+Status: M0 engineering baseline. Notion owns product requirements/decisions; this file owns implementation boundaries. Future contracts below do not imply implemented capabilities. The accepted interaction extract is docs/product-direction.md; CURRENT_GOAL.md selects work.
 
 ## Owners
 
 | Owner | Responsibility | Must not own |
 |---|---|---|
-| `nect_core` | Authored document, stable identity/hierarchy, property addressing, evaluation, atomic commands, undo/revision | UI state, file paths, MCP transport, proprietary format internals |
-| `nect_io` | Native JSON contract, SVG lowering, local argument/result conversion | Independent document state or duplicate mutation rules |
-| Desktop client (M1) | Qt selection, hit-testing, Inspector, gestures, view/workspace state | Canonical geometry or expressions stored in Qt widgets |
-| Protocol/host adapters | MCP, Resolve/OFX, external codec adapters | A second scripting/editing engine |
+| `nect_core` | Authored document, identity/hierarchy, property addressing, evaluation, atomic commands, undo/revision | UI state, file paths, MCP transport, proprietary codec internals |
+| `nect_io` | Native JSON contract, SVG lowering, local argument/result conversion, persistence IO | Independent editing state or duplicate mutation rules |
+| Desktop client (M1) | Qt selection, hit-testing, Inspector, gestures, viewport/workspace state | Canonical geometry/expressions stored in widgets |
+| Protocol/host adapters | MCP, Resolve/OFX, external codecs | A second scripting/editing engine |
 
-These are logical owners, not mandatory services. Keep the present libraries until a real dependency or ownership problem justifies a split.
+These are logical owners, not mandatory services. Preserve the existing libraries until a real dependency or ownership problem justifies a split.
 
 ## Canonical flow
 
-`authored Document -> pure evaluation -> transient resolved values -> renderer/export projection`
+`authored Document -> pure evaluation -> derived values/geometry -> renderer/export`
 
-`GUI/API/MCP command -> Session candidate copy -> validate/evaluate -> atomic commit -> revision/history`
+`GUI/API/MCP command -> Session candidate -> validate/evaluate -> atomic commit -> revision/history`
 
-Native authored state is the single editing authority. Compatibility IR and render trees are derived. Original imported bytes are immutable provenance, not another editable document.
+Native authored state is the editing authority. Compatibility IR, render trees and caches are derived. Original imported bytes are immutable provenance, not another editable document. A background result does not automatically become authored geometry.
 
-## Relationships
+## Relationships and coordinate ownership
 
-Keep these relations orthogonal:
+M0 Composition owns root paint order and its coordinate plane. Its artboards are output rectangles, not object parents. Object children currently provide containment and inherited transforms; Folder is the UI name for a Group, not an extra data model. Collection is a non-owning set; scalar Binding is a directed value dependency.
 
-- Composition / Structure hierarchy owns root paint order, containment and effect/compositing scope.
-- Folder is currently modeled as a hierarchical Group; the UI label is not a new data type.
-- Transform Parent is a separate stable-ID dependency for AE-like transform following; it does not reparent the item in Structure or define effect scope.
-- Artboard is an output frame in shared document coordinates, not an object parent.
-- A future Parent Artboard / Artboard Template is a reusable template relation, not object ownership.
-- Collection is a non-owning named set.
-- Binding is a separate directed property dependency graph.
+The selected future direction separates Structure (ownership/order/effect scope), Transform Parent (following), template assignment, Collection membership and property dependency. Before implementing an explicit Transform Parent, specify its effective-parent rule relative to structural transforms; never apply the same inherited transform twice.
 
-Structure, Transform Parent, Artboard template assignment, Collection membership and property dependency must reject their own cycles/invalid references without being conflated. Changing a Collection must not reparent its source objects, but can change the result of operators that consume the Collection.
+Validate ownership and dependencies at the appropriate property/evaluation stage. A mask source can depend on the target's world transform while the target's render depends on the source mask: this is not automatically a cycle at the whole-object level. A real evaluation cycle is invalid. Do not validate each relation in isolation while missing a cycle across domains, or reject all cross-domain references conservatively as object cycles.
 
-## Reparent/grouping boundary
+Changing Collection membership does not reparent source objects but can change operators consuming the Collection. Separate Compositions do not implicitly share one coordinate plane; cross-composition operations require explicit context/conversion.
 
-M0 only implements **neutral GroupContiguous**: ordered contiguous siblings are replaced at the same paint-order position by an identity group. General keep-world reparenting is not implemented.
+## Grouping, parenting and pivots
 
-A future preserve-appearance reparent must explicitly account for transform, masks, blend backdrop, isolation, inherited effects, and z-order. Inverting a parent transform only addresses coordinates and may fail for a singular matrix. If appearance preservation cannot be guaranteed, reject or present a conversion plan; do not silently flatten.
+M0 only implements **neutral GroupContiguous**: ordered contiguous siblings are replaced in paint order by an identity Group. General keep-world reparenting is not implemented.
 
-## One live session per open document
+Future reparenting must distinguish coordinate preservation from appearance preservation. Parent-matrix inversion addresses coordinates only and fails for singular transforms. Masks, backdrop blend, isolation, effects and order can still change appearance. Reject or show a conversion plan when preservation is not possible; do not silently flatten.
 
-M1 desktop owns the live Session for its document. A future MCP adapter forwards commands to that same Session. Do not run a second hidden document copy and call it integration. Different documents may have different Sessions; this is not a global singleton requirement.
+An authored Anchor is distinct from derived bounds center. Initialize it at creation, keep it fixed through later content changes and support explicit anchor edits/recentering. An anchor-only move should preserve placement where representable. Extend the current transform representation coherently when this is implemented; do not add a second independently authoritative matrix/TRS state.
 
-Headless execution is an explicitly separate lane. A live protocol target must identify the document/session as well as the revision so that a stale request cannot edit another document after open/restart. This targeting contract is to be added with the live adapter; M0 JSON-lines is not that adapter.
+## One live Session per open document
 
-### Automation / self-testing boundary
+The desktop owns its document's live Session; API/MCP forward to that Session. Headless execution is a separate explicit lane. Different documents may have different Sessions; no global singleton is implied.
 
-Semantic document operations must be usable without GUI event replay. The command/API/MCP surfaces should converge on the same create/edit/link/reorder/save/reopen/undo/evaluate/render/export semantics and stable IDs. A machine client may build temporary seeded scenes, execute many commands, and read back revisions/changed IDs/errors/evaluated state.
+Live requests identify document/session and expected revision so an old request cannot edit a different document after open/restart. M0 JSON-lines is not a formal MCP adapter. GUI, API and MCP must share commands and failure semantics, not maintain synchronized document copies.
 
-This is not permission to duplicate the model in a test harness. Stress/scenario generators are clients of the real command boundary. A capability unavailable through automation is reported as unavailable instead of being silently replaced by mouse automation.
+## Semantic automation
 
-Human-free automation can prove many structural, persistence, deterministic and performance properties. It does not by itself prove discoverability, ergonomic comfort or visual judgement.
+Expose real create/edit/link/reorder/save/reopen/undo/evaluate/render/export operations with stable IDs and observable results. Seeded scenarios are clients of those operations, not a second model inside a test harness. Report unsupported capabilities instead of silently substituting mouse automation.
 
-## Extension / analysis direction
+Machine tests can cover structure, persistence, deterministic behavior and many regressions. Displayed-frame timing and interaction behavior require the corresponding viewport/GUI path; headless command timing alone is not GUI evidence. Human judgement is useful for comfort/artistic preference but need not perform every correctness check.
 
-Introduce typed operator inputs/outputs only with actual callers. Image, Mask, RegionSet, PathSet, ObjectCollection, etc. are distinct. OpenFX, if adopted, operates at an image boundary and is not the canonical vector/text model.
+## Presentation and input drafts
 
-Analysis outputs are observations/candidates with source revision and coordinate metadata; they are not semantic truth by themselves.
+- Document: authored objects, parameters/references and authoring definitions such as guides.
+- Evaluation: replaceable resolved geometry/images and caches.
+- View/session UI: selection, active editor, zoom, panels, overlays and input drafts.
 
-## Interchange
+Moving a panel or replacing a dial with fields must not require a document migration. Persist workspace preferences separately. Overlay outlines, hovered controls and temporary previews are not exportable artwork.
 
-Native persistence preserves authored structure. Interchange output is derived.
+Property metadata belongs near the existing property owner. Inspector, API discovery and validation consume it rather than growing independent property tables. Shared basic controls and bespoke controls both use the same commands; no universal UI/plugin framework is required in advance.
 
-Future export planning chooses:
-1. direct mapping
-2. geometry expansion
-3. bounded appearance bake
-4. explicit refusal
+The accepted field UI supports literals, references and expression text, expanding for multiline input. Parse into typed edit intent before mutation: absolute assignment, one-shot relative adjustment, binding or committed expression. Exact syntax is not yet frozen. A negative literal must remain distinguishable from subtraction. Relative batch edits use a start snapshot once; they must not become self-referential expressions.
 
-Bake boundaries are dependency/render-context closures, not automatically one layer. Include relevant masks, backdrop and filter support; keep unrelated editable content when the target allows it. Some effects may require a large closure. Report that rather than promising a universally local bake.
+Incomplete text/IME composition stays a draft. Type/unit/cycle/evaluation errors must not replace authored data with zero or silently remove a binding. A visible last-valid preview is not proof that the new expression is valid. Expression text is not a general shell or filesystem/network capability.
 
-Retained source bytes are provenance/recovery only; never splice unknown private chunks into a modified file without a verified contract.
+During source picking, target property IDs remain frozen independently of the viewed source. Search resolves readable names to stable references and exposes type/unit/space. Multi-target link/edit commits are atomic and undoable; incompatible targets are reported. Named/global Color links use the same dependency ownership; equal values do not create implicit links.
 
-## Evolve by contract, not by freezing M0
+## Continuous gestures and background evaluation
 
-Preserve stable identity, authored intent, explicit spaces/units, atomic mutation, save integrity and observable capability limits. These are not promises to freeze C++ layouts, JSON keys, transport method names or a plugin ABI forever.
+A completed drag/scrub is one undoable edit; cancellation restores its starting state. Use a Session-owned edit context or command grouping, not unmanaged widget geometry. Define queue/reject/rebase behavior for API edits arriving during a gesture; never silently overwrite concurrent work.
 
-M0's fixed Group/Path enum, scalar-only binding subset and snapshot history are useful baselines, not a completed operator architecture. A real new domain can require model/codec/evaluator work. Do not hide that work behind a generic JSON blob, nor rewrite the entire application preemptively.
+Start synchronously while sufficient. Add background work when a measured operation needs it: snapshot session/revision/parameters, support cancellation and discard stale results. Evaluation publishes matching derived output. A solver intentionally changing authored points proposes a command for Session commit.
 
-### Presentation versus semantics
+Lower-quality display must not silently resample a committed random layout or change final/export inputs. Mark provisional results and select a known revision/quality for export.
 
-- Document: authored objects, values, references and authoring definitions such as guides.
-- Evaluated output: resolved geometry/images and caches, replaceable from authored input.
-- UI/session view: selection IDs, active editor, zoom, panel layout, visibility and temporary interaction state.
+## Interactive Canvas budget
 
-Persist workspace state separately from document semantics. Export must not serialize panel widths, hovered controls or temporary previews. Changing a dial to XY fields or moving an Inspector must not require a native-document migration.
+M1 target: at least 30 fps equivalent, p95 frame interval <=33.3 ms on a recorded reference machine and warm fixture for pan/zoom/point-handle drag/basic transforms. Lightweight scenes target 60 fps.
 
-As more property types are implemented, keep ID/type/unit/editability metadata near the existing property owner. Inspector, API and command validation should consume that owner rather than grow independent property tables. Shared basic controls may use metadata; bespoke controls are allowed through the same commands. Do not build a universal UI/plugin framework before actual controls need it.
+Record viewport/DPI, scene/revision, measurement boundary, p50/p95 and over-budget frames plus relevant command/evaluation times. Average FPS does not hide stalls. Instrumentation must not dominate the hot path. Add the smallest measured optimization rather than prebuilding a broad worker/cache framework.
 
-### Continuous gestures and background results
+## Geometry sources and authored direct corrections
 
-A committed drag/scrub is one undoable edit; cancellation restores the pre-gesture state. Preview changes must be associated with a Session-owned edit context or equivalent command grouping, not an untracked widget-owned document. Define the conflict behavior when API/MCP edits arrive during a gesture: queue, reject, or explicitly rebase; never silently overwrite.
+A parametric primitive owns generator parameters and evaluates to path geometry. For arbitrary point/handle edits the selected default is a **visible downstream Point Edit / Path Deform**, automatically added or reused while retaining the generator. Radius controls still edit Radius; arbitrary path controls edit explicit corrections. Disabling the correction restores the generated result.
 
-Start synchronously while sufficient. When a measured operation needs background work, evaluate a snapshot tagged with session/revision/parameters, discard stale results and support cancellation. Background evaluation publishes matching derived output; it does not write caches back as authored geometry. A solver that intentionally edits authored points must propose a command committed through Session. Lower display quality must not silently resample or replace a committed random layout during export.
+Represent source plus correction, not competing full authoritative anchor lists. Define source-element identity, correction space/units and version behavior for the implemented generator. Stable-topology radius edits need not require topology inference. A Star count change can invalidate mappings; report unresolved edits rather than applying them to different indices.
 
-### Interactive Canvas performance budget
+Convert to Path remains optional and explicit. Inspect generator-only references before conversion; preserve, remap or freeze according to a visible conversion plan. Keeping the object ID alone is insufficient.
 
-Pan, zoom, selection, point/handle dragging and basic transform are latency-sensitive foreground work. The M1 minimum contract is 30 fps equivalent on a recorded reference machine + scene after warm-up, measured with p95 frame interval <=33.3 ms; lightweight scenes target 60 fps.
+Shape-local processing is ordered, with multiple paint operations. For AE counterparts preserve AE group/path/paint/repeat behavior; do not mistake the displayed stack for a generic sequential pixel-filter pipeline. Invalid domain/order combinations fail explicitly.
 
-Record p50/p95 frame time, over-budget frames and relevant command/evaluation timing in a machine-readable benchmark lane. Build the scene through the same semantic API where practical so Astra/CI can reproduce a regression.
+Minimum operator definition: stable type ID, persisted behavior version, accepted input/output domain, ordinary property parameters and evaluation without document mutation. Instances have stable identity and a declared enabled/bypass contract. Canvas handles are presentation, not separate evaluation. Introduce stateful/time-dependent contracts when actual operators require them.
 
-Do not equate average fps with responsiveness. Avoid long synchronous stalls on the interaction path. Heavy effects/operators may use an explicitly labeled interactive preview, but input remains responsive and final/export output is tied to a known revision and deterministic parameters.
+Stacks and graphs share definitions only where equivalent; do not maintain two mutable copies. Only representable linear subgraphs need a stack view. PointSet/Field domains enter with actual callers, not empty scaffolding. Generated identity and source lineage differ from index; seed alone does not solve topology or cross-version reproducibility.
 
-Do not add broad cache/worker/dirty-region architecture only because the target exists. Profile the real path, then add the smallest measured optimization. Performance instrumentation must not materially become the hot-path cost it measures.
+## Masks and Group processing
 
-### Parametric geometry and operator evolution
+Normal visibility is independent of evaluation as a mask source. A hidden source may feed masks; its faint selected-target outline is a UI overlay. The context-menu Mask With Top/Bottom/Put Inside actions resolve explicit sources/targets rather than making adjacency the internal authority.
 
-A parametric primitive such as Circle owns its generator parameters and evaluates to normal path geometry. Do not make both generator parameters and arbitrary evaluated anchors independent authored authorities. Downstream path operations consume the evaluated geometry.
+Define mask coordinate space, input stage and alpha/luma/geometry mode. Transform parenting handles following, not mask evaluation or effect scope.
 
-An explicit `Convert to Path` changes the geometry source from generator-owned parameters to explicit anchors. Before conversion, inspect references to generator-only properties and report/remap/freeze according to the selected conversion contract; never silently leave dangling references.
+Evaluate each child's own appearance/effects before processing the required composed Group result. Neutral Groups avoid unnecessary isolation. Group opacity/effects and Pass Through/Isolated blending need targeted fixtures; they cannot be inferred solely from hierarchy labels.
 
-Keep source geometry and operator parameters authored; evaluated copies are derived. Shape-local processing is ordered. For AE-compatible shape operators, preserve AE-equivalent order/scope semantics where the types correspond. Invalid order/type combinations fail explicitly.
+## Artboards, templates and reusable sources
 
-The minimum operator definition is stable type ID + persisted semantic version + typed input/output domain + ordinary property parameters + side-effect-free evaluation. An operator instance has stable identity and enabled/bypass state. Canvas manipulators are optional presentation metadata, not a second evaluator.
+Artboards are output frames on their owning Composition's plane, with stable identity and output metadata. Objects may cross frames or live outside them. Ordered navigator layout, export order and actual frame coordinates are independent. Auto-tidy presentation must not change crops or translate artwork. Physical frame/content relocation is an explicit command with its impact shown.
 
-A local stack and graph may share operator definitions/evaluation without sharing every UI or socket type. Do not keep separate mutable copies of the same processing definition. Only graph subsets with equivalent order/scope may have a linear-stack view. Add domains such as PointSet/Field only when an actual operator requires them.
+Templates may provide optional frame/layout settings and repeated content with per-attribute inheritance/override. Reset Override differs from Detach; deleting a referenced template element requires a conflict policy. Reuse the Composition/Group/graph definition-and-instance contract rather than creating another Symbol engine. Graph editing is optional for simple placement/reuse.
 
-When generated elements become editable, define their identity domain and source/operator lineage. An index is not an identity. Rebuilds that invalidate an override must report it or offer an explicit editable snapshot. A stable seed alone does not solve identity, topology changes or cross-version reproducibility.
+Linked and Embedded resources are explicit. Show link change/missing/version state; reload uses the normal document command boundary where it changes the result. Embedded bytes are self-contained; saving a linked reference is not a backup of all external historical bytes.
 
-### Transform pivot and Group compositing
+## Interchange and source preservation
 
-Transformable objects/groups have an authored Anchor Point and a separately derived current bounds/geometry center. Creation initializes Anchor from center; later bounds changes do not silently move Anchor. An anchor-only edit can compensate Position to preserve world placement where the transform is representable.
+Native persistence preserves authored intent; interchange is a projection. Plan direct mapping -> geometry expansion -> bounded appearance bake -> explicit refusal. A safe bake boundary includes necessary inputs, masks, backdrop, filter support, resolution and color context; it is not guaranteed to be one layer/subtree. Preserve unrelated editability where possible and report the actual loss.
 
-Transform Parent cycles are invalid. Changing Transform Parent should preserve world placement by default when the required transform conversion is invertible; otherwise reject or require an explicit non-preserving choice.
+Retain imported source bytes only as provenance/recovery. Do not splice unknown private chunks into a modified file without a verified structural contract. Unknown-extension preservation must not execute unknown code.
 
-Normal render visibility does not determine whether an object can be evaluated as a mask source. A hidden source can still feed a mask relation.
+## Persistence evolution, history and recovery
 
-A neutral Group should not introduce an unnecessary compositing boundary. When Group-level effect/mask/opacity or other group processing requires one, evaluate each child through its own local appearance/effects, composite the required child result, then apply Group-level processing. Exact Pass Through/Isolated blend semantics require fixtures and are not inferred from Transform Parent.
+Preserve identity, units/spaces, atomic mutation and user work, not every M0 class or JSON key. When persisted meaning changes, specify the supported version transition, retain an old fixture and test load -> migrate -> edit -> save -> reopen with IDs/references preserved. Keep originals and report unsupported data. Add focused migrations when needed, not a speculative migration platform.
 
-### Artboard model
+Non-destructive structure, operation History and recovery backups serve different purposes. The accepted direction includes a visible long retained History, within an explicit memory/disk budget. Do not interpret that as unbounded full snapshots, permanent cross-restart undo or mandatory branching history. Restore/history navigation must leave one coherent Session state.
 
-Multiple Artboards share the document coordinate space. Each has stable identity/order and frame/output metadata; objects are not owned by Artboards and may cross frames or live outside them.
+Continuous-save work protects committed revisions separately from in-progress drafts/gestures. Distinguish pending versus durably saved versus failed revisions. Do not destroy the previous valid save before replacement is safe. Protect unnamed work through recovery storage; keep independent backup generations because autosave also records mistakes. Manual Save/Save As remains available and native saving remains separate from export.
 
-A future Parent Artboard / Artboard Template may provide repeated frame/layout settings and derived template content to assigned Artboards with local overrides/detach. This relation stays separate from Structure ownership. Moving/resizing an Artboard frame alone does not move artwork unless an explicit content-moving command is invoked.
-
-### Persistence evolution
-
-Before changing persisted meaning, specify the supported version transition and default behavior, keep an old saved fixture, and test load -> migrate -> edit -> save -> reopen with retained IDs/references. Use explicit schema/operator versions where semantics change. Preserve originals during migration and report unsupported data rather than coercing it to empty content. Unknown-extension preservation must not execute unknown code.
-
-Do not implement a hypothetical migration platform now. Add a focused migration when the first real schema change arrives. Unsupported future versions may remain rejected as in M0. Export always remains distinct from native save.
+Choose flush/cadence/retention/recovery-loss bounds with the persistence implementation and test interrupted writes, disk/permission failure, backup restore and revision readback. A successful method return is not durable-storage evidence. Keep IO off the latency-sensitive interaction path where needed. No design promises survival of all storage/hardware failures, and linked source versions outside the document are not automatically protected.
 
 ## Change impact guide
 
 | Change | Expected boundary | Continuity check |
 |---|---|---|
-| Move panels, change control appearance, density or labels | Desktop/view | Same document, references and undo state |
-| Add an operator over an existing value domain | Operator/evaluator + metadata + optional handles | Old files unchanged; operator bypass restores source |
-| Introduce Text, PointSet, instances, masks or a field domain | Model/evaluation/IO plus its view | Explicit spaces/identity/version; focused migration and fixture |
-| Replace a renderer or solver | Evaluation/backend boundary, possibly numeric semantics | Known revisions and quality; compare target fixtures |
-| Add a host/codec/third-party plugin runtime | Adapter and any real capability gaps | No second authoring authority; explicit unsupported results |
+| Panel/control layout, density or labels | Desktop/view | Same document, references and undo state |
+| Operator on an existing domain | Operator/evaluator + metadata + handles | Old files unchanged; declared bypass behavior |
+| Text, PointSet, instances, masks or fields | Model/evaluation/IO and its view | Explicit space/identity/version; focused migration |
+| Renderer or solver replacement | Backend/evaluation, possibly numeric semantics | Known revision/quality; representative comparisons |
+| Host/codec/plugin runtime | Adapter plus actual capability gaps | No second authority; explicit unsupported result |
 
-Use the smallest correct boundary, not the smallest possible line count. If an invariant itself fails a real use case, propose its bounded replacement and migration; architecture documentation is not a reason to preserve a known defect.
+Use the smallest correct boundary, not the fewest lines at any cost. If an invariant blocks a real requirement, propose its bounded replacement and migration rather than preserving a known defect or rewriting unrelated subsystems.
