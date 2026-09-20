@@ -6,6 +6,7 @@
 #include <QBrush>
 #include <QElapsedTimer>
 #include <QPainterPath>
+#include <QImage>
 #include <QPointF>
 #include <QTransform>
 #include <QWidget>
@@ -113,6 +114,8 @@ private:
         QTransform world;
         std::vector<Paint> paints;
         std::vector<EvaluatedPoint> points;
+        std::optional<QRectF> image_bounds;
+        QImage image;
         std::optional<QRectF> text_bounds;
         bool text_overflow=false;
         bool normal_visible=true;
@@ -130,6 +133,8 @@ private:
     std::vector<Geometry> geometry_;
     std::map<Id,std::size_t> geometry_index_;
     EvaluatedScene scene_;
+    struct RasterProjection { Raster payload; QImage image; };
+    std::map<Id,RasterProjection> rasters_;
     std::map<Id,QPainterPath> mask_paths_;
     bool show_mask_outline_=true;
     QString render_error_;

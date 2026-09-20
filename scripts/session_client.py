@@ -4,13 +4,13 @@ import os
 import socket
 import time
 
-LIMIT = 8 * 1024 * 1024
+LIMIT = 64 * 1024 * 1024
 
 
 def call(endpoint, request, timeout=10):
     payload = json.dumps(request, ensure_ascii=False, allow_nan=False).encode('utf-8') + b'\n'
     if len(payload) > LIMIT:
-        raise ValueError('Request exceeds 8 MiB')
+        raise ValueError('Request exceeds 64 MiB')
     if os.name != 'nt':
         with socket.socket(socket.AF_UNIX) as channel:
             channel.settimeout(timeout)
@@ -23,7 +23,7 @@ def call(endpoint, request, timeout=10):
                     raise ConnectionError('Desktop disconnected; mutation outcome may be unknown')
                 response.extend(block)
                 if len(response) > LIMIT:
-                    raise ValueError('Response exceeds 8 MiB')
+                    raise ValueError('Response exceeds 64 MiB')
     else:
         import ctypes
         import msvcrt
@@ -49,5 +49,5 @@ def call(endpoint, request, timeout=10):
                 else:
                     time.sleep(0.005)
                 if len(response) > LIMIT:
-                    raise ValueError('Response exceeds 8 MiB')
+                    raise ValueError('Response exceeds 64 MiB')
     return json.loads(response.split(b'\n', 1)[0])

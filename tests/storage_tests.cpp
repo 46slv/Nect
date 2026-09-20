@@ -78,13 +78,13 @@ void stamps_and_conflicts(const QString& directory) {
     check(read(path)==first,"A cooperating lock prevents replacement through a path alias");lock.unlock();
     const auto before=read(path);rejects("IO_ERROR",[&]{store_native(directory+"/missing/native.nect",second,std::nullopt,true);});
     check(read(path)==before,"Invalid destination does not affect the prior document");
-    rejects("OUTPUT_LIMIT",[&]{store_native(path,QByteArray(8*1024*1024+1,' '),recreated,true);});
+    rejects("OUTPUT_LIMIT",[&]{store_native(path,QByteArray(64*1024*1024+1,' '),recreated,true);});
     check(read(path)==before,"Oversized write rejects before changing disk or history");
-    const auto huge=directory+"/huge.nect";external_write(huge,QByteArray(8*1024*1024+1,' '));
+    const auto huge=directory+"/huge.nect";external_write(huge,QByteArray(64*1024*1024+1,' '));
     rejects("INPUT_LIMIT",[&]{load_native(huge);});
-    const auto boundary=directory+"/boundary.nect";auto exact=first;exact.append(QByteArray(8*1024*1024-exact.size(),' '));
+    const auto boundary=directory+"/boundary.nect";auto exact=first;exact.append(QByteArray(64*1024*1024-exact.size(),' '));
     const auto exact_stamp=store_native(boundary,exact,FileStamp{},false);
-    check(load_native(boundary).stamp==exact_stamp&&read(boundary).size()==8*1024*1024,"Exactly 8 MiB remains within the native storage limit");
+    check(load_native(boundary).stamp==exact_stamp&&read(boundary).size()==64*1024*1024,"Exactly 64 MiB remains within the native storage limit");
 }
 void retention_and_restore(const QString& directory) {
     const auto path=directory+"/retained.nect";auto current=store_native(path,native(0),FileStamp{},true);

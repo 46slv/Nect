@@ -8,6 +8,7 @@
 #include <QLocalSocket>
 #include <QUuid>
 #include <QDateTime>
+#include <QCryptographicHash>
 #include <limits>
 #include <memory>
 #include <algorithm>
@@ -39,7 +40,7 @@ Host::Host(QString recovery_directory,QObject* parent,ProtectionWriter writer)
             auto buffer=std::make_shared<QByteArray>();
             connect(socket,&QLocalSocket::readyRead,this,[this,socket,buffer] {
                 buffer->append(socket->readAll());
-                if(buffer->size()>8*1024*1024) { socket->abort(); return; }
+                if(buffer->size()>64*1024*1024) { socket->abort(); return; }
                 for(;;) {
                     const auto newline=buffer->indexOf('\n');
                     if(newline<0) break;
@@ -152,7 +153,7 @@ void Host::reset(Document document,const QString& path,FileStamp stamp) {
         throw Error("DESKTOP_DOCUMENT_REQUIREMENT","The desktop needs a Composition with an Artboard; source file is unchanged");
     // Protect the outgoing document before replacing the live Session.
     flush();
-    session=Session(std::move(document));
+    session=Session(std::move(document));link_observations_.clear();
     session_id=QString::fromStdString(new_id());
     file_path=path;file_stamp_=std::move(stamp);
     saved_revision_=path.isEmpty()?std::nullopt:std::optional<std::uint64_t>(0);
@@ -214,6 +215,83 @@ void Host::flush() {
     }
 }
 
+namespace {
+QString image_path(const QString& path) {
+    // Reject URLs, UNC/device paths and relative paths before touching filesystem.
+    if(path.size()<3||!path[0].isLetter()||path[1]!=':'||(path[2]!='/'&&path[2]!='\\')||path.contains(QChar(0)))
+        throw Error("INVALID_ASSET_LOCATOR","Image files require an absolute local drive path");
+    return QDir::cleanPath(QDir::fromNativeSeparators(path));
+}
+std::vector<unsigned char> image_bytes(const QString& path) {
+    const QFileInfo before(path);if(!before.exists())throw Error("ASSET_MISSING","Linked file is missing; accepted pixels remain available");
+    if(!before.isFile())throw Error("ASSET_UNREADABLE","Image source must be a regular file");
+    if(before.size()>static_cast<qint64>(raster_source_limit))throw Error("ASSET_LIMIT","Image source byte limit 8 MiB");
+    QFile file(path);if(!file.open(QIODevice::ReadOnly))throw Error("ASSET_UNREADABLE",file.errorString().toStdString());
+    const auto bytes=file.read(static_cast<qint64>(raster_source_limit)+1);
+    if(file.error()!=QFileDevice::NoError)throw Error("ASSET_UNREADABLE",file.errorString().toStdString());
+    const QFileInfo after(path);
+    if(bytes.size()>static_cast<qint64>(raster_source_limit))throw Error("ASSET_LIMIT","Image source byte limit 8 MiB");
+    if(bytes.size()!=before.size()||after.size()!=before.size()||after.lastModified()!=before.lastModified())throw Error("ASSET_CHANGED_DURING_READ","Image file changed during reading; no update was accepted");
+    return {reinterpret_cast<const unsigned char*>(bytes.constData()),reinterpret_cast<const unsigned char*>(bytes.constData())+bytes.size()};
+}
+void asset_revision(const Session& session,std::uint64_t expected) {
+    if(session.revision()!=expected)throw Error("REVISION_CONFLICT","Refresh revision before asset operations");
+    if(session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the gesture before asset operations");
+}
+}
+void Host::import_image(const QString& path,const std::string& mode,const Id& composition,const Id& parent,
+    const Id& asset,const Id& object,const std::string& name,double x,double y,std::uint64_t expected) {
+    asset_revision(session,expected);
+    if(mode!="linked"&&mode!="embedded")throw Error("INVALID_ASSET_MODE","Choose linked or embedded explicitly");
+    const auto absolute=image_path(path);auto payload=make_raster(image_bytes(absolute));
+    RasterAsset source{asset,name,mode,mode=="linked"?absolute.toStdString():std::string{},payload};
+    apply_serializable(session,{AddRasterAsset{source},CreateImage{composition,parent,object,name,{asset,{double(payload->width())},{double(payload->height())}}},
+        Set{{object,"","transform.tx"},x},Set{{object,"","transform.ty"},y}},expected);
+    if(mode=="linked")link_observations_[asset]={payload->sha256(),source.locator,QJsonObject{{"state","current"},{"checked_at",QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)}}};
+    edited();
+}
+void Host::update_asset(const Id& id,const std::string& action,const QString& path,std::uint64_t expected) {
+    asset_revision(session,expected);
+    const auto found=session.document().raster_assets.find(id);if(found==session.document().raster_assets.end())throw Error("MISSING_ASSET",id);
+    auto replacement=found->second;
+    if(action=="embed") {replacement.mode="embedded";replacement.locator.clear();}
+    else if(action=="reload"||action=="relink") {
+        if(action=="reload"&&replacement.mode!="linked")throw Error("INVALID_ASSET_MODE","Only linked assets can reload; Relink can attach an embedded asset");
+        const auto absolute=image_path(action=="reload"?QString::fromStdString(replacement.locator):path);
+        replacement.payload=make_raster(image_bytes(absolute));replacement.mode="linked";replacement.locator=absolute.toStdString();
+    } else throw Error("UNSUPPORTED_ASSET_ACTION",action);
+    apply_serializable(session,{ReplaceRasterAsset{replacement}},expected);
+    if(replacement.mode=="linked")link_observations_[id]={replacement.payload->sha256(),replacement.locator,QJsonObject{{"state","current"},{"checked_at",QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)}}};
+    else link_observations_.erase(id);
+    edited();
+}
+QJsonObject Host::asset_status(const Id& id) const {
+    const auto found=session.document().raster_assets.find(id);if(found==session.document().raster_assets.end())throw Error("MISSING_ASSET",id);
+    const auto& asset=found->second;
+    QJsonObject out{{"asset",QString::fromStdString(id)},{"state",asset.mode=="embedded"?"embedded":"unchecked"},{"checked_at",QJsonValue::Null},
+        {"accepted_sha256",QString::fromStdString(asset.payload->sha256())},{"display","accepted_cached_pixels"}};
+    if(asset.mode=="linked")if(const auto observation=link_observations_.find(id);observation!=link_observations_.end()&&
+        observation->second.hash==asset.payload->sha256()&&observation->second.locator==asset.locator) {
+        for(auto it=observation->second.value.begin();it!=observation->second.value.end();++it)out[it.key()]=it.value();
+    }
+    return out;
+}
+QJsonObject Host::check_asset(const Id& id) {
+    const auto found=session.document().raster_assets.find(id);if(found==session.document().raster_assets.end())throw Error("MISSING_ASSET",id);
+    const auto& asset=found->second;if(asset.mode=="embedded")return asset_status(id);
+    QJsonObject observation{{"checked_at",QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)}};
+    try {
+        const auto bytes=image_bytes(image_path(QString::fromStdString(asset.locator)));
+        const auto digest=QCryptographicHash::hash(QByteArray::fromRawData(reinterpret_cast<const char*>(bytes.data()),static_cast<qsizetype>(bytes.size())),QCryptographicHash::Sha256).toHex();
+        observation["state"]=digest.toStdString()==asset.payload->sha256()?"current":"changed";
+        observation["observed_sha256"]=QString::fromLatin1(digest);
+    } catch(const Error& e) {
+        observation["state"]=e.code=="ASSET_MISSING"?"missing":e.code=="ASSET_LIMIT"||e.code=="ASSET_CHANGED_DURING_READ"?"changed":"unreadable";
+        observation["message"]=QString::fromUtf8(e.what());
+    }
+    link_observations_[id]={asset.payload->sha256(),asset.locator,std::move(observation)};return asset_status(id);
+}
+
 QByteArray Host::dispatch(const QByteArray& input) {
     QJsonObject response;
     try {
@@ -222,7 +300,9 @@ QByteArray Host::dispatch(const QByteArray& input) {
         const auto operation=string(outer,"op");
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
             (operation=="core"?QStringList{"op","session_id","document_id","request"}:
-                QStringList{"op","session_id","document_id","expected_revision","path"});
+                (operation=="import_image"?QStringList{"op","session_id","document_id","expected_revision","path","mode","composition","parent","asset","id","name","x","y"}:
+                 operation=="asset"?QStringList{"op","session_id","document_id","expected_revision","asset","action","path"}:
+                 QStringList{"op","session_id","document_id","expected_revision","path"}));
         for(auto it=outer.begin();it!=outer.end();++it)
             if(!allowed.contains(it.key()))throw Error("UNKNOWN_FIELD",it.key().toStdString());
         if(string(outer,"op")=="hello") {
@@ -245,13 +325,28 @@ QByteArray Host::dispatch(const QByteArray& input) {
                 const auto expected=outer.value("expected_revision");
                 if(!expected.isDouble() || expected.toDouble()!=static_cast<double>(session.revision()))
                     throw Error("REVISION_CONFLICT","Refresh revision before file/session operations");
-                if(op=="save") save(string(outer,"path"));
+                if(op=="import_image") {
+                    const auto asset=string(outer,"asset").toStdString(),object=string(outer,"id").toStdString();
+                    if(!outer.value("x").isDouble()||!outer.value("y").isDouble())throw Error("INVALID_REQUEST","Numeric x/y required");
+                    import_image(string(outer,"path"),string(outer,"mode").toStdString(),string(outer,"composition").toStdString(),string(outer,"parent").toStdString(),
+                        asset,object,string(outer,"name").toStdString(),outer.value("x").toDouble(),outer.value("y").toDouble(),session.revision());
+                    response={{"ok",true},{"result",QJsonObject{{"changed_ids",QJsonArray{QString::fromStdString(asset),QString::fromStdString(object)}},{"status",asset_status(asset)}}}};
+                } else if(op=="asset") {
+                    const auto id=string(outer,"asset").toStdString(),action=string(outer,"action").toStdString();
+                    if(action=="check"||action=="status")response={{"ok",true},{"result",action=="check"?check_asset(id):asset_status(id)}};
+                    else {
+                        update_asset(id,action,action=="relink"?string(outer,"path"):QString{},session.revision());
+                        QJsonArray changed_ids{QString::fromStdString(id)};
+                        for(const auto& [object_id,object]:session.document().objects)if(object.image&&object.image->asset==id)changed_ids.append(QString::fromStdString(object_id));
+                        response={{"ok",true},{"result",QJsonObject{{"changed_ids",changed_ids},{"status",asset_status(id)}}}};
+                    }
+                } else if(op=="save") save(string(outer,"path"));
                 else if(op=="open") open(string(outer,"path"));
                 else if(op=="open_recovery") open_recovery(string(outer,"path"));
                 else if(op=="new") create_document();
                 else if(op=="recover") recover();
                 else throw Error("UNSUPPORTED_OPERATION",op.toStdString());
-                response={{"ok",true}};
+                if(response.isEmpty())response={{"ok",true}};
             }
             response["session_id"]=session_id;
             response["document_id"]=QString::fromStdString(session.document().id);

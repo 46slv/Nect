@@ -154,6 +154,7 @@ std::optional<Bounds> object_bounds(const Document& document,const Id& id,const 
         const auto& object=found->second;
         if(object.kind==Kind::group) {for(const auto& member:object.children)visit(member,depth+1);return;}
         const auto to_target=relative(child);
+        if(object.image){bounds.rectangle({0,0,values.at({child,"","image.width"}),values.at({child,"","image.height"})},to_target);return;}
         const auto shape=evaluate_shape(document,child,values);
         std::optional<Bounds> text_bounds;
         if(object.text) {

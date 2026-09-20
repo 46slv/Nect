@@ -596,3 +596,80 @@ Amounts reference the first curve's X/14, so point movement changes every outlin
 
 The30fps floor and release budget pass;60fps remains unmet. This measures the
 mixed fixture and active Offset evaluation, not maximum admitted geometry sizes.
+
+
+## Linked / Embedded image assets — 2026-09-20
+
+Native0.13 retains original PNG/JPEG bytes and their validated interpretation,
+stable Linked/Embedded asset IDs and ordinary Image Width/Height properties.
+GUI, API and formal MCP share Session commands and explicit Host import/check/
+reload/relink/embed. Link observations never mutate accepted pixels; missing or
+invalid sources leave artwork intact. Native open/recovery does not fetch links.
+Shared immutable payloads avoid copying source bytes on gestures and history.
+
+The Release build passed. All35 CTest entries passed in51.78s, including116 memory
+raster checks,56 retained asset semantic/codec checks and70 desktop lifecycle/UI/
+pixel checks. Coverage includes PNG/JPEG color/orientation/alpha and malformed
+metadata/budget rejection; shared replacement/Undo, resize links/formulas, strict
+native round-trip/migration, missing/changed/relinked/embedded sources, frozen
+revision/identity, actual Qt import and Inspector controls, Canvas placement,
+independent mask/Multiply/Screen pixel oracles, and formal MCP automatic native+
+recovery save, abnormal exit and exact restart. The two initial desktop harness
+failures were corrected: fetch the Relink button before scheduling its dialog
+callback, and explicitly set the pixel-oracle Artboard size. No failure was waived.
+Build/test evidence: `build/assets-final-build.log`,
+`build/assets-desktop-test-build.log`, `build/assets-final-ctest.log`.
+
+`scripts/create_asset_demo.py` authored `examples/material-study.nect` and SVG
+through the production live API: one Linked JPEG shared across four placements,
+one Embedded transparent PNG, a hidden circular mask, Multiply, three Named Colors
+and seven editable Text objects. Both original source images are procedural fixture
+artwork in `examples/assets`. API resize/Undo and native readbacks were exact; SVG
+contains two shared normalized PNGs and five placements. Actual visual inspection
+caught and corrected an image placement that did not fully cover its circular mask.
+
+Actual Windows GUI on the owned `build/assets-manual.nect` changed Width480->520
+at revision11; only that literal changed, accepted source bytes stayed exact, and
+native/recovery matched. Toolbar Undo restored the entire original at revision12.
+After Relink to an owned duplicate, an external mirror edit was detected by the
+GUI Check link action without changing artwork. GUI Reload updated all four
+placements at revision14 while preserving the complete object map, and native/
+recovery saved the exact new bytes. One Undo restored the accepted pre-reload
+document at revision15. The production example remained unchanged. Receipts:
+`build/assets-study-receipt.json`, `build/assets-manual-receipt.json`. The owned
+application window and benchmark closed normally.
+
+Independent browser inspection of this SVG was blocked by the browser local-URL
+security policy; no bypass was attempted and browser visual parity is unverified.
+Core tests establish exact normalized PNG/accepted-display pixel equality and
+shared-image/mask/blend SVG structure; independent Qt pixel oracles and actual
+Nect production display passed. Earlier vector-only browser checks above do not
+establish this image fixture's browser rendering.
+
+Visible `build/canvas-benchmark-assets.json` uses the same recorded hardware,
+Windows11 25H2/Qt6.5.3, full production Window,893x824 Canvas,DPR1,12 warmups and
+90 paints/89 intervals per action with normal validation and asynchronous
+protection.24 placements share eight512x384 noise PNG assets (4,121,532 original
+bytes,1,572,864 decoded pixels), with three hidden circle masks and three Multiply/
+.8 leaves plus two editable four-anchor curves. Derived projections are reused.
+
+| Operation | p50 ms | p95 ms | max ms | intervals >33.333ms | release ms |
+|---|---:|---:|---:|---:|---:|
+| Pan |16.07|18.46|20.41|0|0.03|
+| Zoom |16.02|17.76|18.76|0|0.00|
+| Curve point |16.15|17.75|18.41|0|19.70|
+| Curve handle |15.86|18.49|19.04|0|15.73|
+| Curve translation |16.09|17.92|19.85|0|15.24|
+
+The30fps p95/release floor passes;60fps remains unmet. Input-to-paint p95 is at
+most9.63ms, paint p95 at most7.07ms. These are input-triggered QWidget paint
+completions, not native compositor/GPU presentation. This measures gestures with
+images present, not image-body translation timing, import/reload latency, maximum
+admitted32MP documents or all ICC profiles. Import/reload/export remain bounded
+synchronous operations, link detection requires explicit Check, and advanced
+raster formats/pixel painting/raster mask sources remain unsupported. Full format,
+color and size contracts are in [model-v0.md](model-v0.md#native013--retained-raster-assets-and-image-placements).
+
+The user requested an operating checkpoint here. The image slice is complete;
+no subsequent feature is started and the larger practical-alpha Mission is not
+claimed complete. `CURRENT_GOAL.md` owns the stopped implementation scope.

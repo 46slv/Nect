@@ -1,4 +1,5 @@
 #pragma once
+#include "nect/raster.hpp"
 #include <array>
 #include <cstdint>
 #include <compare>
@@ -61,7 +62,26 @@ struct Contour {
     bool operator==(const Contour&) const = default;
 };
 
-enum class Kind { group, path, text };
+enum class Kind { group, path, text, image };
+
+inline constexpr std::size_t document_raster_bytes_limit=24*1024*1024;
+inline constexpr std::uint64_t document_raster_pixels_limit=33554432;
+struct RasterAsset {
+    Id id;
+    std::string name;
+    std::string mode="embedded"; // linked / embedded
+    std::string locator; // Absolute local path for linked; never evaluated or fetched by core.
+    Raster payload; // Immutable accepted original bytes, shared by snapshots/history.
+    bool operator==(const RasterAsset& other) const {
+        return id==other.id&&name==other.name&&mode==other.mode&&locator==other.locator&&
+            (payload==other.payload||(payload&&other.payload&&*payload==*other.payload));
+    }
+};
+struct ImageSource {
+    Id asset;
+    Scalar width{1},height{1};
+    bool operator==(const ImageSource&) const=default;
+};
 
 struct TextSource {
     Id id;
@@ -163,6 +183,7 @@ struct Object {
     std::optional<Id> transform_parent;
     bool visible=true;
     Compositing compositing;
+    std::optional<ImageSource> image;
     bool operator==(const Object&) const = default;
 };
 
@@ -214,6 +235,7 @@ struct Document {
     std::map<Id,Object> objects;
     std::vector<Collection> collections;
     std::map<Id,NamedColor> named_colors;
+    std::map<Id,RasterAsset> raster_assets;
     bool operator==(const Document&) const = default;
 };
 
@@ -255,6 +277,10 @@ struct UpdateArtboard { Id composition; Artboard artboard; };
 struct DeleteArtboard { Id composition; Id artboard; };
 struct ReorderArtboards { Id composition; std::vector<Id> order; };
 struct DetachArtboardParent { Id composition; Id artboard; };
+struct AddRasterAsset { RasterAsset asset; };
+struct ReplaceRasterAsset { RasterAsset asset; };
+struct DeleteRasterAsset { Id asset; };
+struct CreateImage { Id composition,parent,id; std::string name; ImageSource source; };
 struct CreateText { Id composition; Id parent; Id id; std::string name; TextSource source; };
 struct UpdateText { Id object; TextSource source; };
 struct CreateNamedColor { NamedColor color; };
@@ -290,7 +316,8 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,SetExpression,
-    SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside>;
+    SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,
+    AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
@@ -357,9 +384,11 @@ struct EvaluatedSceneNode {
     std::optional<EvaluatedMask> mask;
     std::vector<EvaluatedSceneNode> children;
 };
+struct EvaluatedImage { Raster payload; double width=0,height=0; };
 struct EvaluatedScene {
     std::vector<EvaluatedSceneNode> roots;
     std::map<Id,EvaluatedShape> shapes;
+    std::map<Id,EvaluatedImage> images;
     bool requires_compositing=false;
 };
 EvaluatedScene evaluate_scene(const Document&,const Id& composition,const std::map<Ref,double>&,
@@ -432,6 +461,7 @@ private:
         std::size_t estimated_bytes=0;
         std::vector<HistoryChange<Object>> objects;
         std::vector<HistoryChange<NamedColor>> colors;
+        std::vector<HistoryChange<RasterAsset>> assets;
         std::optional<std::pair<std::vector<Composition>,std::vector<Composition>>> compositions;
         std::optional<std::pair<std::vector<Collection>,std::vector<Collection>>> collections;
     };

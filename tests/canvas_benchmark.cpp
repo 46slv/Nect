@@ -366,8 +366,8 @@ int main(int argc, char** argv) {
         "QMenu{border:1px solid #49515c;}QMenu::item:selected{background:#43505f;}");
     app.setQuitOnLastWindowClosed(false);
     if (app.arguments().size() < 2 || app.arguments().size()>3 ||
-        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi"&&app.arguments().at(2)!="--expressions"&&app.arguments().at(2)!="--compositing"&&app.arguments().at(2)!="--offset")) {
-        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions|--compositing|--offset]\n";
+        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi"&&app.arguments().at(2)!="--expressions"&&app.arguments().at(2)!="--compositing"&&app.arguments().at(2)!="--offset"&&app.arguments().at(2)!="--assets")) {
+        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions|--compositing|--offset|--assets]\n";
         return 2;
     }
     const auto output = app.arguments().at(1);
@@ -375,6 +375,7 @@ int main(int argc, char** argv) {
     const bool text_scene=app.arguments().contains("--text");
     const bool polystar_scene=app.arguments().contains("--polystar");
     const bool expression_scene=app.arguments().contains("--expressions");
+    const bool assets_scene=app.arguments().contains("--assets");
     const bool offset_scene=app.arguments().contains("--offset");
     const bool compositing_scene=app.arguments().contains("--compositing");
     const bool multi_scene=app.arguments().contains("--multi")||expression_scene;
@@ -398,7 +399,7 @@ int main(int argc, char** argv) {
         bool all_floor = true;
         bool all_target = true;
         bool all_release_budget = true;
-        for (const auto paths : ((repeated||text_scene||polystar_scene||offset_scene)?std::vector<int>{2}:std::vector<int>{2,80})) {
+        for (const auto paths : ((repeated||text_scene||polystar_scene||offset_scene||assets_scene)?std::vector<int>{2}:std::vector<int>{2,80})) {
             Window window(scratch.path() + "/scene-" + QString::number(paths));
             window.resize(1440, 900);
             window.show();
@@ -431,6 +432,28 @@ int main(int argc, char** argv) {
                     commands.push_back(CreatePrimitive{comp,"",id,"Linked polystar "+std::to_string(i),source});
                 }
                 window.host.session.apply(commands,window.host.session.revision());window.host.edited();wait_events(40);
+            }
+            if(assets_scene) {
+                std::vector<Command> commands;const auto comp=window.host.session.document().compositions.front().id;
+                for(int i=0;i<8;++i) {
+                    RasterPixels pixels{512,384,{}};pixels.rgba.reserve(512*384*4);
+                    for(unsigned y=0;y<384;++y)for(unsigned x=0;x<512;++x) {
+                        const auto value=(x*73856093U)^(y*19349663U)^(unsigned(i)*83492791U);
+                        pixels.rgba.insert(pixels.rgba.end(),{static_cast<unsigned char>(value),static_cast<unsigned char>(value>>8),static_cast<unsigned char>(value>>16),255});
+                    }
+                    const auto id="bench-asset-"+std::to_string(i);commands.push_back(AddRasterAsset{{id,id,"embedded","",make_raster(encode_raster_png(pixels))}});
+                }
+                for(int i=0;i<24;++i) {
+                    const auto id="bench-image-"+std::to_string(i);const auto x=60+(i%6)*148,y=160+(i/6)*114;
+                    commands.push_back(CreateImage{comp,"",id,"Image "+std::to_string(i),{"bench-asset-"+std::to_string(i%8),{132},{99}}});
+                    commands.push_back(Set{{id,"","transform.tx"},double(x)});commands.push_back(Set{{id,"","transform.ty"},double(y)});
+                    if(i%8==0) {
+                        auto mask=default_primitive(id+"-source","nect.shape.circle");mask.parameters.at("center_x").literal=x+66;mask.parameters.at("center_y").literal=y+49.5;mask.parameters.at("radius").literal=45;
+                        commands.push_back(CreatePrimitive{comp,"",id+"-mask","Image crop",mask});commands.push_back(SetVisibility{id+"-mask",false});
+                        commands.push_back(SetMask{id,GeometryMask{id+"-clip",id+"-mask"}});commands.push_back(SetCompositing{id,"multiply",false});commands.push_back(Set{{id,"","composite.opacity"},.8});
+                    }
+                }
+                apply_serializable(window.host.session,commands,window.host.session.revision());window.host.edited();wait_events(100);
             }
             if(offset_scene) {
                 std::vector<Command> commands;const auto comp=window.host.session.document().compositions.front().id;
@@ -512,6 +535,11 @@ int main(int argc, char** argv) {
             if(offset_scene) {
                 scene["name"]="mixed-offset";scene["primitive_count"]=24;scene["offset_count"]=24;scene["expression_count"]=24;
                 scene["fixture"]="Two authored four-anchor curves plus twelve Circles and twelve six-point Stars, all with retained round-join Offset after Stroke. Every Amount references the first curve point X / 14, so point dragging changes all24 evaluated outlines. All shapes use normal validation, projection and protection.";
+            }
+            if(assets_scene) {
+                scene["name"]="mixed-image-assets";scene["image_placements"]=24;scene["unique_assets"]=8;scene["decoded_pixels"]=8*512*384;scene["mask_count"]=3;
+                std::size_t bytes=0;for(const auto& [id,asset]:window.host.session.document().raster_assets){(void)id;bytes+=asset.payload->bytes().size();}scene["accepted_source_bytes"]=qint64(bytes);
+                scene["fixture"]="Two editable four-anchor curves with24 image placements sharing8 embedded512x384 RGB noise PNG assets (1.57MP total), three hidden circular mask sources and three Multiply/.8 leaves. Visible full Window pan/zoom and original curve point/handle/translation with normal protection. Decoded image projections reused across gestures; this does not time import/reload or maximum-size scenes.";
             }
             QJsonArray operations;
             const int selection_count=multi_scene?std::min(paths,12):1;

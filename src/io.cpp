@@ -14,6 +14,45 @@
 namespace nect {
 namespace j=boost::json;
 
+std::string base64_encode(const std::vector<unsigned char>& bytes) {
+    static constexpr char alphabet[]="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;out.reserve((bytes.size()+2)/3*4);
+    for(std::size_t i=0;i<bytes.size();i+=3) {
+        const unsigned a=bytes[i],b=i+1<bytes.size()?bytes[i+1]:0,c=i+2<bytes.size()?bytes[i+2]:0;
+        out+=alphabet[a>>2];out+=alphabet[((a&3)<<4)|(b>>4)];
+        out+=i+1<bytes.size()?alphabet[((b&15)<<2)|(c>>6)]:'=';out+=i+2<bytes.size()?alphabet[c&63]:'=';
+    }
+    return out;
+}
+std::vector<unsigned char> base64_decode(std::string_view source) {
+    if(source.empty()||source.size()%4||source.size()>(raster_source_limit+2)/3*4)throw Error("INVALID_ASSET_BYTES","Expected bounded canonical base64 source bytes");
+    const auto digit=[](char c)->unsigned {
+        if(c>='A'&&c<='Z')return c-'A';if(c>='a'&&c<='z')return c-'a'+26;
+        if(c>='0'&&c<='9')return c-'0'+52;if(c=='+')return 62;if(c=='/')return 63;
+        throw Error("INVALID_ASSET_BYTES","Invalid base64 character");
+    };
+    std::vector<unsigned char> bytes;bytes.reserve(source.size()/4*3);
+    for(std::size_t i=0;i<source.size();i+=4) {
+        const auto a=digit(source[i]),b=digit(source[i+1]);const bool p=source[i+2]=='=',q=source[i+3]=='=';
+        if((p&&!q)||((p||q)&&i+4!=source.size()))throw Error("INVALID_ASSET_BYTES","Invalid base64 padding");
+        const auto c=p?0:digit(source[i+2]),d=q?0:digit(source[i+3]);
+        if((p&&(b&15))||(q&&!p&&(c&3)))throw Error("INVALID_ASSET_BYTES","Noncanonical base64 padding bits");
+        bytes.push_back(static_cast<unsigned char>((a<<2)|(b>>4)));
+        if(!p)bytes.push_back(static_cast<unsigned char>((b<<4)|(c>>2)));
+        if(!q)bytes.push_back(static_cast<unsigned char>((c<<6)|d));
+    }
+    if(bytes.size()>raster_source_limit)throw Error("ASSET_LIMIT","Image source byte limit 8 MiB");
+    return bytes;
+}
+void apply_serializable(Session& session,const std::vector<Command>& commands,std::uint64_t revision) {
+    const bool asset_change=std::any_of(commands.begin(),commands.end(),[](const auto& c){return std::holds_alternative<AddRasterAsset>(c)||std::holds_alternative<ReplaceRasterAsset>(c);});
+    if(asset_change) {
+        if(session.revision()!=revision)throw Error("REVISION_CONFLICT","Expected revision differs from current Session");
+        Session preview(session.document());preview.apply(commands,0);
+        if(encode(preview.document()).size()>native_size_limit)throw Error("OUTPUT_LIMIT","Image edit would exceed the 64 MiB native serialization limit");
+    }
+    session.apply(commands,revision);
+}
 namespace {
 void keys(const j::object& o,std::initializer_list<std::string_view> allowed) {
     for(const auto& p:o) {
@@ -68,6 +107,32 @@ j::value scalar_json(const Scalar& s) {
     if(s.expression)o["expression"]=expression_json(*s.expression);
     return o;
 }
+RasterAsset read_asset(const j::value& value,bool persisted=false) {
+    const auto& o=value.as_object();keys(o,{"id","name","mode","locator","version","bytes","sha256","mime","width","height","orientation","color_interpretation","interpretation_version"});
+    if(j::value_to<unsigned>(o.at("version"))!=1)throw Error("UNSUPPORTED_ASSET_VERSION","Only raster asset version 1 is supported");
+    RasterAsset a;a.id=text(o.at("id"));a.name=text(o.at("name"));a.mode=text(o.at("mode"));a.locator=text(o.at("locator"));
+    a.payload=make_raster(base64_decode(text(o.at("bytes"))));
+    const auto same=[&](const char* name,const j::value& expected) {
+        const auto found=o.if_contains(name);
+        if((persisted&&!found)||(found&&*found!=expected))throw Error("ASSET_METADATA_MISMATCH",std::string("Accepted bytes disagree with ")+name);
+    };
+    same("sha256",j::value(a.payload->sha256()));same("mime",j::value(a.payload->mime()));
+    same("width",j::value(a.payload->width()));same("height",j::value(a.payload->height()));same("orientation",j::value(a.payload->orientation()));
+    same("color_interpretation",j::value(a.payload->color_interpretation()));same("interpretation_version",j::value(a.payload->interpretation_version()));
+    return a;
+}
+j::object asset_json(const RasterAsset& a,bool include_bytes=false) {
+    const auto& p=*a.payload;
+    j::object out{{"id",a.id},{"name",a.name},{"mode",a.mode},{"locator",a.locator},{"version",1},
+        {"sha256",p.sha256()},{"mime",p.mime()},{"width",p.width()},{"height",p.height()},{"orientation",p.orientation()},
+        {"color_interpretation",p.color_interpretation()},{"interpretation_version",p.interpretation_version()}};
+    if(include_bytes)out["bytes"]=base64_encode(p.bytes());return out;
+}
+ImageSource read_image(const j::value& value) {
+    const auto& o=value.as_object();keys(o,{"asset","width","height"});
+    return {text(o.at("asset")),read_scalar(o.at("width")),read_scalar(o.at("height"))};
+}
+j::object image_json(const ImageSource& i){return {{"asset",i.asset},{"width",scalar_json(i.width)},{"height",scalar_json(i.height)}};}
 GeometryMask read_mask(const j::value& value) {
     const auto& o=value.as_object();keys(o,{"id","source","version","enabled","fill_rule"});
     return {text(o.at("id")),text(o.at("source")),j::value_to<unsigned>(o.at("version")),o.at("enabled").as_bool(),text(o.at("fill_rule"))};
@@ -108,7 +173,7 @@ std::string escape(const std::string& s) {
 
 struct UniqueKeys {
     static constexpr std::size_t max_array_size=1000000, max_object_size=1000000;
-    static constexpr std::size_t max_key_size=4096, max_string_size=8*1024*1024;
+    static constexpr std::size_t max_key_size=4096, max_string_size=native_size_limit;
     std::vector<std::set<std::string>> objects;
     std::string key;
 
@@ -149,7 +214,7 @@ j::parse_options precise_json_options() {
     return options;
 }
 j::value parse(std::string_view s) {
-    if(s.size()>8*1024*1024) throw Error("INPUT_LIMIT","Input exceeds 8 MiB");
+    if(s.size()>native_size_limit) throw Error("INPUT_LIMIT","Input exceeds 64 MiB");
     const auto options=precise_json_options();
 
     j::basic_parser<UniqueKeys> unique(options);
@@ -333,6 +398,15 @@ j::object artboard_json(const Artboard& a) {
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type=="add_raster_asset"||type=="replace_raster_asset") {
+        keys(o,{"type","asset"});auto asset=read_asset(o.at("asset"));
+        if(type=="add_raster_asset")return AddRasterAsset{std::move(asset)};return ReplaceRasterAsset{std::move(asset)};
+    }
+    if(type=="delete_raster_asset"){keys(o,{"type","asset"});return DeleteRasterAsset{text(o.at("asset"))};}
+    if(type=="create_image") {
+        keys(o,{"type","composition","parent","id","name","source"});
+        return CreateImage{text(o.at("composition")),text(o.at("parent")),text(o.at("id")),text(o.at("name")),read_image(o.at("source"))};
+    }
     if(type=="create_named_color") {
         keys(o,{"type","color"});return CreateNamedColor{read_named_color(o.at("color"))};
     }
@@ -521,12 +595,13 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,12> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12"};
+        constexpr std::array<std::string_view,13> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.12 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.13 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
-        if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
+        if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
+        else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
         else keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
         if(text(root.at("units"))!="du96"||text(root.at("color_space"))!="srgb")
             throw Error("UNSUPPORTED_COLOR_OR_UNIT","v0.1 supports du96 and sRGB only");
@@ -551,6 +626,7 @@ Document decode(std::string_view input) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
             else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
+            else if(minor>=13)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image"});
             else if(minor>=11)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke"});
             else if(minor>=9)keys(o,{"id","name","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke"});
             else if(minor>=6)keys(o,{"id","name","kind","transform","children","contours","source","point_edit","text","stack","legacy_stroke"});
@@ -562,8 +638,9 @@ Document decode(std::string_view input) {
             if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"));}
 
             auto kind=text(o.at("kind"));
-            if(kind!="group"&&kind!="path"&&!((minor>=6)&&kind=="text")) throw Error("UNSUPPORTED_OBJECT",kind);
-            obj.kind=kind=="group"?Kind::group:kind=="text"?Kind::text:Kind::path;
+            if(kind!="group"&&kind!="path"&&!((minor>=6)&&kind=="text")&&!((minor>=13)&&kind=="image")) throw Error("UNSUPPORTED_OBJECT",kind);
+            obj.kind=kind=="group"?Kind::group:kind=="text"?Kind::text:kind=="image"?Kind::image:Kind::path;
+            if(o.contains("image")&&obj.kind!=Kind::image)throw Error("INVALID_OBJECT","Only Image may carry an image source");
             if(o.contains("text")&&obj.kind!=Kind::text)throw Error("INVALID_OBJECT","Only Text may carry a text source");
 
             auto& transform=o.at("transform").as_array();
@@ -576,7 +653,11 @@ Document decode(std::string_view input) {
                 if(!o.at("transform_parent").is_null())obj.transform_parent=text(o.at("transform_parent"));
             }
 
-            if(obj.kind==Kind::group) {
+            if(obj.kind==Kind::image) {
+                for(const auto* field:{"children","contours","stroke","fill","source","point_edit","text","stack","legacy_stroke"})
+                    if(o.contains(field))throw Error("INVALID_IMAGE","Image has incompatible vector fields");
+                obj.image=read_image(o.at("image"));
+            } else if(obj.kind==Kind::group) {
                 if(o.contains("contours")||o.contains("stroke")||o.contains("fill")||o.contains("source")||o.contains("point_edit")||o.contains("stack")||o.contains("legacy_stroke"))
                     throw Error("INVALID_OBJECT","Group has path-only fields");
                 obj.children=ids(o.at("children"));
@@ -623,6 +704,15 @@ Document decode(std::string_view input) {
             auto color=read_named_color(entry,minor>=10);const auto id=color.id;
             if(!d.named_colors.emplace(id,std::move(color)).second)throw Error("DUPLICATE_ID",id);
         }
+        if(minor>=13) {
+            const auto& assets=root.at("raster_assets").as_array();if(assets.size()>128)throw Error("ASSET_LIMIT","Asset count limit 128");
+            std::size_t bytes=0;std::uint64_t pixels=0;
+            for(const auto& entry:assets) {
+                auto a=read_asset(entry,true);bytes+=a.payload->bytes().size();pixels+=std::uint64_t(a.payload->width())*a.payload->height();
+                if(bytes>document_raster_bytes_limit||pixels>document_raster_pixels_limit)throw Error("ASSET_LIMIT","Document raster byte/pixel budget exceeded");
+                const auto id=a.id;if(!d.raster_assets.emplace(id,std::move(a)).second)throw Error("DUPLICATE_ID",id);
+            }
+        }
         for(const auto& [id,paint]:legacy_paints) {
             add_default_stroke(d,id);d.objects.at(id).stack.front().parameters=paint.parameters;
         }
@@ -638,7 +728,8 @@ Document decode(std::string_view input) {
 std::string encode(const Document& d) {
     validate(d);
 
-    j::array comps,objects,collections,named_colors;
+    j::array comps,objects,collections,named_colors,raster_assets;
+    for(const auto& [id,asset]:d.raster_assets){(void)id;raster_assets.push_back(asset_json(asset,true));}
     for(const auto& [id,color]:d.named_colors){(void)id;named_colors.push_back(named_color_json(color));}
 
     for(const auto& c:d.compositions) {
@@ -654,9 +745,10 @@ std::string encode(const Document& d) {
         j::array anchor;for(const auto& s:o.anchor)anchor.push_back(scalar_json(s));
 
         j::object out{
-            {"id",id},{"name",o.name},{"visible",o.visible},{"compositing",compositing_json(o.compositing)},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":"path"},{"transform",tf},{"anchor",anchor},{"transform_parent",o.transform_parent?j::value(*o.transform_parent):j::value(nullptr)}};
+            {"id",id},{"name",o.name},{"visible",o.visible},{"compositing",compositing_json(o.compositing)},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":o.kind==Kind::image?"image":"path"},{"transform",tf},{"anchor",anchor},{"transform_parent",o.transform_parent?j::value(*o.transform_parent):j::value(nullptr)}};
 
-        if(o.kind==Kind::group) {
+        if(o.image)out["image"]=image_json(*o.image);
+        else if(o.kind==Kind::group) {
             out["children"]=ids_json(o.children);
         } else {
             j::array contours;
@@ -689,7 +781,7 @@ std::string encode(const Document& d) {
     return j::serialize(j::object{
         {"format","nect-native"},{"version",native_version},{"id",d.id},
         {"units","du96"},{"color_space","srgb"},
-        {"compositions",comps},{"objects",objects},{"collections",collections},{"named_colors",named_colors}});
+        {"compositions",comps},{"objects",objects},{"collections",collections},{"named_colors",named_colors},{"raster_assets",raster_assets}});
 }
 
 std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
@@ -712,7 +804,19 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
        <<" "<<art->width<<" "<<art->height<<"\">\n";
 
     std::set<Id> svg_ids;for(const auto& [id,object]:d.objects){svg_ids.insert(id);if(object.compositing.mask)svg_ids.insert(object.compositing.mask->id);}
-    std::size_t gradient_serial=0;
+    std::size_t gradient_serial=0,raster_bytes=0;
+    std::map<Id,std::string> raster_ids;
+    const auto paint_image=[&](const Id& id) {
+        const auto& source=*d.objects.at(id).image;
+        if(!raster_ids.contains(source.asset)) {
+            const auto png=encode_raster_png(decode_raster(*d.raster_assets.at(source.asset).payload));
+            raster_bytes+=png.size();if(raster_bytes>32*1024*1024)throw Error("SVG_RASTER_LIMIT","SVG normalized image data exceeds 32 MiB");
+            std::string key;do{key="nect-raster-"+std::to_string(++gradient_serial);}while(svg_ids.contains(key));svg_ids.insert(key);raster_ids.emplace(source.asset,key);
+            out<<"<defs><image id=\""<<key<<"\" width=\"1\" height=\"1\" preserveAspectRatio=\"none\" href=\"data:image/png;base64,"<<base64_encode(png)<<"\"/></defs>\n";
+        }
+        out<<"<use href=\"#"<<raster_ids.at(source.asset)<<"\" transform=\"scale("<<values.at({id,"","image.width"})<<' '<<values.at({id,"","image.height"})<<")\"/>\n";
+    };
+
     const auto paint_shape=[&](const EvaluatedShape& shape) {
             for(const auto& paint:shape.paints) {
                 const bool fill=paint.type=="nect.paint.fill";
@@ -757,7 +861,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     // Appearance scopes use world-space clip wrappers, never inverse matrices.
     bool modern=false;
     std::function<void(const Id&)> detect=[&](const Id& id){const auto& object=d.objects.at(id);const auto& c=object.compositing;
-        modern=modern||!object.visible||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||c.isolated||(c.mask&&c.mask->enabled);
+        modern=modern||object.image.has_value()||!object.visible||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||c.isolated||(c.mask&&c.mask->enabled);
         for(const auto& child:object.children)detect(child);};
     for(const auto& id:comp->roots)detect(id);
     if(modern) {
@@ -786,7 +890,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
             else {
                 if(object.text)out<<"<desc>Text outlined for SVG; editable source remains in native Nect.</desc>\n";
                 out<<"<g transform=\"matrix(";for(const auto value:node.world)out<<value<<' ';out<<")\">\n";
-                paint_shape(scene.shapes.at(node.id));out<<"</g>\n";
+                if(object.image)paint_image(node.id);else paint_shape(scene.shapes.at(node.id));out<<"</g>\n";
             }
             out<<"</g>\n";
         };
@@ -827,12 +931,12 @@ std::string request(Session& session,std::string_view input) {
         auto op=text(o.at("op"));
         j::value result;
         const bool mutation=op=="apply"||op=="undo"||op=="redo"||op=="restore_history";
-        j::value prior;
+        Document prior;
         std::map<Ref,double> prior_values;
         std::map<Id,EvaluatedTransform> prior_transforms;
         std::map<Id,j::value> prior_frames;
         if(mutation) {
-            prior=j::parse(encode(session.document()),{},precise_json_options());prior_values=evaluate(session.document());
+            prior=session.document();prior_values=evaluate(session.document());
             prior_transforms=evaluate_transforms(session.document(),prior_values);
             for(const auto& c:session.document().compositions)for(const auto& a:c.artboards)
                 prior_frames.emplace(a.id,j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluate_artboard(c,a.id))}});
@@ -913,6 +1017,8 @@ std::string request(Session& session,std::string_view input) {
             result=j::object{{"format","svg"},{"artboard",artboard_json(board)},{"text",texts},
                 {"property_policy","evaluated_values"},{"expressions_preserved",false},
                 {"shape_policy","evaluated vector contours; live operators preserved only in native"},
+                {"image_policy","accepted snapshot projected to oriented sRGB PNG in SVG; original bytes and links preserved in native"},
+                {"image_limits",j::object{{"normalized_png_bytes",raster_png_limit},{"aggregate_png_bytes",32*1024*1024}}},
                 {"compositing_policy","vector_geometry_clips_group_opacity_css_blend_and_isolation"},{"blend_reader_requirement","SVG CSS mix-blend-mode and isolation support"},
                 {"text_policy","outlines"},{"native_source_preserved",true},{"fonts_embedded",false}};
         } else if(op=="compositing_types") {
@@ -999,6 +1105,14 @@ std::string request(Session& session,std::string_view input) {
                 paints.push_back(std::move(entry));
             }
             result=j::object{{"path_instances",shape.paths.size()},{"paint_layers",paints}};
+        } else if(op=="assets") {
+            keys(o,{"op"});j::array list;
+            for(const auto& [id,asset]:session.document().raster_assets) {
+                auto entry=asset_json(asset);entry["source_bytes"]=asset.payload->bytes().size();j::array placements;
+                for(const auto& [object_id,object]:session.document().objects)if(object.image&&object.image->asset==id)placements.push_back(j::value(object_id));
+                entry["placements"]=placements;list.push_back(std::move(entry));
+            }
+            result=list;
         } else if(op=="capabilities") {
             keys(o,{"op"});
             result=j::object{
@@ -1016,7 +1130,7 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op","expected_revision","commands"});
             std::vector<Command> cmds;
             for(const auto& v:o.at("commands").as_array()) cmds.push_back(read_command(v));
-            session.apply(cmds,j::value_to<std::uint64_t>(o.at("expected_revision")));
+            apply_serializable(session,cmds,j::value_to<std::uint64_t>(o.at("expected_revision")));
             result=j::object{{"changed",true}};
         } else if(op=="history") {
             keys(o,{"op"});const auto history=session.history();j::array states;
@@ -1060,17 +1174,18 @@ std::string request(Session& session,std::string_view input) {
 
         if(mutation) {
             std::set<Id> changed;
-            const auto after=j::parse(encode(session.document()),{},precise_json_options());
-            for(const auto* category:{"objects","compositions","collections","named_colors"}) {
-                std::map<Id,j::value> old;
-                for(const auto& item:prior.as_object().at(category).as_array())old.emplace(text(item.as_object().at("id")),item);
-                for(const auto& item:after.as_object().at(category).as_array()) {
-                    const auto id=text(item.as_object().at("id"));
-                    if(!old.contains(id)||old.at(id)!=item)changed.insert(id);
-                    old.erase(id);
-                }
-                for(const auto& [id,value]:old) {(void)value;changed.insert(id);}
-            }
+            const auto& after=session.document();
+            const auto map_diff=[&](const auto& old,const auto& current) {
+                for(const auto& [id,value]:current)if(!old.contains(id)||old.at(id)!=value)changed.insert(id);
+                for(const auto& [id,value]:old){(void)value;if(!current.contains(id))changed.insert(id);}
+            };
+            map_diff(prior.objects,after.objects);map_diff(prior.named_colors,after.named_colors);map_diff(prior.raster_assets,after.raster_assets);
+            const auto list_diff=[&](const auto& old,const auto& current) {
+                for(const auto& item:current) {const auto found=std::find_if(old.begin(),old.end(),[&](const auto& x){return x.id==item.id;});if(found==old.end()||*found!=item)changed.insert(item.id);}
+                for(const auto& item:old)if(std::none_of(current.begin(),current.end(),[&](const auto& x){return x.id==item.id;}))changed.insert(item.id);
+            };
+            list_diff(prior.compositions,after.compositions);list_diff(prior.collections,after.collections);
+            for(const auto& [id,object]:after.objects)if(object.image&&changed.contains(object.image->asset))changed.insert(id);
             const auto current_values=evaluate(session.document());
             for(const auto& [ref,value]:current_values)
                 if(!prior_values.contains(ref)||prior_values.at(ref)!=value)changed.insert(ref.object);

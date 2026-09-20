@@ -20,7 +20,13 @@ def check(value, message):
         raise AssertionError(message)
     checks += 1
 
+def remove_migrated_asset_defaults(document):
+    check(document.pop("raster_assets") == [], "legacy migration starts with no raster assets")
+    return document
+
+
 def remove_migrated_compositing_defaults(document):
+    remove_migrated_asset_defaults(document)
     for obj in document['objects']:
         check(obj.pop('visible') is True, 'legacy artwork remains visible')
         check(obj.pop('compositing') == dict(version=1,opacity=dict(literal=1),blend='normal',isolated=False,mask=None), 'legacy appearance stays neutral')
@@ -202,7 +208,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.12','current writer uses native 0.12')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.13','current writer uses native 0.13')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -214,7 +220,7 @@ new=replies[0]['result'];remove_migrated_anchor_defaults(new);new['version']='0.
 check(new==old,'0.8 migration preserves linked count, angular correction, all paints and text')
 # Catch the documented field vocabulary falling behind real numeric properties.
 # This checks that specific schema boundary; the native codec remains the validator.
-schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.12.schema.json').read_text())
+schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.13.schema.json').read_text())
 field_rules=schema['$defs']['ref']['properties']['field']['anyOf']
 for property_ in replies[1]['result']:
     if property_['type']!='number': continue
@@ -278,7 +284,7 @@ with tempfile.TemporaryDirectory() as tmp:
 mask_path=ornament.with_name('colour-cut.nect')
 old=json.loads(mask_path.read_text(encoding='utf-8'));check(old['version']=='0.11','mask fixture stays historical0.11')
 upgraded=subprocess.run([exe,'--serve',str(mask_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];new['version']='0.11'
+new=json.loads(upgraded.stdout)['result'];remove_migrated_asset_defaults(new);new['version']='0.11'
 check(new==old,'0.11 migration retains all exact masks, blends, references and geometry')
 with tempfile.TemporaryDirectory() as tmp:
     path=Path(tmp)/'offset.nect';path.write_text(json.dumps(sample),encoding='utf-8')
@@ -307,7 +313,7 @@ with tempfile.TemporaryDirectory() as tmp:
     numbers=[float(v) for v in re.findall(r'-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?',svg_path.attrib['d'])]
     check(min(numbers[0::2])==-10 and max(numbers[0::2])==110 and min(numbers[1::2])==-10 and max(numbers[1::2])==70,'SVG exports expanded prior Stroke geometry')
     check(run('--validate',native).returncode==0,'Offset native reopens in a new process')
-    native['version']='0.11';check('UNKNOWN_FIELD' in run('--validate',native).stderr,'old format rejects Offset line-join field')
+    native['version']='0.11';remove_migrated_asset_defaults(native);check('UNKNOWN_FIELD' in run('--validate',native).stderr,'old format rejects Offset line-join field')
     next(o for o in native['objects'] if o['id']=='offset-box')['stack'][-1].pop('line_join')
     check('UNSUPPORTED_OPERATOR' in run('--validate',native).stderr,'old format rejects Offset type even without its new field')
 print(f'PASS {checks} process and native migration checks')

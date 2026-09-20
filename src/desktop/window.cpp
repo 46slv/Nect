@@ -399,6 +399,10 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* polygon=action(add,"Polygon",{},[this]{add_primitive("nect.shape.polygon");});polygon->setObjectName("add-polygon");
     auto* star=action(add,"Star",{},[this]{add_primitive("nect.shape.star");});star->setObjectName("add-star");
     auto* text=action(add,"Text",{},[this]{add_text();});text->setObjectName("add-text");
+    auto* linked=action(add,"Linked Image…",{},[this]{import_image(true);});linked->setObjectName("import-linked-image");
+    auto* embedded=action(add,"Embedded Image…",{},[this]{import_image(false);});embedded->setObjectName("import-embedded-image");
+    file->addAction(linked);file->addAction(embedded);
+    action(file,"Image Assets…",{},[this]{show_assets();})->setObjectName("image-assets");
     add->addSeparator();
     auto* fill=action(add,"Fill",{},[this]{add_operation("nect.paint.fill");});fill->setObjectName("add-fill");
     auto* stroke=action(add,"Stroke",{},[this]{add_operation("nect.paint.stroke");});stroke->setObjectName("add-stroke");
@@ -855,6 +859,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     auto section=[&](const QString& title){auto* box=new QGroupBox(title);auto* form=new QFormLayout(box);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);return form;};
     if(o.text)add_text_properties(layout,o);
+    if(o.image)add_image_properties(layout,o);
     if(o.source) {
         auto* generator=section("1 · "+primitive_label(*o.source)+" source");
         for(const auto* parameter:{"center_x","center_y","points","rotation","radius","outer_radius","inner_radius","width","height"})
@@ -918,7 +923,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     if(o.compositing.mask)add_compositing_properties(layout,o);
     add_transform_properties(layout,o);
     if(!o.compositing.mask)add_compositing_properties(layout,o);
-    if(o.kind!=Kind::group)add_stack(layout,o);
+    if(o.kind==Kind::path||o.kind==Kind::text)add_stack(layout,o);
     auto* hint=new QLabel("Right-click a value to copy, paste or unlink.\n↗ picks a property source; += / -= adjusts once.");
     hint->setWordWrap(true);hint->setStyleSheet("color: #929aa6; font-size: 11px;");layout->addWidget(hint);layout->addStretch();
 }
@@ -1038,6 +1043,84 @@ void Window::choose_transform_parent() {
     const auto* selected=list->currentItem();if(!selected||selected->isHidden())throw Error("NO_SELECTION","Choose a visible transform parent");
     const auto target=selected->data(Qt::UserRole).toString().toStdString();canvas->cancel_interaction();
     host.session.apply({SetTransformParent{id,target.empty()?std::optional<Id>{}:std::optional<Id>{target},preserve->isChecked()}},revision);host.edited();
+}
+void Window::import_image(bool linked) {
+    canvas->cancel_interaction();const auto identity=host.session_id;const auto revision=host.session.revision();
+    const auto comp=canvas->active_composition();const auto board=evaluate_artboard(find_composition(host.session.document(),comp),canvas->active_artboard());
+    const auto path=QFileDialog::getOpenFileName(this,linked?"Import Linked Image":"Import Embedded Image",{},"PNG / JPEG (*.png *.jpg *.jpeg)");
+    if(path.isEmpty())return;
+    if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Document changed while choosing an Image");
+    const auto id=new_id();host.import_image(path,linked?"linked":"embedded",comp,"",new_id(),id,QFileInfo(path).completeBaseName().toStdString(),board.x,board.y,revision);
+    canvas->set_selection(id);host.edited();canvas->setFocus();
+}
+void Window::add_image_properties(QVBoxLayout* layout,const Object& object) {
+    const auto& asset=host.session.document().raster_assets.at(object.image->asset);const auto id=asset.id;
+    const auto identity=host.session_id;const auto revision=host.session.revision();
+    auto* box=new QGroupBox("Image");auto* form=new QFormLayout(box);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);
+    auto* details=new QLabel(qs(asset.name)+QString(" · %1 × %2 px\n%3 · %4").arg(asset.payload->width()).arg(asset.payload->height()).arg(qs(asset.mode),qs(asset.payload->color_interpretation())));
+    details->setWordWrap(true);form->addRow(details);
+    auto* status=new QLabel;status->setObjectName("image-link-status");status->setWordWrap(true);
+    const auto describe=[&]{const auto state=host.asset_status(id);return state.value("state").toString()+
+        (asset.mode=="linked"?QString(" · accepted pixels shown\nCheck link to compare the current file."):QString(" · self-contained"));};
+    status->setText(describe());form->addRow(status);
+    if(asset.mode=="linked") {auto* location=new QLabel(qs(asset.locator));location->setWordWrap(true);location->setTextInteractionFlags(Qt::TextSelectableByMouse);form->addRow(location);}
+    add_property(form,{object.id,"","image.width"},"Width");add_property(form,{object.id,"","image.height"},"Height");
+    auto* fit=new QPushButton("Fit width to Artboard");fit->setObjectName("image-fit-width");form->addRow(fit);
+    connect(fit,&QPushButton::clicked,this,[this,identity,revision,object_id=object.id,id]{perform([&]{
+        if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
+        const auto& asset=host.session.document().raster_assets.at(id);const auto board=evaluate_artboard(find_composition(host.session.document(),canvas->active_composition()),canvas->active_artboard());
+        host.session.apply({Set{{object_id,"","image.width"},board.width},Set{{object_id,"","image.height"},board.width*asset.payload->height()/asset.payload->width()}},revision);host.edited();
+    });});
+    if(asset.mode=="linked") {
+        auto* check=new QPushButton("Check link");check->setObjectName("image-check-link");form->addRow(check);
+        connect(check,&QPushButton::clicked,this,[this,identity,id,status]{perform([&]{
+            if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
+            const auto result=host.check_asset(id);status->setText(result.value("state").toString()+" · accepted pixels shown\nChecked "+result.value("checked_at").toString());
+        });});
+    }
+    const auto operation=[&](const QString& label,const char* action) {
+        auto* button=new QPushButton(label);button->setObjectName("image-"+QString::fromLatin1(action));form->addRow(button);
+        connect(button,&QPushButton::clicked,this,[this,identity,revision,id,action=std::string(action)]{perform([&]{
+            QString path;
+            if(action=="relink") {path=QFileDialog::getOpenFileName(this,"Relink Image",{},"PNG / JPEG (*.png *.jpg *.jpeg)");if(path.isEmpty())return;}
+            if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
+            host.update_asset(id,action,path,revision);
+        });});
+    };
+    if(asset.mode=="linked") {operation("Reload from link","reload");operation("Embed accepted image","embed");}
+    operation("Relink…","relink");
+    std::size_t placements=0;for(const auto& [object_id,item]:host.session.document().objects){(void)object_id;if(item.image&&item.image->asset==id)++placements;}
+    auto* shared=new QLabel(QString("%1 placement(s) share this asset. Reload and Relink update all placements; display sizes stay unchanged.").arg(placements));shared->setWordWrap(true);form->addRow(shared);
+    auto* library=new QPushButton("Image Assets…");form->addRow(library);connect(library,&QPushButton::clicked,this,[this]{perform([this]{show_assets();});});
+}
+void Window::show_assets() {
+    canvas->cancel_interaction();QDialog dialog(this);dialog.setWindowTitle("Image Assets");dialog.setObjectName("image-assets-dialog");dialog.resize(700,470);
+    auto* layout=new QVBoxLayout(&dialog);auto* hint=new QLabel("Linked images keep their accepted pixels. Check links to detect file changes; Reload or Relink accepts a new version. Deleting an object keeps its asset available here.");hint->setWordWrap(true);layout->addWidget(hint);
+    auto* list=new QListWidget;list->setObjectName("image-assets-list");layout->addWidget(list);
+    auto* buttons=new QHBoxLayout;layout->addLayout(buttons);auto* check=new QPushButton("Check links"),*place=new QPushButton("Place selected"),*remove=new QPushButton("Delete unused"),*close=new QPushButton("Close");
+    check->setObjectName("assets-check");place->setObjectName("assets-place");remove->setObjectName("assets-delete");buttons->addWidget(check);buttons->addWidget(place);buttons->addWidget(remove);buttons->addStretch();buttons->addWidget(close);
+    const auto identity=host.session_id;auto revision=host.session.revision();
+    const auto refresh=[&] {
+        const auto selected=list->currentItem()?list->currentItem()->data(Qt::UserRole).toString():QString{};list->clear();
+        for(const auto& [id,asset]:host.session.document().raster_assets) {
+            std::size_t count=0;for(const auto& [object_id,object]:host.session.document().objects){(void)object_id;if(object.image&&object.image->asset==id)++count;}
+            auto* row=new QListWidgetItem(qs(asset.name)+QString(" · %1 × %2 · %3 · %4 · %5 placed").arg(asset.payload->width()).arg(asset.payload->height()).arg(qs(asset.mode),host.asset_status(id).value("state").toString()).arg(count),list);
+            row->setData(Qt::UserRole,qs(id));row->setToolTip(qs(asset.locator));if(qs(id)==selected)list->setCurrentItem(row);
+        }
+        if(!list->currentItem()&&list->count())list->setCurrentRow(0);revision=host.session.revision();
+    };
+    const auto guard=[&]{if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Asset list belongs to another document");if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Close and reopen Image Assets to refresh changes");};
+    connect(check,&QPushButton::clicked,&dialog,[&]{perform([&]{guard();for(const auto& [id,asset]:host.session.document().raster_assets){(void)asset;host.check_asset(id);}refresh();});});
+    connect(place,&QPushButton::clicked,&dialog,[&]{perform([&]{guard();if(!list->currentItem())return;
+        const auto asset_id=list->currentItem()->data(Qt::UserRole).toString().toStdString();const auto& asset=host.session.document().raster_assets.at(asset_id);
+        const auto comp=canvas->active_composition();const auto board=evaluate_artboard(find_composition(host.session.document(),comp),canvas->active_artboard());const auto id=new_id();
+        host.session.apply({CreateImage{comp,"",id,asset.name,{asset_id,{double(asset.payload->width())},{double(asset.payload->height())}}},Set{{id,"","transform.tx"},board.x},Set{{id,"","transform.ty"},board.y}},revision);
+        canvas->set_selection(id);host.edited();refresh();
+    });});
+    connect(remove,&QPushButton::clicked,&dialog,[&]{perform([&]{guard();if(!list->currentItem())return;const auto id=list->currentItem()->data(Qt::UserRole).toString().toStdString();
+        host.session.apply({DeleteRasterAsset{id}},revision);host.edited();refresh();
+    });});
+    connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);refresh();dialog.exec();
 }
 void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const auto id=object.id;const auto frozen_session=host.session_id;
@@ -1696,8 +1779,8 @@ void Window::add_operation(const std::string& type,bool radial) {
     canvas->cancel_interaction();
     const auto& document=host.session.document();
     const auto found=document.objects.find(canvas->selected_object);
-    if(found==document.objects.end()||found->second.kind==Kind::group)
-        throw Error("INVALID_DOMAIN","Select a Path, primitive or Text. Group stacks are not supported yet.");
+    if(found==document.objects.end()||(found->second.kind!=Kind::path&&found->second.kind!=Kind::text))
+        throw Error("INVALID_DOMAIN","Select a Path, primitive or Text. Image and Group shape stacks are unsupported.");
     const auto& object=found->second;
     auto operation=default_operation(new_id(),type);
     if(radial) {
@@ -1845,7 +1928,7 @@ void Window::selection_menu(const QPoint& global) {
         Id parent;const auto members=selected_siblings(parent);const auto& d=host.session.document();
         top->setText("Mask With Top · "+qs(d.objects.at(members.back()).name));bottom->setText("Mask With Bottom · "+qs(d.objects.at(members.front()).name));
         inside->setText("Put Inside · "+qs(d.objects.at(members.back()).name));
-        top->setEnabled(d.objects.at(members.back()).kind!=Kind::group);bottom->setEnabled(d.objects.at(members.front()).kind!=Kind::group);inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
+        top->setEnabled((d.objects.at(members.back()).kind==Kind::path||d.objects.at(members.back()).kind==Kind::text));bottom->setEnabled((d.objects.at(members.front()).kind==Kind::path||d.objects.at(members.front()).kind==Kind::text));inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
     } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
     const auto* chosen=menu.exec(global);if(!chosen)return;
     perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==group)group_selection();});

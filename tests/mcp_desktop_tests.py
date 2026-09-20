@@ -4,6 +4,9 @@ Uses a temporary document and offscreen desktop; this is semantic/persistence
 evidence, not a viewport performance or visual quality claim.
 """
 import json
+import struct
+import zlib
+import base64
 import os
 from pathlib import Path
 import random
@@ -88,7 +91,7 @@ try:
         init = rpc('initialize', dict(protocolVersion='2025-06-18', capabilities={}, clientInfo=dict(name='nect-scenario', version='1')))
         assert init['result']['protocolVersion'] == '2025-06-18'
         mcp.stdin.write(json.dumps(dict(jsonrpc='2.0', method='notifications/initialized')) + '\n'); mcp.stdin.flush()
-        assert {t['name'] for t in rpc('tools/list')['result']['tools']} == {'nect_session', 'nect_command', 'nect_file'}
+        assert {t['name'] for t in rpc('tools/list')['result']['tools']} == {'nect_session', 'nect_command', 'nect_file', 'nect_image'}
         live = tool('nect_session')
         identity = {key: live[key] for key in ('session_id', 'document_id')}
         comp = core('inspect')['result']['compositions'][0]
@@ -352,6 +355,44 @@ try:
         assert core('get',ref=amount)['result']['evaluated']==10
         assert core('redo',expected_revision=rev)['ok'];rev+=1
         assert core('inspect')['result']==after_offset
+        # Local image lifecycle uses the same Session through formal MCP.
+        def png(rgb):
+            def chunk(kind, data):
+                return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)
+            return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',2,2,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\0'+bytes(rgb)*2)*2))+chunk(b'IEND',b'')
+        image_path=temp/'linked.png';original_image=png((220,80,30));image_path.write_bytes(original_image)
+        def image(action,**kwargs):
+            return tool('nect_image',dict(identity,op='asset',asset='mcp-image-asset',action=action,expected_revision=rev,**kwargs))
+        imported=tool('nect_image',dict(identity,op='import_image',expected_revision=rev,path=str(image_path),mode='linked',
+            composition=comp['id'],parent='',asset='mcp-image-asset',id='mcp-image',name='Linked artwork',x=40,y=60))
+        assert imported['ok'],imported
+        rev=imported['revision'];assert image('status')['result']['state']=='current'
+        rev=apply([dict(type='set',ref=dict(object='mcp-image',point='',field='image.width'),value=160),
+                   dict(type='set',ref=dict(object='mcp-image',point='',field='image.height'),value=120),
+                   dict(type='create_image',composition=comp['id'],parent='',id='mcp-image-copy',name='Shared image',
+                        source=dict(asset='mcp-image-asset',width=dict(literal=80),height=dict(literal=60))),
+                   dict(type='set_mask',object='mcp-image',mask=dict(id='mcp-image-mask',source='mcp-mask',version=1,enabled=True,fill_rule='nonzero')),
+                   dict(type='set_compositing',object='mcp-image',blend='multiply',isolated=False)],rev)
+        accepted=core('inspect')['result'];assert base64.b64decode(accepted['raster_assets'][0]['bytes'])==original_image
+        image_path.write_bytes(png((20,180,220)))
+        assert image('check')['result']['state']=='changed' and core('inspect')['result']==accepted
+        reload=image('reload');assert reload['ok'] and {'mcp-image','mcp-image-copy','mcp-image-asset'}.issubset(reload['result']['changed_ids']);rev=reload['revision']
+        assert core('get',ref=dict(object='mcp-image',point='',field='image.width'))['result']['evaluated']==160
+        assert core('undo',expected_revision=rev)['ok'];rev+=1;assert core('inspect')['result']==accepted
+        assert core('redo',expected_revision=rev)['ok'];rev+=1
+        linked_before_missing=core('inspect')['result'];image_path.unlink()
+        assert image('check')['result']['state']=='missing'
+        failed=image('reload');assert not failed['ok'] and failed['revision']==rev and core('inspect')['result']==linked_before_missing
+        relink=temp/'replacement.png';relink.write_bytes(original_image)
+        changed=image('relink',path=str(relink));assert changed['ok'];rev=changed['revision']
+        embedded=image('embed');assert embedded['ok'];rev=embedded['revision'];relink.unlink()
+        assert image('status')['result']['state']=='embedded'
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert image('check')['result']['state']=='missing'
+        # Save a missing link intentionally: restart/recovery must keep accepted pixels.
+        image_svg=core('export_svg',composition=comp['id'],artboard=comp['artboards'][0]['id'])
+        assert image_svg['ok'] and image_svg['result'].count('data:image/png;base64,')==1
+        assert 'bytes' not in core('assets')['result'][0]
         # Automatic protection must reach a verified receipt without an explicit
         # Save/recover call, through the real desktop event loop and worker.
         rev=apply([dict(type='set',ref=source,value=156)],rev)
@@ -372,6 +413,7 @@ try:
         assert core('apply', expected_revision=0, commands=[dict(type='set', ref=source, value=1)])['error']['code'] == 'SESSION_CONFLICT'
         live = tool('nect_session'); identity = {key: live[key] for key in ('session_id', 'document_id')}
         assert core('inspect')['result'] == expected
+        assert tool('nect_image',dict(identity,op='asset',asset='mcp-image-asset',action='status',expected_revision=0))['result']['state']=='unchecked'
         assert core('get', ref=target)['result']['evaluated'] == 168
         assert len(core('history')['result']['states'])==1
         # Recovery is opened through the same formal MCP surface as an unnamed
@@ -384,7 +426,7 @@ try:
             mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,
             independent_svg_parser_paths=expected_svg_paths, ordered_stack_readback=True,
-            automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, gui_performance_claim=False)
+            automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, image_lifecycle_native_recovery=True, gui_performance_claim=False)
         print(json.dumps(receipt, indent=2))
 finally:
     if mcp:

@@ -148,6 +148,8 @@ auto& lookup_property(D& d,const Ref& r) {
     auto& o=it->second;
     if(r.point.empty()) {
         if(r.field=="composite.opacity")return o.compositing.opacity;
+        if(o.image&&r.field=="image.width")return o.image->width;
+        if(o.image&&r.field=="image.height")return o.image->height;
         if(o.text&&r.field.starts_with("text.")) {
             const auto name=r.field.substr(5);require(o.text->parameters.contains(name),"MISSING_REFERENCE",r.field);
             return o.text->parameters.at(name);
@@ -195,7 +197,7 @@ std::string unit(const Ref& r) {
     if(r.field=="generator.points")return "scalar";
     if(r.field=="generator.rotation")return "degree";
     if(r.field.starts_with("color."))return "scalar";
-    if(r.field.starts_with("text."))return "du";
+    if(r.field.starts_with("text.")||r.field.starts_with("image."))return "du";
     if(r.field.starts_with("op.")) {
         const auto name=operation_address(r.field).second;
         if(name.starts_with("gradient.")&&(name.ends_with(".start_x")||name.ends_with(".start_y")||name.ends_with(".end_x")||name.ends_with(".end_y")))return "du";
@@ -214,6 +216,7 @@ void value_range(const Ref& r,double v) {
     require(std::abs(v)<=1e9,"OUT_OF_RANGE","Magnitude limit is 1e9 in v0.1");
     if(r.field=="composite.opacity")require(v>=0&&v<=1,"OUT_OF_RANGE","Compositing opacity must be in [0,1]");
     if(r.field.starts_with("color."))require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB color channels must be in [0,1]");
+    if(r.field=="image.width"||r.field=="image.height")require(v>0&&v<=1e7,"OUT_OF_RANGE","Image display dimensions must be in (0,10000000]");
     if(r.field=="text.font_size")require(v>0&&v<=10000,"OUT_OF_RANGE","Text size must be in (0,10000]");
     if(r.field=="text.frame_width"||r.field=="text.frame_height")require(v>0&&v<=1e6,"OUT_OF_RANGE","Text frame dimensions must be in (0,1000000]");
     if(r.field=="text.line_spacing")require(v>=0&&v<=10000,"OUT_OF_RANGE","Line spacing must be in [0,10000], with zero for automatic");
@@ -256,6 +259,10 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
         index.emplace(Ref{id,"","composite.opacity"},&object.compositing.opacity);
 
         if (object.kind == Kind::group) continue;
+        if(object.image) {
+            index.emplace(Ref{id,"","image.width"},&object.image->width);
+            index.emplace(Ref{id,"","image.height"},&object.image->height);
+        }
         if(object.text)for(const auto& [name,value]:object.text->parameters)index.emplace(Ref{id,"","text."+name},&value);
 
         for(const auto& op:object.stack) {
@@ -315,9 +322,10 @@ Primitive default_primitive(Id id,const std::string& type) {
 
 void add_default_paint(Document& d,const Id& object,const std::string& type) {
     auto& o=d.objects.at(object);
-    require(o.kind!=Kind::group&&o.stack.empty(),"INVALID_OBJECT","Default paint needs a new Shape source");
+    require((o.kind==Kind::path||o.kind==Kind::text)&&o.stack.empty(),"INVALID_OBJECT","Default paint needs a new Shape source");
     std::set<Id> ids{d.id};
     for(const auto& [id,color]:d.named_colors){(void)color;ids.insert(id);}
+    for(const auto& [id,asset]:d.raster_assets){(void)asset;ids.insert(id);}
     for(const auto& c:d.compositions){ids.insert(c.id);for(const auto& a:c.artboards)ids.insert(a.id);}
     for(const auto& c:d.collections)ids.insert(c.id);
     for(const auto& [id,item]:d.objects) {
@@ -560,6 +568,24 @@ void validate(const Document& d) {
     };
 
     add(d.id);
+    require(d.raster_assets.size()<=128,"LIMIT","Raster asset count limit 128");
+    std::size_t raster_bytes=0;std::uint64_t raster_pixels=0;
+    for(const auto& [id,asset]:d.raster_assets) {
+        add(id);require(id==asset.id,"ID_MISMATCH",id);
+        require(!asset.name.empty()&&asset.name.size()<=4096,"INVALID_NAME","Asset name must be 1..4096 UTF-8 bytes");text_utf8(asset.name);
+        require(asset.mode=="linked"||asset.mode=="embedded","INVALID_ASSET_MODE",asset.mode);
+        if(asset.mode=="embedded")require(asset.locator.empty(),"INVALID_ASSET_LOCATOR","Embedded asset has no locator");
+        else {
+            const auto& path=asset.locator;
+            const bool drive=path.size()>=3&&((path[0]>='A'&&path[0]<='Z')||(path[0]>='a'&&path[0]<='z'))&&path[1]==':'&&(path[2]=='/'||path[2]=='\\');
+            const bool posix=path.size()>1&&path[0]=='/'&&path[1]!='/';
+            require(path.size()<=32768&&(drive||posix)&&path.find('\0')==std::string::npos,"INVALID_ASSET_LOCATOR","Linked assets require an absolute local path (no URL or UNC path)");text_utf8(path);
+        }
+        require(bool(asset.payload),"INVALID_ASSET","Asset requires validated accepted bytes");
+        raster_bytes+=asset.payload->bytes().size();raster_pixels+=std::uint64_t(asset.payload->width())*asset.payload->height();
+    }
+    require(raster_bytes<=document_raster_bytes_limit,"ASSET_LIMIT","Document accepted raster source limit 24 MiB");
+    require(raster_pixels<=document_raster_pixels_limit,"ASSET_LIMIT","Document raster pixel limit 33554432");
     require(d.named_colors.size()<=1024,"LIMIT","Named color limit 1024");
     for(const auto& [id,color]:d.named_colors) {
         add(id);require(id==color.id,"ID_MISMATCH",id);
@@ -594,14 +620,20 @@ void validate(const Document& d) {
             require(mask.fill_rule=="nonzero"||mask.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",mask.fill_rule);
             require(mask.source!=id,"INVALID_MASK_SOURCE","A geometry mask cannot reference its owner");
             require(d.objects.contains(mask.source),"MISSING_MASK_SOURCE",mask.source);
-            require(d.objects.at(mask.source).kind!=Kind::group,"INVALID_MASK_SOURCE","Geometry mask source must be a Path or Text");
+            require((d.objects.at(mask.source).kind==Kind::path||d.objects.at(mask.source).kind==Kind::text),"INVALID_MASK_SOURCE","Geometry mask source must be a Path or Text");
         }
         if(o.transform_parent)identity(*o.transform_parent);
         require(o.name.size()<=4096,"LIMIT","Object name too long");
         for(unsigned char ch:o.name)
             require(ch>=32||ch==9||ch==10||ch==13,"INVALID_NAME","XML-incompatible control character");
 
-        if(o.kind==Kind::group) {
+        require(o.kind==Kind::group||o.kind==Kind::path||o.kind==Kind::text||o.kind==Kind::image,"INVALID_OBJECT","Unknown object kind");
+        require(o.kind==Kind::image||!o.image,"INVALID_OBJECT","Only Image owns an image source");
+        if(o.kind==Kind::image) {
+            require(o.image.has_value()&&!o.text&&!o.source&&!o.point_edit&&o.contours.empty()&&o.children.empty(),"INVALID_IMAGE","Image requires exactly one image source");
+            require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Image shape stacks are unsupported");
+            require(d.raster_assets.contains(o.image->asset),"MISSING_ASSET",o.image->asset);
+        } else if(o.kind==Kind::group) {
             require(o.contours.empty(),"INVALID_OBJECT","Group cannot own path geometry");
             require(!o.source&&!o.point_edit&&!o.text,"INVALID_OBJECT","Group cannot own a geometry source");
             require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Group shape stacks are not supported yet");
@@ -953,7 +985,7 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
         } else if constexpr(std::is_same_v<T,MaskObjects>) {
             require(c.members.size()>=2&&c.members.size()<=1000,"INVALID_GROUP","Mask With requires 2..1000 ordered contiguous siblings");
             const auto source=c.top?c.members.back():c.members.front();
-            require(candidate.objects.contains(source)&&candidate.objects.at(source).kind!=Kind::group,"INVALID_MASK_SOURCE","Mask With source must be a Path or Text");
+            require(candidate.objects.contains(source)&&(candidate.objects.at(source).kind==Kind::path||candidate.objects.at(source).kind==Kind::text),"INVALID_MASK_SOURCE","Mask With source must be a Path or Text");
             group_contiguous(candidate,c.composition,c.parent,c.members,c.id,c.name);
             candidate.objects.at(c.id).compositing.mask=GeometryMask{c.mask_id,source};candidate.objects.at(source).visible=false;
         } else if constexpr(std::is_same_v<T,PutInside>) {
@@ -1035,6 +1067,20 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
             const auto after=evaluate_transforms(candidate,evaluate(candidate)).at(c.object).world;
             for(std::size_t i=0;i<before.size();++i)require(transform_equal(before[i],after[i]),"TRANSFORM_PRESERVATION",
                 "Keep-world transform could not be preserved; check dependent matrix bindings or numeric conditioning");
+        } else if constexpr(std::is_same_v<T,AddRasterAsset>) {
+            require(candidate.raster_assets.emplace(c.asset.id,c.asset).second,"DUPLICATE_ID",c.asset.id);
+        } else if constexpr(std::is_same_v<T,ReplaceRasterAsset>) {
+            require(candidate.raster_assets.contains(c.asset.id),"MISSING_ASSET",c.asset.id);
+            candidate.raster_assets.at(c.asset.id)=c.asset;
+        } else if constexpr(std::is_same_v<T,DeleteRasterAsset>) {
+            require(candidate.raster_assets.contains(c.asset),"MISSING_ASSET",c.asset);
+            for(const auto& [id,object]:candidate.objects)require(!object.image||object.image->asset!=c.asset,"ASSET_IN_USE","Asset still has an Image placement");
+            candidate.raster_assets.erase(c.asset);
+        } else if constexpr(std::is_same_v<T,CreateImage>) {
+            require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
+            Object object;object.id=c.id;object.name=c.name;object.kind=Kind::image;object.image=c.source;
+            object.anchor[0].literal=c.source.width.literal/2;object.anchor[1].literal=c.source.height.literal/2;
+            siblings(candidate,c.composition,c.parent).push_back(c.id);candidate.objects.emplace(c.id,std::move(object));
         } else if constexpr(std::is_same_v<T,CreateNamedColor>) {
             require(candidate.named_colors.emplace(c.color.id,c.color).second,"DUPLICATE_ID",c.color.id);
         } else if constexpr(std::is_same_v<T,RenameNamedColor>||std::is_same_v<T,DeleteNamedColor>) {
@@ -1131,7 +1177,7 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
         } else if constexpr(std::is_same_v<T,AddOperation>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);
-            require(o.kind!=Kind::group,"INVALID_DOMAIN","Shape stack requires a Path or Text source");
+            require(o.kind==Kind::path||o.kind==Kind::text,"INVALID_DOMAIN","Shape stack requires a Path or Text source");
             require(c.index<=o.stack.size(),"INVALID_ORDER","Operation insertion index out of range");
             o.stack.insert(o.stack.begin()+c.index,c.operation);
         } else if constexpr(std::is_same_v<T,RemoveOperation>) {

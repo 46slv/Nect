@@ -31,9 +31,9 @@ baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 Circle, Rectangle, Polygon and Star retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
 Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
-0.12 saves retained Offset Paths, geometry masks, common compositing, expression source, procedural state, editable linear/radial gradients, ordered Artboards
+0.13 saves Linked/Embedded PNG/JPEG assets and editable Image placements, retained Offset Paths, geometry masks, common compositing, expression source, procedural state, editable linear/radial gradients, ordered Artboards
 with parent-size inheritance, editable Text, named colors, retained Polygon/Star,
-authored Anchors and explicit Transform Parents. It migrates 0.1–0.11 without
+authored Anchors and explicit Transform Parents. It migrates 0.1–0.12 without
 reference loss. Windows Text uses installed fonts and supports Japanese horizontal
 and vertical writing, automatic size, fixed-frame wrapping and overflow diagnostics.
 
@@ -58,7 +58,7 @@ Not implemented yet:
 - AI/PSD codecs
 - OpenFX hosting
 - full typography
-- raster assets and complete production compositing
+- advanced raster formats, pixel painting and complete production compositing
 
 The PS/AI parity backlog is **not** implementation authorization.
 
@@ -229,7 +229,7 @@ recovery `<file>.backups` target ten owned generations. Inactive managed recover
 sessions target20 /128 MiB, newest first; active sessions and legacy, modified or
 unrecognized files are excluded. Cleanup is best effort and never invalidates a
 verified save. History is separate from these backups. Native files are limited
-to8 MiB; unsupported fields/versions reject without altering the source. This
+to64 MiB; unsupported fields/versions reject without altering the source. This
 does not promise survival of all hardware failures or non-cooperating external
 writes in the final rename race. See the persistence contract in `docs/model-v0.md`.
 
@@ -256,7 +256,7 @@ geometry/appearance. See [model contract](docs/model-v0.md#native010-property-ex
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.12.schema.json` — current native JSON shape (0.1–0.11 readers retained)
+- `schemas/native-v0.13.schema.json` — current native JSON shape (0.1–0.12 readers retained)
 
 ## Project rules
 
@@ -267,3 +267,48 @@ geometry/appearance. See [model contract](docs/model-v0.md#native010-property-ex
 - Prefer the smallest correct implementation boundary over speculative managers/services/frameworks.
 - Candidate requirements remain backlog until explicitly selected by the current milestone.
 - No distribution license has been selected yet.
+
+## Linked and Embedded images
+
+Add (or File) → **Linked Image… / Embedded Image…** imports an explicit local
+PNG/JPEG as an Image. Width/Height are ordinary properties, with links and
+expressions; Canvas body dragging uses the existing transform commands. Images
+support existing geometry masks, opacity, blend modes and Group composition.
+Image sources cannot themselves be geometry masks or use vector Shape stacks.
+
+Both modes keep accepted original source bytes in the native document. A linked
+asset also remembers an absolute local drive path. **Check link** (or File →
+Image Assets → Check links) compares the current file without changing artwork.
+There is no automatic filesystem scan or pixel replacement. **Reload** accepts
+changed bytes; **Relink…** accepts a new file and locator; **Embed accepted image**
+keeps cached bytes and removes the link, including when the source is missing.
+All placements share asset identity, so Reload/Relink updates them together while
+preserving each placement's dimensions/transforms. Every change is one Undo.
+The Image Assets dialog reuses accepted sources and removes unused assets;
+deleting a placement alone keeps its asset. Reopening starts link status at
+`unchecked` and never fetches external files. Missing/unreadable files leave
+accepted pixels available for editing, export and recovery.
+
+Windows WIC uses only its built-in PNG/JPEG codecs from bounded memory. Eight-bit
+RGB/gray/palette sources, alpha, JPEG EXIF orientations1–8 and usable bounded
+RGB/gray ICC profiles are supported. Accepted data includes its color interpretation:
+unprofiled input assumes sRGB; embedded ICC is projected to sRGB. CMYK, HDR/high
+bit depth, animation, PNG eXIf, unsupported profiles/color metadata and URLs/UNC
+paths reject explicitly. Original bytes and metadata stay in native; SVG embeds
+lossless normalized oriented sRGB PNGs, shared once per asset.
+
+Limits:8MiB original bytes and16,777,216 pixels per image,8192 per dimension;
+24MiB and33,554,432 pixels per document,128 assets. Native/local API limit64MiB;
+asset import/replacement preflights serialized admission. SVG normalized PNG limit
+16MiB per asset /32MiB total. ICC profile limit1MiB. Import/Reload and SVG export
+are synchronous; gestures reuse derived image projections.
+
+MCP adds `nect_image` for explicit file import and `status/check/reload/relink/embed`.
+`nect_command` → `assets` returns source metadata, mode, locator and placements
+without the base64 payload. `create_image`, asset add/replace/delete and ordinary
+Image properties use the same Session commands as GUI. See
+[material-study.nect](examples/material-study.nect) and its [SVG](examples/material-study.svg)
+for a masked Linked JPEG shared across four placements plus an Embedded transparent
+PNG, Multiply, named colors and editable Text. Its procedural source files are
+original fixture artwork; another checkout may need Relink, while cached artwork
+remains intact.

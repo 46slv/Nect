@@ -708,3 +708,79 @@ Operator discovery returns exact templates and supported geometry.
 Behavioral references: Adobe's [shape render order](https://helpx.adobe.com/after-effects/desktop/drawing-painting-and-paths/vector-graphics-and-raster-images/overview-shape-layers-paths-vector.html)
 and [Offset Paths controls](https://helpx.adobe.com/after-effects/desktop/drawing-painting-and-paths/shapes-and-shape-attributes/use-offset-paths.html).
 This subset does not claim full AE Offset Copies, open-path or self-intersection parity.
+
+## Native0.13 — retained raster assets and Image placements
+
+The new `raster_assets` table owns stable asset IDs, names, version1 mode
+(`linked`/`embedded`), locator and immutable accepted original bytes. Persisted
+metadata records SHA256, MIME, oriented pixel width/height, JPEG EXIF orientation,
+color interpretation and interpretation_version1. Strict decode validates the
+complete bounded memory image and compares every persisted metadata field; it
+never trusts a declared hash/dimension. Canonical base64 rejects malformed padding,
+nonzero padding bits, whitespace and oversized source data. Older0.1–0.12 documents
+migrate with an empty table; old readers reject the new fields/type.
+
+An `image` leaf owns `{asset,width:Scalar,height:Scalar}`. Its rectangle starts at
+local(0,0); positive display dimensions up to1e7du use ordinary property addressing,
+links, unit checks, expressions and multi-edit. Existing affine/Anchor/Transform
+Parent, visibility, masks, opacity, isolation and blends apply unchanged. The
+image domain has no contours, text/generator/PointEdit, children or Shape stack.
+`evaluate_scene.images` projects accepted payload references and display dimensions;
+Shape evaluation explicitly rejects Image. Only Path/Text can source a geometry
+mask. Asset deletion rejects existing Image references; placement deletion does
+not discard reusable assets. AddRasterAsset/CreateImage can be one atomic batch;
+ReplaceRasterAsset updates every placement without touching object fields.
+
+RasterPayload has a private validating factory and no mutable public data. Document
+copies, gesture snapshots and history share its immutable original byte allocation.
+Equality compares actual contents when pointers differ. Asset history deltas account
+for retained encoded source bytes; derived RGBA buffers never enter authored/native
+state. Canvas keeps bounded current-Composition image projections, dropping unused
+entries and decoding only a newly accepted payload. Its QImage data is premultiplied
+for Qt composition; the memory backend exposes oriented straight-sRGB RGBA8.
+API changed_ids diffs authored structs directly instead of serializing/parsing all
+base64 data during each semantic edit. Asset replacements also report placement IDs.
+
+`Host::import_image` / `update_asset` read only explicitly named absolute local
+Windows drive paths, bounded to8MiB, reject file changes during the read, then use
+normal Session commands with serialized-size preflight. GUI, local API and formal
+MCP share these methods. No native decoder, expression or core evaluator reads
+locator paths. Embedded locator is empty. Linked locator is an absolute opaque
+path, preserving meaning across Save As and recovery. Link observations are
+transient, keyed to locator+accepted hash, with UTC check time and optional observed
+hash. Explicit Check yields current/changed/missing/unreadable; no authored revision
+changes. Open begins unchecked. Reload/Relink failure leaves the entire Session
+unchanged; Embed uses cached data even for a missing source. All placements retain
+size and transforms. Current status is an observation, not an ongoing file watch.
+
+The backend instantiates only Microsoft WIC PNG/JPEG decoder CLSIDs, from memory;
+COM/WIC/BCrypt are Windows components, not new downloaded dependencies. Original
+source<=8MiB, each axis<=8192, pixels<=16,777,216. Document totals<=24MiB and
+33,554,432 pixels across at most128 assets. Native/CLI/local-socket/protection limit
+is64MiB. Pure core enforces authored budgets; IO/Host asset admission also serializes
+the candidate before committing to prevent accepting an unsavable import. An
+oversized history entry remains atomic under the existing64MiB history estimate.
+
+Color/orientation interpretation is versioned: 8-bit RGB/gray and supported indexed
+PNG, JPEG EXIF1–8, alpha preserved, unprofiled color explicitly assumed sRGB. Usable
+v2/v4 RGB/gray ICC is converted via memory color contexts to sRGB, without altering
+alpha. PNG iCCP is inflated through the existing Boost headers with full-stream,
+Adler32 and1MiB output checks before WIC metadata allocation. JPEG ICC segments
+are assembled with the same limit. Invalid profiles/metadata, non-sRGB standalone
+PNG gamma/chromaticities without a usable profile, CMYK, >8-bit channels, animation,
+PNG eXIf and other formats reject explicitly. No resizing, source rewrite or hidden
+bit-depth reduction occurs. Non-Windows raster operations report backend unavailable.
+
+SVG reuses the same decoder, emits lossless normalized metadata-free sRGB PNG data
+once per asset in definitions, and places it through scale/world transforms under
+existing mask/compositing wrappers. Source orientation is already baked into that
+projection; original orientation/profile/bytes remain native. SVG admits<=16MiB
+normalized PNG per asset /32MiB aggregate; exceeded encoding budgets are explicit
+errors. export_plan discloses image conversion. Import/reload and export are bounded
+synchronous operations; async decoding, automatic watching, relative locators,
+vector/PDF/RAW assets, pixel painting, image alpha/luma masks and vector operators
+on raster images remain unsupported.
+
+Primary platform references: [WIC native pixel formats](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-codec-native-pixel-formats),
+[WIC metadata](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-about-metadata),
+[IWICColorContext](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nn-wincodec-iwiccolorcontext).

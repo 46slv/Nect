@@ -53,7 +53,7 @@ TOOLS = [
                      'set_expression {targets:[Ref],expression:{source:string,version:1},replace_binding:bool} assigns a bounded pure expression to compatible scalars. '
                      'Use expression_language for limits/functions; ref("object-id","point-id-or-empty","field") uses stable IDs. '
                      'Typing numbers cannot replace a formula. Unlink freezes its result; link commands explicitly replace it. Existing binding replacement needs replace_binding:true. '
-                     'Formula errors/cycles/units/ranges reject the whole command; expressions persist in native 0.12 and SVG contains evaluated values only. '
+                     'Formula errors/cycles/units/ranges reject the whole command; expressions persist in native 0.13 and SVG contains evaluated values only. '
                      'translate_objects {objects:[id],dx:number,dy:number} translates selected world matrices once, including selected ancestors/followers, in one Composition. '
                      'set_gradient replaces the authored gradient on one paint; preserve its IDs and existing bindings when editing stops. '
                      'Gradient numeric refs are op.OP_ID.gradient.GRADIENT_ID.start_x/start_y/end_x/end_y or stop.STOP_ID.offset/r/g/b/a. '
@@ -74,6 +74,9 @@ TOOLS = [
                      'set_color {ref,value:{space:"srgb",profile:"srgb",alpha:"straight",rgba:[four numbers]}} rejects driven channels. '
                      'link_color {target,source} links all four channels; unlink_color {ref} freezes the resolved value. '
                      'Aggregate refs use point:"", field:"color" for a named color owner ID, op.OP.color for paint, or op.OP.gradient.GRAD.stop.STOP.color for a gradient stop. '
+                     'Raster Images: assets lists metadata and placements (no byte payload); image.width/height are ordinary du Scalars. '
+                     'create_image {composition,parent,id,name,source:{asset,width:Scalar,height:Scalar}} reuses an accepted asset. '
+                     'delete_raster_asset {asset} rejects while placed. Use nect_image for local file import, check, reload, relink or embed. '
                      'Use properties to discover stable refs and units. All mutations are atomic and undoable.'),
      'inputSchema': {'type': 'object', 'properties': dict(IDENTITY, request={'type': 'object'}),
                      'required': ['session_id', 'document_id', 'request'], 'additionalProperties': False},
@@ -90,6 +93,25 @@ TOOLS = [
          expected_revision={'type': 'integer', 'minimum': 0}, path={'type': 'string'}),
          'required': ['session_id', 'document_id', 'op', 'expected_revision'], 'additionalProperties': False},
      'annotations': {'readOnlyHint': False, 'destructiveHint': True, 'openWorldHint': False}},
+    {'name': 'nect_image',
+     'description': ('Import PNG/JPEG as a Linked or Embedded asset with one Image placement, or manage an existing asset. '
+                     'import_image requires path (absolute local Windows drive path), explicit mode linked/embedded, composition,parent (empty for root), '
+                     'asset (new stable ID), id (new Image ID), name, x,y; placement starts at one du per oriented source pixel. '
+                     'asset operation requires asset ID and action status/check/reload/relink/embed; relink also requires path. '
+                     'status reads the last observation without filesystem access; check compares linked source bytes without accepting pixels or changing revision. '
+                     'reload and relink atomically replace accepted bytes for ALL placements, keeping display dimensions and transforms. '
+                     'embed keeps accepted cached bytes and clears the link; no file read. All authored changes are one Undo. '
+                     'Native open never fetches links; current/changed/missing/unreadable are explicit check observations. '
+                     'PNG/JPEG 8-bit RGB/gray/palette only, JPEG EXIF orientation and bounded ICC to sRGB. '
+                     'Limits: 8 MiB and 16MP per source,8192 per axis;24 MiB and32MP per document;128 assets. '
+                     'Unsupported CMYK,high-bit-depth,animation,PNG eXIf and unsupported color metadata reject without changes.'),
+     'inputSchema': {'type':'object','properties':dict(IDENTITY,
+         op={'type':'string','enum':['import_image','asset']},expected_revision={'type':'integer','minimum':0},
+         path={'type':'string'},mode={'type':'string','enum':['linked','embedded']},composition={'type':'string'},parent={'type':'string'},
+         asset={'type':'string'},id={'type':'string'},name={'type':'string'},x={'type':'number'},y={'type':'number'},
+         action={'type':'string','enum':['status','check','reload','relink','embed']}),
+         'required':['session_id','document_id','op','expected_revision','asset'],'additionalProperties':False},
+     'annotations':{'readOnlyHint':False,'destructiveHint':False,'openWorldHint':False}},
 ]
 
 
@@ -115,7 +137,7 @@ def run(endpoint):
         notification = False
         try:
             if len(line) > LIMIT:
-                raise ProtocolError(-32700, 'Message exceeds 8 MiB')
+                raise ProtocolError(-32700, 'Message exceeds 64 MiB')
             try:
                 message = json.loads(line, object_pairs_hook=unique,
                     parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Non-finite JSON number')))
@@ -166,7 +188,7 @@ def run(endpoint):
                     raise ProtocolError(-32602, 'Missing or unknown tool arguments')
                 for key, value in arguments.items():
                     rule = schema['properties'][key]
-                    expected = {'string': str, 'object': dict, 'integer': int}[rule['type']]
+                    expected = {'string': str, 'object': dict, 'integer': int, 'number': (int, float)}[rule['type']]
                     if not isinstance(value, expected) or isinstance(value, bool) or ('enum' in rule and value not in rule['enum']) or ('minimum' in rule and value < rule['minimum']):
                         raise ProtocolError(-32602, 'Invalid argument: ' + key)
                 envelope = {'op': 'hello'} if name == 'nect_session' else dict(arguments)

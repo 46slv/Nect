@@ -15,6 +15,7 @@
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <set>
 
 namespace nect::desktop {
 namespace {
@@ -123,6 +124,18 @@ void Canvas::refresh() {
         parents_.clear();
         if (composition != document.compositions.end()) {
             scene_=evaluate_scene(document,composition->id,values_,transforms_);
+            std::set<Id> active_assets;
+            for(const auto& [id,image]:scene_.images){(void)image;active_assets.insert(document.objects.at(id).image->asset);}
+            std::erase_if(rasters_,[&](const auto& entry){return !active_assets.contains(entry.first);});
+            for(const auto& id:active_assets) {
+                const auto& payload=document.raster_assets.at(id).payload;const auto found=rasters_.find(id);
+                if(found!=rasters_.end()&&found->second.payload==payload)continue;
+                auto pixels=decode_raster(*payload);
+                QImage source(pixels.rgba.data(),static_cast<int>(pixels.width),static_cast<int>(pixels.height),static_cast<int>(pixels.width*4),QImage::Format_RGBA8888);
+                auto projection=source.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+                if(projection.isNull())throw Error("RENDER_ALLOCATION","Could not allocate an Image projection");
+                rasters_.insert_or_assign(id,RasterProjection{payload,std::move(projection)});
+            }
             std::function<void(const EvaluatedSceneNode&)> masks=[&](const auto& node) {
                 if(node.mask) {
                     QPainterPath path;
@@ -154,6 +167,11 @@ void Canvas::refresh() {
                 };
                 // Core owns operation order, repeat instances and paint grouping.
                 // Qt only projects each evaluated layer into its drawing types.
+                if(object.image) {
+                    const auto& image=scene_.images.at(id);item.image=rasters_.at(object.image->asset).image;
+                    item.image_bounds=QRectF(0,0,image.width,image.height);item.path.addRect(*item.image_bounds);
+                    geometry_index_.emplace(id,geometry_.size());geometry_.push_back(std::move(item));return;
+                }
                 const auto& shape = scene_.shapes.at(id);
                 if(object.text) {
                     std::map<std::string,double> parameters;
@@ -487,6 +505,7 @@ const Canvas::Geometry* Canvas::hit_path(QPointF screen) const {
         if(!visible_hit(*i,screen))continue;
         if (selection_target(*i).empty()) continue;
         const auto transform = i->world * view();
+        if(i->image_bounds&&transform.map(QPolygonF(*i->image_bounds)).containsPoint(screen,Qt::OddEvenFill))return &*i;
         if(i->text_bounds&&transform.map(QPolygonF(*i->text_bounds)).containsPoint(screen,Qt::OddEvenFill))return &*i;
         for (auto paint = i->paints.rbegin(); paint != i->paints.rend(); ++paint) {
             if (paint->color.alphaF() <= 0 || (!paint->fill && paint->width <= 0)) continue;
@@ -570,6 +589,10 @@ void Canvas::paintEvent(QPaintEvent*) {
             }
         }
         const auto draw_leaf=[&](QPainter& target,const Geometry& item,QPointF origin=QPointF{}) {
+            if(item.image_bounds) {
+                target.setWorldTransform(item.world*view()*QTransform::fromTranslate(-origin.x(),-origin.y()));
+                target.setRenderHint(QPainter::SmoothPixmapTransform);target.drawImage(*item.image_bounds,item.image);return;
+            }
             for (const auto& paint : item.paints) {
                 if (paint.color.alphaF() <= 0 || (!paint.fill && paint.width <= 0)) continue;
                 target.setWorldTransform(paint.transform * item.world * view()*QTransform::fromTranslate(-origin.x(),-origin.y()));
@@ -614,6 +637,7 @@ void Canvas::paintEvent(QPaintEvent*) {
                     QRectF result;
                     if(node.mask)result=mask_paths_.at(node.id).boundingRect();
                     else {
+                        if(const auto* item=geometry(node.id);item&&item->image_bounds)result=item->world.mapRect(*item->image_bounds);
                         if(const auto* item=geometry(node.id))for(const auto& paint:item->paints) {
                             if(paint.color.alphaF()<=0||(!paint.fill&&paint.width<=0))continue;
                             const auto transform=paint.transform*item->world;

@@ -9,7 +9,7 @@ std::string read_bounded(std::istream& stream) {
     std::string data;
     char c;
     while(stream.get(c)) {
-        if(data.size()>=8*1024*1024) throw nect::Error("INPUT_LIMIT","Maximum 8 MiB");
+        if(data.size()>=64*1024*1024) throw nect::Error("INPUT_LIMIT","Maximum 64 MiB");
         data.push_back(c);
     }
     if(stream.bad()) throw nect::Error("IO_ERROR","Read failed");
@@ -45,7 +45,7 @@ int main(int argc,char** argv) {
                     if(!line.empty()) std::cout<<nect::request(session,line)<<std::endl;
                     line.clear();
                 } else {
-                    if(line.size()>=8*1024*1024) throw nect::Error("INPUT_LIMIT","Request line exceeds 8 MiB");
+                    if(line.size()>=64*1024*1024) throw nect::Error("INPUT_LIMIT","Request line exceeds 64 MiB");
                     line+=c;
                 }
             }

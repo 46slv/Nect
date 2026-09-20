@@ -79,6 +79,9 @@ private:
     void add_curve();
     void add_primitive(const std::string& type);
     void add_text();
+    void import_image(bool linked);
+    void show_assets();
+    void add_image_properties(QVBoxLayout*,const Object&);
     void add_text_properties(QVBoxLayout* layout,const Object& object);
     void add_transform_properties(QVBoxLayout* layout,const Object& object);
     void add_compositing_properties(QVBoxLayout* layout,const Object& object);

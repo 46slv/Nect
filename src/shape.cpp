@@ -34,7 +34,7 @@ Affine compose(const Affine& a,const Affine& b) {
 }
 EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,double>& values) {
     const auto& o=d.objects.at(id);
-    if(o.kind==Kind::group)throw Error("INVALID_DOMAIN","Shape stack accepts one Path or Text source");
+    if(o.kind!=Kind::path&&o.kind!=Kind::text)throw Error("INVALID_DOMAIN","Shape stack accepts one Path or Text source");
     auto contours=std::make_shared<std::vector<EvaluatedContour>>();
     for(const auto& contour:path_contours(o,&values)) {
         EvaluatedContour result;result.closed=contour.closed;

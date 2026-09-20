@@ -26,6 +26,7 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
         result.isolated=composite.isolated||result.opacity!=1||result.blend!="normal"||result.mask.has_value();
         scene.requires_compositing=scene.requires_compositing||result.isolated;
         if(object.kind==Kind::group)for(const auto& child:object.children)result.children.push_back(node(child,depth+1));
+        else if(object.image)scene.images.emplace(id,EvaluatedImage{document.raster_assets.at(object.image->asset).payload,values.at({id,"","image.width"}),values.at({id,"","image.height"})});
         else (void)shape(id);
         return result;
     };

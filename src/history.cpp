@@ -33,6 +33,8 @@ std::size_t extra(const ShapeOperation&);
 std::size_t extra(const GeometryMask&);
 std::size_t extra(const Compositing&);
 std::size_t extra(const Object&);
+std::size_t extra(const ImageSource&);
+std::size_t extra(const RasterAsset&);
 std::size_t extra(const ArtboardParent&);
 std::size_t extra(const Artboard&);
 std::size_t extra(const Composition&);
@@ -70,7 +72,9 @@ std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extr
 std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.gradient),extra(v.line_join));}
 std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule));}
 std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.mask));}
-std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.compositing));}
+std::size_t extra(const ImageSource& v){return total(extra(v.asset),extra(v.width),extra(v.height));}
+std::size_t extra(const RasterAsset& v){return total(extra(v.id),extra(v.name),extra(v.mode),extra(v.locator),v.payload?v.payload->bytes().size()+sizeof(RasterPayload)+allocation_overhead:0);}
+std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.compositing),extra(v.image));}
 std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
 std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size));}
 std::size_t extra(const Composition& v){return total(extra(v.id),extra(v.name),extra(v.roots),extra(v.artboards));}
@@ -81,6 +85,7 @@ std::string owner_name(const Document& before,const Document& after,const Id& id
     for(const auto* document:{&after,&before}) {
         if(const auto it=document->objects.find(id);it!=document->objects.end())return it->second.name;
         if(const auto it=document->named_colors.find(id);it!=document->named_colors.end())return it->second.name;
+        if(const auto it=document->raster_assets.find(id);it!=document->raster_assets.end())return it->second.name;
         for(const auto& comp:document->compositions) {
             if(comp.id==id)return comp.name;
             for(const auto& board:comp.artboards)if(board.id==id)return board.name;
@@ -128,6 +133,10 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,CreatePath>)return "Add Path: "+c.name;
         else if constexpr(std::is_same_v<T,CreatePrimitive>)return std::string(c.source.type=="nect.shape.circle"?"Add Circle: ":
             c.source.type=="nect.shape.rectangle"?"Add Rectangle: ":c.source.type=="nect.shape.polygon"?"Add Polygon: ":"Add Star: ")+c.name;
+        else if constexpr(std::is_same_v<T,AddRasterAsset>)return "Add image asset: "+c.asset.name;
+        else if constexpr(std::is_same_v<T,ReplaceRasterAsset>)return "Update image asset: "+c.asset.name;
+        else if constexpr(std::is_same_v<T,DeleteRasterAsset>)return "Delete image asset: "+name(c.asset);
+        else if constexpr(std::is_same_v<T,CreateImage>)return "Place Image: "+c.name;
         else if constexpr(std::is_same_v<T,CreateText>)return "Add Text: "+c.name;
         else if constexpr(std::is_same_v<T,UpdateText>)return "Edit Text: "+name(c.object);
         else if constexpr(std::is_same_v<T,GroupContiguous>)return "Group: "+c.name;
@@ -175,7 +184,7 @@ std::size_t Session::estimate_history(const HistoryEntry& entry) {
         for(const auto& item:items)result=total(result,extra(item.key),extra(item.before),extra(item.after));
         return result;
     };
-    return total(bytes,changes(entry.objects),changes(entry.colors));
+    return total(bytes,changes(entry.objects),changes(entry.colors),changes(entry.assets));
 }
 
 void Session::commit(Document candidate,std::string label) {
@@ -189,6 +198,7 @@ void Session::commit(Document candidate,std::string label) {
         }
     };
     diff(document_.objects,candidate.objects,entry.objects);diff(document_.named_colors,candidate.named_colors,entry.colors);
+    diff(document_.raster_assets,candidate.raster_assets,entry.assets);
     if(document_.compositions!=candidate.compositions)entry.compositions=std::pair{document_.compositions,candidate.compositions};
     if(document_.collections!=candidate.collections)entry.collections=std::pair{document_.collections,candidate.collections};
     entry.estimated_bytes=estimate_history(entry);
@@ -217,7 +227,7 @@ void Session::apply_history(Document& candidate,const HistoryEntry& entry,bool f
             if(value)objects.insert_or_assign(change.key,*value);else objects.erase(change.key);
         }
     };
-    patch(candidate.objects,entry.objects);patch(candidate.named_colors,entry.colors);
+    patch(candidate.objects,entry.objects);patch(candidate.named_colors,entry.colors);patch(candidate.raster_assets,entry.assets);
     if(entry.compositions)candidate.compositions=forward?entry.compositions->second:entry.compositions->first;
     if(entry.collections)candidate.collections=forward?entry.collections->second:entry.collections->first;
 }

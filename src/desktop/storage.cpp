@@ -10,7 +10,7 @@
 
 namespace nect::desktop {
 namespace {
-constexpr qint64 native_limit=8*1024*1024;
+constexpr qint64 native_limit=64*1024*1024;
 constexpr auto backup_time_format="yyyyMMdd-HHmmsszzz";
 struct ReadFile {QByteArray bytes;FileStamp stamp;};
 FileStamp stamp(const QByteArray& bytes){return {true,QCryptographicHash::hash(bytes,QCryptographicHash::Sha256)};}
@@ -23,10 +23,10 @@ ReadFile read_file(const QString& path,bool missing_allowed) {
     }
     if(!info.isFile())io_error("Native path is not a regular file: "+path);
     QFile file(path);if(!file.open(QIODevice::ReadOnly))io_error(file.errorString());
-    if(file.size()>native_limit)throw Error("INPUT_LIMIT","Native file exceeds 8 MiB");
+    if(file.size()>native_limit)throw Error("INPUT_LIMIT","Native file exceeds 64 MiB");
     auto bytes=file.read(native_limit+1);
     if(file.error()!=QFileDevice::NoError)io_error(file.errorString());
-    if(bytes.size()>native_limit)throw Error("INPUT_LIMIT","Native file exceeds 8 MiB");
+    if(bytes.size()>native_limit)throw Error("INPUT_LIMIT","Native file exceeds 64 MiB");
     return {bytes,stamp(bytes)};
 }
 void write_atomic(const QString& path,const QByteArray& bytes) {
@@ -99,7 +99,7 @@ bool same_native_path(const QString& first,const QString& second) {
 }
 
 FileStamp store_native(const QString& path,const QByteArray& bytes,const std::optional<FileStamp>& expected,bool keep_previous) {
-    if(bytes.size()>native_limit)throw Error("OUTPUT_LIMIT","Native file exceeds 8 MiB");
+    if(bytes.size()>native_limit)throw Error("OUTPUT_LIMIT","Native file exceeds 64 MiB");
     const auto target=native_path(path);
     if(!QFileInfo(QFileInfo(target).absolutePath()).isDir())io_error("Native parent directory does not exist: "+QFileInfo(target).absolutePath());
     QLockFile lock(target+".lock");lock.setStaleLockTime(0);

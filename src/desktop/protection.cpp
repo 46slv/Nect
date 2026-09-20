@@ -17,7 +17,7 @@ StorageError failure(const std::exception& error) {
 }
 QByteArray read_bytes(const QString& path) {
     QFile file(path);
-    if(!file.open(QIODevice::ReadOnly)||file.size()>8*1024*1024)return {};
+    if(!file.open(QIODevice::ReadOnly)||file.size()>64*1024*1024)return {};
     return file.readAll();
 }
 QByteArray digest(const QByteArray& bytes) {return QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex();}
@@ -76,7 +76,7 @@ ProtectionResult protect_snapshot(ProtectionSnapshot snapshot) {
     QByteArray bytes;
     try {
         bytes=QByteArray::fromStdString(encode(snapshot.document));
-        if(bytes.size()>8*1024*1024)throw Error("OUTPUT_LIMIT","Native file exceeds 8 MiB");
+        if(bytes.size()>64*1024*1024)throw Error("OUTPUT_LIMIT","Native file exceeds 64 MiB");
     } catch(const std::exception& error) {
         result.recovery_error=failure(error);if(snapshot.write_native)result.native_error=failure(error);return result;
     }
