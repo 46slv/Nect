@@ -29,8 +29,9 @@ baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 `CURRENT_GOAL.md`; this is not yet the completed practical alpha.
 
 Circle and Rectangle retain their generators after direct point edits, with
-visible Point Edit overrides/bypass and explicit Convert to Path. Native 0.2
-saves procedural state and reads 0.1 files without flattening or reference loss.
+visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
+Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
+0.3 saves procedural state and migrates 0.1/0.2 without reference loss.
 
 Implemented in M0:
 
@@ -90,7 +91,16 @@ double-click enters them and the breadcrumb returns. Inspector fields accept
 numbers and one-shot `+=`/`-=` adjustments. Right-click provides Copy Value,
 Copy Reference, Paste Value, Paste Link and explicit Unlink. Drag ↗ to a source
 field (hover Objects to inspect another source); click ↗ to search. General
-expressions, Polygon/Star, fills/text/masks and shape stacks are subsequent slices.
+expressions, Polygon/Star, text, gradients and masks are subsequent slices.
+
+The Shape stack supports multiple solid Fill/Stroke entries, HEX RGBA/color
+editing, enable/reorder/remove and Repeater. Add a radial repeater for a fixed-step
+12 × 30° starting point. Repeater before paint creates a compound path; after
+paint it repeats separately painted copies. Source points remain directly editable.
+Open `examples/radial-ornament.nect` for an original procedural sample, or reproduce
+it in an empty live desktop with `scripts/create_radial_demo.py --endpoint nect-demo
+--output build/radial.nect`. The script uses the production Session API and refuses
+to replace existing artwork.
 
 To expose the desktop-owned document to a local automation client:
 
@@ -129,7 +139,7 @@ rejected without altering the source.
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.2.schema.json` — current native JSON shape (0.1 reader retained)
+- `schemas/native-v0.3.schema.json` — current native JSON shape (0.1/0.2 readers retained)
 
 ## Project rules
 

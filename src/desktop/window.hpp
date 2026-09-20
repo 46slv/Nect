@@ -6,6 +6,8 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QVBoxLayout>
+#include <QScrollArea>
 
 namespace nect::desktop {
 class Window : public QMainWindow {
@@ -22,6 +24,7 @@ protected:
 private:
     QTreeWidget* tree_;
     QWidget* inspector_;
+    QScrollArea* inspector_scroll_;
     QLabel* status_;
     QLabel* breadcrumb_;
     QAction* undo_;
@@ -35,6 +38,7 @@ private:
     bool whip_dragged_=false;
     QWidget* whip_overlay_=nullptr;
     void cancel_whip();
+    void reveal_whip_source();
     void rebuild_inspector();
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void pick_source(Ref target,bool relative=false);
@@ -42,6 +46,9 @@ private:
     void add_curve();
     void add_primitive(const std::string& type);
     void convert_to_path();
+    void add_operation(const std::string& type,bool radial=false);
+    void move_operation(const Id& object,const Id& operation,int direction);
+    void add_stack(QVBoxLayout* layout,const Object& object);
     void group_selection();
 };
 }

@@ -55,7 +55,7 @@ int main(int argc,char** argv) {
             throw nect::Error("USAGE","Unknown CLI mode");
 
         auto d=nect::decode(read_bounded(std::cin));
-        if(mode=="--validate") std::cout<<"{\"ok\":true,\"native_version\":\"0.2\"}\n";
+        if(mode=="--validate") std::cout<<"{\"ok\":true,\"native_version\":\"0.3\"}\n";
         else if(mode=="--normalize") std::cout<<nect::encode(d)<<'\n';
         else {
             if(d.compositions.empty()||d.compositions.front().artboards.empty())

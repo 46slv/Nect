@@ -63,6 +63,38 @@ scenes, later operators, other displays or GPU presentation timing.
 Six CTest entries pass: core, desktop-host persistence, Canvas interaction,
 Window interaction, headless process and same-desktop formal MCP.
 
+### Post-M1 Shape stack check — 2026-09-20
+
+Native 0.3/ordered-paint implementation: eight CTest entries pass, adding primitive
+and shape-stack contracts. The same full Window benchmark was rerun after the
+renderer change. Hardware, viewport and measurement boundary match the table
+above. Additional `--repeat` mode measures two four-anchor sources, each with
+Stroke + Fill + 12-copy Repeater: 24 virtual paths / 48 paint layers. This is
+actual exposed Qt paint/input timing, not compositor/scanout latency.
+
+| Scene / operation | Interval p50 ms | p95 ms | >33.333 ms | Release + Inspector ms |
+|---|---:|---:|---:|---:|
+| 2 Paths / pan | 16.09 | 18.20 | 0 | 0.32 |
+| 2 Paths / zoom | 16.11 | 17.17 | 0 | 0.00 |
+| 2 Paths / point | 15.90 | 17.62 | 0 | 6.93 |
+| 2 Paths / handle | 15.86 | 17.51 | 0 | 7.72 |
+| 2 Paths / transform | 16.03 | 17.36 | 0 | 6.11 |
+| 80 Paths / pan | 16.03 | 17.79 | 0 | 0.48 |
+| 80 Paths / zoom | 16.08 | 17.74 | 0 | 0.00 |
+| 80 Paths / point | 22.73 | 30.16 | 0 | 30.83 |
+| 80 Paths / handle | 20.90 | 28.48 | 0 | 29.43 |
+| 80 Paths / transform | 20.74 | 25.92 | 0 | 30.50 |
+| 48 repeated paint layers / pan | 16.03 | 18.24 | 0 | 0.37 |
+| 48 repeated paint layers / zoom | 16.10 | 17.23 | 0 | 0.00 |
+| 48 repeated paint layers / point | 16.03 | 17.53 | 0 | 17.24 |
+| 48 repeated paint layers / handle | 16.08 | 18.11 | 0 | 20.55 |
+| 48 repeated paint layers / transform | 16.25 | 17.80 | 0 | 15.99 |
+
+30 fps passes; 60 fps remains a target. Raw samples are in ignored
+`build/canvas-benchmark-stack.json` and `build/canvas-benchmark-repeat.json`.
+The denser ordinary scene now has less margin; profile future rendering changes
+against this measured fixture instead of assuming the original M1 timings persist.
+
 ## Flow
 
 Qt new document -> path creation -> point/handle selection -> Path Inspector numeric edit ->

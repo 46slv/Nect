@@ -8,7 +8,7 @@ option(NECT_DESKTOP "Build the Qt desktop authoring client" OFF)
 
 find_path(BOOST_INCLUDE_DIR boost/json/src.hpp REQUIRED)
 
-add_library(nect_core src/core.cpp)
+add_library(nect_core src/core.cpp src/shape.cpp)
 target_include_directories(nect_core PUBLIC include)
 
 add_library(nect_io src/io.cpp src/boost_json.cpp)
@@ -52,6 +52,9 @@ if(BUILD_TESTING)
   add_executable(primitive_tests tests/primitive_tests.cpp)
   target_link_libraries(primitive_tests PRIVATE nect_io)
   add_test(NAME primitive_contract COMMAND primitive_tests)
+  add_executable(shape_stack_tests tests/shape_stack_tests.cpp)
+  target_link_libraries(shape_stack_tests PRIVATE nect_io)
+  add_test(NAME shape_stack_contract COMMAND shape_stack_tests)
   if(NECT_DESKTOP)
     add_executable(desktop_host_tests tests/desktop_host_tests.cpp)
     target_link_libraries(desktop_host_tests PRIVATE nect_desktop_client)

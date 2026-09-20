@@ -97,7 +97,16 @@ with tempfile.TemporaryDirectory() as tmp:
     replies = [json.loads(line) for line in result.stdout.splitlines()]
     check(all(r['ok'] for r in replies), 'legacy migration and edit succeed')
     migrated = replies[0]['result']
-    check(migrated == dict(legacy, version='0.2'), 'migration preserves every authored legacy value and reference')
+    projected = json.loads(json.dumps(migrated))
+    projected['version'] = '0.1'
+    for obj in projected['objects']:
+        if obj['kind'] != 'path':
+            continue
+        paint = obj.pop('stack')[0]
+        check(paint['id'] == obj.pop('legacy_stroke'), 'legacy address refers to stable migrated stroke')
+        obj['fill'] = 'none'
+        obj['stroke'] = dict(rgba=[paint['parameters'][k] for k in ('r','g','b','a')], width=paint['parameters']['width'])
+    check(projected == legacy, 'migration preserves every authored legacy value and reference')
     check(replies[2]['result']['evaluated'] == 341, 'legacy stable binding still evaluates after editing')
     saved = replies[3]['result']
     path.write_text(json.dumps(saved), encoding='utf-8')
@@ -105,4 +114,27 @@ with tempfile.TemporaryDirectory() as tmp:
         capture_output=True,text=True,timeout=10)
     check(json.loads(reopened.stdout)['result'] == saved, 'upgraded native bytes reopen without authored drift')
     check(run('--validate',saved).returncode == 0,'upgraded file validates in fresh process')
+
+    primitive = json.loads((Path(__file__).parent / 'fixtures/native-v0.2-primitive.nect').read_text(encoding='utf-8'))
+    # Force an ID collision with the default migration paint name, and retain a
+    # legacy stroke dependency; migration must allocate, not steal an old ID.
+    primitive['objects'][1]['contours'][0]['id'] = 'path-A-stroke'
+    primitive['objects'][2]['stroke']['width']['binding'] = dict(
+        source=dict(object='path-A',point='',field='stroke.width'),scale=2,offset=1,mode='copy_local_value')
+    path.write_text(json.dumps(primitive),encoding='utf-8')
+    migrated_run = subprocess.run([exe,'--serve',str(path)],input='{"op":"inspect"}\n'+
+        '{"op":"get","ref":{"object":"path-B","point":"","field":"stroke.width"}}\n',
+        capture_output=True,text=True,timeout=10)
+    result = [json.loads(line) for line in migrated_run.stdout.splitlines()]
+    check(all(x['ok'] for x in result),'retained primitive file migrates')
+    new = result[0]['result']
+    old_circle = next(x for x in primitive['objects'] if x['id']=='circle')
+    new_circle = next(x for x in new['objects'] if x['id']=='circle')
+    check(new_circle['source']==old_circle['source'] and new_circle['point_edit']==old_circle['point_edit'],
+        '0.2 migration preserves generator and corrections verbatim')
+    a = next(x for x in new['objects'] if x['id']=='path-A')
+    check(a['legacy_stroke']!='path-A-stroke' and a['contours'][0]['id']=='path-A-stroke',
+        'new paint identity avoids all existing document identities')
+    check(result[1]['result']['evaluated']==5,'legacy stroke binding survives stack migration')
+    check(run('--validate',new).returncode==0,'migrated source, correction and stack reopen')
 print(f'PASS {checks} process and native migration checks')

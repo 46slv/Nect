@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QAction>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QJsonDocument>
@@ -10,9 +11,12 @@
 #include <QPushButton>
 #include <QListWidget>
 #include <QScrollArea>
+#include <QScrollBar>
+#include <QDebug>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QStatusBar>
+#include <cmath>
 #include <iostream>
 
 using namespace nect;
@@ -184,6 +188,91 @@ void primitive_authoring(Window& window) {
         path_contours(rectangle_object).front().points.size()==4,
         "Add Rectangle creates the usable default source with stable four-point topology");
 }
+void stack_authoring(Window& window) {
+    auto& session=window.host.session;
+    const auto object=window.canvas->selected_object;
+    const auto original_stack_size=session.document().objects.at(object).stack.size();
+    auto last_operation=[&] {return session.document().objects.at(object).stack.back().id;};
+    auto edit_hex=[&](const Id& operation,const char* text) {
+        const auto name="operation-hex-"+operation;
+        auto* input=visible_child<QLineEdit>(window,name.c_str());reveal(window,input);input->setFocus();
+        QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);
+        QTest::keyClick(input,Qt::Key_Return);QApplication::processEvents();
+    };
+    auto control=[&](const char* prefix,const Id& operation) {
+        const auto name=std::string(prefix)+operation;
+        auto* button=visible_child<QPushButton>(window,name.c_str());reveal(window,button);
+        QTest::mouseClick(button,Qt::LeftButton);QApplication::processEvents();
+    };
+    auto choose=[&](const char* prefix,const Id& operation,int index) {
+        const auto name=std::string(prefix)+operation;
+        auto* combo=visible_child<QComboBox>(window,name.c_str());reveal(window,combo);
+        combo->setCurrentIndex(index);QApplication::processEvents();
+    };
+    auto screen=[&](double x,double y) {
+        const auto& artboard=session.document().compositions.front().artboards.front();
+        return QPoint(qRound(window.canvas->width()/2.0+(x-artboard.x-artboard.width/2)*window.canvas->zoom()),
+            qRound(window.canvas->height()/2.0+(y-artboard.y-artboard.height/2)*window.canvas->zoom()));
+    };
+    auto pixel=[&](double x,double y) {
+        window.canvas->fit_artboard();QApplication::processEvents();
+        const auto pixmap=window.canvas->grab();const auto image=pixmap.toImage();
+        const auto position=QPointF(screen(x,y))*pixmap.devicePixelRatio();
+        return image.pixelColor(qRound(position.x()),qRound(position.y()));
+    };
+    named_action(window,"add-fill")->trigger();QApplication::processEvents();const auto red=last_operation();
+    check(session.document().objects.at(object).stack.size()==original_stack_size+1,
+        "Add Fill appends a real stack operation through the production action");
+    edit_hex(red,"#EF3340FF");
+    check(std::abs(evaluate(session.document()).at(operation_ref(object,red,"r"))-239.0/255)<1e-5,
+        "HEX RGBA edits address the real operation Scalars");
+    named_action(window,"add-fill")->trigger();QApplication::processEvents();const auto blue=last_operation();
+    edit_hex(blue,"#2040E0FF");
+    auto color=pixel(480,320);
+    check(std::abs(color.red()-239)<=2&&std::abs(color.blue()-64)<=2,
+        "Canvas paints earlier default Fill above a later Fill");
+    choose("operation-composite-",blue,1);
+    color=pixel(480,320);
+    check(std::abs(color.red()-32)<=2&&std::abs(color.blue()-224)<=2,
+        "Composite Above changes the actual Canvas paint order");
+    choose("operation-fill-rule-",blue,1);
+    const auto& blue_operation=session.document().objects.at(object).stack.back();
+    check(blue_operation.fill_rule=="evenodd","Fill-rule control updates authored operation options");
+    const auto enabled_name="operation-enabled-"+blue;
+    auto* enabled=visible_child<QCheckBox>(window,enabled_name.c_str());reveal(window,enabled);
+    QTest::mouseClick(enabled,Qt::LeftButton,Qt::NoModifier,QPoint(8,enabled->height()/2));QApplication::processEvents();
+    color=pixel(480,320);
+    check(std::abs(color.red()-239)<=2,"Disabling a paint removes its actual rendered contribution");
+    history_action(window,"Undo");
+    control("operation-up-",blue);
+    const auto& reordered=session.document().objects.at(object).stack;
+    check(reordered[original_stack_size].id==blue&&reordered[original_stack_size+1].id==red&&
+        std::abs(evaluate(session.document()).at(operation_ref(object,blue,"b"))-224.0/255)<1e-5,
+        "Stack reorder preserves stable operation references and authored values");
+    control("operation-remove-",blue);
+    check(session.document().objects.at(object).stack.size()==original_stack_size+1,
+        "Remove deletes only the selected stack entry");
+
+    named_action(window,"add-repeater")->trigger();QApplication::processEvents();const auto repeater=last_operation();
+    edit_number(window,operation_ref(object,repeater,"copies"),"3");
+    window.canvas->fit_artboard();QApplication::processEvents();
+    const auto copy_position=screen(760,320);
+    QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,copy_position);QApplication::processEvents();
+    check(window.canvas->selected_object==object&&window.canvas->selected_point.empty(),
+        "A painted virtual copy selects its owner without inventing point identities");
+    color=pixel(760,320);
+    check(std::abs(color.red()-239)<=2&&std::abs(color.blue()-64)<=2,
+        "Core-derived repeated paint appears outside the source rectangle");
+    control("operation-up-",repeater);
+    const auto values=evaluate(session.document());
+    const auto shape=evaluate_shape(session.document(),object,values);
+    check(shape.paths.size()==3,"Moving Repeater before paint keeps core-owned repeated geometry");
+    named_action(window,"add-stroke")->trigger();QApplication::processEvents();const auto stroke=last_operation();
+    check(session.document().objects.at(object).stack.back().type=="nect.paint.stroke","Add Stroke is a real additional paint");
+    edit_number(window,operation_ref(object,stroke,"width"),"7");
+    check(evaluate(session.document()).at(operation_ref(object,stroke,"width"))==7,
+        "Additional Stroke width is independently addressable in the Inspector");
+}
 }
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
@@ -208,6 +297,19 @@ int main(int argc,char** argv) {
         move(w,tree->viewport()->mapToGlobal(tree->visualItemRect(item).center()));
         check(w.canvas->selected_object=="b","Pick-whip can inspect another object without changing its target");
         auto* source_field=field<QLineEdit>(w,source);
+        if(!source_field->visibleRegion().contains(source_field->rect().center())) {
+            auto* scroll=w.findChild<QScrollArea*>();
+            qWarning()<<"WHIP GEOMETRY"<<"field"<<source_field->geometry()<<"global"<<source_field->mapToGlobal(QPoint())
+                <<"region"<<source_field->visibleRegion()<<"viewport"<<scroll->viewport()->geometry()
+                <<"viewport-global"<<scroll->viewport()->mapToGlobal(QPoint())<<"content"<<scroll->widget()->geometry()
+                <<"scroll"<<scroll->verticalScrollBar()->value()<<scroll->verticalScrollBar()->maximum();
+            for(QWidget* widget=source_field;widget&&widget!=scroll->viewport();widget=widget->parentWidget())
+                qWarning()<<"WHIP PARENT"<<widget->metaObject()->className()<<widget->geometry()<<widget->minimumSizeHint()<<widget->minimumSize();
+            for(auto* combo:w.findChildren<QComboBox*>())if(combo->isVisible())
+                qWarning()<<"WHIP COMBO"<<combo->geometry()<<combo->minimumSizeHint()<<combo->sizeHint();
+        }
+        check(source_field->visibleRegion().contains(source_field->rect().center()),
+            "Cross-object pick-whip exposes source coordinates inside the scrolled Inspector");
         release(w,source_field->mapToGlobal(source_field->rect().center()));
         if(s.revision()!=2||evaluate(s.document()).at(target)!=250)
             std::cerr<<"revision="<<s.revision()<<" value="<<evaluate(s.document()).at(target)
@@ -223,6 +325,7 @@ int main(int argc,char** argv) {
         check(s.revision()==3&&!nect::property(s.document(),target).binding&&w.canvas->selected_object=="a",
             "Pick-whip cancellation preserves document and restores context");
         primitive_authoring(w);
-        std::cout<<"PASS Inspector recovery draft, cross-object pick-whip, primitive source/correction and conversion UI\n";return 0;
+        stack_authoring(w);
+        std::cout<<"PASS Inspector recovery draft, pick-whip, primitive correction/conversion, stack controls and Canvas paints\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

@@ -4,6 +4,7 @@
 #include <compare>
 #include <utility>
 #include <map>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -66,6 +67,18 @@ struct PointEdit {
     std::map<Id,std::map<std::string,Scalar>> overrides;
 };
 
+struct ShapeOperation {
+    Id id;
+    std::string type; // nect.paint.fill / nect.paint.stroke / nect.shape.repeater
+    unsigned version=1;
+    bool enabled=true;
+    std::map<std::string,Scalar> parameters;
+    std::string composite="below";
+    std::string fill_rule="nonzero";
+};
+ShapeOperation default_operation(Id id,const std::string& type);
+Ref operation_ref(const Id& object,const Id& operation,const std::string& parameter);
+
 struct Object {
     Id id;
     std::string name;
@@ -73,8 +86,10 @@ struct Object {
     std::vector<Id> children;
     std::vector<Contour> contours;
     std::array<Scalar,6> transform{{{1,{}},{0,{}},{0,{}},{1,{}},{0,{}},{0,{}}}};
-    std::array<Scalar,4> color{{{0,{}},{0,{}},{0,{}},{1,{}}}};
-    Scalar stroke_width{2,{}};
+    std::vector<ShapeOperation> stack;
+    // Compatibility address only: stroke.* resolves to this stable operation.
+    // All scalar authority is in stack; this never stores duplicate paint values.
+    Id legacy_stroke;
     std::optional<Primitive> source;
     std::optional<PointEdit> point_edit;
 };
@@ -120,10 +135,42 @@ struct ReorderObjects { Id composition; Id parent; std::vector<Id> order; };
 struct CreatePrimitive { Id composition; Id parent; Id id; std::string name; Primitive source; };
 struct EnablePointEdit { Id object; bool enabled; };
 struct ConvertToPath { Id object; };
+struct AddOperation { Id object; ShapeOperation operation; std::size_t index; };
+struct RemoveOperation { Id object; Id operation; };
+struct ReorderOperations { Id object; std::vector<Id> order; };
+struct EnableOperation { Id object; Id operation; bool enabled; };
+struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
-    CreatePrimitive,EnablePointEdit,ConvertToPath>;
+    CreatePrimitive,EnablePointEdit,ConvertToPath,AddOperation,RemoveOperation,
+    ReorderOperations,EnableOperation,OperationOptions>;
+
+using Affine=std::array<double,6>;
+inline constexpr Affine identity_matrix{1,0,0,1,0,0};
+struct Vec2 {double x=0,y=0;};
+struct CubicPoint {Vec2 anchor,incoming,outgoing;};
+struct EvaluatedContour {bool closed=false;std::vector<CubicPoint> points;};
+struct PathInstance {
+    std::shared_ptr<const std::vector<EvaluatedContour>> contours;
+    Affine transform=identity_matrix;
+};
+struct PaintLayer {
+    Id operation;
+    std::string type;
+    std::array<double,4> rgba{};
+    double width=0;
+    std::string fill_rule="nonzero";
+    Affine transform=identity_matrix;
+    std::vector<PathInstance> paths;
+};
+struct EvaluatedShape {std::vector<PathInstance> paths;std::vector<PaintLayer> paints;};
+// Matrix composition is outer(inner(point)); independent of renderer convention.
+Affine compose(const Affine& outer,const Affine& inner);
+Vec2 map_point(const Affine& matrix,Vec2 point);
+EvaluatedShape evaluate_shape(const Document&,const Id&,const std::map<Ref,double>&);
+// Used by creation and legacy readers; creates one real stack operation.
+void add_default_stroke(Document&,const Id& object);
 
 std::vector<Ref> properties(const Document& document);
 Scalar property(const Document& document, const Ref& ref);

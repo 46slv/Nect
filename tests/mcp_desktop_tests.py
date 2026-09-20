@@ -120,12 +120,29 @@ try:
         assert core('resolve_name', name='Renamed source', point='p-0-0', field='x')['result'] == source
         assert core('undo', expected_revision=rev)['ok']; rev += 1
         assert core('redo', expected_revision=rev)['ok']; rev += 1
+        definitions = core('operator_types')['result']
+        fill = next(x['template'] for x in definitions if x['type']=='nect.paint.fill')
+        repeat = next(x['template'] for x in definitions if x['type']=='nect.shape.repeater')
+        fill['id']='motif-fill';fill['parameters']['r']['literal']=.8
+        repeat['id']='motif-repeat'
+        rev = apply([dict(type='add_operation',object='path-0',index=0,operation=fill),
+            dict(type='add_operation',object='path-0',index=2,operation=repeat)],rev)
+        copies=3
+        for _ in range(16):
+            copies=rng.choice([n for n in range(2,8) if n!=copies])
+            response=core('apply',expected_revision=rev,commands=[dict(type='set',
+                ref=dict(object='path-0',point='',field='op.motif-repeat.copies'),value=copies)])
+            assert response['ok'] and 'path-0' in response['result']['changed_ids']
+            rev=response['revision']
+            plan=core('render_plan',object='path-0')['result']
+            assert plan['path_instances']==copies and len(plan['paint_layers'])==2*copies
+        expected_svg_paths=23+2*copies
         native = temp / 'scenario.nect'
         saved = tool('nect_file', dict(identity, op='save', path=str(native), expected_revision=rev))
         assert saved['ok'], saved
         expected = core('inspect')['result']
         svg = core('export_svg', composition=comp['id'], artboard=comp['artboards'][0]['id'])['result']
-        assert len(ET.fromstring(svg).findall('.//{http://www.w3.org/2000/svg}path')) == 24
+        assert len(ET.fromstring(svg).findall('.//{http://www.w3.org/2000/svg}path')) == expected_svg_paths
         assert core('inspect')['result'] == expected
         assert json.loads(native.read_text(encoding='utf-8')) == expected
         assert tool('nect_file', dict(identity, op='recover', expected_revision=rev))['ok']
@@ -140,7 +157,7 @@ try:
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,
             mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,
-            independent_svg_parser_paths=24, gui_performance_claim=False)
+            independent_svg_parser_paths=expected_svg_paths, ordered_stack_readback=True, gui_performance_claim=False)
         print(json.dumps(receipt, indent=2))
 finally:
     if mcp:

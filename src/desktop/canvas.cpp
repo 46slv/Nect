@@ -40,6 +40,26 @@ QTransform local_transform(const Id& id, const std::map<Ref, double>& values) {
     return {get("transform.a"), get("transform.b"), get("transform.c"),
             get("transform.d"), get("transform.tx"), get("transform.ty")};
 }
+QTransform qt_transform(const Affine& matrix) {
+    return {matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]};
+}
+QPainterPath qt_path(const std::vector<EvaluatedContour>& contours) {
+    QPainterPath result;
+    const auto point = [](Vec2 p) { return QPointF(p.x, p.y); };
+    for (const auto& contour : contours) {
+        if (contour.points.empty()) continue;
+        result.moveTo(point(contour.points.front().anchor));
+        for (std::size_t i = 1; i < contour.points.size(); ++i)
+            result.cubicTo(point(contour.points[i - 1].outgoing), point(contour.points[i].incoming),
+                           point(contour.points[i].anchor));
+        if (contour.closed) {
+            result.cubicTo(point(contour.points.back().outgoing), point(contour.points.front().incoming),
+                           point(contour.points.front().anchor));
+            result.closeSubpath();
+        }
+    }
+    return result;
+}
 } // namespace
 
 Canvas::Canvas(Session& session, QWidget* parent) : QWidget(parent), session_(session) {
@@ -100,9 +120,25 @@ void Canvas::refresh() {
                 auto value = [&](const Id& point_id, const char* field) {
                     return values_.at({id, point_id, field});
                 };
-                item.color = QColor::fromRgbF(value({}, "stroke.r"), value({}, "stroke.g"),
-                                             value({}, "stroke.b"), value({}, "stroke.a"));
-                item.stroke_width = value({}, "stroke.width");
+                // Core owns operation order, repeat instances and paint grouping.
+                // Qt only projects each evaluated layer into its drawing types.
+                const auto shape = evaluate_shape(document, id, values_);
+                std::map<const std::vector<EvaluatedContour>*, QPainterPath> contour_paths;
+                for (const auto& layer : shape.paints) {
+                    Geometry::Paint paint;
+                    paint.transform = qt_transform(layer.transform);
+                    paint.color = QColor::fromRgbF(layer.rgba[0], layer.rgba[1], layer.rgba[2], layer.rgba[3]);
+                    paint.fill = layer.type == "nect.paint.fill";
+                    paint.width = layer.width;
+                    for (const auto& instance : layer.paths) {
+                        auto found = contour_paths.find(instance.contours.get());
+                        if (found == contour_paths.end())
+                            found = contour_paths.emplace(instance.contours.get(), qt_path(*instance.contours)).first;
+                        paint.path.addPath(qt_transform(instance.transform).map(found->second));
+                    }
+                    paint.path.setFillRule(layer.fill_rule == "evenodd" ? Qt::OddEvenFill : Qt::WindingFill);
+                    item.paints.push_back(std::move(paint));
+                }
                 for (const auto& contour : path_contours(object)) {
                     const auto first = item.points.size();
                     for (const auto& authored : contour.points) {
@@ -170,8 +206,11 @@ void Canvas::fit_artboard() {
     for (const auto& artboard : document.compositions.front().artboards)
         bounds = bounds.united({artboard.x, artboard.y, artboard.width, artboard.height});
     if (bounds.isEmpty()) {
-        for (const auto& item : geometry_)
+        for (const auto& item : geometry_) {
             bounds = bounds.united(item.world.map(item.path).boundingRect());
+            for (const auto& paint : item.paints)
+                bounds = bounds.united((paint.transform * item.world).map(paint.path).boundingRect());
+        }
     }
     if (bounds.isEmpty()) bounds = {0, 0, 640, 480};
     zoom_ = std::clamp(std::min(std::max(1, width() - 100) / bounds.width(),
@@ -248,12 +287,25 @@ const Canvas::Geometry* Canvas::hit_path(QPointF screen) const {
     for (auto i = geometry_.rbegin(); i != geometry_.rend(); ++i) {
         if (selection_target(*i).empty()) continue;
         const auto transform = i->world * view();
+        for (auto paint = i->paints.rbegin(); paint != i->paints.rend(); ++paint) {
+            if (paint->color.alphaF() <= 0 || (!paint->fill && paint->width <= 0)) continue;
+            const auto painted_transform = paint->transform * transform;
+            const auto painted_path = painted_transform.map(paint->path);
+            if (paint->fill && painted_path.contains(screen)) return &*i;
+            if (!paint->fill) {
+                QPainterPathStroker stroke;
+                stroke.setWidth(paint->width);
+                stroke.setCapStyle(Qt::FlatCap);
+                stroke.setJoinStyle(Qt::SvgMiterJoin);
+                stroke.setMiterLimit(4);
+                if (painted_transform.map(stroke.createStroke(paint->path)).contains(screen)) return &*i;
+            }
+            QPainterPathStroker tolerance;
+            tolerance.setWidth(hit_radius * 2);
+            if (tolerance.createStroke(painted_path).contains(screen)) return &*i;
+        }
+        // The authored source stays addressable even when a stack has no paint.
         const auto screen_path = transform.map(i->path);
-        // First test the actual transformed stroke, then a minimum screen-space
-        // target. This also handles nonuniform object transforms correctly.
-        QPainterPathStroker actual;
-        actual.setWidth(std::max(i->stroke_width, 0.000001));
-        if (transform.map(actual.createStroke(i->path)).contains(screen)) return &*i;
         QPainterPathStroker tolerance;
         tolerance.setWidth(hit_radius * 2);
         if (tolerance.createStroke(screen_path).contains(screen)) return &*i;
@@ -301,13 +353,18 @@ void Canvas::paintEvent(QPaintEvent*) {
             }
         }
         for (const auto& item : geometry_) {
-            painter.setWorldTransform(item.world * view());
-            painter.setBrush(Qt::NoBrush);
-            // Qt's zero-width pen means a cosmetic hairline, whereas the native
-            // model/SVG width zero means no visible stroke.
-            if (item.stroke_width > 0) {
-                painter.setPen(QPen(item.color, item.stroke_width, Qt::SolidLine, Qt::FlatCap, Qt::MiterJoin));
-                painter.drawPath(item.path);
+            for (const auto& paint : item.paints) {
+                if (paint.color.alphaF() <= 0 || (!paint.fill && paint.width <= 0)) continue;
+                painter.setWorldTransform(paint.transform * item.world * view());
+                if (paint.fill) {
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(paint.color);
+                } else {
+                    painter.setBrush(Qt::NoBrush);
+                    QPen pen(paint.color, paint.width, Qt::SolidLine, Qt::FlatCap, Qt::SvgMiterJoin);
+                    pen.setMiterLimit(4);painter.setPen(pen);
+                }
+                painter.drawPath(paint.path);
             }
         }
         painter.resetTransform();
@@ -321,6 +378,12 @@ void Canvas::paintEvent(QPaintEvent*) {
             selected_bounds = selected_bounds.united(screen_path.boundingRect());
             painter.setPen(QPen(accent, 1));
             painter.setBrush(Qt::NoBrush);
+            for (const auto& paint : item.paints) {
+                if (paint.color.alphaF() <= 0 || (!paint.fill && paint.width <= 0)) continue;
+                const auto painted_path = (paint.transform * transform).map(paint.path);
+                selected_bounds = selected_bounds.united(painted_path.boundingRect());
+                painter.drawPath(painted_path);
+            }
             painter.drawPath(screen_path);
             if (item.id != selected_object) continue;
             if (const auto* p = point(item, selected_point)) {

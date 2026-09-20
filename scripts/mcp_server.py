@@ -16,10 +16,12 @@ TOOLS = [
      'annotations': {'readOnlyHint': True, 'openWorldHint': False}},
     {'name': 'nect_command',
      'description': ('Inspect/evaluate/export_svg or edit the desktop-owned Session. request.op: '
-                     'inspect, properties, get, resolve_name, evaluate, export_svg, apply, undo, redo. '
+                     'inspect, properties, get, resolve_name, evaluate, export_svg, operator_types, render_plan, conversion_plan, apply, undo, redo. '
                      'apply requires expected_revision and commands. Commands include create_path, '
                      'add_point, remove_point, close_contour, set, link, unlink, rename, '
-                     'reorder_points, reorder_objects, group_contiguous and delete_objects. '
+                     'reorder_points, reorder_objects, group_contiguous, delete_objects, create_primitive, '
+                     'enable_point_edit, convert_to_path, add_operation, remove_operation, reorder_operations, '
+                     'enable_operation and operation_options. operator_types returns exact templates and units. '
                      'Use properties to discover stable refs and units. All mutations are atomic and undoable.'),
      'inputSchema': {'type': 'object', 'properties': dict(IDENTITY, request={'type': 'object'}),
                      'required': ['session_id', 'document_id', 'request'], 'additionalProperties': False},

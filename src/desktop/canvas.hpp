@@ -79,12 +79,18 @@ private:
         bool driven = false;
     };
     struct Geometry {
+        struct Paint {
+            QPainterPath path;
+            QTransform transform;
+            QColor color;
+            bool fill = false;
+            double width = 0;
+        };
         Id id;
         std::vector<Id> ancestors;
         QPainterPath path;
         QTransform world;
-        QColor color;
-        double stroke_width = 2;
+        std::vector<Paint> paints;
         std::vector<EvaluatedPoint> points;
     };
     enum class Drag { none, pan, anchor, incoming, outgoing, symmetric, object };

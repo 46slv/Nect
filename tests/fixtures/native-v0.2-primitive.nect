@@ -1,0 +1,305 @@
+{
+  "format": "nect-native",
+  "version": "0.2",
+  "id": "document-demo",
+  "units": "du96",
+  "color_space": "srgb",
+  "compositions": [
+    {
+      "id": "comp-main",
+      "name": "Main",
+      "roots": [
+        "path-A",
+        "path-B",
+        "circle"
+      ],
+      "artboards": [
+        {
+          "id": "art-main",
+          "name": "Canvas",
+          "x": 0.0,
+          "y": 0.0,
+          "width": 640.0,
+          "height": 480.0
+        }
+      ]
+    }
+  ],
+  "objects": [
+    {
+      "id": "circle",
+      "name": "Retained circle",
+      "kind": "path",
+      "transform": [
+        {
+          "literal": 1.0
+        },
+        {
+          "literal": 0.0
+        },
+        {
+          "literal": 0.0
+        },
+        {
+          "literal": 1.0
+        },
+        {
+          "literal": 0.0
+        },
+        {
+          "literal": 0.0
+        }
+      ],
+      "source": {
+        "id": "circle-generator",
+        "type": "nect.shape.circle",
+        "version": 1,
+        "parameters": {
+          "center_x": {
+            "literal": 300.0
+          },
+          "center_y": {
+            "literal": 240.0
+          },
+          "radius": {
+            "literal": 80.0
+          }
+        }
+      },
+      "point_edit": {
+        "id": "circle-generator-point-edit",
+        "type": "nect.path.point-edit",
+        "version": 1,
+        "enabled": true,
+        "overrides": {
+          "circle-generator-east": {
+            "x": {
+              "literal": 410.0
+            }
+          }
+        }
+      },
+      "fill": "none",
+      "stroke": {
+        "rgba": [
+          {
+            "literal": 0.0
+          },
+          {
+            "literal": 0.0
+          },
+          {
+            "literal": 0.0
+          },
+          {
+            "literal": 1.0
+          }
+        ],
+        "width": {
+          "literal": 2.0
+        }
+      }
+    },
+    {
+      "id": "path-A",
+      "name": "Curve A",
+      "kind": "path",
+      "transform": [
+        {
+          "literal": 1.0
+        },
+        {
+          "literal": 0.0
+        },
+        {
+          "literal": 0.0
+        },
+        {
+          "literal": 1.0
+        },
+        {
+          "literal": 0.0
+        },
+        {
+          "literal": 0.0
+        }
+      ],
+      "contours": [
+        {
+          "id": "contour-A",
+          "closed": false,
+          "points": [
+            {
+              "id": "point-A1",
+              "x": {
+                "literal": 100.0
+              },
+              "y": {
+                "literal": 150.0
+              },
+              "in_angle": {
+                "literal": 0.0
+              },
+              "in_length": {
+                "literal": 0.0
+              },
+              "out_angle": {
+                "literal": -45.0
+              },
+              "out_length": {
+                "literal": 90.0
+              }
+            },
+            {
+              "id": "point-A2",
+              "x": {
+                "literal": 500.0
+              },
+              "y": {
+                "literal": 150.0
+              },
+              "in_angle": {
+                "literal": 135.0
+              },
+              "in_length": {
+                "literal": 90.0
+              },
+              "out_angle": {
+                "literal": 0.0
+              },
+              "out_length": {
+                "literal": 0.0
+              }
+            }
+          ]
+        }
+      ],
+      "fill": "none",
+      "stroke": {
+        "rgba": [
+          {
+            "literal": 0.0
+          },
+          {
+            "literal": 0.0
+          },
+          {
+            "literal": 0.0
+          },
+          {
+            "literal": 1.0
+          }
+        ],
+        "width": {
+          "literal": 2.0
+        }
+      }
+    },
+    {
+      "id": "path-B",
+      "name": "Curve B",
+      "kind": "path",
+      "transform": [
+        {
+          "literal": 1.0
+        },
+        {
+          "literal": 0.0
+        },
+        {
+          "literal": 0.0
+        },
+        {
+          "literal": 1.0
+        },
+        {
+          "literal": 0.0
+        },
+        {
+          "literal": 0.0
+        }
+      ],
+      "contours": [
+        {
+          "id": "contour-B",
+          "closed": false,
+          "points": [
+            {
+              "id": "point-B1",
+              "x": {
+                "literal": 100.0,
+                "binding": {
+                  "source": {
+                    "object": "circle",
+                    "point": "",
+                    "field": "generator.radius"
+                  },
+                  "scale": 1.0,
+                  "offset": 20.0,
+                  "mode": "copy_local_value"
+                }
+              },
+              "y": {
+                "literal": 300.0
+              },
+              "in_angle": {
+                "literal": 0.0
+              },
+              "in_length": {
+                "literal": 0.0
+              },
+              "out_angle": {
+                "literal": -45.0
+              },
+              "out_length": {
+                "literal": 90.0
+              }
+            },
+            {
+              "id": "point-B2",
+              "x": {
+                "literal": 500.0
+              },
+              "y": {
+                "literal": 300.0
+              },
+              "in_angle": {
+                "literal": 135.0
+              },
+              "in_length": {
+                "literal": 90.0
+              },
+              "out_angle": {
+                "literal": 0.0
+              },
+              "out_length": {
+                "literal": 0.0
+              }
+            }
+          ]
+        }
+      ],
+      "fill": "none",
+      "stroke": {
+        "rgba": [
+          {
+            "literal": 0.0
+          },
+          {
+            "literal": 0.0
+          },
+          {
+            "literal": 0.0
+          },
+          {
+            "literal": 1.0
+          }
+        ],
+        "width": {
+          "literal": 2.0
+        }
+      }
+    }
+  ],
+  "collections": []
+}

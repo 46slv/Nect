@@ -299,11 +299,13 @@ int main(int argc, char** argv) {
         "QToolBar{spacing:8px;padding:4px;border-bottom:1px solid #3b424a;}"
         "QMenu{border:1px solid #49515c;}QMenu::item:selected{background:#43505f;}");
     app.setQuitOnLastWindowClosed(false);
-    if (app.arguments().size() != 2) {
-        std::cerr << "Usage: canvas_benchmark <result.json>\n";
+    if (app.arguments().size() < 2 || app.arguments().size()>3 ||
+        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat")) {
+        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat]\n";
         return 2;
     }
     const auto output = app.arguments().at(1);
+    const bool repeated=app.arguments().contains("--repeat");
     run_clock.start();
     QJsonObject result{{"schema", "nect-visible-viewport-benchmark-1"},
         {"started_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
@@ -324,7 +326,7 @@ int main(int argc, char** argv) {
         bool all_floor = true;
         bool all_target = true;
         bool all_release_budget = true;
-        for (const auto paths : {2, 80}) {
+        for (const auto paths : (repeated?std::vector<int>{2}:std::vector<int>{2,80})) {
             Window window(scratch.path() + "/scene-" + QString::number(paths));
             window.resize(1440, 900);
             window.show();
@@ -337,6 +339,18 @@ int main(int argc, char** argv) {
             }
             require(window.windowHandle() && window.windowHandle()->isExposed(), "Benchmark window did not become exposed");
             seed(window, paths);
+            if(repeated) {
+                std::vector<Command> commands;
+                for(int i=0;i<paths;++i) {
+                    const auto object="bench-path-"+std::to_string(i);
+                    auto fill=default_operation("bench-fill-"+std::to_string(i),"nect.paint.fill");
+                    fill.parameters["r"].literal=.15;fill.parameters["g"].literal=.55;fill.parameters["b"].literal=.7;
+                    auto repeat=default_operation("bench-repeat-"+std::to_string(i),"nect.shape.repeater");
+                    repeat.parameters["copies"].literal=12;repeat.parameters["position_x"].literal=0;repeat.parameters["position_y"].literal=38;
+                    commands.push_back(AddOperation{object,fill,1});commands.push_back(AddOperation{object,repeat,2});
+                }
+                window.host.session.apply(commands,window.host.session.revision());window.host.edited();wait_events(40);
+            }
             QStringList errors;
             int commits = 0;
             const auto original_error = window.canvas->error;
@@ -351,7 +365,7 @@ int main(int argc, char** argv) {
             };
             InteractionCleanup cleanup{*window.canvas};
             const auto* screen = window.screen();
-            QJsonObject scene{{"name", paths == 2 ? "lightweight" : "representative"},
+            QJsonObject scene{{"name", repeated?"repeated-paint":paths == 2 ? "lightweight" : "representative"},
                 {"path_count", paths}, {"point_count", paths * 4}, {"points_per_path", 4},
                 {"binding_count", 0}, {"group_count", 0}, {"artboard_count", 1},
                 {"artboard_width", 960}, {"artboard_height", 640},
@@ -364,6 +378,10 @@ int main(int argc, char** argv) {
                 {"screen_height", screen ? screen->size().height() : 0},
                 {"logical_dpi", screen ? screen->logicalDotsPerInch() : 0},
                 {"reported_refresh_hz", screen ? screen->refreshRate() : 0}};
+            if(repeated) {
+                scene["fixture"]="Two authored four-anchor curves; each Stroke + Fill + 12-copy Repeater; 24 virtual path instances and 48 paint layers; fixed 38 du Y step.";
+                scene["virtual_path_instances"]=24;scene["paint_layers"]=48;
+            }
             QJsonArray operations;
             for (const auto operation : {Operation::pan, Operation::zoom, Operation::point, Operation::handle, Operation::transform}) {
                 sequence(window, operation, warmup_frames, false, errors);

@@ -42,6 +42,15 @@ void prepare_point_edit(Document& d,const Ref& ref) {
     o.point_edit->enabled=true;
     o.point_edit->overrides[ref.point].try_emplace(ref.field,Scalar{});
 }
+template<class O> auto& operation(O& object,const Id& id) {
+    auto it=std::find_if(object.stack.begin(),object.stack.end(),[&](const auto& op){return op.id==id;});
+    require(it!=object.stack.end(),"MISSING_OPERATION",id);return *it;
+}
+std::pair<Id,std::string> operation_address(const std::string& field) {
+    const auto end=field.find('.',3);
+    require(end!=std::string::npos,"MISSING_REFERENCE",field);
+    return {field.substr(3,end-3),field.substr(end+1)};
+}
 template<class D>
 auto& lookup_property(D& d,const Ref& r) {
     auto it=d.objects.find(r.object);
@@ -56,9 +65,14 @@ auto& lookup_property(D& d,const Ref& r) {
         static const std::array<std::string,6> tf{"a","b","c","d","tx","ty"};
         for(std::size_t i=0;i<tf.size();++i) if(r.field=="transform."+tf[i]) return o.transform[i];
         if(o.kind==Kind::path) {
-            static const std::array<std::string,4> ch{"r","g","b","a"};
-            for(std::size_t i=0;i<ch.size();++i) if(r.field=="stroke."+ch[i]) return o.color[i];
-            if(r.field=="stroke.width") return o.stroke_width;
+            if(r.field.starts_with("op.")||r.field.starts_with("stroke.")) {
+                const auto address=r.field.starts_with("op.")?operation_address(r.field):
+                    std::pair{o.legacy_stroke,r.field.substr(7)};
+                require(!address.first.empty(),"MISSING_REFERENCE",r.field);
+                auto& op=operation(o,address.first);
+                require(op.parameters.contains(address.second),"MISSING_REFERENCE",r.field);
+                return op.parameters.at(address.second);
+            }
         }
     } else if(o.kind==Kind::path) {
         if(o.source&&generated_point(o,r.point)&&o.point_edit) {
@@ -80,6 +94,12 @@ auto& lookup_property(D& d,const Ref& r) {
     throw Error("MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
 }
 std::string unit(const Ref& r) {
+    if(r.field.starts_with("op.")) {
+        const auto name=operation_address(r.field).second;
+        if(name=="width"||name=="position_x"||name=="position_y"||name=="anchor_x"||name=="anchor_y")return "du";
+        if(name=="rotation")return "degree";
+        return "scalar";
+    }
     if(r.field.starts_with("generator.")||r.field=="x"||r.field=="y"||r.field=="transform.tx"||r.field=="transform.ty"||
        r.field=="stroke.width"||r.field.ends_with(".length")) return "du";
     if(r.field.ends_with(".angle")) return "degree";
@@ -93,13 +113,21 @@ void value_range(const Ref& r,double v) {
         require(v>=0,"OUT_OF_RANGE","Negative length");
     if(r.field.starts_with("stroke.")&&r.field!="stroke.width")
         require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB/alpha channel outside [0,1]");
+    if(r.field.starts_with("op.")) {
+        const auto name=operation_address(r.field).second;
+        if(name=="r"||name=="g"||name=="b"||name=="a"||name=="start_opacity"||name=="end_opacity")
+            require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB/opacity outside [0,1]");
+        if(name=="width")require(v>=0,"OUT_OF_RANGE","Negative stroke width");
+        if(name=="copies")require(v>=0&&v<=1000&&std::floor(v)==v,"OUT_OF_RANGE","Copies must be an integer from 0 to 1000");
+        if(name=="scale_x"||name=="scale_y")require(v>0&&v<=100,"OUT_OF_RANGE","Repeater scale must be positive and <=100");
+        if(name=="offset")require(std::abs(v)<=1000,"OUT_OF_RANGE","Repeater offset magnitude limit 1000");
+    }
 }
 
 std::map<Ref, const Scalar*> property_index(const Document& document,bool include_disabled=false) {
     std::map<Ref, const Scalar*> index;
     static const std::array<std::string, 6> transform_fields{
         "transform.a", "transform.b", "transform.c", "transform.d", "transform.tx", "transform.ty"};
-    static const std::array<std::string, 4> color_fields{"stroke.r", "stroke.g", "stroke.b", "stroke.a"};
 
     for (const auto& [id, object] : document.objects) {
         for (std::size_t i = 0; i < transform_fields.size(); ++i)
@@ -107,9 +135,10 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
 
         if (object.kind != Kind::path) continue;
 
-        for (std::size_t i = 0; i < color_fields.size(); ++i)
-            index.emplace(Ref{id, "", color_fields[i]}, &object.color[i]);
-        index.emplace(Ref{id, "", "stroke.width"}, &object.stroke_width);
+        for(const auto& op:object.stack)for(const auto& [name,value]:op.parameters) {
+            index.emplace(operation_ref(id,op.id,name),&value);
+            if(op.id==object.legacy_stroke)index.emplace(Ref{id,"","stroke."+name},&value);
+        }
 
         if(object.source) {
             for(const auto& [name,value]:object.source->parameters)index.emplace(Ref{id,"","generator."+name},&value);
@@ -142,6 +171,23 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
     }
     return index;
 }
+}
+
+void add_default_stroke(Document& d,const Id& object) {
+    auto& o=d.objects.at(object);
+    require(o.kind==Kind::path&&o.stack.empty(),"INVALID_OBJECT","Default stroke needs a new Path");
+    std::set<Id> ids{d.id};
+    for(const auto& c:d.compositions){ids.insert(c.id);for(const auto& a:c.artboards)ids.insert(a.id);}
+    for(const auto& c:d.collections)ids.insert(c.id);
+    for(const auto& [id,item]:d.objects) {
+        ids.insert(id);for(const auto& op:item.stack)ids.insert(op.id);
+        if(item.source){ids.insert(item.source->id);ids.insert(item.source->id+"-point-edit");}
+        for(const auto& contour:path_contours(item)){ids.insert(contour.id);for(const auto& p:contour.points)ids.insert(p.id);}
+    }
+    const auto stem=object.substr(0,74)+"-stroke";
+    auto id=stem;unsigned suffix=0;
+    while(ids.contains(id))id=stem+"-"+std::to_string(++suffix);
+    o.legacy_stroke=id;o.stack.push_back(default_operation(id,"nect.paint.stroke"));
 }
 
 Scalar property(const Document& d,const Ref& r) {
@@ -178,6 +224,7 @@ std::vector<Ref> conversion_blockers(const Document& d,const Id& object) {
     std::vector<Ref> blockers;
     for(const auto& [ref,scalar]:property_index(d,true)) {
         if(!scalar||!scalar->binding)continue;
+        if(ref.point.empty()&&ref.field.starts_with("stroke."))continue;
         if(ref.object==object&&ref.field.starts_with("generator."))continue;
         if(ref.object==object&&!ref.point.empty()&&o.point_edit&&!o.point_edit->enabled)continue;
         const auto& source=scalar->binding->source;
@@ -192,6 +239,7 @@ std::vector<Ref> properties(const Document& document) {
     std::vector<Ref> refs;
     for (const auto& [ref, scalar] : property_index(document)) {
         (void)scalar;
+        if(ref.point.empty()&&ref.field.starts_with("stroke."))continue;
         refs.push_back(ref);
     }
     return refs;
@@ -285,8 +333,20 @@ void validate(const Document& d) {
         if(o.kind==Kind::group) {
             require(o.contours.empty(),"INVALID_OBJECT","Group cannot own path geometry");
             require(!o.source&&!o.point_edit,"INVALID_OBJECT","Group cannot own a primitive or Point Edit");
+            require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Group shape stacks are not supported yet");
         } else {
             require(o.children.empty(),"INVALID_OBJECT","Path cannot own children");
+            require(o.stack.size()<=128,"LIMIT","Shape stack limit 128");
+            for(const auto& op:o.stack) {
+                add(op.id);require(op.version==1,"UNSUPPORTED_OPERATOR_VERSION",op.type);
+                const auto expected=default_operation(op.id,op.type);
+                require(op.parameters.size()==expected.parameters.size(),"INVALID_OPERATOR_PARAMETERS",op.type);
+                for(const auto& [name,value]:op.parameters){(void)value;require(expected.parameters.contains(name),"INVALID_OPERATOR_PARAMETERS",name);}
+                require(op.composite=="above"||op.composite=="below","UNSUPPORTED_COMPOSITE",op.composite);
+                require(op.fill_rule=="nonzero"||op.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",op.fill_rule);
+                if(op.type!="nect.paint.fill")require(op.fill_rule=="nonzero","INVALID_OPERATOR_OPTIONS","Fill rule only applies to Fill");
+            }
+            if(!o.legacy_stroke.empty())require(operation(o,o.legacy_stroke).type=="nect.paint.stroke","INVALID_LEGACY_ADDRESS","Legacy stroke must refer to a retained Stroke operation");
             if(o.source) {
                 const auto& s=*o.source;
                 require(o.contours.empty(),"INVALID_OBJECT","Primitive owns a generator, not a second authored contour list");
@@ -356,7 +416,11 @@ void validate(const Document& d) {
         }
     }
 
-    (void)evaluate(d);
+    const auto values=evaluate(d);
+    for(const auto& [id,o]:d.objects) {
+        if(o.stack.size()>1||std::any_of(o.stack.begin(),o.stack.end(),[](const auto& op){return op.enabled&&op.type=="nect.shape.repeater";}))
+            (void)evaluate_shape(d,id,values);
+    }
 }
 
 Session::Session(Document d):document_(std::move(d)) {
@@ -433,6 +497,30 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
             Object object;object.id=c.id;object.name=c.name;object.source=c.source;
             siblings(candidate,c.composition,c.parent).push_back(c.id);
             candidate.objects.emplace(c.id,std::move(object));
+            add_default_stroke(candidate,c.id);
+        } else if constexpr(std::is_same_v<T,AddOperation>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& o=candidate.objects.at(c.object);
+            require(o.kind==Kind::path,"INVALID_DOMAIN","Shape stack requires a Path");
+            require(c.index<=o.stack.size(),"INVALID_ORDER","Operation insertion index out of range");
+            o.stack.insert(o.stack.begin()+c.index,c.operation);
+        } else if constexpr(std::is_same_v<T,RemoveOperation>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& o=candidate.objects.at(c.object);(void)operation(o,c.operation);
+            std::erase_if(o.stack,[&](const auto& op){return op.id==c.operation;});
+            if(o.legacy_stroke==c.operation)o.legacy_stroke.clear();
+        } else if constexpr(std::is_same_v<T,ReorderOperations>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& stack=candidate.objects.at(c.object).stack;
+            require(c.order.size()==stack.size(),"INVALID_ORDER","Operation order must be a permutation");
+            std::map<Id,ShapeOperation> old;for(const auto& op:stack)old.emplace(op.id,op);
+            stack.clear();for(const auto& id:c.order){require(old.contains(id),"INVALID_ORDER",id);stack.push_back(old.at(id));old.erase(id);}
+        } else if constexpr(std::is_same_v<T,EnableOperation>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            operation(candidate.objects.at(c.object),c.operation).enabled=c.enabled;
+        } else if constexpr(std::is_same_v<T,OperationOptions>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& op=operation(candidate.objects.at(c.object),c.operation);op.composite=c.composite;op.fill_rule=c.fill_rule;
         } else if constexpr(std::is_same_v<T,EnablePointEdit>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);
@@ -461,6 +549,7 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
             object.id=c.id; object.name=c.name; object.contours=c.contours;
             siblings(candidate,c.composition,c.parent).push_back(c.id);
             candidate.objects.emplace(c.id,std::move(object));
+            add_default_stroke(candidate,c.id);
         } else if constexpr(std::is_same_v<T,AddPoint>) {
             contour(candidate,c.object,c.contour).points.push_back(c.point);
         } else if constexpr(std::is_same_v<T,RemovePoint>) {
@@ -625,6 +714,7 @@ Document demo_document() {
 
         o.contours={{"contour-"+s,false,{a,b}}};
         d.objects.emplace(o.id,o);
+        add_default_stroke(d,o.id);
     }
 
     validate(d);

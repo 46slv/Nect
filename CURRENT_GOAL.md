@@ -1,4 +1,4 @@
-# Practical alpha Mission — retained primitives delivered; appearance/repetition next
+# Practical alpha Mission — ordered appearance/repetition delivered; gradients next
 
 ## Active Mission checkpoint — 2026-09-20
 
@@ -27,8 +27,8 @@ Current implemented slice:
 - retained Circle/Rectangle sources, normal generator properties and stable
   generated point roles; direct point/handle edits create visible absolute local
   Point Edit overrides, with bypass and explicit reference-protected conversion.
-- native 0.2 writer / strict 0.1 reader migration, authored/evaluated origin
-  metadata and conversion plans through the same semantic API.
+- native 0.3 writer / strict 0.1/0.2 migrations, authored/evaluated origin metadata,
+  conversion plans and ordered operation discovery through the same semantic API.
 
 Evidence collected:
 - MSVC 19.29.30137, Boost 1.85.0, Qt 6.5.3 x64 Release; M0 baseline tests + smoke pass.
@@ -58,10 +58,33 @@ Evidence collected:
   and retained radius, then read native 0.2/source/Point Edit through the live API
   at revision 3 and saved `build/primitive-manual.nect` (ignored).
 
-Next safe actions: add practical ordered Fill/Stroke and Repeater so a radial
-design can be authored and revised from one motif. Read the accepted shape-order
-semantics before choosing the bounded stack representation; do not build a
-general operator framework. Circle/Rectangle slice is complete, not the Mission.
+Retained primitive checkpoint: `6b4320d`. The following checkpoint adds native
+0.3 ordered Fill/Stroke/Repeater, scalar operation properties, legacy stroke
+address-preserving migration and shared core paint evaluation for Qt/SVG. Core,
+primitive, ordered-stack and migration process checks pass. Actual desktop API
+authored `examples/radial-ornament.nect`: five sources, point correction, property
+link, Group and two Repeaters -> 85 SVG paint layers; viewed on Windows and saved.
+`scripts/create_radial_demo.py` reproduces it from an empty live document.
+
+All eight CTest entries pass, including GUI paint-order pixels/copy hits and an
+extended seeded formal MCP scenario with 16 Repeater edits, changed-ID/paint-plan
+readback, native restart and crash recovery. A long Composite combo had forced
+546 px Inspector content into a 304 px viewport, breaking pick-whip drops. Bounded
+combo sizing/wrapped forms fix it; drag scrolling and visible-source checks remain.
+The visible benchmark still meets 30 fps: 80-Path point-drag p95 30.16 ms, maximum
+33.24 ms, release 30.83 ms; 48-layer repeated-paint fixture p95 <=18.24 ms and release
+<=20.55 ms. All 15 operation runs have zero >33.333 ms measured intervals. The
+lightweight 60 fps target remains unmet. Raw evidence is in ignored
+`build/canvas-benchmark-stack.json` and `build/canvas-benchmark-repeat.json`;
+the durable table is in `docs/first-usable.md`. No intentional GUI app remains open.
+Keep the sample and development recovery data. Parent owns future builds; worker
+has completed its bounded UI work.
+
+Next safe actions after this slice: continue the Mission with usable gradient/color
+controls, artboard navigation and editable Text in thin slices; do not treat the
+radial example as full alpha completion. Masks/compositing, assets, long History,
+continuous save, expressions/multi-edit and the remaining explicit Mission
+requirements still need implementation and real production fixtures.
 Preserve all current files and the development document. No release/publication
 or dependency binaries are authorized for distribution. This checkpoint does not
 claim practical-alpha completion or relax F1–F8. Do not stop at M1.

@@ -173,9 +173,41 @@ j::value point_edit_json(const PointEdit& edit) {
         {"enabled",edit.enabled},{"overrides",overrides}};
 }
 
+ShapeOperation read_operation(const j::value& v) {
+    const auto& o=v.as_object();keys(o,{"id","type","version","enabled","parameters","composite","fill_rule"});
+    ShapeOperation op;op.id=text(o.at("id"));op.type=text(o.at("type"));
+    op.version=j::value_to<unsigned>(o.at("version"));op.enabled=o.at("enabled").as_bool();
+    op.composite=text(o.at("composite"));op.fill_rule=text(o.at("fill_rule"));
+    for(const auto& p:o.at("parameters").as_object())op.parameters.emplace(std::string(p.key()),read_scalar(p.value()));
+    return op;
+}
+j::value operation_json(const ShapeOperation& op) {
+    j::object parameters;for(const auto& [name,value]:op.parameters)parameters[name]=scalar_json(value);
+    return j::object{{"id",op.id},{"type",op.type},{"version",op.version},{"enabled",op.enabled},
+        {"parameters",parameters},{"composite",op.composite},{"fill_rule",op.fill_rule}};
+}
+
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type=="add_operation") {
+        keys(o,{"type","object","operation","index"});
+        return AddOperation{text(o.at("object")),read_operation(o.at("operation")),j::value_to<std::size_t>(o.at("index"))};
+    }
+    if(type=="remove_operation") {
+        keys(o,{"type","object","operation"});return RemoveOperation{text(o.at("object")),text(o.at("operation"))};
+    }
+    if(type=="reorder_operations") {
+        keys(o,{"type","object","order"});return ReorderOperations{text(o.at("object")),ids(o.at("order"))};
+    }
+    if(type=="enable_operation") {
+        keys(o,{"type","object","operation","enabled"});
+        return EnableOperation{text(o.at("object")),text(o.at("operation")),o.at("enabled").as_bool()};
+    }
+    if(type=="operation_options") {
+        keys(o,{"type","object","operation","composite","fill_rule"});
+        return OperationOptions{text(o.at("object")),text(o.at("operation")),text(o.at("composite")),text(o.at("fill_rule"))};
+    }
     if(type=="create_primitive") {
         keys(o,{"type","composition","parent","id","name","source"});
         return CreatePrimitive{text(o.at("composition")),text(o.at("parent")),text(o.at("id")),
@@ -254,13 +286,14 @@ Document decode(std::string_view input) {
         keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
 
         const auto version=text(root.at("version"));
-        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"))
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 and 0.2 are supported");
+        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"))
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1, 0.2 and 0.3 are supported");
         if(text(root.at("units"))!="du96"||text(root.at("color_space"))!="srgb")
             throw Error("UNSUPPORTED_COLOR_OR_UNIT","v0.1 supports du96 and sRGB only");
 
         Document d;
         d.id=text(root.at("id"));
+        std::map<Id,ShapeOperation> legacy_paints;
 
         for(const auto& cv:root.at("compositions").as_array()) {
             auto& co=cv.as_object();
@@ -283,7 +316,8 @@ Document decode(std::string_view input) {
         for(const auto& ov:root.at("objects").as_array()) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
-            else keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
+            else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
+            else keys(o,{"id","name","kind","transform","children","contours","source","point_edit","stack","legacy_stroke"});
 
             Object obj;
             obj.id=text(o.at("id"));
@@ -298,20 +332,24 @@ Document decode(std::string_view input) {
             for(std::size_t k=0;k<6;++k) obj.transform[k]=read_scalar(transform[k]);
 
             if(obj.kind==Kind::group) {
-                if(o.contains("contours")||o.contains("stroke")||o.contains("fill")||o.contains("source")||o.contains("point_edit"))
+                if(o.contains("contours")||o.contains("stroke")||o.contains("fill")||o.contains("source")||o.contains("point_edit")||o.contains("stack")||o.contains("legacy_stroke"))
                     throw Error("INVALID_OBJECT","Group has path-only fields");
                 obj.children=ids(o.at("children"));
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
-                if(text(o.at("fill"))!="none")
-                    throw Error("UNSUPPORTED_APPEARANCE","Bootstrap supports stroked paths, no fill");
-
-                auto& stroke=o.at("stroke").as_object();
-                keys(stroke,{"rgba","width"});
-                auto& rgba=stroke.at("rgba").as_array();
-                if(rgba.size()!=4) throw Error("INVALID_COLOR","Four RGBA channels required");
-                for(std::size_t k=0;k<4;++k) obj.color[k]=read_scalar(rgba[k]);
-                obj.stroke_width=read_scalar(stroke.at("width"));
+                if(version=="0.3") {
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry));
+                    obj.legacy_stroke=text(o.at("legacy_stroke"));
+                } else {
+                    if(text(o.at("fill"))!="none")throw Error("UNSUPPORTED_APPEARANCE","Legacy format only supports stroked paths");
+                    const auto& stroke=o.at("stroke").as_object();keys(stroke,{"rgba","width"});
+                    const auto& rgba=stroke.at("rgba").as_array();
+                    if(rgba.size()!=4)throw Error("INVALID_COLOR","Four RGBA channels required");
+                    auto paint=default_operation("","nect.paint.stroke");
+                    const std::array<std::string,4> channels{"r","g","b","a"};
+                    for(std::size_t k=0;k<4;++k)paint.parameters[channels[k]]=read_scalar(rgba[k]);
+                    paint.parameters["width"]=read_scalar(stroke.at("width"));legacy_paints.emplace(obj.id,std::move(paint));
+                }
 
                 if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
@@ -332,6 +370,10 @@ Document decode(std::string_view input) {
             d.collections.push_back({text(c.at("id")),text(c.at("name")),ids(c.at("members"))});
         }
 
+        // All original IDs are present before allocating migration instances.
+        for(const auto& [id,paint]:legacy_paints) {
+            add_default_stroke(d,id);d.objects.at(id).stack.front().parameters=paint.parameters;
+        }
         validate(d);
         return d;
     } catch(const Error&) {
@@ -382,11 +424,8 @@ std::string encode(const Document& d) {
                 out["source"]=primitive_json(*o.source);
                 if(o.point_edit)out["point_edit"]=point_edit_json(*o.point_edit);
             } else out["contours"]=contours;
-            out["fill"]="none";
-
-            j::array rgba;
-            for(const auto& s:o.color) rgba.push_back(scalar_json(s));
-            out["stroke"]=j::object{{"rgba",rgba},{"width",scalar_json(o.stroke_width)}};
+            j::array stack;for(const auto& op:o.stack)stack.push_back(operation_json(op));
+            out["stack"]=stack;out["legacy_stroke"]=o.legacy_stroke;
         }
 
         objects.push_back(out);
@@ -396,7 +435,7 @@ std::string encode(const Document& d) {
         collections.push_back({{"id",c.id},{"name",c.name},{"members",ids_json(c.members)}});
 
     return j::serialize(j::object{
-        {"format","nect-native"},{"version","0.2"},{"id",d.id},
+        {"format","nect-native"},{"version","0.3"},{"id",d.id},
         {"units","du96"},{"color_space","srgb"},
         {"compositions",comps},{"objects",objects},{"collections",collections}});
 }
@@ -432,38 +471,30 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
         if(o.kind==Kind::group) {
             for(const auto& child:o.children) render(child);
         } else {
-            out<<"<path fill=\"none\" stroke=\"rgb("
-               <<value("","stroke.r")*100<<"%,"
-               <<value("","stroke.g")*100<<"%,"
-               <<value("","stroke.b")*100<<"%)\" stroke-opacity=\""
-               <<value("","stroke.a")<<"\" stroke-width=\""
-               <<value("","stroke.width")<<"\" d=\"";
-
-            for(const auto& c:path_contours(o)) {
-                auto xy=[&](const Point& p){return std::array{value(p.id,"x"),value(p.id,"y")};};
-                const auto first=xy(c.points.front());
-                out<<"M "<<first[0]<<' '<<first[1]<<' ';
-
-                auto segments=c.closed?c.points.size():c.points.size()-1;
-                for(std::size_t i=0;i<segments;++i) {
-                    const auto& p=c.points[i];
-                    const auto& q=c.points[(i+1)%c.points.size()];
-                    const auto from=xy(p),to=xy(q);
-
-                    double pa=value(p.id,"out.angle")*std::numbers::pi/180;
-                    double qa=value(q.id,"in.angle")*std::numbers::pi/180;
-                    double pl=value(p.id,"out.length");
-                    double ql=value(q.id,"in.length");
-
-                    out<<"C "
-                       <<from[0]+pl*std::cos(pa)<<' '<<from[1]+pl*std::sin(pa)<<' '
-                       <<to[0]+ql*std::cos(qa)<<' '<<to[1]+ql*std::sin(qa)<<' '
-                       <<to[0]<<' '<<to[1]<<' ';
+            for(const auto& paint:evaluate_shape(d,id,values).paints) {
+                const bool fill=paint.type=="nect.paint.fill";
+                out<<"<path transform=\"matrix(";for(const auto n:paint.transform)out<<n<<' ';
+                out<<")\" ";
+                if(fill)out<<"stroke=\"none\" fill-rule=\""<<paint.fill_rule<<"\" fill=\"";
+                else out<<"fill=\"none\" stroke-linecap=\"butt\" stroke-linejoin=\"miter\" stroke-miterlimit=\"4\" stroke=\"";
+                out<<"rgb("<<paint.rgba[0]*100<<"%,"<<paint.rgba[1]*100<<"%,"<<paint.rgba[2]*100<<"%)\" "
+                   <<(fill?"fill-opacity":"stroke-opacity")<<"=\""<<paint.rgba[3]<<"\" ";
+                if(!fill)out<<"stroke-width=\""<<paint.width<<"\" ";
+                out<<"d=\"";
+                for(const auto& instance:paint.paths)for(const auto& c:*instance.contours) {
+                    if(c.points.empty())continue;
+                    const auto first=map_point(instance.transform,c.points.front().anchor);
+                    out<<"M "<<first.x<<' '<<first.y<<' ';
+                    const auto segments=c.closed?c.points.size():c.points.size()-1;
+                    for(std::size_t i=0;i<segments;++i) {
+                        const auto& p=c.points[i];const auto& q=c.points[(i+1)%c.points.size()];
+                        const auto a=map_point(instance.transform,p.outgoing),b=map_point(instance.transform,q.incoming),end=map_point(instance.transform,q.anchor);
+                        out<<"C "<<a.x<<' '<<a.y<<' '<<b.x<<' '<<b.y<<' '<<end.x<<' '<<end.y<<' ';
+                    }
+                    if(c.closed)out<<"Z ";
                 }
-                if(c.closed) out<<"Z ";
+                out<<"\"/>\n";
             }
-
-            out<<"\"/>\n";
         }
 
         out<<"</g>\n";
@@ -518,10 +549,31 @@ std::string request(Session& session,std::string_view input) {
                 {"source_instance",object.source->id},{"preserves_point_ids",true},
                 {"freezes_generator",true},{"preserves_active_point_bindings",true},
                 {"discards_bypassed_corrections",object.point_edit&&!object.point_edit->enabled}};
+        } else if(op=="operator_types") {
+            keys(o,{"op"});j::array definitions;
+            for(const auto* type:{"nect.paint.fill","nect.paint.stroke","nect.shape.repeater"}) {
+                auto defaults=default_operation("new-operation",type);
+                j::array parameters;for(const auto& [name,scalar]:defaults.parameters)
+                    parameters.push_back({{"name",name},{"unit",property_unit(operation_ref("object",defaults.id,name))},{"default",scalar.literal}});
+                definitions.push_back({{"type",type},{"version",1},{"input","local_paths_and_paint"},
+                    {"output","local_paths_and_paint"},{"bypass","preserve_input"},
+                    {"parameters",parameters},{"template",operation_json(defaults)}});
+            }
+            result=std::move(definitions);
+        } else if(op=="render_plan") {
+            keys(o,{"op","object"});const auto id=text(o.at("object"));
+            const auto shape=evaluate_shape(session.document(),id,evaluate(session.document()));
+            j::array paints;
+            for(const auto& paint:shape.paints) {
+                j::array matrix,rgba;for(const auto n:paint.transform)matrix.push_back(n);for(const auto n:paint.rgba)rgba.push_back(n);
+                paints.push_back({{"operation",paint.operation},{"type",paint.type},{"path_instances",paint.paths.size()},
+                    {"transform",matrix},{"rgba",rgba},{"width",paint.width},{"fill_rule",paint.fill_rule}});
+            }
+            result=j::object{{"path_instances",shape.paths.size()},{"paint_layers",paints}};
         } else if(op=="capabilities") {
             keys(o,{"op"});
             result=j::object{
-                {"native_version","0.2"},
+                {"native_version","0.3"},
                 {"transport","local-json-lines-not-mcp"},
                 {"mcp",false},
                 {"ai_codec",false},
