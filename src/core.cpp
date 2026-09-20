@@ -95,6 +95,8 @@ const Scalar& property(const Document& d,const Ref& r) {
     return lookup_property(d,r);
 }
 
+std::string property_unit(const Ref& r) { return unit(r); }
+
 std::vector<Ref> properties(const Document& document) {
     std::vector<Ref> refs;
     for (const auto& [ref, scalar] : property_index(document)) {
@@ -219,13 +221,35 @@ Session::Session(Document d):document_(std::move(d)) {
 
 void Session::check_revision(std::uint64_t expected) const {
     require(expected==revision_,"REVISION_CONFLICT","Refresh revision before editing");
+    require(!gesture_active(),"GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
 }
 
-void Session::apply(const std::vector<Command>& commands,std::uint64_t expected) {
-    check_revision(expected);
+namespace {
+std::vector<Id>& siblings(Document& d, const Id& composition, const Id& parent) {
+    auto comp=std::find_if(d.compositions.begin(),d.compositions.end(),
+        [&](const auto& c){return c.id==composition;});
+    require(comp!=d.compositions.end(),"MISSING_COMPOSITION",composition);
+    if(parent.empty()) return comp->roots;
+    bool found=false;
+    std::function<void(const Id&)> visit=[&](const Id& id) {
+        if(id==parent) found=true;
+        for(const auto& child:d.objects.at(id).children) visit(child);
+    };
+    for(const auto& root:comp->roots) visit(root);
+    require(found&&d.objects.at(parent).kind==Kind::group,"INVALID_PARENT",parent);
+    return d.objects.at(parent).children;
+}
+Contour& contour(Document& d,const Id& object,const Id& id) {
+    require(d.objects.contains(object),"MISSING_OBJECT",object);
+    auto& list=d.objects.at(object).contours;
+    auto it=std::find_if(list.begin(),list.end(),[&](const auto& c){return c.id==id;});
+    require(it!=list.end(),"MISSING_CONTOUR",id);
+    return *it;
+}
+Document edited(const Document& document,const std::vector<Command>& commands) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
 
-    auto candidate=document_;
+    auto candidate=document;
     for(const auto& command:commands) std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
         if constexpr(std::is_same_v<T,Set>) {
@@ -255,6 +279,47 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
                 old.erase(id);
             }
             it->points=std::move(reordered);
+        } else if constexpr(std::is_same_v<T,CreatePath>) {
+            require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
+            require(!c.contours.empty(),"INVALID_PATH","Create Path needs a contour");
+            Object object;
+            object.id=c.id; object.name=c.name; object.contours=c.contours;
+            siblings(candidate,c.composition,c.parent).push_back(c.id);
+            candidate.objects.emplace(c.id,std::move(object));
+        } else if constexpr(std::is_same_v<T,AddPoint>) {
+            contour(candidate,c.object,c.contour).points.push_back(c.point);
+        } else if constexpr(std::is_same_v<T,RemovePoint>) {
+            auto& points=contour(candidate,c.object,c.contour).points;
+            auto it=std::find_if(points.begin(),points.end(),[&](const auto& p){return p.id==c.point;});
+            require(it!=points.end(),"MISSING_REFERENCE",c.point);
+            require(points.size()>1,"INVALID_PATH","Delete the path to remove its last point");
+            points.erase(it);
+        } else if constexpr(std::is_same_v<T,CloseContour>) {
+            contour(candidate,c.object,c.contour).closed=c.closed;
+        } else if constexpr(std::is_same_v<T,ReorderObjects>) {
+            auto& list=siblings(candidate,c.composition,c.parent);
+            auto a=list,b=c.order;
+            std::sort(a.begin(),a.end()); std::sort(b.begin(),b.end());
+            require(a==b,"INVALID_ORDER","Object reorder must be a sibling permutation");
+            list=c.order;
+        } else if constexpr(std::is_same_v<T,DeleteObjects>) {
+            require(!c.objects.empty(),"INVALID_BATCH","Select objects to delete");
+            std::set<Id> removed;
+            std::function<void(const Id&)> remove=[&](const Id& id) {
+                require(candidate.objects.contains(id),"MISSING_OBJECT",id);
+                if(!removed.insert(id).second) return;
+                for(const auto& child:candidate.objects.at(id).children) remove(child);
+            };
+            for(const auto& id:c.objects) remove(id);
+            auto prune=[&](std::vector<Id>& list) {
+                std::erase_if(list,[&](const Id& id){return removed.contains(id);});
+            };
+            for(auto& comp:candidate.compositions) prune(comp.roots);
+            for(auto& [id,object]:candidate.objects) { (void)id; prune(object.children); }
+            for(auto& collection:candidate.collections) prune(collection.members);
+            for(const auto& id:removed) candidate.objects.erase(id);
+            // Validation rejects surviving references to deleted properties; callers
+            // may explicitly unlink/freeze those targets in this same atomic batch.
         } else if constexpr(std::is_same_v<T,GroupContiguous>) {
             require(!c.members.empty()&&!candidate.objects.contains(c.id),"INVALID_GROUP","New group ID and members required");
             auto comp=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),
@@ -291,12 +356,47 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
     },command);
 
     validate(candidate);
+    return candidate;
+}
+}
 
+void Session::apply(const std::vector<Command>& commands,std::uint64_t expected) {
+    check_revision(expected);
+    commit(edited(document_,commands));
+}
+
+void Session::commit(Document candidate) {
     undo_.push_back(document_);
     if (undo_.size() > 64) undo_.erase(undo_.begin());
     document_ = std::move(candidate);
     redo_.clear();
     ++revision_;
+}
+
+void Session::begin_gesture(std::uint64_t expected) {
+    check_revision(expected);
+    preview_=document_;
+    preview_changed_=false;
+}
+
+void Session::update_gesture(const std::vector<Command>& commands) {
+    require(gesture_active(),"NO_GESTURE","No active gesture");
+    if(commands.empty()) { preview_=document_; preview_changed_=false; return; }
+    auto next=edited(document_,commands);
+    preview_=std::move(next);
+    preview_changed_=true;
+}
+
+void Session::commit_gesture() {
+    require(gesture_active(),"NO_GESTURE","No active gesture");
+    if(preview_changed_) commit(std::move(*preview_));
+    preview_.reset();
+    preview_changed_=false;
+}
+
+void Session::cancel_gesture() {
+    preview_.reset();
+    preview_changed_=false;
 }
 
 void Session::undo(std::uint64_t expected) {
@@ -352,6 +452,15 @@ Document demo_document() {
         d.objects.emplace(o.id,o);
     }
 
+    validate(d);
+    return d;
+}
+
+Document empty_document(Id document,Id composition,Id artboard) {
+    Document d;
+    d.id=std::move(document);
+    d.compositions.push_back({std::move(composition),"Composition",{},
+        {{std::move(artboard),"Artboard 1",0,0,960,640}}});
     validate(d);
     return d;
 }

@@ -101,6 +101,50 @@ int main() {
         check(property(decode(encode(zero)),{"path-A","point-A1","in.angle"}).literal==72,
               "Zero-length handle keeps authored angle");
 
+        Session author(empty_document("new-doc","new-comp","new-art"));
+        Point p1,p2; p1.id="new-p1";p1.x.literal=10;p1.y.literal=20;
+        p2.id="new-p2";p2.x.literal=90;p2.y.literal=20;
+        author.apply({CreatePath{"new-comp","","new-path","Drawn",{{"new-contour",false,{p1}}}},
+            AddPoint{"new-path","new-contour",p2}},0);
+        const Ref created{"new-path","new-p1","x"};
+        check(author.document().objects.size()==1 && property(author.document(),created).literal==10,
+            "Create from empty document through commands");
+        const auto start=encode(author.document());
+        author.begin_gesture(1);
+        author.update_gesture({Set{created,40}});
+        check(author.revision()==1 && encode(author.document())==start &&
+            property(author.preview_document(),created).literal==40,"Preview is not committed state");
+        rejects("GESTURE_ACTIVE",[&]{author.apply({Set{created,999}},1);});
+        rejects("GESTURE_ACTIVE",[&]{author.undo(1);});
+        rejects("OUT_OF_RANGE",[&]{author.update_gesture({Set{{"new-path","new-p1","in.length"},-2}});});
+        check(property(author.preview_document(),created).literal==40,"Failed preview preserves valid preview");
+        author.cancel_gesture();
+        check(author.revision()==1 && encode(author.document())==start,"Cancel retains revision and authored state");
+        author.begin_gesture(1);
+        author.update_gesture({Set{created,30}});
+        author.update_gesture({Set{created,50}});
+        author.commit_gesture();
+        author.undo(2);
+        check(encode(author.document())==start,"Whole gesture has one undo entry");
+        author.redo(3);
+        check(property(author.document(),created).literal==50,"Gesture redo");
+        author.begin_gesture(4);
+        author.update_gesture({Set{created,90}});author.update_gesture({});author.commit_gesture();
+        check(author.revision()==4 && property(author.document(),created).literal==50,"Drag back to start is no-op");
+        author.apply({CloseContour{"new-path","new-contour",true},
+            ReorderPoints{"new-path","new-contour",{"new-p2","new-p1"}}},4);
+        check(property(author.document(),created).literal==50,"Created point identity survives reorder");
+        Point p3;p3.id="other-p";
+        author.apply({CreatePath{"new-comp","","other-path","Other",{{"other-contour",false,{p3}}}},
+            Link{{"other-path","other-p","x"},{created,1,0,"copy_local_value"}}},5);
+        const auto linked=encode(author.document());
+        rejects("MISSING_REFERENCE",[&]{author.apply({DeleteObjects{{"new-path"}}},6);});
+        check(encode(author.document())==linked&&author.revision()==6,"Deletion cannot break surviving references");
+        author.apply({Unlink{{"other-path","other-p","x"}},DeleteObjects{{"new-path"}}},6);
+        check(author.document().objects.size()==1&&evaluate(author.document()).at({"other-path","other-p","x"})==50,
+            "Explicit freeze and delete is atomic");
+        check(encode(decode(encode(author.document())))==encode(author.document()),"New operations round trip unchanged schema");
+
         std::cout<<"PASS "<<count<<" core checks\n";
         return 0;
     } catch(const std::exception& e) {

@@ -50,6 +50,20 @@ A batch is applied to a candidate document and validated before commit. Failure 
 
 Undo/redo revisions are monotonic. M0 uses snapshot history with a small fixed limit; this is not the final large-document strategy.
 
+M1 adds CreatePath, AddPoint, RemovePoint, CloseContour, DeleteObjects and
+ReorderObjects to the same command boundary. Deleting a referenced property is
+rejected unless dependent targets are explicitly unlinked/frozen in the atomic
+batch. Collection members of removed objects are pruned without reparenting.
+Creation/reorder does not use array positions as identity. These commands do not
+change the native 0.1 schema.
+
+Session owns an optional gesture preview evaluated from the committed starting
+snapshot. Committed reads/save/recovery retain the start document until commit;
+the Canvas uses `preview_document`. Other mutations and history navigation reject
+while a gesture is active. Cancellation or returning to an empty preview creates
+no revision/history; successful completion commits once. Failed previews keep the
+last valid preview and never partially commit.
+
 ## Persistence
 
 Native JSON stores authored data only, not evaluated caches, Qt widgets, or session revision.

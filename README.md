@@ -19,7 +19,14 @@ https://app.notion.com/p/3dffd279a6f381cca8c7c4dec111b131
 
 ## Current status
 
-**M0 kernel baseline**
+**M1 desktop loop delivered; practical alpha in progress**
+
+The Windows Qt desktop now creates paths from an empty document, selects and edits
+points/handles, provides a property-source picker, and shares atomic commands and
+Undo with a live local API and formal MCP stdio adapter. Native save, previous-file
+backups and recovery snapshots are implemented. The Windows 30 fps viewport
+baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
+`CURRENT_GOAL.md`; this is not yet the completed practical alpha.
 
 Implemented in M0:
 
@@ -34,8 +41,6 @@ Implemented in M0:
 
 Not implemented yet:
 
-- Qt desktop UI
-- formal MCP server
 - AI/PSD codecs
 - OpenFX hosting
 - full typography
@@ -60,6 +65,55 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 python3 scripts/smoke.py --exe build/nect
 ```
+
+Windows desktop, with the installed/local Qt and Boost SDK directories:
+
+```powershell
+./scripts/build-windows.ps1 -BoostRoot <boost-header-root> -QtRoot <qt-msvc2019_64-root>
+./build/Release/nect_desktop.exe
+```
+
+On the current development machine both SDKs are under ignored `build/deps`, so
+the build script defaults work. It deploys Qt DLLs/plugins only into the local
+build output. Close the development executable before rebuilding it. No SDK is
+downloaded by configure or the script.
+
+Create a Curve through Add, or choose Draw Path and click anchors (Enter finishes).
+Drag anchors/handles; Alt-drag an anchor to create handles. Escape cancels a drag.
+Space-drag pans; wheel zooms; Fit frames the artboard. Groups select as a unit;
+double-click enters them and the breadcrumb returns. Inspector fields accept
+numbers and one-shot `+=`/`-=` adjustments. Right-click provides Copy Value,
+Copy Reference, Paste Value, Paste Link and explicit Unlink. Drag ↗ to a source
+field (hover Objects to inspect another source); click ↗ to search. General expressions,
+parametric primitives, fills/text/masks/operators are subsequent slices.
+
+To expose the desktop-owned document to a local automation client:
+
+```powershell
+./build/Release/nect_desktop.exe --automation-endpoint nect-local
+python scripts/mcp_server.py --endpoint nect-local
+```
+
+The second process is a formal MCP 2025-06-18 stdio server. Configure it as a
+stdio command in your MCP client, initialize and list tools, then use
+`nect_session`, `nect_command` and `nect_file`. Mutations require the returned
+session/document identity and current revision. Opening/new rotates the session
+identity; a stale client cannot edit the replacement document. The local endpoint
+is opt-in and restricted to the current user; there is no TCP listener.
+
+`scripts/session_client.py` calls that same desktop API directly. The original
+`nect --serve` remains a separate headless JSON-lines lane, **not MCP**.
+`tests/mcp_desktop_tests.py` demonstrates seeded creation, edits, linking,
+reordering, failure readback, Undo, native save/restart and crash recovery.
+
+Recovery protects committed revisions at a one-second timer cadence (synchronous
+IO in this first small-document slice); drafts remain separate. Manual Save uses
+atomic replacement with direct-write fallback disabled and keeps ten previous
+native files in `<file>.backups`. Recovery files are in the local Nect app-data
+folder, or `--recovery-dir`. File > Open Recovery opens one as an unnamed document.
+This is not yet continuous saving to the named source file, asynchronous IO, or
+bounded recovery-directory retention. Unsupported native fields/versions are
+rejected without altering the source.
 
 ## Entry points
 

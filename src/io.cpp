@@ -127,9 +127,51 @@ j::value parse(std::string_view s) {
     return j::parse(s,{},options);
 }
 
+Point read_point(const j::value& v) {
+    const auto& p=v.as_object();
+    keys(p,{"id","x","y","in_angle","in_length","out_angle","out_length"});
+    return {text(p.at("id")),read_scalar(p.at("x")),read_scalar(p.at("y")),
+        read_scalar(p.at("in_angle")),read_scalar(p.at("in_length")),
+        read_scalar(p.at("out_angle")),read_scalar(p.at("out_length"))};
+}
+Contour read_contour(const j::value& v) {
+    const auto& c=v.as_object();
+    keys(c,{"id","closed","points"});
+    Contour out{text(c.at("id")),c.at("closed").as_bool(),{}};
+    for(const auto& p:c.at("points").as_array()) out.points.push_back(read_point(p));
+    return out;
+}
+
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type=="create_path") {
+        keys(o,{"type","composition","parent","id","name","contours"});
+        std::vector<Contour> contours;
+        for(const auto& c:o.at("contours").as_array()) contours.push_back(read_contour(c));
+        return CreatePath{text(o.at("composition")),text(o.at("parent")),text(o.at("id")),
+            text(o.at("name")),std::move(contours)};
+    }
+    if(type=="add_point") {
+        keys(o,{"type","object","contour","point"});
+        return AddPoint{text(o.at("object")),text(o.at("contour")),read_point(o.at("point"))};
+    }
+    if(type=="remove_point") {
+        keys(o,{"type","object","contour","point"});
+        return RemovePoint{text(o.at("object")),text(o.at("contour")),text(o.at("point"))};
+    }
+    if(type=="close_contour") {
+        keys(o,{"type","object","contour","closed"});
+        return CloseContour{text(o.at("object")),text(o.at("contour")),o.at("closed").as_bool()};
+    }
+    if(type=="delete_objects") {
+        keys(o,{"type","objects"});
+        return DeleteObjects{ids(o.at("objects"))};
+    }
+    if(type=="reorder_objects") {
+        keys(o,{"type","composition","parent","order"});
+        return ReorderObjects{text(o.at("composition")),text(o.at("parent")),ids(o.at("order"))};
+    }
     if(type=="set") {
         keys(o,{"type","ref","value"});
         return Set{read_ref(o.at("ref")),number(o.at("value"))};
@@ -159,6 +201,8 @@ Command read_command(const j::value& v) {
     throw Error("UNSUPPORTED_COMMAND",type);
 }
 }
+
+void validate_json(std::string_view input) { (void)parse(input); }
 
 Document decode(std::string_view input) {
     try {
@@ -398,6 +442,10 @@ std::string request(Session& session,std::string_view input) {
         auto& o=parsed.as_object();
         auto op=text(o.at("op"));
         j::value result;
+        const bool mutation=op=="apply"||op=="undo"||op=="redo";
+        j::value prior;
+        std::map<Ref,double> prior_values;
+        if(mutation) {prior=j::parse(encode(session.document()));prior_values=evaluate(session.document());}
 
         if(op=="get") {
             keys(o,{"op","ref"});
@@ -409,6 +457,17 @@ std::string request(Session& session,std::string_view input) {
         } else if(op=="inspect") {
             keys(o,{"op"});
             result=j::parse(encode(session.document()));
+        } else if(op=="properties") {
+            keys(o,{"op"});
+            j::array list;
+            const auto values=evaluate(session.document());
+            for(const auto& ref:properties(session.document()))
+                list.push_back({{"ref",ref_json(ref)},
+                    {"name",session.document().objects.at(ref.object).name},
+                    {"type","number"},{"unit",property_unit(ref)},{"space","local"},
+                    {"authored",scalar_json(property(session.document(),ref))},
+                    {"evaluated",values.at(ref)}});
+            result=std::move(list);
         } else if(op=="capabilities") {
             keys(o,{"op"});
             result=j::object{
@@ -447,6 +506,23 @@ std::string request(Session& session,std::string_view input) {
             throw Error("UNSUPPORTED_OPERATION",op);
         }
 
+        if(mutation) {
+            std::set<Id> changed;
+            const auto after=j::parse(encode(session.document()));
+            for(const auto* category:{"objects","compositions","collections"}) {
+                std::map<Id,j::value> old;
+                for(const auto& item:prior.as_object().at(category).as_array())old.emplace(text(item.as_object().at("id")),item);
+                for(const auto& item:after.as_object().at(category).as_array()) {
+                    const auto id=text(item.as_object().at("id"));
+                    if(!old.contains(id)||old.at(id)!=item)changed.insert(id);
+                    old.erase(id);
+                }
+                for(const auto& [id,value]:old) {(void)value;changed.insert(id);}
+            }
+            for(const auto& [ref,value]:evaluate(session.document()))
+                if(!prior_values.contains(ref)||prior_values.at(ref)!=value)changed.insert(ref.object);
+            result.as_object()["changed_ids"]=ids_json(std::vector<Id>(changed.begin(),changed.end()));
+        }
         return j::serialize(j::object{
             {"ok",true},{"document_id",session.document().id},
             {"revision",session.revision()},{"result",result}});

@@ -93,8 +93,15 @@ struct Unlink { Ref target; };
 struct Rename { Id object; std::string name; };
 struct ReorderPoints { Id object; Id contour; std::vector<Id> order; };
 struct GroupContiguous { Id composition; Id parent; std::vector<Id> members; Id id; std::string name; };
+struct CreatePath { Id composition; Id parent; Id id; std::string name; std::vector<Contour> contours; };
+struct AddPoint { Id object; Id contour; Point point; };
+struct RemovePoint { Id object; Id contour; Id point; };
+struct CloseContour { Id object; Id contour; bool closed; };
+struct DeleteObjects { std::vector<Id> objects; };
+struct ReorderObjects { Id composition; Id parent; std::vector<Id> order; };
 
-using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous>;
+using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
+    CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects>;
 
 std::vector<Ref> properties(const Document& document);
 const Scalar& property(const Document& document, const Ref& ref);
@@ -102,6 +109,8 @@ Ref resolve_name(const Document& document, const std::string& name, const Id& po
 std::map<Ref,double> evaluate(const Document& document);
 void validate(const Document& document);
 Document demo_document();
+Document empty_document(Id document, Id composition, Id artboard);
+std::string property_unit(const Ref& ref);
 
 class Session {
 public:
@@ -111,10 +120,23 @@ public:
     void apply(const std::vector<Command>& commands, std::uint64_t expected_revision);
     void undo(std::uint64_t expected_revision);
     void redo(std::uint64_t expected_revision);
+    bool can_undo() const { return !undo_.empty(); }
+    bool can_redo() const { return !redo_.empty(); }
+    // A gesture previews commands against its starting snapshot. Committed reads
+    // remain stable; other mutations are rejected until commit or cancellation.
+    void begin_gesture(std::uint64_t expected_revision);
+    void update_gesture(const std::vector<Command>& commands);
+    void commit_gesture();
+    void cancel_gesture();
+    bool gesture_active() const { return preview_.has_value(); }
+    const Document& preview_document() const { return preview_ ? *preview_ : document_; }
 private:
     Document document_;
     std::uint64_t revision_ = 0;
     std::vector<Document> undo_, redo_;
+    std::optional<Document> preview_;
+    bool preview_changed_ = false;
     void check_revision(std::uint64_t expected) const;
+    void commit(Document candidate);
 };
 }

@@ -1,4 +1,59 @@
-# M1 — desktop loop on the existing kernel
+# Practical alpha Mission — M1 delivered; parametric source slice next
+
+## Active Mission checkpoint — 2026-09-20
+
+The current user explicitly authorizes continuing beyond M1 toward a practical
+2D authoring alpha, selecting small slices from accepted product direction and
+real production dependencies. M1 green alone is not the Mission stopping point.
+
+Workspace `D:\Documents\Nect` was an empty unborn `master` with only `.git`, no
+remote or dirty files. Fetched the specified repository and created
+`codex/practical-alpha` from `d59691d`. Windows build auto-link fix checkpoint:
+`ff532a7`. The M1 implementation checkpoint follows it on this branch.
+
+Current implemented slice:
+- Qt Windows desktop, Canvas/tree/Inspector; empty-document Path creation and
+  direct polar-handle editing, group selection/drill-in, pan/zoom and object move.
+- Session-owned cancellable previews, one-gesture Undo, API mutation rejection
+  during gestures, atomic create/delete/reorder commands, changed-ID readback.
+- searchable property picker, cross-object drag pick-whip, explicit name
+  resolution, absolute/relative links, copy/paste value/reference and visible
+  driven properties.
+- native atomic manual save, previous-file backups, committed-revision recovery;
+  local API and formal MCP stdio sidecar forward to the desktop's live Session.
+
+Evidence collected:
+- MSVC 19.29.30137, Boost 1.85.0, Qt 6.5.3 x64 Release; M0 baseline tests + smoke pass.
+- all six CTest entries (core, desktop persistence/backup restore/session identity,
+  Canvas, Window, process, formal MCP) pass. The first Canvas test run lacked `qoffscreen.dll`;
+  deploying that test runtime dependency fixed it; it was not an application failure.
+- `tests/mcp_desktop_tests.py`: seed 7821, 24 Paths, 41 semantic mutations;
+  real initialize/list/call, atomic/stale rejection, save/restart, abnormal-exit
+  recovery and independent SVG XML readback pass.
+- Actual 1400×900 Windows window: created two Curves, typed first-point X=315,
+  read it back through live API (revision 2), searched/picked its property for the
+  second Curve, saw linked value/handle color (revision 4), saved to ignored
+  `build/manual-loop.nect` with two paths and one binding.
+- Real use found recovery-status refresh recreating Inspector inputs. Fixed by
+  updating only the status label on recovery completion; input stayed stable.
+  Picker labels now use readable object/point paths while retaining stable references.
+- Full visible Window viewport benchmark: 2 Paths and 80 Paths / 320 points;
+  p95 paint intervals 17.23–23.65 ms, no >33.333 ms measured intervals. Inspector
+  evaluation sharing / structure-only tree refresh reduced release stalls from
+  131.75 ms to <=32.82 ms. See `docs/first-usable.md` for exact hardware, measurement
+  boundary and table. This meets the recorded 30 fps floor, not the 60 fps target.
+
+Next safe actions: continue with a bounded parametric Circle / Rectangle source
+slice, keeping generator parameters after direct point edits via visible Point Edit,
+explicit Convert to Path and native migration/fixture coverage. Add practical
+appearance/repetition as the next thin slice, not a general operator framework.
+Preserve all current files and the development document. No release/publication
+or dependency binaries are authorized for distribution. This checkpoint does not
+claim practical-alpha completion or relax F1–F8. Do not stop at M1.
+
+---
+
+## Delivered M1 scope (acceptance retained)
 
 Purpose: make point/handle editing usable on Windows, highly scriptable, and responsive enough to iterate from real use without replacing the document/Session on every UI revision.
 
