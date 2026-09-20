@@ -48,6 +48,9 @@ private:
     void save(bool choose);
     void add_curve();
     void add_primitive(const std::string& type);
+    void add_text();
+    void add_text_properties(QVBoxLayout* layout,const Object& object);
+    void edit_text_content(const Id& object);
     void convert_to_path();
     void add_operation(const std::string& type,bool radial=false);
     void move_operation(const Id& object,const Id& operation,int direction);

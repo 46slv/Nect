@@ -161,4 +161,10 @@ composition['artboards'].append(dict(id='requested-crop',name='Crop',x=100,y=50,
 requested=subprocess.run([exe,'--svg',composition['id'],'requested-crop'],input=json.dumps(frames),capture_output=True,text=True,timeout=10)
 check(requested.returncode==0 and ET.fromstring(requested.stdout).attrib['viewBox']=='100 50 300 250',
     'CLI can export a non-first frame by stable Composition/Artboard IDs')
+frames_path=ornament.with_name('artboard-studies.nect')
+old=json.loads(frames_path.read_text(encoding='utf-8'))
+check(old['version']=='0.5','frame fixture remains historical 0.5')
+upgraded=subprocess.run([exe,'--serve',str(frames_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
+new=json.loads(upgraded.stdout)['result'];new['version']='0.5'
+check(new==old,'0.5 migration preserves ordered frames, inheritance and all authored artwork')
 print(f'PASS {checks} process and native migration checks')

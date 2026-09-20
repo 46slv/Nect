@@ -162,6 +162,15 @@ try:
         assert boards[0]['evaluated']['width']==700 and boards[0]['evaluated']['height']==240
         crop_svg=core('export_svg',composition=comp['id'],artboard=child['id'])['result']
         assert ET.fromstring(crop_svg).attrib['viewBox']=='100 50 700 240'
+        text_source=core('text_defaults')['result'];text_source.update(id='title-source',content='\u82b1\u306e\u5f62\nNect 2026',direction='vertical')
+        rev=apply([dict(type='create_text',composition=comp['id'],parent='',id='title',name='Editable title',source=text_source)],rev)
+        text_source['content']='\u82b1\u306e\u8a18\u61b6\nNect 2026'
+        rev=apply([dict(type='update_text',object='title',source=text_source),dict(type='link',
+            target=dict(object='title',point='',field='text.font_size'),binding=dict(source=source,scale=.2,offset=0,mode='copy_local_value'))],rev)
+        assert core('get',ref=dict(object='title',point='',field='text.font_size'))['result']['evaluated']==31
+        layout=core('text_layout',object='title')['result'];assert layout['glyph_count']>0 and layout['used_fonts']
+        assert core('export_plan',composition=comp['id'],artboard=first['id'])['result']['text_policy']=='outlines'
+        expected_svg_paths+=1
         native = temp / 'scenario.nect'
         saved = tool('nect_file', dict(identity, op='save', path=str(native), expected_revision=rev))
         assert saved['ok'], saved

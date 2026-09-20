@@ -138,6 +138,13 @@ void Canvas::refresh() {
                 // Core owns operation order, repeat instances and paint grouping.
                 // Qt only projects each evaluated layer into its drawing types.
                 const auto shape = evaluate_shape(document, id, values_);
+                if(object.text) {
+                    std::map<std::string,double> parameters;
+                    for(const auto& [name,scalar]:object.text->parameters){(void)scalar;parameters[name]=values_.at({id,"","text."+name});}
+                    const auto layout=evaluate_text(*object.text,parameters);
+                    item.text_bounds=QRectF(layout.x,layout.y,std::max(1.0,layout.width),std::max(1.0,layout.height));
+                    item.text_overflow=layout.overflow;
+                }
                 std::map<const std::vector<EvaluatedContour>*, QPainterPath> contour_paths;
                 for (const auto& layer : shape.paints) {
                     Geometry::Paint paint;
@@ -413,6 +420,7 @@ const Canvas::Geometry* Canvas::hit_path(QPointF screen) const {
     for (auto i = geometry_.rbegin(); i != geometry_.rend(); ++i) {
         if (selection_target(*i).empty()) continue;
         const auto transform = i->world * view();
+        if(i->text_bounds&&transform.map(QPolygonF(*i->text_bounds)).containsPoint(screen,Qt::OddEvenFill))return &*i;
         for (auto paint = i->paints.rbegin(); paint != i->paints.rend(); ++paint) {
             if (paint->color.alphaF() <= 0 || (!paint->fill && paint->width <= 0)) continue;
             const auto painted_transform = paint->transform * transform;
@@ -527,6 +535,12 @@ void Canvas::paintEvent(QPaintEvent*) {
                 painter.drawPath(painted_path);
             }
             painter.drawPath(screen_path);
+            if(item.text_bounds) {
+                const auto outline=transform.map(QPolygonF(*item.text_bounds));
+                selected_bounds=selected_bounds.united(outline.boundingRect());
+                painter.setPen(QPen(item.text_overflow?QColor("#f6a85b"):accent,1,Qt::DashLine));
+                painter.drawPolygon(outline);
+            }
             if (item.id != selected_object) continue;
             if (gradient_control_ && item.id == gradient_object_) continue;
             if (const auto* p = point(item, selected_point)) {

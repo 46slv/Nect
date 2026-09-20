@@ -157,16 +157,16 @@ struct SequenceResult {
 };
 
 SequenceResult sequence(Window& window, Operation operation, int frames, bool commit,
-                        const QStringList& errors) {
+                        const QStringList& errors,bool text_transform=false) {
     auto& canvas = *window.canvas;
     require(window.isVisible() && window.windowHandle() && window.windowHandle()->isExposed(),
             "The benchmark window must remain visible and exposed");
-    canvas.set_selection("bench-path-0", operation == Operation::transform ? Id{} : "bench-point-0-0");
+    canvas.set_selection(text_transform?"bench-text-0":"bench-path-0", operation == Operation::transform ? Id{} : "bench-point-0-0");
     canvas.setFocus();
     fit(window);
     canvas.reset_timing();
     const auto zoom = canvas.zoom();
-    const QPointF world_start = operation == Operation::handle ? QPointF(88, 70)
+    const QPointF world_start = text_transform?QPointF(65,360):operation == Operation::handle ? QPointF(88, 70)
         : operation == Operation::transform ? QPointF(107.5, 70) : QPointF(70, 70);
     const auto start = operation == Operation::pan || operation == Operation::zoom
         ? QPointF(canvas.width() / 2.0, canvas.height() / 2.0) : screen_point(window, world_start);
@@ -217,8 +217,9 @@ SequenceResult sequence(Window& window, Operation operation, int frames, bool co
             near(value(window, "bench-point-0-0", "out.length"), std::hypot(18 + 28 / zoom, 18 / zoom),
                  "Handle drag produced incorrect length");
         } else {
-            near(value(window, "", "transform.tx"), 54 / zoom, "Object drag produced incorrect translation X");
-            near(value(window, "", "transform.ty"), 12 / zoom, "Object drag produced incorrect translation Y");
+            const auto values=evaluate(window.host.session.document());const auto object=text_transform?"bench-text-0":"bench-path-0";
+            near(values.at({object,"","transform.tx"}), 54 / zoom, "Object drag produced incorrect translation X");
+            near(values.at({object,"","transform.ty"}), 12 / zoom, "Object drag produced incorrect translation Y");
         }
     } else {
         require(window.host.session.revision() == revision, "View movement or warm-up changed committed state");
@@ -300,12 +301,13 @@ int main(int argc, char** argv) {
         "QMenu{border:1px solid #49515c;}QMenu::item:selected{background:#43505f;}");
     app.setQuitOnLastWindowClosed(false);
     if (app.arguments().size() < 2 || app.arguments().size()>3 ||
-        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat")) {
-        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat]\n";
+        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text")) {
+        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text]\n";
         return 2;
     }
     const auto output = app.arguments().at(1);
     const bool repeated=app.arguments().contains("--repeat");
+    const bool text_scene=app.arguments().contains("--text");
     run_clock.start();
     QJsonObject result{{"schema", "nect-visible-viewport-benchmark-1"},
         {"started_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
@@ -326,7 +328,7 @@ int main(int argc, char** argv) {
         bool all_floor = true;
         bool all_target = true;
         bool all_release_budget = true;
-        for (const auto paths : (repeated?std::vector<int>{2}:std::vector<int>{2,80})) {
+        for (const auto paths : ((repeated||text_scene)?std::vector<int>{2}:std::vector<int>{2,80})) {
             Window window(scratch.path() + "/scene-" + QString::number(paths));
             window.resize(1440, 900);
             window.show();
@@ -339,6 +341,16 @@ int main(int argc, char** argv) {
             }
             require(window.windowHandle() && window.windowHandle()->isExposed(), "Benchmark window did not become exposed");
             seed(window, paths);
+            if(text_scene) {
+                std::vector<Command> commands;const auto comp=window.host.session.document().compositions.front().id;
+                for(int i=0;i<8;++i) {
+                    auto text=default_text("bench-text-source-"+std::to_string(i),"Nect typography 2026 / \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e");
+                    text.parameters.at("origin_x").literal=60+(i%2)*450;text.parameters.at("origin_y").literal=350+(i/2)*58;
+                    text.parameters.at("font_size").literal=21;
+                    commands.push_back(CreateText{comp,"","bench-text-"+std::to_string(i),"Typography",text});
+                }
+                window.host.session.apply(commands,window.host.session.revision());window.host.edited();wait_events(40);
+            }
             if(repeated) {
                 std::vector<Command> commands;
                 for(int i=0;i<paths;++i) {
@@ -382,12 +394,16 @@ int main(int argc, char** argv) {
                 scene["fixture"]="Two authored four-anchor curves; each Stroke + Fill + 12-copy Repeater; 24 virtual path instances and 48 paint layers; fixed 38 du Y step.";
                 scene["virtual_path_instances"]=24;scene["paint_layers"]=48;
             }
+            if(text_scene) {
+                scene["name"]="mixed-text";scene["text_count"]=8;
+                scene["fixture"]="Two authored four-anchor curves plus eight editable mixed Japanese/Latin Text objects, Yu Gothic 21 du. Pan/zoom, curve point/handle and Text object translation in the full Window with all text visible.";
+            }
             QJsonArray operations;
             for (const auto operation : {Operation::pan, Operation::zoom, Operation::point, Operation::handle, Operation::transform}) {
-                sequence(window, operation, warmup_frames, false, errors);
+                sequence(window, operation, warmup_frames, false, errors,text_scene&&operation==Operation::transform);
                 const auto before = window.host.session.revision();
                 const auto commits_before = commits;
-                const auto measurement = sequence(window, operation, measured_frames, true, errors);
+                const auto measurement = sequence(window, operation, measured_frames, true, errors,text_scene&&operation==Operation::transform);
                 const auto after = window.host.session.revision();
                 require(commits - commits_before == (edits_document(operation) ? 1 : 0),
                         "Unexpected committed notification count in full application");

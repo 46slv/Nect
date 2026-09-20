@@ -21,6 +21,8 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
+#include <QPlainTextEdit>
+#include <QSpinBox>
 #include <QSaveFile>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -65,6 +67,13 @@ QString primitive_label(const Primitive& source) {
     return source.type=="nect.shape.circle" ? QStringLiteral("Circle") : QStringLiteral("Rectangle");
 }
 QString parameter_label(const std::string& parameter) {
+    if(parameter=="origin_x")return QStringLiteral("Origin X");
+    if(parameter=="origin_y")return QStringLiteral("Origin Y");
+    if(parameter=="font_size")return QStringLiteral("Font size");
+    if(parameter=="frame_width")return QStringLiteral("Frame width");
+    if(parameter=="frame_height")return QStringLiteral("Frame height");
+    if(parameter=="tracking")return QStringLiteral("Tracking");
+    if(parameter=="line_spacing")return QStringLiteral("Line advance · 0 = auto");
     if(parameter=="center_x")return QStringLiteral("Center X");
     if(parameter=="center_y")return QStringLiteral("Center Y");
     if(parameter=="radius")return QStringLiteral("Radius");
@@ -157,7 +166,9 @@ QString property_label(const Document& d,const Ref& ref) {
                 path.append(point_label(o,contours[c].points[i],i));
             }
     }
-    if(ref.field.starts_with("generator.")) {
+    if(ref.field.starts_with("text.")) {
+        path.append("Text");path.append(parameter_label(ref.field.substr(5)));
+    } else if(ref.field.starts_with("generator.")) {
         path.append("Generator");path.append(parameter_label(ref.field.substr(10)));
     } else if(ref.field.starts_with("op.")) {
         const auto separator=ref.field.find('.',3);
@@ -260,7 +271,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         QSaveFile output(path);output.setDirectWriteFallback(false);
         if(!output.open(QIODevice::WriteOnly)||output.write(bytes)!=bytes.size()||!output.commit())
             throw Error("IO_ERROR",output.errorString().toStdString());
-        statusBar()->showMessage("SVG exported; native properties remain editable",5000);
+        statusBar()->showMessage("SVG exported with text as outlines; native text remains editable",10000);
     });
     undo_=action(edit,"Undo",QKeySequence::Undo,[this]{canvas->cancel_interaction();host.session.undo(host.session.revision());host.edited();});
     redo_=action(edit,"Redo",QKeySequence::Redo,[this]{canvas->cancel_interaction();host.session.redo(host.session.revision());host.edited();});
@@ -283,6 +294,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     circle->setObjectName("add-circle");
     auto* rectangle=action(add,"Rectangle",{},[this]{add_primitive("nect.shape.rectangle");});
     rectangle->setObjectName("add-rectangle");
+    auto* text=action(add,"Text",{},[this]{add_text();});text->setObjectName("add-text");
     add->addSeparator();
     auto* fill=action(add,"Fill",{},[this]{add_operation("nect.paint.fill");});fill->setObjectName("add-fill");
     auto* stroke=action(add,"Stroke",{},[this]{add_operation("nect.paint.stroke");});stroke->setObjectName("add-stroke");
@@ -297,7 +309,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     action(view,"Return to parent Group",{},[this]{canvas->leave_group();});
     view->addAction(structure->toggleViewAction());view->addAction(right->toggleViewAction());
     auto* toolbar=addToolBar("Authoring");toolbar->setMovable(false);
-    toolbar->addAction(circle);toolbar->addAction(rectangle);
+    toolbar->addAction(circle);toolbar->addAction(rectangle);toolbar->addAction(text);
     auto* curve=toolbar->addAction("+ Curve"); connect(curve,&QAction::triggered,this,[this]{perform([this]{add_curve();});});
     toolbar->addAction(draw);toolbar->addSeparator();toolbar->addAction(undo_);toolbar->addAction(redo_);
     auto* fit=toolbar->addAction("Fit");connect(fit,&QAction::triggered,canvas,&Canvas::fit_artboard);
@@ -626,7 +638,7 @@ void Window::rebuild_inspector() {
     auto* layout=new QVBoxLayout(inspector_);
     if(artboard_editing_) {edit_artboard(layout);return;}
     const auto& d=host.session.document();
-    if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a Circle, Rectangle or Curve.\nSelect a point to edit its handles."));layout->addStretch();return;}
+    if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a Circle, Rectangle, Curve or Text.\nSelect a point to edit its handles."));layout->addStretch();return;}
     const auto& o=d.objects.at(canvas->selected_object);
     inspector_values_=evaluate(d);
     auto* name=new QLineEdit(qs(o.name));name->setAccessibleName("Object name");layout->addWidget(name);
@@ -637,6 +649,7 @@ void Window::rebuild_inspector() {
     });
     auto section=[&](const QString& title){auto* box=new QGroupBox(title);auto* form=new QFormLayout(box);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);return form;};
+    if(o.text)add_text_properties(layout,o);
     if(o.source) {
         auto* generator=section("1 · "+primitive_label(*o.source)+" source");
         for(const auto* parameter:{"center_x","center_y","radius","width","height"})
@@ -685,9 +698,94 @@ void Window::rebuild_inspector() {
     auto* transform=section("Transform · local matrix");
     for(const auto* field:{"tx","ty","a","b","c","d"})
         add_property(transform,{o.id,"",std::string("transform.")+field},QString::fromLatin1(field));
-    if(o.kind==Kind::path)add_stack(layout,o);
+    if(o.kind!=Kind::group)add_stack(layout,o);
     auto* hint=new QLabel("Right-click a value to copy, paste or unlink.\n↗ picks a property source; += / -= adjusts once.");
     hint->setWordWrap(true);hint->setStyleSheet("color: #929aa6; font-size: 11px;");layout->addWidget(hint);layout->addStretch();
+}
+void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
+    const auto id=object.id;const auto frozen_session=host.session_id;
+    const auto& source=*object.text;
+    auto* box=new QGroupBox("Text source");auto* form=new QFormLayout(box);
+    form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);
+    auto* preview=new QLabel(qs(source.content).left(160));preview->setWordWrap(true);preview->setTextFormat(Qt::PlainText);
+    preview->setObjectName("text-preview");form->addRow(preview);
+    auto* edit=new QPushButton("Edit text…");edit->setObjectName("edit-text-content");form->addRow(edit);
+    connect(edit,&QPushButton::clicked,this,[this,id]{perform([&]{edit_text_content(id);});});
+    auto update=[this,id,frozen_session](const std::function<void(TextSource&)>& change) {
+        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+        const auto found=host.session.document().objects.find(id);
+        if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
+        auto next=*found->second.text;change(next);
+        host.session.apply({UpdateText{id,std::move(next)}},host.session.revision());host.edited();
+    };
+    auto* family=new QComboBox;family->setObjectName("text-family");family->setEditable(true);
+    family->setInsertPolicy(QComboBox::NoInsert);family->setMinimumContentsLength(12);
+    family->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    for(const auto& name:text_fonts())family->addItem(qs(name));family->setCurrentText(qs(source.family));form->addRow("Font family",family);
+    connect(family->lineEdit(),&QLineEdit::editingFinished,this,[this,family,update,before=source.family]{
+        const auto value=family->currentText().toStdString();if(value!=before)perform([&]{update([&](auto& s){s.family=value;});});});
+    connect(family,QOverload<int>::of(&QComboBox::activated),this,[this,family,update]{perform([&]{update([&](auto& s){s.family=family->currentText().toStdString();});});});
+    auto* weight=new QSpinBox;weight->setObjectName("text-weight");weight->setRange(1,999);weight->setSingleStep(100);
+    weight->setValue(static_cast<int>(source.weight));weight->setKeyboardTracking(false);form->addRow("Weight",weight);
+    connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,before=source.weight]{
+        if(static_cast<unsigned>(weight->value())!=before)perform([&]{update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});});});
+    auto* italic=new QCheckBox("Italic");italic->setObjectName("text-italic");italic->setChecked(source.italic);form->addRow(italic);
+    connect(italic,&QCheckBox::toggled,this,[this,update](bool value){perform([&]{update([&](auto& s){s.italic=value;});});});
+    auto choices=[&](const QString& name,const QString& label,const QStringList& labels,const std::vector<std::string>& values,
+                     const std::string& selected,std::string TextSource::*member) {
+        auto* combo=new QComboBox;combo->setObjectName(name);combo->addItems(labels);
+        combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);combo->setMinimumContentsLength(9);
+        combo->setCurrentIndex(static_cast<int>(std::distance(values.begin(),std::find(values.begin(),values.end(),selected))));form->addRow(label,combo);
+        connect(combo,&QComboBox::currentIndexChanged,this,[this,update,values,member](int index){
+            perform([&]{update([&](auto& s){s.*member=values.at(static_cast<std::size_t>(index));});});});
+    };
+    choices("text-layout","Sizing",{"Auto size","Fixed frame"},{"auto","frame"},source.layout,&TextSource::layout);
+    choices("text-direction","Writing",{"Horizontal","Vertical"},{"horizontal","vertical"},source.direction,&TextSource::direction);
+    choices("text-alignment","Alignment",{"Start","Center","End"},{"start","center","end"},source.alignment,&TextSource::alignment);
+    auto* locale=new QLineEdit(qs(source.locale));locale->setObjectName("text-locale");form->addRow("Language tag",locale);
+    connect(locale,&QLineEdit::editingFinished,this,[this,locale,update]{if(locale->isModified()){
+        locale->setModified(false);perform([&]{update([&](auto& s){s.locale=locale->text().toStdString();});});}});
+    for(const auto* parameter:{"origin_x","origin_y","font_size","frame_width","frame_height","tracking","line_spacing"})
+        add_property(form,{id,"",std::string("text.")+parameter},parameter_label(parameter));
+    std::map<std::string,double> parameters;for(const auto& [name,value]:source.parameters){(void)value;parameters[name]=inspector_values_.at({id,"","text."+name});}
+    const auto result=evaluate_text(source,parameters);
+    QStringList lines;lines<<QString("%1 × %2 du · %3 glyphs").arg(display_value(result.width),display_value(result.height)).arg(result.glyph_count);
+    if(result.overflow)lines<<"Text extends outside its frame. Increase the frame or reduce the type size.";
+    for(const auto& warning:result.warnings)lines<<qs(warning);
+    QStringList fonts;for(const auto& name:result.used_fonts)fonts<<qs(name);
+    lines<<"Rendered fonts: "+fonts.join(", ")<<"Native text stays editable. SVG exports glyph outlines; fonts are not embedded.";
+    auto* status=new QLabel(lines.join('\n'));status->setObjectName("text-layout-status");status->setWordWrap(true);status->setTextFormat(Qt::PlainText);form->addRow(status);
+}
+void Window::edit_text_content(const Id& id) {
+    const auto session=host.session_id;const auto source=*host.session.document().objects.at(id).text;
+    QDialog dialog(this);dialog.setObjectName("text-editor-dialog");dialog.setWindowTitle("Edit text");dialog.resize(560,340);
+    auto* layout=new QVBoxLayout(&dialog);auto* editor=new QPlainTextEdit(qs(source.content));editor->setObjectName("text-content-editor");
+    editor->setAccessibleName("Text content");layout->addWidget(editor);
+    auto* message=new QLabel("Apply commits one undo step. Cancel discards only this draft.");message->setWordWrap(true);message->setTextFormat(Qt::PlainText);
+    message->setObjectName("text-editor-status");layout->addWidget(message);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel);layout->addWidget(buttons);
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[&,id,session,source]{
+        try {
+            if(host.session_id!=session)throw Error("SESSION_CONFLICT","The document changed. Copy this draft before closing.");
+            const auto found=host.session.document().objects.find(id);
+            if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","The text was removed. Copy this draft before closing.");
+            auto next=*found->second.text;
+            if(next.id!=source.id||next.content!=source.content)throw Error("TEXT_EDIT_CONFLICT","Text changed elsewhere. Copy this draft, cancel, and reopen the latest text.");
+            const auto content=editor->toPlainText().toStdString();
+            if(content!=next.content){next.content=content;host.session.apply({UpdateText{id,std::move(next)}},host.session.revision());host.edited();}
+            dialog.accept();
+        } catch(const std::exception& e){message->setText(QString::fromUtf8(e.what()));}
+    });
+    editor->setFocus();dialog.exec();
+}
+void Window::add_text() {
+    canvas->set_draw_mode(false);const auto& comp=find_composition(host.session.document(),canvas->active_composition());
+    const auto board=evaluate_artboard(comp,canvas->active_artboard());auto source=default_text(new_id());
+    source.parameters.at("origin_x").literal=board.x+board.width*.15;
+    source.parameters.at("origin_y").literal=board.y+board.height*.2;
+    const auto id=new_id();host.session.apply({CreateText{comp.id,"",id,"Text "+std::to_string(host.session.document().objects.size()+1),source}},host.session.revision());
+    canvas->set_selection(id);host.edited();canvas->setFocus();
 }
 void Window::add_stack(QVBoxLayout* layout,const Object& object) {
     auto* heading=new QWidget;
@@ -837,6 +935,10 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                         else bounds=QRectF(QPointF(std::min(bounds.left(),position.x()),std::min(bounds.top(),position.y())),
                             QPointF(std::max(bounds.right(),position.x()),std::max(bounds.bottom(),position.y())));
                     }
+                    if(const auto& selected=host.session.document().objects.at(id);selected.text) {
+                        std::map<std::string,double> parameters;for(const auto& [name,value]:selected.text->parameters){(void)value;parameters[name]=values.at({id,"","text."+name});}
+                        const auto layout=evaluate_text(*selected.text,parameters);bounds=QRectF(layout.x,layout.y,layout.width,layout.height);
+                    }
                     const auto span=std::max(1.0,bounds.width());
                     created.start_x.literal=index==2?bounds.center().x():bounds.left();created.start_y.literal=bounds.center().y();
                     created.end_x.literal=created.start_x.literal+(index==2?span/2:span);created.end_y.literal=created.start_y.literal;
@@ -964,6 +1066,8 @@ void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& labe
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref] {
         if(!input->isModified()) return;
         input->setModified(false);
+        const bool keep_focus=input->hasFocus();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
+        const auto frozen_session=host.session_id;
         perform([&]{
             auto text=input->text().trimmed();bool valid=false;double value=0;
             if(text.startsWith("+=")||text.startsWith("-=")) {
@@ -972,6 +1076,14 @@ void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& labe
             } else value=text.toDouble(&valid);
             if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number or += / -= adjustment; expression authoring is not yet supported");
             host.session.apply({Set{ref,value}},host.session.revision());host.edited();
+            if(keep_focus)QTimer::singleShot(0,this,[this,ref,scroll,frozen_session]{
+                if(host.session_id!=frozen_session||canvas->selected_object!=ref.object)return;
+                const auto data=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
+                for(auto* current:inspector_->findChildren<QLineEdit*>())if(current->isVisible()&&current->property("nect-reference").toByteArray()==data) {
+                    current->setFocus(Qt::OtherFocusReason);current->selectAll();
+                    inspector_scroll_->verticalScrollBar()->setValue(scroll);break;
+                }
+            });
         });
     });
     input->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -1088,8 +1200,8 @@ void Window::add_operation(const std::string& type,bool radial) {
     canvas->cancel_interaction();
     const auto& document=host.session.document();
     const auto found=document.objects.find(canvas->selected_object);
-    if(found==document.objects.end()||found->second.kind!=Kind::path)
-        throw Error("INVALID_DOMAIN","Select a Path, Circle or Rectangle. Group stacks are not supported yet.");
+    if(found==document.objects.end()||found->second.kind==Kind::group)
+        throw Error("INVALID_DOMAIN","Select a Path, Circle, Rectangle or Text. Group stacks are not supported yet.");
     const auto& object=found->second;
     auto operation=default_operation(new_id(),type);
     if(radial) {
@@ -1098,6 +1210,9 @@ void Window::add_operation(const std::string& type,bool radial) {
         if(object.source) {
             center_x=values.at({object.id,{},"generator.center_x"});
             center_y=values.at({object.id,{},"generator.center_y"});
+        } else if(object.text) {
+            std::map<std::string,double> parameters;for(const auto& [name,value]:object.text->parameters){(void)value;parameters[name]=values.at({object.id,"","text."+name});}
+            const auto layout=evaluate_text(*object.text,parameters);center_x=layout.x+layout.width/2;center_y=layout.y+layout.height/2;
         } else {
             QRectF bounds;bool first=true;
             for(const auto& contour:path_contours(object))for(const auto& point:contour.points) {

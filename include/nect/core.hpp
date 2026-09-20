@@ -49,7 +49,19 @@ struct Contour {
     std::vector<Point> points;
 };
 
-enum class Kind { group, path };
+enum class Kind { group, path, text };
+
+struct TextSource {
+    Id id;
+    unsigned version=1;
+    std::string content="Text",family="Yu Gothic",locale="ja-JP";
+    std::string layout="auto",direction="horizontal",alignment="start";
+    unsigned weight=400;
+    bool italic=false;
+    std::map<std::string,Scalar> parameters;
+};
+TextSource default_text(Id id,std::string content="Text");
+std::vector<std::string> text_fonts();
 
 struct Primitive {
     Id id;
@@ -108,6 +120,7 @@ struct Object {
     Id legacy_stroke;
     std::optional<Primitive> source;
     std::optional<PointEdit> point_edit;
+    std::optional<TextSource> text;
 };
 
 struct ArtboardParent {
@@ -171,18 +184,30 @@ struct UpdateArtboard { Id composition; Artboard artboard; };
 struct DeleteArtboard { Id composition; Id artboard; };
 struct ReorderArtboards { Id composition; std::vector<Id> order; };
 struct DetachArtboardParent { Id composition; Id artboard; };
+struct CreateText { Id composition; Id parent; Id id; std::string name; TextSource source; };
+struct UpdateText { Id object; TextSource source; };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,OperationOptions,SetGradient,AddArtboard,UpdateArtboard,
-    DeleteArtboard,ReorderArtboards,DetachArtboardParent>;
+    DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
 struct Vec2 {double x=0,y=0;};
 struct CubicPoint {Vec2 anchor,incoming,outgoing;};
 struct EvaluatedContour {bool closed=false;std::vector<CubicPoint> points;};
+struct TextLayout {
+    std::shared_ptr<const std::vector<EvaluatedContour>> contours;
+    double x=0,y=0,width=0,height=0;
+    bool overflow=false;
+    std::size_t glyph_count=0;
+    std::vector<std::string> warnings,used_fonts;
+};
+// Pure projection of authored text and evaluated text.* parameters. Windows uses
+// DirectWrite shaping, including vertical glyph orientation; no font is embedded.
+TextLayout evaluate_text(const TextSource& source,const std::map<std::string,double>& parameters);
 struct PathInstance {
     std::shared_ptr<const std::vector<EvaluatedContour>> contours;
     Affine transform=identity_matrix;

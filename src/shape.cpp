@@ -31,7 +31,7 @@ Affine compose(const Affine& a,const Affine& b) {
 }
 EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,double>& values) {
     const auto& o=d.objects.at(id);
-    if(o.kind!=Kind::path)throw Error("INVALID_DOMAIN","Shape stack currently accepts one Path source");
+    if(o.kind==Kind::group)throw Error("INVALID_DOMAIN","Shape stack accepts one Path or Text source");
     auto contours=std::make_shared<std::vector<EvaluatedContour>>();
     for(const auto& contour:path_contours(o)) {
         EvaluatedContour result;result.closed=contour.closed;
@@ -44,8 +44,14 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
         }
         contours->push_back(std::move(result));
     }
-    EvaluatedShape shape;shape.paths.push_back({contours,identity_matrix});
-    std::size_t point_count=0;for(const auto& c:*contours)point_count+=c.points.size();
+    std::shared_ptr<const std::vector<EvaluatedContour>> source=contours;
+    if(o.text) {
+        std::map<std::string,double> parameters;
+        for(const auto& [name,scalar]:o.text->parameters){(void)scalar;parameters.emplace(name,values.at({id,"","text."+name}));}
+        source=evaluate_text(*o.text,parameters).contours;
+    }
+    EvaluatedShape shape;shape.paths.push_back({source,identity_matrix});
+    std::size_t point_count=0;for(const auto& c:*source)point_count+=c.points.size();
     std::size_t painted_instances=0;
     for(const auto& op:o.stack) {
         if(!op.enabled)continue;

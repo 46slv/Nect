@@ -1,4 +1,4 @@
-# Practical alpha Mission — ordered Artboards delivered; editable Text next
+# Practical alpha Mission — editable Text delivered; color tools next
 
 ## Active Mission checkpoint — 2026-09-20
 
@@ -27,7 +27,7 @@ Current implemented slice:
 - retained Circle/Rectangle sources, normal generator properties and stable
   generated point roles; direct point/handle edits create visible absolute local
   Point Edit overrides, with bypass and explicit reference-protected conversion.
-- native 0.5 frames/parent-size checkpoint / strict earlier migrations, authored/evaluated origin metadata,
+- native 0.6 editable Text / strict earlier migrations, authored/evaluated origin metadata,
   conversion plans and ordered operation discovery through the same semantic API.
 
 Evidence collected:
@@ -113,8 +113,29 @@ for single-plane files, explicit elision/tooltips retained, no horizontal scroll
 Parent owns builds; worker is idle. Parent size is a foundation only; inherited
 template content/layout attributes remain pending.
 
+Text checkpoint after `132434d`: native 0.6 retains editable UTF-8 text, installed
+font references, weight/italic/locale, auto/frame sizing, Japanese horizontal and
+vertical layout, alignment/tracking/leading and normal linked distance properties.
+DirectWrite glyph outlines feed the same Fill/Stroke/Repeater Canvas/SVG pipeline.
+Text bounds remain selectable, overflow is visible and no glyphs are truncated.
+Missing-font fallback and actual families are diagnosed; color-only glyphs reject.
+SVG outlines are disclosed by Inspector, export_plan and SVG descriptions. No
+fonts are distributed. Non-Windows native metadata remains portable; geometry
+projection explicitly requires Windows. Rich text/on-path/glyph editing remains
+pending, not silently flattened into authored Paths.
+
+All twelve CTest entries passed; the final focus/scroll fix passed focused Window
+regression and visible use. Actual seven-Text Japanese poster is retained in
+`examples/typography-poster.nect` plus SVG, reproducible with `create_text_demo.py`.
+GUI content and size edits propagated to API/readback; two Undo steps restored
+the complete source. Manual content edit is retained in ignored build storage.
+The eight-Text full-Window benchmark passed the 30 fps p95 floor for pan/zoom,
+point/handle edits and Text translation (worst p95 18.96 ms, release31.84 ms,
+zero measured intervals above33.333 ms). 60 fps remains a target. Full evidence
+is in docs/first-usable.md. Visible app closed; worker idle, parent owns builds.
+
 Next safe actions after this slice: save a coherent checkpoint, then continue
-with editable Text and color tools in
+with named/global colors, color inventory and color history in
 thin slices; do not treat the
 radial example as full alpha completion. Masks/compositing, assets, long History,
 continuous save, expressions/multi-edit and the remaining explicit Mission

@@ -15,6 +15,21 @@ void require(bool ok, const char* code, const std::string& message) {
 void finite(double n) {
     require(std::isfinite(n),"NON_FINITE","Non-finite numeric value");
 }
+void text_utf8(const std::string& value) {
+    for(std::size_t i=0;i<value.size();) {
+        const auto first=static_cast<unsigned char>(value[i++]);unsigned point=first,minimum=0;int extra=0;
+        if(first>=0xf0&&first<=0xf4){point=first&7;extra=3;minimum=0x10000;}
+        else if(first>=0xe0&&first<=0xef){point=first&15;extra=2;minimum=0x800;}
+        else if(first>=0xc2&&first<=0xdf){point=first&31;extra=1;minimum=0x80;}
+        else require(first<128,"INVALID_UTF8","Invalid text encoding");
+        for(int k=0;k<extra;++k) {
+            require(i<value.size(),"INVALID_UTF8","Truncated text encoding");const auto next=static_cast<unsigned char>(value[i++]);
+            require((next&0xc0)==0x80,"INVALID_UTF8","Invalid text continuation");point=(point<<6)|(next&63);
+        }
+        require(point>=minimum&&point<=0x10ffff&&!(point>=0xd800&&point<=0xdfff),"INVALID_UTF8","Invalid Unicode scalar");
+        require(point>=32||point==9||point==10||point==13,"INVALID_TEXT","Control character is not supported");
+    }
+}
 void identity(const Id& id) {
     require(!id.empty() && id.size()<=96,"INVALID_ID","ID must have 1..96 ASCII identifier characters");
     for(const unsigned char c : id)
@@ -74,6 +89,10 @@ auto& lookup_property(D& d,const Ref& r) {
     require(it!=d.objects.end(),"MISSING_REFERENCE",r.object);
     auto& o=it->second;
     if(r.point.empty()) {
+        if(o.text&&r.field.starts_with("text.")) {
+            const auto name=r.field.substr(5);require(o.text->parameters.contains(name),"MISSING_REFERENCE",r.field);
+            return o.text->parameters.at(name);
+        }
         if(o.source&&r.field.starts_with("generator.")) {
             const auto name=r.field.substr(10);
             require(o.source->parameters.contains(name),"MISSING_REFERENCE",r.field);
@@ -81,7 +100,7 @@ auto& lookup_property(D& d,const Ref& r) {
         }
         static const std::array<std::string,6> tf{"a","b","c","d","tx","ty"};
         for(std::size_t i=0;i<tf.size();++i) if(r.field=="transform."+tf[i]) return o.transform[i];
-        if(o.kind==Kind::path) {
+        if(o.kind!=Kind::group) {
             if(r.field.starts_with("op.")||r.field.starts_with("stroke.")) {
                 const auto address=r.field.starts_with("op.")?operation_address(r.field):
                     std::pair{o.legacy_stroke,r.field.substr(7)};
@@ -112,6 +131,7 @@ auto& lookup_property(D& d,const Ref& r) {
     throw Error("MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
 }
 std::string unit(const Ref& r) {
+    if(r.field.starts_with("text."))return "du";
     if(r.field.starts_with("op.")) {
         const auto name=operation_address(r.field).second;
         if(name.starts_with("gradient.")&&(name.ends_with(".start_x")||name.ends_with(".start_y")||name.ends_with(".end_x")||name.ends_with(".end_y")))return "du";
@@ -127,6 +147,10 @@ std::string unit(const Ref& r) {
 void value_range(const Ref& r,double v) {
     finite(v);
     require(std::abs(v)<=1e9,"OUT_OF_RANGE","Magnitude limit is 1e9 in v0.1");
+    if(r.field=="text.font_size")require(v>0&&v<=10000,"OUT_OF_RANGE","Text size must be in (0,10000]");
+    if(r.field=="text.frame_width"||r.field=="text.frame_height")require(v>0&&v<=1e6,"OUT_OF_RANGE","Text frame dimensions must be in (0,1000000]");
+    if(r.field=="text.line_spacing")require(v>=0&&v<=10000,"OUT_OF_RANGE","Line spacing must be in [0,10000], with zero for automatic");
+    if(r.field=="text.tracking")require(std::abs(v)<=10000,"OUT_OF_RANGE","Tracking magnitude limit 10000");
     if(r.field.ends_with(".length")||r.field=="stroke.width"||r.field=="generator.radius"||
        r.field=="generator.width"||r.field=="generator.height")
         require(v>=0,"OUT_OF_RANGE","Negative length");
@@ -154,7 +178,8 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
         for (std::size_t i = 0; i < transform_fields.size(); ++i)
             index.emplace(Ref{id, "", transform_fields[i]}, &object.transform[i]);
 
-        if (object.kind != Kind::path) continue;
+        if (object.kind == Kind::group) continue;
+        if(object.text)for(const auto& [name,value]:object.text->parameters)index.emplace(Ref{id,"","text."+name},&value);
 
         for(const auto& op:object.stack) {
             for(const auto& [name,value]:op.parameters) {
@@ -208,9 +233,9 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
 }
 }
 
-void add_default_stroke(Document& d,const Id& object) {
+void add_default_paint(Document& d,const Id& object,const std::string& type) {
     auto& o=d.objects.at(object);
-    require(o.kind==Kind::path&&o.stack.empty(),"INVALID_OBJECT","Default stroke needs a new Path");
+    require(o.kind!=Kind::group&&o.stack.empty(),"INVALID_OBJECT","Default paint needs a new Shape source");
     std::set<Id> ids{d.id};
     for(const auto& c:d.compositions){ids.insert(c.id);for(const auto& a:c.artboards)ids.insert(a.id);}
     for(const auto& c:d.collections)ids.insert(c.id);
@@ -219,13 +244,16 @@ void add_default_stroke(Document& d,const Id& object) {
             ids.insert(op.id);if(op.gradient){ids.insert(op.gradient->id);for(const auto& stop:op.gradient->stops)ids.insert(stop.id);}
         }
         if(item.source){ids.insert(item.source->id);ids.insert(item.source->id+"-point-edit");}
+        if(item.text)ids.insert(item.text->id);
         for(const auto& contour:path_contours(item)){ids.insert(contour.id);for(const auto& p:contour.points)ids.insert(p.id);}
     }
-    const auto stem=object.substr(0,74)+"-stroke";
+    const auto stem=object.substr(0,74)+(type=="nect.paint.fill"?"-fill":"-stroke");
     auto id=stem;unsigned suffix=0;
     while(ids.contains(id))id=stem+"-"+std::to_string(++suffix);
-    o.legacy_stroke=id;o.stack.push_back(default_operation(id,"nect.paint.stroke"));
+    if(type=="nect.paint.stroke")o.legacy_stroke=id;
+    o.stack.push_back(default_operation(id,type));
 }
+void add_default_stroke(Document& d,const Id& object) {add_default_paint(d,object,"nect.paint.stroke");}
 
 Scalar property(const Document& d,const Ref& r) {
     const auto object=d.objects.find(r.object);
@@ -396,10 +424,23 @@ void validate(const Document& d) {
 
         if(o.kind==Kind::group) {
             require(o.contours.empty(),"INVALID_OBJECT","Group cannot own path geometry");
-            require(!o.source&&!o.point_edit,"INVALID_OBJECT","Group cannot own a primitive or Point Edit");
+            require(!o.source&&!o.point_edit&&!o.text,"INVALID_OBJECT","Group cannot own a geometry source");
             require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Group shape stacks are not supported yet");
         } else {
             require(o.children.empty(),"INVALID_OBJECT","Path cannot own children");
+            if(o.kind==Kind::text) {
+                require(o.text.has_value()&&!o.source&&!o.point_edit&&o.contours.empty(),"INVALID_TEXT","Text owns one editable text source only");
+                const auto& text=*o.text;add(text.id);require(text.version==1,"UNSUPPORTED_TEXT_VERSION","Only Text version 1 is supported");
+                require(text.content.size()<=32768&&!text.family.empty()&&text.family.size()<=1024&&!text.locale.empty()&&text.locale.size()<=128,"LIMIT","Text content/family/locale limit");
+                text_utf8(text.content);text_utf8(text.family);text_utf8(text.locale);
+                require(text.layout=="auto"||text.layout=="frame","UNSUPPORTED_TEXT_LAYOUT",text.layout);
+                require(text.direction=="horizontal"||text.direction=="vertical","UNSUPPORTED_TEXT_DIRECTION",text.direction);
+                require(text.alignment=="start"||text.alignment=="center"||text.alignment=="end","UNSUPPORTED_TEXT_ALIGNMENT",text.alignment);
+                require(text.weight>=1&&text.weight<=999,"OUT_OF_RANGE","Font weight must be 1..999");
+                const auto expected=default_text("").parameters;
+                require(text.parameters.size()==expected.size(),"INVALID_TEXT_PARAMETERS","Missing Text parameters");
+                for(const auto& [name,value]:text.parameters){(void)value;require(expected.contains(name),"INVALID_TEXT_PARAMETERS",name);}
+            } else require(!o.text,"INVALID_OBJECT","Path cannot own text source");
             require(o.stack.size()<=128,"LIMIT","Shape stack limit 128");
             for(const auto& op:o.stack) {
                 add(op.id);require(op.version==1,"UNSUPPORTED_OPERATOR_VERSION",op.type);
@@ -499,7 +540,13 @@ void validate(const Document& d) {
             for(const auto& stop:g.stops)require(offsets.insert(values.at(gradient_ref(id,op.id,g.id,"stop."+stop.id+".offset"))).second,
                 "GRADIENT_STOPS","Coincident gradient stop offsets are not yet supported");
         }
-        if(o.stack.size()>1||std::any_of(o.stack.begin(),o.stack.end(),[](const auto& op){return op.enabled&&op.type=="nect.shape.repeater";}))
+        bool check_shape=o.stack.size()>1||std::any_of(o.stack.begin(),o.stack.end(),[](const auto& op){return op.enabled&&op.type=="nect.shape.repeater";});
+#ifdef _WIN32
+        check_shape=check_shape||o.kind==Kind::text;
+#else
+        if(o.kind==Kind::text)check_shape=false; // Authored text remains readable without the Windows layout backend.
+#endif
+        if(check_shape)
             (void)evaluate_shape(d,id,values);
     }
 }
@@ -599,6 +646,15 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
                 old.erase(id);
             }
             it->points=std::move(reordered);
+        } else if constexpr(std::is_same_v<T,CreateText>) {
+            require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
+            Object object;object.id=c.id;object.name=c.name;object.kind=Kind::text;object.text=c.source;
+            siblings(candidate,c.composition,c.parent).push_back(c.id);candidate.objects.emplace(c.id,std::move(object));
+            add_default_paint(candidate,c.id,"nect.paint.fill");
+        } else if constexpr(std::is_same_v<T,UpdateText>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);auto& o=candidate.objects.at(c.object);
+            require(o.kind==Kind::text&&o.text.has_value(),"INVALID_TEXT","Select an editable Text object");
+            require(c.source.id==o.text->id,"ID_MISMATCH","Text edits must retain the source identity");o.text=c.source;
         } else if constexpr(std::is_same_v<T,CreatePrimitive>) {
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
             Object object;object.id=c.id;object.name=c.name;object.source=c.source;
@@ -608,7 +664,7 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
         } else if constexpr(std::is_same_v<T,AddOperation>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);
-            require(o.kind==Kind::path,"INVALID_DOMAIN","Shape stack requires a Path");
+            require(o.kind!=Kind::group,"INVALID_DOMAIN","Shape stack requires a Path or Text source");
             require(c.index<=o.stack.size(),"INVALID_ORDER","Operation insertion index out of range");
             o.stack.insert(o.stack.begin()+c.index,c.operation);
         } else if constexpr(std::is_same_v<T,RemoveOperation>) {

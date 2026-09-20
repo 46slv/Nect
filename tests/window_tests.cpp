@@ -16,6 +16,8 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QStatusBar>
+#include <QPlainTextEdit>
+#include <QTimer>
 #include <QFile>
 #include <cmath>
 #include <iostream>
@@ -509,6 +511,55 @@ void artboard_authoring(Window& window) {
         "New document resets stale composition and artboard view identities");
 }
 }
+void text_authoring(Window& window) {
+    auto& session=window.host.session;named_action(window,"add-text")->trigger();QApplication::processEvents();
+    const auto id=window.canvas->selected_object;
+    check(session.document().objects.at(id).text.has_value(),"Add Text creates editable source in active composition");
+    auto* content=visible_child<QPushButton>(window,"edit-text-content");const auto revision=session.revision();
+    bool typed=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");if(!editor){dialog->reject();return;}
+        editor->setPlainText(QString::fromUtf8("\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\nNect 2026"));
+        typed=true;dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    content->click();QApplication::processEvents();
+    check(typed&&session.revision()==revision+1&&session.document().objects.at(id).text->content.find("Nect 2026")!=std::string::npos,"Unicode content editor commits one shared undo step");
+    const auto authored=session.document().objects.at(id).text->content;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");editor->setPlainText("Uncommitted draft");
+        window.host.recover();window.refresh();typed=editor->toPlainText()=="Uncommitted draft";
+        dialog->reject();
+    });
+    visible_child<QPushButton>(window,"edit-text-content")->click();QApplication::processEvents();
+    check(typed&&session.document().objects.at(id).text->content==authored&&session.revision()==revision+1,"Recovery and Inspector refresh retain IME draft; cancel leaves document unchanged");
+    bool conflict=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");editor->setPlainText("GUI draft");
+        auto next=*session.document().objects.at(id).text;next.content="External edit";
+        session.apply({UpdateText{id,next}},session.revision());window.host.edited();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        conflict=dialog->isVisible()&&editor->toPlainText()=="GUI draft"&&dialog->findChild<QLabel*>("text-editor-status")->text().contains("changed elsewhere");dialog->reject();
+    });
+    visible_child<QPushButton>(window,"edit-text-content")->click();QApplication::processEvents();
+    check(conflict&&session.document().objects.at(id).text->content=="External edit","Concurrent API content edit rejects overwrite and preserves the draft for copying");
+    visible_child<QComboBox>(window,"text-direction")->setCurrentIndex(1);QApplication::processEvents();
+    check(session.document().objects.at(id).text->direction=="vertical","Writing mode changes through shared Session");
+    visible_child<QComboBox>(window,"text-layout")->setCurrentIndex(1);QApplication::processEvents();
+    check(session.document().objects.at(id).text->layout=="frame","Frame text retains content and source identity");
+    check(visible_child<QLabel>(window,"text-layout-status")->text().contains("SVG exports glyph outlines"),"Inspector discloses export text projection");
+    QApplication::setActiveWindow(&window);QApplication::processEvents();
+    const Ref font_size{id,"","text.font_size"};auto* size=field<QLineEdit>(window,font_size);reveal(window,size);size->setFocus();
+    const auto scroll=window.findChild<QScrollArea*>()->verticalScrollBar()->value();const auto focused_before=size->hasFocus();
+    size->selectAll();QTest::keyClicks(size,"52");QTest::keyClick(size,Qt::Key_Return);QApplication::processEvents();
+    if(!field<QLineEdit>(window,font_size)->hasFocus()||window.findChild<QScrollArea*>()->verticalScrollBar()->value()!=scroll)
+        std::cerr<<"TEXT SCROLL "<<focused_before<<" "<<field<QLineEdit>(window,font_size)->hasFocus()<<" "<<scroll<<" "<<window.findChild<QScrollArea*>()->verticalScrollBar()->value()<<'\n';
+    check(field<QLineEdit>(window,font_size)->hasFocus()&&window.findChild<QScrollArea*>()->verticalScrollBar()->value()==scroll,
+        "Numeric Return preserves focus and Inspector scroll position after rebuilding text controls");
+    named_action(window,"add-stroke")->trigger();QApplication::processEvents();check(session.document().objects.at(id).stack.size()==2,"Text supports the common editable paint stack");
+}
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
     try {
@@ -563,6 +614,7 @@ int main(int argc,char** argv) {
         stack_authoring(w);
         w.hide();Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
         gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
-        std::cout<<"PASS Inspector, pick-whip, shape/gradient authoring, ordered frames, parent sizes and composition navigation\n";return 0;
+        boards.hide();Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);
+        std::cout<<"PASS Inspector, pick-whip, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

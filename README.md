@@ -31,8 +31,10 @@ baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 Circle and Rectangle retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
 Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
-0.5 saves procedural state, editable linear/radial gradients and ordered Artboards
-with parent-size inheritance. It migrates 0.1–0.4 without reference loss.
+0.6 saves procedural state, editable linear/radial gradients, ordered Artboards
+with parent-size inheritance, and editable Text. It migrates 0.1–0.5 without
+reference loss. Windows Text uses installed fonts and supports Japanese horizontal
+and vertical writing, automatic size, fixed-frame wrapping and overflow diagnostics.
 
 Implemented in M0:
 
@@ -92,7 +94,14 @@ double-click enters them and the breadcrumb returns. Inspector fields accept
 numbers and one-shot `+=`/`-=` adjustments. Right-click provides Copy Value,
 Copy Reference, Paste Value, Paste Link and explicit Unlink. Drag ↗ to a source
 field (hover Objects to inspect another source); click ↗ to search. General
-expressions, Polygon/Star, text, gradients and masks are subsequent slices.
+expressions, Polygon/Star and masks are subsequent slices.
+
+Add Text creates an editable source. Use Edit text to compose Japanese or other
+Unicode content, then Apply for one undo step. Select font, writing direction,
+alignment and sizing in Properties; numeric text fields also support links.
+Frame overflow and missing-font fallback are visible in the Inspector. Text is
+outlined in SVG exports; the native document retains editable content and font
+references. Fonts are not embedded.
 
 The Shape stack supports multiple solid Fill/Stroke entries, HEX RGBA/color
 editing, enable/reorder/remove and Repeater. Add a radial repeater for a fixed-step
@@ -156,7 +165,7 @@ rejected without altering the source.
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.5.schema.json` — current native JSON shape (0.1–0.4 readers retained)
+- `schemas/native-v0.6.schema.json` — current native JSON shape (0.1–0.5 readers retained)
 
 ## Project rules
 

@@ -6,7 +6,7 @@ Implemented: Document, Composition, Artboard, Group, Path, Contour, Point, Scala
 
 Layer is the UI presentation of an Object; there is no duplicate Layer state model.
 
-Text, Raster, Resource, general node graphs, addressable generated Instances and full compositing are not stubbed ahead of real callers.
+Raster, Resource, general node graphs, addressable generated Instances and full compositing are not stubbed ahead of real callers.
 
 ## Identity / ownership
 
@@ -74,8 +74,8 @@ Current M0 limits are safety bounds, not product performance targets.
 
 ## Native 0.2: retained primitives and point corrections
 
-The primitive slice introduced 0.2; the current writer emits 0.5 and the reader
-accepts strict 0.1 through 0.5. Migration of 0.1
+The primitive slice introduced 0.2; the current writer emits 0.6 and the reader
+accepts strict 0.1 through 0.6. Migration of 0.1
 preserves authored values, IDs and bindings, with no geometry conversion. The
 historical linked fixture in `tests/fixtures/native-v0.1-linked.nect` is loaded,
 edited, saved and reopened in separate processes. Unknown fields and behavior
@@ -219,9 +219,52 @@ or logo/guide/page-number inheritance. Those require the shared definition/insta
 contract and remain pending. Native 0.1–0.4 frames migrate with no parent binding;
 their coordinates, order, authored artwork and SVG output remain unchanged.
 
+## Native 0.6: editable Text
+
+`kind: text` owns one `text` source and the same ordered paint/Repeater stack as
+Path. It has no duplicate authored contours or generated point IDs. `create_text`
+adds a default Fill; `update_text` replaces source metadata while retaining its
+stable source ID. Callers preserve existing numeric Scalars when editing content
+or font choices. Text content is UTF-8, bounded to 32768 bytes. Unsupported control
+characters, malformed encoding, unknown fields and invalid parameters reject
+atomically. Older native versions cannot carry a Text source.
+
+Source version 1 stores `content`, `family`, `locale`, `weight` (1–999), `italic`,
+`layout` (auto/frame), `direction` (horizontal/vertical) and `alignment`
+(start/center/end). Bindable distance properties are `text.origin_x`, `origin_y`,
+`font_size`, `frame_width`, `frame_height`, `tracking` and `line_spacing`.
+Line spacing zero uses the font metrics; a positive value is uniform line advance.
+Auto sizing does not soft wrap. Frame text wraps at its inline extent; overflow
+stays visible and is diagnosed, never silently truncated or clipped.
+
+The Windows projection uses installed DirectWrite shaping and script-aware glyph
+orientation. Vertical text runs top to bottom with columns progressing right to
+left; CJK is upright and Latin uses the shaped orientation. Auto layout is measured
+and resized before outline extraction so vertical placement is near its authored
+origin. Canvas and SVG consume the same cubic glyph contours and paint evaluation.
+Missing families keep their authored name and report fallback plus actual families.
+Supported color-font glyphs render their monochrome outline with an explicit
+warning; color-only glyphs reject. Fonts are neither embedded nor distributed.
+Non-Windows builds can preserve and edit the authored model but report
+`TEXT_PLATFORM_UNSUPPORTED` when asked to project text geometry.
+
+`text_defaults` returns an exact source template; `text_fonts` lists installed
+families; `text_layout {object}` returns dimensions, glyph count, overflow,
+warnings and actual fonts. `export_plan {composition,artboard}` discloses which
+text will be outlined. SVG also carries that disclosure in each Text object's
+description. Native content remains editable. Rich text runs, text-on-path,
+per-glyph editing, variable-font axes and editable SVG text import/export remain
+unsupported; the projection does not pretend to preserve them.
+
+The GUI adds Text directly. Its content editor holds an IME draft independently
+of Inspector/recovery refresh and commits one undo step on Apply. Cancel discards
+only that draft. Concurrent content changes or document replacement reject Apply
+while retaining the draft for copying. Style and numeric edits use the same
+Session commands and references as the API.
+
 ## Next contracts
 
-Add Text only with real shaping/layout requirements.
+Extend Text only with demonstrated shaping/layout requirements.
 Add Raster only with immutable source/provenance and explicit color semantics.
 Add Operator/Instance only with identity and regeneration contracts.
 Add compositing only after alpha/group/color-space semantics are defined.

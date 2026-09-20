@@ -155,3 +155,45 @@ Full AI/PSD writer, all blend modes/effects, OFX host, full PointSet/field/packi
 - Representative SVG/PDF/AI interop observations without modifying originals.
 
 These reduce schema risk; they are not gates requiring full product parity. A failed probe may justify a local seam or migration before that capability is implemented, not a wholesale rewrite.
+
+## Editable Text slice evidence — 2026-09-20
+
+Native 0.6 Text passed all twelve CTest entries: DirectWrite horizontal/vertical
+projection, mixed Japanese/Latin, Arabic contextual shaping, tracking/line spacing,
+missing-font diagnostics, color-glyph handling, overflow retention, authoring
+atomicity, native 0.1–0.5 migration, Window content/style controls, concurrent
+content-edit protection, and formal MCP edit/save/restart/abnormal-exit recovery.
+The final numeric-focus fix passed the focused Window suite and actual Windows use.
+
+`scripts/create_text_demo.py` created `examples/typography-poster.nect` and its
+outlined SVG through the live API: seven editable Text objects, two Japanese
+vertical runs, horizontal Japanese/Latin, a linked subtitle size and the retained
+gradient/repeated ornament. No font binary is included. Actual Windows editing
+changed the heading from 形と光の庭 to 色と光の庭, then size 54→60; semantic
+readback confirmed one revision per edit and linked subtitle size 21.1111.
+Two GUI Undo actions restored the entire original authored document. The content
+edit was saved separately under ignored `build/text-manual.nect`.
+
+Observed friction: Return in a numeric field rebuilt the Inspector and jumped its
+scroll position. Return now restores the same property focus and scroll offset;
+focus-out edits still allow the user's new target to receive focus. Rebuilt Text
+controls passed the regression test and a visible size 54→56 edit stayed in place.
+
+Visible `canvas_benchmark ... --text` used the same Windows hardware and 1440×900
+full Window as the prior baseline, 893×824 Canvas, DPR 1, 96 dpi, 12 warm-ups,
+90 measured inputs at 16 ms. The fixture adds eight Yu Gothic 21 du mixed-script
+Text objects to two four-anchor curves. Point/handle operations edit a curve;
+translation edits a Text object. Qt paint completion includes the shared Session
+preview path, not compositor/GPU presentation.
+
+| Operation | p95 interval ms | Max interval ms | >33.333 ms | Release/UI commit ms |
+| --- | ---: | ---: | ---: | ---: |
+| Pan | 17.15 | 18.16 | 0 | 0.03 |
+| Zoom | 17.36 | 18.15 | 0 | 0.00 |
+| Point drag | 17.51 | 21.14 | 0 | 13.98 |
+| Handle drag | 17.67 | 19.64 | 0 | 13.55 |
+| Text translation | 18.96 | 22.72 | 0 | 31.84 |
+
+The 30 fps p95 floor passes; the 60 fps interval target remains unmet. Raw timing
+is retained locally in ignored `build/canvas-benchmark-text.json`. This bounded
+fixture does not establish performance for arbitrarily large typography documents.

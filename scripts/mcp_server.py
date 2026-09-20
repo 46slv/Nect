@@ -29,6 +29,11 @@ TOOLS = [
                      'Artboard fields are id,name,x,y,width,height and optional parent_size:{artboard:id,width:bool,height:bool}. '
                      'Size inheritance is same-composition; artboards readback returns authored/evaluated frames in export order. '
                      'Frame movement changes crops only; reorder changes order only; neither moves artwork. '
+                     'Text: text_defaults returns a source template; text_fonts lists installed families. '
+                     'create_text {composition,parent,id,name,source}; update_text {object,source} preserves source ID and existing Scalars. '
+                     'Text source includes content,family,locale,weight,italic,layout auto/frame,direction horizontal/vertical,alignment start/center/end. '
+                     'Numeric text.* refs: origin_x,origin_y,font_size,frame_width,frame_height,tracking,line_spacing (0=font default). '
+                     'text_layout {object} reports bounds, overflow, actual fonts and warnings. export_plan {composition,artboard} discloses outlined SVG text; native text stays editable. '
                      'Use properties to discover stable refs and units. All mutations are atomic and undoable.'),
      'inputSchema': {'type': 'object', 'properties': dict(IDENTITY, request={'type': 'object'}),
                      'required': ['session_id', 'document_id', 'request'], 'additionalProperties': False},

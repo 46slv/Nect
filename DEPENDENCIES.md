@@ -19,6 +19,14 @@ separately built Boost libraries via automatic linking.
 
 No font binaries, proprietary SDKs, OpenFX plugins, credentials or paid API entitlements are committed.
 
+Editable Text uses the Windows system DirectWrite runtime (`dwrite.dll`, linked
+through the installed Windows SDK import library). Development uses the existing
+Windows SDK 10.0.16299.0 headers, `IDWriteTextLayout2`, `IDWriteTextRenderer1` and
+glyph orientation transforms. This adds no downloaded or redistributed library;
+fonts remain installed-system references subject to their own licenses.
+Non-Windows authoring/codec builds retain text metadata but explicitly reject its
+geometry projection until a shaping backend is provided.
+
 ## Rules
 
 - Do not auto-download large dependencies during normal configure.

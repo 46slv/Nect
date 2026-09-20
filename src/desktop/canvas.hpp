@@ -102,6 +102,8 @@ private:
         QTransform world;
         std::vector<Paint> paints;
         std::vector<EvaluatedPoint> points;
+        std::optional<QRectF> text_bounds;
+        bool text_overflow=false;
     };
     enum class Drag { none, pan, anchor, incoming, outgoing, symmetric, object, gradient_start, gradient_end };
     struct Hit {

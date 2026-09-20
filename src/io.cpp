@@ -142,6 +142,32 @@ Contour read_contour(const j::value& v) {
     return out;
 }
 
+TextSource read_text(const j::value& v) {
+    const auto& o=v.as_object();keys(o,{"id","version","content","family","locale","layout","direction","alignment","weight","italic","parameters"});
+    TextSource s;s.id=text(o.at("id"));s.version=j::value_to<unsigned>(o.at("version"));
+    s.content=text(o.at("content"));s.family=text(o.at("family"));s.locale=text(o.at("locale"));
+    s.layout=text(o.at("layout"));s.direction=text(o.at("direction"));s.alignment=text(o.at("alignment"));
+    s.weight=j::value_to<unsigned>(o.at("weight"));s.italic=o.at("italic").as_bool();
+    for(const auto& p:o.at("parameters").as_object())s.parameters.emplace(std::string(p.key()),read_scalar(p.value()));
+    return s;
+}
+j::value text_json(const TextSource& s) {
+    j::object parameters;for(const auto& [name,value]:s.parameters)parameters[name]=scalar_json(value);
+    return j::object{{"id",s.id},{"version",s.version},{"content",s.content},{"family",s.family},{"locale",s.locale},
+        {"layout",s.layout},{"direction",s.direction},{"alignment",s.alignment},{"weight",s.weight},{"italic",s.italic},{"parameters",parameters}};
+}
+j::object text_layout_json(const Document& d,const Id& id) {
+    const auto object=d.objects.find(id);
+    if(object==d.objects.end())throw Error("MISSING_OBJECT",id);
+    if(!object->second.text)throw Error("NOT_TEXT",id);
+    const auto values=evaluate(d);std::map<std::string,double> parameters;
+    for(const auto& [name,value]:object->second.text->parameters){(void)value;parameters[name]=values.at({id,"","text."+name});}
+    const auto layout=evaluate_text(*object->second.text,parameters);
+    return {{"object",id},{"x",layout.x},{"y",layout.y},{"width",layout.width},{"height",layout.height},
+        {"overflow",layout.overflow},{"glyph_count",layout.glyph_count},{"warnings",ids_json(layout.warnings)},
+        {"used_fonts",ids_json(layout.used_fonts)},{"svg_text","outlined"},{"font_embedded",false}};
+}
+
 Primitive read_primitive(const j::value& v) {
     const auto& o=v.as_object();keys(o,{"id","type","version","parameters"});
     Primitive s{text(o.at("id")),text(o.at("type")),j::value_to<unsigned>(o.at("version")),{}};
@@ -236,6 +262,13 @@ j::object artboard_json(const Artboard& a) {
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type=="create_text") {
+        keys(o,{"type","composition","parent","id","name","source"});
+        return CreateText{text(o.at("composition")),text(o.at("parent")),text(o.at("id")),text(o.at("name")),read_text(o.at("source"))};
+    }
+    if(type=="update_text") {
+        keys(o,{"type","object","source"});return UpdateText{text(o.at("object")),read_text(o.at("source"))};
+    }
     if(type=="add_artboard") {
         keys(o,{"type","composition","artboard","index"});
         return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard")),j::value_to<std::size_t>(o.at("index"))};
@@ -352,8 +385,8 @@ Document decode(std::string_view input) {
         keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
 
         const auto version=text(root.at("version"));
-        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"&&version!="0.4"&&version!="0.5"))
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.5 are supported");
+        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"&&version!="0.4"&&version!="0.5"&&version!="0.6"))
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.6 are supported");
         if(text(root.at("units"))!="du96"||text(root.at("color_space"))!="srgb")
             throw Error("UNSUPPORTED_COLOR_OR_UNIT","v0.1 supports du96 and sRGB only");
 
@@ -369,7 +402,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,version=="0.5"));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,version=="0.5"||version=="0.6"));
             d.compositions.push_back(std::move(c));
         }
 
@@ -377,6 +410,7 @@ Document decode(std::string_view input) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
             else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
+            else if(version=="0.6")keys(o,{"id","name","kind","transform","children","contours","source","point_edit","text","stack","legacy_stroke"});
             else keys(o,{"id","name","kind","transform","children","contours","source","point_edit","stack","legacy_stroke"});
 
             Object obj;
@@ -384,8 +418,9 @@ Document decode(std::string_view input) {
             obj.name=text(o.at("name"));
 
             auto kind=text(o.at("kind"));
-            if(kind!="group"&&kind!="path") throw Error("UNSUPPORTED_OBJECT",kind);
-            obj.kind=kind=="group"?Kind::group:Kind::path;
+            if(kind!="group"&&kind!="path"&&!(version=="0.6"&&kind=="text")) throw Error("UNSUPPORTED_OBJECT",kind);
+            obj.kind=kind=="group"?Kind::group:kind=="text"?Kind::text:Kind::path;
+            if(o.contains("text")&&obj.kind!=Kind::text)throw Error("INVALID_OBJECT","Only Text may carry a text source");
 
             auto& transform=o.at("transform").as_array();
             if(transform.size()!=6) throw Error("INVALID_TRANSFORM","Six matrix entries required");
@@ -397,7 +432,7 @@ Document decode(std::string_view input) {
                 obj.children=ids(o.at("children"));
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
-                if(version=="0.3"||version=="0.4"||version=="0.5") {
+                if(version=="0.3"||version=="0.4"||version=="0.5"||version=="0.6") {
                     for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,version!="0.3"));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
@@ -411,7 +446,10 @@ Document decode(std::string_view input) {
                     paint.parameters["width"]=read_scalar(stroke.at("width"));legacy_paints.emplace(obj.id,std::move(paint));
                 }
 
-                if(o.contains("source")) {
+                if(obj.kind==Kind::text) {
+                    if(o.contains("source")||o.contains("point_edit")||o.contains("contours"))throw Error("INVALID_OBJECT","Text has incompatible geometry fields");
+                    obj.text=read_text(o.at("text"));
+                } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
                     obj.source=read_primitive(o.at("source"));
                     if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"));
@@ -460,7 +498,7 @@ std::string encode(const Document& d) {
         for(const auto& s:o.transform) tf.push_back(scalar_json(s));
 
         j::object out{
-            {"id",id},{"name",o.name},{"kind",o.kind==Kind::group?"group":"path"},{"transform",tf}};
+            {"id",id},{"name",o.name},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":"path"},{"transform",tf}};
 
         if(o.kind==Kind::group) {
             out["children"]=ids_json(o.children);
@@ -477,7 +515,8 @@ std::string encode(const Document& d) {
                 contours.push_back({{"id",c.id},{"closed",c.closed},{"points",points}});
             }
 
-            if(o.source) {
+            if(o.text)out["text"]=text_json(*o.text);
+            else if(o.source) {
                 out["source"]=primitive_json(*o.source);
                 if(o.point_edit)out["point_edit"]=point_edit_json(*o.point_edit);
             } else out["contours"]=contours;
@@ -492,7 +531,7 @@ std::string encode(const Document& d) {
         collections.push_back({{"id",c.id},{"name",c.name},{"members",ids_json(c.members)}});
 
     return j::serialize(j::object{
-        {"format","nect-native"},{"version","0.5"},{"id",d.id},
+        {"format","nect-native"},{"version","0.6"},{"id",d.id},
         {"units","du96"},{"color_space","srgb"},
         {"compositions",comps},{"objects",objects},{"collections",collections}});
 }
@@ -523,6 +562,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
         for(const auto* f:{"a","b","c","d","tx","ty"})
             out<<value("",std::string("transform.")+f)<<' ';
         out<<")\"><title>"<<escape(o.name)<<"</title>\n";
+        if(o.text)out<<"<desc>Text outlined for SVG; editable text and font references remain in the native Nect document.</desc>\n";
 
         if(o.kind==Kind::group) {
             for(const auto& child:o.children) render(child);
@@ -632,6 +672,22 @@ std::string request(Session& session,std::string_view input) {
             j::array frames;for(const auto& a:comp->artboards)frames.push_back(j::object{
                 {"authored",artboard_json(a)},{"evaluated",artboard_json(evaluate_artboard(*comp,a.id))}});
             result=std::move(frames);
+        } else if(op=="text_defaults") {
+            keys(o,{"op"});result=text_json(default_text("new-text-source"));
+        } else if(op=="text_fonts") {
+            keys(o,{"op"});result=ids_json(text_fonts());
+        } else if(op=="text_layout") {
+            keys(o,{"op","object"});result=text_layout_json(session.document(),text(o.at("object")));
+        } else if(op=="export_plan") {
+            keys(o,{"op","composition","artboard"});const auto cid=text(o.at("composition"));
+            const auto& d=session.document();const auto comp=std::find_if(d.compositions.begin(),d.compositions.end(),[&](const auto& c){return c.id==cid;});
+            if(comp==d.compositions.end())throw Error("MISSING_COMPOSITION",cid);
+            const auto board=evaluate_artboard(*comp,text(o.at("artboard")));j::array texts;
+            std::function<void(const Id&)> walk=[&](const Id& id){const auto& object=d.objects.at(id);
+                if(object.text)texts.push_back(text_layout_json(d,id));for(const auto& child:object.children)walk(child);};
+            for(const auto& id:comp->roots)walk(id);
+            result=j::object{{"format","svg"},{"artboard",artboard_json(board)},{"text",texts},
+                {"text_policy","outlines"},{"native_source_preserved",true},{"fonts_embedded",false}};
         } else if(op=="operator_types") {
             keys(o,{"op"});j::array definitions;
             for(const auto* type:{"nect.paint.fill","nect.paint.stroke","nect.shape.repeater"}) {
@@ -677,7 +733,7 @@ std::string request(Session& session,std::string_view input) {
         } else if(op=="capabilities") {
             keys(o,{"op"});
             result=j::object{
-                {"native_version","0.5"},
+                {"native_version","0.6"},
                 {"transport","local-json-lines-not-mcp"},
                 {"mcp",false},
                 {"ai_codec",false},
