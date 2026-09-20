@@ -570,7 +570,8 @@ void validate(const Document& d) {
     }
 }
 
-Session::Session(Document d):document_(std::move(d)) {
+Session::Session(Document d,HistoryLimits limits):document_(std::move(d)),history_limits_(limits) {
+    require(limits.max_entries>0&&limits.max_bytes>0,"INVALID_HISTORY_LIMITS","History limits must both be positive");
     validate(document_);
 }
 
@@ -830,59 +831,41 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
 
 void Session::apply(const std::vector<Command>& commands,std::uint64_t expected) {
     check_revision(expected);
-    commit(edited(document_,commands));
-}
-
-void Session::commit(Document candidate) {
-    undo_.push_back(document_);
-    if (undo_.size() > 64) undo_.erase(undo_.begin());
-    document_ = std::move(candidate);
-    redo_.clear();
-    ++revision_;
+    auto candidate=edited(document_,commands);
+    auto label=history_label(commands,candidate);
+    commit(std::move(candidate),std::move(label));
 }
 
 void Session::begin_gesture(std::uint64_t expected) {
     check_revision(expected);
     preview_=document_;
     preview_changed_=false;
+    preview_label_.clear();
 }
 
 void Session::update_gesture(const std::vector<Command>& commands) {
     require(gesture_active(),"NO_GESTURE","No active gesture");
-    if(commands.empty()) { preview_=document_; preview_changed_=false; return; }
+    if(commands.empty()) { preview_=document_; preview_changed_=false; preview_label_.clear(); return; }
     auto next=edited(document_,commands);
+    auto label=history_label(commands,next);
     preview_=std::move(next);
+    preview_label_=std::move(label);
     preview_changed_=true;
 }
 
 void Session::commit_gesture() {
     require(gesture_active(),"NO_GESTURE","No active gesture");
-    if(preview_changed_) commit(std::move(*preview_));
+    // Keep the preview intact if history admission rejects the commit.
+    if(preview_changed_) commit(*preview_,preview_label_);
     preview_.reset();
     preview_changed_=false;
+    preview_label_.clear();
 }
 
 void Session::cancel_gesture() {
     preview_.reset();
     preview_changed_=false;
-}
-
-void Session::undo(std::uint64_t expected) {
-    check_revision(expected);
-    require(!undo_.empty(),"NO_UNDO","No undo entry");
-    redo_.push_back(document_);
-    document_=std::move(undo_.back());
-    undo_.pop_back();
-    ++revision_;
-}
-
-void Session::redo(std::uint64_t expected) {
-    check_revision(expected);
-    require(!redo_.empty(),"NO_REDO","No redo entry");
-    undo_.push_back(document_);
-    document_=std::move(redo_.back());
-    redo_.pop_back();
-    ++revision_;
+    preview_label_.clear();
 }
 
 Document demo_document() {

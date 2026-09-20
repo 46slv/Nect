@@ -3,6 +3,8 @@
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCompleter>
+#include <QAbstractItemView>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QJsonDocument>
@@ -559,6 +561,31 @@ void text_authoring(Window& window) {
     check(field<QLineEdit>(window,font_size)->hasFocus()&&window.findChild<QScrollArea*>()->verticalScrollBar()->value()==scroll,
         "Numeric Return preserves focus and Inspector scroll position after rebuilding text controls");
     named_action(window,"add-stroke")->trigger();QApplication::processEvents();check(session.document().objects.at(id).stack.size()==2,"Text supports the common editable paint stack");
+    auto* family=visible_child<QComboBox>(window,"text-family");reveal(window,family);
+    const auto original_family=family->currentText();auto* font_model=family->completer()->model();
+    check(font_model&&font_model->rowCount()>1,"Font completion can discover installed families before opening the dropdown");
+    auto font_revision=session.revision();family->setFocus();QTest::keyClick(family,Qt::Key_F4);QApplication::processEvents();
+    check(family->view()->isVisible()&&family->model()==font_model&&family->currentText()==original_family&&session.revision()==font_revision,
+        "Keyboard font popup attaches the shared installed model without changing the authored family or revision");
+    family->hidePopup();QApplication::processEvents();
+    const QString missing_family="Nect Missing Font Family 2026";
+    family->lineEdit()->setFocus();family->lineEdit()->selectAll();QTest::keyClicks(family->lineEdit(),missing_family);
+    QTest::keyClick(family->lineEdit(),Qt::Key_Return);QApplication::processEvents();
+    check(session.document().objects.at(id).text->family==missing_family.toStdString()&&session.revision()==font_revision+1,
+        "Manual missing-family entry preserves the exact authored string as one edit");
+    family=visible_child<QComboBox>(window,"text-family");reveal(window,family);
+    check(family->completer()->model()==font_model,"Inspector refresh reuses the same installed-font model for completion");
+    font_revision=session.revision();family->showPopup();QApplication::processEvents();
+    check(family->model()==font_model&&family->currentText()==missing_family&&session.revision()==font_revision,
+        "Opening a missing-family dropdown keeps its authored value instead of selecting an installed replacement");
+    family->hidePopup();QApplication::processEvents();
+    window.refresh();QApplication::processEvents();family=visible_child<QComboBox>(window,"text-family");reveal(window,family);
+    check(family->model()!=font_model&&family->completer()->model()==font_model,
+        "Rebuilt family editor keeps completion available without eagerly attaching the popup model");
+    family->lineEdit()->setFocus();family->lineEdit()->selectAll();QTest::keyClicks(family->lineEdit(),original_family);
+    QTest::keyClick(family->lineEdit(),Qt::Key_Return);QApplication::processEvents();
+    check(session.document().objects.at(id).text->family==original_family.toStdString()&&session.revision()==font_revision+1,
+        "An installed family entered with inline completion commits exactly once");
 }
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);

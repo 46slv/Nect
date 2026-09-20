@@ -16,7 +16,10 @@ TOOLS = [
      'annotations': {'readOnlyHint': True, 'openWorldHint': False}},
     {'name': 'nect_command',
      'description': ('Inspect/evaluate/export_svg or edit the desktop-owned Session. request.op: '
-                     'inspect, properties, get, resolve_name, evaluate, export_svg, artboards, operator_types, gradient_types, render_plan, conversion_plan, apply, undo, redo. '
+                     'inspect, properties, get, resolve_name, evaluate, export_svg, artboards, operator_types, gradient_types, render_plan, conversion_plan, apply, undo, redo, history, restore_history. '
+                     'history lists stable state IDs and bounded retained memory estimates for this live Session only. '
+                     'restore_history takes state_id and expected_revision, atomically returns to a retained state in one revision, '
+                     'and keeps future states available until a new edit replaces the redo branch. '
                      'apply requires expected_revision and commands. Commands include create_path, '
                      'add_point, remove_point, close_contour, set, link, unlink, rename, '
                      'reorder_points, reorder_objects, group_contiguous, delete_objects, create_primitive, '

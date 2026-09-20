@@ -1,4 +1,4 @@
-# Practical alpha Mission — named colors delivered; History next
+# Practical alpha Mission — long History integrated; live save next
 
 ## Active Mission checkpoint — 2026-09-20
 
@@ -134,7 +134,7 @@ point/handle edits and Text translation (worst p95 18.96 ms, release31.84 ms,
 zero measured intervals above33.333 ms). 60 fps remains a target. Full evidence
 is in docs/first-usable.md. Visible app closed; worker idle, parent owns builds.
 
-Color checkpoint after `957e090`: native 0.7 adds stable named RGBA colors and
+Color checkpoint `8b63d5b` after `957e090`: native 0.7 adds stable named RGBA colors and
 typed aggregate color properties backed by the ordinary Scalar dependency graph.
 GUI/API/MCP share Set/Link/Unlink; deleting a referenced source rejects atomically.
 Colors UI separates named colors, exact evaluated paint-input inventory, and
@@ -153,17 +153,63 @@ Qt selected icons had tinted swatches: explicit identical mode/state pixmaps
 fix this, with an eight-state image check. Full Window mixed-Text performance
 still passes the 30 fps p95 floor (worst20.49 ms, zero intervals >33.333 ms);
 Text release/Inspector refresh39.23 ms exceeds the33.333 ms release target and
-needs follow-up. The60 fps target also remains unmet. See first-usable evidence.
+needs follow-up. The 60 fps target also remains unmet. See first-usable evidence.
 
-Next safe actions after this slice: save a coherent checkpoint, then implement
-bounded long operation History and dependable nonblocking live protection in
+History checkpoint after `8b63d5b`: compact reversible deltas retain up to
+1,024 edits / estimated 64 MiB, with stable state IDs, atomic state jumps, explicit
+pruning and oversized-edit rejection. GUI View > History and the shared API/MCP
+use the same Session timeline. New edits discard only the redo branch. Native
+format remains 0.7; history is not stored across restarts. All sixteen CTest
+entries passed (core 320-edit, exact native state/identity restoration, budget and
+gesture failures, GUI 85-edit jump/branch/new-session, MCP 80-edit jump/restart).
+An isolated Windows core test measured peak working set 16,519,168 B / commit
+11,358,208 B including evaluation and all scenarios. Retained 320-edit estimate
+5,964,800 B vs conservative full-snapshot lower bound 192,424,960 B (3.10%). This is
+bounded evidence, not a general memory guarantee. Raw build/history-memory.json.
+
+Actual Windows palette poster: 96 committed palette edits, 0.22 MiB estimate;
+GUI Home + Return restored state 0 at revision 97. API verified complete original
+native equality and all 97 retained state rows. Original fixture unchanged; app
+closed. History first-open list row size differed after stylesheet polish;
+initial ensurePolished fixes it and focused History UI checks pass.
+
+Measured performance follow-up found eager font dropdown setup dominating Text
+release. Share the installed-family model and attach it to the popup on demand;
+inline completion remains available immediately. Preserve missing-family text
+and suppress duplicate identical TextSource commits on Return. Clean production
+build and four focused Window/Canvas/History UI/Text checks pass. Final visible
+mixed-Text benchmark release24.77 ms (previous55.51), all releases<=33.333 ms;
+worst p95 interval22.78 ms, one65.72 ms interval outlier. The30 fps p95 floor
+passes, but this is not zero-stall or60 fps evidence. Raw result:
+build/canvas-benchmark-text-history-font.json. Profiling code removed; no GUI
+process remains. Worker finished; parent owns all builds and source files.
+
+Next safe actions after this slice: implement dependable nonblocking live protection in
 thin slices; do not treat the
-radial example as full alpha completion. Masks/compositing, assets, long History,
+radial example as full alpha completion. Masks/compositing, assets,
 continuous save, expressions/multi-edit and the remaining explicit Mission
 requirements still need implementation and real production fixtures.
 Preserve all current files and the development document. No release/publication
 or dependency binaries are authorized for distribution. This checkpoint does not
 claim practical-alpha completion or relax F1–F8. Do not stop at M1.
+
+Next persistence boundary: automatic protection currently encodes and writes on
+the UI thread and protects only recovery copies. Capture committed snapshots at
+edit completion; serialize/write off the UI thread with at most one running job
+and the newest pending revision. Keep source/recovery durability revisions
+separate from the live revision, never label queued data saved, and drain earlier
+jobs before explicit save/open/new/close can change target identity. Normal named
+documents should live-save atomically; protect external file changes with a known
+file fingerprint and a single-writer file lock, retaining recovery on conflict.
+For a potentially slow storage job, disable age-based stale-lock expiry; a live
+writer must not lose its lock merely because storage takes more than 30 seconds.
+Qt documents cooperative locking only (external editors need not honor it):
+https://doc.qt.io/qt-6/qlockfile.html. Continue QSaveFile with direct-write fallback
+disabled: https://doc.qt.io/qt-6/qsavefile.html. Do not promise hardware-failure immunity.
+Choose bounded backup/recovery retention and disclose cadence/loss boundaries.
+Exercise slow/failed/interrupted writes and actual restore; keep GUI drafts and
+gesture previews out of persistent authority. No history/native migration needed
+for this host-only slice. Existing saved examples must remain unchanged.
 
 ---
 

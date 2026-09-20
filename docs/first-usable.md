@@ -227,3 +227,50 @@ The 30 fps p95 floor passes; 60 fps remains unmet. Text release/Inspector rebuil
 exceeds the 33.333 ms release target and is an open performance item. Raw evidence
 is in ignored `build/canvas-benchmark-colors.json`; hardware, viewport and input
 cadence match the Text table above. No claim is made for a large open color list.
+
+## Long History evidence — 2026-09-20
+
+All sixteen CTest entries pass with the compact Session timeline. Core checks
+cover 320 edits, arbitrary backward/forward jumps, branch replacement without ID
+reuse, exact authored native equality (including points, links, sources, gradients,
+groups, collections, Artboards and named colors), independent count/byte pruning,
+oversize admission failure and retained gesture preview after failed commit.
+GUI checks navigate 85 edits through the actual History button, then branch and
+replace the Session. Formal MCP adds 80 edits, restores earlier/later states,
+reads dependent changed IDs, and verifies native restart begins fresh History.
+
+The 80-object / 320-edit core case retains an estimated 5,964,800 bytes. A lower
+bound for 320 full authored snapshots is 192,424,960 bytes, excluding allocator
+and string overhead; compact retention is 3.10% of that lower bound. A separate
+Windows process measurement over the entire core test run (including evaluation,
+roundtrip and limit scenarios) recorded peak working set 16,519,168 bytes and
+peak commit 11,358,208 bytes from 711 samples. This is not a measurement of only
+History allocations. Raw result is ignored `build/history-memory.json`.
+
+Actual Windows use applied 96 palette changes to `named-color-poster.nect` through
+the live API, opened View > History, selected Initial document and returned in
+one GUI action. Revision advanced96→97 while state ID returned96→0. API readback
+matched the entire original native fixture and retained all97 timeline rows.
+The source fixture was not overwritten. Initial row spacing was found to differ
+from later refreshes; initial stylesheet polishing addresses that UI issue.
+
+Text release profiling identified eager font dropdown setup (about30 ms) inside
+the Inspector rebuild. A shared font model now attaches to the dropdown only on
+opening; inline completion remains ready. Missing-family strings are preserved,
+and Return commits once even when Qt emits activation and editingFinished.
+Four focused Window/Canvas/History UI/Text authoring checks passed after the fix.
+
+The clean production build, same visible mixed-Text fixture and hardware, records:
+
+| Operation | p95 interval ms | Max interval ms | >33.333 ms | Release/UI commit ms |
+| --- | ---: | ---: | ---: | ---: |
+| Pan | 17.54 | 22.59 | 0 | <1 |
+| Zoom | 17.43 | 22.00 | 0 | 0 |
+| Point drag | 20.52 | 22.17 | 0 | 14.53 |
+| Handle drag | 19.50 | 25.20 | 0 | 19.86 |
+| Text translation | 22.78 | 65.72 | 1 | 24.77 |
+
+All release operations now meet33.333 ms. The30 fps p95 floor passes, while one
+Text interval stall and the unmet60 fps target remain explicit limitations.
+Raw evidence: ignored `build/canvas-benchmark-text-history-font.json`. Temporary
+profiling code is removed; this result uses the production build.

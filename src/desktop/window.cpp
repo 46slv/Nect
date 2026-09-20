@@ -6,6 +6,7 @@
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
+#include <QCompleter>
 #include <QCloseEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -31,6 +32,7 @@
 #include <QWheelEvent>
 #include <QSignalBlocker>
 #include <QStatusBar>
+#include <QStringListModel>
 #include <QToolBar>
 #include <QVBoxLayout>
 #include <cmath>
@@ -52,6 +54,29 @@ Ref read_ref(const QByteArray& data) {
     return {o["object"].toString().toStdString(),o["point"].toString().toStdString(),o["field"].toString().toStdString()};
 }
 const char* reference_mime="application/x-nect-property-reference";
+class FontFamilyCombo final : public QComboBox {
+    QStringListModel* families_;
+public:
+    explicit FontFamilyCombo(QStringListModel* families):families_(families) {
+        setInsertPolicy(QComboBox::NoInsert);setMinimumContentsLength(12);
+        setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        setEditable(true);
+        auto* completion=new QCompleter(families_,this);
+        completion->setCaseSensitivity(Qt::CaseInsensitive);completion->setCompletionMode(QCompleter::InlineCompletion);
+        setCompleter(completion);
+    }
+    void showPopup() override {
+        // Binding the complete list during every Inspector rebuild makes Qt
+        // measure it repeatedly. Completion is ready immediately; the popup
+        // needs the full list only when the user opens it (mouse or keyboard).
+        if(model()!=families_) {
+            const auto value=currentText();
+            const QSignalBlocker combo_blocker(this),edit_blocker(lineEdit());
+            setModel(families_);setCurrentIndex(findText(value));setEditText(value);
+        }
+        QComboBox::showPopup();
+    }
+};
 class WhipOverlay final : public QWidget {
 public:
     QPoint start,end;
@@ -311,6 +336,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     action(view,"Fit all artboards",QKeySequence("Ctrl+Shift+0"),[this]{canvas->fit_all_artboards();});
     action(view,"Return to parent Group",{},[this]{canvas->leave_group();});
     auto* colors=action(view,"Colors…",{},[this]{color_tools_->show_manager();});colors->setObjectName("show-colors");
+    auto* history=action(view,"History…",QKeySequence("Ctrl+Shift+H"),[this]{show_history();});history->setObjectName("show-history");
     view->addAction(structure->toggleViewAction());view->addAction(right->toggleViewAction());
     auto* toolbar=addToolBar("Authoring");toolbar->setMovable(false);
     toolbar->addAction(circle);toolbar->addAction(rectangle);toolbar->addAction(text);
@@ -495,6 +521,58 @@ void Window::refresh() {
     refreshing_=false;
     rebuild_inspector();
     color_tools_->refresh();
+    refresh_history();
+}
+
+void Window::show_history() {
+    if(history_dialog_) {history_dialog_->show();history_dialog_->raise();history_dialog_->activateWindow();refresh_history();return;}
+    history_session_.clear();
+    auto* dialog=new QDialog(this);history_dialog_=dialog;dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setObjectName("history-dialog");dialog->setWindowTitle("History");dialog->resize(560,580);
+    auto* layout=new QVBoxLayout(dialog);
+    auto* note=new QLabel("Return to a retained operation. Later operations remain available until you make a new edit. History belongs to this open session; saved files and backups are separate.");
+    note->setWordWrap(true);layout->addWidget(note);
+    history_states_=new QListWidget;history_states_->setObjectName("history-states");layout->addWidget(history_states_);
+    history_status_=new QLabel;history_status_->setObjectName("history-status");history_status_->setWordWrap(true);layout->addWidget(history_status_);
+    auto* restore=new QPushButton("Return to selected state");restore->setObjectName("history-restore");layout->addWidget(restore);
+    connect(restore,&QPushButton::clicked,this,[this]{perform([this]{
+        if(history_session_!=host.session_id)throw Error("SESSION_CONFLICT","This History list belongs to another document session");
+        if(!history_states_->currentItem())throw Error("NO_HISTORY_SELECTION","Select a retained operation");
+        const auto id=history_states_->currentItem()->data(Qt::UserRole).toULongLong();
+        canvas->cancel_interaction();const auto before=host.session.revision();
+        host.session.restore_history(id,history_revision_);
+        if(host.session.revision()!=before)host.edited();
+    });});
+    auto* close=new QDialogButtonBox(QDialogButtonBox::Close);layout->addWidget(close);
+    connect(close,&QDialogButtonBox::rejected,dialog,&QDialog::close);
+    dialog->ensurePolished();history_states_->ensurePolished();
+    refresh_history();dialog->show();
+}
+
+void Window::refresh_history() {
+    if(!history_dialog_)return;
+    const auto info=host.session.history();
+    const bool new_session=history_session_!=host.session_id;
+    const auto selected=history_session_==host.session_id&&history_states_->currentItem()?
+        history_states_->currentItem()->data(Qt::UserRole).toULongLong():info.current_id;
+    const auto scroll=history_states_->verticalScrollBar()->value();const QSignalBlocker blocker(history_states_);
+    history_session_=host.session_id;history_revision_=host.session.revision();history_states_->clear();
+    QListWidgetItem* current=nullptr;
+    for(const auto& state:info.states) {
+        const auto is_current=state.id==info.current_id;
+        auto* item=new QListWidgetItem((is_current?"Current · ":"")+QString::number(state.id)+" · "+qs(state.label),history_states_);
+        item->setData(Qt::UserRole,QVariant::fromValue<qulonglong>(state.id));
+        item->setToolTip(qs(state.label)+"\nRetained change estimate: "+QString::number(state.estimated_bytes)+" bytes");
+        auto font=item->font();font.setBold(is_current);item->setFont(font);
+        if(is_current)current=item;if(state.id==selected)history_states_->setCurrentItem(item);
+    }
+    if(!history_states_->currentItem())history_states_->setCurrentItem(current);
+    if(new_session&&current)history_states_->scrollToItem(current);
+    else history_states_->verticalScrollBar()->setValue(scroll);
+    history_status_->setText(QString("%1 retained edits / %2 · %3 MiB estimated / %4 MiB budget\n%5 older edits pruned · current session only")
+        .arg(info.states.empty()?0:info.states.size()-1).arg(info.max_entries)
+        .arg(static_cast<double>(info.retained_bytes)/(1024*1024),0,'f',2)
+        .arg(static_cast<double>(info.max_bytes)/(1024*1024),0,'f',0).arg(info.pruned_entries));
 }
 
 void Window::rebuild_artboards() {
@@ -722,12 +800,18 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         const auto found=host.session.document().objects.find(id);
         if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
         auto next=*found->second.text;change(next);
+        // Return can deliver both combo activation and editingFinished.
+        if(next==*found->second.text)return;
         host.session.apply({UpdateText{id,std::move(next)}},host.session.revision());host.edited();
     };
-    auto* family=new QComboBox;family->setObjectName("text-family");family->setEditable(true);
-    family->setInsertPolicy(QComboBox::NoInsert);family->setMinimumContentsLength(12);
-    family->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    for(const auto& name:text_fonts())family->addItem(qs(name));family->setCurrentText(qs(source.family));form->addRow("Font family",family);
+    if(!font_families_) {
+        font_families_=new QStringListModel(this);
+        auto reload=[this]{QStringList names;for(const auto& name:text_fonts())names<<qs(name);font_families_->setStringList(names);};
+        reload();connect(qApp,&QGuiApplication::fontDatabaseChanged,this,[this,reload]{perform(reload);});
+    }
+    auto* family=new FontFamilyCombo(font_families_);family->setObjectName("text-family");
+    family->addItem(qs(source.family));
+    family->setCurrentText(qs(source.family));form->addRow("Font family",family);
     connect(family->lineEdit(),&QLineEdit::editingFinished,this,[this,family,update,before=source.family]{
         const auto value=family->currentText().toStdString();if(value!=before)perform([&]{update([&](auto& s){s.family=value;});});});
     connect(family,QOverload<int>::of(&QComboBox::activated),this,[this,family,update]{perform([&]{update([&](auto& s){s.family=family->currentText().toStdString();});});});

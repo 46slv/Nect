@@ -674,7 +674,7 @@ std::string request(Session& session,std::string_view input) {
         auto& o=parsed.as_object();
         auto op=text(o.at("op"));
         j::value result;
-        const bool mutation=op=="apply"||op=="undo"||op=="redo";
+        const bool mutation=op=="apply"||op=="undo"||op=="redo"||op=="restore_history";
         j::value prior;
         std::map<Ref,double> prior_values;
         std::map<Id,j::value> prior_frames;
@@ -819,6 +819,17 @@ std::string request(Session& session,std::string_view input) {
             for(const auto& v:o.at("commands").as_array()) cmds.push_back(read_command(v));
             session.apply(cmds,j::value_to<std::uint64_t>(o.at("expected_revision")));
             result=j::object{{"changed",true}};
+        } else if(op=="history") {
+            keys(o,{"op"});const auto history=session.history();j::array states;
+            for(const auto& state:history.states)states.push_back(j::object{{"id",state.id},{"label",state.label},
+                {"estimated_bytes",state.estimated_bytes},{"current",state.id==history.current_id}});
+            result=j::object{{"states",states},{"current_id",history.current_id},{"retained_bytes",history.retained_bytes},
+                {"max_entries",history.max_entries},{"max_bytes",history.max_bytes},{"pruned_entries",history.pruned_entries},
+                {"memory_measure","conservative_retained_payload_estimate"},{"scope","current_session"},{"cross_restart",false}};
+        } else if(op=="restore_history") {
+            keys(o,{"op","expected_revision","state_id"});const auto before=session.revision();
+            session.restore_history(j::value_to<std::uint64_t>(o.at("state_id")),j::value_to<std::uint64_t>(o.at("expected_revision")));
+            result=j::object{{"changed",before!=session.revision()}};
         } else if(op=="undo"||op=="redo") {
             keys(o,{"op","expected_revision"});
             auto rev=j::value_to<std::uint64_t>(o.at("expected_revision"));

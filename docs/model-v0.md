@@ -50,7 +50,28 @@ Session owns committed mutation.
 
 A batch is applied to a candidate document and validated before commit. Failure preserves both the original document and revision.
 
-Undo/redo revisions are monotonic. M0 uses snapshot history with a small fixed limit; this is not the final large-document strategy.
+Undo/redo revisions are monotonic. History retains reversible changes to affected
+Objects/Named Colors and changed Composition/Collection vectors; unchanged
+document content is not copied into every retained operation. The default budget
+is 1,024 edits and 64 MiB of conservatively estimated retained payload, including
+owned container/string storage. This estimate is not a process heap/RSS reading.
+Oldest entries are pruned to meet both bounds. A single transition exceeding the
+budget rejects atomically with `HISTORY_LIMIT`, preserving the existing document,
+revision and history rather than committing an edit without Undo.
+New authored members must participate in structural equality and retained-size
+accounting; otherwise a future delta could omit data or bypass its budget.
+
+`history` returns labelled stable state IDs, current state, retained byte estimate,
+limits and prune count. The earliest row is the retained boundary; subsequent rows
+represent committed batches or completed gestures. `restore_history` takes a
+state ID plus expected revision and traverses the retained changes atomically.
+Returning to another state increments revision once; returning to the current
+state does not. State IDs never get reused within a Session. A new edit from an
+older state removes the redo branch, while simple history navigation keeps it.
+Unknown/pruned IDs reject with `HISTORY_STATE_NOT_FOUND`. Failed edits, failed
+history requests and cancelled gestures leave retained history unchanged.
+History is current-session UI/edit state, never part of native authored JSON;
+opening/recovering a file starts a new history. Backups provide durable prior files.
 
 M1 adds CreatePath, AddPoint, RemovePoint, CloseContour, DeleteObjects and
 ReorderObjects to the same command boundary. Deleting a referenced property is

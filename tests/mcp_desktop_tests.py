@@ -190,6 +190,22 @@ try:
         blocked=core('apply',expected_revision=rev,commands=[dict(type='delete_named_color',color='brand-color')])
         assert not blocked['ok'] and blocked['error']['code']=='MISSING_REFERENCE' and blocked['revision']==rev
         assert core('used_colors')['result']['equal_values_imply_link'] is False
+        history_before=core('history')['result'];history_state=history_before['current_id']
+        historical_document=core('inspect')['result']
+        for step in range(80):
+            rev=apply([dict(type='set',ref=source,value=180+step)],rev)
+        long_history=core('history')['result'];later_state=long_history['current_id']
+        assert len(long_history['states'])>80 and long_history['cross_restart'] is False
+        assert long_history['retained_bytes']<=long_history['max_bytes']
+        restored=core('restore_history',state_id=history_state,expected_revision=rev)
+        assert restored['ok'] and restored['revision']==rev+1 and {'path-0','path-1'}.issubset(restored['result']['changed_ids']);rev+=1
+        assert core('inspect')['result']==historical_document
+        assert core('restore_history',state_id=later_state,expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=target)['result']['evaluated']==271
+        assert core('restore_history',state_id=history_state,expected_revision=rev)['ok'];rev+=1
+        assert core('inspect')['result']==historical_document
+        unchanged=core('restore_history',state_id=history_state,expected_revision=rev)
+        assert unchanged['ok'] and unchanged['revision']==rev and unchanged['result']['changed'] is False
         native = temp / 'scenario.nect'
         saved = tool('nect_file', dict(identity, op='save', path=str(native), expected_revision=rev))
         assert saved['ok'], saved
@@ -212,6 +228,7 @@ try:
         live = tool('nect_session'); identity = {key: live[key] for key in ('session_id', 'document_id')}
         assert core('inspect')['result'] == expected
         assert core('get', ref=target)['result']['evaluated'] == 167
+        assert len(core('history')['result']['states'])==1
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,
             mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,

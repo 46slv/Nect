@@ -4,6 +4,7 @@
 #include <compare>
 #include <utility>
 #include <map>
+#include <list>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -31,22 +32,26 @@ struct Binding {
     double scale = 1;
     double offset = 0;
     std::string mode = "copy_local_value";
+    bool operator==(const Binding&) const = default;
 };
 
 struct Scalar {
     double literal = 0;
     std::optional<Binding> binding;
+    bool operator==(const Scalar&) const = default;
 };
 
 struct Point {
     Id id;
     Scalar x, y, in_angle, in_length, out_angle, out_length;
+    bool operator==(const Point&) const = default;
 };
 
 struct Contour {
     Id id;
     bool closed = false;
     std::vector<Point> points;
+    bool operator==(const Contour&) const = default;
 };
 
 enum class Kind { group, path, text };
@@ -59,6 +64,7 @@ struct TextSource {
     unsigned weight=400;
     bool italic=false;
     std::map<std::string,Scalar> parameters;
+    bool operator==(const TextSource&) const = default;
 };
 TextSource default_text(Id id,std::string content="Text");
 std::vector<std::string> text_fonts();
@@ -68,6 +74,7 @@ struct Primitive {
     std::string type; // nect.shape.circle / nect.shape.rectangle
     unsigned version = 1;
     std::map<std::string,Scalar> parameters;
+    bool operator==(const Primitive&) const = default;
 };
 
 struct PointEdit {
@@ -77,12 +84,14 @@ struct PointEdit {
     // Absolute, local-space scalar overrides of stable generated point fields.
     // Fields not present continue to evaluate from the source generator.
     std::map<Id,std::map<std::string,Scalar>> overrides;
+    bool operator==(const PointEdit&) const = default;
 };
 
 struct GradientStop {
     Id id;
     Scalar offset;
     std::array<Scalar,4> rgba{{{0,{}},{0,{}},{0,{}},{1,{}}}};
+    bool operator==(const GradientStop&) const = default;
 };
 struct Gradient {
     Id id;
@@ -91,6 +100,7 @@ struct Gradient {
     bool enabled=true;
     Scalar start_x{0,{}},start_y{0,{}},end_x{100,{}},end_y{0,{}};
     std::vector<GradientStop> stops;
+    bool operator==(const Gradient&) const = default;
 };
 struct ShapeOperation {
     Id id;
@@ -101,6 +111,7 @@ struct ShapeOperation {
     std::string composite="below";
     std::string fill_rule="nonzero";
     std::optional<Gradient> gradient;
+    bool operator==(const ShapeOperation&) const = default;
 };
 ShapeOperation default_operation(Id id,const std::string& type);
 Ref operation_ref(const Id& object,const Id& operation,const std::string& parameter);
@@ -121,17 +132,20 @@ struct Object {
     std::optional<Primitive> source;
     std::optional<PointEdit> point_edit;
     std::optional<TextSource> text;
+    bool operator==(const Object&) const = default;
 };
 
 struct ArtboardParent {
     Id artboard;
     bool width=true,height=true;
+    bool operator==(const ArtboardParent&) const = default;
 };
 struct Artboard {
     Id id;
     std::string name;
     double x=0,y=0,width=640,height=480;
     std::optional<ArtboardParent> parent_size;
+    bool operator==(const Artboard&) const = default;
 };
 
 struct Composition {
@@ -139,6 +153,7 @@ struct Composition {
     std::string name;
     std::vector<Id> roots;
     std::vector<Artboard> artboards;
+    bool operator==(const Composition&) const = default;
 };
 
 // Resolves only dimensions; frame position, ownership and artwork do not move.
@@ -148,6 +163,7 @@ struct Collection {
     Id id;
     std::string name;
     std::vector<Id> members;
+    bool operator==(const Collection&) const = default;
 };
 
 struct ColorValue {
@@ -159,6 +175,7 @@ struct NamedColor {
     Id id;
     std::string name;
     std::array<Scalar,4> rgba{{{0,{}},{0,{}},{0,{}},{1,{}}}};
+    bool operator==(const NamedColor&) const = default;
 };
 struct Document {
     Id id;
@@ -166,6 +183,7 @@ struct Document {
     std::map<Id,Object> objects;
     std::vector<Collection> collections;
     std::map<Id,NamedColor> named_colors;
+    bool operator==(const Document&) const = default;
 };
 
 // Color properties aggregate ordinary Scalar channels, using the same evaluator.
@@ -278,16 +296,36 @@ Document demo_document();
 Document empty_document(Id document, Id composition, Id artboard);
 std::string property_unit(const Ref& ref);
 
+struct HistoryLimits {
+    std::size_t max_entries=1024;
+    std::size_t max_bytes=64*1024*1024;
+};
+struct HistoryState {
+    std::uint64_t id=0;
+    std::string label;
+    std::size_t estimated_bytes=0;
+    bool operator==(const HistoryState&) const = default;
+};
+struct HistoryInfo {
+    // The first row is the earliest retained boundary, followed by edit states.
+    std::vector<HistoryState> states;
+    std::uint64_t current_id=0;
+    std::size_t retained_bytes=0,max_entries=0,max_bytes=0,pruned_entries=0;
+    bool operator==(const HistoryInfo&) const = default;
+};
+
 class Session {
 public:
-    explicit Session(Document document);
+    explicit Session(Document document,HistoryLimits limits={});
     const Document& document() const { return document_; }
     std::uint64_t revision() const { return revision_; }
     void apply(const std::vector<Command>& commands, std::uint64_t expected_revision);
     void undo(std::uint64_t expected_revision);
     void redo(std::uint64_t expected_revision);
-    bool can_undo() const { return !undo_.empty(); }
-    bool can_redo() const { return !redo_.empty(); }
+    bool can_undo() const { return history_cursor_>0; }
+    bool can_redo() const { return history_cursor_<history_.size(); }
+    HistoryInfo history() const;
+    void restore_history(std::uint64_t state_id,std::uint64_t expected_revision);
     // A gesture previews commands against its starting snapshot. Committed reads
     // remain stable; other mutations are rejected until commit or cancellation.
     void begin_gesture(std::uint64_t expected_revision);
@@ -297,12 +335,32 @@ public:
     bool gesture_active() const { return preview_.has_value(); }
     const Document& preview_document() const { return preview_ ? *preview_ : document_; }
 private:
+    template<class T> struct HistoryChange {
+        Id key;
+        std::optional<T> before,after;
+    };
+    struct HistoryEntry {
+        std::uint64_t id=0;
+        std::string label;
+        std::size_t estimated_bytes=0;
+        std::vector<HistoryChange<Object>> objects;
+        std::vector<HistoryChange<NamedColor>> colors;
+        std::optional<std::pair<std::vector<Composition>,std::vector<Composition>>> compositions;
+        std::optional<std::pair<std::vector<Collection>,std::vector<Collection>>> collections;
+    };
     Document document_;
     std::uint64_t revision_ = 0;
-    std::vector<Document> undo_, redo_;
+    HistoryLimits history_limits_;
+    std::list<HistoryEntry> history_;
+    std::size_t history_cursor_=0,history_bytes_=0,pruned_entries_=0;
+    std::uint64_t boundary_id_=0,next_history_id_=1;
     std::optional<Document> preview_;
     bool preview_changed_ = false;
+    std::string preview_label_;
     void check_revision(std::uint64_t expected) const;
-    void commit(Document candidate);
+    void commit(Document candidate,std::string label);
+    std::string history_label(const std::vector<Command>& commands,const Document& candidate) const;
+    static std::size_t estimate_history(const HistoryEntry& entry);
+    static void apply_history(Document& candidate,const HistoryEntry& entry,bool forward);
 };
 }

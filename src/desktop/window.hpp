@@ -9,6 +9,10 @@
 #include <QVBoxLayout>
 #include <QScrollArea>
 #include <QListWidget>
+#include <QPointer>
+
+class QDialog;
+class QStringListModel;
 
 namespace nect::desktop {
 class ColorTools;
@@ -25,6 +29,14 @@ protected:
     bool eventFilter(QObject* watched,QEvent* event) override;
 private:
     ColorTools* color_tools_;
+    QStringListModel* font_families_=nullptr;
+    QPointer<QDialog> history_dialog_;
+    QListWidget* history_states_=nullptr;
+    QLabel* history_status_=nullptr;
+    QString history_session_;
+    std::uint64_t history_revision_=0;
+    void show_history();
+    void refresh_history();
     QTreeWidget* tree_;
     QListWidget* artboards_;
     bool artboard_editing_=false;

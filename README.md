@@ -36,6 +36,11 @@ with parent-size inheritance, editable Text and named colors. It migrates 0.1–
 reference loss. Windows Text uses installed fonts and supports Japanese horizontal
 and vertical writing, automatic size, fixed-frame wrapping and overflow diagnostics.
 
+View → History (`Ctrl+Shift+H`) lists retained operations and explicitly returns to
+an earlier or later state. The default limit is 1,024 edits / 64 MiB estimated
+change storage; oldest operations are pruned. A new edit replaces the redo branch.
+History belongs to the open Session, while native files and backups survive restarts.
+
 Implemented in M0:
 
 1. create/load a small native document
