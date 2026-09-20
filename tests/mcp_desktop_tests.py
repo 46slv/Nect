@@ -211,6 +211,28 @@ try:
         assert core('undo',expected_revision=rev)['ok'];rev+=1
         assert core('inspect')['result']==before_topology and core('get',ref=corrected_vertex)['result']['evaluated']==123
         expected_svg_paths+=2
+        # Structure and transform following remain separate across GUI/MCP/native.
+        rev=apply([dict(type='group_contiguous',composition=comp['id'],parent='',members=['path-3','path-2'],id='transform-group',name='Structure group'),
+            dict(type='set',ref=dict(object='transform-group',point='',field='transform.tx'),value=100),
+            dict(type='set',ref=dict(object='path-3',point='',field='transform.tx'),value=20),
+            dict(type='set',ref=dict(object='path-2',point='',field='transform.tx'),value=30),
+            dict(type='set_transform_parent',object='path-2',parent='path-3',preserve_world=False)],rev)
+        transforms=lambda:{x['object']:x for x in core('transforms')['result']}
+        assert transforms()['path-2']['world'][4]==150
+        followed=core('apply',expected_revision=rev,commands=[dict(type='set',ref=dict(object='path-3',point='',field='transform.tx'),value=40)])
+        assert followed['ok'] and {'path-3','path-2'}.issubset(followed['result']['changed_ids']);rev=followed['revision']
+        assert transforms()['path-2']['world'][4]==170
+        rev=apply([dict(type='center_anchor',object='path-3'),dict(type='transform_around_anchor',object='path-3',rotation=90,scale_x=1,scale_y=1),
+            dict(type='set_position',object='path-3',x=320,y=180)],rev)
+        assert all(abs(v-e)<1e-8 for v,e in zip(transforms()['path-3']['position'],[320,180]))
+        before_world=transforms()['path-2']['world']
+        for parent in (None,'path-3'):
+            rev=apply([dict(type='set_transform_parent',object='path-2',parent=parent,preserve_world=True)],rev)
+            assert all(abs(v-e)<1e-8 for v,e in zip(transforms()['path-2']['world'],before_world))
+        before_cycle=core('inspect')['result']
+        rejected=core('apply',expected_revision=rev,commands=[dict(type='set_transform_parent',object='path-3',parent='path-2',preserve_world=False)])
+        assert not rejected['ok'] and rejected['error']['code']=='TRANSFORM_CYCLE' and rejected['revision']==rev
+        assert core('inspect')['result']==before_cycle
         history_before=core('history')['result'];history_state=history_before['current_id']
         historical_document=core('inspect')['result']
         for step in range(80):
@@ -234,6 +256,11 @@ try:
         svg = core('export_svg', composition=comp['id'], artboard=comp['artboards'][0]['id'])['result']
         assert len(ET.fromstring(svg).findall('.//{http://www.w3.org/2000/svg}path')) == expected_svg_paths
         svg_root=ET.fromstring(svg);ns='{http://www.w3.org/2000/svg}'
+        exported_follower=next(g for g in svg_root.iter(ns+'g') if g.attrib.get('id')=='path-2')
+        matrix=[float(v) for v in exported_follower.attrib['transform'].removeprefix('matrix(').removesuffix(')').split()]
+        assert all(abs(v-e)<1e-8 for v,e in zip(matrix,transforms()['path-2']['world']))
+        structural_group=next(g for g in svg_root.iter(ns+'g') if g.attrib.get('id')=='transform-group')
+        assert 'transform' not in structural_group.attrib, 'SVG must not double-apply structural transforms to external followers'
         gradient_defs=svg_root.findall('.//'+ns+'linearGradient')
         assert len(gradient_defs)==copies and len({x.attrib['id'] for x in gradient_defs})==copies
         assert all(x.attrib['gradientUnits']=='userSpaceOnUse' for x in gradient_defs)

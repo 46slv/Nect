@@ -64,7 +64,7 @@ std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
 std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops));}
 std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.gradient));}
-std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text));}
+std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent));}
 std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
 std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size));}
 std::size_t extra(const Composition& v){return total(extra(v.id),extra(v.name),extra(v.roots),extra(v.artboards));}
@@ -119,6 +119,10 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,CreateText>)return "Add Text: "+c.name;
         else if constexpr(std::is_same_v<T,UpdateText>)return "Edit Text: "+name(c.object);
         else if constexpr(std::is_same_v<T,GroupContiguous>)return "Group: "+c.name;
+        else if constexpr(std::is_same_v<T,CenterAnchor>)return "Center Anchor: "+name(c.object);
+        else if constexpr(std::is_same_v<T,SetPosition>)return "Set Position: "+name(c.object);
+        else if constexpr(std::is_same_v<T,TransformAroundAnchor>)return "Transform around Anchor: "+name(c.object);
+        else if constexpr(std::is_same_v<T,SetTransformParent>)return std::string(c.parent?"Attach Transform Parent: ":"Detach Transform Parent: ")+name(c.object);
         else if constexpr(std::is_same_v<T,DeleteObjects>)return "Delete "+std::to_string(c.objects.size())+" object(s): "+name(c.objects.front());
         else if constexpr(std::is_same_v<T,ReorderObjects>)return "Reorder objects: "+name(c.parent.empty()?c.composition:c.parent);
         else if constexpr(std::is_same_v<T,AddArtboard>)return "Add Artboard: "+c.artboard.name;

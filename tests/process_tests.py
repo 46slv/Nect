@@ -1,5 +1,6 @@
 """Black-box CLI tests with hand-specified expectations."""
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,13 @@ def check(value, message):
     if not value:
         raise AssertionError(message)
     checks += 1
+
+def remove_migrated_anchor_defaults(document):
+    for obj in document['objects']:
+        check(obj.pop('anchor') == [{'literal':0},{'literal':0}], 'legacy anchor defaults to local origin without changing the affine matrix')
+        check(obj.pop('transform_parent') is None, 'legacy transform follows structure')
+    return document
+
 
 sample = json.loads(run('--demo').stdout)
 check(run('--validate', sample).returncode == 0, 'demo validates in new process')
@@ -100,6 +108,7 @@ with tempfile.TemporaryDirectory() as tmp:
     migrated = replies[0]['result']
     projected = json.loads(json.dumps(migrated))
     projected['version'] = '0.1'
+    remove_migrated_anchor_defaults(projected)
     check(projected.pop('named_colors')==[], 'legacy migration does not invent named colors')
     for obj in projected['objects']:
         if obj['kind'] != 'path':
@@ -145,7 +154,7 @@ old = json.loads(ornament.read_text(encoding='utf-8'))
 check(old['version']=='0.3','production fixture remains historical 0.3')
 migrated_run = subprocess.run([exe,'--serve',str(ornament)],input='{"op":"inspect"}\n',
     capture_output=True,text=True,timeout=10)
-new=json.loads(migrated_run.stdout)['result'];new['version']='0.3'
+new=json.loads(migrated_run.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.3'
 check(new.pop('named_colors')==[], '0.3 migration starts with no named colors')
 check(new==old,'0.3 migration retains all paint, repeat, binding and correction state')
 check(run('--svg',old).stdout==(ornament.with_suffix('.svg')).read_text(encoding='utf-8'),
@@ -154,13 +163,14 @@ gradient_path=ornament.with_name('gradient-ornament.nect')
 old=json.loads(gradient_path.read_text(encoding='utf-8'))
 check(old['version']=='0.4','gradient fixture remains historical 0.4')
 upgraded=subprocess.run([exe,'--serve',str(gradient_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,timeout=10)
-new=json.loads(upgraded.stdout)['result'];new['version']='0.4'
+new=json.loads(upgraded.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.4'
 check(new.pop('named_colors')==[], '0.4 migration starts with no named colors')
 check(new==old,'0.4 migration preserves gradients and their linked stable stops')
 check(run('--svg',old).stdout==gradient_path.with_suffix('.svg').read_text(encoding='utf-8'),
     'gradient 0.4 scene exports identical SVG after frame migration')
 frames=json.loads(json.dumps(sample));frames['version']='0.5'
 frames.pop('named_colors')
+remove_migrated_anchor_defaults(frames)
 composition=frames['compositions'][0]
 composition['artboards'].append(dict(id='requested-crop',name='Crop',x=100,y=50,width=300,height=250))
 requested=subprocess.run([exe,'--svg',composition['id'],'requested-crop'],input=json.dumps(frames),capture_output=True,text=True,timeout=10)
@@ -170,20 +180,37 @@ frames_path=ornament.with_name('artboard-studies.nect')
 old=json.loads(frames_path.read_text(encoding='utf-8'))
 check(old['version']=='0.5','frame fixture remains historical 0.5')
 upgraded=subprocess.run([exe,'--serve',str(frames_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];new['version']='0.5'
+new=json.loads(upgraded.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.5'
 check(new.pop('named_colors')==[], '0.5 migration starts with no named colors')
 check(new==old,'0.5 migration preserves ordered frames, inheritance and all authored artwork')
 text_path=ornament.with_name('typography-poster.nect')
 old=json.loads(text_path.read_text(encoding='utf-8'))
 check(old['version']=='0.6','Text fixture remains historical 0.6')
 upgraded=subprocess.run([exe,'--serve',str(text_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];new['version']='0.6'
+new=json.loads(upgraded.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.6'
 check(new.pop('named_colors')==[], '0.6 migration starts with no named colors')
 check(new==old,'0.6 migration preserves all editable Text and shape inputs')
 color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.8','current writer uses native 0.8')
-new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.9','current writer uses native 0.9')
+remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
+polystar_path=ornament.with_name('polystar-field.nect')
+old=json.loads(polystar_path.read_text(encoding='utf-8'))
+check(old['version']=='0.8','Polystar fixture remains historical 0.8')
+upgraded=subprocess.run([exe,'--serve',str(polystar_path)],input='{"op":"inspect"}\n'+
+    '{"op":"properties"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
+replies=[json.loads(line) for line in upgraded.stdout.splitlines()]
+new=replies[0]['result'];remove_migrated_anchor_defaults(new);new['version']='0.8'
+check(new==old,'0.8 migration preserves linked count, angular correction, all paints and text')
+# Catch the documented field vocabulary falling behind real numeric properties.
+# This checks that specific schema boundary; the native codec remains the validator.
+schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.9.schema.json').read_text())
+field_rules=schema['$defs']['ref']['properties']['field']['anyOf']
+for property_ in replies[1]['result']:
+    if property_['type']!='number': continue
+    name=property_['ref']['field']
+    check(any(name in rule.get('enum',[]) or ('pattern' in rule and re.fullmatch(rule['pattern'],name)) for rule in field_rules),
+          'schema accepts emitted numeric field '+name)
 print(f'PASS {checks} process and native migration checks')

@@ -31,8 +31,9 @@ baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 Circle, Rectangle, Polygon and Star retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
 Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
-0.8 saves procedural state, editable linear/radial gradients, ordered Artboards
-with parent-size inheritance, editable Text, named colors and retained Polygon/Star. It migrates 0.1–0.7 without
+0.9 saves procedural state, editable linear/radial gradients, ordered Artboards
+with parent-size inheritance, editable Text, named colors, retained Polygon/Star,
+authored Anchors and explicit Transform Parents. It migrates 0.1–0.8 without
 reference loss. Windows Text uses installed fonts and supports Japanese horizontal
 and vertical writing, automatic size, fixed-frame wrapping and overflow diagnostics.
 
@@ -135,6 +136,19 @@ Reset point edits explicitly removes corrections in one undoable command.
 Repeater, gradient, named colors and editable Text; recreate it with
 `scripts/create_polystar_demo.py --endpoint <name> --output <file.nect>`.
 
+Transform & Anchor exposes the anchor's Position, editable local Anchor, Center
+Anchor and one-shot rotation/scale about that pivot. Edit → Edit Anchor (`Y`)
+drags its Canvas crosshair without moving the artwork. The original affine
+properties remain available under Affine matrix. Rotation/scale actions do not
+create separately linkable TRS properties.
+
+Transform Parent chooses a same-Composition object to follow, with Keep artwork
+in place enabled by default. Detach returns to structural inheritance. Structure
+still owns ordering and groups; explicit following replaces its transform to
+avoid applying it twice. Cycles, singular inverse requirements and changed driven
+matrix fields reject atomically. `examples/pivot-follow.nect` and its SVG are
+reproducible with `scripts/create_transform_demo.py` through the live API.
+
 To expose the desktop-owned document to a local automation client:
 
 ```powershell
@@ -203,7 +217,7 @@ writes in the final rename race. See the persistence contract in `docs/model-v0.
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.8.schema.json` — current native JSON shape (0.1–0.7 readers retained)
+- `schemas/native-v0.9.schema.json` — current native JSON shape (0.1–0.8 readers retained)
 
 ## Project rules
 

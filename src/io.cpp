@@ -114,10 +114,17 @@ struct UniqueKeys {
     bool on_comment(j::string_view,j::error_code&) { return true; }
 };
 
-j::value parse(std::string_view s) {
-    if(s.size()>8*1024*1024) throw Error("INPUT_LIMIT","Input exceeds 8 MiB");
+j::parse_options precise_json_options() {
     j::parse_options options;
     options.max_depth=64;
+    // Boost.JSON defaults to imprecise floating-point parsing. Native state and
+    // API readback must preserve the exact doubles emitted by the serializer.
+    options.numbers=j::number_precision::precise;
+    return options;
+}
+j::value parse(std::string_view s) {
+    if(s.size()>8*1024*1024) throw Error("INPUT_LIMIT","Input exceeds 8 MiB");
+    const auto options=precise_json_options();
 
     j::basic_parser<UniqueKeys> unique(options);
     j::error_code ec;
@@ -415,6 +422,20 @@ Command read_command(const j::value& v) {
         keys(o,{"type","object","name"});
         return Rename{text(o.at("object")),text(o.at("name"))};
     }
+    if(type=="center_anchor") {
+        keys(o,{"type","object"});return CenterAnchor{text(o.at("object"))};
+    }
+    if(type=="set_position") {
+        keys(o,{"type","object","x","y"});return SetPosition{text(o.at("object")),number(o.at("x")),number(o.at("y"))};
+    }
+    if(type=="transform_around_anchor") {
+        keys(o,{"type","object","rotation","scale_x","scale_y"});
+        return TransformAroundAnchor{text(o.at("object")),number(o.at("rotation")),number(o.at("scale_x")),number(o.at("scale_y"))};
+    }
+    if(type=="set_transform_parent") {
+        keys(o,{"type","object","parent","preserve_world"});
+        return SetTransformParent{text(o.at("object")),o.at("parent").is_null()?std::optional<Id>{}:std::optional<Id>{text(o.at("parent"))},o.at("preserve_world").as_bool()};
+    }
     if(type=="reorder_points") {
         keys(o,{"type","object","contour","order"});
         return ReorderPoints{text(o.at("object")),text(o.at("contour")),ids(o.at("order"))};
@@ -436,10 +457,13 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        if(version=="0.7"||version=="0.8")keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
+        constexpr std::array<std::string_view,9> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9"};
+        const auto accepted=std::find(supported.begin(),supported.end(),version);
+        if(text(root.at("format"))!="nect-native"||accepted==supported.end())
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.9 are supported");
+        const auto minor=std::distance(supported.begin(),accepted)+1;
+        if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
         else keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
-        if(text(root.at("format"))!="nect-native" || (version!="0.1"&&version!="0.2"&&version!="0.3"&&version!="0.4"&&version!="0.5"&&version!="0.6"&&version!="0.7"&&version!="0.8"))
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.8 are supported");
         if(text(root.at("units"))!="du96"||text(root.at("color_space"))!="srgb")
             throw Error("UNSUPPORTED_COLOR_OR_UNIT","v0.1 supports du96 and sRGB only");
 
@@ -455,7 +479,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,version=="0.5"||version=="0.6"||version=="0.7"||version=="0.8"));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5));
             d.compositions.push_back(std::move(c));
         }
 
@@ -463,7 +487,8 @@ Document decode(std::string_view input) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
             else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
-            else if(version=="0.6"||version=="0.7"||version=="0.8")keys(o,{"id","name","kind","transform","children","contours","source","point_edit","text","stack","legacy_stroke"});
+            else if(minor>=9)keys(o,{"id","name","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke"});
+            else if(minor>=6)keys(o,{"id","name","kind","transform","children","contours","source","point_edit","text","stack","legacy_stroke"});
             else keys(o,{"id","name","kind","transform","children","contours","source","point_edit","stack","legacy_stroke"});
 
             Object obj;
@@ -471,13 +496,19 @@ Document decode(std::string_view input) {
             obj.name=text(o.at("name"));
 
             auto kind=text(o.at("kind"));
-            if(kind!="group"&&kind!="path"&&!((version=="0.6"||version=="0.7"||version=="0.8")&&kind=="text")) throw Error("UNSUPPORTED_OBJECT",kind);
+            if(kind!="group"&&kind!="path"&&!((minor>=6)&&kind=="text")) throw Error("UNSUPPORTED_OBJECT",kind);
             obj.kind=kind=="group"?Kind::group:kind=="text"?Kind::text:Kind::path;
             if(o.contains("text")&&obj.kind!=Kind::text)throw Error("INVALID_OBJECT","Only Text may carry a text source");
 
             auto& transform=o.at("transform").as_array();
             if(transform.size()!=6) throw Error("INVALID_TRANSFORM","Six matrix entries required");
             for(std::size_t k=0;k<6;++k) obj.transform[k]=read_scalar(transform[k]);
+            if(minor>=9) {
+                const auto& anchor=o.at("anchor").as_array();
+                if(anchor.size()!=2)throw Error("INVALID_TRANSFORM","Two anchor entries required");
+                for(std::size_t k=0;k<2;++k)obj.anchor[k]=read_scalar(anchor[k]);
+                if(!o.at("transform_parent").is_null())obj.transform_parent=text(o.at("transform_parent"));
+            }
 
             if(obj.kind==Kind::group) {
                 if(o.contains("contours")||o.contains("stroke")||o.contains("fill")||o.contains("source")||o.contains("point_edit")||o.contains("stack")||o.contains("legacy_stroke"))
@@ -485,7 +516,7 @@ Document decode(std::string_view input) {
                 obj.children=ids(o.at("children"));
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
-                if(version=="0.3"||version=="0.4"||version=="0.5"||version=="0.6"||version=="0.7"||version=="0.8") {
+                if(minor>=3) {
                     for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,version!="0.3"));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
@@ -504,7 +535,7 @@ Document decode(std::string_view input) {
                     obj.text=read_text(o.at("text"));
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
-                    obj.source=read_primitive(o.at("source"),version=="0.8");
+                    obj.source=read_primitive(o.at("source"),minor>=8);
                     if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"));
                 } else {
                     if(o.contains("point_edit"))throw Error("INVALID_POINT_EDIT","Point Edit needs a retained generator");
@@ -522,7 +553,7 @@ Document decode(std::string_view input) {
         }
 
         // All original IDs are present before allocating migration instances.
-        if(version=="0.7"||version=="0.8")for(const auto& entry:root.at("named_colors").as_array()) {
+        if(minor>=7)for(const auto& entry:root.at("named_colors").as_array()) {
             auto color=read_named_color(entry);const auto id=color.id;
             if(!d.named_colors.emplace(id,std::move(color)).second)throw Error("DUPLICATE_ID",id);
         }
@@ -554,9 +585,10 @@ std::string encode(const Document& d) {
     for(const auto& [id,o]:d.objects) {
         j::array tf;
         for(const auto& s:o.transform) tf.push_back(scalar_json(s));
+        j::array anchor;for(const auto& s:o.anchor)anchor.push_back(scalar_json(s));
 
         j::object out{
-            {"id",id},{"name",o.name},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":"path"},{"transform",tf}};
+            {"id",id},{"name",o.name},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":"path"},{"transform",tf},{"anchor",anchor},{"transform_parent",o.transform_parent?j::value(*o.transform_parent):j::value(nullptr)}};
 
         if(o.kind==Kind::group) {
             out["children"]=ids_json(o.children);
@@ -597,6 +629,8 @@ std::string encode(const Document& d) {
 std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     validate(d);
     const auto values=evaluate(d);
+    const auto transforms=evaluate_transforms(d,values);
+    const bool external_parenting=std::any_of(d.objects.begin(),d.objects.end(),[](const auto& entry){return entry.second.transform_parent.has_value();});
 
     auto comp=std::find_if(d.compositions.begin(),d.compositions.end(),
         [&](const auto& c){return c.id==comp_id;});
@@ -614,12 +648,15 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     std::size_t gradient_serial=0;
     std::function<void(const Id&)> render=[&](const Id& id) {
         const auto& o=d.objects.at(id);
-        auto value=[&](const Id& p,const std::string& f){return values.at({id,p,f});};
-
-        out<<"<g id=\""<<id<<"\" transform=\"matrix(";
-        for(const auto* f:{"a","b","c","d","tx","ty"})
-            out<<value("",std::string("transform.")+f)<<' ';
-        out<<")\"><title>"<<escape(o.name)<<"</title>\n";
+        out<<"<g id=\""<<id<<"\"";
+        // Structure preserves order/names; only leaves project world transforms.
+        // This also represents externally parented children under singular groups.
+        if(!external_parenting||o.kind!=Kind::group) {
+            out<<" transform=\"matrix(";
+            for(const auto v:external_parenting?transforms.at(id).world:transforms.at(id).local)out<<v<<' ';
+            out<<")\"";
+        }
+        out<<"><title>"<<escape(o.name)<<"</title>\n";
         if(o.text)out<<"<desc>Text outlined for SVG; editable text and font references remain in the native Nect document.</desc>\n";
 
         if(o.kind==Kind::group) {
@@ -682,9 +719,11 @@ std::string request(Session& session,std::string_view input) {
         const bool mutation=op=="apply"||op=="undo"||op=="redo"||op=="restore_history";
         j::value prior;
         std::map<Ref,double> prior_values;
+        std::map<Id,EvaluatedTransform> prior_transforms;
         std::map<Id,j::value> prior_frames;
         if(mutation) {
-            prior=j::parse(encode(session.document()));prior_values=evaluate(session.document());
+            prior=j::parse(encode(session.document()),{},precise_json_options());prior_values=evaluate(session.document());
+            prior_transforms=evaluate_transforms(session.document(),prior_values);
             for(const auto& c:session.document().compositions)for(const auto& a:c.artboards)
                 prior_frames.emplace(a.id,j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluate_artboard(c,a.id))}});
         }
@@ -703,7 +742,7 @@ std::string request(Session& session,std::string_view input) {
             }
         } else if(op=="inspect") {
             keys(o,{"op"});
-            result=j::parse(encode(session.document()));
+            result=j::parse(encode(session.document()),{},precise_json_options());
         } else if(op=="properties") {
             keys(o,{"op"});
             j::array list;
@@ -855,6 +894,16 @@ std::string request(Session& session,std::string_view input) {
             for(const auto& [r,v]:evaluate(session.document()))
                 a.push_back({{"ref",ref_json(r)},{"value",v}});
             result=a;
+        } else if(op=="transforms") {
+            keys(o,{"op"});const auto values=evaluate(session.document());j::array list;
+            for(const auto& [id,transform]:evaluate_transforms(session.document(),values)) {
+                j::array local,world;for(const auto v:transform.local)local.push_back(v);for(const auto v:transform.world)world.push_back(v);
+                const auto x=values.at({id,"","transform.anchor_x"}),y=values.at({id,"","transform.anchor_y"});
+                const auto position=map_point(transform.local,{x,y});const auto world_anchor=map_point(transform.world,{x,y});
+                list.push_back(j::object{{"object",id},{"effective_parent",transform.effective_parent},{"local",local},{"world",world},
+                    {"anchor",j::array{x,y}},{"position",j::array{position.x,position.y}},{"world_anchor",j::array{world_anchor.x,world_anchor.y}}});
+            }
+            result=list;
         } else if(op=="export_svg") {
             keys(o,{"op","composition","artboard"});
             result=export_svg(session.document(),text(o.at("composition")),text(o.at("artboard")));
@@ -864,7 +913,7 @@ std::string request(Session& session,std::string_view input) {
 
         if(mutation) {
             std::set<Id> changed;
-            const auto after=j::parse(encode(session.document()));
+            const auto after=j::parse(encode(session.document()),{},precise_json_options());
             for(const auto* category:{"objects","compositions","collections","named_colors"}) {
                 std::map<Id,j::value> old;
                 for(const auto& item:prior.as_object().at(category).as_array())old.emplace(text(item.as_object().at("id")),item);
@@ -875,8 +924,11 @@ std::string request(Session& session,std::string_view input) {
                 }
                 for(const auto& [id,value]:old) {(void)value;changed.insert(id);}
             }
-            for(const auto& [ref,value]:evaluate(session.document()))
+            const auto current_values=evaluate(session.document());
+            for(const auto& [ref,value]:current_values)
                 if(!prior_values.contains(ref)||prior_values.at(ref)!=value)changed.insert(ref.object);
+            for(const auto& [id,transform]:evaluate_transforms(session.document(),current_values))
+                if(!prior_transforms.contains(id)||prior_transforms.at(id).world!=transform.world)changed.insert(id);
             for(const auto& c:session.document().compositions)for(const auto& a:c.artboards) {
                 const j::value frame=j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluate_artboard(c,a.id))}};
                 if(!prior_frames.contains(a.id)||prior_frames.at(a.id)!=frame)changed.insert(a.id);

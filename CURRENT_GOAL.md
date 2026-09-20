@@ -1,6 +1,31 @@
-# Practical alpha Mission — Polygon/Star integrated; Anchor and Transform Parent next
+# Practical alpha Mission — multi-selection and batch editing
 
 ## Active Mission checkpoint — 2026-09-20
+
+Checkpoint after `4247ebe`: native0.9 Anchor and Transform Parent are integrated.
+Shared effective-parent transforms, position/relative rotation/scale commands,
+keep-world attach/detach, cubic/stack/Text bounds and GUI Anchor tool/picker use
+the same Session. All23 CTest entries passed (25.21s); after precision/focus and
+release-path repairs, six focused Host/Canvas/Window/transform/process/MCP checks
+passed (10.53s). Production use found one-ULP inspect/native drift for cos(12°);
+all native/request/DOM parsing now selects Boost JSON precise number conversion.
+Exact bit-identity checks and native/API production readback pass.
+
+Live API created examples/pivot-follow.nect/.svg. Actual Windows UI moved Anchor
+without changing any matrix/source or exported SVG, then rotated the Mobile Group
+while four explicitly parented objects followed it independently of structure.
+Each action undid in one step; the original document, native and recovery matched
+exactly at revision8. Source example unchanged; owned app closed normally.
+Receipt: build/transform-manual-receipt.json. Visible benchmark meets30fps p95;
+80-Path worst p95 31.44ms, two handle intervals >33.333ms, point release34.42ms.
+Removing duplicate Canvas projection reduced point release from40.31ms, but the
+release target and lightweight60fps target remain unmet. See first-usable evidence.
+
+Next safe action: add multi-object/point selection and compatible batch property
+editing, keeping mixed values visible and relative edits based on one snapshot.
+The worker has handed back all files and is idle; parent owns builds/integration.
+Masks/group compositing, assets, expressions, local operators and inherited
+template content remain required. This checkpoint is not alpha completion.
 
 The current user explicitly authorizes continuing beyond M1 toward a practical
 2D authoring alpha, selecting small slices from accepted product direction and

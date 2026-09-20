@@ -3,6 +3,7 @@
 #include <cmath>
 #include <charconv>
 #include <functional>
+#include <limits>
 #include <set>
 #include <numeric>
 #include <numbers>
@@ -144,6 +145,8 @@ auto& lookup_property(D& d,const Ref& r) {
         }
         static const std::array<std::string,6> tf{"a","b","c","d","tx","ty"};
         for(std::size_t i=0;i<tf.size();++i) if(r.field=="transform."+tf[i]) return o.transform[i];
+        if(r.field=="transform.anchor_x")return o.anchor[0];
+        if(r.field=="transform.anchor_y")return o.anchor[1];
         if(o.kind!=Kind::group) {
             if(r.field.starts_with("op.")||r.field.starts_with("stroke.")) {
                 const auto address=r.field.starts_with("op.")?operation_address(r.field):
@@ -187,6 +190,7 @@ std::string unit(const Ref& r) {
         return "scalar";
     }
     if(r.field.starts_with("generator.")||r.field=="x"||r.field=="y"||r.field=="transform.tx"||r.field=="transform.ty"||
+       r.field=="transform.anchor_x"||r.field=="transform.anchor_y"||
        r.field=="stroke.width"||r.field.ends_with(".length")) return "du";
     if(r.field.ends_with(".angle")) return "degree";
     return "scalar";
@@ -230,6 +234,8 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
     for (const auto& [id, object] : document.objects) {
         for (std::size_t i = 0; i < transform_fields.size(); ++i)
             index.emplace(Ref{id, "", transform_fields[i]}, &object.transform[i]);
+        index.emplace(Ref{id,"","transform.anchor_x"},&object.anchor[0]);
+        index.emplace(Ref{id,"","transform.anchor_y"},&object.anchor[1]);
 
         if (object.kind == Kind::group) continue;
         if(object.text)for(const auto& [name,value]:object.text->parameters)index.emplace(Ref{id,"","text."+name},&value);
@@ -534,6 +540,7 @@ void validate(const Document& d) {
     for(const auto& [id,o]:d.objects) {
         add(id);
         require(id==o.id,"ID_MISMATCH",id);
+        if(o.transform_parent)identity(*o.transform_parent);
         require(o.name.size()<=4096,"LIMIT","Object name too long");
         for(unsigned char ch:o.name)
             require(ch>=32||ch==9||ch==10||ch==13,"INVALID_NAME","XML-incompatible control character");
@@ -643,6 +650,7 @@ void validate(const Document& d) {
     }
 
     const auto values=evaluate(d);
+    (void)evaluate_transforms(d,values);
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
         const auto& source=scalar->binding->source;
         require(values.contains(source),"MISSING_REFERENCE",source.object+"/"+source.point+"/"+source.field);
@@ -709,13 +717,87 @@ Contour& contour(Document& d,const Id& object,const Id& id) {
     require(it!=list.end(),"MISSING_CONTOUR",id);
     return *it;
 }
+const std::array<std::string,6> affine_fields{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty"};
+Affine local_affine(const Id& id,const std::map<Ref,double>& values) {
+    Affine result;for(std::size_t i=0;i<result.size();++i)result[i]=values.at({id,"",affine_fields[i]});return result;
+}
+bool transform_equal(double a,double b) {
+    return a==b||std::abs(a-b)<=32*std::numeric_limits<double>::epsilon()*std::max({1.0,std::abs(a),std::abs(b)});
+}
+void set_changed_scalar(Document& document,const Ref& ref,double value,const std::map<Ref,double>& values) {
+    value_range(ref,value);
+    auto& scalar=lookup_property(document,ref);const auto before=values.at(ref);
+    if(before==value)return;
+    // Matrix inversion/composition can introduce roundoff in an unchanged axis.
+    // Keep its exact authored binding; a genuinely changed driven axis rejects.
+    if(scalar.binding&&transform_equal(before,value))return;
+    require(!scalar.binding,"DRIVEN_PROPERTY","Unlink explicitly before changing a driven transform property");
+    scalar.literal=value;
+}
+void set_affine(Document& document,const Id& id,const Affine& matrix,const std::map<Ref,double>& values) {
+    for(std::size_t i=0;i<matrix.size();++i)set_changed_scalar(document,{id,"",affine_fields[i]},matrix[i],values);
+}
+void center_anchor(Document& document,const Id& id,bool require_geometry) {
+    require(document.objects.contains(id),"MISSING_OBJECT",id);
+    const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
+    const auto bounds=object_bounds(document,id,values,transforms);
+    if(!bounds){require(!require_geometry,"EMPTY_BOUNDS","Object has no geometry to center its Anchor");return;}
+    set_changed_scalar(document,{id,"","transform.anchor_x"},bounds->left+(bounds->right-bounds->left)/2,values);
+    set_changed_scalar(document,{id,"","transform.anchor_y"},bounds->top+(bounds->bottom-bounds->top)/2,values);
+}
 Document edited(const Document& document,const std::vector<Command>& commands) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
 
     auto candidate=document;
     for(const auto& command:commands) std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
-        if constexpr(std::is_same_v<T,CreateNamedColor>) {
+        if constexpr(std::is_same_v<T,CenterAnchor>) {
+            center_anchor(candidate,c.object,true);
+        } else if constexpr(std::is_same_v<T,SetPosition>||std::is_same_v<T,TransformAroundAnchor>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            const auto values=evaluate(candidate);const auto before=local_affine(c.object,values);auto matrix=before;
+            const Vec2 anchor{values.at({c.object,"","transform.anchor_x"}),values.at({c.object,"","transform.anchor_y"})};
+            auto position=map_point(before,anchor);
+            if constexpr(std::is_same_v<T,SetPosition>) {
+                finite(c.x);finite(c.y);position={c.x,c.y};
+            } else {
+                finite(c.rotation);finite(c.scale_x);finite(c.scale_y);
+                require(std::abs(c.rotation)<=1e9&&std::abs(c.scale_x)<=1e9&&std::abs(c.scale_y)<=1e9,"OUT_OF_RANGE","Transform command magnitude limit 1e9");
+                if(c.rotation==0&&c.scale_x==1&&c.scale_y==1)return;
+                const auto degrees=std::remainder(c.rotation,360.0);const auto angle=degrees*std::numbers::pi/180;
+                auto cosine=std::cos(angle),sine=std::sin(angle);
+                if(degrees==0){cosine=1;sine=0;}else if(degrees==90){cosine=0;sine=1;}
+                else if(degrees==-90){cosine=0;sine=-1;}else if(std::abs(degrees)==180){cosine=-1;sine=0;}
+                matrix[0]=(cosine*before[0]-sine*before[1])*c.scale_x;
+                matrix[1]=(sine*before[0]+cosine*before[1])*c.scale_x;
+                matrix[2]=(cosine*before[2]-sine*before[3])*c.scale_y;
+                matrix[3]=(sine*before[2]+cosine*before[3])*c.scale_y;
+            }
+            matrix[4]=position.x-matrix[0]*anchor.x-matrix[2]*anchor.y;
+            matrix[5]=position.y-matrix[1]*anchor.x-matrix[3]*anchor.y;
+            set_affine(candidate,c.object,matrix,values);
+            const auto after_values=evaluate(candidate);const auto after=local_affine(c.object,after_values);
+            const Vec2 after_anchor{after_values.at({c.object,"","transform.anchor_x"}),after_values.at({c.object,"","transform.anchor_y"})};
+            const auto after_position=map_point(after,after_anchor);
+            for(std::size_t i=0;i<matrix.size();++i)require(transform_equal(matrix[i],after[i]),"TRANSFORM_PRESERVATION",
+                "Transform result changed through dependent bindings; the requested transform was not committed");
+            require(transform_equal(position.x,after_position.x)&&transform_equal(position.y,after_position.y),"TRANSFORM_PRESERVATION",
+                "Anchor placement changed through dependent bindings; the requested Position or pivot transform was not committed");
+        } else if constexpr(std::is_same_v<T,SetTransformParent>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& object=candidate.objects.at(c.object);
+            if(object.transform_parent==c.parent)return;
+            if(!c.preserve_world){object.transform_parent=c.parent;return;}
+            const auto values=evaluate(candidate);const auto before=evaluate_transforms(candidate,values).at(c.object).world;
+            object.transform_parent=c.parent;
+            const auto transforms=evaluate_transforms(candidate,values);const auto& parent=transforms.at(c.object).effective_parent;
+            const auto basis=parent.empty()?identity_matrix:transforms.at(parent).world;
+            const auto matrix=compose(inverse_affine(basis),before);
+            set_affine(candidate,c.object,matrix,values);
+            const auto after=evaluate_transforms(candidate,evaluate(candidate)).at(c.object).world;
+            for(std::size_t i=0;i<before.size();++i)require(transform_equal(before[i],after[i]),"TRANSFORM_PRESERVATION",
+                "Keep-world transform could not be preserved; check dependent matrix bindings or numeric conditioning");
+        } else if constexpr(std::is_same_v<T,CreateNamedColor>) {
             require(candidate.named_colors.emplace(c.color.id,c.color).second,"DUPLICATE_ID",c.color.id);
         } else if constexpr(std::is_same_v<T,RenameNamedColor>||std::is_same_v<T,DeleteNamedColor>) {
             const auto found=candidate.named_colors.find(c.color);require(found!=candidate.named_colors.end(),"MISSING_COLOR",c.color);
@@ -932,6 +1014,7 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
             group.kind=Kind::group;
             group.children=c.members;
             candidate.objects.emplace(group.id,std::move(group));
+            center_anchor(candidate,c.id,false);
         }
     },command);
 

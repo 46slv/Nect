@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:nect:native:0.8",
-  "title": "Nect native document 0.8 - retained Polygon and Star",
+  "$id": "urn:nect:native:0.9",
+  "title": "Nect native document 0.9 - retained Polygon and Star",
   "$comment": "Shape constraints only. Core validation additionally checks document-wide IDs, ownership, references, binding units/cycles, evaluated ranges and parser limits.",
   "type": "object",
   "additionalProperties": false,
@@ -10,7 +10,7 @@
       "const": "nect-native"
     },
     "version": {
-      "const": "0.8"
+      "const": "0.9"
     },
     "id": {
       "$ref": "#/$defs/id"
@@ -134,7 +134,9 @@
                 "color.r",
                 "color.g",
                 "color.b",
-                "color.a"
+                "color.a",
+                "transform.anchor_x",
+                "transform.anchor_y"
               ]
             },
             {
@@ -403,6 +405,24 @@
             "$ref": "#/$defs/id"
           },
           "uniqueItems": true
+        },
+        "anchor": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/scalar"
+          }
+        },
+        "transform_parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -410,7 +430,9 @@
         "name",
         "transform",
         "kind",
-        "children"
+        "children",
+        "anchor",
+        "transform_parent"
       ]
     },
     "path": {
@@ -463,6 +485,24 @@
               "const": ""
             }
           ]
+        },
+        "anchor": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/scalar"
+          }
+        },
+        "transform_parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -471,7 +511,9 @@
         "transform",
         "kind",
         "stack",
-        "legacy_stroke"
+        "legacy_stroke",
+        "anchor",
+        "transform_parent"
       ],
       "oneOf": [
         {
@@ -1112,6 +1154,24 @@
         },
         "text": {
           "$ref": "#/$defs/text_source"
+        },
+        "anchor": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/scalar"
+          }
+        },
+        "transform_parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1121,7 +1181,9 @@
         "kind",
         "stack",
         "legacy_stroke",
-        "text"
+        "text",
+        "anchor",
+        "transform_parent"
       ]
     },
     "text_source": {

@@ -133,6 +133,11 @@ struct Object {
     std::optional<Primitive> source;
     std::optional<PointEdit> point_edit;
     std::optional<TextSource> text;
+    // Pivot is authored in object-local coordinates; changing it alone never
+    // changes the canonical affine matrix or the rendered placement.
+    std::array<Scalar,2> anchor{};
+    // Replaces inherited structural transforms; ownership/order stay structural.
+    std::optional<Id> transform_parent;
     bool operator==(const Object&) const = default;
 };
 
@@ -233,13 +238,18 @@ struct DeleteNamedColor { Id color; };
 struct SetColor { Ref ref; ColorValue value; };
 struct LinkColor { Ref target; Ref source; };
 struct UnlinkColor { Ref ref; };
+struct CenterAnchor { Id object; };
+struct SetPosition { Id object; double x,y; };
+struct TransformAroundAnchor { Id object; double rotation=0,scale_x=1,scale_y=1; };
+struct SetTransformParent { Id object; std::optional<Id> parent; bool preserve_world=true; };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,OperationOptions,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText,
-    CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor>;
+    CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
+    CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
@@ -280,6 +290,17 @@ struct EvaluatedShape {std::vector<PathInstance> paths;std::vector<PaintLayer> p
 // Matrix composition is outer(inner(point)); independent of renderer convention.
 Affine compose(const Affine& outer,const Affine& inner);
 Vec2 map_point(const Affine& matrix,Vec2 point);
+Affine inverse_affine(const Affine& matrix);
+struct EvaluatedTransform {
+    Affine local=identity_matrix,world=identity_matrix;
+    Id effective_parent; // Empty denotes the Composition's coordinate plane.
+};
+std::map<Id,EvaluatedTransform> evaluate_transforms(const Document&,const std::map<Ref,double>&);
+struct Bounds {double left=0,top=0,right=0,bottom=0;};
+// Geometric bounds in the target object's local coordinates, including cubic
+// extrema, Shape instances/paints and Text layout; excludes stroke thickness.
+std::optional<Bounds> object_bounds(const Document&,const Id&,const std::map<Ref,double>&,
+    const std::map<Id,EvaluatedTransform>&);
 EvaluatedShape evaluate_shape(const Document&,const Id&,const std::map<Ref,double>&);
 // Used by creation and legacy readers; creates one real stack operation.
 void add_default_stroke(Document&,const Id& object);

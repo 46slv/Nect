@@ -29,11 +29,13 @@ public:
     std::function<void()> scope_changed;
     std::function<void(bool)> draw_mode_changed;
     std::function<void()> gradient_edit_changed;
+    std::function<void(bool)> anchor_edit_changed;
     std::function<void()> active_artboard_changed;
     std::function<void(QString)> error;
 
     void refresh();
     const std::map<Ref,double>& evaluated_values() const {return values_;}
+    const std::map<Id,EvaluatedTransform>& evaluated_transforms() const {return transforms_;}
     void fit_artboard();
     void fit_all_artboards();
     const Id& active_composition() const { return active_composition_; }
@@ -41,6 +43,8 @@ public:
     void set_active_artboard(Id composition, Id artboard, bool fit = true);
     void set_selection(Id object, Id point = {});
     void set_draw_mode(bool enabled);
+    void set_anchor_edit(bool enabled);
+    bool anchor_edit() const {return anchor_edit_;}
     bool draw_mode() const { return draw_mode_; }
     void set_gradient_edit(Id object, Id operation);
     const Id& gradient_operation() const { return gradient_operation_; }
@@ -106,7 +110,7 @@ private:
         std::optional<QRectF> text_bounds;
         bool text_overflow=false;
     };
-    enum class Drag { none, pan, anchor, incoming, outgoing, symmetric, object, gradient_start, gradient_end };
+    enum class Drag { none, pan, anchor, pivot, incoming, outgoing, symmetric, object, gradient_start, gradient_end };
     struct Hit {
         Drag kind = Drag::none;
         Id object;
@@ -115,6 +119,7 @@ private:
 
     Session& session_;
     std::map<Ref, double> values_;
+    std::map<Id,EvaluatedTransform> transforms_;
     std::vector<Geometry> geometry_;
     std::map<Id, QTransform> world_;
     std::map<Id, Id> parents_;
@@ -125,6 +130,7 @@ private:
     Id gradient_object_, gradient_operation_;
     std::optional<GradientControl> gradient_control_;
     bool draw_mode_ = false;
+    bool anchor_edit_ = false;
     Id drawing_object_;
     Id drawing_contour_;
     bool initial_fit_ = true;

@@ -23,9 +23,9 @@ Native authored state is the editing authority. Compatibility IR, render trees a
 
 ## Relationships and coordinate ownership
 
-M0 Composition owns root paint order and its coordinate plane. Its artboards are output rectangles, not object parents. Object children currently provide containment and inherited transforms; Folder is the UI name for a Group, not an extra data model. Collection is a non-owning set; scalar Binding is a directed value dependency.
+Composition owns root paint order and its coordinate plane. Its artboards are output rectangles, not object parents. Object children provide containment and default inherited transforms; Folder is the UI name for a Group, not an extra data model. Collection is a non-owning set; scalar Binding is a directed value dependency.
 
-The selected future direction separates Structure (ownership/order/effect scope), Transform Parent (following), template assignment, Collection membership and property dependency. Before implementing an explicit Transform Parent, specify its effective-parent rule relative to structural transforms; never apply the same inherited transform twice.
+Native0.9 separates Structure (ownership/order/effect scope) from explicit Transform Parent (following). The effective parent is the explicit reference when present, otherwise the structural parent, otherwise Composition identity. Shared evaluation validates same-composition references, cycles and depth; it never applies both parent transforms. Template assignment, Collection membership and property dependencies remain distinct relationships.
 
 Validate ownership and dependencies at the appropriate property/evaluation stage. A mask source can depend on the target's world transform while the target's render depends on the source mask: this is not automatically a cycle at the whole-object level. A real evaluation cycle is invalid. Do not validate each relation in isolation while missing a cycle across domains, or reject all cross-domain references conservatively as object cycles.
 
@@ -33,11 +33,11 @@ Changing Collection membership does not reparent source objects but can change o
 
 ## Grouping, parenting and pivots
 
-M0 only implements **neutral GroupContiguous**: ordered contiguous siblings are replaced in paint order by an identity Group. General keep-world reparenting is not implemented.
+**GroupContiguous** replaces ordered contiguous siblings in paint order by an identity Group and initializes its Anchor once from geometric bounds. Transform-parent attach/detach can preserve world coordinates through an explicit command; general structural keep-world reparenting is not implemented.
 
 Future reparenting must distinguish coordinate preservation from appearance preservation. Parent-matrix inversion addresses coordinates only and fails for singular transforms. Masks, backdrop blend, isolation, effects and order can still change appearance. Reject or show a conversion plan when preservation is not possible; do not silently flatten.
 
-An authored Anchor is distinct from derived bounds center. Initialize it at creation, keep it fixed through later content changes and support explicit anchor edits/recentering. An anchor-only move should preserve placement where representable. Extend the current transform representation coherently when this is implemented; do not add a second independently authoritative matrix/TRS state.
+An authored Anchor is distinct from derived bounds center. GUI creation initializes it at the current center; it stays fixed through later content changes and supports explicit edits/recentering. The six affine Scalars remain the canonical transform, so editing Anchor alone preserves placement. Derived Position and one-shot rotation/scale commands solve that matrix about Anchor; they do not persist a second authoritative TRS state. See docs/model-v0.md for driven-field and singular-transform refusal boundaries.
 
 ## One live Session per open document
 

@@ -321,6 +321,13 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         host.session.apply({DeleteObjects{{canvas->selected_object}}},host.session.revision());host.edited();
     });
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
+    auto* anchor=action(edit,"Edit Anchor",QKeySequence("Y"),[this]{canvas->set_anchor_edit(!canvas->anchor_edit());canvas->setFocus();});
+    anchor->setObjectName("edit-anchor");anchor->setCheckable(true);
+    canvas->anchor_edit_changed=[anchor](bool enabled){const QSignalBlocker blocker(anchor);anchor->setChecked(enabled);};
+    auto* center_anchor=action(edit,"Center Anchor",{},[this]{if(canvas->selected_object.empty())return;
+        canvas->cancel_interaction();host.session.apply({CenterAnchor{canvas->selected_object}},host.session.revision());host.edited();});
+    center_anchor->setObjectName("center-anchor");
+    auto* parent_action=action(edit,"Transform Parent…",{},[this]{choose_transform_parent();});parent_action->setObjectName("choose-transform-parent");
     action(edit,"Close / open contour",{},[this]{
         if(canvas->selected_object.empty()) return;
         const auto& o=host.session.document().objects.at(canvas->selected_object);
@@ -498,6 +505,7 @@ void Window::refresh() {
         const auto& o=d.objects.at(id);
         signature+="("+qs(id)+":"+QString::number(o.name.size())+":"+qs(o.name);
         if(o.source)signature+="|source:"+qs(o.source->type)+":"+qs(o.source->id);
+        if(o.transform_parent)signature+="|follow:"+qs(*o.transform_parent);
         for(const auto& c:path_contours(o,&canvas->evaluated_values())) {signature+="["+qs(c.id);for(const auto& p:c.points)signature+=":"+qs(p.id);signature+="]";}
         for(const auto& child:o.children)fingerprint(child);
         signature+=")";
@@ -513,8 +521,9 @@ void Window::refresh() {
     std::function<void(const Id&,QTreeWidgetItem*)> append=[&](const Id& id,QTreeWidgetItem* parent) {
         const auto& o=d.objects.at(id);
         auto* item=parent?new QTreeWidgetItem(parent):new QTreeWidgetItem(tree_);
-        item->setText(0,qs(o.name));item->setData(0,Qt::UserRole,qs(id));
-        item->setToolTip(0,(o.source?primitive_label(*o.source)+" source · ":QString{})+qs(id));
+        item->setText(0,qs(o.name)+(o.transform_parent?QString(" ↗"):QString{}));item->setData(0,Qt::UserRole,qs(id));
+        item->setToolTip(0,(o.source?primitive_label(*o.source)+" source · ":QString{})+qs(id)+
+            (o.transform_parent?"\nTransform follows "+qs(d.objects.at(*o.transform_parent).name)+" · "+qs(*o.transform_parent):QString{}));
         for(const auto& child:o.children) append(child,item);
         for(const auto& c:path_contours(o,&canvas->evaluated_values())) for(std::size_t i=0;i<c.points.size();++i) {
             auto* point=new QTreeWidgetItem(item);
@@ -809,12 +818,96 @@ void Window::rebuild_inspector() {
         for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})
             add_property(form,{o.id,canvas->selected_point,field},QString::fromLatin1(field));
     }
-    auto* transform=section("Transform · local matrix");
-    for(const auto* field:{"tx","ty","a","b","c","d"})
-        add_property(transform,{o.id,"",std::string("transform.")+field},QString::fromLatin1(field));
+    add_transform_properties(layout,o);
     if(o.kind!=Kind::group)add_stack(layout,o);
     auto* hint=new QLabel("Right-click a value to copy, paste or unlink.\n↗ picks a property source; += / -= adjusts once.");
     hint->setWordWrap(true);hint->setStyleSheet("color: #929aa6; font-size: 11px;");layout->addWidget(hint);layout->addStretch();
+}
+void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) {
+    const auto id=object.id;const auto frozen_session=host.session_id;
+    auto* box=new QGroupBox("Transform && Anchor");auto* form=new QFormLayout(box);
+    form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);
+    auto apply=[this,id,frozen_session](const Command& command){
+        if(host.session_id!=frozen_session||!host.session.document().objects.contains(id))throw Error("SESSION_CONFLICT","Transform belongs to another document");
+        canvas->cancel_interaction();host.session.apply({command},host.session.revision());host.edited();
+    };
+    const auto position=map_point(canvas->evaluated_transforms().at(id).local,
+        {inspector_values_.at({id,"","transform.anchor_x"}),inspector_values_.at({id,"","transform.anchor_y"})});
+    for(int axis=0;axis<2;++axis) {
+        auto* input=new QLineEdit(display_value(axis?position.y:position.x));
+        input->setObjectName(axis?"transform-position-y":"transform-position-x");input->setAccessibleName(axis?"Position Y":"Position X");
+        input->setToolTip("Anchor position in the effective parent's coordinates. Enter a value or += / -= adjustment.");form->addRow(axis?"Position Y":"Position X",input);
+        connect(input,&QLineEdit::editingFinished,this,[this,id,input,axis,apply,frozen_session]{
+            if(!input->isModified())return;input->setModified(false);
+            const auto focused=input->hasFocus();const auto name=input->objectName();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
+            perform([&]{const auto values=evaluate(host.session.document());const auto tf=evaluate_transforms(host.session.document(),values).at(id);
+                auto p=map_point(tf.local,{values.at({id,"","transform.anchor_x"}),values.at({id,"","transform.anchor_y"})});
+                auto text=input->text().trimmed();const bool relative=text.startsWith("+=")||text.startsWith("-=");bool ok=false;
+                auto value=(relative?text.mid(2):text).toDouble(&ok);if(!ok||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite position or += / -= adjustment");
+                if(relative)value=(axis?p.y:p.x)+(text.startsWith("-=")?-value:value);
+                if(axis)p.y=value;else p.x=value;apply(SetPosition{id,p.x,p.y});
+                if(focused)QTimer::singleShot(0,this,[this,id,frozen_session,name,scroll]{
+                    if(host.session_id!=frozen_session||canvas->selected_object!=id)return;
+                    for(auto* field:inspector_->findChildren<QLineEdit*>(name))if(field->isVisible()){
+                        field->setFocus();field->selectAll();inspector_scroll_->verticalScrollBar()->setValue(scroll);break;
+                    }
+                });
+            });
+        });
+    }
+    add_property(form,{id,"","transform.anchor_x"},"Anchor X");add_property(form,{id,"","transform.anchor_y"},"Anchor Y");
+    auto* center=new QPushButton("Center Anchor");center->setObjectName("transform-center-anchor");
+    center->setToolTip("Use evaluated geometry bounds, excluding stroke width. Artwork stays in place.");form->addRow(center);
+    connect(center,&QPushButton::clicked,this,[this,id,apply]{perform([&]{apply(CenterAnchor{id});});});
+    auto* edit_anchor=new QPushButton("Edit Anchor on Canvas · Y");edit_anchor->setObjectName("transform-edit-anchor");form->addRow(edit_anchor);
+    connect(edit_anchor,&QPushButton::clicked,this,[this]{canvas->set_anchor_edit(true);canvas->setFocus();});
+    auto* rotate_row=new QWidget;auto* rotate_layout=new QHBoxLayout(rotate_row);rotate_layout->setContentsMargins(0,0,0,0);
+    auto* rotation=new QLineEdit("0");rotation->setObjectName("transform-rotate-by");rotation->setAccessibleName("Rotate by degrees");
+    auto* rotate=new QPushButton("Apply");rotate->setObjectName("transform-rotate-apply");rotate_layout->addWidget(rotation);rotate_layout->addWidget(rotate);form->addRow("Rotate by °",rotate_row);
+    auto rotate_action=[this,id,rotation,apply]{perform([&]{bool ok=false;const auto angle=rotation->text().toDouble(&ok);
+        if(!ok||!std::isfinite(angle))throw Error("INVALID_VALUE","Enter a finite rotation in degrees");if(angle!=0)apply(TransformAroundAnchor{id,angle,1,1});});};
+    connect(rotate,&QPushButton::clicked,this,rotate_action);connect(rotation,&QLineEdit::returnPressed,this,rotate_action);
+    auto* sx=new QLineEdit("1");sx->setObjectName("transform-scale-x");sx->setAccessibleName("Scale X factor");form->addRow("Scale X ×",sx);
+    auto* sy=new QLineEdit("1");sy->setObjectName("transform-scale-y");sy->setAccessibleName("Scale Y factor");form->addRow("Scale Y ×",sy);
+    auto* scale=new QPushButton("Apply scale");scale->setObjectName("transform-scale-apply");form->addRow(scale);
+    auto scale_action=[this,id,sx,sy,apply]{perform([&]{bool a=false,b=false;const auto x=sx->text().toDouble(&a),y=sy->text().toDouble(&b);
+        if(!a||!b||!std::isfinite(x)||!std::isfinite(y))throw Error("INVALID_VALUE","Enter finite scale factors");
+        if(x!=1||y!=1)apply(TransformAroundAnchor{id,0,x,y});});};
+    connect(scale,&QPushButton::clicked,this,scale_action);connect(sx,&QLineEdit::returnPressed,this,scale_action);connect(sy,&QLineEdit::returnPressed,this,scale_action);
+    auto* parent=new QPushButton(object.transform_parent?"Follows: "+qs(host.session.document().objects.at(*object.transform_parent).name):"Follow structure…");
+    parent->setObjectName("transform-parent");parent->setToolTip("Choose Transform Parent; structure still controls order and grouping.");
+    parent->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);form->addRow("Parent",parent);
+    connect(parent,&QPushButton::clicked,this,[this]{perform([this]{choose_transform_parent();});});
+    auto* note=new QLabel("Anchor moves preserve artwork. Rotation and scale apply once about that anchor; they are not persistent formulas.");note->setWordWrap(true);note->setStyleSheet("color:#a4acb8;font-size:11px;");form->addRow(note);
+    auto* matrix_toggle=new QPushButton("Affine matrix…");matrix_toggle->setObjectName("transform-matrix-toggle");matrix_toggle->setCheckable(true);form->addRow(matrix_toggle);
+    auto* matrix=new QWidget;auto* matrix_form=new QFormLayout(matrix);matrix_form->setContentsMargins(0,0,0,0);matrix_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    for(const auto* field:{"tx","ty","a","b","c","d"})add_property(matrix_form,{id,"",std::string("transform.")+field},QString::fromLatin1(field));
+    form->addRow(matrix);matrix_toggle->setChecked(matrix_expanded_);matrix->setVisible(matrix_expanded_);
+    connect(matrix_toggle,&QPushButton::toggled,this,[this,matrix](bool visible){matrix_expanded_=visible;matrix->setVisible(visible);});
+}
+
+void Window::choose_transform_parent() {
+    const auto id=canvas->selected_object;if(id.empty())throw Error("NO_SELECTION","Select an object to choose its Transform Parent");
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto& document=host.session.document();
+    QDialog dialog(this);dialog.setWindowTitle("Transform Parent");dialog.setObjectName("transform-parent-dialog");dialog.resize(430,460);
+    auto* layout=new QVBoxLayout(&dialog);auto* note=new QLabel("Choose what this object follows. Structure, paint order and group membership stay the same.");note->setWordWrap(true);layout->addWidget(note);
+    auto* search=new QLineEdit;search->setPlaceholderText("Find object…");search->setObjectName("transform-parent-search");layout->addWidget(search);
+    auto* list=new QListWidget;list->setObjectName("transform-parent-list");layout->addWidget(list);
+    auto* structure=new QListWidgetItem("Follow structure (detach explicit parent)",list);structure->setData(Qt::UserRole,QString{});
+    std::function<void(const Id&,const QString&)> append=[&](const Id& item,const QString& path){const auto& o=document.objects.at(item);const auto label=path+qs(o.name);
+        if(item!=id){auto* row=new QListWidgetItem(label,list);row->setData(Qt::UserRole,qs(item));row->setToolTip(qs(item));if(document.objects.at(id).transform_parent==item)list->setCurrentItem(row);}
+        for(const auto& child:o.children)append(child,label+" / ");};
+    for(const auto& root:find_composition(document,canvas->active_composition()).roots)append(root,{});
+    if(!list->currentItem())list->setCurrentItem(structure);
+    connect(search,&QLineEdit::textChanged,list,[list](const QString& text){for(int i=0;i<list->count();++i)list->item(i)->setHidden(!list->item(i)->text().contains(text,Qt::CaseInsensitive));});
+    auto* preserve=new QCheckBox("Keep artwork in place");preserve->setObjectName("transform-parent-preserve");preserve->setChecked(true);layout->addWidget(preserve);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);layout->addWidget(buttons);
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Document changed while choosing Transform Parent");
+    const auto* selected=list->currentItem();if(!selected||selected->isHidden())throw Error("NO_SELECTION","Choose a visible transform parent");
+    const auto target=selected->data(Qt::UserRole).toString().toStdString();canvas->cancel_interaction();
+    host.session.apply({SetTransformParent{id,target.empty()?std::optional<Id>{}:std::optional<Id>{target},preserve->isChecked()}},revision);host.edited();
 }
 void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const auto id=object.id;const auto frozen_session=host.session_id;
@@ -904,7 +997,7 @@ void Window::add_text() {
     const auto board=evaluate_artboard(comp,canvas->active_artboard());auto source=default_text(new_id());
     source.parameters.at("origin_x").literal=board.x+board.width*.15;
     source.parameters.at("origin_y").literal=board.y+board.height*.2;
-    const auto id=new_id();host.session.apply({CreateText{comp.id,"",id,"Text "+std::to_string(host.session.document().objects.size()+1),source}},host.session.revision());
+    const auto id=new_id();host.session.apply({CreateText{comp.id,"",id,"Text "+std::to_string(host.session.document().objects.size()+1),source},CenterAnchor{id}},host.session.revision());
     canvas->set_selection(id);host.edited();canvas->setFocus();
 }
 void Window::add_stack(QVBoxLayout* layout,const Object& object) {
@@ -1294,7 +1387,7 @@ void Window::add_curve() {
     Point a,b;a.id=new_id();b.id=new_id();
     a.x.literal=board.x+board.width*0.25;a.y.literal=board.y+board.height*0.4375;a.out_angle.literal=-40;a.out_length.literal=110;
     b.x.literal=board.x+board.width*0.6458333333333333;b.y.literal=board.y+board.height*0.5;b.in_angle.literal=140;b.in_length.literal=110;
-    host.session.apply({CreatePath{comp.id,"",object,"Curve "+std::to_string(host.session.document().objects.size()+1),{{new_id(),false,{a,b}}}}},host.session.revision());
+    host.session.apply({CreatePath{comp.id,"",object,"Curve "+std::to_string(host.session.document().objects.size()+1),{{new_id(),false,{a,b}}}},CenterAnchor{object}},host.session.revision());
     canvas->set_selection(object,a.id);host.edited();canvas->setFocus();
 }
 void Window::add_primitive(const std::string& type) {
@@ -1309,7 +1402,7 @@ void Window::add_primitive(const std::string& type) {
     source.parameters.at("center_y").literal=artboard.y+artboard.height/2;
     const auto id=new_id();
     const auto name=primitive_label(source).toStdString()+" "+std::to_string(document.objects.size()+1);
-    host.session.apply({CreatePrimitive{composition.id,{},id,name,std::move(source)}},host.session.revision());
+    host.session.apply({CreatePrimitive{composition.id,{},id,name,std::move(source)},CenterAnchor{id}},host.session.revision());
     canvas->set_selection(id);host.edited();canvas->setFocus();
 }
 void Window::add_operation(const std::string& type,bool radial) {

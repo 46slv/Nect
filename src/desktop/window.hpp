@@ -47,6 +47,7 @@ private:
     QAction* undo_;
     QAction* redo_;
     bool refreshing_=false;
+    bool matrix_expanded_=false;
     std::map<Ref,double> inspector_values_;
     QString tree_signature_;
     std::optional<Ref> whip_target_;
@@ -64,6 +65,8 @@ private:
     void add_primitive(const std::string& type);
     void add_text();
     void add_text_properties(QVBoxLayout* layout,const Object& object);
+    void add_transform_properties(QVBoxLayout* layout,const Object& object);
+    void choose_transform_parent();
     void edit_text_content(const Id& object);
     void convert_to_path();
     void add_operation(const std::string& type,bool radial=false);

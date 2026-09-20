@@ -29,6 +29,8 @@ Each point stores X/Y plus incoming/outgoing handle angle and length as addressa
 Polar handle data is canonical in M0; Cartesian handle vectors are derived. A zero-length handle still retains its authored angle.
 
 Transform is a six-value affine matrix. Do not also store decomposed TRS as another authority.
+Native0.9 adds an authored local Anchor and independent Transform Parent; see its
+bounded contract below. Position/rotation/scale actions edit the canonical matrix.
 
 ## Binding
 
@@ -97,8 +99,8 @@ Current M0 limits are safety bounds, not product performance targets.
 
 ## Native 0.2: retained primitives and point corrections
 
-The primitive slice introduced 0.2; the current writer emits 0.8 and the reader
-accepts strict 0.1 through 0.8. Migration of 0.1
+The primitive slice introduced 0.2; the current writer emits 0.9 and the reader
+accepts strict 0.1 through 0.9. Migration of 0.1
 preserves authored values, IDs and bindings, with no geometry conversion. The
 historical linked fixture in `tests/fixtures/native-v0.1-linked.nect` is loaded,
 edited, saved and reopened in separate processes. Unknown fields and behavior
@@ -364,7 +366,63 @@ authored copy. API/MCP `primitive_types` supplies exact source templates.
 Native 0.8 is an additive operator-type change; earlier authored data migrates
 without geometric conversion. Historical native 0.7 named-color poster bytes
 remain a fixture. Polygon/Star source types are refused in older version envelopes.
-`schemas/native-v0.8.schema.json` defines the current structural schema.
+`schemas/native-v0.8.schema.json` preserves that version's structural schema.
+
+## Native 0.9: Anchor and Transform Parent
+
+Every Object stores `anchor:[Scalar x,Scalar y]` and `transform_parent:id|null`.
+Old files migrate to Anchor(0,0), null parent, with their exact six affine Scalars,
+references and placement retained. New GUI shapes explicitly Center Anchor once;
+GroupContiguous initializes its new Group at current geometric bounds center.
+Later child/source changes never implicitly recenter an authored Anchor.
+
+`transform.anchor_x/y` are normal linkable local du properties. Changing Anchor
+does not rewrite the matrix. As with any property, explicitly authored dependency
+links may cause other properties to follow it. For local matrix M=[L,t], local
+Anchor A and parent-space Position P, P=L*A+t. `set_position` solves t=P'-L*A.
+`transform_around_anchor` applies L'=R(degrees)*L*diag(scale_x,scale_y) and
+t'=P-L'*A: clockwise Y-down rotation in parent coordinates, scale along local
+axes, zero/negative scale allowed. These are one-shot semantic edits, not stored
+TRS/expression authorities. Changed driven fields reject; unchanged driven fields
+remain linked. Re-evaluation verifies the requested matrix/anchor position;
+coupled bindings that invalidate the direct solve reject TRANSFORM_PRESERVATION.
+
+Effective parent is the explicit Transform Parent when present, otherwise the
+structural parent, otherwise Composition identity. World=parent.world*local.
+Explicit following replaces structural transform inheritance; it never applies
+both. Structure continues to own order, membership, selection and future effect
+scope. Parents must exist in the same Composition. The actual effective graph is
+acyclic with depth<=128; surviving references protect a deleted parent. Finite
+legacy accumulated matrices retain their prior range, while nonfinite output
+rejects. All GUI/API/MCP callers use shared evaluate_transforms.
+
+`set_transform_parent {object,parent:id|null,preserve_world:bool}` defaults to
+preserve-world in the GUI. It solves local'=inverse(new_parent.world)*old_world,
+then verifies the resulting world matrix. Detach(null) returns to the structural
+parent. A singular new parent cannot be inverted and rejects SINGULAR_TRANSFORM;
+a singular old object is otherwise allowed. Cycles and same-Composition checks
+apply even when preserve_world is false. No implicit structural reparent occurs.
+
+`center_anchor` uses target-local geometric bounds including exact cubic extrema,
+final editable/repeated paths, earlier paint-captured geometry and Text layout
+bounds; stroke width is excluded. Empty geometry rejects EMPTY_BOUNDS. Ordinary
+effective descendants can be bounded locally even for a singular Group; external
+followers that require inverse(Group.world) reject if that inverse is singular.
+Center and Group creation are one undoable Session transaction.
+
+Canvas Anchor mode (`Y`) displays an unexported crosshair and moves only Anchor
+Scalars through the normal preview/commit/cancel path. Object drag uses effective
+parent coordinates; points and gradients use actual object world coordinates.
+`transforms` readback returns local/world matrices, effective parent, Anchor,
+Position and world Anchor. Changed-ID reporting includes changed follower worlds.
+SVG retains legacy nested matrices for purely structural scenes; when explicit
+following exists, structure groups become ordering/name containers and each leaf
+receives its shared world matrix, avoiding duplicate transforms or inverse solves.
+
+Native0.9 is described by schemas/native-v0.9.schema.json. The0.8 documented Ref
+field vocabulary was also corrected to include already-supported count/radius,
+Text and named-color channels; emitted numeric properties are checked against it
+in the current schema. This changes no authored file data.
 
 ## Desktop continuous protection (native format unchanged)
 

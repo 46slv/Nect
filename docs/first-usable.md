@@ -352,3 +352,46 @@ measure compositor presentation or count-changing gestures.
 Each sequence observed90 paints/89 intervals after12 warmup inputs. The30fps p95
 floor and33.333ms release target pass;60fps remains unmet. Raw evidence:
 build/canvas-benchmark-polystar.json and build/polystar-manual-receipt.json.
+
+## Anchor and Transform Parent evidence — 2026-09-20
+
+All23 CTest entries passed (25.21s), covering affine compatibility, Anchor edits,
+keep-world attachment/detachment, effective-parent cycles/depth/domains, singular
+transforms, driven-property refusal, cubic/stack/Text bounds and native0.1–0.8
+migration. GUI tests exercise centered creation, numeric rotation/scale/position,
+parent picking and dragging under a rotated external parent. Formal MCP proves
+that structural and explicit transforms do not apply twice and includes native
+restart/recovery. Six focused checks passed after the final repairs (10.53s).
+
+The live desktop API created examples/pivot-follow.nect/.svg: a Mobile Group,
+four followers owned by a separate translated Group, a gradient and editable Text.
+Actual1402×932 Windows UI dragged Mobile's Anchor, preserving every source/matrix
+and byte-identical exported SVG. Rotate by12° kept its world Anchor fixed while
+the four followers tracked the beam. Both edits were each one Undo; the complete
+original document, automatically saved native and recovery matched exactly at
+revision8. Source example unchanged. Receipt: build/transform-manual-receipt.json.
+
+Production creation exposed a one-ULP cos(12°) drift caused by Boost1.85's default
+imprecise JSON number parser. Native, incoming command and internal DOM parsing
+now request precise conversion. Fourteen seeded binary64 values (including
+adjacent values, small/subnormal numbers and ordinary transform values) retain
+bit identity through native/API/Qt Host paths. The production native/API equality
+check now passes without tolerance or value normalization.
+
+Visible production Window benchmark on the previously recorded hardware and
+893×824 Canvas/DPR1 (queued QWidget paints,90 paints/89 intervals per operation):
+
+| Fixture / operation | p50 ms | p95 ms | Max ms | >33.333ms | Release ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 80 Paths / pan | 16.10 | 17.93 | 23.39 | 0 | 0.02 |
+| 80 Paths / zoom | 16.06 | 17.62 | 21.51 | 0 | 0.00 |
+| 80 Paths / point | 23.16 | 27.91 | 30.32 | 0 | 34.42 |
+| 80 Paths / handle | 24.32 | 31.44 | 37.05 | 2 | 26.67 |
+| 80 Paths / translation | 22.42 | 25.00 | 27.82 | 0 | 25.42 |
+
+The2-Path scene's worst p9517.38ms, max20.21ms and release10.36ms had no33.333ms
+interval exceedance. Both scenes meet30fps p95;60fps remains unmet. A measured
+duplicate Canvas projection at commit was removed;80-Path point release fell
+from40.31ms to34.42ms, still over target. The two handle stalls remain visible.
+Before/after artifacts: build/canvas-benchmark-transform.json and
+build/canvas-benchmark-transform-release.json; this is not compositor timing.
