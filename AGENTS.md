@@ -85,6 +85,42 @@ Research:
 - Luna: <bounded research question and expected compact output>
 ```
 
+
+### GitHub synchronization
+
+When GitHub access is available, a coherent checkpoint is not complete until its durable
+state is synchronized remotely or a concrete sync blocker is recorded.
+
+For each checkpoint:
+- create a coherent local commit when the work is in a valid state;
+- push the working branch;
+- create or update the relevant PR/issue/checkpoint record when useful for handoff;
+- verify the remote branch/PR HEAD matches the intended local checkpoint SHA;
+- include the remote branch/PR/issue pointer in the handoff when one exists.
+
+Prefer GitHub as the remote durable handoff surface; do not rely on an unpublished local
+branch when a normal push is available.
+
+Before making checkpoint commits intended for GitHub, verify the configured Git identity
+will satisfy repository privacy/protection rules. Prefer the user's GitHub noreply identity
+when appropriate.
+
+If an unpublished local branch is blocked only because Astra's own local commits contain
+a disallowed private author/committer email, Astra may correct commit metadata on that
+unpublished branch while preserving the trees and recording the pre-rewrite HEAD. Never
+rewrite already-pushed/shared history for this purpose without explicit authorization.
+
+If synchronization is blocked by authentication, branch protection, GH007/private-email
+protection, permissions, network failure, or another external constraint:
+- keep the coherent local commit/checkpoint;
+- record the exact local HEAD and blocker;
+- do not pretend GitHub is synchronized;
+- make restoring GitHub synchronization an early next action when it can be resolved
+  without changing account/repository policy.
+
+Do not change repository visibility, permissions, protection rules, account privacy
+settings, or release/distribution state merely to make a push succeed.
+
 ### Delegation
 
 Delegate primarily to reduce information volume, not to split responsibility.
