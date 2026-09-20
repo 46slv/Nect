@@ -7,8 +7,8 @@ slice. That slice is complete. Do not start another feature or resume the earlie
 open-ended practical-alpha Mission without a new instruction. Inherited Artboard
 content/templates and other future slices have not been started.
 
-Continuity authority is this repository on `codex/practical-alpha`. This file is
-the completed asset checkpoint is `195e536` (formerly `4184fe3` before the
+Continuity authority is this repository on `codex/practical-alpha`.
+The completed asset checkpoint is `195e536` (formerly `4184fe3` before the
 authorized unpublished-history email correction). Obtain the current handoff HEAD
 with `git log -1`. Earlier checkpoint narratives remain in Git history and
 [docs/first-usable.md](docs/first-usable.md), not as active next-step instructions.
