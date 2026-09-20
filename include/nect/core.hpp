@@ -126,6 +126,21 @@ Ref operation_ref(const Id& object,const Id& operation,const std::string& parame
 // field is start_x/start_y/end_x/end_y or stop.<stable stop ID>.offset/r/g/b/a.
 Ref gradient_ref(const Id& object,const Id& operation,const Id& gradient,const std::string& field);
 
+struct GeometryMask {
+    Id id,source;
+    unsigned version=1;
+    bool enabled=true;
+    std::string fill_rule="nonzero";
+    bool operator==(const GeometryMask&) const = default;
+};
+struct Compositing {
+    unsigned version=1;
+    Scalar opacity{1};
+    std::string blend="normal";
+    bool isolated=false;
+    std::optional<GeometryMask> mask;
+    bool operator==(const Compositing&) const = default;
+};
 struct Object {
     Id id;
     std::string name;
@@ -145,6 +160,8 @@ struct Object {
     std::array<Scalar,2> anchor{};
     // Replaces inherited structural transforms; ownership/order stay structural.
     std::optional<Id> transform_parent;
+    bool visible=true;
+    Compositing compositing;
     bool operator==(const Object&) const = default;
 };
 
@@ -255,6 +272,11 @@ struct EditProperties { std::vector<Ref> targets; double value; bool relative=fa
 struct LinkProperties { std::vector<Ref> targets; Ref source; bool relative=false; };
 struct UnlinkProperties { std::vector<Ref> targets; };
 struct SetExpression { std::vector<Ref> targets; Expression expression; bool replace_binding=false; };
+struct SetVisibility { Id object; bool visible; };
+struct SetCompositing { Id object; std::string blend; bool isolated; };
+struct SetMask { Id object; std::optional<GeometryMask> mask; };
+struct MaskObjects { Id composition,parent; std::vector<Id> members; Id id,mask_id; std::string name; bool top=true; };
+struct PutInside { Id composition,parent,group; std::vector<Id> members; };
 // World-space displacement, applied once per selected object across Structure
 // and Transform Parent relationships. Selection is one Composition, 1..1000 IDs.
 struct TranslateObjects { std::vector<Id> objects; double dx,dy; };
@@ -266,7 +288,8 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
-    EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,SetExpression>;
+    EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,SetExpression,
+    SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
@@ -319,6 +342,27 @@ struct Bounds {double left=0,top=0,right=0,bottom=0;};
 std::optional<Bounds> object_bounds(const Document&,const Id&,const std::map<Ref,double>&,
     const std::map<Id,EvaluatedTransform>&);
 EvaluatedShape evaluate_shape(const Document&,const Id&,const std::map<Ref,double>&);
+struct EvaluatedMask {
+    Id source;
+    std::string fill_rule;
+    std::vector<PathInstance> paths; // transforms already map to Composition/world
+};
+struct EvaluatedSceneNode {
+    Id id;
+    Affine world=identity_matrix;
+    double opacity=1;
+    std::string blend="normal";
+    bool isolated=false,visible=true; // isolated is the resolved aggregate requirement
+    std::optional<EvaluatedMask> mask;
+    std::vector<EvaluatedSceneNode> children;
+};
+struct EvaluatedScene {
+    std::vector<EvaluatedSceneNode> roots;
+    std::map<Id,EvaluatedShape> shapes;
+    bool requires_compositing=false;
+};
+EvaluatedScene evaluate_scene(const Document&,const Id& composition,const std::map<Ref,double>&,
+    const std::map<Id,EvaluatedTransform>&);
 // Used by creation and legacy readers; creates one real stack operation.
 void add_default_stroke(Document&,const Id& object);
 

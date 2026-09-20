@@ -103,6 +103,15 @@ Define mask coordinate space, input stage and alpha/luma/geometry mode. Transfor
 
 Evaluate each child's own appearance/effects before processing the required composed Group result. Neutral Groups avoid unnecessary isolation. Group opacity/effects and Pass Through/Isolated blending need targeted fixtures; they cannot be inferred solely from hierarchy labels.
 
+The native0.11 subset resolves visibility, ordinary Scalar opacity, geometry
+masks and twelve separable blends through one transient `evaluate_scene` tree.
+One evaluated shape per leaf is shared by artwork and mask consumers. Structural
+scope and world-space mask geometry are explicit; Qt/SVG consume this projection.
+Compositions start with transparent artwork, independent of viewport paper UI.
+Nonneutral scopes aggregate before clip/opacity/blend; neutral Groups pass through.
+Renderer surface bounds and SVG reader requirements are visible capability limits,
+not permission to silently flatten or omit native effects. See `docs/model-v0.md`.
+
 ## Artboards, templates and reusable sources
 
 Artboards are output frames on their owning Composition's plane, with stable identity and output metadata. Objects may cross frames or live outside them. Ordered navigator layout, export order and actual frame coordinates are independent. Auto-tidy presentation must not change crops or translate artwork. Physical frame/content relocation is an explicit command with its impact shown.

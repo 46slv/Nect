@@ -307,6 +307,33 @@ try:
         assert float(gradient_defs[0].findall(ns+'stop')[0].attrib['offset'])==0
         assert core('inspect')['result'] == expected
         assert json.loads(native.read_text(encoding='utf-8')) == expected
+        # Geometry masks and common compositing share the formal MCP Session,
+        # including a hidden editable source and retained native/recovery state.
+        mask_source=dict(primitives['nect.shape.circle'])
+        mask_source['id']='mcp-mask-source'
+        # Templates were only modified for Polygon/Star above.
+        rev=apply([dict(type='create_primitive',composition=comp['id'],parent='',id='mcp-mask',
+                        name='Hidden mask',source=mask_source),
+                   dict(type='mask_objects',composition=comp['id'],parent='',members=['linked-star','mcp-mask'],
+                        id='mcp-masked-group',mask_id='mcp-geometry-clip',name='Masked star',top=True),
+                   dict(type='set_compositing',object='mcp-masked-group',blend='screen',isolated=False),
+                   dict(type='set',ref=dict(object='mcp-masked-group',point='',field='composite.opacity'),value=.65)],rev)
+        masked=core('inspect')['result']
+        assert next(o for o in masked['objects'] if o['id']=='mcp-mask')['visible'] is False
+        mask_ref=dict(object='mcp-mask',point='',field='generator.radius')
+        changed=core('apply',expected_revision=rev,commands=[dict(type='set',ref=mask_ref,value=75)])
+        assert changed['ok'] and {'mcp-mask','mcp-masked-group'}.issubset(changed['result']['changed_ids']);rev=changed['revision']
+        plan=core('compositing_plan',composition=comp['id'])['result']
+        group=next(n for n in plan['roots'] if n['object']=='mcp-masked-group')
+        assert group['isolated'] and group['opacity']==.65 and group['mask']['source']=='mcp-mask'
+        assert group['blend']=='screen' and plan['backdrop']=='transparent'
+        before_bad=core('inspect')['result']
+        bad=core('apply',expected_revision=rev,commands=[dict(type='set_visibility',object='mcp-mask',visible=True),
+            dict(type='set_compositing',object='mcp-masked-group',blend='unsupported-add',isolated=False)])
+        assert not bad['ok'] and bad['revision']==rev and core('inspect')['result']==before_bad
+        mask_svg=core('export_svg',composition=comp['id'],artboard=comp['artboards'][0]['id'])['result']
+        assert 'id="mcp-geometry-clip"' in mask_svg and 'mix-blend-mode:screen' in mask_svg
+        assert 'id="mcp-mask"' not in mask_svg
         # Automatic protection must reach a verified receipt without an explicit
         # Save/recover call, through the real desktop event loop and worker.
         rev=apply([dict(type='set',ref=source,value=156)],rev)

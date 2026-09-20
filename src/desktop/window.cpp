@@ -365,6 +365,13 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         canvas->cancel_interaction();host.session.apply(commands,host.session.revision());host.edited();
     });
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
+    action(edit,"Mask With Top",{},[this]{mask_selection(true);});
+    action(edit,"Mask With Bottom",{},[this]{mask_selection(false);});
+    action(edit,"Put Inside top selected Group",{},[this]{put_selection_inside();});
+    canvas->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(canvas,&QWidget::customContextMenuRequested,this,[this](const QPoint& point){selection_menu(canvas->mapToGlobal(point));});
+    tree_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(tree_,&QWidget::customContextMenuRequested,this,[this](const QPoint& point){selection_menu(tree_->viewport()->mapToGlobal(point));});
     auto* anchor=action(edit,"Edit Anchor",QKeySequence("Y"),[this]{canvas->set_anchor_edit(!canvas->anchor_edit());canvas->setFocus();});
     anchor->setObjectName("edit-anchor");anchor->setCheckable(true);
     canvas->anchor_edit_changed=[anchor](bool enabled){const QSignalBlocker blocker(anchor);anchor->setChecked(enabled);};
@@ -558,7 +565,8 @@ void Window::refresh() {
     QString signature=host.session_id;
     std::function<void(const Id&)> fingerprint=[&](const Id& id) {
         const auto& o=d.objects.at(id);
-        signature+="("+qs(id)+":"+QString::number(o.name.size())+":"+qs(o.name);
+        signature+="("+qs(id)+":"+QString::number(o.name.size())+":"+qs(o.name)+"|visible:"+QString::number(o.visible);
+        if(o.compositing.mask)signature+="|mask:"+qs(o.compositing.mask->source);
         if(o.source)signature+="|source:"+qs(o.source->type)+":"+qs(o.source->id);
         if(o.transform_parent)signature+="|follow:"+qs(*o.transform_parent);
         for(const auto& c:path_contours(o,&canvas->evaluated_values())) {signature+="["+qs(c.id);for(const auto& p:c.points)signature+=":"+qs(p.id);signature+="]";}
@@ -576,7 +584,7 @@ void Window::refresh() {
     std::function<void(const Id&,QTreeWidgetItem*)> append=[&](const Id& id,QTreeWidgetItem* parent) {
         const auto& o=d.objects.at(id);
         auto* item=parent?new QTreeWidgetItem(parent):new QTreeWidgetItem(tree_);
-        item->setText(0,qs(o.name)+(o.transform_parent?QString(" ↗"):QString{}));item->setData(0,Qt::UserRole,qs(id));
+        item->setText(0,qs(o.name)+(o.visible?QString{}:QString(" ◌"))+(o.compositing.mask?QString(" [mask]"):QString{})+(o.transform_parent?QString(" ↗"):QString{}));item->setData(0,Qt::UserRole,qs(id));
         item->setToolTip(0,(o.source?primitive_label(*o.source)+" source · ":QString{})+qs(id)+
             (o.transform_parent?"\nTransform follows "+qs(d.objects.at(*o.transform_parent).name)+" · "+qs(*o.transform_parent):QString{}));
         for(const auto& child:o.children) append(child,item);
@@ -597,7 +605,7 @@ void Window::refresh() {
     setWindowTitle((host.file_path.isEmpty()?"Untitled":QFileInfo(host.file_path).fileName())+" — Nect α");
     breadcrumb_->setText(canvas->breadcrumb());
     refreshing_=false;
-    rebuild_inspector();
+    rebuild_inspector(true);
     color_tools_->refresh();
     refresh_history();
 }
@@ -801,7 +809,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(fit,&QPushButton::clicked,canvas,&Canvas::fit_artboard);layout->addStretch();
 }
 
-void Window::rebuild_inspector() {
+void Window::rebuild_inspector(bool use_canvas_values) {
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
     QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
     for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
@@ -820,7 +828,10 @@ void Window::rebuild_inspector() {
     const auto& d=host.session.document();
     if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a shape, Curve or Text.\nSelect a point to edit its handles."));layout->addStretch();return;}
     const auto& o=d.objects.at(canvas->selected_object);
-    inspector_values_=evaluate(d);
+    // A complete Window refresh has just evaluated this same committed Session
+    // for Canvas. Reuse those numbers; standalone selection/draft refreshes and
+    // an active preview still read committed values through the core evaluator.
+    inspector_values_=use_canvas_values&&!host.session.gesture_active()?canvas->evaluated_values():evaluate(d);
     if(canvas->selections().size()>1){add_multi_properties(layout);return;}
     auto* name=new QLineEdit(qs(o.name));name->setAccessibleName("Object name");layout->addWidget(name);
     connect(name,&QLineEdit::editingFinished,this,[this,name,id=o.id]{
@@ -891,10 +902,43 @@ void Window::rebuild_inspector() {
         for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})
             add_property(form,{o.id,canvas->selected_point,field},QString::fromLatin1(field));
     }
+    if(o.compositing.mask)add_compositing_properties(layout,o);
     add_transform_properties(layout,o);
+    if(!o.compositing.mask)add_compositing_properties(layout,o);
     if(o.kind!=Kind::group)add_stack(layout,o);
     auto* hint=new QLabel("Right-click a value to copy, paste or unlink.\n↗ picks a property source; += / -= adjusts once.");
     hint->setWordWrap(true);hint->setStyleSheet("color: #929aa6; font-size: 11px;");layout->addWidget(hint);layout->addStretch();
+}
+void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object) {
+    auto* box=new QGroupBox("Compositing");auto* form=new QFormLayout(box);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);
+    const auto id=object.id;const auto session=host.session_id;
+    auto apply=[this,session](Command command){if(host.session_id!=session)throw Error("SESSION_CONFLICT","Compositing belongs to another document");canvas->cancel_interaction();host.session.apply({std::move(command)},host.session.revision());host.edited();};
+    auto* visible=new QCheckBox("Show artwork");visible->setObjectName("object-visible");visible->setChecked(object.visible);form->addRow(visible);
+    connect(visible,&QCheckBox::toggled,this,[this,visible,id,apply](bool enabled){bool ok=false;perform([&]{apply(SetVisibility{id,enabled});ok=true;});if(!ok){QSignalBlocker b(visible);visible->setChecked(!enabled);}});
+    add_property(form,{id,"","composite.opacity"},"Object opacity");
+    auto* blend=new QComboBox;blend->setObjectName("object-blend");
+    for(const auto* mode:{"normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion"})blend->addItem(QString::fromLatin1(mode),QString::fromLatin1(mode));
+    blend->setCurrentIndex(blend->findData(qs(object.compositing.blend)));form->addRow("Blend",blend);
+    connect(blend,&QComboBox::currentIndexChanged,this,[this,blend,id,apply](int){perform([&]{const auto& current=host.session.document().objects.at(id).compositing;apply(SetCompositing{id,blend->currentData().toString().toStdString(),current.isolated});});});
+    auto* isolate=new QCheckBox("Isolate from backdrop");isolate->setObjectName("object-isolated");isolate->setChecked(object.compositing.isolated);form->addRow(isolate);
+    connect(isolate,&QCheckBox::toggled,this,[this,isolate,id,apply](bool value){bool ok=false;perform([&]{apply(SetCompositing{id,host.session.document().objects.at(id).compositing.blend,value});ok=true;});if(!ok){QSignalBlocker b(isolate);isolate->setChecked(!value);}});
+    auto* scope=new QLabel("Opacity, masks and blending apply to the composed result. Neutral Groups pass through.");scope->setWordWrap(true);scope->setStyleSheet("color:#9ea7b4;");form->addRow(scope);
+    if(!object.compositing.mask)return;
+    const auto mask=*object.compositing.mask;
+    auto* mask_box=new QGroupBox("Geometry mask");auto* mask_form=new QFormLayout(mask_box);mask_form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(mask_box);
+    auto* enabled=new QCheckBox("Mask enabled");enabled->setObjectName("mask-enabled");enabled->setChecked(mask.enabled);mask_form->addRow(enabled);
+    connect(enabled,&QCheckBox::toggled,this,[this,enabled,id,apply](bool value){bool ok=false;perform([&]{auto mask=*host.session.document().objects.at(id).compositing.mask;mask.enabled=value;apply(SetMask{id,mask});ok=true;});if(!ok){QSignalBlocker b(enabled);enabled->setChecked(!value);}});
+    auto* edit=new QPushButton("Edit: "+qs(host.session.document().objects.at(mask.source).name));edit->setObjectName("mask-edit-source");edit->setToolTip("Select the retained source to edit its points and parameters. Its normal visibility stays unchanged.");mask_form->addRow(edit);
+    connect(edit,&QPushButton::clicked,this,[this,source=mask.source]{canvas->set_selection(source);});
+    auto* rule=new QComboBox;rule->setObjectName("mask-fill-rule");rule->addItem("Nonzero","nonzero");rule->addItem("Even–odd","evenodd");rule->setCurrentIndex(mask.fill_rule=="evenodd"?1:0);mask_form->addRow("Fill rule",rule);
+    connect(rule,&QComboBox::currentIndexChanged,this,[this,rule,id,apply](int){perform([&]{auto mask=*host.session.document().objects.at(id).compositing.mask;mask.fill_rule=rule->currentData().toString().toStdString();apply(SetMask{id,mask});});});
+    auto* outline=new QCheckBox("Show mask outline");outline->setObjectName("mask-show-outline");outline->setChecked(canvas->show_mask_outline());mask_form->addRow(outline);
+    connect(outline,&QCheckBox::toggled,canvas,&Canvas::set_show_mask_outline);
+    auto* source_visible=new QCheckBox("Show source artwork");source_visible->setObjectName("mask-source-visible");source_visible->setChecked(host.session.document().objects.at(mask.source).visible);mask_form->addRow(source_visible);
+    connect(source_visible,&QCheckBox::toggled,this,[this,source_visible,source=mask.source,apply](bool value){bool ok=false;perform([&]{apply(SetVisibility{source,value});ok=true;});if(!ok){QSignalBlocker b(source_visible);source_visible->setChecked(!value);}});
+    auto* remove=new QPushButton("Remove mask");remove->setObjectName("mask-remove");remove->setToolTip("Remove clipping; keep source object and its current visibility. Undo restores the mask.");mask_form->addRow(remove);
+    connect(remove,&QPushButton::clicked,this,[this,id,apply]{perform([&]{apply(SetMask{id,{}});});});
+    auto* note=new QLabel("Uses final source geometry in Composition space. Source paint and opacity do not affect this mask; open paths close implicitly.");note->setWordWrap(true);note->setStyleSheet("color:#9ea7b4;");mask_form->addRow(note);
 }
 void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) {
     const auto id=object.id;const auto frozen_session=host.session_id;
@@ -1339,6 +1383,7 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         layout->addStretch();return;
     }
     auto* transform=section("Transform · each object");
+    common(transform,"composite.opacity","Object opacity");
     common(transform,"transform.tx","Translation X");common(transform,"transform.ty","Translation Y");
     common(transform,"transform.anchor_x","Anchor X");common(transform,"transform.anchor_y","Anchor Y");
     auto* matrix_toggle=new QPushButton("Affine matrix…");matrix_toggle->setObjectName("batch-matrix-toggle");matrix_toggle->setCheckable(true);matrix_toggle->setChecked(matrix_expanded_);transform->addRow(matrix_toggle);
@@ -1731,6 +1776,40 @@ void Window::convert_to_path() {
         }
     });
     dialog->show();
+}
+std::vector<Id> Window::selected_siblings(Id& parent) const {
+    const auto selected=canvas->selected_objects();
+    if(selected.size()<2||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select two or more sibling objects");
+    const std::set<Id> chosen(selected.begin(),selected.end());const auto& d=host.session.document();std::vector<Id> result;
+    std::function<void(const std::vector<Id>&,const Id&)> search=[&](const std::vector<Id>& siblings,const Id& owner){
+        std::vector<Id> found;for(const auto& id:siblings)if(chosen.contains(id))found.push_back(id);
+        if(found.size()==chosen.size()){result=std::move(found);parent=owner;return;}
+        for(const auto& id:siblings)if(d.objects.at(id).kind==Kind::group)search(d.objects.at(id).children,id);
+    };
+    search(find_composition(d,canvas->active_composition()).roots,{});
+    if(result.empty())throw Error("INVALID_SELECTION","Select sibling objects in the same Composition");return result;
+}
+void Window::mask_selection(bool top) {
+    Id parent;const auto members=selected_siblings(parent);const auto id=new_id();
+    canvas->cancel_interaction();host.session.apply({MaskObjects{canvas->active_composition(),parent,members,id,new_id(),"Masked Group",top}},host.session.revision());
+    canvas->set_selection(id);host.edited();
+}
+void Window::put_selection_inside() {
+    Id parent;auto members=selected_siblings(parent);const auto group=members.back();members.pop_back();
+    canvas->cancel_interaction();host.session.apply({PutInside{canvas->active_composition(),parent,group,members}},host.session.revision());canvas->set_selection(group);host.edited();
+}
+void Window::selection_menu(const QPoint& global) {
+    const auto menu_session=host.session_id;const auto menu_revision=host.session.revision();
+    QMenu menu;auto* group=menu.addAction("Group selected siblings");
+    auto* top=menu.addAction("Mask With Top");auto* bottom=menu.addAction("Mask With Bottom");auto* inside=menu.addAction("Put Inside top selected Group");
+    try {
+        Id parent;const auto members=selected_siblings(parent);const auto& d=host.session.document();
+        top->setText("Mask With Top · "+qs(d.objects.at(members.back()).name));bottom->setText("Mask With Bottom · "+qs(d.objects.at(members.front()).name));
+        inside->setText("Put Inside · "+qs(d.objects.at(members.back()).name));
+        top->setEnabled(d.objects.at(members.back()).kind!=Kind::group);bottom->setEnabled(d.objects.at(members.front()).kind!=Kind::group);inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
+    } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
+    const auto* chosen=menu.exec(global);if(!chosen)return;
+    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==group)group_selection();});
 }
 void Window::group_selection() {
     if(!canvas->selected_point.empty())throw Error("INVALID_GROUP","Select objects, not points, to group");

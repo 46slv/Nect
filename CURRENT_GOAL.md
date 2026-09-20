@@ -1,8 +1,52 @@
-# Practical alpha Mission — masks and Group compositing next
+# Practical alpha Mission — retained Offset Paths next
 
 ## Active Mission checkpoint — 2026-09-20
 
-Branch `codex/practical-alpha`; parent checkpoint `c7621c3` delivered multi-selection
+VERIFIED checkpoint after594eae2: native0.11 geometry masks and object/Group compositing.
+All30 CTest entries passed25.86s after performance fixes. Compositing pixels also
+passed at fractional DPR1.5 (87 checks), including transformed thick strokes,
+gradient/Repeater paint bounds and cropped mask edges after fractional pan/zoom.
+Exact current contract:
+Object visible + Compositing v1
+opacity Scalar,12 supported normal/CSS-compatible blends, isolation, optional
+stable-ID geometry mask referencing same-Composition Path/Text final geometry.
+Mask source paint/visibility independent; normal Groups pass through. Ordered
+MaskObjects(top/bottom) and preserve-world PutInside commands; shared evaluated
+scene tree/cached shapes consumed by Qt/SVG. Transparent viewport compositing,
+world-space SVG clips; no inverse needed for external parenting/singular Groups.
+Production examples/colour-cut.nect/.svg were authored through the live Session:
+two retained circular masks,16 repeated stripes,Multiply/.88 Group opacity,
+five Named Colors,eight editable Text. Hidden radius GUI edit157->124 at revision5
+changed only that literal; native/recovery exact; one Undo at6 restored exact
+original. Source example preserved, PID44596 closed normally. Browser Chromium153
+passed31 SVG pixel probes against independent W3C formulas (maximum2/255 versus
+allowed3), and production SVG matched the Qt poster visually. Probe/server closed.
+
+Initial build/canvas-benchmark-compositing.json FAILED the30fps floor on85 leaves:
+point p9537.73ms,handle40.76ms,move39.22ms; release max35.14ms. Paint takes10–11ms.
+The failure was fixed, not waived: isolated surfaces now crop to safe paint/mask
+bounds including stroke/DPR/AA; Inspector reuses just-computed committed Canvas
+values. Cropping alone still failed point p9534.58ms. Temporary phase profiling
+identified property evaluation as dominant; successful validation now avoids
+allocating diagnostic strings, with identical checks/error messages. Profiling
+instrumentation was removed. Final build/canvas-benchmark-compositing-diagnostics.json:
+point p9530.54ms,handle30.66ms,move26.38ms; no interval over33.333ms, maximum
+release25.49ms. Lightweight worst p9517.52ms.30fps floor passes;60fps unmet.
+Final actual Windows preview confirmed the cropped poster and immediate visible
+Edit mask source button; source parameters opened correctly. Selection-only
+preview PID28336 closed normally. No app/build/helper remains; worker writes paused.
+
+Exact next safe action: implement bounded retained Offset Paths via the existing
+stack/normal properties, then API/native/UI/SVG production use. Follow AE path
+operations before paint semantics while retaining Repeater scope and paint bases.
+Closed contours, signed amount, explicit joins/fill rules, bounded approximation,
+topology/range failures, bypass and exact source retention must be explicit.
+Linked/Embedded assets and inherited Artboard content remain required afterward.
+This verified checkpoint is not practical-alpha completion; continue the Mission.
+
+
+Expression checkpoint `594eae2` is committed and verified. Branch `codex/practical-alpha`;
+parent checkpoint `c7621c3` delivered multi-selection
 and atomic batch property edits after `3eb86e0` Anchor/Transform Parent. This next
 coherent checkpoint delivers native0.10 bounded property expressions. Core pure
 parser/compiler uses the existing dependency visitor for stable refs, unit/cycle

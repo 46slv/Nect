@@ -31,9 +31,9 @@ baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
 Circle, Rectangle, Polygon and Star retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
 Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
-0.10 saves expression source, procedural state, editable linear/radial gradients, ordered Artboards
+0.11 saves geometry masks, common compositing, expression source, procedural state, editable linear/radial gradients, ordered Artboards
 with parent-size inheritance, editable Text, named colors, retained Polygon/Star,
-authored Anchors and explicit Transform Parents. It migrates 0.1–0.9 without
+authored Anchors and explicit Transform Parents. It migrates 0.1–0.10 without
 reference loss. Windows Text uses installed fonts and supports Japanese horizontal
 and vertical writing, automatic size, fixed-frame wrapping and overflow diagnostics.
 
@@ -58,7 +58,7 @@ Not implemented yet:
 - AI/PSD codecs
 - OpenFX hosting
 - full typography
-- raster/compositing production model
+- raster assets and complete production compositing
 
 The PS/AI parity backlog is **not** implementation authorization.
 
@@ -102,9 +102,22 @@ double-click enters them and the breadcrumb returns. Inspector fields accept
 numbers and one-shot `+=`/`-=` adjustments. Right-click provides Copy Value,
 Copy Reference, Paste Value, Paste Link and explicit Unlink. Drag ↗ to a source
 field (hover Objects to inspect another source); click ↗ to search.
-Expressions use the same row (see below); masks are a subsequent slice. With multiple targets, common
+Expressions use the same row (see below). With multiple targets, common
 properties show Mixed; a number sets every target and `+=`/`-=` preserves each
 target's differences. Source picking freezes all targets and returns to them.
+
+Select adjacent objects and use the Canvas/Objects context menu → Mask With
+Top / Bottom. Labels identify the source by actual paint order. The operation
+creates one Group, hides the source artwork and retains its editable geometry.
+Properties → Edit source selects it without making its paint visible; Show mask
+outline controls a faint viewport overlay. Put Inside moves immediately preceding
+siblings into the top selected Group, preserving world placement and order.
+Every object/Group has visibility, ordinary linkable/expression opacity, twelve
+blend modes and explicit isolation. Neutral Groups pass through; masks, opacity
+and blend aggregate the children. Geometry masks use final Path/Text contours;
+alpha/luma masks and full AE blend parity remain unsupported. SVG retains vector
+clips, Group opacity and CSS blend/isolation, so the reader must support those
+SVG/CSS features. `examples/colour-cut.nect` demonstrates the retained workflow.
 
 Add Text creates an editable source. Use Edit text to compose Japanese or other
 Unicode content, then Apply for one undo step. Select font, writing direction,
@@ -235,7 +248,7 @@ geometry/appearance. See [model contract](docs/model-v0.md#native010-property-ex
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.10.schema.json` — current native JSON shape (0.1–0.9 readers retained)
+- `schemas/native-v0.11.schema.json` — current native JSON shape (0.1–0.10 readers retained)
 
 ## Project rules
 

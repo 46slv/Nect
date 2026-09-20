@@ -18,6 +18,7 @@
 #include <QWheelEvent>
 #include <QWindow>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <iostream>
@@ -126,6 +127,52 @@ void seed(Window& window, int paths) {
             "Semantic fixture creation produced an unexpected object count");
     fit(window);
     wait_events(100);
+}
+
+void seed_compositing(Window& window,int paths) {
+    auto& session=window.host.session;
+    const auto composition=session.document().compositions.front().id;
+    std::vector<Command> commands;
+    const auto rectangle=[&](const Id& id,const Id& parent,double x,double y,double width,double height,
+                             const std::array<double,3>& color,bool painted) {
+        Contour contour;contour.id=id+"-contour";contour.closed=true;
+        for(const auto& xy:std::vector<Vec2>{{x,y},{x+width,y},{x+width,y+height},{x,y+height}}) {
+            Point point;point.id=id+"-point-"+std::to_string(contour.points.size());
+            point.x.literal=xy.x;point.y.literal=xy.y;contour.points.push_back(point);
+        }
+        commands.push_back(CreatePath{composition,parent,id,id,{contour}});
+        if(painted) {
+            auto fill=default_operation(id+"-fill","nect.paint.fill");
+            fill.parameters.at("r").literal=color[0];fill.parameters.at("g").literal=color[1];fill.parameters.at("b").literal=color[2];
+            commands.push_back(AddOperation{id,fill,0});commands.push_back(Set{{id,"","stroke.width"},0});
+        }
+    };
+    // The edited curve stays inside a modest first-row scope. Its original
+    // coordinates and handles remain unchanged, including all drag endpoints.
+    std::vector<Id> members;
+    for(int i=0;i<std::min(paths,8);++i)members.push_back("bench-path-"+std::to_string(i));
+    commands.push_back(GroupContiguous{composition,"",members,"bench-composite-main","Masked curve study"});
+    rectangle("bench-composite-paper","bench-composite-main",35,30,770,135,{.82,.9,.96},true);
+    rectangle("bench-composite-mask-main","bench-composite-main",40,35,760,125,{0,0,0},false);
+    std::vector<Id> order{"bench-composite-paper"};order.insert(order.end(),members.begin(),members.end());order.push_back("bench-composite-mask-main");
+    commands.push_back(ReorderObjects{composition,"bench-composite-main",order});
+    commands.push_back(SetVisibility{"bench-composite-mask-main",false});
+    commands.push_back(SetMask{"bench-composite-main",GeometryMask{"bench-composite-main-mask","bench-composite-mask-main"}});
+    commands.push_back(Set{{"bench-composite-main","","composite.opacity"},.82});
+
+    // One additional independent mask scope and a single nested leaf blend.
+    // These shapes do not cover the first curve's point/handle/body hit targets.
+    rectangle("bench-composite-coral","",450,300,180,110,{.86,.32,.25},true);
+    rectangle("bench-composite-teal","",500,330,170,110,{.12,.58,.65},true);
+    rectangle("bench-composite-mask-study","",440,290,240,165,{0,0,0},false);
+    commands.push_back(MaskObjects{composition,"",{"bench-composite-coral","bench-composite-teal","bench-composite-mask-study"},
+        "bench-composite-study","bench-composite-study-mask","Masked blend study",true});
+    commands.push_back(SetCompositing{"bench-composite-study","multiply",false});
+    commands.push_back(Set{{"bench-composite-study","","composite.opacity"},.78});
+    commands.push_back(SetCompositing{"bench-composite-teal","screen",false});
+    session.apply(commands,session.revision());window.host.edited();wait_events(80);
+    require(session.document().objects.size()==static_cast<std::size_t>(paths+7),"Compositing fixture object count changed");
+    require(session.document().objects.at("bench-path-0").visible,"Compositing interaction target must remain visible");
 }
 
 enum class Operation { pan, zoom, point, handle, transform };
@@ -319,8 +366,8 @@ int main(int argc, char** argv) {
         "QMenu{border:1px solid #49515c;}QMenu::item:selected{background:#43505f;}");
     app.setQuitOnLastWindowClosed(false);
     if (app.arguments().size() < 2 || app.arguments().size()>3 ||
-        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi"&&app.arguments().at(2)!="--expressions")) {
-        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions]\n";
+        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi"&&app.arguments().at(2)!="--expressions"&&app.arguments().at(2)!="--compositing")) {
+        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions|--compositing]\n";
         return 2;
     }
     const auto output = app.arguments().at(1);
@@ -328,6 +375,7 @@ int main(int argc, char** argv) {
     const bool text_scene=app.arguments().contains("--text");
     const bool polystar_scene=app.arguments().contains("--polystar");
     const bool expression_scene=app.arguments().contains("--expressions");
+    const bool compositing_scene=app.arguments().contains("--compositing");
     const bool multi_scene=app.arguments().contains("--multi")||expression_scene;
     run_clock.start();
     QJsonObject result{{"schema", "nect-visible-viewport-benchmark-1"},
@@ -362,6 +410,7 @@ int main(int argc, char** argv) {
             }
             require(window.windowHandle() && window.windowHandle()->isExposed(), "Benchmark window did not become exposed");
             seed(window, paths);
+            if(compositing_scene)seed_compositing(window,paths);
             if(expression_scene) {
                 std::vector<Ref> targets;for(int i=0;i<paths;++i)targets.push_back({"bench-path-"+std::to_string(i),"","stroke.width"});
                 window.host.session.apply({SetExpression{targets,{"ref(\"bench-path-0\",\"bench-point-0-0\",\"x\") / 100 + 1",1},false}},window.host.session.revision());
@@ -449,6 +498,16 @@ int main(int argc, char** argv) {
                 scene["fixture"]="Authored four-anchor curves on the standard grid; first 2/12 object or point targets selected together for pan/zoom/point/translation. Handle operation remains a single selected point.";}
             if(expression_scene){scene["expression_count"]=paths;scene["name"]=paths==2?"expression-lightweight":"expression-representative";
                 scene["fixture"]=scene["fixture"].toString()+" Each stroke width is driven by the first point X / 100 + 1, so point dragging reevaluates all paints.";}
+            if(compositing_scene) {
+                scene["name"]=paths==2?"compositing-lightweight":"compositing-representative";
+                scene["base_curve_count"]=paths;scene["path_count"]=paths+5;scene["leaf_count"]=paths+5;
+                scene["point_count"]=(paths+5)*4;scene["visible_leaf_count"]=paths+3;
+                scene["group_count"]=2;scene["mask_count"]=2;scene["hidden_mask_source_count"]=2;
+                scene["isolated_group_count"]=2;scene["isolated_leaf_count"]=1;scene["maximum_isolation_depth"]=2;
+                scene["main_scope_curve_count"]=std::min(paths,8);scene["blends"]=QJsonArray{"normal","multiply","screen"};
+                scene["interaction_target"]="bench-path-0";
+                scene["fixture"]="Standard 2/80 open-curve fixture plus five four-anchor rectangles and two Groups. First 2/8 curves and a pale plate share a rectangular geometry mask at Group opacity .82. A separate two-color masked Group uses Multiply at .78 and one Screen leaf. Both source masks are hidden. Point/handle/translation edit the original first curve inside its mask scope; other curves remain ungrouped. No full-document or deeply nested alpha Group.";
+            }
             for (const auto operation : {Operation::pan, Operation::zoom, Operation::point, Operation::handle, Operation::transform}) {
                 sequence(window, operation, warmup_frames, false, errors,text_scene&&operation==Operation::transform,selection_count);
                 const auto before = window.host.session.revision();

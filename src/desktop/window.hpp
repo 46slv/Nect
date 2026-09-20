@@ -68,7 +68,7 @@ private:
     QWidget* whip_overlay_=nullptr;
     void cancel_whip();
     void reveal_whip_source();
-    void rebuild_inspector();
+    void rebuild_inspector(bool use_canvas_values=false);
     void sync_tree_selection();
     void add_multi_properties(QVBoxLayout* layout);
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
@@ -81,6 +81,11 @@ private:
     void add_text();
     void add_text_properties(QVBoxLayout* layout,const Object& object);
     void add_transform_properties(QVBoxLayout* layout,const Object& object);
+    void add_compositing_properties(QVBoxLayout* layout,const Object& object);
+    std::vector<Id> selected_siblings(Id& parent) const;
+    void mask_selection(bool top);
+    void put_selection_inside();
+    void selection_menu(const QPoint& global);
     void choose_transform_parent();
     void edit_text_content(const Id& object);
     void convert_to_path();

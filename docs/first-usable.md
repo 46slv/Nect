@@ -490,3 +490,58 @@ and object movement (handle remains one point):
 Lightweight2 Paths/2 expressions: worst p9517.45ms, max19.74ms, maximum release10.59ms.
 The30fps p95 and release floor passes in this run; the60fps target remains unmet.
 This measures bounded arithmetic/reference sources, not all worst-case256-node formulas.
+
+## Geometry masks and Group compositing — 2026-09-20
+
+Native0.11 retains independent source visibility, stable geometry-mask references,
+Group opacity, explicit isolation and twelve supported blend modes. Top/Bottom
+mask creation and preserve-world PutInside use atomic Session commands, as do
+Inspector source edits, bypass and formulas on opacity. Full30 CTest entries
+passed25.86s, including native migrations, source/reference protection, exact Undo,
+formal MCP save/restart/recovery and actual Qt context menus. Pixel checks cover
+independent W3C blend formulas, aggregate opacity, pass-through/isolation, hidden
+source editing and renderer limits.87 Canvas checks also pass at DPR1.5.
+
+`scripts/create_compositing_demo.py` authored `examples/colour-cut.nect` and SVG
+through a fresh live Session: two retained circular masks,16 repeated stripes,
+Multiply/.88 Group opacity, five Named Colors and eight editable Text objects.
+On an owned working copy, actual Windows UI changed hidden-source radius157 to124.
+Only that literal changed at revision5; automatic native/recovery matched exactly.
+One toolbar Undo restored the entire original at revision6; source fixture stayed
+unchanged. Receipt: `build/compositing-manual-receipt.json`. Self-use moved mask
+controls above transform controls, making Edit Source immediately reachable.
+The final cropped renderer and corrected Inspector were visually checked again;
+the owned preview closed normally without authored edits.
+
+`scripts/probe_svg_compositing.py` produced SVG through the normal CLI Session and
+read pixels through Chromium153's SVG renderer.31/31 independent probes passed:
+twelve blends at alpha1/.5, Group overlap/opacity, transformed vector mask,
+pass-through/isolation and first-layer Screen on transparency. Largest channel
+difference was2/255 (tolerance3); production SVG visually matched Qt. Receipt:
+`build/svg-compositing-browser-receipt.json`. Local server/tab were closed.
+This establishes the supported SVG/CSS reader contract, not every SVG consumer.
+
+Visible production Window benchmark uses the same recorded machine,893x824 Canvas,
+DPR1 and90 paints/89 intervals. Representative85 leaves include80 authored curves,
+two hidden mask sources, two isolated Groups and one Screen leaf, maximum isolation
+depth2; all normal validation and asynchronous protection remain active.
+
+| Operation | p50 ms | p95 ms | max ms | intervals >33.333ms | release ms |
+|---|---:|---:|---:|---:|---:|
+| Pan |16.12|17.45|17.63|0|0.02|
+| Zoom |16.03|17.19|17.55|0|0.00|
+| Point |23.86|30.54|31.88|0|23.50|
+| Handle |23.52|30.66|32.71|0|24.10|
+| Object translation |24.57|26.38|28.18|0|25.49|
+
+Lightweight7-leaf scene: worst p9517.52ms, max21.46ms, release13.00ms, no interval
+over33.333ms.30fps p95/release floor passes;60fps remains unmet. Initial full-viewport
+isolated images failed at point37.73/handle40.76/move39.22ms p95. Cropping surfaces
+to pixel-aligned mask or true paint bounds reduced paint10–11ms to4–5ms, but point
+still failed34.58ms. Phase profiling found Session update13.56ms and Canvas values
+8.68ms means; unnecessary success-path diagnostic-string allocations were removed.
+Inspector also reuses the just-evaluated committed Canvas values. All validation
+and error semantics remain. No cache framework or relaxed threshold was added.
+Temporary instrumentation was removed. Original/intermediate/final evidence remains
+in `build/canvas-benchmark-compositing.json`, `canvas-benchmark-compositing-cropped.json`,
+`canvas-benchmark-compositing-profile.json` and `canvas-benchmark-compositing-diagnostics.json`.

@@ -68,6 +68,22 @@ j::value scalar_json(const Scalar& s) {
     if(s.expression)o["expression"]=expression_json(*s.expression);
     return o;
 }
+GeometryMask read_mask(const j::value& value) {
+    const auto& o=value.as_object();keys(o,{"id","source","version","enabled","fill_rule"});
+    return {text(o.at("id")),text(o.at("source")),j::value_to<unsigned>(o.at("version")),o.at("enabled").as_bool(),text(o.at("fill_rule"))};
+}
+j::value mask_json(const std::optional<GeometryMask>& mask) {
+    if(!mask)return nullptr;
+    return j::object{{"id",mask->id},{"source",mask->source},{"version",mask->version},{"enabled",mask->enabled},{"fill_rule",mask->fill_rule}};
+}
+Compositing read_compositing(const j::value& value) {
+    const auto& o=value.as_object();keys(o,{"version","opacity","blend","isolated","mask"});
+    Compositing c;c.version=j::value_to<unsigned>(o.at("version"));c.opacity=read_scalar(o.at("opacity"));
+    c.blend=text(o.at("blend"));c.isolated=o.at("isolated").as_bool();if(!o.at("mask").is_null())c.mask=read_mask(o.at("mask"));return c;
+}
+j::object compositing_json(const Compositing& c) {
+    return {{"version",c.version},{"opacity",scalar_json(c.opacity)},{"blend",c.blend},{"isolated",c.isolated},{"mask",mask_json(c.mask)}};
+}
 std::vector<Id> ids(const j::value& v) {
     std::vector<Id> out;
     for(const auto& x:v.as_array()) out.push_back(text(x));
@@ -435,6 +451,20 @@ Command read_command(const j::value& v) {
     if(type=="center_anchor") {
         keys(o,{"type","object"});return CenterAnchor{text(o.at("object"))};
     }
+    if(type=="set_visibility") {keys(o,{"type","object","visible"});return SetVisibility{text(o.at("object")),o.at("visible").as_bool()};}
+    if(type=="set_compositing") {keys(o,{"type","object","blend","isolated"});return SetCompositing{text(o.at("object")),text(o.at("blend")),o.at("isolated").as_bool()};}
+    if(type=="set_mask") {
+        keys(o,{"type","object","mask"});std::optional<GeometryMask> mask;if(!o.at("mask").is_null())mask=read_mask(o.at("mask"));
+        return SetMask{text(o.at("object")),std::move(mask)};
+    }
+    if(type=="mask_objects") {
+        keys(o,{"type","composition","parent","members","id","mask_id","name","top"});
+        return MaskObjects{text(o.at("composition")),text(o.at("parent")),ids(o.at("members")),text(o.at("id")),text(o.at("mask_id")),text(o.at("name")),o.at("top").as_bool()};
+    }
+    if(type=="put_inside") {
+        keys(o,{"type","composition","parent","group","members"});
+        return PutInside{text(o.at("composition")),text(o.at("parent")),text(o.at("group")),ids(o.at("members"))};
+    }
     if(type=="set_expression") {
         keys(o,{"type","targets","expression","replace_binding"});
         std::vector<Ref> targets;for(const auto& r:o.at("targets").as_array())targets.push_back(read_ref(r));
@@ -484,10 +514,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,10> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10"};
+        constexpr std::array<std::string_view,11> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.10 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.11 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
         else keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
@@ -514,6 +544,7 @@ Document decode(std::string_view input) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
             else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
+            else if(minor>=11)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke"});
             else if(minor>=9)keys(o,{"id","name","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke"});
             else if(minor>=6)keys(o,{"id","name","kind","transform","children","contours","source","point_edit","text","stack","legacy_stroke"});
             else keys(o,{"id","name","kind","transform","children","contours","source","point_edit","stack","legacy_stroke"});
@@ -521,6 +552,7 @@ Document decode(std::string_view input) {
             Object obj;
             obj.id=text(o.at("id"));
             obj.name=text(o.at("name"));
+            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"));}
 
             auto kind=text(o.at("kind"));
             if(kind!="group"&&kind!="path"&&!((minor>=6)&&kind=="text")) throw Error("UNSUPPORTED_OBJECT",kind);
@@ -615,7 +647,7 @@ std::string encode(const Document& d) {
         j::array anchor;for(const auto& s:o.anchor)anchor.push_back(scalar_json(s));
 
         j::object out{
-            {"id",id},{"name",o.name},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":"path"},{"transform",tf},{"anchor",anchor},{"transform_parent",o.transform_parent?j::value(*o.transform_parent):j::value(nullptr)}};
+            {"id",id},{"name",o.name},{"visible",o.visible},{"compositing",compositing_json(o.compositing)},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":"path"},{"transform",tf},{"anchor",anchor},{"transform_parent",o.transform_parent?j::value(*o.transform_parent):j::value(nullptr)}};
 
         if(o.kind==Kind::group) {
             out["children"]=ids_json(o.children);
@@ -672,28 +704,14 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
        <<"px\" height=\""<<art->height<<"px\" viewBox=\""<<art->x<<" "<<art->y
        <<" "<<art->width<<" "<<art->height<<"\">\n";
 
+    std::set<Id> svg_ids;for(const auto& [id,object]:d.objects){svg_ids.insert(id);if(object.compositing.mask)svg_ids.insert(object.compositing.mask->id);}
     std::size_t gradient_serial=0;
-    std::function<void(const Id&)> render=[&](const Id& id) {
-        const auto& o=d.objects.at(id);
-        out<<"<g id=\""<<id<<"\"";
-        // Structure preserves order/names; only leaves project world transforms.
-        // This also represents externally parented children under singular groups.
-        if(!external_parenting||o.kind!=Kind::group) {
-            out<<" transform=\"matrix(";
-            for(const auto v:external_parenting?transforms.at(id).world:transforms.at(id).local)out<<v<<' ';
-            out<<")\"";
-        }
-        out<<"><title>"<<escape(o.name)<<"</title>\n";
-        if(o.text)out<<"<desc>Text outlined for SVG; editable text and font references remain in the native Nect document.</desc>\n";
-
-        if(o.kind==Kind::group) {
-            for(const auto& child:o.children) render(child);
-        } else {
-            for(const auto& paint:evaluate_shape(d,id,values).paints) {
+    const auto paint_shape=[&](const EvaluatedShape& shape) {
+            for(const auto& paint:shape.paints) {
                 const bool fill=paint.type=="nect.paint.fill";
                 std::string gradient_id;
                 if(paint.gradient) {
-                    do{gradient_id="nect-gradient-"+std::to_string(++gradient_serial);}while(d.objects.contains(gradient_id));
+                    do{gradient_id="nect-gradient-"+std::to_string(++gradient_serial);}while(svg_ids.contains(gradient_id));svg_ids.insert(gradient_id);
                     const auto& g=*paint.gradient;const bool linear=g.type=="linear";
                     out<<"<defs><"<<(linear?"linearGradient":"radialGradient")<<" id=\""<<gradient_id
                        <<"\" gradientUnits=\"userSpaceOnUse\" spreadMethod=\"pad\" color-interpolation=\"sRGB\" ";
@@ -727,6 +745,64 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
                 }
                 out<<"\"/>\n";
             }
+    };
+    // Neutral legacy scenes keep their original local-transform projection.
+    // Appearance scopes use world-space clip wrappers, never inverse matrices.
+    bool modern=false;
+    std::function<void(const Id&)> detect=[&](const Id& id){const auto& object=d.objects.at(id);const auto& c=object.compositing;
+        modern=modern||!object.visible||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||c.isolated||(c.mask&&c.mask->enabled);
+        for(const auto& child:object.children)detect(child);};
+    for(const auto& id:comp->roots)detect(id);
+    if(modern) {
+        const auto scene=evaluate_scene(d,comp_id,values,transforms);
+        std::function<void(const EvaluatedSceneNode&)> render_node=[&](const EvaluatedSceneNode& node) {
+            if(!node.visible)return;
+            const auto& object=d.objects.at(node.id);
+            if(node.mask) {
+                const auto& mask=*node.mask;const auto& mask_id=object.compositing.mask->id;
+                out<<"<defs><clipPath id=\""<<mask_id<<"\" clipPathUnits=\"userSpaceOnUse\"><path clip-rule=\""<<mask.fill_rule<<"\" d=\"";
+                for(const auto& instance:mask.paths)for(const auto& contour:*instance.contours) {
+                    if(contour.points.empty())continue;
+                    const auto first=map_point(instance.transform,contour.points.front().anchor);out<<"M "<<first.x<<' '<<first.y<<' ';
+                    const auto segments=contour.closed?contour.points.size():contour.points.size()-1;
+                    for(std::size_t i=0;i<segments;++i){const auto& p=contour.points[i];const auto& q=contour.points[(i+1)%contour.points.size()];
+                        const auto a=map_point(instance.transform,p.outgoing),b=map_point(instance.transform,q.incoming),end=map_point(instance.transform,q.anchor);
+                        out<<"C "<<a.x<<' '<<a.y<<' '<<b.x<<' '<<b.y<<' '<<end.x<<' '<<end.y<<' ';}
+                    out<<"Z ";
+                }
+                out<<"\"/></clipPath></defs>\n";
+            }
+            out<<"<g id=\""<<node.id<<"\" opacity=\""<<node.opacity<<"\" color-interpolation=\"sRGB\" style=\"isolation:"<<(node.isolated?"isolate":"auto")<<";mix-blend-mode:"<<node.blend<<"\"";
+            if(node.mask)out<<" clip-path=\"url(#"<<object.compositing.mask->id<<")\"";
+            out<<"><title>"<<escape(object.name)<<"</title>\n";
+            if(object.kind==Kind::group)for(const auto& child:node.children)render_node(child);
+            else {
+                if(object.text)out<<"<desc>Text outlined for SVG; editable source remains in native Nect.</desc>\n";
+                out<<"<g transform=\"matrix(";for(const auto value:node.world)out<<value<<' ';out<<")\">\n";
+                paint_shape(scene.shapes.at(node.id));out<<"</g>\n";
+            }
+            out<<"</g>\n";
+        };
+        for(const auto& node:scene.roots)render_node(node);out<<"</svg>\n";return out.str();
+    }
+
+    std::function<void(const Id&)> render=[&](const Id& id) {
+        const auto& o=d.objects.at(id);
+        out<<"<g id=\""<<id<<"\"";
+        // Structure preserves order/names; only leaves project world transforms.
+        // This also represents externally parented children under singular groups.
+        if(!external_parenting||o.kind!=Kind::group) {
+            out<<" transform=\"matrix(";
+            for(const auto v:external_parenting?transforms.at(id).world:transforms.at(id).local)out<<v<<' ';
+            out<<")\"";
+        }
+        out<<"><title>"<<escape(o.name)<<"</title>\n";
+        if(o.text)out<<"<desc>Text outlined for SVG; editable text and font references remain in the native Nect document.</desc>\n";
+
+        if(o.kind==Kind::group) {
+            for(const auto& child:o.children) render(child);
+        } else {
+            paint_shape(evaluate_shape(d,id,values));
         }
 
         out<<"</g>\n";
@@ -829,7 +905,25 @@ std::string request(Session& session,std::string_view input) {
             for(const auto& id:comp->roots)walk(id);
             result=j::object{{"format","svg"},{"artboard",artboard_json(board)},{"text",texts},
                 {"property_policy","evaluated_values"},{"expressions_preserved",false},
+                {"compositing_policy","vector_geometry_clips_group_opacity_css_blend_and_isolation"},{"blend_reader_requirement","SVG CSS mix-blend-mode and isolation support"},
                 {"text_policy","outlines"},{"native_source_preserved",true},{"fonts_embedded",false}};
+        } else if(op=="compositing_types") {
+            keys(o,{"op"});
+            result=j::object{{"version",1},{"space","srgb"},{"alpha","source-over premultiplied compositing"},
+                {"blends",j::array{"normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion"}},
+                {"mask","final_path_geometry"},{"mask_sources",j::array{"path","text"}},{"mask_space","composition"},
+                {"mask_paint_ignored",true},{"mask_open_contours","implicitly_closed"},{"mask_normal_visibility","independent"},
+                {"neutral_groups","pass_through"},{"nonneutral_groups","isolated_then_clip_opacity_blend"},{"after_effects_full_parity",false}};
+        } else if(op=="compositing_plan") {
+            keys(o,{"op","composition"});const auto values=evaluate(session.document());
+            const auto scene=evaluate_scene(session.document(),text(o.at("composition")),values,evaluate_transforms(session.document(),values));
+            std::function<j::value(const EvaluatedSceneNode&)> node_json=[&](const EvaluatedSceneNode& node) {
+                j::array children,world;for(const auto value:node.world)world.push_back(value);for(const auto& child:node.children)children.push_back(node_json(child));
+                j::value mask=nullptr;if(node.mask)mask=j::object{{"source",node.mask->source},{"fill_rule",node.mask->fill_rule},{"space","composition"},{"path_instances",node.mask->paths.size()}};
+                return j::object{{"object",node.id},{"world",world},{"visible",node.visible},{"opacity",node.opacity},{"blend",node.blend},{"isolated",node.isolated},{"mask",mask},{"children",children}};
+            };
+            j::array roots;for(const auto& node:scene.roots)roots.push_back(node_json(node));
+            result=j::object{{"roots",roots},{"requires_compositing",scene.requires_compositing},{"backdrop","transparent"}};
         } else if(op=="expression_language") {
             keys(o,{"op"});
             result=j::object{{"version",1},{"reference","ref(\"object-id\",\"point-id-or-empty\",\"field\")"},
@@ -970,6 +1064,8 @@ std::string request(Session& session,std::string_view input) {
                 prior_frames.erase(a.id);
             }
             for(const auto& [id,frame]:prior_frames){(void)frame;changed.insert(id);}
+            for(const auto& [id,object]:session.document().objects)
+                if(object.compositing.mask&&object.compositing.mask->enabled&&changed.contains(object.compositing.mask->source))changed.insert(id);
             result.as_object()["changed_ids"]=ids_json(std::vector<Id>(changed.begin(),changed.end()));
         }
         return j::serialize(j::object{

@@ -30,6 +30,8 @@ std::size_t extra(const PointEdit&);
 std::size_t extra(const GradientStop&);
 std::size_t extra(const Gradient&);
 std::size_t extra(const ShapeOperation&);
+std::size_t extra(const GeometryMask&);
+std::size_t extra(const Compositing&);
 std::size_t extra(const Object&);
 std::size_t extra(const ArtboardParent&);
 std::size_t extra(const Artboard&);
@@ -66,7 +68,9 @@ std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
 std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops));}
 std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.gradient));}
-std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent));}
+std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule));}
+std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.mask));}
+std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.compositing));}
 std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
 std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size));}
 std::size_t extra(const Composition& v){return total(extra(v.id),extra(v.name),extra(v.roots),extra(v.artboards));}
@@ -106,6 +110,11 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
     auto label=std::visit([&](const auto& c)->std::string {
         using T=std::decay_t<decltype(c)>;
         if constexpr(std::is_same_v<T,Set>)return "Set "+property_label(c.ref);
+        else if constexpr(std::is_same_v<T,SetVisibility>)return std::string(c.visible?"Show: ":"Hide: ")+name(c.object);
+        else if constexpr(std::is_same_v<T,SetCompositing>)return "Compositing: "+name(c.object);
+        else if constexpr(std::is_same_v<T,SetMask>)return std::string(c.mask?"Set geometry mask: ":"Remove geometry mask: ")+name(c.object);
+        else if constexpr(std::is_same_v<T,MaskObjects>)return std::string(c.top?"Mask with top: ":"Mask with bottom: ")+c.name;
+        else if constexpr(std::is_same_v<T,PutInside>)return "Put "+std::to_string(c.members.size())+" objects inside: "+name(c.group);
         else if constexpr(std::is_same_v<T,SetExpression>)return "Expression: "+std::to_string(c.targets.size())+" properties: "+property_label(c.targets.front());
         else if constexpr(std::is_same_v<T,Link>)return "Link "+property_label(c.target);
         else if constexpr(std::is_same_v<T,Unlink>)return "Unlink "+property_label(c.target);

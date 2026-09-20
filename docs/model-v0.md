@@ -4,7 +4,7 @@
 
 Implemented: Document, Composition, Artboard, Group, Path, Text, Contour, Point,
 Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/Polygon/Star sources,
-Point Edit, gradients and local Fill/Stroke/Repeater stacks.
+Point Edit, gradients, local Fill/Stroke/Repeater stacks, geometry masks and common compositing.
 
 Layer is the UI presentation of an Object; there is no duplicate Layer state model.
 
@@ -514,7 +514,7 @@ bounded to8 MiB. No document migration or second mutable document model is added
 Extend Text only with demonstrated shaping/layout requirements.
 Add Raster only with immutable source/provenance and explicit color semantics.
 Add Operator/Instance only with identity and regeneration contracts.
-Add compositing only after alpha/group/color-space semantics are defined.
+Extend compositing only with explicit alpha/group/color-space and interop semantics.
 
 ## Native0.10 property expressions
 
@@ -523,7 +523,7 @@ exclusive with a non-null Binding. Literal remains authored as the inactive
 fallback, just as with Binding. Source text (including whitespace/newlines) is
 preserved exactly; compiled programs/caches and draft text are never serialized.
 Readers0.1–0.9 remain strict and reject the new field. Migration preserves every
-old value/ID/reference; the current writer emits0.10.
+old value/ID/reference; that checkpoint writer emits0.10 (current writer0.11).
 
 The pure language accepts finite decimal/scientific literals, parentheses,
 unary +/-, binary + - * /, and `ref("object-id","point-id-or-empty","field")`.
@@ -572,3 +572,80 @@ committed Canvas value. Drafts survive same-session Inspector refresh; a changed
 Session revision rejects Apply until the draft is explicitly cancelled/reopened.
 A visible checkbox authorizes replacement of an existing link. Drafts are view
 state, excluded from save/recovery and Undo. Numeric +/-= remains a one-shot edit.
+
+## Native0.11 visibility, geometry masks and common compositing
+
+All Objects add `visible:bool` and `compositing:{version:1,opacity:Scalar,
+blend:string,isolated:bool,mask:GeometryMask|null}`. `composite.opacity` is an
+ordinary dimensionless property in [0,1], with the same links, formulas, batches
+and Unlink behavior. Readers0.1–0.10 migrate to visible/opacity1/normal/nonisolated/
+no-mask defaults; earlier schemas reject the new fields. Writer0.11 preserves
+all authored geometry, appearance, mask identities and hidden sources.
+
+A GeometryMask has document-unique `id`, same-Composition `source` Object ID,
+`version:1`, `enabled` and `fill_rule:nonzero|evenodd`. Sources are Path or Text,
+never the target itself or a Group. It uses the source's final evaluated geometry,
+including Repeaters, in Composition/world coordinates. Each open contour closes
+for mask filling without rewriting its source. Source paint, stroke width, normal
+visibility, opacity and its own appearance mask do not affect this geometry mask.
+No alpha/luma/invert mode or appearance-derived silhouette is implied. A bypassed
+mask retains its source reference; deleting a referenced source rejects unless
+all owners are deleted in the same transaction. Removing the mask preserves its
+source and current visibility. Transform Parent determines following independently.
+
+`set_visibility`, `set_compositing` and `set_mask` use the normal Session boundary.
+`mask_objects` accepts at least two ordered contiguous siblings and an explicit
+Top/Bottom choice. It wraps them in one Group, initializes its Anchor to the
+current geometric center, masks by the last/first painted leaf and hides that
+source's normal artwork. One Undo restores the complete structure and visibility.
+`put_inside` moves an ordered contiguous block immediately below the destination
+Group into its first child positions, preserving world placement and order.
+Explicit Transform Parents remain unchanged; structural followers solve the new
+local affine. Driven transforms, singular inverses or a dependency-induced world
+mismatch reject atomically. Destination Group effects intentionally apply afterward.
+
+`evaluate_scene` is a transient structural scene tree over one shared evaluated
+shape per leaf. Qt and SVG consume its resolved masks/world transforms/isolation;
+there is no second authored renderer document. The Composition artwork starts
+transparent. The viewport's white Artboard and grey workspace are UI surfaces,
+not blend backdrops. Add an ordinary filled object for authored paper/background.
+A neutral Group (opacity1, normal, not explicitly isolated, no enabled mask)
+passes its children into the current backdrop. Any other boundary aggregates
+children on transparent, clips geometry, then applies opacity and blend once.
+Opacity of overlapping children therefore does not compound within that Group.
+Structure owns this scope; Transform Parent does not.
+
+Supported blend IDs: normal, multiply, screen, overlay, darken, lighten,
+color-dodge, color-burn, hard-light, soft-light, difference, exclusion. Unsupported
+IDs reject rather than silently aliasing Add or another AE mode. Working space is
+sRGB with premultiplied source-over alpha during raster compositing; authored
+colors remain straight alpha. The Qt viewport currently uses 8-bit premultiplied
+ARGB surfaces, bounded to16,384 physical pixels/axis,128 MiB simultaneous surfaces
+and16 isolation levels. Isolated surfaces use pixel-aligned viewport-clipped
+mask bounds or actual paint support (including transformed stroke joins), with
+an antialias margin; authored object bounds are not raster allocation bounds.
+Exceeding a renderer bound gives a persistent visible
+error; it does not silently omit an effect or rewrite the document. This is a
+bounded compositing subset, not full AE/HDR/linear-light/ICC production parity.
+
+SVG exports userSpaceOnUse vector clipPaths in Composition coordinates and
+world-transformed leaf artwork inside structural wrappers. This avoids inverse
+matrices and double transforms for external followers or singular Group bases.
+Group opacity and CSS `mix-blend-mode` / `isolation` carry the compositing contract;
+readers must support these SVG/CSS features. `export_plan` discloses that reader
+requirement. Native is unchanged; no raster bake or editable Text/formula source
+is claimed in SVG. Neutral older scenes retain the earlier SVG projection.
+`compositing_types` discovers the supported subset and `compositing_plan` reports
+the resolved tree, masks, isolation and transparent backdrop.
+
+GUI source visibility is independent from Show mask outline (viewport-only).
+The selected target's hidden mask can show a faint dashed outline; Edit source
+selects the actual retained object and its ordinary point controls. Normal hit
+selection excludes hidden ancestors, zero opacity and clipped-out regions,
+including Text/bounds fallbacks. A directly selected hidden object still exposes
+its editing controls. Context-menu choices freeze Session/revision while open.
+
+Semantics references: [W3C compositing and blending](https://www.w3.org/TR/compositing-1/)
+(group invariance, isolated transparent backdrop and separable blend functions),
+[Qt QPainter composition modes](https://doc.qt.io/qt-6/qpainter.html#CompositionMode-enum),
+and the [Adobe blend-mode target vocabulary](https://helpx.adobe.com/after-effects/desktop/work-with-layers/work-with-layer-blending-modes/blending-modes-layer-styles.html).

@@ -20,7 +20,15 @@ def check(value, message):
         raise AssertionError(message)
     checks += 1
 
+def remove_migrated_compositing_defaults(document):
+    for obj in document['objects']:
+        check(obj.pop('visible') is True, 'legacy artwork remains visible')
+        check(obj.pop('compositing') == dict(version=1,opacity=dict(literal=1),blend='normal',isolated=False,mask=None), 'legacy appearance stays neutral')
+    return document
+
+
 def remove_migrated_anchor_defaults(document):
+    remove_migrated_compositing_defaults(document)
     for obj in document['objects']:
         check(obj.pop('anchor') == [{'literal':0},{'literal':0}], 'legacy anchor defaults to local origin without changing the affine matrix')
         check(obj.pop('transform_parent') is None, 'legacy transform follows structure')
@@ -194,7 +202,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.10','current writer uses native 0.10')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.11','current writer uses native 0.11')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -206,7 +214,7 @@ new=replies[0]['result'];remove_migrated_anchor_defaults(new);new['version']='0.
 check(new==old,'0.8 migration preserves linked count, angular correction, all paints and text')
 # Catch the documented field vocabulary falling behind real numeric properties.
 # This checks that specific schema boundary; the native codec remains the validator.
-schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.10.schema.json').read_text())
+schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.11.schema.json').read_text())
 field_rules=schema['$defs']['ref']['properties']['field']['anyOf']
 for property_ in replies[1]['result']:
     if property_['type']!='number': continue
@@ -222,6 +230,7 @@ check(run('--validate',expression_doc).returncode==0,'expression document valida
 for version in ('0.8','0.9'):
     legacy_expr=json.loads(json.dumps(expression_doc));legacy_expr['version']=version
     if version=='0.8': remove_migrated_anchor_defaults(legacy_expr)
+    else: remove_migrated_compositing_defaults(legacy_expr)
     check('UNKNOWN_FIELD' in run('--validate',legacy_expr).stderr,'legacy '+version+' rejects expression source')
 for invalid in ({'source':'1','version':2},{'source':'1','version':1,'javascript':True}):
     bad=json.loads(json.dumps(expression_doc));next(o for o in bad['objects'] if o['id']=='path-B')['transform'][4]['expression']=invalid
@@ -239,4 +248,30 @@ with tempfile.TemporaryDirectory() as tmp:
     check(replies[0]['result']==expression_doc and replies[-1]['result']==expression_doc,'native formula source and literals survive exact roundtrip and Undo')
     check(replies[1]['result']['evaluated']==203 and replies[4]['result']['evaluated']==210,'formula command uses the shared evaluator')
     check(replies[2]['result']['trigonometry']=='degrees','formula language is discoverable')
+# Native0.10 remains an exact authored source after default compositing migration.
+expression_path=ornament.with_name('phase-form.nect')
+old=json.loads(expression_path.read_text(encoding='utf-8'));check(old['version']=='0.10','expression fixture stays historical0.10')
+upgraded=subprocess.run([exe,'--serve',str(expression_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
+new=json.loads(upgraded.stdout)['result'];remove_migrated_compositing_defaults(new);new['version']='0.10'
+check(new==old,'0.10 migration retains exact formula source and all authored inputs')
+with tempfile.TemporaryDirectory() as tmp:
+    path=Path(tmp)/'masked.nect';path.write_text(json.dumps(sample),encoding='utf-8')
+    comp=sample['compositions'][0]
+    cmds=[dict(type='mask_objects',composition=comp['id'],parent='',members=comp['roots'],id='mask-group',mask_id='geometry-mask',name='Mask',top=True),
+          dict(type='set',ref=dict(object='mask-group',point='',field='composite.opacity'),value=.5),
+          dict(type='set_compositing',object='mask-group',blend='multiply',isolated=False)]
+    requests=[dict(op='apply',expected_revision=0,commands=cmds),dict(op='inspect'),dict(op='compositing_plan',composition=comp['id']),
+              dict(op='export_svg',composition=comp['id'],artboard=comp['artboards'][0]['id']),dict(op='undo',expected_revision=1),dict(op='inspect')]
+    proc=subprocess.run([exe,'--serve',str(path)],input='\n'.join(json.dumps(r) for r in requests)+'\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
+    replies=[json.loads(line) for line in proc.stdout.splitlines()];check(all(r['ok'] for r in replies),'mask authoring/plan/SVG/Undo succeeds')
+    native=replies[1]['result'];group=next(o for o in native['objects'] if o['id']=='mask-group')
+    check(group['compositing']['mask']['source']==comp['roots'][-1] and group['compositing']['opacity']==dict(literal=.5),'mask uses final paint order and ordinary opacity')
+    plan=replies[2]['result'];check(plan['backdrop']=='transparent' and plan['roots'][0]['isolated'],'mask/blend aggregate is explicitly isolated')
+    svg_root=ET.fromstring(replies[3]['result']);ns={'s':'http://www.w3.org/2000/svg'}
+    clip=svg_root.find('.//s:clipPath',ns);check(clip.attrib['id']=='geometry-mask' and clip.attrib['clipPathUnits']=='userSpaceOnUse','SVG clip uses stable identity and Composition coordinates')
+    group_svg=svg_root.find("s:g[@id='mask-group']",ns);check(group_svg.attrib['opacity']=='0.5' and 'mix-blend-mode:multiply' in group_svg.attrib['style'],'SVG retains aggregate opacity and declared blend')
+    check(svg_root.find(".//s:g[@id='"+comp['roots'][-1]+"']",ns) is None,'hidden mask source not exported as artwork')
+    check(replies[-1]['result']==sample,'one Undo restores all masked-group inputs')
+    check(run('--validate',native).returncode==0,'masked native reopens in a fresh process')
+    native['version']='0.10';check('UNKNOWN_FIELD' in run('--validate',native).stderr,'old format rejects new compositing fields')
 print(f'PASS {checks} process and native migration checks')

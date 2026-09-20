@@ -14,6 +14,11 @@ namespace nect {
 Error::Error(std::string c, const std::string& m) : std::runtime_error(m), code(std::move(c)) {}
 
 namespace {
+// Literal diagnostics need no owned string on the successful evaluation path.
+// Construct the existing Error/message only when its condition actually fails.
+void require(bool ok, const char* code, const char* message) {
+    if(!ok) throw Error(code,message);
+}
 void require(bool ok, const char* code, const std::string& message) {
     if(!ok) throw Error(code,message);
 }
@@ -142,6 +147,7 @@ auto& lookup_property(D& d,const Ref& r) {
     require(it!=d.objects.end(),"MISSING_REFERENCE",r.object);
     auto& o=it->second;
     if(r.point.empty()) {
+        if(r.field=="composite.opacity")return o.compositing.opacity;
         if(o.text&&r.field.starts_with("text.")) {
             const auto name=r.field.substr(5);require(o.text->parameters.contains(name),"MISSING_REFERENCE",r.field);
             return o.text->parameters.at(name);
@@ -206,6 +212,7 @@ std::string unit(const Ref& r) {
 void value_range(const Ref& r,double v) {
     finite(v);
     require(std::abs(v)<=1e9,"OUT_OF_RANGE","Magnitude limit is 1e9 in v0.1");
+    if(r.field=="composite.opacity")require(v>=0&&v<=1,"OUT_OF_RANGE","Compositing opacity must be in [0,1]");
     if(r.field.starts_with("color."))require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB color channels must be in [0,1]");
     if(r.field=="text.font_size")require(v>0&&v<=10000,"OUT_OF_RANGE","Text size must be in (0,10000]");
     if(r.field=="text.frame_width"||r.field=="text.frame_height")require(v>0&&v<=1e6,"OUT_OF_RANGE","Text frame dimensions must be in (0,1000000]");
@@ -244,6 +251,7 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
             index.emplace(Ref{id, "", transform_fields[i]}, &object.transform[i]);
         index.emplace(Ref{id,"","transform.anchor_x"},&object.anchor[0]);
         index.emplace(Ref{id,"","transform.anchor_y"},&object.anchor[1]);
+        index.emplace(Ref{id,"","composite.opacity"},&object.compositing.opacity);
 
         if (object.kind == Kind::group) continue;
         if(object.text)for(const auto& [name,value]:object.text->parameters)index.emplace(Ref{id,"","text."+name},&value);
@@ -314,6 +322,7 @@ void add_default_paint(Document& d,const Id& object,const std::string& type) {
         ids.insert(id);for(const auto& op:item.stack) {
             ids.insert(op.id);if(op.gradient){ids.insert(op.gradient->id);for(const auto& stop:op.gradient->stops)ids.insert(stop.id);}
         }
+        if(item.compositing.mask)ids.insert(item.compositing.mask->id);
         if(item.source){ids.insert(item.source->id);ids.insert(item.source->id+"-point-edit");ids.insert(item.source->id+"-contour");}
         if(item.text)ids.insert(item.text->id);
         for(const auto& contour:item.contours){ids.insert(contour.id);for(const auto& p:contour.points)ids.insert(p.id);}
@@ -447,8 +456,9 @@ std::map<Ref,double> evaluate_properties(const Document& d,const std::vector<Ref
         if(generated) {
             require(std::find(point_fields.begin(),point_fields.end(),r.field)!=point_fields.end(),"MISSING_REFERENCE",r.field);
             roles=&topology(object->second,depth+1);const auto role=roles->positions.find(r.point);
-            require(role!=roles->positions.end(),"MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);position=role->second;
-        } else require(p,"MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
+            if(role==roles->positions.end())throw Error("MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
+            position=role->second;
+        } else if(!p)throw Error("MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
         double v=p?p->literal:0;
         if(!p) {
             const auto& o=object->second;
@@ -572,6 +582,18 @@ void validate(const Document& d) {
     for(const auto& [id,o]:d.objects) {
         add(id);
         require(id==o.id,"ID_MISMATCH",id);
+        const auto& composite=o.compositing;
+        require(composite.version==1,"UNSUPPORTED_COMPOSITING_VERSION","Only compositing version 1 is supported");
+        static const std::array<std::string,12> blends{"normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion"};
+        require(std::find(blends.begin(),blends.end(),composite.blend)!=blends.end(),"UNSUPPORTED_BLEND",composite.blend);
+        if(composite.mask) {
+            const auto& mask=*composite.mask;add(mask.id);identity(mask.source);
+            require(mask.version==1,"UNSUPPORTED_MASK_VERSION","Only geometry mask version 1 is supported");
+            require(mask.fill_rule=="nonzero"||mask.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",mask.fill_rule);
+            require(mask.source!=id,"INVALID_MASK_SOURCE","A geometry mask cannot reference its owner");
+            require(d.objects.contains(mask.source),"MISSING_MASK_SOURCE",mask.source);
+            require(d.objects.at(mask.source).kind!=Kind::group,"INVALID_MASK_SOURCE","Geometry mask source must be a Path or Text");
+        }
         if(o.transform_parent)identity(*o.transform_parent);
         require(o.name.size()<=4096,"LIMIT","Object name too long");
         for(unsigned char ch:o.name)
@@ -651,15 +673,18 @@ void validate(const Document& d) {
     }
     require(point_count<=50000,"LIMIT","Point limit 50000");
 
-    std::set<Id> owned;
-    std::function<void(const Id&,unsigned)> own=[&](const Id& id,unsigned depth) {
+    std::set<Id> owned;std::map<Id,Id> compositions;
+    std::function<void(const Id&,const Id&,unsigned)> own=[&](const Id& id,const Id& composition,unsigned depth) {
         require(depth<=128,"HIERARCHY_DEPTH","Hierarchy depth limit 128");
         require(d.objects.contains(id),"MISSING_OBJECT",id);
-        require(owned.insert(id).second,"INVALID_HIERARCHY","Repeated owner or cycle: "+id);
-        for(const auto& child:d.objects.at(id).children) own(child,depth+1);
+        if(!owned.insert(id).second)throw Error("INVALID_HIERARCHY","Repeated owner or cycle: "+id);
+        compositions.emplace(id,composition);
+        for(const auto& child:d.objects.at(id).children) own(child,composition,depth+1);
     };
-    for(const auto& comp:d.compositions) for(const auto& id:comp.roots) own(id,0);
+    for(const auto& comp:d.compositions) for(const auto& id:comp.roots) own(id,comp.id,0);
     require(owned.size()==d.objects.size(),"ORPHAN_OBJECT","Every object requires exactly one composition/tree owner");
+    for(const auto& [id,object]:d.objects)if(object.compositing.mask)
+        require(compositions.at(id)==compositions.at(object.compositing.mask->source),"CROSS_COMPOSITION","Geometry mask source must belong to the same Composition");
 
     for(const auto& c:d.collections) {
         add(c.id);
@@ -688,13 +713,13 @@ void validate(const Document& d) {
     (void)evaluate_transforms(d,values);
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
         const auto& source=scalar->binding->source;
-        require(values.contains(source),"MISSING_REFERENCE",source.object+"/"+source.point+"/"+source.field);
+        if(!values.contains(source))throw Error("MISSING_REFERENCE",source.object+"/"+source.point+"/"+source.field);
         require(unit(ref)==unit(source),"UNIT_MISMATCH","Implicit unit conversion is not supported");
     }
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->expression) {
         (void)ref;
         for(const auto& source:expression_dependencies(compiled_expression(expressions,*scalar->expression)))
-            require(values.contains(source),"MISSING_REFERENCE",source.object+"/"+source.point+"/"+source.field);
+            if(!values.contains(source))throw Error("MISSING_REFERENCE",source.object+"/"+source.point+"/"+source.field);
     }
     for(const auto& [id,object]:d.objects)if(object.source) {
         (void)id;
@@ -872,13 +897,62 @@ void translate_objects(Document& document,const TranslateObjects& command) {
         require(transform_equal(after.at(id).world[i],target[i]),"TRANSFORM_PRESERVATION",
             "Selected world translation changed through dependent bindings or numeric conditioning");
 }
+void group_contiguous(Document& document,const Id& composition,const Id& parent,const std::vector<Id>& members,const Id& id,const std::string& name) {
+    require(!members.empty()&&!document.objects.contains(id),"INVALID_GROUP","New group ID and members required");
+    auto& list=siblings(document,composition,parent);
+    const auto start=std::search(list.begin(),list.end(),members.begin(),members.end());
+    require(start!=list.end(),"NONCONTIGUOUS_GROUP","Only ordered contiguous siblings can be grouped without changing stacking");
+    const auto index=std::distance(list.begin(),start);
+    list.erase(start,start+static_cast<std::ptrdiff_t>(members.size()));list.insert(list.begin()+index,id);
+    Object group;group.id=id;group.name=name;group.kind=Kind::group;group.children=members;
+    document.objects.emplace(id,std::move(group));center_anchor(document,id,false);
+}
+void put_inside(Document& document,const PutInside& command) {
+    require(!command.members.empty()&&command.members.size()<=1000,"INVALID_GROUP","Put Inside requires 1..1000 preceding siblings");
+    require(document.objects.contains(command.group)&&document.objects.at(command.group).kind==Kind::group,"INVALID_PARENT","Put Inside destination must be a Group");
+    auto& list=siblings(document,command.composition,command.parent);
+    std::set<Id> unique;for(const auto& id:command.members)
+        require(id!=command.group&&unique.insert(id).second,"DUPLICATE_TARGET","Moved roots must be unique and exclude the destination");
+    auto block=command.members;block.push_back(command.group);
+    const auto start=std::search(list.begin(),list.end(),block.begin(),block.end());
+    require(start!=list.end(),"NONCONTIGUOUS_GROUP","Moved siblings must immediately precede the destination Group in order");
+    const auto values=evaluate(document);const auto before=evaluate_transforms(document,values);
+    const auto basis=before.at(command.group).world;
+    list.erase(start,start+static_cast<std::ptrdiff_t>(command.members.size()));
+    auto& children=document.objects.at(command.group).children;children.insert(children.begin(),command.members.begin(),command.members.end());
+    std::optional<Affine> inverse;
+    for(const auto& id:command.members) {
+        if(document.objects.at(id).transform_parent)continue;
+        const auto& old=before.at(id);const auto unchanged=compose(basis,old.local);
+        bool matches=true;for(std::size_t i=0;i<6;++i)matches=matches&&transform_equal(unchanged[i],old.world[i]);
+        if(matches)continue;
+        if(!inverse)inverse=inverse_affine(basis);
+        set_affine(document,id,compose(*inverse,old.world),values);
+    }
+    const auto after=evaluate_transforms(document,evaluate(document));
+    for(const auto& id:command.members)for(std::size_t i=0;i<6;++i)
+        require(transform_equal(before.at(id).world[i],after.at(id).world[i]),"TRANSFORM_PRESERVATION","Put Inside could not preserve moved world transforms through dependent bindings");
+}
 Document edited(const Document& document,const std::vector<Command>& commands) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
 
     auto candidate=document;
     for(const auto& command:commands) std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
-        if constexpr(std::is_same_v<T,SetExpression>) {
+        if constexpr(std::is_same_v<T,SetVisibility>||std::is_same_v<T,SetCompositing>||std::is_same_v<T,SetMask>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);auto& object=candidate.objects.at(c.object);
+            if constexpr(std::is_same_v<T,SetVisibility>)object.visible=c.visible;
+            else if constexpr(std::is_same_v<T,SetCompositing>){object.compositing.blend=c.blend;object.compositing.isolated=c.isolated;}
+            else object.compositing.mask=c.mask;
+        } else if constexpr(std::is_same_v<T,MaskObjects>) {
+            require(c.members.size()>=2&&c.members.size()<=1000,"INVALID_GROUP","Mask With requires 2..1000 ordered contiguous siblings");
+            const auto source=c.top?c.members.back():c.members.front();
+            require(candidate.objects.contains(source)&&candidate.objects.at(source).kind!=Kind::group,"INVALID_MASK_SOURCE","Mask With source must be a Path or Text");
+            group_contiguous(candidate,c.composition,c.parent,c.members,c.id,c.name);
+            candidate.objects.at(c.id).compositing.mask=GeometryMask{c.mask_id,source};candidate.objects.at(source).visible=false;
+        } else if constexpr(std::is_same_v<T,PutInside>) {
+            put_inside(candidate,c);
+        } else if constexpr(std::is_same_v<T,SetExpression>) {
             require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Expression targets must contain 1..1000 unique Scalars");
             const auto expression=compile_expression(c.expression);const auto expected_unit=unit(c.targets.front());
             validate_expression_unit(expression,expected_unit);std::set<Ref> unique;
@@ -1143,38 +1217,7 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
             // Validation rejects surviving references to deleted properties; callers
             // may explicitly unlink/freeze those targets in this same atomic batch.
         } else if constexpr(std::is_same_v<T,GroupContiguous>) {
-            require(!c.members.empty()&&!candidate.objects.contains(c.id),"INVALID_GROUP","New group ID and members required");
-            auto comp=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),
-                [&](const auto& x){return x.id==c.composition;});
-            require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);
-
-            auto* siblings=&comp->roots;
-            if(!c.parent.empty()) {
-                std::set<Id> descendants;
-                std::function<void(const Id&)> collect=[&](const Id& id) {
-                    descendants.insert(id);
-                    for(const auto& x:candidate.objects.at(id).children) collect(x);
-                };
-                for(const auto& id:comp->roots) collect(id);
-                require(descendants.contains(c.parent)&&candidate.objects.at(c.parent).kind==Kind::group,
-                        "INVALID_PARENT",c.parent);
-                siblings=&candidate.objects.at(c.parent).children;
-            }
-
-            auto start=std::search(siblings->begin(),siblings->end(),c.members.begin(),c.members.end());
-            require(start!=siblings->end(),"NONCONTIGUOUS_GROUP",
-                    "Only ordered contiguous siblings can be grouped without changing stacking");
-            auto index=std::distance(siblings->begin(),start);
-            siblings->erase(start,start+static_cast<std::ptrdiff_t>(c.members.size()));
-            siblings->insert(siblings->begin()+index,c.id);
-
-            Object group;
-            group.id=c.id;
-            group.name=c.name;
-            group.kind=Kind::group;
-            group.children=c.members;
-            candidate.objects.emplace(group.id,std::move(group));
-            center_anchor(candidate,c.id,false);
+            group_contiguous(candidate,c.composition,c.parent,c.members,c.id,c.name);
         }
     },command);
 

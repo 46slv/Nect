@@ -49,6 +49,8 @@ public:
     void set_draw_mode(bool enabled);
     void set_anchor_edit(bool enabled);
     bool anchor_edit() const {return anchor_edit_;}
+    void set_show_mask_outline(bool enabled) {show_mask_outline_=enabled;update();}
+    bool show_mask_outline() const {return show_mask_outline_;}
     bool draw_mode() const { return draw_mode_; }
     void set_gradient_edit(Id object, Id operation);
     const Id& gradient_operation() const { return gradient_operation_; }
@@ -113,6 +115,7 @@ private:
         std::vector<EvaluatedPoint> points;
         std::optional<QRectF> text_bounds;
         bool text_overflow=false;
+        bool normal_visible=true;
     };
     enum class Drag { none, pan, anchor, pivot, incoming, outgoing, symmetric, object, gradient_start, gradient_end };
     struct Hit {
@@ -125,6 +128,11 @@ private:
     std::map<Ref, double> values_;
     std::map<Id,EvaluatedTransform> transforms_;
     std::vector<Geometry> geometry_;
+    std::map<Id,std::size_t> geometry_index_;
+    EvaluatedScene scene_;
+    std::map<Id,QPainterPath> mask_paths_;
+    bool show_mask_outline_=true;
+    QString render_error_;
     std::map<Id, QTransform> world_;
     std::map<Id, Id> parents_;
     std::vector<Selection> selections_;
@@ -173,6 +181,7 @@ private:
     Id selection_target(const Geometry&) const;
     const Geometry* hit_path(QPointF screen) const;
     Hit hit_control(QPointF screen) const;
+    bool visible_hit(const Geometry&,QPointF screen) const;
     void select(Id object, Id point = {}, bool enter_parent = false);
     void select_many(std::vector<Selection> items,bool enter_parent=false);
     void toggle_selection(Selection item);
