@@ -353,9 +353,10 @@ j::value gradient_json(const Gradient& g) {
         {"start_x",scalar_json(g.start_x)},{"start_y",scalar_json(g.start_y)},
         {"end_x",scalar_json(g.end_x)},{"end_y",scalar_json(g.end_y)},{"stops",stops}};
 }
-ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool allow_expression=true,bool allow_offset=true) {
+ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool allow_expression=true,bool allow_offset=true,bool allow_stroke_style=true) {
     const auto& o=v.as_object();
-    if(allow_offset)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient","line_join"});
+    if(allow_stroke_style)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient","line_join","line_cap"});
+    else if(allow_offset)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient","line_join"});
     else if(allow_gradient)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient"});
     else keys(o,{"id","type","version","enabled","parameters","composite","fill_rule"});
     ShapeOperation op;op.id=text(o.at("id"));op.type=text(o.at("type"));
@@ -364,7 +365,11 @@ ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool al
     if(op.type=="nect.shape.offset") {
         if(!allow_offset)throw Error("UNSUPPORTED_OPERATOR","Offset Paths requires native 0.12");
         op.line_join=text(o.at("line_join"));
-    } else if(o.contains("line_join"))throw Error("INVALID_OPERATOR_OPTIONS","Line join applies only to Offset Paths");
+    } else if(op.type=="nect.paint.stroke"&&op.version==2) {
+        if(!allow_stroke_style)throw Error("UNSUPPORTED_OPERATOR_VERSION","Stroke v2 requires native 0.13");
+        op.line_join=text(o.at("line_join"));op.line_cap=text(o.at("line_cap"));
+    } else if(o.contains("line_join"))throw Error("INVALID_OPERATOR_OPTIONS","Line join applies only to Offset or Stroke v2");
+    if(o.contains("line_cap")&&!(op.type=="nect.paint.stroke"&&op.version==2))throw Error("INVALID_OPERATOR_OPTIONS","Line cap applies only to Stroke v2");
     for(const auto& p:o.at("parameters").as_object())op.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
     if(const auto* g=o.if_contains("gradient"))op.gradient=read_gradient(*g,allow_expression);
     return op;
@@ -375,6 +380,7 @@ j::value operation_json(const ShapeOperation& op) {
         {"parameters",parameters},{"composite",op.composite},{"fill_rule",op.fill_rule}};
     if(op.gradient)result["gradient"]=gradient_json(*op.gradient);
     if(op.type=="nect.shape.offset")result["line_join"]=op.line_join;
+    if(op.type=="nect.paint.stroke"&&op.version==2){result["line_join"]=op.line_join;result["line_cap"]=op.line_cap;}
     return result;
 }
 
@@ -465,6 +471,10 @@ Command read_command(const j::value& v) {
     if(type=="enable_operation") {
         keys(o,{"type","object","operation","enabled"});
         return EnableOperation{text(o.at("object")),text(o.at("operation")),o.at("enabled").as_bool()};
+    }
+    if(type=="stroke_style") {
+        keys(o,{"type","object","operation","line_cap","line_join","miter_limit"});
+        return StrokeStyle{text(o.at("object")),text(o.at("operation")),text(o.at("line_cap")),text(o.at("line_join")),number(o.at("miter_limit"))};
     }
     if(type=="operation_options") {
         keys(o,{"type","object","operation","composite","fill_rule","line_join"});
@@ -689,7 +699,7 @@ Document decode(std::string_view input) {
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
                 if(minor>=3) {
-                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12));
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12,minor>=13));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
                     if(text(o.at("fill"))!="none")throw Error("UNSUPPORTED_APPEARANCE","Legacy format only supports stroked paths");
@@ -861,7 +871,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
                 out<<"<path transform=\"matrix(";for(const auto n:paint.transform)out<<n<<' ';
                 out<<")\" ";
                 if(fill)out<<"stroke=\"none\" fill-rule=\""<<paint.fill_rule<<"\" fill=\"";
-                else out<<"fill=\"none\" stroke-linecap=\"butt\" stroke-linejoin=\"miter\" stroke-miterlimit=\"4\" stroke=\"";
+                else out<<"fill=\"none\" stroke-linecap=\""<<paint.line_cap<<"\" stroke-linejoin=\""<<paint.line_join<<"\" stroke-miterlimit=\""<<paint.miter_limit<<"\" stroke=\"";
                 if(paint.gradient)out<<"url(#"<<gradient_id<<")\" ";
                 else out<<"rgb("<<paint.rgba[0]*100<<"%,"<<paint.rgba[1]*100<<"%,"<<paint.rgba[2]*100<<"%)\" ";
                 out<<(fill?"fill-opacity":"stroke-opacity")<<"=\""<<paint.rgba[3]<<"\" ";
@@ -1087,6 +1097,13 @@ std::string request(Session& session,std::string_view input) {
                 j::object definition{{"type",type},{"version",1},{"input","local_paths_and_paint"},
                     {"output","local_paths_and_paint"},{"bypass","preserve_input"},
                     {"parameters",parameters},{"template",operation_json(defaults)}};
+                if(defaults.type=="nect.paint.stroke") {
+                    definition["supported_versions"]=j::array{1,2};
+                    definition["style_command"]="stroke_style";
+                    definition["caps"]=j::array{"butt","round","square"};definition["joins"]=j::array{"miter","round","bevel"};
+                    definition["miter_limit_range"]=j::array{1,1000};
+                    definition["v1_style"]="butt/miter/4; explicitly promote to v2 using stroke_style";
+                }
                 if(defaults.type=="nect.shape.offset") {
                     definition["space"]="object-local after preceding path operations";
                     definition["scope"]="current paths and earlier paint geometry; paint coordinate bases retained";

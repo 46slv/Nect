@@ -75,7 +75,11 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
                 std::stable_sort(resolved.stops.begin(),resolved.stops.end(),[](const auto& a,const auto& b){return a.offset<b.offset;});
                 paint.gradient=std::move(resolved);
             }
-            if(op.type=="nect.paint.stroke")paint.width=v("width");
+            if(op.type=="nect.paint.stroke") {
+                paint.width=v("width");paint.line_cap=op.line_cap;paint.line_join=op.line_join;
+                if(op.version==2)paint.miter_limit=v("miter_limit");
+
+            }
             if(op.composite=="above")shape.paints.push_back(std::move(paint));
             else shape.paints.insert(shape.paints.begin(),std::move(paint));
         } else if(op.type=="nect.shape.repeater") {
@@ -117,6 +121,20 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
         if(shape.paints.size()>8192)throw Error("OUTPUT_LIMIT","Paint layer limit 8192 per object");
         if(shape.paths.size()>4096||anchors(shape.paths)>250000||painted_anchors()>250000)
             throw Error("OUTPUT_LIMIT","Shape output exceeds 4096 instances or 250000 geometry/paint anchors per object");
+    }
+    // Derive degenerate subpaths after the entire stack: downstream Offset can
+    // replace earlier paint geometry; Repeater can transform whole paint layers.
+    for(auto& paint:shape.paints)if(paint.type=="nect.paint.stroke"&&paint.line_cap!="butt")for(const auto& instance:paint.paths)for(const auto& contour:*instance.contours) {
+        if(contour.points.empty()||(!contour.closed&&contour.points.size()==1))continue;
+        const auto first=map_point(instance.transform,contour.points.front().anchor);
+        const auto same=[&](Vec2 point){const auto p=map_point(instance.transform,point);return p.x==first.x&&p.y==first.y;};
+        const auto count=contour.closed?contour.points.size():contour.points.size()-1;
+        bool degenerate=true;
+        for(std::size_t i=0;i<count;++i) {
+            const auto& a=contour.points[i];const auto& b=contour.points[(i+1)%contour.points.size()];
+            if(!same(a.outgoing)||!same(b.incoming)||!same(b.anchor)){degenerate=false;break;}
+        }
+        if(degenerate)paint.degenerate_subpaths.push_back(first);
     }
     return shape;
 }

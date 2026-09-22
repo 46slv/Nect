@@ -1381,3 +1381,35 @@ SVG intake/output are fixed to butt caps/miter joins/miterlimit4. Rounded icon
 lines and beveled strokes require source-altering workarounds or fail import.
 Next bounded Mission investigates retained stroke style across core, renderer,
 UI and SVG interoperability, using existing versioned ShapeOperation ownership.
+
+## Stroke-authoring — versioned core, rendering and export checkpoint
+
+Added explicit `stroke_style` Session/API/MCP mutation: butt/round/square caps,
+miter/round/bevel joins and linkable miter limit [1,1000]. Individual Stroke
+promotion to behavior v2 preserves default v1 encoding and butt/miter/4 behavior;
+native remains0.13. Native roundtrip and Undo/Redo preserve version/style exactly.
+Shared paint feeds Canvas/PNG/SVG and styled hit/compositing bounds. Derived
+zero-length segment caps supplement Qt; one combined outline prevents overlapping
+translucent stroke/caps from applying alpha twice. No source geometry rewrite.
+See docs/model-v0.md for compatibility, scope and official SVG/Qt references.
+
+Release build succeeded (`build/daily-layout/stroke-build.log`). Initial focused
+run exposed a real compatibility bug: legacy `stroke.*` aliases treated newly
+indexed miter_limit as a color channel. Repaired alias range validation and added
+explicit coverage. Initial failures preserved in `stroke-focused.log`; test MCP
+cleanup also reported a temporary lock on failure, then its finally block closed
+the owned desktop (no live process remained). Repair build succeeded
+(`stroke-repair-build.log`); stroke/MCP **2/2 passed in5.52s**
+(`stroke-repaired.log`). Full Release regression **40/40 passed in34.43s**
+(`stroke-regression.log`). Tests cover invalid/atomic mutations, live driven miter,
+semantic/MCP readback and Undo, native equality, SVG style attributes and PNG
+pixel probes for caps/joins/miter fallback/zero-length/alpha/compositing bounds.
+
+This is core/renderer/export acceptance, not completed GUI authoring. Inspector
+controls, SVG style import and actual visible Windows style interaction/recovery
+acceptance remain the next checkpoint. Offscreen Qt pixel evidence is not a claim
+of new visible-GUI acceptance or a new performance benchmark. Previous visible
+30fps/release-floor receipt remains recorded above;60fps was not achieved there.
+
+Latest user instruction requests stopping after this checkpoint, with a report
+and next-Task prompt. No next-checkpoint implementation or successor launch.

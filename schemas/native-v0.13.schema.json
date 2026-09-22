@@ -1147,6 +1147,95 @@
             "fill_rule",
             "line_join"
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "nect.paint.stroke"
+            },
+            "version": {
+              "const": 2
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "composite": {
+              "enum": [
+                "above",
+                "below"
+              ]
+            },
+            "fill_rule": {
+              "enum": [
+                "nonzero"
+              ]
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "r": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "g": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "b": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "a": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "width": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "miter_limit": {
+                  "$ref": "#/$defs/scalar"
+                }
+              },
+              "required": [
+                "r",
+                "g",
+                "b",
+                "a",
+                "width",
+                "miter_limit"
+              ]
+            },
+            "gradient": {
+              "$ref": "#/$defs/gradient"
+            },
+            "line_cap": {
+              "enum": [
+                "butt",
+                "round",
+                "square"
+              ]
+            },
+            "line_join": {
+              "enum": [
+                "miter",
+                "round",
+                "bevel"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "version",
+            "enabled",
+            "parameters",
+            "composite",
+            "fill_rule",
+            "line_cap",
+            "line_join"
+          ]
         }
       ]
     },

@@ -176,6 +176,12 @@ straight alpha and full numeric precision; unsupported richer structured colors
 reject instead of silently becoming HEX. Pinned user palettes and copied history
 across application restarts are not implemented in this slice.
 
+The semantic `stroke_style` command explicitly promotes a Stroke to behavior v2
+with butt/round/square caps, miter/round/bevel joins and a linkable miter limit
+(1–1000). Canvas/PNG/SVG output share this style; native0.13 and Undo preserve it.
+Default Stroke v1 remains butt/miter/4. Inspector controls and SVG style import
+are pending the next checkpoint; see [the contract](docs/model-v0.md#stroke-behavior-v2-within-native-013).
+
 The Shape stack supports multiple solid Fill/Stroke entries, HEX RGBA/color
 editing, enable/reorder/remove and Repeater. Add a radial repeater for a fixed-step
 12 × 30° starting point. Repeater before paint creates a compound path; after

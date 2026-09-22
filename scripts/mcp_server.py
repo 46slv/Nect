@@ -62,6 +62,7 @@ TOOLS = [
                      'duplicate_objects {objects:[id],prefix:unused ID prefix of 1..48 characters} makes independent in-place copies, once per selected Group closure, in one Composition. '
                      'Internal bindings/expressions/masks/Transform Parents follow copied IDs; outgoing references, Named Colors and image assets stay shared. Existing inbound references and Collection membership stay unchanged. '
                      'Copies follow each selected sibling run in paint order. apply returns created_ids for new objects; inspect reads their hierarchy and fresh nested IDs. Use translate_objects explicitly to move copies. '
+                     'stroke_style {object,operation,line_cap:butt/round/square,line_join:miter/round/bevel,miter_limit:number} explicitly promotes a Stroke to behavior v2 and retains source geometry. Miter limit [1,1000] then becomes a linkable op.OP.miter_limit Scalar; changing a driven limit rejects. Existing v1 strokes stay butt/miter/4. '
                      'set_gradient replaces the authored gradient on one paint; preserve its IDs and existing bindings when editing stops. '
                      'Gradient numeric refs are op.OP_ID.gradient.GRADIENT_ID.start_x/start_y/end_x/end_y or stop.STOP_ID.offset/r/g/b/a. '
                      'Artboard commands: add_artboard {composition,artboard,index}, update_artboard {composition,artboard}, '

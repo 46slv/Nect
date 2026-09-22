@@ -285,6 +285,14 @@ try:
             assert all(abs(v-e)<1e-8 for v,e in zip(rotated_transforms[id_]['world'],[-b,a,-d,c,-ty,tx]))
         assert core('undo',expected_revision=rev)['ok'];rev+=1
         assert core('inspect')['result']==before_translation
+        stroke_before=core('inspect')['result']
+        rev=apply([dict(type='stroke_style',object='path-2',operation='path-2-stroke',line_cap='round',line_join='bevel',miter_limit=6)],rev)
+        styled=next(o for o in core('inspect')['result']['objects'] if o['id']=='path-2')
+        stroke=next(op for op in styled['stack'] if op['id']=='path-2-stroke')
+        assert stroke['version']==2 and stroke['line_cap']=='round' and stroke['line_join']=='bevel'
+        assert core('get',ref=dict(object='path-2',point='',field='op.path-2-stroke.miter_limit'))['result']['evaluated']==6
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('inspect')['result']==stroke_before
         # Formulas use the live Session and survive its normal save/restart path.
         formula='ref("path-9","","transform.tx") * 2 + 5'
         rev=apply([dict(type='set_expression',targets=batch_refs,expression=dict(source=formula,version=1),replace_binding=False)],rev)

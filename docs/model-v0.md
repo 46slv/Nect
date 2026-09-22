@@ -204,7 +204,7 @@ Scope/order follows the bounded AE counterpart:
   uses copy index + Offset around the local Anchor. Composite controls copy order;
   Start/End Opacity interpolates across existing paint copies. A Repeater before
   any paint has no paint opacity to alter. No fit-to-arc mode is implied.
-- Fill supports nonzero/evenodd. Stroke uses butt caps and miter joins (limit 4).
+- Fill supports nonzero/evenodd. Stroke v1 uses butt caps and miter joins (limit 4).
   Width zero is invisible. Color is sRGB RGBA, normal source-over compositing.
 
 Limits are explicit: 128 entries, 4096 generated path instances, 8192 paint layers
@@ -884,3 +884,36 @@ transform-dependent geometry changing through the reorganization rejects
 `UNGROUP_DEPENDENCY`. Group Anchor is removed with its container; child Anchors
 and local geometry remain authored unchanged. This is bounded source-preserving
 reorganization, not a flatten-compositing conversion.
+
+## Stroke behavior v2 within native 0.13
+
+`stroke_style {object, operation, line_cap, line_join, miter_limit}` explicitly
+promotes one existing Stroke to behavior version 2. Caps are `butt`, `round`,
+`square`; joins are `miter`, `round`, `bevel`. Miter limit is a Scalar in [1,1000]
+addressable as `op.OP.miter_limit`. The command preserves an unchanged driven
+limit and rejects changing it with `DRIVEN_PROPERTY`. Invalid styles/ranges reject
+the entire command batch. Source geometry, IDs and stack order are unchanged.
+Undo restores the exact prior version; native save/reopen retains version and style.
+
+Default/add-operation Stroke remains v1: its encoded fields and butt/miter/4
+behavior do not change. Version 2 requires retained `line_cap`, `line_join` and
+`parameters.miter_limit`; native 0.13 schema accepts both versions. Older behavior
+readers reject v2 rather than silently discarding its appearance. Native <=0.12
+cannot contain v2. This is an operator behavior extension, not a global migration.
+
+Shared evaluated paint carries cap/join/limit to Canvas, PNG and SVG. Miter ratio
+uses SVG semantics (`Qt::SvgMiterJoin`), falling back to bevel beyond the limit.
+Round/square caps cover wholly zero-length subpaths with at least one segment;
+an open move-only subpath has no ink. Degeneracy checks include used cubic handles
+and path-instance transforms after stack evaluation. Canvas supplements Qt's
+omitted zero-length segments with a single combined stroke outline so translucent
+paint is not applied twice at overlaps. Paint transforms/gradients/compositing
+retain their existing coordinate space. Width zero remains invisible.
+
+References: [SVG stroke semantics](https://www.w3.org/TR/svg-strokes/),
+[SVG zero-length segments](https://www.w3.org/TR/SVG2/paths.html#Zero-length-path-segments),
+[Qt 6.5 QPen](https://doc.qt.io/qt-6.5/qpen.html), and
+[Qt stroker implementation](https://raw.githubusercontent.com/qt/qtbase/6.5/src/gui/painting/qstroker.cpp).
+Inspector style controls and SVG intake of these styles are the next checkpoint;
+this contract does not claim those adapters yet. Dashes, pressure, brushes and
+variable width remain unsupported.

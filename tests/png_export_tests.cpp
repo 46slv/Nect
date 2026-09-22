@@ -46,9 +46,39 @@ void group(Document& d,const Id& id,std::vector<Id> children) {
     add(d,std::move(object));
 }
 
+void stroke_pixels() {
+    auto d=document(false);Object line;line.id="line";line.name="Line";
+    Contour c;c.id="c";
+    for(const auto& xy:std::vector<Vec2>{{100,100},{200,100}}){Point p;p.id="p"+std::to_string(c.points.size());p.x.literal=xy.x;p.y.literal=xy.y;c.points.push_back(p);}
+    line.contours={c};auto stroke=default_operation("stroke","nect.paint.stroke");stroke.parameters.at("width").literal=20;line.stack={stroke};add(d,line);
+    auto render=[&](const Document& source,const char* cap,const char* join="miter",double limit=4){Session s(source);s.apply({StrokeStyle{"line","stroke",cap,join,limit}},0);return Canvas::render_artboard(s.document(),"composition","artboard",1,false);};
+    auto butt=render(d,"butt"),round=render(d,"round"),square=render(d,"square");
+    check(butt.pixelColor(95,100).alpha()==0,"Butt cap stops at endpoint");
+    check(round.pixelColor(95,100).alpha()==255&&round.pixelColor(91,91).alpha()==0,"Round cap geometry");
+    check(square.pixelColor(91,91).alpha()==255,"Square cap geometry");
+    auto dot=d;dot.objects.at("line").contours[0].points[1].x.literal=100;
+    round=render(dot,"round");square=render(dot,"square");
+    check(round.pixelColor(100,100).alpha()==255&&round.pixelColor(91,91).alpha()==0&&square.pixelColor(91,91).alpha()==255,"Zero-length segment caps render");
+    dot.objects.at("line").contours[0].points.resize(1);
+    check(render(dot,"round").pixelColor(100,100).alpha()==0,"Move-only path has no cap");
+    dot.objects.at("line").contours[0].closed=true;
+    check(render(dot,"round").pixelColor(100,100).alpha()==255,"Closed zero-length path has cap");
+    auto overlap=d;auto zero=overlap.objects.at("line").contours[0];zero.id="zero";
+    for(std::size_t i=0;i<zero.points.size();++i){zero.points[i].id="zero"+std::to_string(i);zero.points[i].x.literal=150;}
+    overlap.objects.at("line").contours.push_back(zero);overlap.objects.at("line").stack[0].parameters.at("a").literal=.5;
+    check(std::abs(render(overlap,"round").pixelColor(150,100).alpha()-128)<=1,"Overlapping cap and stroke paint alpha once");
+    auto acute=d;auto& points=acute.objects.at("line").contours[0].points;points[0].y.literal=200;points[1].x.literal=150;
+    Point end;end.id="end";end.x.literal=200;end.y.literal=200;points.push_back(end);
+    check(render(acute,"butt","miter",4).pixelColor(149,82).alpha()>200,"SVG miter extends at acute corner");
+    check(render(acute,"butt","miter",1).pixelColor(149,82).alpha()==0,"Miter limit falls back to bevel");
+    check(render(acute,"butt","round").pixelColor(149,92).alpha()>200&&render(acute,"butt","bevel").pixelColor(149,92).alpha()==0,"Round and bevel joins differ");
+    group(dot,"group",{"line"});dot.objects.at("group").compositing.opacity.literal=.5;
+    check(std::abs(render(dot,"square").pixelColor(91,91).alpha()-128)<=1,"Compositing bounds preserve zero-length caps");
+}
 int main(int argc,char** argv) {
  QApplication app(argc,argv);
  try {
+  stroke_pixels();
   auto d=document(false);add(d,rectangle("a",100,100,160,160,Qt::red));add(d,rectangle("b",180,120,160,160,Qt::red));
   group(d,"group",{"a","b"});d.objects.at("group").compositing.opacity.literal=.5;
   auto& board=d.compositions[0].artboards[0];board.x=100;board.y=100;board.width=300;board.height=240;

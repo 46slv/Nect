@@ -57,6 +57,10 @@ QPainterPath qt_path(const std::vector<EvaluatedContour>& contours,bool close_op
     }
     return result;
 }
+QPainterPath qt_stroke(const QPainterPath& path,double width,Qt::PenCapStyle cap,Qt::PenJoinStyle join,double miter_limit) {
+    QPainterPathStroker stroke;stroke.setWidth(width);stroke.setCapStyle(cap);stroke.setJoinStyle(join);stroke.setMiterLimit(miter_limit);
+    return stroke.createStroke(path);
+}
 QPainter::CompositionMode blend_mode(const std::string& blend) {
     static const std::map<std::string,QPainter::CompositionMode> modes{
         {"normal",QPainter::CompositionMode_SourceOver},{"multiply",QPainter::CompositionMode_Multiply},
@@ -217,6 +221,9 @@ void Canvas::refresh() {
                     }
                     paint.fill = layer.type == "nect.paint.fill";
                     paint.width = layer.width;
+                    paint.cap=layer.line_cap=="round"?Qt::RoundCap:layer.line_cap=="square"?Qt::SquareCap:Qt::FlatCap;
+                    paint.join=layer.line_join=="round"?Qt::RoundJoin:layer.line_join=="bevel"?Qt::BevelJoin:Qt::SvgMiterJoin;
+                    paint.miter_limit=layer.miter_limit;
                     for (const auto& instance : layer.paths) {
                         auto found = contour_paths.find(instance.contours.get());
                         if (found == contour_paths.end())
@@ -224,6 +231,16 @@ void Canvas::refresh() {
                         paint.path.addPath(qt_transform(instance.transform).map(found->second));
                     }
                     paint.path.setFillRule(layer.fill_rule == "evenodd" ? Qt::OddEvenFill : Qt::WindingFill);
+                    if(!paint.fill&&paint.width>0&&!layer.degenerate_subpaths.empty()) {
+                        QPainterPath caps;caps.setFillRule(Qt::WindingFill);const auto radius=paint.width/2;
+                        for(const auto& center:layer.degenerate_subpaths) {
+                            if(paint.cap==Qt::RoundCap)caps.addEllipse(QPointF(center.x,center.y),radius,radius);
+                            else caps.addRect(QRectF(center.x-radius,center.y-radius,paint.width,paint.width));
+                        }
+                        // One filled outline avoids applying translucent/gradient
+                        // paint twice where a zero-length cap overlaps other ink.
+                        paint.stroke_outline=qt_stroke(paint.path,paint.width,paint.cap,paint.join,paint.miter_limit).united(caps);
+                    }
                     item.paints.push_back(std::move(paint));
                 }
                 for (const auto& contour : path_contours(object,&values_)) {
@@ -580,12 +597,8 @@ const Canvas::Geometry* Canvas::hit_path(QPointF screen) const {
             const auto painted_path = painted_transform.map(paint->path);
             if (paint->fill && painted_path.contains(screen)) return &*i;
             if (!paint->fill) {
-                QPainterPathStroker stroke;
-                stroke.setWidth(paint->width);
-                stroke.setCapStyle(Qt::FlatCap);
-                stroke.setJoinStyle(Qt::SvgMiterJoin);
-                stroke.setMiterLimit(4);
-                if (painted_transform.map(stroke.createStroke(paint->path)).contains(screen)) return &*i;
+                const auto outline=paint->stroke_outline?*paint->stroke_outline:qt_stroke(paint->path,paint->width,paint->cap,paint->join,paint->miter_limit);
+                if (painted_transform.map(outline).contains(screen)) return &*i;
             }
             QPainterPathStroker tolerance;
             tolerance.setWidth(hit_radius * 2);
@@ -681,15 +694,15 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
             for (const auto& paint : item.paints) {
                 if (paint.color.alphaF() <= 0 || (!paint.fill && paint.width <= 0)) continue;
                 target.setWorldTransform(paint.transform * item.world * transform*QTransform::fromTranslate(-origin.x(),-origin.y()));
-                if (paint.fill) {
+                if (paint.fill||paint.stroke_outline) {
                     target.setPen(Qt::NoPen);
                     target.setBrush(paint.brush);
                 } else {
                     target.setBrush(Qt::NoBrush);
-                    QPen pen(paint.brush, paint.width, Qt::SolidLine, Qt::FlatCap, Qt::SvgMiterJoin);
-                    pen.setMiterLimit(4);target.setPen(pen);
+                    QPen pen(paint.brush, paint.width, Qt::SolidLine, paint.cap, paint.join);
+                    pen.setMiterLimit(paint.miter_limit);target.setPen(pen);
                 }
-                target.drawPath(paint.path);
+                target.drawPath(paint.stroke_outline?*paint.stroke_outline:paint.path);
             }
         };
             if(!scene_.requires_compositing) {
@@ -727,11 +740,10 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                             const auto transform=paint.transform*item->world;
                             if(paint.fill)result=result.united(transform.map(paint.path).boundingRect());
                             else {
-                                QPainterPathStroker stroke;stroke.setWidth(paint.width);stroke.setCapStyle(Qt::FlatCap);
-                                stroke.setJoinStyle(Qt::SvgMiterJoin);stroke.setMiterLimit(4);
+                                const auto outline=paint.stroke_outline?*paint.stroke_outline:qt_stroke(paint.path,paint.width,paint.cap,paint.join,paint.miter_limit);
                                 // The control hull conservatively contains the
                                 // generated stroke curves under affine transforms.
-                                result=result.united(transform.map(stroke.createStroke(paint.path)).controlPointRect());
+                                result=result.united(transform.map(outline).controlPointRect());
                             }
                         }
                         for(const auto& child:node.children)result=result.united(painted_bounds(child));

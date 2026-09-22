@@ -225,7 +225,8 @@ void value_range(const Ref& r,double v) {
        r.field=="generator.width"||r.field=="generator.height"||r.field=="generator.outer_radius"||r.field=="generator.inner_radius")
         require(v>=0,"OUT_OF_RANGE","Negative length");
     if(r.field=="generator.points")require(v>=2&&v<=256&&std::floor(v)==v,"OUT_OF_RANGE","Points must be an integer from 2 to 256");
-    if(r.field.starts_with("stroke.")&&r.field!="stroke.width")
+    if(r.field=="stroke.miter_limit")require(v>=1&&v<=1000,"OUT_OF_RANGE","Miter limit must be in [1,1000]");
+    if(r.field.starts_with("stroke.")&&r.field!="stroke.width"&&r.field!="stroke.miter_limit")
         require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB/alpha channel outside [0,1]");
     if(r.field.starts_with("op.")) {
         const auto name=operation_address(r.field).second;
@@ -235,7 +236,7 @@ void value_range(const Ref& r,double v) {
             require(v>=0&&v<=1,"OUT_OF_RANGE","sRGB/opacity outside [0,1]");
         if(name=="width")require(v>=0,"OUT_OF_RANGE","Negative stroke width");
         if(name=="amount")require(std::abs(v)<=1e6,"OUT_OF_RANGE","Offset amount magnitude limit 1000000");
-        if(name=="miter_limit")require(v>=1&&v<=1000,"OUT_OF_RANGE","Offset miter limit must be in [1,1000]");
+        if(name=="miter_limit")require(v>=1&&v<=1000,"OUT_OF_RANGE","Miter limit must be in [1,1000]");
         if(name=="copies")require(v>=0&&v<=1000&&std::floor(v)==v,"OUT_OF_RANGE","Copies must be an integer from 0 to 1000");
         if(name=="scale_x"||name=="scale_y")require(v>0&&v<=100,"OUT_OF_RANGE","Repeater scale must be positive and <=100");
         if(name=="offset")require(std::abs(v)<=1000,"OUT_OF_RANGE","Repeater offset magnitude limit 1000");
@@ -661,8 +662,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             } else require(!o.text,"INVALID_OBJECT","Path cannot own text source");
             require(o.stack.size()<=128,"LIMIT","Shape stack limit 128");
             for(const auto& op:o.stack) {
-                add(op.id);require(op.version==1,"UNSUPPORTED_OPERATOR_VERSION",op.type);
-                const auto expected=default_operation(op.id,op.type);
+                add(op.id);const bool styled_stroke=op.type=="nect.paint.stroke"&&op.version==2;
+                require(op.version==1||styled_stroke,"UNSUPPORTED_OPERATOR_VERSION",op.type);
+                auto expected=default_operation(op.id,op.type);
+                if(styled_stroke)expected.parameters.emplace("miter_limit",Scalar{4,{}});
                 require(op.parameters.size()==expected.parameters.size(),"INVALID_OPERATOR_PARAMETERS",op.type);
                 for(const auto& [name,value]:op.parameters){(void)value;require(expected.parameters.contains(name),"INVALID_OPERATOR_PARAMETERS",name);}
                 require(op.composite=="above"||op.composite=="below","UNSUPPORTED_COMPOSITE",op.composite);
@@ -671,7 +674,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                 if(op.type=="nect.shape.offset") {
                     require(op.composite=="below","INVALID_OPERATOR_OPTIONS","Offset has no Above/Below compositing option");
                     require(op.line_join=="miter"||op.line_join=="round"||op.line_join=="bevel","INVALID_OPERATOR_OPTIONS","Offset joins are miter, round or bevel");
-                } else require(op.line_join=="miter","INVALID_OPERATOR_OPTIONS","Line join only applies to Offset");
+                } else if(styled_stroke)require(op.line_join=="miter"||op.line_join=="round"||op.line_join=="bevel","INVALID_OPERATOR_OPTIONS","Stroke joins are miter, round or bevel");
+                else require(op.line_join=="miter","INVALID_OPERATOR_OPTIONS","Custom line join requires Offset or Stroke v2");
+                if(styled_stroke)require(op.line_cap=="butt"||op.line_cap=="round"||op.line_cap=="square","INVALID_OPERATOR_OPTIONS","Stroke caps are butt, round or square");
+                else require(op.line_cap=="butt","INVALID_OPERATOR_OPTIONS","Custom line cap requires Stroke v2");
                 if(op.gradient) {
                     require(op.type=="nect.paint.fill"||op.type=="nect.paint.stroke","INVALID_DOMAIN","Gradient requires a paint operation");
                     const auto& g=*op.gradient;add(g.id);
@@ -1478,6 +1484,14 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& op=operation(candidate.objects.at(c.object),c.operation);op.composite=c.composite;op.fill_rule=c.fill_rule;
             if(c.line_join)op.line_join=*c.line_join;
+        } else if constexpr(std::is_same_v<T,StrokeStyle>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& op=operation(candidate.objects.at(c.object),c.operation);
+            require(op.type=="nect.paint.stroke","INVALID_DOMAIN","Stroke style requires a Stroke operation");
+            const auto ref=operation_ref(c.object,c.operation,"miter_limit");value_range(ref,c.miter_limit);
+            if(op.version==1)op.parameters.emplace("miter_limit",Scalar{c.miter_limit,{}});
+            else set_changed_scalar(candidate,ref,c.miter_limit,evaluate(candidate));
+            op.version=2;op.line_cap=c.line_cap;op.line_join=c.line_join;
         } else if constexpr(std::is_same_v<T,SetGradient>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             operation(candidate.objects.at(c.object),c.operation).gradient=c.gradient;

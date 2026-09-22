@@ -69,7 +69,7 @@ std::size_t extra(const Primitive& v){return total(extra(v.id),extra(v.type),ext
 std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides));}
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
 std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops));}
-std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.gradient),extra(v.line_join));}
+std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
 std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule));}
 std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.mask));}
 std::size_t extra(const ImageSource& v){return total(extra(v.asset),extra(v.width),extra(v.height));}
@@ -151,6 +151,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,DistributeObjects>)return "Equal object gaps: "+c.axis;
         else if constexpr(std::is_same_v<T,AlignObjects>)return "Align objects: "+c.axis+" "+c.alignment+(c.artboard?" to Artboard":" to selection");
         else if constexpr(std::is_same_v<T,TransformObjects>)return "Transform "+std::to_string(c.objects.size())+" objects: "+name(c.objects.front());
+        else if constexpr(std::is_same_v<T,StrokeStyle>)return "Stroke style: "+name(c.object);
         else if constexpr(std::is_same_v<T,TranslateObjects>)return "Move "+std::to_string(c.objects.size())+" objects: "+name(c.objects.front());
         else if constexpr(std::is_same_v<T,DeleteObjects>)return "Delete "+std::to_string(c.objects.size())+" object(s): "+name(c.objects.front());
         else if constexpr(std::is_same_v<T,DuplicateObjects>)return "Duplicate "+std::to_string(c.objects.size())+" object(s): "+name(c.objects.front());

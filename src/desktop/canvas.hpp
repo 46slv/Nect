@@ -118,6 +118,10 @@ private:
             QBrush brush;
             bool fill = false;
             double width = 0;
+            Qt::PenCapStyle cap=Qt::FlatCap;
+            Qt::PenJoinStyle join=Qt::SvgMiterJoin;
+            double miter_limit=4;
+            std::optional<QPainterPath> stroke_outline;
         };
         Id id;
         std::vector<Id> ancestors;

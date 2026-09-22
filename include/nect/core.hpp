@@ -139,7 +139,8 @@ struct ShapeOperation {
     std::string composite="below";
     std::string fill_rule="nonzero";
     std::optional<Gradient> gradient;
-    std::string line_join="miter"; // Offset only: miter (bevel fallback), round, bevel.
+    std::string line_join="miter"; // Offset v1 / Stroke v2: miter, round, bevel.
+    std::string line_cap="butt"; // Stroke v2: butt, round, square; v1 stays butt.
     bool operator==(const ShapeOperation&) const = default;
 };
 ShapeOperation default_operation(Id id,const std::string& type);
@@ -274,6 +275,7 @@ struct AddOperation { Id object; ShapeOperation operation; std::size_t index; };
 struct RemoveOperation { Id object; Id operation; };
 struct ReorderOperations { Id object; std::vector<Id> order; };
 struct EnableOperation { Id object; Id operation; bool enabled; };
+struct StrokeStyle { Id object,operation; std::string line_cap="butt",line_join="miter"; double miter_limit=4; };
 struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; std::optional<std::string> line_join; };
 struct SetGradient { Id object; Id operation; std::optional<Gradient> gradient; };
 
@@ -327,7 +329,7 @@ struct AlignObjects { std::vector<Id> objects; std::string axis,alignment; std::
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,ConvertToPath,AddOperation,RemoveOperation,
-    ReorderOperations,EnableOperation,OperationOptions,SetGradient,AddArtboard,UpdateArtboard,
+    ReorderOperations,EnableOperation,OperationOptions,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
@@ -365,6 +367,11 @@ struct PaintLayer {
     std::string type;
     std::array<double,4> rgba{};
     double width=0;
+    std::string line_cap="butt",line_join="miter";
+    double miter_limit=4;
+    // Zero-length stroked subpaths (at least one segment), in paint coordinates.
+    // Separate from ordinary paths because some renderers discard those segments.
+    std::vector<Vec2> degenerate_subpaths;
     std::string fill_rule="nonzero";
     Affine transform=identity_matrix;
     std::vector<PathInstance> paths;
