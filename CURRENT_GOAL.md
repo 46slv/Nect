@@ -14,19 +14,19 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Implement a shared world-space affine transform for a selected set with a bounds-center or explicit pivot and effective-parent compensation.
+**Goal:** Expose shared-pivot rotation, scale and reflection as a practical selection workflow through existing Edit/context/Inspector entrypoints.
 
-**Current phase:** Responsive-editing Mission accepted; documenting/synchronizing its final checkpoint. Live multi-selection Inspector offers translation/alignment/matrix fields; rotation/scale currently require selecting one object or temporary Group.
+**Current phase:** Core/API/MCP checkpoint accepted: focused4/4 and full39/39,37.58s; saving/synchronizing before GUI implementation.
 
-**Proven:** `docs/first-usable.md`: retained performance receipts; latest actual Windows benchmark passes30fps interval and33ms release floor,60fps false. Notification repair focused7/7 plus integration7/7. Earlier core full39/39 passed.
+**Proven:** `docs/first-usable.md` records common-pivot contract tests, native/Undo roundtrip and actual formal MCP. Responsive-editing receipt passes30fps interval/33ms release,60fps remains false.
 
-**Next task:** Implement bounded TransformObjects in existing core/IO/History/MCP owners; test shared pivot, selected ancestors/followers, driven changes, singular parents, atomic rejection and native/Undo roundtrip.
+**Next task:** Add bounded selection transform dialog with explicit common center/custom pivot, degree rotation, scale percentages and reflection controls; freeze selected objects/session/revision until acceptance.
 
-**Approach:** Compute desired world matrices from one pre-command snapshot; preserve unchanged inherited local matrices, invert only external effective parent bases; verify selected world targets after dependency evaluation. Reuse canonical transforms and existing setters; no new transform authority/framework.
+**Approach:** One TransformObjects command on acceptance; cancel/no-op leaves state unchanged. Reject point/mixed context. Preserve single-object Anchor controls. Verify GUI cancellation/conflict/refusal, actual Windows artwork before/after, Undo/Redo/save/reopen/export.
 
-**Done for next:** Core/API/MCP contracts prove atomic common-pivot edits and refusal cases. Save coherent checkpoint, push working branch, verify remote equality, then add GUI in this Task.
+**Done for next:** Real GUI workflow and semantic persistence verified, docs and coherent checkpoint saved, working branch pushed and remote equality verified. Then reassess next production value in this Task.
 
-**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `84b5f94ebaaab05ba9d418a0a063c4b729de0625`, final projection-notification changes ready to commit. Owned GUI closed. Full access/never approvals. Native0.13.
+**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `163c42588722fccafe44c061d9e086fe23b40449`, common-pivot command changes uncommitted. Owned GUI closed. Full access/never approvals. Native0.13.
 
 **Authority:** Current explicit continuous-development instruction permits accepted-direction feature selection and working-branch synchronization. No ordinary confirmation/new Task.
 

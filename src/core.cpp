@@ -943,6 +943,69 @@ void translate_objects(Document& document,const std::vector<Id>& objects,const s
         require(transform_equal(after.at(id).world[i],target[i]),"TRANSFORM_PRESERVATION",
             "Selected world translation changed through dependent bindings or numeric conditioning");
 }
+void transform_objects(Document& document,const TransformObjects& command) {
+    require(!command.objects.empty()&&command.objects.size()<=1000,"INVALID_BATCH","Transform requires 1..1000 unique objects");
+    finite(command.rotation);finite(command.scale_x);finite(command.scale_y);
+    require(std::abs(command.rotation)<=1e9&&std::abs(command.scale_x)<=1e9&&std::abs(command.scale_y)<=1e9,
+        "OUT_OF_RANGE","Transform command magnitude limit 1e9");
+    std::set<Id> selected;
+    for(const auto& id:command.objects) {
+        require(document.objects.contains(id),"MISSING_OBJECT",id);
+        require(selected.insert(id).second,"DUPLICATE_TARGET","Each transformed object may occur only once");
+    }
+    const Composition* plane=nullptr;
+    for(const auto& composition:document.compositions) {
+        std::function<void(const Id&)> visit=[&](const Id& id) {
+            if(selected.contains(id)) {
+                require(!plane||plane==&composition,"CROSS_COMPOSITION","Transformed objects must share one Composition");
+                plane=&composition;
+            }
+            for(const auto& child:document.objects.at(id).children)visit(child);
+        };
+        for(const auto& root:composition.roots)visit(root);
+    }
+    const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
+    Vec2 pivot;
+    if(command.pivot) {pivot={(*command.pivot)[0],(*command.pivot)[1]};finite(pivot.x);finite(pivot.y);}
+    else {
+        std::optional<Bounds> envelope;
+        for(const auto& id:selected) {
+            const auto bounds=object_bounds(document,id,values,transforms,true);
+            require(bounds.has_value(),"EMPTY_BOUNDS","Choose an explicit pivot for geometry-free objects: "+id);
+            if(!envelope)envelope=bounds;
+            else {envelope->left=std::min(envelope->left,bounds->left);envelope->right=std::max(envelope->right,bounds->right);
+                envelope->top=std::min(envelope->top,bounds->top);envelope->bottom=std::max(envelope->bottom,bounds->bottom);}
+        }
+        pivot={envelope->left+(envelope->right-envelope->left)/2,envelope->top+(envelope->bottom-envelope->top)/2};
+    }
+    const auto degrees=std::remainder(command.rotation,360.0);
+    if(degrees==0&&command.scale_x==1&&command.scale_y==1)return;
+    const auto angle=degrees*std::numbers::pi/180;auto cosine=std::cos(angle),sine=std::sin(angle);
+    if(degrees==0){cosine=1;sine=0;}else if(degrees==90){cosine=0;sine=1;}
+    else if(degrees==-90){cosine=0;sine=-1;}else if(std::abs(degrees)==180){cosine=-1;sine=0;}
+    Affine edit{cosine*command.scale_x,sine*command.scale_x,-sine*command.scale_y,cosine*command.scale_y,0,0};
+    edit[4]=pivot.x-edit[0]*pivot.x-edit[2]*pivot.y;
+    edit[5]=pivot.y-edit[1]*pivot.x-edit[3]*pivot.y;
+    std::map<Id,Affine> desired;
+    for(const auto& id:selected) {
+        const auto target=compose(edit,transforms.at(id).world);
+        for(const auto value:target)require(std::isfinite(value),"OUTPUT_RANGE","Transformed world matrix must be finite");
+        desired.emplace(id,target);
+    }
+    for(const auto& id:selected) {
+        const auto& transform=transforms.at(id);auto ancestor=transform.effective_parent;
+        while(!ancestor.empty()&&!selected.contains(ancestor))ancestor=transforms.at(ancestor).effective_parent;
+        // The same left-multiplied world edit is inherited through any selected
+        // effective ancestor. Retain exact local matrices, even for zero scale.
+        if(!ancestor.empty())continue;
+        const auto basis=transform.effective_parent.empty()?identity_matrix:transforms.at(transform.effective_parent).world;
+        set_affine(document,id,compose(inverse_affine(basis),desired.at(id)),values);
+    }
+    const auto after=evaluate_transforms(document,evaluate(document));
+    for(const auto& [id,target]:desired)for(std::size_t i=0;i<target.size();++i)
+        require(transform_equal(after.at(id).world[i],target[i]),"TRANSFORM_PRESERVATION",
+            "Selected world transform changed through dependent bindings or numeric conditioning");
+}
 void arrange_objects(Document& document,const std::vector<Id>& objects,const std::string& axis,
     const std::optional<std::string>& alignment,const std::optional<Id>& artboard) {
     require(axis=="x"||axis=="y","INVALID_ALIGNMENT","Axis must be x or y");
@@ -1232,6 +1295,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         } else if constexpr(std::is_same_v<T,TranslateObjects>) {
             std::map<Id,Vec2> displacements;for(const auto& id:c.objects)displacements.emplace(id,Vec2{c.dx,c.dy});
             translate_objects(candidate,c.objects,displacements);
+        } else if constexpr(std::is_same_v<T,TransformObjects>) {
+            transform_objects(candidate,c);
         } else if constexpr(std::is_same_v<T,AlignObjects>) {
             arrange_objects(candidate,c.objects,c.axis,c.alignment,c.artboard);
         } else if constexpr(std::is_same_v<T,DistributeObjects>) {

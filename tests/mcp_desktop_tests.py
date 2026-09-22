@@ -277,6 +277,14 @@ try:
             assert all(abs(v-e)<1e-8 for v,e in zip(new_transforms[id_]['world'],expected_world))
         assert core('undo',expected_revision=rev)['ok'];rev+=1
         assert core('inspect')['result']==before_translation
+        old_transforms=transforms()
+        rev=apply([dict(type='transform_objects',objects=['path-3','path-2'],rotation=90,scale_x=1,scale_y=1,pivot=[0,0])],rev)
+        rotated_transforms=transforms()
+        for id_ in ('path-3','path-2'):
+            a,b,c,d,tx,ty=old_transforms[id_]['world']
+            assert all(abs(v-e)<1e-8 for v,e in zip(rotated_transforms[id_]['world'],[-b,a,-d,c,-ty,tx]))
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('inspect')['result']==before_translation
         # Formulas use the live Session and survive its normal save/restart path.
         formula='ref("path-9","","transform.tx") * 2 + 5'
         rev=apply([dict(type='set_expression',targets=batch_refs,expression=dict(source=formula,version=1),replace_binding=False)],rev)

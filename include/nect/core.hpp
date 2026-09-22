@@ -313,6 +313,12 @@ struct Ungroup { Id composition,parent,group; };
 // World-space displacement, applied once per selected object across Structure
 // and Transform Parent relationships. Selection is one Composition, 1..1000 IDs.
 struct TranslateObjects { std::vector<Id> objects; double dx,dy; };
+// One common Composition-space pivot; null uses evaluated geometric bounds center.
+// Scale along world axes, then rotate clockwise in Y-down coordinates.
+struct TransformObjects {
+    std::vector<Id> objects; double rotation=0,scale_x=1,scale_y=1;
+    std::optional<std::array<double,2>> pivot;
+};
 // One-shot geometric alignment, excluding stroke width. Empty artboard uses the
 // initial selection envelope; otherwise target that Artboard in the same plane.
 struct DistributeObjects { std::vector<Id> objects; std::string axis; };
@@ -325,7 +331,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
-    EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,SetExpression,
+    EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
     SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,
     AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects>;
 

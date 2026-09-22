@@ -1330,3 +1330,21 @@ production value: multi-object selection has translation/alignment and affine
 fields, but convenient rotation/scale exists only for single-object Anchor edits.
 Add an atomic shared-world-pivot transform for a selection, preserving object IDs,
 retained sources and effective-parent semantics, without temporary Group creation.
+
+
+## Selection-transform: shared common-pivot command (2026-09-23)
+
+Core/API/formal MCP now accept `transform_objects` (contract in model-v0).
+World-axis scales then clockwise rotation share an explicit Composition pivot or
+initial geometric selection-envelope center. Selected effective descendants keep
+exact local matrices, avoiding double application and singular inverse after
+zero scale. Other selected roots compensate external parents. Changed driven
+fields, necessary singular inverse or dependency-induced target mismatch reject
+atomically. Retains IDs, Anchors, parametric source/Point Edit and native0.13.
+
+Release build, focused4/4 and full39/39 (37.58s) passed. Evidence in
+`build/daily-layout/selection-transform-{build,focused,regression}.log`.
+Tests cover parent/follower order, rotated external parent, zero/negative scale,
+retained generator editing, empty geometry with explicit pivot, malformed input,
+cross-Composition/duplicate/range refusal, exact Undo/Redo/native roundtrip and
+live formal MCP. GUI selection workflow is the next checkpoint, not yet claimed.

@@ -1,4 +1,4 @@
-#include "nect/core.hpp"
+#include "nect/io.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -52,6 +52,70 @@ std::optional<Bounds> bounds(const Document& document,const Id& id) {
 void box(const std::optional<Bounds>& actual,const Bounds& expected,const std::string& message) {
     check(actual.has_value(),message+" exists");near(actual->left,expected.left,message+" left");near(actual->top,expected.top,message+" top");
     near(actual->right,expected.right,message+" right");near(actual->bottom,expected.bottom,message+" bottom");
+}
+
+void common_pivot_edits() {
+    const Affine quarter{0,1,-1,0,0,0};
+    auto document=hierarchy();Session session(document);const auto before=transforms(document);
+    apply(session,{TransformObjects{{"child","parent","group"},90,1,1,std::array<double,2>{0,0}}});
+    const auto after=transforms(session.document());
+    for(const auto& [id,transform]:before)matrix_near(after.at(id).world,compose(quarter,transform.world),"Selected structural descendants transform once");
+    check(session.document().objects.at("child").transform==document.objects.at("child").transform,"Inherited child local transform stays exact");
+    const auto result=session.document();check(decode(encode(result))==result,"Common-pivot native roundtrip");
+    session.undo(session.revision());check(session.document()==document,"Common-pivot one Undo restores exact state");
+    session.redo(session.revision());check(session.document()==result,"Common-pivot Redo exact");
+
+    document=hierarchy();document.objects.at("child").transform_parent="parent";Session followed(document);
+    const auto original=transforms(document);
+    apply(followed,{TransformObjects{{"child","parent"},90,2,.5,std::array<double,2>{10,20}}});
+    const Affine edit{0,2,-.5,0,20,0};
+    for(const auto id:{"child","parent"})matrix_near(transforms(followed.document()).at(id).world,compose(edit,original.at(id).world),"World-axis scale then rotation shares explicit pivot");
+    check(followed.document().objects.at("child").transform==document.objects.at("child").transform,"Selected follower local transform unchanged");
+    Session single_child(document);apply(single_child,{TransformObjects{{"child"},90,1,1,std::array<double,2>{0,0}}});
+    matrix_near(transforms(single_child.document()).at("child").world,compose(quarter,original.at("child").world),"Unselected external parent is compensated");
+
+    Session mirrored(plain());const auto paths=mirrored.document().objects;
+    apply(mirrored,{TransformObjects{{"path","driver"},0,-1,1,{}}});
+    const Affine reflection{-1,0,0,1,30,0};
+    matrix_near(transforms(mirrored.document()).at("path").world,reflection,"Bounds-center reflection uses world envelope");
+    for(const auto& [id,object]:paths)check(mirrored.document().objects.at(id).contours==object.contours&&mirrored.document().objects.at(id).anchor==object.anchor,"Geometry IDs and authored Anchor preserved");
+    document=hierarchy();Session collapsed(document);
+    apply(collapsed,{TransformObjects{{"group","child"},0,0,1,std::array<double,2>{0,0}}});
+    matrix_near(transforms(collapsed.document()).at("child").world,compose(Affine{0,0,0,1,0,0},transforms(document).at("child").world),"Zero-scale ancestor does not require a descendant inverse");
+
+    Session invalid(plain());atomic_reject(invalid,"DUPLICATE_TARGET",{TransformObjects{{"path","path"},90,1,1,{}}});
+    atomic_reject(invalid,"INVALID_BATCH",{TransformObjects{{},90,1,1,{}}});
+    atomic_reject(invalid,"MISSING_OBJECT",{TransformObjects{{"missing"},90,1,1,{}}});
+    atomic_reject(invalid,"OUT_OF_RANGE",{TransformObjects{{"path"},1e10,1,1,{}}});
+    document=hierarchy();document.objects.at("group").transform[0].literal=0;Session singular(document);
+    atomic_reject(singular,"SINGULAR_TRANSFORM",{TransformObjects{{"child"},90,1,1,std::array<double,2>{0,0}}});
+    document=plain();document.objects.at("path").transform[0].binding=Binding{tf("driver","a"),1,0,"copy_local_value"};Session driven(document);
+    atomic_reject(driven,"DRIVEN_PROPERTY",{TransformObjects{{"path"},90,1,1,{}}});
+    // An unselected effective parent may itself depend on a selected object's
+    // local matrix. The final target check must reject that hidden displacement.
+    document=hierarchy();document.objects.at("child").transform_parent="parent";
+    document.objects.at("parent").transform[4].binding=Binding{tf("child","tx"),1,0,"copy_local_value"};Session dependent(document);
+    atomic_reject(dependent,"TRANSFORM_PRESERVATION",{TransformObjects{{"child"},90,1,1,std::array<double,2>{0,0}}});
+    document=plain();auto second=document.compositions.front();second.id="other-plane";second.artboards.clear();second.roots={"driver"};document.compositions.front().roots={"path"};document.compositions.push_back(second);Session cross(document);
+    atomic_reject(cross,"CROSS_COMPOSITION",{TransformObjects{{"path","driver"},90,1,1,{}}});
+
+    Session retained(empty_document("retained-document","retained-plane","retained-artboard"));
+    apply(retained,{CreatePrimitive{"retained-plane","","circle","Circle",default_primitive("circle-source","nect.shape.circle")}});
+    const auto primitive=retained.document().objects.at("circle");
+    apply(retained,{TransformObjects{{"circle"},35,2,.5,{}}});
+    check(retained.document().objects.at("circle").source==primitive.source&&retained.document().objects.at("circle").point_edit==primitive.point_edit,"Common transform retains parametric source and corrections");
+    apply(retained,{Set{{"circle","","generator.radius"},80}});
+    near(evaluate(retained.document()).at({"circle","","generator.radius"}),80,"Transformed retained source remains editable");
+    auto empty=plain();empty.objects.at("path").contours.clear();Session geometry_free(empty);
+    atomic_reject(geometry_free,"EMPTY_BOUNDS",{TransformObjects{{"path"},90,1,1,{}}});
+    apply(geometry_free,{TransformObjects{{"path"},90,1,1,std::array<double,2>{0,0}}});
+    matrix_near(transforms(geometry_free.document()).at("path").world,quarter,"Explicit pivot supports geometry-free object");
+
+    Session api(plain());const auto response=request(api,R"({"op":"apply","expected_revision":0,"commands":[{"type":"transform_objects","objects":["path","driver"],"rotation":90,"scale_x":1,"scale_y":1,"pivot":[0,0]}]})");
+    check(response.find("\"ok\":true")!=std::string::npos,"Common-pivot semantic API command");
+    matrix_near(transforms(api.document()).at("path").world,quarter,"API uses same shared world transform");
+    const auto snapshot=api.document();const auto malformed=request(api,R"({"op":"apply","expected_revision":1,"commands":[{"type":"transform_objects","objects":["path"],"rotation":90,"scale_x":1,"scale_y":1,"pivot":[0]}]})");
+    check(malformed.find("INVALID_COMMAND")!=std::string::npos&&api.document()==snapshot,"Malformed API pivot rejects atomically");
 }
 
 void anchor_and_relative_edits() {
@@ -248,7 +312,7 @@ void group_initial_center_and_external_bounds() {
 
 int main() {
     try {
-        anchor_and_relative_edits();driven_axes_and_anchor_links();parent_replacement_and_keep_world();
+        common_pivot_edits();anchor_and_relative_edits();driven_axes_and_anchor_links();parent_replacement_and_keep_world();
         parent_failures_and_effective_cycles();singular_parent_contract();cubic_stack_and_text_bounds();group_initial_center_and_external_bounds();
         std::cout<<"PASS "<<checks<<" Anchor, effective Transform Parent, bounds and atomic command checks\n";return 0;
     }catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}

@@ -576,6 +576,15 @@ Command read_command(const j::value& v) {
         keys(o,{"type","objects","axis","alignment","artboard"});
         return AlignObjects{ids(o.at("objects")),text(o.at("axis")),text(o.at("alignment")),o.at("artboard").is_null()?std::optional<Id>{}:std::optional<Id>{text(o.at("artboard"))}};
     }
+    if(type=="transform_objects") {
+        keys(o,{"type","objects","rotation","scale_x","scale_y","pivot"});
+        std::optional<std::array<double,2>> pivot;
+        if(!o.at("pivot").is_null()) {
+            const auto& pair=o.at("pivot").as_array();if(pair.size()!=2)throw Error("INVALID_COMMAND","Pivot must contain x and y");
+            pivot=std::array<double,2>{number(pair[0]),number(pair[1])};
+        }
+        return TransformObjects{ids(o.at("objects")),number(o.at("rotation")),number(o.at("scale_x")),number(o.at("scale_y")),pivot};
+    }
     if(type=="translate_objects") {
         keys(o,{"type","objects","dx","dy"});return TranslateObjects{ids(o.at("objects")),number(o.at("dx")),number(o.at("dy"))};
     }

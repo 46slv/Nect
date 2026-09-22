@@ -418,6 +418,24 @@ world matrices must equal the snapshot worlds plus the requested displacement.
 Changed driven fields, necessary singular inverses and binding-induced failure
 reject atomically. Unselected followers continue to follow normally.
 
+`transform_objects {objects:[id],rotation,scale_x,scale_y,pivot:null/[x,y]}`
+applies one common world-space edit to1..1000 unique objects in one Composition.
+The initial snapshot supplies all selected world matrices and, for null pivot,
+the center of their union of evaluated geometric bounds (stroke width excluded).
+An explicit pivot permits geometry-free objects. Scale along Composition axes,
+then rotate clockwise in Y-down coordinates: W'=T(p)*R*diag(sx,sy)*T(-p)*W.
+Zero/negative scales are deliberate collapse/reflection; finite command magnitudes
+for rotation/scales are limited to1e9. This differs from single-object local-axis
+`transform_around_anchor`; authored Anchors, sources, IDs and hierarchy stay intact.
+
+A selected effective descendant/follower inherits the same edit once and retains
+its exact local matrix. Other selected objects solve against their external
+parent's initial world matrix. Necessary singular inverses, changed driven fields,
+nonfinite output, cross-Composition selection and final world-target mismatch
+reject atomically. Unselected followers and explicitly authored dependencies keep
+normal behavior; this is a matrix edit, not an appearance freeze/bake. Native0.13
+is unchanged. Bounds-center pivot requires geometry for every selected object.
+
 The desktop selects objects or points using Shift-click on Canvas and extended
 tree selection; these are distinct editing contexts. Common scalar rows show
 Mixed rather than an average. Matching stack rows use the same operation type at
