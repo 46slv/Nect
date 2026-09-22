@@ -908,3 +908,48 @@ the successful current suite. Font portability, raster export/vector import,
 full codecs/typography/compositing and maximum-size scenes remain outside the
 demonstrated subset. Native retains authored intent while SVG uses the declared
 lossy output subset. These limits do not prevent the recorded production flow.
+
+## Daily-output PNG checkpoint — 2026-09-22
+
+Practical-alpha completion remains accepted. The current user authorizes continued
+same-Task Missions; `Nect/daily-output` now adds bounded raster delivery.
+
+- `Canvas::paint_artwork` is shared by viewport and artwork-only Artboard rendering.
+  PNG uses a committed Session snapshot and hidden derived Canvas projection (never
+  shown), preserving the live view, native authored state, revision and history.
+  Geometry, images, gradients, text contours, masks, opacity and supported blends
+  follow the existing evaluator/renderer; paper and editor overlays are excluded.
+- GUI File → Export PNG, Host `export_png` and formal MCP `nect_export_png` use
+  the same export path. Transparent/white background, explicit scale, ceiled
+  dimensions, 8192/axis and16MP limit; existing128MiB isolation budget remains.
+  White is composited behind the finished transparent artwork, not into blends.
+  Output uses atomic QSaveFile replacement with no direct-write fallback.
+  Stale identity/revision, active gestures, invalid bounds and native/linked-source
+  targets reject. Core-only CLI has no PNG renderer and does not claim one.
+- Focused `png_export_contract` proves crop, overlap alpha, explicit backdrop,
+  independent output decode, unchanged native/revision, malformed/oversized input,
+  preservation of existing output on failure, stale revision, gesture rejection,
+  IO failure, actual WIC reimport and linked-source protection. Formal MCP test
+  exports PNG through stdio and checks signature/dimensions.
+- Reimport exposed a real interop issue: Qt's synthesized sRGB ICC profile failed
+  WIC color transform on this host (HRESULT2147944411). Export now writes the
+  standard PNG sRGB perceptual-intent chunk instead. Pixels remain sRGB; production
+  WIC import validates chunk CRC and succeeds. This is not a broader ICC fix.
+- Full suite:37/37 in55.80s (`build/daily-output-regression.log`). After the encoder
+  metadata repair, PNG+formal MCP focused contracts passed in7.43s.
+- Actual Windows GUI: opened owned copy of the21-object material-variations native
+  composition, File → Export PNG →1x/transparent → scratch filename. Status showed
+  960x820 sRGB and revision0. Pillow decoded GUI and API files to identical RGBA
+  pixels. The output image was visually inspected; text, masks, image placements
+  and procedural ornament are present. Original fixture/examples were untouched.
+  Artifacts: `build/daily-output/{gui-output.png,production-export.json}`.
+- Visible mixed-image Canvas benchmark:893x824 viewport,DPR1; p95 intervals
+  pan19.60,zoom18.23,point18.46,handle19.55,object19.00ms.30fps floor met;60fps
+  target not met. Largest release20.21ms. Receipt:
+  `build/daily-output/viewport-benchmark.json`. This does not repair the separately
+  recorded80-curve34.75ms release. All owned app/benchmark windows closed.
+
+Next evidence-driven improvement: combine output resolution/background settings,
+show resulting pixel dimensions before choosing a file, and preserve the settings
+for repeated exports within the Window. Current three-dialog path works but hides
+result size until completion; no new model/format or dependency is needed.

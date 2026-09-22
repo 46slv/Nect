@@ -356,6 +356,18 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
             throw Error("IO_ERROR",output.errorString().toStdString());
         statusBar()->showMessage("SVG exported with text as outlines; native text remains editable",10000);
     });
+    action(file,"Export PNG…",{},[this]{
+        bool ok=false;
+        const auto scale=QInputDialog::getDouble(this,"PNG output resolution","Pixels per document unit (maximum 8192 per axis / 16 MP)",1,0.01,16,2,&ok);
+        if(!ok)return;
+        const auto background=QInputDialog::getItem(this,"PNG background","Background",{"Transparent","White"},0,false,&ok);
+        if(!ok)return;
+        auto path=QFileDialog::getSaveFileName(this,"Export current artboard as PNG",{},"PNG (*.png)");
+        if(path.isEmpty())return;
+        if(QFileInfo(path).suffix().isEmpty())path+=".png";
+        const auto result=host.export_png(path,canvas->active_composition(),canvas->active_artboard(),scale,background=="White",host.session.revision());
+        statusBar()->showMessage(QString("PNG exported: %1 x %2 px, sRGB, %3 background").arg(result["width"].toInt()).arg(result["height"].toInt()).arg(background.toLower()),10000);
+    });
     undo_=action(edit,"Undo",QKeySequence::Undo,[this]{canvas->cancel_interaction();host.session.undo(host.session.revision());host.edited();});
     redo_=action(edit,"Redo",QKeySequence::Redo,[this]{canvas->cancel_interaction();host.session.redo(host.session.revision());host.edited();});
     action(edit,"Delete selection",QKeySequence::Delete,[this]{

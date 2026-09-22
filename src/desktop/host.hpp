@@ -30,6 +30,7 @@ public:
     void open(const QString& path);
     void open_recovery(const QString& path);
     void save(const QString& path);
+    QJsonObject export_png(const QString& path,const Id& composition,const Id& artboard,double scale,bool white_background,std::uint64_t expected);
     void recover();
     void flush();
     QString recovery_directory() const { return recovery_directory_; }

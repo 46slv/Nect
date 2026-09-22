@@ -96,6 +96,14 @@ TOOLS = [
          expected_revision={'type': 'integer', 'minimum': 0}, path={'type': 'string'}),
          'required': ['session_id', 'document_id', 'op', 'expected_revision'], 'additionalProperties': False},
      'annotations': {'readOnlyHint': False, 'destructiveHint': True, 'openWorldHint': False}},
+    {'name': 'nect_export_png',
+     'description': 'Export committed artwork from one Artboard to an absolute local .png path. Shared Canvas compositing, no UI overlays. Atomic replacement; no native/history changes. Explicit scale in pixels per document unit (0 < scale <= 16), transparent or white background, 8-bit sRGB, maximum 8192 per axis / 16 MP. Active gestures and native/linked-source destinations reject.',
+     'inputSchema': {'type':'object','properties':dict(IDENTITY,
+         op={'type':'string','enum':['export_png']},expected_revision={'type':'integer','minimum':0},
+         path={'type':'string'},composition={'type':'string'},artboard={'type':'string'},
+         scale={'type':'number'},background={'type':'string','enum':['transparent','white']}),
+         'required':['session_id','document_id','op','expected_revision','path','composition','artboard','scale','background'],'additionalProperties':False},
+     'annotations':{'readOnlyHint':False,'destructiveHint':True,'openWorldHint':False}},
     {'name': 'nect_image',
      'description': ('Import PNG/JPEG as a Linked or Embedded asset with one Image placement, or manage an existing asset. '
                      'import_image requires path (absolute local Windows drive path), explicit mode linked/embedded, composition,parent (empty for root), '

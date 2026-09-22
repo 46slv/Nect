@@ -91,7 +91,7 @@ try:
         init = rpc('initialize', dict(protocolVersion='2025-06-18', capabilities={}, clientInfo=dict(name='nect-scenario', version='1')))
         assert init['result']['protocolVersion'] == '2025-06-18'
         mcp.stdin.write(json.dumps(dict(jsonrpc='2.0', method='notifications/initialized')) + '\n'); mcp.stdin.flush()
-        assert {t['name'] for t in rpc('tools/list')['result']['tools']} == {'nect_session', 'nect_command', 'nect_file', 'nect_image'}
+        assert {t['name'] for t in rpc('tools/list')['result']['tools']} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png'}
         live = tool('nect_session')
         identity = {key: live[key] for key in ('session_id', 'document_id')}
         comp = core('inspect')['result']['compositions'][0]
@@ -308,6 +308,12 @@ try:
         saved = tool('nect_file', dict(identity, op='save', path=str(native), expected_revision=rev))
         assert saved['ok'], saved
         expected = core('inspect')['result']
+        png = tool('nect_export_png',dict(identity,op='export_png',expected_revision=rev,
+            path=str(temp/'output.png'),composition=comp['id'],artboard=comp['artboards'][0]['id'],scale=1,background='transparent'))
+        assert png['ok'] and png['revision']==rev,png
+        png_bytes=(temp/'output.png').read_bytes()
+        assert png_bytes[:8]==b'\x89PNG\r\n\x1a\n'
+        assert struct.unpack('>II',png_bytes[16:24])==(png['result']['width'],png['result']['height'])
         svg = core('export_svg', composition=comp['id'], artboard=comp['artboards'][0]['id'])['result']
         assert len(ET.fromstring(svg).findall('.//{http://www.w3.org/2000/svg}path')) == expected_svg_paths
         svg_root=ET.fromstring(svg);ns='{http://www.w3.org/2000/svg}'

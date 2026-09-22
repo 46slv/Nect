@@ -6,6 +6,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QImage>
+#include <QColorSpace>
 #include <QPainterPathStroker>
 #include <QShowEvent>
 #include <QStringList>
@@ -99,6 +100,7 @@ const Canvas::EvaluatedPoint* Canvas::point(const Geometry& item, const Id& id) 
 }
 
 void Canvas::refresh() {
+    projection_error_ = {};
     const auto& document = session_.preview_document();
     const auto previous_composition = active_composition_, previous_artboard = active_artboard_;
     try {
@@ -291,6 +293,7 @@ void Canvas::refresh() {
             if (!gradient_control_) clear_gradient_edit();
         }
     } catch (const std::exception& exception) {
+        projection_error_ = std::current_exception();
         report_error(exception);
     }
     update();
@@ -573,29 +576,47 @@ Canvas::Hit Canvas::hit_control(QPointF screen) const {
     return {};
 }
 
-void Canvas::paintEvent(QPaintEvent*) {
-    const auto start = clock_.nsecsElapsed();
+QImage Canvas::render_artboard(const Document& document,const Id& composition,const Id& artboard,double scale,bool white_background) {
+    if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","PNG scale must be greater than zero and at most 16");
+    const auto comp=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==composition;});
+    if(comp==document.compositions.end())throw Error("MISSING_COMPOSITION",composition);
+    const auto board=evaluate_artboard(*comp,artboard);
+    const auto width=std::ceil(board.width*scale),height=std::ceil(board.height*scale);
+    if(width<1||height<1||width>8192||height>8192||width*height>16777216)
+        throw Error("EXPORT_LIMIT","PNG output is limited to 8192 pixels per axis and 16,777,216 pixels");
+    // A committed snapshot avoids exporting a live gesture or changing selection/view.
+    // The hidden projection uses exactly the Canvas evaluator and painter; it is
+    // never shown and does not create a second editable authority.
+    Session snapshot(document);
+    Canvas projection(snapshot);
+    projection.set_active_artboard(composition,artboard,false);
+    projection.refresh();
+    if(projection.projection_error_)std::rethrow_exception(projection.projection_error_);
+    QImage image(static_cast<int>(width),static_cast<int>(height),QImage::Format_ARGB32_Premultiplied);
+    if(image.isNull())throw Error("RENDER_ALLOCATION","Could not allocate PNG output");
+    image.fill(Qt::transparent);
     {
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.fillRect(rect(), QColor(39, 42, 47));
-        const auto& document = session_.preview_document();
-        if (!artboards_.empty()) {
-            painter.setWorldTransform(view());
-            for (const auto& artboard : artboards_) {
-                const QRectF area(artboard.x, artboard.y, artboard.width, artboard.height);
-                painter.fillRect(area.translated(3 / zoom_, 3 / zoom_), QColor(20, 22, 26));
-                painter.fillRect(area, QColor(250, 250, 250));
-            }
-        }
+        QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);
+        const QTransform transform(scale,0,0,scale,-board.x*scale,-board.y*scale);
+        painter.setClipRect(QRectF(0,0,board.width*scale,board.height*scale));
+        projection.paint_artwork(painter,transform,image.size(),1);
+    }
+    if(white_background) {
+        QPainter painter(&image);painter.setCompositionMode(QPainter::CompositionMode_DestinationOver);painter.fillRect(image.rect(),Qt::white);
+    }
+    image.setColorSpace(QColorSpace::SRgb);
+    return image;
+}
+
+void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF size,double dpr) const {
         const auto draw_leaf=[&](QPainter& target,const Geometry& item,QPointF origin=QPointF{}) {
             if(item.image_bounds) {
-                target.setWorldTransform(item.world*view()*QTransform::fromTranslate(-origin.x(),-origin.y()));
+                target.setWorldTransform(item.world*transform*QTransform::fromTranslate(-origin.x(),-origin.y()));
                 target.setRenderHint(QPainter::SmoothPixmapTransform);target.drawImage(*item.image_bounds,item.image);return;
             }
             for (const auto& paint : item.paints) {
                 if (paint.color.alphaF() <= 0 || (!paint.fill && paint.width <= 0)) continue;
-                target.setWorldTransform(paint.transform * item.world * view()*QTransform::fromTranslate(-origin.x(),-origin.y()));
+                target.setWorldTransform(paint.transform * item.world * transform*QTransform::fromTranslate(-origin.x(),-origin.y()));
                 if (paint.fill) {
                     target.setPen(Qt::NoPen);
                     target.setBrush(paint.brush);
@@ -607,14 +628,13 @@ void Canvas::paintEvent(QPaintEvent*) {
                 target.drawPath(paint.path);
             }
         };
-        try {
             if(!scene_.requires_compositing) {
                 for(const auto& item:geometry_)if(item.normal_visible)draw_leaf(painter,item);
             } else {
                 // Artwork has a transparent Composition backdrop. The white
                 // artboard and dark workspace are UI, never inputs to a blend.
-                const auto dpr=devicePixelRatioF();
-                const auto pixel_width=std::ceil(width()*dpr),pixel_height=std::ceil(height()*dpr);
+
+                const auto pixel_width=std::ceil(size.width()*dpr),pixel_height=std::ceil(size.height()*dpr);
                 if(pixel_width<=0||pixel_height<=0||pixel_width>16384||pixel_height>16384)
                     throw Error("RENDER_LIMIT","Compositing viewport exceeds 16384 physical pixels per axis");
                 const QRect viewport(0,0,static_cast<int>(pixel_width),static_cast<int>(pixel_height));
@@ -656,12 +676,12 @@ void Canvas::paintEvent(QPaintEvent*) {
                 };
                 const auto pixel_region=[&](const EvaluatedSceneNode& node,const QRect& parent) {
                     const auto world=painted_bounds(node);if(world.isEmpty())return QRect{};
-                    auto screen=view().mapRect(world);
+                    auto screen=transform.mapRect(world);
                     if(!std::isfinite(screen.left())||!std::isfinite(screen.top())||!std::isfinite(screen.right())||!std::isfinite(screen.bottom()))
                         throw Error("RENDER_RANGE","Compositing paint bounds must be finite");
                     // Keep AA coverage and align origins to physical pixels. The
                     // same phase is used by artwork, masks, nested images and DPR.
-                    screen=screen.adjusted(-2/dpr,-2/dpr,2/dpr,2/dpr).intersected(QRectF(0,0,width(),height()));
+                    screen=screen.adjusted(-2/dpr,-2/dpr,2/dpr,2/dpr).intersected(QRectF(QPointF{},size));
                     if(screen.isEmpty())return QRect{};
                     const int left=static_cast<int>(std::floor(screen.left()*dpr)),top=static_cast<int>(std::floor(screen.top()*dpr));
                     const int right=static_cast<int>(std::ceil(screen.right()*dpr)),bottom=static_cast<int>(std::ceil(screen.bottom()*dpr));
@@ -683,7 +703,7 @@ void Canvas::paintEvent(QPaintEvent*) {
                         QPainter layer(&image);layer.setRenderHint(QPainter::Antialiasing);content(layer,node,depth+1,region);
                         if(node.mask) {
                             auto coverage=surface(region);const auto offset=origin(region);
-                            {QPainter mask(&coverage);mask.setRenderHint(QPainter::Antialiasing);mask.setWorldTransform(view()*QTransform::fromTranslate(-offset.x(),-offset.y()));
+                            {QPainter mask(&coverage);mask.setRenderHint(QPainter::Antialiasing);mask.setWorldTransform(transform*QTransform::fromTranslate(-offset.x(),-offset.y()));
                              mask.setPen(Qt::NoPen);mask.setBrush(Qt::white);mask.drawPath(mask_paths_.at(node.id));}
                             layer.resetTransform();layer.setCompositionMode(QPainter::CompositionMode_DestinationIn);
                             layer.drawImage(QPointF(0,0),coverage);allocated-=bytes;
@@ -696,6 +716,25 @@ void Canvas::paintEvent(QPaintEvent*) {
                 {QPainter layer(&artwork);layer.setRenderHint(QPainter::Antialiasing);for(const auto& node:scene_.roots)render(layer,node,0,viewport);}
                 painter.save();painter.resetTransform();painter.drawImage(QPointF(0,0),artwork);painter.restore();
             }
+}
+
+void Canvas::paintEvent(QPaintEvent*) {
+    const auto start = clock_.nsecsElapsed();
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.fillRect(rect(), QColor(39, 42, 47));
+        const auto& document = session_.preview_document();
+        if (!artboards_.empty()) {
+            painter.setWorldTransform(view());
+            for (const auto& artboard : artboards_) {
+                const QRectF area(artboard.x, artboard.y, artboard.width, artboard.height);
+                painter.fillRect(area.translated(3 / zoom_, 3 / zoom_), QColor(20, 22, 26));
+                painter.fillRect(area, QColor(250, 250, 250));
+            }
+        }
+        try {
+            paint_artwork(painter,view(),size(),devicePixelRatioF());
             render_error_.clear();
         } catch(const std::exception& exception) {
             const auto message=QString::fromUtf8(exception.what());

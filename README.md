@@ -29,8 +29,8 @@ baseline and integrated authoring/recovery/SVG acceptance are in
 [docs/first-usable.md](docs/first-usable.md#integrated-practical-alpha-acceptance--2026-09-22).
 The scoped Mission completion conditions are demonstrated; this is a development
 checkpoint, not a release. Known limits include intermittent image-chooser teardown
-delay, a 34.75 ms dense-scene point-release measurement, and SVG-only output.
-`CURRENT_GOAL.md` records the completed Mission and its boundaries.
+delay, a 34.75 ms dense-scene point-release measurement, and bounded output subsets.
+`CURRENT_GOAL.md` records the active daily-output Mission and continuous-development authority.
 
 Circle, Rectangle, Polygon and Star retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
@@ -56,6 +56,19 @@ Implemented in M0:
 6. undo/redo through one Session owner
 7. export a declared SVG subset
 8. expose a local JSON-lines command adapter for black-box testing
+
+File → **Export PNG…** exports the active Artboard at an explicit number of pixels
+per document unit, with transparent or white background. Output uses the Canvas
+artwork/compositing renderer, excludes paper/selection/guides, and declares 8-bit
+sRGB. Dimensions round up; limits are 8192 pixels per axis / 16,777,216 pixels,
+scale >0 through16, with the existing128MiB compositing surface budget. White is
+applied behind the completed transparent composition, preserving blend semantics.
+Native data/history are unchanged. Active gestures and native/Linked source
+image destinations reject. File replacement is atomic without direct-write fallback.
+The desktop API `export_png` and formal MCP `nect_export_png` take the same
+session/document identity, expected_revision, absolute .png path, composition,
+artboard, scale and background (`transparent` or `white`). The core-only CLI does
+not provide a Qt renderer; its unsupported PNG requests remain explicit.
 
 Not implemented yet:
 

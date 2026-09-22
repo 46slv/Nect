@@ -1,4 +1,10 @@
 #include "host.hpp"
+#include "canvas.hpp"
+#include <QSaveFile>
+#include <QFileInfo>
+#include <QImageWriter>
+#include <QBuffer>
+#include <QColorSpace>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -292,6 +298,34 @@ QJsonObject Host::check_asset(const Id& id) {
     link_observations_[id]={asset.payload->sha256(),asset.locator,std::move(observation)};return asset_status(id);
 }
 
+QJsonObject Host::export_png(const QString& path,const Id& composition,const Id& artboard,double scale,bool white_background,std::uint64_t expected) {
+    if(expected!=session.revision())throw Error("REVISION_CONFLICT","Refresh revision before exporting");
+    if(session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before exporting");
+    if(path.isEmpty()||!QFileInfo(path).isAbsolute()||QFileInfo(path).suffix().compare("png",Qt::CaseInsensitive)!=0)
+        throw Error("EXPORT_TARGET","PNG export requires an absolute .png destination");
+    if(same_native_path(path,file_path))throw Error("EXPORT_TARGET","Export cannot replace the native source file");
+    for(const auto& [id,asset]:session.document().raster_assets)
+        if(asset.mode=="linked"&&same_native_path(path,QString::fromStdString(asset.locator)))
+            throw Error("EXPORT_TARGET","Export cannot replace a linked source image");
+    const auto image=Canvas::render_artboard(session.document(),composition,artboard,scale,white_background);
+    QSaveFile output(path);output.setDirectWriteFallback(false);
+    if(!output.open(QIODevice::WriteOnly))throw Error("IO_ERROR",output.errorString().toStdString());
+    // Qt's synthesized ICC profile is not accepted by all Windows WIC color
+    // transforms. Pixels already use sRGB; declare the standard PNG sRGB chunk
+    // instead of introducing a profile conversion for these same values.
+    auto pixels=image;pixels.setColorSpace(QColorSpace{});
+    QByteArray encoded;QBuffer buffer(&encoded);buffer.open(QIODevice::WriteOnly);
+    QImageWriter writer(&buffer,"png");
+    if(!writer.write(pixels))throw Error("EXPORT_ENCODE",writer.errorString().toStdString());
+    if(encoded.size()<33||encoded.mid(12,4)!="IHDR")throw Error("EXPORT_ENCODE","PNG encoder did not produce a standard header");
+    // length=1, type=sRGB, perceptual intent=0, CRC32(type+intent)=AECE1CE9.
+    encoded.insert(33,QByteArray::fromHex("000000017352474200aece1ce9"));
+    if(output.write(encoded)!=encoded.size())throw Error("IO_ERROR",output.errorString().toStdString());
+    if(!output.commit())throw Error("IO_ERROR",output.errorString().toStdString());
+    return {{"path",path},{"width",image.width()},{"height",image.height()},{"scale",scale},
+        {"background",white_background?"white":"transparent"},{"color_space","sRGB"},{"revision",static_cast<qint64>(expected)}};
+}
+
 QByteArray Host::dispatch(const QByteArray& input) {
     QJsonObject response;
     try {
@@ -299,7 +333,8 @@ QByteArray Host::dispatch(const QByteArray& input) {
         auto outer=QJsonDocument::fromJson(input).object();
         const auto operation=string(outer,"op");
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
-            (operation=="core"?QStringList{"op","session_id","document_id","request"}:
+            (operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
+             operation=="core"?QStringList{"op","session_id","document_id","request"}:
                 (operation=="import_image"?QStringList{"op","session_id","document_id","expected_revision","path","mode","composition","parent","asset","id","name","x","y"}:
                  operation=="asset"?QStringList{"op","session_id","document_id","expected_revision","asset","action","path"}:
                  QStringList{"op","session_id","document_id","expected_revision","path"}));
@@ -325,7 +360,13 @@ QByteArray Host::dispatch(const QByteArray& input) {
                 const auto expected=outer.value("expected_revision");
                 if(!expected.isDouble() || expected.toDouble()!=static_cast<double>(session.revision()))
                     throw Error("REVISION_CONFLICT","Refresh revision before file/session operations");
-                if(op=="import_image") {
+                if(op=="export_png") {
+                    const auto background=string(outer,"background");
+                    if(!outer.value("scale").isDouble()||(background!="white"&&background!="transparent"))
+                        throw Error("INVALID_REQUEST","Numeric scale and transparent/white background required");
+                    response={{"ok",true},{"result",export_png(string(outer,"path"),string(outer,"composition").toStdString(),
+                        string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),background=="white",session.revision())}};
+                } else if(op=="import_image") {
                     const auto asset=string(outer,"asset").toStdString(),object=string(outer,"id").toStdString();
                     if(!outer.value("x").isDouble()||!outer.value("y").isDouble())throw Error("INVALID_REQUEST","Numeric x/y required");
                     import_image(string(outer,"path"),string(outer,"mode").toStdString(),string(outer,"composition").toStdString(),string(outer,"parent").toStdString(),

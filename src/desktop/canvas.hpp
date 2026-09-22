@@ -11,6 +11,7 @@
 #include <QTransform>
 #include <QWidget>
 #include <functional>
+#include <exception>
 #include <map>
 #include <vector>
 
@@ -38,6 +39,7 @@ public:
     std::function<void(QString)> error;
 
     void refresh();
+    static QImage render_artboard(const Document&,const Id& composition,const Id& artboard,double scale,bool white_background);
     const std::map<Ref,double>& evaluated_values() const {return values_;}
     const std::map<Id,EvaluatedTransform>& evaluated_transforms() const {return transforms_;}
     void fit_artboard();
@@ -129,6 +131,8 @@ private:
         Id point;
     };
 
+    void paint_artwork(QPainter&,const QTransform&,QSizeF,double dpr) const;
+    std::exception_ptr projection_error_;
     Session& session_;
     std::map<Ref, double> values_;
     std::map<Id,EvaluatedTransform> transforms_;
