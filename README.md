@@ -386,3 +386,10 @@ auto-repeat) is one undoable Session transaction. Rotated/scaled point coordinat
 are inverse-mapped; retained shapes gain ordinary Point Edit overrides. Driven
 changes reject the whole transaction. Text/tree keys remain their usual editing
 keys; draw/drag, Anchor Edit and gradient-handle modes do not nudge artwork.
+
+Drag from empty Canvas to select objects fully contained by the rectangle;
+**Shift-drag** adds them. In point context, only anchors in the current target
+objects are considered. Scope-level Groups stay whole, hidden artwork is not a
+normal target, and geometric bounds exclude stroke width/mask cropping. Selection
+commits on release; **Escape** preserves the previous selection. Empty click
+still clears, Shift-empty-click preserves it.

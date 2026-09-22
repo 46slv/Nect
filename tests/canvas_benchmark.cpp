@@ -317,14 +317,15 @@ QJsonObject distribution(std::vector<double> values) {
 
 QJsonObject summarize(const Canvas& canvas, Operation operation, SequenceResult sequence,
                       std::uint64_t revision_before, std::uint64_t revision_after, int commits) {
-    std::vector<double> intervals, inputs, paints;
+    std::vector<double> intervals, inputs, paints, previews, projections;
     QJsonArray raw;
     for (const auto& frame : canvas.frame_timings()) {
         if (frame.operation != timing_operation(operation)) continue;
+        previews.push_back(frame.semantic_preview_ms);projections.push_back(frame.projection_ms);
         paints.push_back(frame.paint_ms);
         inputs.push_back(frame.input_to_paint_ms);
         if (frame.interval_ms >= 0) intervals.push_back(frame.interval_ms);
-        raw.push_back(QJsonObject{{"paint_ms", frame.paint_ms}, {"input_to_paint_ms", frame.input_to_paint_ms},
+        raw.push_back(QJsonObject{{"semantic_preview_ms",frame.semantic_preview_ms},{"projection_ms",frame.projection_ms},{"paint_ms", frame.paint_ms}, {"input_to_paint_ms", frame.input_to_paint_ms},
             {"interval_ms", frame.interval_ms < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(frame.interval_ms)}});
     }
     const auto interval_stats = distribution(intervals);
@@ -341,6 +342,7 @@ QJsonObject summarize(const Canvas& canvas, Operation operation, SequenceResult 
         {"meets_30fps_p95_interval_budget", floor}, {"meets_60fps_p95_interval_budget", target},
         {"viewport_width", canvas.width()}, {"viewport_height", canvas.height()},
         {"device_pixel_ratio", canvas.devicePixelRatioF()}, {"interval", interval_stats},
+        {"semantic_preview",distribution(previews)},{"projection",distribution(projections)},
         {"input_to_paint", distribution(inputs)}, {"paint", distribution(paints)}, {"raw_frames", raw}};
 }
 

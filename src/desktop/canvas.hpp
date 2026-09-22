@@ -73,6 +73,8 @@ public:
     // included in intervals; callers must record their fixture and input method.
     struct FrameTiming {
         QString operation;
+        double semantic_preview_ms = 0;
+        double projection_ms = 0;
         double paint_ms = 0;
         double input_to_paint_ms = 0;
         double interval_ms = -1;
@@ -127,7 +129,7 @@ private:
         bool text_overflow=false;
         bool normal_visible=true;
     };
-    enum class Drag { none, pan, anchor, pivot, incoming, outgoing, symmetric, object, gradient_start, gradient_end };
+    enum class Drag { none, marquee, pan, anchor, pivot, incoming, outgoing, symmetric, object, gradient_start, gradient_end };
     struct Hit {
         Drag kind = Drag::none;
         Id object;
@@ -166,6 +168,9 @@ private:
     bool space_down_ = false;
     Drag drag_ = Drag::none;
     QPointF press_position_;
+    QPointF marquee_position_;
+    std::vector<Selection> marquee_start_;
+    bool marquee_extend_=false;
     QPointF press_pan_;
     QPointF start_anchor_;
     QPointF start_handle_;
@@ -186,6 +191,7 @@ private:
 
     QElapsedTimer clock_;
     qint64 input_started_ns_ = -1;
+    double pending_preview_ms_=0,pending_projection_ms_=0;
     qint64 last_paint_ns_ = -1;
     qint64 last_wheel_ns_ = -1;
     std::uint64_t input_sequence_ = 0;
@@ -209,6 +215,7 @@ private:
     QPointF snap_delta(QPointF delta);
     void update_drag(QPointF screen);
     void finish_drag();
+    void finish_marquee();
     void append_draw_point(QPointF screen);
     void report_error(const std::exception&);
     void request_frame(const QString& operation, bool new_sequence = false);

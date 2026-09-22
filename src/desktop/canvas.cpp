@@ -380,6 +380,7 @@ void Canvas::fit_all_artboards() {
 }
 
 void Canvas::fit_bounds(QRectF bounds) {
+    if(drag_==Drag::marquee)cancel_interaction();
     if (bounds.isEmpty()) {
         for (const auto& item : geometry_) {
             bounds = bounds.united(item.world.map(item.path).boundingRect());
@@ -902,6 +903,10 @@ void Canvas::paintEvent(QPaintEvent*) {
             painter.setBrush(Qt::NoBrush);
             painter.drawRect(selected_bounds.adjusted(-5, -5, 5, 5));
         }
+        if(drag_==Drag::marquee&&drag_moved_) {
+            painter.setPen(QPen(accent,1,Qt::DashLine));painter.setBrush(QColor(accent.red(),accent.green(),accent.blue(),28));
+            painter.drawRect(QRectF(press_position_,marquee_position_).normalized());
+        }
         const auto label = (scope_.empty() ? QString{} : QStringLiteral("‹  ")) + breadcrumb();
         breadcrumb_rect_ = QRectF(12, 12, std::min(width() - 24.0,
             painter.fontMetrics().horizontalAdvance(label) + 24.0), 28);
@@ -916,7 +921,7 @@ void Canvas::paintEvent(QPaintEvent*) {
             ? tr("Add Path · Click for points · Click first point to close · Enter / Esc to finish")
             : anchor_edit_ ? tr("Anchor · Drag the crosshair to change the pivot; artwork stays in place · Esc exits")
             : gradient_control_ ? tr("Gradient · Drag its handles · Esc cancels a drag / exits handles · Space-drag to pan")
-            : tr("Shift-click adds/removes objects or points · Drag to move · Alt: handles · Space: pan · F: fit");
+            : tr("Empty-drag: select contained · Shift: extend · Arrows: move · Space: pan · F: fit / Shift+F: selection");
         painter.setPen(QColor(166, 174, 186));
         painter.drawText(QRect(14, height() - 30, width() - 100, 22), Qt::AlignVCenter,
                          painter.fontMetrics().elidedText(hint, Qt::ElideRight, width() - 110));
@@ -931,6 +936,7 @@ void Canvas::paintEvent(QPaintEvent*) {
     if (input_started_ns_ >= 0) {
         FrameTiming sample;
         sample.operation = pending_operation_;
+        sample.semantic_preview_ms=pending_preview_ms_;sample.projection_ms=pending_projection_ms_;
         sample.paint_ms = (end - start) / 1e6;
         sample.input_to_paint_ms = (end - input_started_ns_) / 1e6;
         if (last_paint_ns_ >= 0 && painted_sequence_ == input_sequence_)
@@ -1104,6 +1110,11 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
 
 void Canvas::update_drag(QPointF screen) {
     if (drag_ == Drag::none) return;
+    if (drag_ == Drag::marquee) {
+        marquee_position_=screen;
+        if(distance(screen,press_position_)>=QApplication::startDragDistance())drag_moved_=true;
+        request_frame(QStringLiteral("selection"));update();return;
+    }
     if (drag_ == Drag::pan) {
         request_frame(QStringLiteral("pan"));
         pan_ = press_pan_ + screen - press_position_;
@@ -1166,15 +1177,44 @@ void Canvas::update_drag(QPointF screen) {
             }
         }
         // An empty preview restores the start state when a drag returns home.
+        const auto preview_start=clock_.nsecsElapsed();
         session_.update_gesture(commands);
-        refresh();
+        const auto projection_start=clock_.nsecsElapsed();pending_preview_ms_+=(projection_start-preview_start)/1e6;
+        refresh();pending_projection_ms_+=(clock_.nsecsElapsed()-projection_start)/1e6;
     } catch (const std::exception& exception) {
         cancel_interaction();
         report_error(exception);
     }
 }
 
+void Canvas::finish_marquee() {
+    const auto rectangle=QRectF(press_position_,marquee_position_).normalized();
+    auto selected=marquee_extend_?marquee_start_:std::vector<Selection>{};
+    auto include=[&](Selection item){if(std::find(selected.begin(),selected.end(),item)==selected.end())selected.push_back(std::move(item));};
+    if(drag_moved_) {
+        if(!marquee_start_.empty()&&!marquee_start_.back().point.empty()) {
+            std::set<Id> objects;for(const auto& item:marquee_start_)objects.insert(item.object);
+            for(const auto& id:objects)if(const auto* g=geometry(id))
+                for(const auto& p:g->points)if(rectangle.contains((g->world*view()).map(p.anchor)))include({id,p.id});
+        } else {
+            std::set<Id> candidates;
+            for(const auto& item:geometry_)if(item.normal_visible) {
+                const auto target=selection_target(item);if(!target.empty())candidates.insert(target);
+            }
+            for(const auto& id:candidates)if(const auto b=object_bounds(session_.document(),id,values_,transforms_,true)) {
+                const auto low=view().map(QPointF(b->left,b->top)),high=view().map(QPointF(b->right,b->bottom));
+                if(rectangle.contains(low)&&rectangle.contains(high))include({id,{}});
+            }
+        }
+    }
+    drag_=Drag::none;marquee_start_.clear();select_many(std::move(selected));update();update_cursor();
+}
+
 void Canvas::finish_drag() {
+    if(drag_==Drag::marquee) {
+        try {finish_marquee();}catch(const std::exception& exception){cancel_interaction();report_error(exception);}
+        return;
+    }
     snap_guide_x_.reset(); snap_guide_y_.reset();
     if (gesture_owned_) {
         const auto revision = session_.revision();
@@ -1201,12 +1241,14 @@ void Canvas::finish_drag() {
 void Canvas::cancel_interaction() {
     snap_guide_x_.reset(); snap_guide_y_.reset();
     if (gesture_owned_ && session_.gesture_active()) session_.cancel_gesture();
+    const bool had_marquee=drag_==Drag::marquee;marquee_start_.clear();
     const bool had_preview = gesture_owned_;
     gesture_owned_ = false;
     drag_ = Drag::none;
     drag_moved_ = false;
     update_cursor();
     if (had_preview) refresh();
+    else if(had_marquee)update();
 }
 
 void Canvas::append_draw_point(QPointF screen) {
@@ -1289,7 +1331,12 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         if(std::find(selections_.begin(),selections_.end(),Selection{target,{}})==selections_.end())select(target);
         if(!anchor_edit_)begin_drag(Drag::object, event->position());
     } else {
-        if(!extend)select({});
+        if(anchor_edit_||gradient_control_) {if(!extend)select({});}
+        else {
+            drag_=Drag::marquee;press_position_=marquee_position_=event->position();
+            marquee_start_=selections_;marquee_extend_=extend;drag_moved_=false;
+            ++input_sequence_;update_cursor();
+        }
     }
     event->accept();
 }
@@ -1304,7 +1351,10 @@ void Canvas::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void Canvas::mouseReleaseEvent(QMouseEvent* event) {
-    if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) finish_drag();
+    if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
+        if(drag_==Drag::marquee)update_drag(event->position());
+        finish_drag();
+    }
     event->accept();
 }
 
@@ -1324,7 +1374,7 @@ void Canvas::mouseDoubleClickEvent(QMouseEvent* event) {
 
 void Canvas::wheelEvent(QWheelEvent* event) {
     // Changing the view mid-edit would change the drag's inverse mapping.
-    if (gesture_owned_) { event->accept(); return; }
+    if (gesture_owned_||drag_==Drag::marquee) { event->accept(); return; }
     const auto now = clock_.nsecsElapsed();
     request_frame(QStringLiteral("zoom"), last_wheel_ns_ < 0 || now - last_wheel_ns_ > 250000000);
     last_wheel_ns_ = now;
@@ -1397,7 +1447,7 @@ void Canvas::report_error(const std::exception& exception) {
 void Canvas::request_frame(const QString& operation, bool new_sequence) {
     if (new_sequence) ++input_sequence_;
     // Keep the earliest unpainted input so coalescing is visible in latency data.
-    if (input_started_ns_ < 0) input_started_ns_ = clock_.nsecsElapsed();
+    if (input_started_ns_ < 0) {input_started_ns_ = clock_.nsecsElapsed();pending_preview_ms_=0;pending_projection_ms_=0;}
     pending_operation_ = operation;
     update();
 }
@@ -1413,7 +1463,7 @@ void Canvas::reset_timing() {
 void Canvas::update_cursor() {
     if (drag_ == Drag::pan) setCursor(Qt::ClosedHandCursor);
     else if (space_down_) setCursor(Qt::OpenHandCursor);
-    else if (draw_mode_ || anchor_edit_ || drag_ == Drag::anchor || drag_ == Drag::incoming ||
+    else if (draw_mode_ || anchor_edit_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
              drag_ == Drag::outgoing || drag_ == Drag::symmetric || drag_ == Drag::gradient_start ||
              drag_ == Drag::gradient_end) setCursor(Qt::CrossCursor);
     else if (drag_ == Drag::object) setCursor(Qt::SizeAllCursor);

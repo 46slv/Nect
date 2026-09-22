@@ -419,6 +419,27 @@ void keyboard_world_placement() {
     driven.canvas.select_all_in_context();const auto before=driven.session.document();QTest::keyClick(&driven.canvas,Qt::Key_Right);
     check(driven.session.document()==before&&driven.session.revision()==1&&driven.last_error.startsWith("DRIVEN_PROPERTY"),"Driven batch nudge rejects atomically");
 }
+void rectangle_selection_is_view_only() {
+    Fixture f;const auto before=f.session.document();f.canvas.set_selection({});
+    f.press(f.screen(80,100));f.move(f.screen(400,280));
+    check(f.canvas.selections().empty()&&!f.session.gesture_active(),"Marquee delays selection and owns no authored gesture");
+    f.release(f.screen(400,280));check(f.canvas.selected_objects()==std::vector<Id>{"path"},"Rectangle contains whole geometric path");
+    f.drag(f.screen(80,100),f.screen(180,200));check(f.canvas.selections().empty(),"Partial whole-object bounds do not select");
+    f.drag(f.screen(400,280),f.screen(80,100));check(f.canvas.selected_objects()==std::vector<Id>{"path"},"Rectangle works in reverse direction");
+    f.canvas.set_selection("path","p2");f.drag(f.screen(80,100),f.screen(180,200),Qt::ShiftModifier);
+    check(f.canvas.selections().size()==2&&!f.canvas.selected_point.empty(),"Shift marquee adds anchors within frozen point objects");
+    f.drag(f.screen(80,100),f.screen(180,200));check(f.canvas.selections()==std::vector<Canvas::Selection>{{"path","p1"}},"Point marquee replaces selected anchors");
+    f.press(f.screen(400,280));f.move(f.screen(80,100));QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(f.screen(80,100));
+    check(f.canvas.selections()==std::vector<Canvas::Selection>{{"path","p1"}},"Escape preserves selection before marquee");
+    QTest::mouseClick(&f.canvas,Qt::LeftButton,Qt::ShiftModifier,f.screen(600,400));check(f.canvas.selections().size()==1,"Shift empty click preserves selection");
+    QTest::mouseClick(&f.canvas,Qt::LeftButton,Qt::NoModifier,f.screen(600,400));check(f.canvas.selections().empty(),"Empty click still clears selection");
+    check(f.session.document()==before&&f.session.revision()==0&&f.commits==0,"Marquee never changes native/history");f.no_error();
+    auto d=fixture_document();Object group;group.id="group";group.kind=Kind::group;group.children={"path"};d.objects.emplace("group",group);d.compositions.front().roots={"group"};
+    Fixture grouped(d);grouped.canvas.set_selection("group");grouped.drag(grouped.screen(80,100),grouped.screen(400,280));
+    check(grouped.canvas.selected_objects()==std::vector<Id>{"group"},"Marquee respects Group selection at root scope");
+    grouped.canvas.set_selection("path");grouped.drag(grouped.screen(80,100),grouped.screen(400,280));check(grouped.canvas.selected_objects()==std::vector<Id>{"path"}&&grouped.canvas.drill_scope()=="group","Marquee selects within entered Group");
+    d.objects.at("path").visible=false;Fixture hidden(d);hidden.canvas.set_selection({});hidden.drag(hidden.screen(80,100),hidden.screen(400,280));check(hidden.canvas.selections().empty(),"Hidden artwork does not become a marquee target");
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -427,6 +448,7 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication application(argc, argv);
     try {
+        rectangle_selection_is_view_only();
         keyboard_world_placement();
         contextual_selection_and_framing();
         point_drag_is_one_transaction();

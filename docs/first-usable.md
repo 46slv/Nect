@@ -1097,3 +1097,38 @@ the next high-frequency gap: selecting arbitrary subsets still requires repeated
 Shift-clicks because dragging empty Canvas has no marquee behavior. The next
 Mission will add bounded rectangle selection, preserving Group/point contexts,
 without authored mutations. Continue in this Task.
+
+
+## Area-selection Mission acceptance — 2026-09-23
+
+Empty-Canvas rectangle selection now chooses fully contained scoped objects or
+anchors in the frozen point targets. Shift adds; reverse directions work; Escape
+preserves the original selection. Drag only draws an overlay, and selection/UI
+updates happen once on release. No Session gesture/revision/history mutation.
+Hidden geometry is not a normal candidate; selected Groups use complete geometric
+bounds excluding stroke/mask cropping, consistent with layout tools.
+
+Focused Canvas/Window/batch UI3/3 in4.65s; after diagnostic timing fields were
+added, rebuilt Canvas/Window2/2 in3.95s. Contracts cover containment, reverse
+direction, scope, hidden targets, point replacement/addition, click behavior and
+Escape with unchanged native/revision. Actual Windows GUI selected2 rectangles
+and then2 top-edge anchors using separate empty-area drags; Inspector/tree and
+Canvas agreed, live revision stayed0. `build/daily-layout/gui-marquee.json`.
+
+Viewport investigation: `marquee-viewport-benchmark.json` recorded representative
+translation p95 interval49.28ms/paint6.39ms (30fps floor FAILED). Added additive
+semantic-preview/projection stage timings to existing FrameTiming and receipts.
+`marquee-profile.json` then met the30fps floor for all2/80-curve multi-selection
+operations: representative interval max32.23ms, translation28.60ms, largest
+release28.89ms. Translation stage p95 preview13.43, projection11.37, paint3.95ms.
+60fps remains unmet. These are separate wall-clock runs; no performance repair or
+root cause for the49ms run is claimed. Preserve both and retain measured variance
+as a limitation; do not optimize rendering alone from these results. Owned
+Windows/benchmark processes closed.
+
+Mission conditions are met with current-build interaction and viewport evidence.
+Next value: bring existing vector artwork into Nect. Read-only bounded official
+SVG/Qt research confirms no current importer and QXmlStreamReader availability
+in already-installed Qt Core. Plan a strict editable static SVG subset through
+shared Session commands; unsupported content rejects atomically, without adding
+a codec dependency or claiming full Illustrator/SVG compatibility.

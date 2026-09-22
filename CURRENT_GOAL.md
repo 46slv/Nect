@@ -1,33 +1,33 @@
-# Area-selection Mission
+# Vector-intake Mission
 
 ## Mission Brief
 
-**Mission identity:** `Nect/area-selection`; same primary executor / Task / working branch.
+**Mission identity:** `Nect/vector-intake`; same sole primary executor, same Task and branch.
 
-**Final Goal:** Select useful subsets of artwork with one rectangle gesture, reducing repeated Shift-clicks in ordinary multi-object and point editing.
+**Final Goal:** Reuse static SVG artwork as editable native objects through GUI/API/MCP, removing a practical vector-asset intake blocker.
 
-**Completion conditions:** Empty-Canvas drag selects contained visible whole objects at the current Group scope, or point anchors in current point-edit targets. Shift extends selection. Click and Escape remain predictable. No authored revisions/history changes. Actual Windows GUI, focused interaction contracts and proportional viewport evidence establish behavior.
+**Completion conditions:** A useful explicit SVG subset imports into the current Composition as an editable Group in one atomic Undo; malformed/unsupported input leaves the Session untouched. Transforms, order and supported paint survive native save/reopen and export. Actual GUI and formal API/MCP acceptance with original fixtures. Unsupported capabilities disclosed. No imported code/URLs execute.
 
-**Constraints / Authority:** Current continuous-development instruction permits reversible UI choices and working-branch commits/pushes. Accepted direct-editing/group selection direction in `docs/product-direction.md`. No main push/merge, releases, new dependencies, external changes or new Tasks. Selection is view state, not another Session authoring authority.
+**Constraints / Authority:** Current continuous-development instruction and accepted interoperability direction. Existing Qt Core XML stack only in desktop adapter; no new runtime dependency for core-only CLI, no native format change. Immutable input is conversion source, not a second document authority. Working branch commits/pushes permitted; no main push/merge, release or policy changes. Continue this Task across checkpoints.
 
-**Coarse checkpoint map:** (1) Rectangle gesture, clear contained-bounds contract and visual feedback. (2) Verify real production selection/Undo interactions and repair any exposed issues; reassess next Mission here.
+**Coarse checkpoint map:** (1) Bounded path/group SVG geometry and solid paint intake, same Host path for GUI/API/MCP, atomic/native/visual acceptance. (2) Reassess actual asset coverage (basic shapes/arcs if justified), expand or choose next Mission based on evidence.
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Add rectangle selection on empty Canvas for visible scoped objects and current point-edit targets.
+**Goal:** Import bounded static SVG path/group artwork into an editable Group with preserved supported geometry/paint and explicit refusals.
 
-**Current phase:** Direct-edit-flow accepted; synchronize keyboard checkpoint then implement rectangle selection.
+**Current phase:** Area-selection accepted; synchronize it, then implement the SVG conversion boundary.
 
-**Proven:** Selection/framing synchronized `f7e3fef`. Keyboard focused tests2/2 in4.21s and actual GUI retained Rectangle/Point Edit/Undo saved native recorded in `docs/first-usable.md`. Existing Canvas has scope-aware selection and multi-selection commands but empty-space mouse press only clears selection; no rectangle gesture.
+**Proven:** Keyboard synchronized `87eb9f3`. Marquee core/window/batch UI and actual Windows selection accepted; viewport profiled run meets30fps with earlier49ms variance retained. See `docs/first-usable.md`, area-selection section. No SVG import exists in live IO/Host. Qt Core already available; research consulted W3C SVG2 Paths/Coords/Painting and Qt XML streaming official docs.
 
-**Next task:** Inspect current mouse/drag cancellation and overlay paths; implement screen-space rectangle with full containment, Shift-add and release-only selection commit.
+**Next task:** Define narrow conversion contract and implement memory-only Qt XML/path reader lowering to existing Session commands. Keep IO ownership explicit despite Qt adapter build boundary. Wire bounded local-file Host import and then GUI/API/MCP; validate with original static fixtures.
 
-**Approach:** Reuse selection_target and evaluated geometry caches. Group ancestors are single targets, hidden/mask-only geometry excluded. Point mode preserves frozen target objects. Selection updates only at release to avoid rebuilding Inspector during drag. Escape restores prior selection; no semantic gesture or history entry.
+**Approach:** Reject DTD/entities, executable/external content and unsupported render semantics; cap bytes/depth/points. Parse absolute/relative path commands and safe solid styles, Groups, affine transforms and viewBox mapping. Arc/basic-shape coverage stays explicit until implemented. Generate stable fresh native IDs; apply one command batch only after complete parse/validation. No partial imported fragments.
 
-**Done for next:** Direction-independent rectangle, scope/points/hidden targets, modifier behavior, cancellation and unchanged Session state proven in focused tests and actual GUI. Check relevant viewport behavior; commit/push and verify remote HEAD.
+**Done for next:** Real useful static fixture imports/edits/undoes/reopens/reexports through GUI/API/MCP; unsupported content fails atomically; coherent commit/push and HEAD equality. Reassess coverage in same Task.
 
-**State:** `D:\Documents\Nect`; `codex/practical-alpha`; keyboard changes ready to commit; prior remote `f7e3fef7522bf116aedfdcca9b6fda6ed819f50b`. Owned GUI closed. Full access / never approvals.
+**State:** `D:\Documents\Nect`, `codex/practical-alpha`; area-selection changes ready to commit; prior remote `87eb9f32461783d3be90366518eaa96a0d560bff`. No owned GUI remains; Full access/never approvals. Bounded research worker completed and interrupted.
 
-**Authority:** Current explicit continuous-development user instruction. Continue after checkpoints and Mission boundaries.
+**Authority:** Explicit continuous-development user instruction; no new Task or stop at Mission completion.
 
-**Handoff:** CONTINUE_CURRENT_TASK; no successor Task.
+**Handoff:** CONTINUE_CURRENT_TASK.
