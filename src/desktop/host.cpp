@@ -261,7 +261,7 @@ QJsonObject Host::import_svg(const QString& path,const Id& composition,const Id&
     const auto plan=read_svg(std::string_view(bytes.constData(),static_cast<std::size_t>(bytes.size())),composition,prefix,name,x,y);
     apply_serializable(session,plan.commands,expected);edited();
     return {{"root",QString::fromStdString(plan.root)},{"paths",static_cast<qint64>(plan.paths)},{"points",static_cast<qint64>(plan.points)},
-        {"width",plan.width},{"height",plan.height},{"conversion","Editable cubic paths and Groups; SVG viewport maps coordinates, not an authored crop/Artboard. Original file unchanged."}};
+        {"width",plan.width},{"height",plan.height},{"conversion","Editable cubic paths and Groups; Basic shapes become editable paths; elliptical portions use cubic approximation. SVG viewport maps coordinates, not an authored crop/Artboard. Original file unchanged."}};
 }
 void Host::import_image(const QString& path,const std::string& mode,const Id& composition,const Id& parent,
     const Id& asset,const Id& object,const std::string& name,double x,double y,std::uint64_t expected) {

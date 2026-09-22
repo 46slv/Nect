@@ -37,6 +37,34 @@ int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplicati
         R"svg(<svg viewBox="0 0 10 10"><path d="M0 0" class="unknown"/></svg>)svg"}) {
         bool rejected=false;try{(void)read_svg(invalid,"comp","bad","Bad",0,0);}catch(const Error&){rejected=true;}check(rejected,"Unsupported SVG must reject entirely");
     }
+    const std::string shapes=R"svg(<svg viewBox="0 0 400 300"><g fill="#456">
+      <rect x="10" y="20" width="60" height="40"/>
+      <rect width="100" height="40" rx="80"/>
+      <circle cx="40" cy="50" r="20"/>
+      <ellipse cx="90" cy="100" rx="30" ry="10"/>
+      <line x2="40" y2="30" stroke="black"/>
+      <polyline points="0,0 10,20 30-5"/>
+      <polygon points="0 0,30 0,15 20"/>
+      <ellipse rx="12" ry="auto"/>
+    </g></svg>)svg";
+    const auto shape_plan=read_svg(shapes,"comp","shapes","Shapes",0,0);Session shaped(empty_document("shape-doc","comp","art"));shaped.apply(shape_plan.commands,0);
+    check(shape_plan.paths==8,"Every basic shape becomes one editable path");
+    const auto& square=shaped.document().objects.at("shapes-n2").contours[0];check(square.closed&&square.points.size()==4,"Square rectangle topology");near(square.points[2].x.literal,70);near(square.points[2].y.literal,60);
+    const auto& rounded=shaped.document().objects.at("shapes-n3").contours[0];near(rounded.points[0].x.literal,50);check(rounded.closed,"Rounded rectangle clamps copied radii");
+    const auto& line=shaped.document().objects.at("shapes-n6").contours[0];check(!line.closed&&line.points.size()==2,"Line defaults and open topology");near(line.points[0].x.literal,0);near(line.points[1].y.literal,30);
+    check(!shaped.document().objects.at("shapes-n7").contours[0].closed&&shaped.document().objects.at("shapes-n8").contours[0].closed,"Polyline versus polygon close semantics");
+    near(shaped.document().objects.at("shapes-n9").contours[0].points[2].y.literal,12);
+    // Sample every cubic in normalized ellipse coordinates; catches orientation,
+    // handle direction, closure and radius drift independently of the converter.
+    const auto& ellipse=shaped.document().objects.at("shapes-n5").contours[0];check(ellipse.points.size()==8&&ellipse.closed,"Ellipse eight-span topology");
+    auto control=[](const Point& p,bool out){const double rad=(out?p.out_angle:p.in_angle).literal*std::acos(-1)/180,len=(out?p.out_length:p.in_length).literal;return Vec2{p.x.literal+len*std::cos(rad),p.y.literal+len*std::sin(rad)};};
+    for(std::size_t i=0;i<ellipse.points.size();++i){const auto& p=ellipse.points[i];const auto& q=ellipse.points[(i+1)%ellipse.points.size()];const auto a=control(p,true),b=control(q,false);
+        for(int j=0;j<=100;++j){const double t=j/100.0,u=1-t,x=u*u*u*p.x.literal+3*u*u*t*a.x+3*u*t*t*b.x+t*t*t*q.x.literal,y=u*u*u*p.y.literal+3*u*u*t*a.y+3*u*t*t*b.y+t*t*t*q.y.literal;
+            check(std::abs(std::hypot((x-90)/30,(y-100)/10)-1)<5e-6,"Ellipse radial approximation bound");}}
+    check(decode(encode(shaped.document()))==shaped.document(),"Basic shapes native roundtrip");shaped.undo(1);check(shaped.document().objects.empty(),"Basic shapes one atomic Undo");
+    for(const auto& element:std::vector<std::string>{"<rect width='-1' height='10'/>","<circle r='0'/>","<ellipse rx='10' ry='-2'/>","<polyline points='0 0 10'/>","<polygon points='0 0 10 20,'/>","<rect width='10%' height='20'/>","<circle r='5'><rect width='2' height='2'/></circle>"}) {
+        bool rejected=false;try{(void)read_svg("<svg viewBox='0 0 40 40'>"+element+"</svg>","comp","invalid-shape","Bad",0,0);}catch(const Error&){rejected=true;}check(rejected,"Invalid/unsupported shape refuses entirely");
+    }
     QTemporaryDir temp;const auto input=temp.path()+"/art.svg";QFile file(input);check(file.open(QIODevice::WriteOnly),"Write owned SVG fixture");file.write(QByteArray::fromStdString(svg));file.close();
     Window window(temp.path()+"/recovery");window.show();QApplication::processEvents();auto& host=window.host;
     const auto composition=host.session.document().compositions.front().id;const auto original=host.session.document();

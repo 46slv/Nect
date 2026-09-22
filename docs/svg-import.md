@@ -15,8 +15,9 @@ This is artwork intake: width/height/viewBox map coordinates, but viewport clipp
 and a new output Artboard are not authored. Off-viewport artwork remains editable.
 The GUI and machine result disclose this conversion boundary.
 
-Supported initial subset:
-- SVG/g/path, title/desc text metadata; unqualified or SVG namespace.
+Supported subset:
+- SVG/g/path and rect/circle/ellipse/line/polyline/polygon, title/desc text metadata;
+  unqualified or SVG namespace. Basic shapes lower to editable paths.
 - Absolute/relative M/L/H/V/C/S/Q/T/Z, repeated and compact coordinates, multiple
   subpaths, smooth control reflection. Quadratics become exact cubic handles.
 - Affine matrix/translate/scale/rotate/skew transforms and hierarchy/paint order.
@@ -26,7 +27,7 @@ Supported initial subset:
   fill/stroke opacity and width, nonzero/evenodd, object/Group opacity. Restricted
   inline style overrides presentation attributes. Stroke butt/miter/miterlimit4.
 
-Unsupported semantics reject the entire import: arcs and basic-shape elements,
+Unsupported semantics reject the entire import: path A/a arcs,
 text/images, gradients/patterns, use/links, masks/clips/filters, CSS stylesheets,
 classes, variables, alternate cap/join/dashes, unknown attributes/elements,
 physical/percentage lengths, other aspect policies and foreign namespaces.
@@ -38,7 +39,17 @@ Limits:1MiB encoded input,128 non-root drawable/group nodes,32 nested levels,
 10000 parsed anchors,1000 generated Session commands; existing model ranges and
 native serialized limits still apply. This is synchronous bounded conversion.
 
-Sources: [SVG2 paths](https://www.w3.org/TR/SVG2/paths.html),
+Basic-shape lengths accept unitless/px values. Coordinates default to zero. Rect
+corner radii and ellipse radii follow SVG2 missing/auto fallback; rectangle radii
+clamp to half the corresponding size. Negative dimensions/radii and malformed
+point lists reject. Zero-size rectangles/circles/ellipses and point lists with
+fewer than two points are explicitly unsupported (not silently omitted).
+Curved shapes use cubic spans of at most45 degrees, not exact conics or retained
+shape generators. Normalized ellipse radial error is tested below5e-6; world
+error scales with the radii and ancestor transforms. GUI/MCP/result disclose it.
+
+Sources: [SVG2 basic shapes](https://www.w3.org/TR/SVG2/shapes.html),
+[SVG2 paths](https://www.w3.org/TR/SVG2/paths.html),
 [coordinate systems](https://www.w3.org/TR/SVG2/coords.html),
 [painting](https://www.w3.org/TR/2018/CR-SVG2-20180807/painting.html),
 [structure](https://www.w3.org/TR/SVG2/struct.html),

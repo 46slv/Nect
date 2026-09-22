@@ -1157,3 +1157,23 @@ produced960x640 sRGB. Receipts: `build/daily-layout/svg-gui-acceptance.json`,
 `svg-gui-import.json`, `svg-gui-undo.json`; saved native/PNG in same scratch folder.
 Owned GUI closed after verification. Arc/basic-shape elements remain explicitly
 unsupported at this checkpoint; coverage expansion is the next bounded task.
+
+
+## SVG basic-shape intake acceptance (2026-09-23)
+
+Extended the existing importer with rect/circle/ellipse/line/polyline/polygon,
+lowered to native editable paths. Rectangle radius fallback/clamping, SVG2
+ellipse auto radius, default coordinates and straight/open/closed topology are
+covered. Curved portions are explicitly disclosed cubic approximations using
+at most45-degree spans; sampled normalized ellipse radial error stays below5e-6.
+Zero-sized filled shapes remain an explicit refusal. No native/dependency change.
+
+Focused Release `svg_import_contract` + `mcp_desktop_contract`:2/2 passed,8.18s
+(`build/daily-layout/svg-shapes-tests.log`). Full regression39/39 was run at the
+preceding vertical checkpoint; no unrelated render/core code changed here.
+Actual Windows File Import accepted original `examples/shape-badge.svg`: six
+shapes including a rotated ellipse, rounded card and stroked zigzag/line. UI
+showed the approximation disclosure and correctly rendered the artwork. Live
+Session edited an imported circle anchor, undid it, saved and reopened exact
+native state. Receipt `build/daily-layout/svg-shapes-gui-acceptance.json` and
+`svg-shapes-gui.nect`. Owned GUI closed. Next coverage blocker: path A/a arcs.

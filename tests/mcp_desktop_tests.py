@@ -453,10 +453,10 @@ try:
         assert core('get',ref=dict(object='align-1',point='',field='transform.tx'))['result']['evaluated']==30
         assert core('undo',expected_revision=spacing_rev)['ok'] and core('inspect')['result']==alignment_before
         svg_input=temp/'original-vector.svg'
-        svg_input.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30"><g fill="#c04020"><path d="M2 2h30v20h-30z"/></g></svg>',encoding='utf-8')
+        svg_input.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30"><g fill="#c04020"><path d="M2 2h30v20h-30z"/><circle cx="20" cy="15" r="4"/></g></svg>',encoding='utf-8')
         vector_before=core('inspect')['result']
         vector=tool('nect_import_svg',dict(identity,op='import_svg',expected_revision=spacing_rev+1,path=str(svg_input),composition=comp['id'],prefix='mcp-vector',name='Vector',x=10,y=20))
-        assert vector['ok'] and vector['result']['paths']==1 and vector['result']['root']=='mcp-vector'
+        assert vector['ok'] and vector['result']['paths']==2 and vector['result']['root']=='mcp-vector'
         assert any(o['id']=='mcp-vector' and o['kind']=='group' for o in core('inspect')['result']['objects'])
         assert core('undo',expected_revision=vector['revision'])['ok'] and core('inspect')['result']==vector_before
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,

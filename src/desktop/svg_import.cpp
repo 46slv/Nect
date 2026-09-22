@@ -104,6 +104,45 @@ std::vector<Contour> path(QString text,const Id& id,std::size_t& total) {
 }
 struct Style {QString fill="black",stroke="none",rule="nonzero";double fill_alpha=1,stroke_alpha=1,width=1;};
 using Attributes=std::map<QString,QString>;
+// Basic shapes become editable paths. Elliptical segments use cubic spans <=45deg.
+std::vector<Contour> shape(const QString& tag,Attributes& a,const Id& id,std::size_t& total) {
+    auto length=[&](const QString& key,double fallback=0.0){auto i=a.find(key);if(i==a.end())return fallback;const auto v=scalar(i->second,true);a.erase(i);return v;};
+    auto radius=[&](const QString& key)->std::optional<double>{auto i=a.find(key);if(i==a.end())return {};if(i->second.trimmed()=="auto"){a.erase(i);return {};}const auto v=length(key);need(v>=0,"SVG_RANGE","Negative SVG radius");return v;};
+    Contour c;c.id=id+"-c0";std::size_t serial=0;
+    auto add=[&](Vec2 v){need(++total<=10000,"SVG_LIMIT","SVG point limit10000");Point p;p.id=id+"-p"+std::to_string(serial++);p.x.literal=v.x;p.y.literal=v.y;c.points.push_back(p);};
+    auto close=[&](bool curved=false){c.closed=true;if(c.points.size()>1){auto& first=c.points.front();const auto& last=c.points.back();if(curved||(first.x.literal==last.x.literal&&first.y.literal==last.y.literal)){first.in_angle=last.in_angle;first.in_length=last.in_length;c.points.pop_back();}}};
+    auto arc=[&](Vec2 center,double rx,double ry,double start,double sweep) {
+        const int spans=static_cast<int>(std::ceil(std::abs(sweep)/(std::numbers::pi/4)));const double step=sweep/spans,k=4.0/3*std::tan(step/4);
+        for(int i=0;i<spans;++i){const auto t=start+i*step,u=t+step;
+            const Vec2 c1{center.x+rx*(std::cos(t)-k*std::sin(t)),center.y+ry*(std::sin(t)+k*std::cos(t))};
+            const Vec2 c2{center.x+rx*(std::cos(u)+k*std::sin(u)),center.y+ry*(std::sin(u)-k*std::cos(u))};
+            handle(c.points.back(),true,c1);add({center.x+rx*std::cos(u),center.y+ry*std::sin(u)});handle(c.points.back(),false,c2);
+        }
+    };
+    if(tag=="line") {const Vec2 p{length("x1"),length("y1")},q{length("x2"),length("y2")};add(p);add(q);}
+    else if(tag=="polyline"||tag=="polygon") {
+        need(a.contains("points"),"SVG_UNSUPPORTED","Empty point-list shapes are unsupported");Numbers n(a.at("points"));a.erase("points");
+        bool first=true;while(!n.end()){const auto x=first?n.number():n.following();first=false;const auto y=n.following();add({x,y});}
+        need(c.points.size()>=2,"SVG_UNSUPPORTED","Point-list shapes need at least two points");if(tag=="polygon")close();
+    } else if(tag=="circle"||tag=="ellipse") {
+        const Vec2 center{length("cx"),length("cy")};double rx,ry;
+        if(tag=="circle"){rx=ry=length("r");need(rx>=0,"SVG_RANGE","Negative circle radius");}
+        else {const auto x=radius("rx"),y=radius("ry");rx=x.value_or(y.value_or(0));ry=y.value_or(x.value_or(0));}
+        need(rx>0&&ry>0,"SVG_UNSUPPORTED","Zero-size circles/ellipses are unsupported");
+        add({center.x+rx,center.y});arc(center,rx,ry,0,2*std::numbers::pi);close(true);
+    } else {
+        const auto x=length("x"),y=length("y"),w=length("width"),h=length("height");need(w>=0&&h>=0,"SVG_RANGE","Negative rectangle size");need(w>0&&h>0,"SVG_UNSUPPORTED","Zero-size rectangles are unsupported");
+        const auto xr=radius("rx"),yr=radius("ry");const auto rx=std::min(w/2,xr.value_or(yr.value_or(0))),ry=std::min(h/2,yr.value_or(xr.value_or(0)));
+        if(rx==0||ry==0){add({x,y});add({x+w,y});add({x+w,y+h});add({x,y+h});close();}
+        else {
+            add({x+rx,y});add({x+w-rx,y});arc({x+w-rx,y+ry},rx,ry,-std::numbers::pi/2,std::numbers::pi/2);
+            add({x+w,y+h-ry});arc({x+w-rx,y+h-ry},rx,ry,0,std::numbers::pi/2);
+            add({x+rx,y+h});arc({x+rx,y+h-ry},rx,ry,std::numbers::pi/2,std::numbers::pi/2);
+            add({x,y+ry});arc({x+rx,y+ry},rx,ry,std::numbers::pi,std::numbers::pi/2);close(true);
+        }
+    }
+    return {std::move(c)};
+}
 Attributes attributes(const QXmlStreamReader& xml) {
     Attributes result;for(const auto& a:xml.attributes()) {
         need(a.namespaceUri().isEmpty(),"SVG_UNSUPPORTED","Namespaced attributes are unsupported");result.emplace(a.name().toString(),a.value().toString());
@@ -152,7 +191,7 @@ class Reader {
     void next() {xml.readNext();need(!xml.hasError(),"SVG_XML",xml.errorString().toStdString());need(xml.tokenType()!=QXmlStreamReader::DTD&&xml.tokenType()!=QXmlStreamReader::EntityReference&&xml.tokenType()!=QXmlStreamReader::ProcessingInstruction,"SVG_UNSUPPORTED","DTD, entities and processing instructions are unsupported");}
     Id element(Style inherited,unsigned depth,bool root=false) {
         need(depth<=32,"SVG_LIMIT","SVG nesting limit32");need(xml.namespaceUri().isEmpty()||xml.namespaceUri()==u"http://www.w3.org/2000/svg","SVG_UNSUPPORTED","Foreign XML content unsupported");
-        const auto tag=xml.name().toString();need(root?tag=="svg":tag=="g"||tag=="path","SVG_UNSUPPORTED","Unsupported SVG element: "+tag.toStdString());
+        const auto tag=xml.name().toString();need(root?tag=="svg":std::set<QString>{"g","path","rect","circle","ellipse","line","polyline","polygon"}.contains(tag),"SVG_UNSUPPORTED","Unsupported SVG element: "+tag.toStdString());
         auto a=attributes(xml);std::string label=root?name:tag.toStdString();if(a.contains("id")){label=a.at("id").toStdString();a.erase("id");}
         double alpha=1;Affine matrix=identity;const auto inherited_style=style(a,inherited,alpha,matrix);const auto id=root?prefix:fresh();
         if(root) {
@@ -167,8 +206,12 @@ class Reader {
             matrix=compose(Affine{1,0,0,1,x,y},compose(matrix,viewport));
         }
         std::vector<Id> children;
-        if(tag=="path") {
-            need(a.contains("d"),"SVG_SYNTAX","Path requires d");auto contours=path(a.at("d"),id,parsed_points);a.erase("d");for(const auto& c:contours)plan.points+=c.points.size();
+        const bool drawable=tag!="svg"&&tag!="g";
+        if(drawable) {
+            std::vector<Contour> contours;
+            if(tag=="path"){need(a.contains("d"),"SVG_SYNTAX","Path requires d");contours=path(a.at("d"),id,parsed_points);a.erase("d");}
+            else contours=shape(tag,a,id,parsed_points);
+            for(const auto& c:contours)plan.points+=c.points.size();
             plan.commands.push_back(CreatePath{composition,"",id,label,std::move(contours)});paint(id,inherited_style);++plan.paths;
         }
         need(a.empty(),"SVG_UNSUPPORTED",a.empty()?"":"Unsupported SVG attribute: "+a.begin()->first.toStdString());
@@ -178,10 +221,10 @@ class Reader {
                 if(xml.name()==u"title"||xml.name()==u"desc") {
                     need((xml.namespaceUri().isEmpty()||xml.namespaceUri()==u"http://www.w3.org/2000/svg")&&xml.attributes().empty(),"SVG_UNSUPPORTED","Foreign metadata or metadata attributes unsupported");
                     while(true){next();if(xml.isEndElement())break;need(xml.isCharacters()||xml.isComment(),"SVG_UNSUPPORTED","Nested metadata unsupported");}
-                } else {need(tag!="path","SVG_UNSUPPORTED","Path child content unsupported");children.push_back(element(inherited_style,depth+1));}
+                } else {need(!drawable,"SVG_UNSUPPORTED","Shape child content unsupported");children.push_back(element(inherited_style,depth+1));}
             } else if(xml.isCharacters())need(xml.isWhitespace(),"SVG_UNSUPPORTED","Unexpected SVG text");
         }
-        if(tag!="path") {need(!children.empty(),"SVG_UNSUPPORTED","Empty SVG Groups unsupported");plan.commands.push_back(GroupContiguous{composition,"",children,id,label});}
+        if(!drawable) {need(!children.empty(),"SVG_UNSUPPORTED","Empty SVG Groups unsupported");plan.commands.push_back(GroupContiguous{composition,"",children,id,label});}
         placement(id,matrix,alpha);need(plan.commands.size()<=1000,"SVG_LIMIT","SVG command limit1000");return id;
     }
 public:

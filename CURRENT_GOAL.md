@@ -14,19 +14,19 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Extend SVG intake to common basic shape elements without weakening atomic refusal or native editability.
+**Goal:** Support SVG elliptical path arcs with bounded, disclosed cubic conversion, completing useful static geometry intake.
 
-**Current phase:** Path/group vertical checkpoint accepted; saving and synchronizing before shape implementation.
+**Current phase:** Basic-shape checkpoint accepted; synchronizing before arc implementation.
 
-**Proven:** Path/group GUI/Host/formal MCP import, strict refusals, Undo/Redo and exact native reopen. Full Release regression39/39 passed. Actual original6-path fixture visually verified, nudged/undone and exported PNG; see `docs/first-usable.md` SVG intake section and `docs/svg-import.md`.
+**Proven:** Path/group checkpoint `ccc0604177f8090f2e7e8b30b3bb5aa26b3f0d32` synchronized, full39/39 regression. Basic shapes focused2/2 + actual Windows fixture accepted; native point edit/Undo/save/reopen exact. See `docs/first-usable.md` SVG sections and `docs/svg-import.md` contract.
 
-**Next task:** Implement line/polyline/polygon/rect/circle/ellipse conversion using existing native geometry contracts; verify dimensions, defaults, rounded corners, transforms and paint. Keep arcs as a separate evidence-based choice.
+**Next task:** Implement A/a endpoint-to-center conversion, radius correction, sweep/large flags and degenerate cases. Verify official equations against independent endpoint/ellipse cases; preserve budgets and atomic refusal.
 
-**Approach:** Review official basic-shape semantics; lower to editable native geometry within existing byte/node/point budgets. Disclose curved approximation where relevant. Focused geometry/refusal tests plus a representative actual Windows GUI fixture, native roundtrip and MCP coverage.
+**Approach:** Existing path cubic representation, no external parser/dependency. Keep quadratic exact lowering; arcs use bounded angular spans and disclose approximation. Geometry contracts plus GUI representative fixture, Undo/native/Host validation.
 
-**Done for next:** Common shape artwork imports coherently through the same Host operation; unsupported/invalid dimensions remain atomic; focused checks and visual acceptance pass; commit/push and remote equality.
+**Done for next:** Arc artwork imports with correct endpoints/orientation/flags and explicit unsupported boundaries; focused tests and actual visual acceptance; coherent commit/push and remote equality. Reassess next Mission in this Task.
 
-**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `a6692df155265cd566453dfcb9de2bbde3e7afb1`, path/group changes accepted and awaiting checkpoint commit. Owned GUI closed; Full access/never approvals. Research worker completed/interrupted.
+**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `ccc0604177f8090f2e7e8b30b3bb5aa26b3f0d32`, accepted shape work awaiting commit. Owned GUI closed; Full access/never approvals.
 
 **Authority:** Explicit continuous-development user instruction; working-branch commit/push authorized, no main merge/release. No new Task or stop at Mission completion.
 
