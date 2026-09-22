@@ -1132,3 +1132,28 @@ SVG/Qt research confirms no current importer and QXmlStreamReader availability
 in already-installed Qt Core. Plan a strict editable static SVG subset through
 shared Session commands; unsupported content rejects atomically, without adding
 a codec dependency or claiming full Illustrator/SVG compatibility.
+
+
+## Static SVG intake acceptance (2026-09-23)
+
+Added bounded editable SVG path/group intake through File > Import SVG (Ctrl+I),
+Host `import_svg`, and formal MCP `nect_import_svg`. All paths use one atomic
+Session batch. See `docs/svg-import.md` for the strict conversion contract and
+limits; unsupported content never becomes a partial import. No new dependency
+or native format change. Source viewport mapping does not add clipping/Artboards.
+
+Release full regression: **39/39 passed**,43.65s
+(`build/daily-layout/svg-regression.log`). Coverage includes inherited paint,
+affine/viewBox placement, quadratic/smooth curves, malformed/unsupported refusal,
+stale revision, exact native reopen, Undo/Redo and actual Window action/dialog;
+formal MCP imports and undoes against the live desktop Session.
+
+Actual Windows GUI imported original `examples/wayfinding-mark.svg`:6 editable
+paths in4 Groups, rounded panel, two curves, rotated diamond/arrow and translucent
+baseline visually verified. Shift+Right moved the root10du; Undo restored it.
+A further Undo removed the entire import; Redo button restored byte-equivalent
+native state. Host Save/Open preserved exact authored document and PNG export
+produced960x640 sRGB. Receipts: `build/daily-layout/svg-gui-acceptance.json`,
+`svg-gui-import.json`, `svg-gui-undo.json`; saved native/PNG in same scratch folder.
+Owned GUI closed after verification. Arc/basic-shape elements remain explicitly
+unsupported at this checkpoint; coverage expansion is the next bounded task.

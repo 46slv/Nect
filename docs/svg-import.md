@@ -1,0 +1,46 @@
+# Static SVG artwork intake
+
+Implementation contract for the active vector-intake checkpoint; not full SVG support.
+
+The Qt-backed memory reader in `src/desktop/svg_import.cpp` lowers interchange into
+existing Session commands. It belongs to the IO conversion boundary and builds only
+with the existing desktop adapter (QXmlStreamReader is Qt Core). Core-only CLI stays
+Qt-free. GUI and formal MCP use Host import against the same live Session.
+
+Import produces one editable Group appended to the requested Composition. SVG IDs
+become labels; fresh prefix-based native IDs prevent external name/reference reuse.
+All parsing completes before one atomic Session apply with serializability preflight.
+Original SVG is unchanged; the resulting native geometry/paint is the editing source.
+This is artwork intake: width/height/viewBox map coordinates, but viewport clipping
+and a new output Artboard are not authored. Off-viewport artwork remains editable.
+The GUI and machine result disclose this conversion boundary.
+
+Supported initial subset:
+- SVG/g/path, title/desc text metadata; unqualified or SVG namespace.
+- Absolute/relative M/L/H/V/C/S/Q/T/Z, repeated and compact coordinates, multiple
+  subpaths, smooth control reflection. Quadratics become exact cubic handles.
+- Affine matrix/translate/scale/rotate/skew transforms and hierarchy/paint order.
+- Positive unitless/px viewport sizes or viewBox-derived size; nonzero viewBox
+  origin; preserveAspectRatio none or xMidYMid meet (default).
+- Solid opaque named or #RGB/#RRGGBB sRGB colors, none, inherited fill/stroke,
+  fill/stroke opacity and width, nonzero/evenodd, object/Group opacity. Restricted
+  inline style overrides presentation attributes. Stroke butt/miter/miterlimit4.
+
+Unsupported semantics reject the entire import: arcs and basic-shape elements,
+text/images, gradients/patterns, use/links, masks/clips/filters, CSS stylesheets,
+classes, variables, alternate cap/join/dashes, unknown attributes/elements,
+physical/percentage lengths, other aspect policies and foreign namespaces.
+DTD, entity references, processing instructions, scripts and external resources
+never execute or fetch. XML declaration/comments and predefined XML escapes are
+ordinary parsing, not an extension mechanism.
+
+Limits:1MiB encoded input,128 non-root drawable/group nodes,32 nested levels,
+10000 parsed anchors,1000 generated Session commands; existing model ranges and
+native serialized limits still apply. This is synchronous bounded conversion.
+
+Sources: [SVG2 paths](https://www.w3.org/TR/SVG2/paths.html),
+[coordinate systems](https://www.w3.org/TR/SVG2/coords.html),
+[painting](https://www.w3.org/TR/2018/CR-SVG2-20180807/painting.html),
+[structure](https://www.w3.org/TR/SVG2/struct.html),
+[Qt stream reader](https://doc.qt.io/qt-6/qxmlstreamreader.html),
+[Qt XML streaming](https://doc.qt.io/qt-6/xml-streaming.html).

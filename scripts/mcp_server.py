@@ -106,6 +106,14 @@ TOOLS = [
          scale={'type':'number'},background={'type':'string','enum':['transparent','white']}),
          'required':['session_id','document_id','op','expected_revision','path','composition','artboard','scale','background'],'additionalProperties':False},
      'annotations':{'readOnlyHint':False,'destructiveHint':True,'openWorldHint':False}},
+    {'name': 'nect_import_svg',
+     'description': 'Import a bounded local static SVG as editable path/Group artwork in one Undo. Supports M/L/H/V/C/S/Q/T/Z, groups, solid paints and affine transforms; arcs, basic-shape elements, CSS stylesheets, text/images, masks, external content and unknown semantics reject atomically. The source viewport maps coordinates but is not imported as a crop or Artboard. Original file unchanged. Requires absolute local path, fresh 1..40-character identifier prefix, current identity/revision; 1 MiB,128 nodes,10000 points.',
+     'inputSchema': {'type': 'object', 'properties': dict(IDENTITY,
+         op={'type': 'string', 'enum': ['import_svg']}, expected_revision={'type': 'integer', 'minimum': 0},
+         path={'type': 'string'}, composition={'type': 'string'}, prefix={'type': 'string'}, name={'type': 'string'},
+         x={'type': 'number'}, y={'type': 'number'}),
+         'required': ['session_id','document_id','op','expected_revision','path','composition','prefix','name','x','y'], 'additionalProperties': False},
+     'annotations': {'readOnlyHint': False, 'destructiveHint': False, 'openWorldHint': False}},
     {'name': 'nect_image',
      'description': ('Import PNG/JPEG as a Linked or Embedded asset with one Image placement, or manage an existing asset. '
                      'import_image requires path (absolute local Windows drive path), explicit mode linked/embedded, composition,parent (empty for root), '

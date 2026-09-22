@@ -357,6 +357,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
             throw Error("IO_ERROR",output.errorString().toStdString());
         statusBar()->showMessage("SVG exported with text as outlines; native text remains editable",10000);
     });
+    action(file,"Import SVG artwork…",QKeySequence("Ctrl+I"),[this]{import_svg();})->setObjectName("import-svg");
     action(file,"Export PNG…",{},[this]{export_png();})->setObjectName("export-png");
     undo_=action(edit,"Undo",QKeySequence::Undo,[this]{canvas->cancel_interaction();host.session.undo(host.session.revision());host.edited();});
     redo_=action(edit,"Redo",QKeySequence::Redo,[this]{canvas->cancel_interaction();host.session.redo(host.session.revision());host.edited();});
@@ -1804,6 +1805,26 @@ void Window::pick_source(std::vector<Ref> targets,bool relative) {
     connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
     dialog->show();search->setFocus();
 }
+void Window::import_svg() {
+    const auto identity=host.session_id;const auto revision=host.session.revision();
+    const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
+    const auto plane=std::find_if(host.session.document().compositions.begin(),host.session.document().compositions.end(),[&](const auto& c){return c.id==composition;});
+    if(plane==host.session.document().compositions.end())throw Error("MISSING_COMPOSITION","Select a Composition");
+    const auto board=evaluate_artboard(*plane,artboard);
+    QDialog dialog(this);dialog.setObjectName("svg-import-dialog");dialog.setWindowTitle("Import SVG artwork");auto* layout=new QVBoxLayout(&dialog);
+    auto* hint=new QLabel("Static paths and Groups, solid fills/strokes, affine transforms.\nUnsupported SVG content rejects the whole import. Arcs, text, images and CSS stylesheets are not supported.\nArtwork is placed at the active Artboard origin. SVG viewport maps coordinates; it does not crop the imported Group.",&dialog);hint->setWordWrap(true);layout->addWidget(hint);
+    auto* row=new QHBoxLayout;auto* path=new QLineEdit(&dialog);path->setObjectName("svg-import-path");path->setMinimumWidth(400);path->setPlaceholderText("Absolute path to .svg");auto* browse=new QPushButton("Browse…",&dialog);row->addWidget(path);row->addWidget(browse);layout->addLayout(row);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);buttons->button(QDialogButtonBox::Ok)->setText("Import editable artwork");buttons->button(QDialogButtonBox::Ok)->setEnabled(false);layout->addWidget(buttons);
+    connect(path,&QLineEdit::textChanged,&dialog,[&]{buttons->button(QDialogButtonBox::Ok)->setEnabled(!path->text().trimmed().isEmpty());});
+    connect(browse,&QPushButton::clicked,&dialog,[&]{const auto file=QFileDialog::getOpenFileName(&dialog,"SVG artwork",{},"SVG (*.svg)");if(!file.isEmpty())path->setText(file);});
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    if(identity!=host.session_id)throw Error("SESSION_CONFLICT","Document changed while SVG import was open");
+    const auto result=host.import_svg(path->text().trimmed(),composition,new_id(),QFileInfo(path->text().trimmed()).completeBaseName().toStdString(),board.x,board.y,revision);
+    canvas->set_selection(result.value("root").toString().toStdString());canvas->fit_selection();
+    statusBar()->showMessage(QString("Imported %1 editable SVG paths in one Group; one Undo removes the import").arg(result.value("paths").toInt()),10000);
+}
+
 void Window::export_png() {
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     const auto revision=host.session.revision();const auto identity=host.session_id;

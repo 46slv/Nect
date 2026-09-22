@@ -14,20 +14,20 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Import bounded static SVG path/group artwork into an editable Group with preserved supported geometry/paint and explicit refusals.
+**Goal:** Extend SVG intake to common basic shape elements without weakening atomic refusal or native editability.
 
-**Current phase:** Area-selection accepted; synchronize it, then implement the SVG conversion boundary.
+**Current phase:** Path/group vertical checkpoint accepted; saving and synchronizing before shape implementation.
 
-**Proven:** Keyboard synchronized `87eb9f3`. Marquee core/window/batch UI and actual Windows selection accepted; viewport profiled run meets30fps with earlier49ms variance retained. See `docs/first-usable.md`, area-selection section. No SVG import exists in live IO/Host. Qt Core already available; research consulted W3C SVG2 Paths/Coords/Painting and Qt XML streaming official docs.
+**Proven:** Path/group GUI/Host/formal MCP import, strict refusals, Undo/Redo and exact native reopen. Full Release regression39/39 passed. Actual original6-path fixture visually verified, nudged/undone and exported PNG; see `docs/first-usable.md` SVG intake section and `docs/svg-import.md`.
 
-**Next task:** Define narrow conversion contract and implement memory-only Qt XML/path reader lowering to existing Session commands. Keep IO ownership explicit despite Qt adapter build boundary. Wire bounded local-file Host import and then GUI/API/MCP; validate with original static fixtures.
+**Next task:** Implement line/polyline/polygon/rect/circle/ellipse conversion using existing native geometry contracts; verify dimensions, defaults, rounded corners, transforms and paint. Keep arcs as a separate evidence-based choice.
 
-**Approach:** Reject DTD/entities, executable/external content and unsupported render semantics; cap bytes/depth/points. Parse absolute/relative path commands and safe solid styles, Groups, affine transforms and viewBox mapping. Arc/basic-shape coverage stays explicit until implemented. Generate stable fresh native IDs; apply one command batch only after complete parse/validation. No partial imported fragments.
+**Approach:** Review official basic-shape semantics; lower to editable native geometry within existing byte/node/point budgets. Disclose curved approximation where relevant. Focused geometry/refusal tests plus a representative actual Windows GUI fixture, native roundtrip and MCP coverage.
 
-**Done for next:** Real useful static fixture imports/edits/undoes/reopens/reexports through GUI/API/MCP; unsupported content fails atomically; coherent commit/push and HEAD equality. Reassess coverage in same Task.
+**Done for next:** Common shape artwork imports coherently through the same Host operation; unsupported/invalid dimensions remain atomic; focused checks and visual acceptance pass; commit/push and remote equality.
 
-**State:** `D:\Documents\Nect`, `codex/practical-alpha`; area-selection changes ready to commit; prior remote `87eb9f32461783d3be90366518eaa96a0d560bff`. No owned GUI remains; Full access/never approvals. Bounded research worker completed and interrupted.
+**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `a6692df155265cd566453dfcb9de2bbde3e7afb1`, path/group changes accepted and awaiting checkpoint commit. Owned GUI closed; Full access/never approvals. Research worker completed/interrupted.
 
-**Authority:** Explicit continuous-development user instruction; no new Task or stop at Mission completion.
+**Authority:** Explicit continuous-development user instruction; working-branch commit/push authorized, no main merge/release. No new Task or stop at Mission completion.
 
 **Handoff:** CONTINUE_CURRENT_TASK.

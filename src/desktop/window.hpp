@@ -80,6 +80,7 @@ private:
     void pick_source(std::vector<Ref> targets,bool relative=false);
     void save(bool choose);
     void export_png();
+    void import_svg();
     double png_scale_=1;
     bool png_white_=false;
     QString png_path_;

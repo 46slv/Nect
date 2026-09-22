@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 480 320">
+  <title>Wayfinding mark — original Nect intake fixture</title>
+  <desc>Original path artwork, no fonts, external assets or scripts.</desc>
+  <g id="card" fill="#172F3A">
+    <path id="panel" d="M40 24H440Q456 24 456 40V280Q456 296 440 296H40Q24 296 24 280V40Q24 24 40 24Z"/>
+    <g id="route" transform="translate(56 72)" fill="none" stroke="#59D8B0" stroke-width="8">
+      <path id="flow" d="M0 120C56 120 28 12 104 12S156 156 224 156"/>
+      <path id="trail" d="M0 150q38 -20 72 0t72 0" stroke="#A9C3CC" stroke-width="3"/>
+    </g>
+    <g id="beacon" transform="translate(360 90) rotate(12)">
+      <path id="diamond" fill="#F7C65D" d="M0 -40L40 0 0 40 -40 0Z"/>
+      <path id="arrow" fill="#172F3A" d="M-18 6h22v12l22 -18 -22 -18v12h-22Z"/>
+    </g>
+    <path id="baseline" fill="#E4F0EA" opacity="0.8" d="M60 258h120v6H60zM192 258h36v6h-36z"/>
+  </g>
+</svg>

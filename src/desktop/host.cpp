@@ -1,4 +1,5 @@
 #include "host.hpp"
+#include "svg_import.hpp"
 #include "canvas.hpp"
 #include <QSaveFile>
 #include <QFileInfo>
@@ -245,6 +246,23 @@ void asset_revision(const Session& session,std::uint64_t expected) {
     if(session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the gesture before asset operations");
 }
 }
+QJsonObject Host::import_svg(const QString& path,const Id& composition,const Id& prefix,const std::string& name,double x,double y,std::uint64_t expected) {
+    asset_revision(session,expected);
+    if(path.size()<3||!path[0].isLetter()||path[1]!=':'||(path[2]!='/'&&path[2]!='\\')||path.contains(QChar(0)))
+        throw Error("INVALID_SVG_PATH","SVG requires an absolute local drive path");
+    const auto absolute=QDir::cleanPath(QDir::fromNativeSeparators(path));const QFileInfo before(absolute);
+    if(!before.isFile())throw Error("SVG_IO","SVG source must be an existing regular file");
+    constexpr qint64 limit=1024*1024;if(before.size()>limit)throw Error("SVG_LIMIT","SVG source limit1 MiB");
+    QFile input(absolute);if(!input.open(QIODevice::ReadOnly))throw Error("SVG_IO",input.errorString().toStdString());
+    const auto bytes=input.read(limit+1);const QFileInfo after(absolute);
+    if(input.error()!=QFileDevice::NoError)throw Error("SVG_IO",input.errorString().toStdString());
+    if(bytes.size()>limit)throw Error("SVG_LIMIT","SVG source limit1 MiB");
+    if(bytes.size()!=before.size()||after.size()!=before.size()||after.lastModified()!=before.lastModified())throw Error("SVG_CHANGED_DURING_READ","SVG changed while reading; nothing imported");
+    const auto plan=read_svg(std::string_view(bytes.constData(),static_cast<std::size_t>(bytes.size())),composition,prefix,name,x,y);
+    apply_serializable(session,plan.commands,expected);edited();
+    return {{"root",QString::fromStdString(plan.root)},{"paths",static_cast<qint64>(plan.paths)},{"points",static_cast<qint64>(plan.points)},
+        {"width",plan.width},{"height",plan.height},{"conversion","Editable cubic paths and Groups; SVG viewport maps coordinates, not an authored crop/Artboard. Original file unchanged."}};
+}
 void Host::import_image(const QString& path,const std::string& mode,const Id& composition,const Id& parent,
     const Id& asset,const Id& object,const std::string& name,double x,double y,std::uint64_t expected) {
     asset_revision(session,expected);
@@ -335,6 +353,7 @@ QByteArray Host::dispatch(const QByteArray& input) {
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
             (operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
              operation=="core"?QStringList{"op","session_id","document_id","request"}:
+             operation=="import_svg"?QStringList{"op","session_id","document_id","expected_revision","path","composition","prefix","name","x","y"}:
                 (operation=="import_image"?QStringList{"op","session_id","document_id","expected_revision","path","mode","composition","parent","asset","id","name","x","y"}:
                  operation=="asset"?QStringList{"op","session_id","document_id","expected_revision","asset","action","path"}:
                  QStringList{"op","session_id","document_id","expected_revision","path"}));
@@ -366,6 +385,10 @@ QByteArray Host::dispatch(const QByteArray& input) {
                         throw Error("INVALID_REQUEST","Numeric scale and transparent/white background required");
                     response={{"ok",true},{"result",export_png(string(outer,"path"),string(outer,"composition").toStdString(),
                         string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),background=="white",session.revision())}};
+                } else if(op=="import_svg") {
+                    if(!outer.value("x").isDouble()||!outer.value("y").isDouble())throw Error("INVALID_REQUEST","Numeric x/y required");
+                    response={{"ok",true},{"result",import_svg(string(outer,"path"),string(outer,"composition").toStdString(),string(outer,"prefix").toStdString(),
+                        string(outer,"name").toStdString(),outer.value("x").toDouble(),outer.value("y").toDouble(),session.revision())}};
                 } else if(op=="import_image") {
                     const auto asset=string(outer,"asset").toStdString(),object=string(outer,"id").toStdString();
                     if(!outer.value("x").isDouble()||!outer.value("y").isDouble())throw Error("INVALID_REQUEST","Numeric x/y required");

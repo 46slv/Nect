@@ -393,3 +393,24 @@ objects are considered. Scope-level Groups stay whole, hidden artwork is not a
 normal target, and geometric bounds exclude stroke width/mask cropping. Selection
 commits on release; **Escape** preserves the previous selection. Empty click
 still clears, Shift-empty-click preserves it.
+
+
+## Editable SVG artwork intake
+
+**File → Import SVG artwork… (Ctrl+I)** takes an explicit local SVG and appends
+one editable Group at the active Artboard origin. The source file stays intact;
+Undo removes the entire import. Supported paths, Groups, affine transforms and
+solid Fill/Stroke become normal native authoring, ready for point edits, layout,
+references and native save. [wayfinding-mark.svg](examples/wayfinding-mark.svg)
+is an original supported fixture.
+
+This initial static subset supports M/L/H/V/C/S/Q/T/Z, including relative and
+short forms; quadratic curves become cubic handles. Arcs, basic-shape elements,
+text/images, gradients, CSS stylesheets, masks/filters and external content reject
+the whole import. SVG viewport maps coordinates but does not create a crop or
+Artboard; off-viewport artwork remains editable. See [exact contract and limits](docs/svg-import.md).
+
+Host `import_svg` and formal MCP `nect_import_svg` require current identity/revision,
+absolute local path, Composition, fresh identifier prefix, name and x/y. The
+result reports root, paths, points, viewport dimensions and conversion boundary.
+Core-only CLI does not include the Qt reader or claim SVG import.

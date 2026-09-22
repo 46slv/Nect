@@ -36,6 +36,7 @@ public:
     QString recovery_directory() const { return recovery_directory_; }
     bool dirty() const { return saved_revision_ != session.revision() || file_path.isEmpty(); }
     QJsonObject persistence() const;
+    QJsonObject import_svg(const QString& path,const Id& composition,const Id& prefix,const std::string& name,double x,double y,std::uint64_t expected);
     void import_image(const QString& path,const std::string& mode,const Id& composition,const Id& parent,
         const Id& asset,const Id& object,const std::string& name,double x,double y,std::uint64_t expected);
     void update_asset(const Id& asset,const std::string& action,const QString& path,std::uint64_t expected);

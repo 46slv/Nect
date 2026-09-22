@@ -133,6 +133,12 @@ from the API. SVG is an evaluated projection; native source remains authored.
 
 ## Interchange and source preservation
 
+The optional desktop SVG reader performs memory-only interchange lowering into
+existing Session commands (`src/desktop/svg_import.cpp`, logical IO responsibility).
+It uses already-linked Qt Core XML and owns no editing state; core-only `nect_io`
+and CLI do not acquire a Qt dependency. Host supplies bounded local bytes and
+applies the complete serializable batch once for GUI/API/MCP. See `docs/svg-import.md`.
+
 Native persistence preserves authored intent; interchange is a projection. Plan direct mapping -> geometry expansion -> bounded appearance bake -> explicit refusal. A safe bake boundary includes necessary inputs, masks, backdrop, filter support, resolution and color context; it is not guaranteed to be one layer/subtree. Preserve unrelated editability where possible and report the actual loss.
 
 Retain imported source bytes only as provenance/recovery. Do not splice unknown private chunks into a modified file without a verified structural contract. Unknown-extension preservation must not execute unknown code.

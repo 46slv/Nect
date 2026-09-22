@@ -91,7 +91,7 @@ try:
         init = rpc('initialize', dict(protocolVersion='2025-06-18', capabilities={}, clientInfo=dict(name='nect-scenario', version='1')))
         assert init['result']['protocolVersion'] == '2025-06-18'
         mcp.stdin.write(json.dumps(dict(jsonrpc='2.0', method='notifications/initialized')) + '\n'); mcp.stdin.flush()
-        assert {t['name'] for t in rpc('tools/list')['result']['tools']} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png'}
+        assert {t['name'] for t in rpc('tools/list')['result']['tools']} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png', 'nect_import_svg'}
         live = tool('nect_session')
         identity = {key: live[key] for key in ('session_id', 'document_id')}
         comp = core('inspect')['result']['compositions'][0]
@@ -452,8 +452,15 @@ try:
         spacing_rev=apply([dict(type='distribute_objects',objects=['align-2','align-0','align-1'],axis='x')],alignment_rev+1)
         assert core('get',ref=dict(object='align-1',point='',field='transform.tx'))['result']['evaluated']==30
         assert core('undo',expected_revision=spacing_rev)['ok'] and core('inspect')['result']==alignment_before
+        svg_input=temp/'original-vector.svg'
+        svg_input.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30"><g fill="#c04020"><path d="M2 2h30v20h-30z"/></g></svg>',encoding='utf-8')
+        vector_before=core('inspect')['result']
+        vector=tool('nect_import_svg',dict(identity,op='import_svg',expected_revision=spacing_rev+1,path=str(svg_input),composition=comp['id'],prefix='mcp-vector',name='Vector',x=10,y=20))
+        assert vector['ok'] and vector['result']['paths']==1 and vector['result']['root']=='mcp-vector'
+        assert any(o['id']=='mcp-vector' and o['kind']=='group' for o in core('inspect')['result']['objects'])
+        assert core('undo',expected_revision=vector['revision'])['ok'] and core('inspect')['result']==vector_before
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,
-            mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True, independent_duplication=True, geometric_alignment_undo=True, equal_gap_spacing_undo=True,
+            mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True, independent_duplication=True, geometric_alignment_undo=True, equal_gap_spacing_undo=True, editable_svg_undo=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,
             independent_svg_parser_paths=expected_svg_paths, ordered_stack_readback=True,
             automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, image_lifecycle_native_recovery=True, gui_performance_claim=False)
