@@ -22,7 +22,7 @@ public:
     ~Window() override;
     Host host;
     Canvas* canvas;
-    void refresh();
+    void refresh(bool project_canvas=true);
     void perform(const std::function<void()>& action);
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -47,6 +47,7 @@ private:
     QAction* undo_;
     QAction* redo_;
     bool refreshing_=false;
+    std::optional<std::pair<QString,std::uint64_t>> canvas_notification_;
     bool matrix_expanded_=false;
     std::map<Ref,double> inspector_values_;
     QString tree_signature_;

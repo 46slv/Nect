@@ -1302,3 +1302,31 @@ cost: successful Canvas commit calls Host.edited → Window.refresh → full Can
 projection despite already displaying that exact validated preview. Investigate
 that synchronous notification boundary next, retaining full refresh for external
 edits/Undo/load and failed/cancelled gestures.
+
+
+## Responsive-editing Mission completion: commit projection reuse (2026-09-23)
+
+Window reuses a successful Canvas edit projection only during its synchronous
+Host.edited notification, guarded by Host session identity and revision. It still
+refreshes Inspector/structure/History and queues recovery. Reentrant edits,
+external commands, Undo/load and projection failures use normal full refresh.
+Window contract explicitly tests a revision change during notification.
+
+Release build passed. Focused7/7 (15.68s: Window/Canvas/History/transform/compositing,
+protection/live-save) and remaining affected integration7/7 (10.65s: desktop Host,
+formal MCP, polystar/offset/expression/batch/color UI) passed. Logs
+`build/daily-layout/commit-projection-{build,focused,integration}.log`.
+
+Actual visible Windows `commit-projection-benchmark.json` completed and passed
+**all-operation30fps p95 interval and33ms release budgets**. Representative80-curve
+point/handle/object intervals19.41/20.35/20.54ms; preview10.20/10.48/9.36ms;
+projection5.97/5.52/5.05ms; release18.42/19.39/15.30ms. Previous changed-code run
+release34.43/52.98/22.06ms. These are individual runs with retained variance,
+not guarantees under every workload.60fps remains false. Owned windows closed.
+
+Bounded performance Mission completed: measured redundant work removed without
+semantic/notification regression and visible floor recovered in this run. Next
+production value: multi-object selection has translation/alignment and affine
+fields, but convenient rotation/scale exists only for single-object Anchor edits.
+Add an atomic shared-world-pivot transform for a selection, preserving object IDs,
+retained sources and effective-parent semantics, without temporary Group creation.

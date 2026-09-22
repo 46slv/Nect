@@ -32,6 +32,7 @@
 #include <QTimer>
 #include <QWheelEvent>
 #include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <QStatusBar>
 #include <QStringListModel>
 #include <QToolBar>
@@ -469,9 +470,20 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         if(tree_->currentItem()&&tree_->currentItem()->isSelected())append(tree_->currentItem());
         canvas->set_selections(std::move(items));
     });
-    host.changed=[this]{refresh();};
+    host.changed=[this]{
+        const bool projected=canvas_notification_&&canvas_notification_->first==host.session_id&&
+            canvas_notification_->second==host.session.revision()&&!host.session.gesture_active();
+        refresh(!projected);
+    };
     host.status_changed=[this]{status_->setText(host.save_status+"   ·   r"+QString::number(host.session.revision()));};
-    canvas->document_changed=[this]{host.edited();};
+    canvas->document_changed=[this]{
+        // Only this synchronous notification can reuse the Canvas edit's exact
+        // projection. External edits/load/Undo, or reentrant state changes, rebuild.
+        QScopedValueRollback guard(canvas_notification_);
+        if(canvas->projection_succeeded())canvas_notification_=std::make_pair(host.session_id,host.session.revision());
+        else canvas_notification_.reset();
+        host.edited();
+    };
     canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();};
     canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
     canvas->gradient_edit_changed=[this]{rebuild_inspector();};
@@ -597,10 +609,10 @@ void Window::perform(const std::function<void()>& action) {
     try {action();} catch(const Error& e) {statusBar()->showMessage(qs(e.code)+": "+QString::fromUtf8(e.what()),12000);}
     catch(const std::exception& e) {statusBar()->showMessage(QString::fromUtf8(e.what()),12000);}
 }
-void Window::refresh() {
+void Window::refresh(bool project_canvas) {
     if(refreshing_)return;
     refreshing_=true;
-    canvas->refresh();
+    if(project_canvas)canvas->refresh();
     const QSignalBlocker blocker(tree_);
     const auto& d=host.session.document();
     QString signature=host.session_id;

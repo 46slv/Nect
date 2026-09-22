@@ -1,33 +1,33 @@
-# Responsive-editing Mission
+# Selection-transform Mission
 
 ## Mission Brief
 
-**Mission identity:** `Nect/responsive-editing`; same sole primary executor, same Task and branch.
+**Mission identity:** `Nect/selection-transform`; same sole primary executor and Task.
 
-**Final Goal:** Reduce measured dense-document editing latency while retaining exact semantic preview/commit/cancel behavior and the30fps floor.
+**Final Goal:** Rotate, scale and reflect selected artwork together about a common Composition-space pivot, without temporary grouping or destructive geometry conversion.
 
-**Completion conditions:** Current visible Windows baseline identifies a concrete expensive stage. A bounded repair improves that stage without authored-state/preview fidelity regression; focused contracts and one comparable visible run validate impact. Retain failures/variance and avoid60fps claims without evidence.
+**Completion conditions:** Shared semantic command through GUI/API/MCP; exact Undo/Redo/native reopen; retained sources/IDs; explicit driven/singular/dependency refusal. Actual Windows interaction demonstrates usable selected-layout transformation.
 
-**Constraints / Authority:** Explicit continuous-development instruction. Optimize observed work only, no speculative framework or background pipeline. Same Session/core/GUI authority; keep native0.13 and dependencies. Working-branch commit/push authorized; no main merge/release. Continue same Task.
+**Constraints / Authority:** Continuous-development user instruction and accepted multi-selection/transform product direction. Preserve existing single-object Anchor behavior; no dependency/native-format change. Working branch commit/push only; no main merge/release or successor Task.
 
-**Coarse checkpoint map:** (1) Measure current representative80-curve path and inspect semantic-preview/projection duplication; implement only a supported bounded improvement. (2) Reassess remaining bottlenecks and next practical workflow from evidence.
+**Coarse checkpoint map:** (1) Shared atomic common-pivot transform and semantic contracts. (2) Practical GUI rotation/scale/flip controls, actual Windows and interoperability acceptance. Replan only from live evidence.
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Reduce remaining full-evaluation overhead for authored literal leaves while preserving driven/generated property validation.
+**Goal:** Implement a shared world-space affine transform for a selected set with a bounds-center or explicit pivot and effective-parent compensation.
 
-**Current phase:** Literal leaf checkpoint verified: focused6/6 and full39/39,56.44s. Visible changed-code run passes all-operation30fps interval floor, still misses release/60fps budgets. Save and synchronize before next bounded repair.
+**Current phase:** Responsive-editing Mission accepted; documenting/synchronizing its final checkpoint. Live multi-selection Inspector offers translation/alignment/matrix fields; rotation/scale currently require selecting one object or temporary Group.
 
-**Proven:** `docs/first-usable.md` records retained baseline/reuse/literal-leaf receipts. Latest representative point/handle/object intervals32.47/30.60/22.90ms; release34.43/52.98/22.06ms. No uniform timing/60fps claim; authored/driven/generated contracts pass.
+**Proven:** `docs/first-usable.md`: retained performance receipts; latest actual Windows benchmark passes30fps interval and33ms release floor,60fps false. Notification repair focused7/7 plus integration7/7. Earlier core full39/39 passed.
 
-**Next task:** Remove redundant full Canvas projection in synchronous successful Canvas-edit notification; Window Inspector/structure/history and Host recovery still update. External edit/Undo/load/failure must refresh normally.
+**Next task:** Implement bounded TransformObjects in existing core/IO/History/MCP owners; test shared pivot, selected ancestors/followers, driven changes, singular parents, atomic rejection and native/Undo roundtrip.
 
-**Approach:** Inspect existing Canvas → Host.edited → Window.refresh boundary. Reuse only the known successful current projection with identity/revision guard; avoid a global revision-only cache.
+**Approach:** Compute desired world matrices from one pre-command snapshot; preserve unchanged inherited local matrices, invert only external effective parent bases; verify selected world targets after dependency evaluation. Reuse canonical transforms and existing setters; no new transform authority/framework.
 
-**Done for next:** Coherent literal-leaf checkpoint synchronized, then guarded notification repair proven through real Window interaction and comparative timing.
+**Done for next:** Core/API/MCP contracts prove atomic common-pivot edits and refusal cases. Save coherent checkpoint, push working branch, verify remote equality, then add GUI in this Task.
 
-**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `be2fa7758e09d4a75923b81f17ccfb15e60bb30e`. Owned benchmark windows closed; Full access/never approvals. Native0.13 unchanged.
+**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `84b5f94ebaaab05ba9d418a0a063c4b729de0625`, final projection-notification changes ready to commit. Owned GUI closed. Full access/never approvals. Native0.13.
 
-**Authority:** Explicit continuous-development user instruction; no successor Task, no stop solely at checkpoint/Mission boundary.
+**Authority:** Current explicit continuous-development instruction permits accepted-direction feature selection and working-branch synchronization. No ordinary confirmation/new Task.
 
 **Handoff:** CONTINUE_CURRENT_TASK.

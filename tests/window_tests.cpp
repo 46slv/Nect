@@ -703,6 +703,19 @@ int main(int argc,char** argv) {
         shortcut_text.hide();layout.canvas->setFocus();
         named_action(layout,"fit-selection")->trigger();check(layout.canvas->zoom()==64,"Fit Selection menu frames degenerate point geometry");
         check(layout_session.revision()==8,"View/selection actions preserve authored revision");
+        layout.canvas->set_selection("layout-left","layout-left-point");
+        layout.canvas->nudge_selection(3,4);
+        check(layout.canvas->evaluated_values()==evaluate(layout_session.document()),"Canvas notification retains exact committed projection");
+        const auto original_status=layout.host.status_changed;bool reentered=false;
+        layout.host.status_changed=[&]{
+            if(!reentered){reentered=true;layout_session.apply({Set{{"layout-right","layout-right-point","x"},777}},layout_session.revision());}
+            if(original_status)original_status();
+        };
+        layout.canvas->nudge_selection(1,0);
+        layout.host.status_changed=original_status;
+        check(reentered&&layout.canvas->evaluated_values().at({"layout-right","layout-right-point","x"})==777,"Reentrant revision change forces normal full projection");
+        layout_session.undo(layout_session.revision());layout.host.edited();
+        check(layout.canvas->evaluated_values()==evaluate(layout_session.document()),"External Undo refreshes projection after Canvas notification scope ends");
         layout.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
         std::cout<<"PASS Inspector, pick-whip, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}

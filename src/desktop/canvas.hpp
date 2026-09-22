@@ -30,6 +30,7 @@ public:
     const std::vector<Selection>& selections()const{return selections_;}
     std::vector<Id> selected_objects()const;
     std::function<void()> selection_changed;
+    // Sent after projecting a Canvas edit; failed projection remains explicit.
     std::function<void()> document_changed;
     std::function<void()> scope_changed;
     std::function<void(bool)> draw_mode_changed;
@@ -39,6 +40,7 @@ public:
     std::function<void(QString)> error;
 
     void refresh();
+    bool projection_succeeded() const {return !projection_error_;}
     static QImage render_artboard(const Document&,const Id& composition,const Id& artboard,double scale,bool white_background);
     const std::map<Ref,double>& evaluated_values() const {return values_;}
     const std::map<Id,EvaluatedTransform>& evaluated_transforms() const {return transforms_;}
