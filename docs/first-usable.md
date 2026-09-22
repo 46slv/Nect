@@ -797,6 +797,47 @@ two-curve fixture with masks/blending. All five interval and release budgets pas
 | Object translation |18.66|0.23|12.83|
 
 The 30 fps interaction floor passes; 60 fps and every-scene release budget are
-not claimed. The next selected workflow gap is independent object duplication:
-only Artboard-frame duplication exists in `window.cpp`; no object-duplicate
-Session command or GUI action exists in the current core/adapter/Window.
+not claimed. At this checkpoint the next selected workflow gap was independent
+object duplication; only Artboard-frame duplication existed.
+
+## Independent object / Group duplication — 2026-09-22
+
+The common Session `DuplicateObjects` command now backs Edit/context-menu
+**Duplicate objects in place** and **Ctrl+D**. Copies become the selected roots;
+placement remains an explicit normal Canvas/TranslateObjects edit. Each selected
+Group closure copies once, even when descendants are also selected. Copies follow
+each selected sibling run in its original structural owner and paint order.
+
+Fresh IDs cover retained sources, generated roles/Point Edit, paths, contours,
+points, paints, gradients/stops, Text and masks. Bindings and parsed expression
+references within the closure follow copied IDs (including disabled state), as do
+internal masks and Transform Parents. External references, Named Colors and image
+assets keep their intended targets. Original inbound links and Collections stay
+on originals. See `docs/model-v0.md` for limits and the exact command contract.
+There is no native format change, flattening, linked-instance or clipboard claim.
+
+Validation:
+- Release build `build/duplication-full-build.log`; all **36/36 CTest contracts**
+  passed in55.46s, including formal MCP duplication, native/recovery/restart,
+  core/expression/transform, storage, image and GUI contracts
+  (`build/duplication-full-ctest.log`). The added nested/role checks subsequently
+  passed: **52 duplication checks**, `build/duplication-final-build.log`.
+- GUI batch contract uses Ctrl+D, checks selected copies/Tree synchronization,
+  exact one-step Undo/Redo and independent Inspector editing. Core checks cover
+  generated role and gradient-stop expressions, external/internal dependencies,
+  mask/parenting, disabled Point Edit, text/assets, noncontiguous nested ownership,
+  exact native roundtrip, SVG and atomic invalid/collision/history-limit failures.
+- Actual Windows UI used an owned copy of `material-study.nect` at endpoint
+  `nect-duplication`. Ctrl+D on an Image produced revision1; Canvas move produced
+  r2; GUI Undo restored exact copied state at r3 and exact original at r4. A
+  three-image linked Group was copied via Ctrl+D at r6 and dragged at r7. Editing
+  copied Width120→96 changed its copied follower to96, leaving original linked
+  placements at120. Native and recovery readback equalled r8; Host reopen retained
+  every ID/link/asset, and SVG exported. Local receipt and snapshots are under
+  `build/practical-alpha-dupe/`. Recovery was checked after its verified cadence,
+  not immediately after the native Save returned. The Window closed normally.
+
+The image chooser passed this suite in22.44s; its known intermittent teardown
+delay is **not fixed** by this work. Earlier Snap performance/release limits remain
+as recorded. Next: integrated authoring/recovery/export and warm interaction
+acceptance, selected from the live workflow rather than the full backlog.

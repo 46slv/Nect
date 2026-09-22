@@ -13,6 +13,7 @@ enum class Op { number,reference,positive,negative,add,subtract,multiply,divide,
 struct Node {
     Op op;Unit unit=Unit::literal;unsigned depth=1;
     std::size_t a=0,b=0,c=0;double number=0;Ref ref;
+    std::array<std::pair<std::size_t,std::size_t>,3> ref_spans{};
 };
 void require(bool value,const char* code,const char* message) {if(!value)throw Error(code,message);}
 Unit unit_of(const std::string& name) {
@@ -100,7 +101,12 @@ class Parser {
         require(cursor_>start,"EXPRESSION_SYNTAX","Unknown expression token");
         const auto name=source_.substr(start,cursor_-start);expect('(');
         if(name=="ref") {
-            Node node{Op::reference};node.ref.object=quoted(false);expect(',');node.ref.point=quoted(false,true);expect(',');node.ref.field=quoted(true);expect(')');
+            Node node{Op::reference};
+            auto argument=[&](std::size_t slot,bool field,bool empty=false) {
+                whitespace();const auto begin=cursor_+1;auto value=quoted(field,empty);
+                node.ref_spans[slot]={begin,cursor_-1};return value;
+            };
+            node.ref.object=argument(0,false);expect(',');node.ref.point=argument(1,false,true);expect(',');node.ref.field=argument(2,true);expect(')');
             require(++reference_count_<=64,"EXPRESSION_LIMIT","Expression reference limit 64");
             node.unit=unit_of(property_unit(node.ref));
             if(std::find(result_.dependencies.begin(),result_.dependencies.end(),node.ref)==result_.dependencies.end())result_.dependencies.push_back(node.ref);
@@ -147,6 +153,20 @@ CompiledExpression compile_expression(const Expression& expression) {
 void validate_expression_unit(const CompiledExpression& expression,const std::string& expected) {
     const auto& p=program(expression);const auto unit=p.nodes[p.root].unit;
     require(unit==Unit::literal||unit==unit_of(expected),"UNIT_MISMATCH","Expression result does not match the target unit");
+}
+Expression remap_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
+    const auto compiled=compile_expression(expression);
+    struct Replacement {std::size_t begin,end;std::string value;};
+    std::vector<Replacement> replacements;
+    for(const auto& node:program(compiled).nodes)if(node.op==Op::reference) {
+        const auto ref=remap(node.ref);
+        const std::array<std::string,3> before{node.ref.object,node.ref.point,node.ref.field},after{ref.object,ref.point,ref.field};
+        for(std::size_t i=0;i<3;++i)if(before[i]!=after[i])replacements.push_back({node.ref_spans[i].first,node.ref_spans[i].second,after[i]});
+    }
+    std::sort(replacements.begin(),replacements.end(),[](const auto& a,const auto& b){return a.begin>b.begin;});
+    auto result=expression;
+    for(const auto& replacement:replacements)result.source.replace(replacement.begin,replacement.end-replacement.begin,replacement.value);
+    (void)compile_expression(result);return result;
 }
 const std::vector<Ref>& expression_dependencies(const CompiledExpression& expression){return program(expression).dependencies;}
 std::vector<Ref> expression_dependencies(const Expression& expression){return expression_dependencies(compile_expression(expression));}

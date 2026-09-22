@@ -368,6 +368,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         canvas->cancel_interaction();host.session.apply(commands,host.session.revision());host.edited();
     });
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
+    action(edit,"Duplicate objects in place",QKeySequence("Ctrl+D"),[this]{duplicate_selection();})->setObjectName("duplicate-objects");
     action(edit,"Mask With Top",{},[this]{mask_selection(true);});
     action(edit,"Mask With Bottom",{},[this]{mask_selection(false);});
     action(edit,"Put Inside top selected Group",{},[this]{put_selection_inside();});
@@ -1928,7 +1929,8 @@ void Window::put_selection_inside() {
 }
 void Window::selection_menu(const QPoint& global) {
     const auto menu_session=host.session_id;const auto menu_revision=host.session.revision();
-    QMenu menu;auto* group=menu.addAction("Group selected siblings");
+    QMenu menu;auto* duplicate=menu.addAction("Duplicate objects in place");duplicate->setEnabled(!canvas->selected_objects().empty()&&canvas->selected_point.empty());
+    auto* group=menu.addAction("Group selected siblings");
     auto* top=menu.addAction("Mask With Top");auto* bottom=menu.addAction("Mask With Bottom");auto* inside=menu.addAction("Put Inside top selected Group");
     try {
         Id parent;const auto members=selected_siblings(parent);const auto& d=host.session.document();
@@ -1937,7 +1939,16 @@ void Window::selection_menu(const QPoint& global) {
         top->setEnabled((d.objects.at(members.back()).kind==Kind::path||d.objects.at(members.back()).kind==Kind::text));bottom->setEnabled((d.objects.at(members.front()).kind==Kind::path||d.objects.at(members.front()).kind==Kind::text));inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
     } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
     const auto* chosen=menu.exec(global);if(!chosen)return;
-    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==group)group_selection();});
+    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==group)group_selection();});
+}
+void Window::duplicate_selection() {
+    if(canvas->selected_objects().empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select objects or Groups to duplicate");
+    canvas->cancel_interaction();const DuplicateObjects command{canvas->selected_objects(),new_id()};
+    const auto roots=duplicated_roots(host.session.document(),command);
+    host.session.apply({command},host.session.revision());
+    std::vector<Canvas::Selection> selection;for(const auto& id:roots)selection.push_back({id,{}});
+    canvas->set_selections(std::move(selection));host.edited();canvas->setFocus();
+    statusBar()->showMessage("Duplicated in place; drag the selected copies to move them",6000);
 }
 void Window::group_selection() {
     if(!canvas->selected_point.empty())throw Error("INVALID_GROUP","Select objects, not points, to group");

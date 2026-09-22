@@ -102,7 +102,14 @@ Snap ON/OFF beside Fit (also in View) gently aligns object-body drags to the act
 Artboard and visible objects' geometric edges/centers within 6 screen pixels.
 Dashed guides appear while aligned. Snap starts ON and is a per-window view
 preference; exact numeric/API edits and point/handle edits stay unchanged.
-Groups select as a unit; double-click enters them and the breadcrumb returns. Inspector fields accept
+Groups select as a unit; double-click enters them and the breadcrumb returns.
+**Ctrl+D** (Edit or context menu → Duplicate objects in place) makes independent
+copies and selects them for placement. Group children and internal property,
+expression, mask and Transform Parent references copy together. External links,
+Named Colors and image assets keep their shared sources; existing links into the
+originals stay there. Duplication is one Undo and preserves retained sources.
+
+Inspector fields accept
 numbers and one-shot `+=`/`-=` adjustments. Right-click provides Copy Value,
 Copy Reference, Paste Value, Paste Link and explicit Unlink. Drag ↗ to a source
 field (hover Objects to inspect another source); click ↗ to search.

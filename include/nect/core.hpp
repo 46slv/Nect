@@ -260,6 +260,11 @@ struct AddPoint { Id object; Id contour; Point point; };
 struct RemovePoint { Id object; Id contour; Id point; };
 struct CloseContour { Id object; Id contour; bool closed; };
 struct DeleteObjects { std::vector<Id> objects; };
+// Independent copies in place. Prefix (1..48 identifier characters) reserves
+// fresh IDs; collisions reject atomically. Selected Group descendants copy once.
+struct DuplicateObjects { std::vector<Id> objects; Id prefix; };
+// Pure projection of the new top-level selection; uses the command's ID plan.
+std::vector<Id> duplicated_roots(const Document&,const DuplicateObjects&);
 struct ReorderObjects { Id composition; Id parent; std::vector<Id> order; };
 struct CreatePrimitive { Id composition; Id parent; Id id; std::string name; Primitive source; };
 struct EnablePointEdit { Id object; bool enabled; };
@@ -317,7 +322,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,SetExpression,
     SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,
-    AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage>;
+    AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};

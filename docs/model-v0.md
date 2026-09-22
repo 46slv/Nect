@@ -92,6 +92,34 @@ last valid preview and never partially commit.
 
 ## Persistence
 
+### Independent object duplication (native 0.13 unchanged)
+
+`DuplicateObjects{objects,prefix}` / `duplicate_objects` copies 1..1000 selected
+objects in one Composition, including each selected Group's structural closure
+once. Selection order does not change paint order. Each copied sibling run is
+inserted just above its original run under the same structural owner. Copies
+start in place; `TranslateObjects` is an explicit subsequent placement edit.
+This is independent authored state, not an instance or clipboard format.
+
+The caller supplies a fresh ASCII ID prefix (1..48 characters). The command
+allocates fresh object/source/contour/point/operation/gradient/stop/mask IDs;
+collisions and all normal validation/history limits reject the entire batch.
+Generated point roles and Point Edit identity follow the new retained source.
+Bindings, parsed expression references (including disabled authored sources),
+masks and Transform Parents within the closure target the copies. Expression
+text outside changed reference arguments retains its formatting. Outgoing
+references stay on their original targets. Named Colors and accepted image
+assets stay shared. Existing inbound references and Collection memberships
+continue to address only originals. Text content and retained procedures remain
+editable, including disabled corrections/operations. No native migration occurs.
+
+GUI Edit/context menus and Ctrl+D use this command and select the copied roots.
+`apply` responses include `created_ids` for new objects; `inspect` exposes their
+hierarchy/nested IDs. The pure core `duplicated_roots` projection identifies the
+new root selection before a successful commit. One Undo removes the copy and
+Redo restores exactly the same IDs. Cross-document/Composition copying, linked
+instances, implicit displacement and partial point duplication are unsupported.
+
 Native JSON stores authored data only, not evaluated caches, Qt widgets, or session revision.
 
 Unknown fields/versions/kinds, duplicate JSON keys, invalid references, non-finite values, unsupported color/unit claims are rejected explicitly.

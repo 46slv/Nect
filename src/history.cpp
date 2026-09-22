@@ -149,6 +149,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,UnlinkProperties>)return "Unlink "+std::to_string(c.targets.size())+" properties: "+property_label(c.targets.front());
         else if constexpr(std::is_same_v<T,TranslateObjects>)return "Move "+std::to_string(c.objects.size())+" objects: "+name(c.objects.front());
         else if constexpr(std::is_same_v<T,DeleteObjects>)return "Delete "+std::to_string(c.objects.size())+" object(s): "+name(c.objects.front());
+        else if constexpr(std::is_same_v<T,DuplicateObjects>)return "Duplicate "+std::to_string(c.objects.size())+" object(s): "+name(c.objects.front());
         else if constexpr(std::is_same_v<T,ReorderObjects>)return "Reorder objects: "+name(c.parent.empty()?c.composition:c.parent);
         else if constexpr(std::is_same_v<T,AddArtboard>)return "Add Artboard: "+c.artboard.name;
         else if constexpr(std::is_same_v<T,UpdateArtboard>)return "Edit Artboard: "+c.artboard.name;

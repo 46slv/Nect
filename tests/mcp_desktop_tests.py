@@ -124,6 +124,18 @@ try:
         assert core('undo', expected_revision=rev)['ok']; rev += 1
         assert core('redo', expected_revision=rev)['ok']; rev += 1
         definitions = core('operator_types')['result']
+        duplicate_before = core('inspect')['result']
+        duplicated = core('apply', expected_revision=rev, commands=[dict(type='duplicate_objects', objects=['path-0','path-1'], prefix='mcp-copy')])
+        assert duplicated['ok'], duplicated
+        rev = duplicated['revision']
+        assert duplicated['result']['created_ids'] == ['mcp-copy-1','mcp-copy-2']
+        copied_objects = {o['id']: o for o in core('inspect')['result']['objects']}
+        copied_target = next(p for p in copied_objects['mcp-copy-2']['contours'][0]['points'] if p['x'].get('binding'))
+        copied_source = copied_target['x']['binding']['source']
+        assert copied_source['object'] == 'mcp-copy-1'
+        assert copied_source['point'] != 'p-0-0'
+        assert core('undo', expected_revision=rev)['ok']; rev += 1
+        assert core('inspect')['result'] == duplicate_before
         fill = next(x['template'] for x in definitions if x['type']=='nect.paint.fill')
         repeat = next(x['template'] for x in definitions if x['type']=='nect.shape.repeater')
         fill['id']='motif-fill';fill['parameters']['r']['literal']=.8
@@ -423,7 +435,7 @@ try:
         assert live['file']=='' and live['persistence']['saved_revision'] is None
         assert core('inspect')['result']==expected
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,
-            mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True,
+            mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True, independent_duplication=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,
             independent_svg_parser_paths=expected_svg_paths, ordered_stack_readback=True,
             automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, image_lifecycle_native_recovery=True, gui_performance_claim=False)

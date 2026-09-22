@@ -1,5 +1,6 @@
 #include "window.hpp"
 #include <QApplication>
+#include <QAction>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QJsonDocument>
@@ -73,6 +74,21 @@ void controls() {
     check(w.canvas->selections().size()==2&&tree->selectedItems().size()==2,"Extended tree and Canvas keep the same two objects");
     w.host.save(temp.path()+"/batch.nect");const auto saved=encode(s.document());w.host.open(temp.path()+"/batch.nect");check(encode(s.document())==saved,"Batch links save and reopen without additional UI state");
 }
+void duplicate_selection() {
+    QTemporaryDir temp;Window w(temp.path());w.host.session=Session(empty_document("doc","comp","board"));
+    auto& s=w.host.session;s.apply(fixture(),s.revision());w.host.edited();w.show();QApplication::processEvents();
+    w.canvas->set_selections({{"rect-0",""},{"rect-1",""}});const auto before=s.document();const auto revision=s.revision();
+    auto* duplicate=w.findChild<QAction*>("duplicate-objects");check(duplicate&&duplicate->shortcut()==QKeySequence("Ctrl+D"),"Discoverable duplicate shortcut");
+    w.canvas->setFocus();QTest::keyClick(w.canvas,Qt::Key_D,Qt::ControlModifier);QApplication::processEvents();
+    check(s.revision()==revision+1&&s.document().objects.size()==6,"Shortcut duplicates selection in one edit");
+    const auto copies=w.canvas->selected_objects();check(copies.size()==2&&copies[0]!="rect-0"&&copies[1]!="rect-1","Copies selected after duplicate");
+    check(w.findChild<QTreeWidget*>()->selectedItems().size()==2,"Tree and Canvas select both copies");
+    const auto copied=s.document();s.undo(s.revision());w.host.edited();check(s.document()==before,"One Undo removes both copies");
+    s.redo(s.revision());w.host.edited();check(s.document()==copied,"Redo restores stable copied state");
+    w.canvas->set_selection(copies.front());edit(w,{copies.front(),"","generator.width"},"72");
+    check(evaluate(s.document()).at({"rect-0","","generator.width"})==50,"Inspector editing copy leaves original intact");
+    check(decode(encode(s.document()))==s.document(),"Edited copied state roundtrips");
+}
 void canvas_drag() {
     Session s(empty_document("doc","comp","board"));s.apply(fixture(),s.revision());auto board=s.document().compositions.front().artboards.front();board.width=640;board.height=480;
     s.apply({UpdateArtboard{"comp",board}},s.revision());Canvas c(s);c.set_snap_enabled(false);QString error;c.error=[&](QString e){error=e;};c.resize(740,580);c.show();QApplication::processEvents();c.fit_artboard();
@@ -91,4 +107,4 @@ void canvas_drag() {
     const auto moved=encode(s.document());revision=s.revision();drag(95,180,20,10,true);check(encode(s.document())==moved&&s.revision()==revision,"Escape cancels every point together");
 }
 }
-int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();canvas_drag();std::cout<<"Batch UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();canvas_drag();duplicate_selection();std::cout<<"Batch UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -971,13 +971,128 @@ void put_inside(Document& document,const PutInside& command) {
     for(const auto& id:command.members)for(std::size_t i=0;i<6;++i)
         require(transform_equal(before.at(id).world[i],after.at(id).world[i]),"TRANSFORM_PRESERVATION","Put Inside could not preserve moved world transforms through dependent bindings");
 }
+struct DuplicationPlan {
+    std::map<Id,Id> ids;
+    std::vector<Id> roots;
+    std::set<Id> objects;
+};
+DuplicationPlan plan_duplication(const Document& document,const DuplicateObjects& command) {
+    require(!command.objects.empty()&&command.objects.size()<=1000,"INVALID_BATCH","Duplicate requires 1..1000 unique objects");
+    identity(command.prefix);require(command.prefix.size()<=48,"INVALID_ID","Duplicate prefix is limited to 48 characters");
+    std::set<Id> selected;
+    for(const auto& id:command.objects) {
+        require(document.objects.contains(id),"MISSING_OBJECT",id);
+        require(selected.insert(id).second,"DUPLICATE_TARGET","Each selected object may occur only once");
+    }
+    DuplicationPlan plan;Id composition;
+    std::function<void(const Id&,const Id&,bool)> visit=[&](const Id& id,const Id& owner,bool copied) {
+        if(selected.contains(id)) {
+            require(composition.empty()||composition==owner,"CROSS_COMPOSITION","Duplicate selection must belong to one Composition");composition=owner;
+            if(!copied)plan.roots.push_back(id);
+            copied=true;
+        }
+        if(copied)plan.objects.insert(id);
+        for(const auto& child:document.objects.at(id).children)visit(child,owner,copied);
+    };
+    for(const auto& comp:document.compositions)for(const auto& root:comp.roots)visit(root,comp.id,false);
+    require(document.objects.size()+plan.objects.size()<=10000,"LIMIT","Document object limit 10000");
+    std::size_t serial=0;
+    auto allocate=[&](const Id& id){plan.ids.emplace(id,command.prefix+"-"+std::to_string(++serial));};
+    for(const auto& id:plan.objects)allocate(id);
+    for(const auto& id:plan.objects) {
+        const auto& object=document.objects.at(id);
+        if(object.source) {
+            allocate(object.source->id);
+            for(const auto* suffix:{"-point-edit","-contour"})plan.ids.emplace(object.source->id+suffix,plan.ids.at(object.source->id)+suffix);
+        }
+        if(object.text)allocate(object.text->id);
+        if(object.compositing.mask)allocate(object.compositing.mask->id);
+        for(const auto& contour:object.contours){allocate(contour.id);for(const auto& point:contour.points)allocate(point.id);}
+        for(const auto& op:object.stack) {
+            allocate(op.id);if(op.gradient){allocate(op.gradient->id);for(const auto& stop:op.gradient->stops)allocate(stop.id);}
+        }
+    }
+    return plan;
+}
+Ref duplicate_ref(const Document& original,const DuplicationPlan& plan,Ref ref) {
+    if(!plan.objects.contains(ref.object))return ref;
+    const auto& object=original.objects.at(ref.object);
+    ref.object=plan.ids.at(ref.object);
+    if(!ref.point.empty()) {
+        if(generated_point(object,ref.point))ref.point=plan.ids.at(object.source->id)+ref.point.substr(object.source->id.size());
+        else ref.point=plan.ids.at(ref.point);
+    } else if(ref.field.starts_with("op.")) {
+        const auto [op,parameter]=operation_address(ref.field);
+        auto tail=parameter;
+        if(tail.starts_with("gradient.")) {
+            const auto end=tail.find('.',9);const auto gradient=tail.substr(9,end-9);tail=tail.substr(end+1);
+            if(tail.starts_with("stop.")) {
+                const auto stop_end=tail.find('.',5);const auto stop=tail.substr(5,stop_end-5);
+                tail="stop."+plan.ids.at(stop)+tail.substr(stop_end);
+            }
+            tail="gradient."+plan.ids.at(gradient)+"."+tail;
+        }
+        ref.field="op."+plan.ids.at(op)+"."+tail;
+    }
+    return ref;
+}
+void duplicate_objects(Document& document,const DuplicateObjects& command) {
+    const auto plan=plan_duplication(document,command);
+    const auto original=document;
+    auto remap=[&](const Ref& ref){return duplicate_ref(original,plan,ref);};
+    for(const auto& id:plan.objects) {
+        auto object=original.objects.at(id);object.id=plan.ids.at(id);
+        // A long or invalid name never needs truncation to make a valid copy.
+        if(object.name.size()<=4091)object.name+=" copy";
+        for(auto& child:object.children)child=plan.ids.at(child);
+        if(object.transform_parent&&plan.objects.contains(*object.transform_parent))object.transform_parent=plan.ids.at(*object.transform_parent);
+        if(object.compositing.mask) {
+            auto& mask=*object.compositing.mask;mask.id=plan.ids.at(mask.id);
+            if(plan.objects.contains(mask.source))mask.source=plan.ids.at(mask.source);
+        }
+        if(object.source)object.source->id=plan.ids.at(object.source->id);
+        if(object.text)object.text->id=plan.ids.at(object.text->id);
+        if(object.point_edit) {
+            auto& edit=*object.point_edit;edit.id=plan.ids.at(edit.id);
+            auto overrides=std::move(edit.overrides);edit.overrides.clear();
+            for(auto& [point,fields]:overrides)edit.overrides.emplace(remap({id,point,"x"}).point,std::move(fields));
+        }
+        for(auto& contour:object.contours){contour.id=plan.ids.at(contour.id);for(auto& point:contour.points)point.id=plan.ids.at(point.id);}
+        for(auto& op:object.stack) {
+            op.id=plan.ids.at(op.id);if(op.gradient){op.gradient->id=plan.ids.at(op.gradient->id);for(auto& stop:op.gradient->stops)stop.id=plan.ids.at(stop.id);}
+        }
+        if(!object.legacy_stroke.empty())object.legacy_stroke=plan.ids.at(object.legacy_stroke);
+        require(document.objects.emplace(object.id,std::move(object)).second,"DUPLICATE_ID","Duplicate prefix collides with an existing object");
+    }
+    // Includes disabled Point Edits/operations and every Scalar, including aliases.
+    std::set<Scalar*> rewritten;
+    for(const auto& [ref,value]:property_index(original,true))if(plan.objects.contains(ref.object)&&value) {
+        auto& scalar=lookup_property(document,remap(ref));if(!rewritten.insert(&scalar).second)continue;
+        if(scalar.binding)scalar.binding->source=remap(scalar.binding->source);
+        if(scalar.expression)scalar.expression=remap_expression(*scalar.expression,remap);
+    }
+    const std::set<Id> roots(plan.roots.begin(),plan.roots.end());
+    // Copies follow each selected sibling run, retaining its relative paint order.
+    auto insert=[&](std::vector<Id>& list) {
+        std::vector<Id> result,pending;
+        for(const auto& id:list) {
+            if(!roots.contains(id)){result.insert(result.end(),pending.begin(),pending.end());pending.clear();}
+            result.push_back(id);if(roots.contains(id))pending.push_back(plan.ids.at(id));
+        }
+        result.insert(result.end(),pending.begin(),pending.end());list=std::move(result);
+    };
+    for(auto& comp:document.compositions)insert(comp.roots);
+    for(const auto& [id,object]:original.objects){(void)object;if(!plan.objects.contains(id))insert(document.objects.at(id).children);}
+}
 Document edited(const Document& document,const std::vector<Command>& commands) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
 
     auto candidate=document;
     for(const auto& command:commands) std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
-        if constexpr(std::is_same_v<T,SetVisibility>||std::is_same_v<T,SetCompositing>||std::is_same_v<T,SetMask>) {
+        if constexpr(std::is_same_v<T,DuplicateObjects>) {
+            duplicate_objects(candidate,c);
+        } else if constexpr(std::is_same_v<T,SetVisibility>||std::is_same_v<T,SetCompositing>||std::is_same_v<T,SetMask>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);auto& object=candidate.objects.at(c.object);
             if constexpr(std::is_same_v<T,SetVisibility>)object.visible=c.visible;
             else if constexpr(std::is_same_v<T,SetCompositing>){object.compositing.blend=c.blend;object.compositing.isolated=c.isolated;}
@@ -1277,6 +1392,11 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
     validate(candidate);
     return candidate;
 }
+}
+
+std::vector<Id> duplicated_roots(const Document& document,const DuplicateObjects& command) {
+    const auto plan=plan_duplication(document,command);std::vector<Id> result;
+    for(const auto& id:plan.roots)result.push_back(plan.ids.at(id));return result;
 }
 
 void Session::apply(const std::vector<Command>& commands,std::uint64_t expected) {

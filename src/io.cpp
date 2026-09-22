@@ -509,6 +509,10 @@ Command read_command(const j::value& v) {
         keys(o,{"type","objects"});
         return DeleteObjects{ids(o.at("objects"))};
     }
+    if(type=="duplicate_objects") {
+        keys(o,{"type","objects","prefix"});
+        return DuplicateObjects{ids(o.at("objects")),text(o.at("prefix"))};
+    }
     if(type=="reorder_objects") {
         keys(o,{"type","composition","parent","order"});
         return ReorderObjects{text(o.at("composition")),text(o.at("parent")),ids(o.at("order"))};
@@ -1200,6 +1204,8 @@ std::string request(Session& session,std::string_view input) {
             for(const auto& [id,object]:session.document().objects)
                 if(object.compositing.mask&&object.compositing.mask->enabled&&changed.contains(object.compositing.mask->source))changed.insert(id);
             result.as_object()["changed_ids"]=ids_json(std::vector<Id>(changed.begin(),changed.end()));
+            j::array created;for(const auto& [id,object]:after.objects){(void)object;if(!prior.objects.contains(id))created.push_back(j::value(id));}
+            result.as_object()["created_ids"]=std::move(created);
         }
         return j::serialize(j::object{
             {"ok",true},{"document_id",session.document().id},
