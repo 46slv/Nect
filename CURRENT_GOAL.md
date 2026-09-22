@@ -2,6 +2,8 @@
 
 ## Mission Brief
 
+**Mission identity:** `Nect/practical-alpha` — durable owner: this file on `codex/practical-alpha`. Every successor Task belongs to this same Mission.
+
 **Final Goal:** Make Nect usable for everyday 2D graphics production as a practical alpha.
 
 **Completion conditions:** A representative editable composition can be created and revised through the Windows GUI, protected/saved/reopened, and exported without loss of native intent. Geometry, Text, images, color and compositing work together; GUI/API/MCP share Session semantics and unsupported requests fail explicitly. Current contracts pass and representative warm interaction meets the recorded 30 fps floor. Close concrete daily-workflow blockers, not the whole backlog.
@@ -20,7 +22,7 @@ Far checkpoints remain provisional. Inherited Artboard content, full AI/PSD, ful
 
 **Goal:** Make ordinary object placement easier with a visible Snap ON/OFF control and gentle screen-space attraction, while preserving exact numeric/API edits and one-gesture Undo.
 
-**Current phase:** Ready for fresh-context implementation. The preceding reassessment and diagnostic hardening are complete. This checkpoint is selected, not implemented; do not claim Snap exists. The change from runtime diagnosis to Canvas interaction is the context boundary requested by the user.
+**Current phase:** Ready for fresh-context implementation. The preceding reassessment and diagnostic hardening are complete. This checkpoint is selected, not implemented; do not claim Snap exists. The completed predecessor checkpoint is `54757fa`. Under the user addendum, this Snap checkpoint must run in a new Task; the current Task only synchronizes and dispatches this handoff.
 
 **Proven:**
 - Product implementation baseline: `195e536`, `ab3fcec`; latest-main integration: `ffa9471` (merges `6324126`, AGENTS-only tree delta).
@@ -38,4 +40,4 @@ Far checkpoints remain provisional. Inherited Artboard content, full AI/PSD, ful
 
 Known limitation: the initial suite hit one 60 s image-GUI timeout. Isolated timing narrowed the delay to Qt test file-chooser teardown; the exact cause of the timeout is unproven. Subsequent primary-only final suite passed. Flushed phase diagnostics and a 60 s CTest limit now make recurrence bounded and inspectable; no production fix is claimed. Native-dialog manual import completion was not verified; real Host/API import, Qt GUI contract and visible edit/Undo were verified. Revisit if recurrence blocks the next checkpoint. No current failing test or external sync blocker is known.
 
-**Authority:** Current user Mission instruction, `START_HERE.md`, latest `AGENTS.md`, accepted Snap direction. Continue within this Mission; Next task is a candidate and may be replanned from live evidence. At this completed boundary, end the current context and resume in a fresh one from Mission Brief → active checkpoint → live state → needed owners. No successor was launched; this runtime exposes separate-task/fork operations, not an in-place fresh-context rollover. No new sidebar task is requested.
+**Authority:** Current user Mission instruction, `START_HERE.md`, latest `AGENTS.md`, accepted Snap direction. Continue within this Mission; Next task is a candidate and may be replanned from live evidence. The 2026-09-22 addendum mandates **1 semantic checkpoint = 1 Task**. After satisfying Done for next: save, commit, push/verify, select the next checkpoint from live state, create its dedicated new Task tied to `Nect/practical-alpha`, then end this Task. Transfer only Mission Brief → latest active checkpoint → repo/branch/HEAD → needed owners; never fork old conversation or forward raw logs. If Task creation is unavailable, mark `WAIT_SUCCESSOR_TASK` and stop. The predecessor owns only this handoff until new-Task dispatch; it must not implement Snap. Successor uses the existing `D:\Documents\Nect` / `codex/practical-alpha` checkout after predecessor writes finish, as the sole executor.
