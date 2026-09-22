@@ -672,4 +672,58 @@ color and size contracts are in [model-v0.md](model-v0.md#native013--retained-ra
 
 The user requested an operating checkpoint here. The image slice is complete;
 no subsequent feature is started and the larger practical-alpha Mission is not
-claimed complete. `CURRENT_GOAL.md` owns the stopped implementation scope.
+claimed complete. This historical stop was superseded by the 2026-09-22 Mission
+resume; `CURRENT_GOAL.md` owns current scope.
+
+## Practical-alpha live reassessment — 2026-09-22
+
+Starting branch `codex/practical-alpha` was clean at `ab3fcec`, matching its
+upstream. `origin/main` at `6324126` was merged as `ffa9471`; only AGENTS.md changed
+in the merge tree. No product implementation, example or private-email backup
+branch was discarded or rewritten. No main push is authorized.
+
+The current evidence supports the following distinction; accepted direction is
+not a promise to implement every candidate before alpha:
+
+| Workflow | Live implementation/evidence | Remaining practical-alpha assessment |
+|---|---|---|
+| Editable vector/procedural graphics | `core.cpp`, `shape.cpp`, `offset.cpp`; primitive/Shape/Offset/gradient contracts | Already present; do not reimplement retained sources/Point Edit/stacks. |
+| Text and shared color | `text.cpp`, `color.cpp`; Text/Color contracts and UI tests | Usable bounded subset. Font substitution/portability remains an explicit limit, not a font-bundling task. |
+| Revising artwork | `transform.cpp`, `expression.cpp`, batch/transform/expression tests | Links, batch edits, pivots and parenting exist. Snap is accepted but absent; prioritize a bounded object-move snap interaction. Object duplication is absent and needs an internal/external reference policy before selection. |
+| Images and composition | `raster.cpp`, `compositing.cpp`; assets/compositing contracts; current runtime below | Linked/Embedded assets, masks and twelve blends exist. Full blend coverage and raster masks need demonstrated workflow demand, not automatic implementation. |
+| Durability and automation | `desktop/host.cpp`, storage/protection/live-save and formal MCP tests | Save/recovery/history and shared semantic commands exist. Keep regression evidence current. |
+| Output and reuse | `io.cpp::export_svg`, ordered Artboard tests | SVG output exists; PNG output and vector import do not. Assess the actual handoff workflow before choosing a codec slice. Inherited Artboard content/full AI/PSD remain deferred. |
+| Interaction performance | Earlier asset benchmark above, `build/canvas-benchmark-assets.json` | Recorded 30 fps floor passes; 60 fps and max-size/import timing are unproven. No fresh performance claim from this checkpoint. |
+
+Fresh Release build: `build/mission-resume-build.log`. Initial current CTest run:
+34/35, with `assets_desktop_contract` timing out at 60 seconds
+(`build/mission-resume-ctest.log`). A research-worker suite overlapped that run and
+reported success; overlapping runs are not used as authoritative evidence.
+Primary-only isolated runs passed all 70 image lifecycle/UI/pixel checks. Timed
+diagnostics located an approximately 12–15 second delay **after the Qt test file
+chooser accepted and began destruction, before its static call returned**
+(`build/mission-assets-timed.log`, `build/mission-assets-timed2.log`). This is not
+evidence of slow raster decoding. The original 60-second stall's exact cause is
+unproven. Changing custom-directory-icon options did not resolve the delay and
+was removed. Production behavior is unchanged; the test now prints flushed phase
+timings and has the same explicit 60-second CTest limit as other desktop tests.
+These diagnostics improve failure localization; they do not claim to fix the stall.
+Final primary-only Release build and suite passed **35/35 in 31.73 s**:
+`build/mission-final-build.log`, `build/mission-final-ctest.log`. No suite or
+research worker ran concurrently with this final verification.
+
+Current actual Windows runtime used the original production code at `ffa9471`,
+an owned `nect-mission-resume` endpoint/recovery directory, and
+`scripts/create_asset_demo.py --output build/mission-material-study.nect`.
+The visible 14-object study contained five image placements, seven editable Text
+objects, three Named Colors, a masked Linked JPEG and transparent Embedded rings.
+Through the real Inspector, Width 480→520 changed only the hero Image width
+(revision 9→10); native and recovery JSON equalled that edited document. The
+toolbar Undo restored the entire authored document exactly at revision 11;
+native/recovery and Host reopen readbacks also matched. Local receipt:
+`build/mission-runtime-receipt.json`; before/edited snapshots:
+`build/mission-ui-before.json`, `build/mission-ui-edited.json`. The native import
+chooser was visibly opened/cancelled; manual native-dialog import completion is
+not claimed because the UI automation tool could not reliably target its field.
+Import itself passed through the real Host/API and Qt GUI contract test.
+Owned runtime closed normally; original `examples` files were unchanged.

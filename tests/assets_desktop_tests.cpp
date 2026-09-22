@@ -14,13 +14,16 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <iostream>
 
 using namespace nect;
 using namespace nect::desktop;
 namespace {
 int checks=0;
+QElapsedTimer trace;
 void check(bool ok,const std::string& why){if(!ok)throw std::runtime_error(why);++checks;}
+void phase(const char* label){std::cerr<<trace.elapsed()<<" ms: "<<label<<std::endl;}
 template<class F>void rejects(const char* code,F action){try{action();}catch(const Error& e){check(e.code==code,std::string("Expected ")+code+", got "+e.code);return;}throw std::runtime_error(std::string("Missing rejection: ")+code);}
 void write(const QString& path,const std::vector<unsigned char>& bytes){QFile f(path);check(f.open(QIODevice::WriteOnly),"Open owned fixture");check(f.write(reinterpret_cast<const char*>(bytes.data()),bytes.size())==qsizetype(bytes.size()),"Write complete fixture");}
 std::vector<unsigned char> png(unsigned char r,unsigned char g,unsigned char b,unsigned char alpha=255) {
@@ -80,8 +83,16 @@ template<class T>T* visible(Window& w,const QString& name) {
 void gui(const QString& directory) {
     Window window(directory+"/ui-recovery");window.show();QApplication::processEvents();const auto path=directory+"/ui.png";const auto bytes=png(200,100,40);write(path,bytes);
     // Exercise the actual Add action and file dialog; only the file chooser is automated.
-    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QFileDialog*>();check(dialog,"Import opens file chooser");dialog->selectFile(path);QMetaObject::invokeMethod(dialog,"accept",Qt::QueuedConnection);});
-    auto* import=window.findChild<QAction*>("import-linked-image");check(import,"Linked Image menu exists");import->trigger();QApplication::processEvents();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QFileDialog*>();check(dialog,"Import opens file chooser");
+        // Flushed checkpoints distinguish selection from slow dialog teardown on
+        // Windows hosts. Do not hide a stall by raising the test timeout.
+        phase("import chooser opened");
+        QObject::connect(dialog,&QDialog::accepted,[]{phase("import chooser accepted");});
+        QObject::connect(dialog,&QObject::destroyed,[]{phase("import chooser destruction started");});
+        dialog->selectFile(path);QMetaObject::invokeMethod(dialog,"accept",Qt::QueuedConnection);
+    });
+    auto* import=window.findChild<QAction*>("import-linked-image");check(import,"Linked Image menu exists");phase("GUI import started");import->trigger();phase("GUI import returned");QApplication::processEvents();
     auto& s=window.host.session;check(s.document().objects.size()==1,"GUI import creates an Image");const auto object=window.canvas->selected_object,asset=s.document().objects.at(object).image->asset;
     check(s.document().raster_assets.at(asset).payload->bytes()==bytes,"GUI retains exact source bytes");
     const Ref width{object,"","image.width"};QLineEdit* input=nullptr;
@@ -130,7 +141,8 @@ void pixels() {
 }
 }
 int main(int argc,char** argv) {
+    trace.start();
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);QApplication app(argc,argv);
-    try{QTemporaryDir directory;check(directory.isValid(),"Owned scratch");lifecycle(directory.path());gui(directory.path());pixels();std::cout<<"PASS "<<checks<<" desktop Image lifecycle/UI/pixel checks\n";return 0;}
+    try{QTemporaryDir directory;check(directory.isValid(),"Owned scratch");phase("lifecycle started");lifecycle(directory.path());phase("GUI started");gui(directory.path());phase("pixels started");pixels();phase("complete");std::cout<<"PASS "<<checks<<" desktop Image lifecycle/UI/pixel checks\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

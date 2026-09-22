@@ -1,109 +1,41 @@
-# Checkpoint — Linked / Embedded image assets complete
+# Practical-alpha Mission
 
-## Current scope — 2026-09-20
+## Mission Brief
 
-The user's latest instruction ends this implementation session at the image-asset
-slice. That slice is complete. Do not start another feature or resume the earlier
-open-ended practical-alpha Mission without a new instruction. Inherited Artboard
-content/templates and other future slices have not been started.
+**Final Goal:** Make Nect usable for everyday 2D graphics production as a practical alpha.
 
-Continuity authority is this repository on `codex/practical-alpha`.
-The completed asset checkpoint is `195e536` (formerly `4184fe3` before the
-authorized unpublished-history email correction). Obtain the current handoff HEAD
-with `git log -1`. Earlier checkpoint narratives remain in Git history and
-[docs/first-usable.md](docs/first-usable.md), not as active next-step instructions.
+**Completion conditions:** A representative editable composition can be created and revised through the Windows GUI, protected/saved/reopened, and exported without loss of native intent. Geometry, Text, images, color and compositing work together; GUI/API/MCP share Session semantics and unsupported requests fail explicitly. Current contracts pass and representative warm interaction meets the recorded 30 fps floor. Close concrete daily-workflow blockers, not the whole backlog.
 
-## Completed slice
+**Constraints / authority:** The 2026-09-22 user instruction resumes the Mission and supersedes the image-slice stop. Astra is primary executor. Preserve existing work; reversible local UI decisions and checkpoint commits/pushes to `codex/practical-alpha` are authorized. No main push/merge, release, new dependencies, proprietary assets or account-policy changes. Notion owns product intent; `docs/product-direction.md` is the accepted scoped extract. Native authored state remains authoritative.
 
-- PNG/JPEG import, stable asset IDs, Linked/Embedded state and shared placements.
-- Explicit Check link(s) detects external changes without altering accepted pixels.
-  Reload/Relink accepts new bytes in one transaction; Embed retains cached bytes.
-  Missing/unreadable/invalid sources preserve artwork and reject unsafe replacement.
-- Width/Height are normal linkable/expression properties. Canvas placement, resize,
-  transforms, existing geometry masks, opacity and blend modes share core semantics.
-- Exact Undo/Redo, native save/reopen, live protection and abnormal-exit recovery.
-  Native opening never reads linked files; status starts unchecked.
-- GUI, semantic API and formal MCP use the same Session commands and Host file
-  operations. SVG embeds normalized oriented sRGB PNGs without changing native
-  original bytes, profile/orientation metadata or locators.
+**Coarse checkpoint map:**
+1. Live capability/gap reassessment and image-workflow baseline — completed; evidence in `docs/first-usable.md#practical-alpha-live-reassessment--2026-09-22`.
+2. Gentle Snap for everyday object placement — active.
+3. Close the next demonstrated revision/output handoff gap. SVG exists; object duplication, PNG output and vector import do not. Choose one bounded slice from use, with explicit reference/unsupported semantics.
+4. Integrated authoring, recovery, output and performance acceptance; reconcile remaining limits against practical-alpha completion.
 
-Major existing capabilities also include stable-ID Bézier editing, retained
-Circle/Rectangle/Polygon/Star sources and Point Edit overrides, ordered local
-Fill/Stroke/Repeater/Offset, gradients, editable Text, Named Colors, links and
-bounded expressions, multi-selection/batch edits, Anchors/Transform Parents,
-geometry masks/Group compositing, ordered Artboards with parent-size inheritance,
-History, atomic saves/backups/recovery, SVG export and the live API/MCP.
-This checkpoint does not claim completion of the entire practical-alpha Mission.
+Far checkpoints remain provisional. Inherited Artboard content, full AI/PSD, full node graphs, all blends, pixel painting and all Candidates are not automatic gates. The current capability/gap table lives in `docs/first-usable.md`, not a copied backlog here.
 
-## Verification
+## ACTIVE CHECKPOINT
 
-Release build passed (`build/assets-final-build.log`; final desktop-test harness
-rebuild `build/assets-desktop-test-build.log`). All 35 CTest entries passed in
-51.78 s (`build/assets-final-ctest.log`), including 116 raster, 56 asset semantic/
-codec and 70 desktop lifecycle/UI/pixel checks, strict native migrations, storage,
-protection, formal MCP save/restart/recovery and existing feature regressions.
+**Goal:** Make ordinary object placement easier with a visible Snap ON/OFF control and gentle screen-space attraction, while preserving exact numeric/API edits and one-gesture Undo.
 
-`examples/material-study.nect` / `.svg` contains one Linked JPEG shared by four
-placements, one Embedded transparent PNG, a geometry mask, Multiply, three Named
-Colors and seven editable Text objects. Source artwork is original procedural
-fixture data in `examples/assets`; `scripts/create_asset_demo.py` reproduces it.
-Actual Windows GUI on an owned working copy resized Width 480 to 520 and undid
-exactly; Check detected an external file edit, Reload changed all four placements
-without changing their object state, and one Undo restored the accepted source.
-Native/recovery readbacks were exact and the example stayed unchanged. Receipts:
-`build/assets-study-receipt.json`, `build/assets-manual-receipt.json`.
-Owned application and benchmark windows closed normally; no helper/build remains.
+**Current phase:** Ready for fresh-context implementation. The preceding reassessment and diagnostic hardening are complete. This checkpoint is selected, not implemented; do not claim Snap exists. The change from runtime diagnosis to Canvas interaction is the context boundary requested by the user.
 
-Visible performance: 24 placements sharing eight 512x384 assets, 4,121,532 source
-bytes / 1,572,864 decoded pixels, three masks/Multiply leaves plus two curves.
-Worst p95 interval 18.49 ms, maximum 20.41 ms, maximum gesture release 19.70 ms;
-all 30 fps p95/release budgets pass. 60 fps target remains unmet. This measures
-pan/zoom and curve point/handle/translation with images present, not import/reload,
-image-body translation timing or maximum-sized documents. Full boundaries and
-results: [docs/first-usable.md](docs/first-usable.md),
-`build/canvas-benchmark-assets.json`.
+**Proven:**
+- Product implementation baseline: `195e536`, `ab3fcec`; latest-main integration: `ffa9471` (merges `6324126`, AGENTS-only tree delta).
+- Current Release build and authoritative primary-only suite: `build/mission-final-build.log`, `build/mission-final-ctest.log` — 35/35, 31.73 s. Test source: `tests/assets_desktop_tests.cpp`; diagnostic/timeout changes are in the commit containing this checkpoint.
+- Actual Windows Inspector resize/Undo, native/recovery/reopen: `build/mission-runtime-receipt.json`; durable summary and gap table: `docs/first-usable.md#practical-alpha-live-reassessment--2026-09-22`.
+- Performance boundary: asset benchmark in `docs/first-usable.md`, `build/canvas-benchmark-assets.json` (historical measured 30 fps pass, not rerun here).
 
-## Persistence and limits
+**Next task:** Verify live state and implement the smallest useful object-body translation Snap slice. Start with selection geometric bounds against active Artboard edges/centers and visible unselected object bounds in the same Composition; adjust this candidate if live gesture/transform behavior makes a smaller first subset safer.
 
-Current native format is **0.13**, raster/interpretation version 1. Strict readers
-migrate 0.1–0.12. Native/API/protection cap is 64 MiB; History retains its separate
-1,024 edits / 64 MiB estimate. Assets retain immutable accepted original bytes,
-shared by snapshots and History; derived pixels are not authored state.
+**Approach:** Read only `src/desktop/canvas.*`, the relevant toolbar/view code in `window.cpp`, `tests/canvas_tests.cpp` / transform tests, and the accepted Snap paragraph. Resolve optional snapping in view interaction before the existing `TranslateObjects` Session gesture path. Use a modest logical-pixel tolerance (initially ~6 px), deterministic target choice and subtle alignment feedback. Keep targets stable during a gesture; exclude moving objects and dependent descendants from self-targeting. Use existing shared geometric evaluation; no parallel document or persisted snap geometry. GUI/API/MCP still mutate through the same semantic commands; exact numeric commands never implicitly snap.
 
-Supported Windows memory WIC subset: 8-bit PNG/JPEG, alpha, JPEG EXIF 1–8 and
-bounded usable RGB/gray ICC-to-sRGB interpretation. Limits: 8 MiB source/image,
-8192 per axis, 16,777,216 pixels/image; 24 MiB source and 33,554,432 pixels/document,
-128 assets. SVG normalized PNG: 16 MiB/image, 32 MiB aggregate.
+**Done for next:** Discoverable ON/OFF; ON attracts only near a candidate and OFF permits free placement at multiple zoom levels. Single/multi-object motion preserves relative spacing and parenting semantics. Commit is one Undo; Escape restores exactly; stale/concurrent edit rules remain intact. Focused gesture tests and real Windows interaction verify feedback/placement; measure representative interaction if the candidate scan changes the hot path. Save one coherent checkpoint, push branch and verify remote HEAD before moving on. Non-goals: grid/guide persistence, point/handle snapping, distribution, duplication, output codecs or architecture redesign.
 
-Known limitations: link checks are explicit, import/reload/export are synchronous,
-absolute local-drive locators only; unsupported color metadata/CMYK/high bit depth/
-animation and other raster formats reject. No pixel painting or raster mask source.
-The example's locator may require Relink on another checkout; cached pixels remain
-usable. Independent browser SVG visual inspection was blocked by local-URL security
-policy and is unverified. Normalized SVG pixel equality/structure and actual Nect
-rendering passed. No current slice blocker or failing test remains.
+**State:** Branch `codex/practical-alpha`, upstream `origin/codex/practical-alpha`, [remote checkpoint branch](https://github.com/46slv/Nect/tree/codex/practical-alpha). Initial clean `ab3fcece80aee06a4418d05267f899f9f942ed02`; pre-checkpoint integration HEAD `ffa9471`. Exact checkpoint SHA is the commit containing this file (`git log -1`); verify it against `git ls-remote origin refs/heads/codex/practical-alpha`. Working tree is intended clean after this checkpoint commit. Native 0.13 / raster interpretation v1; original examples unchanged; owned runtime closed normally, no pending mutation.
 
-## Stop and handoff
+Known limitation: the initial suite hit one 60 s image-GUI timeout. Isolated timing narrowed the delay to Qt test file-chooser teardown; the exact cause of the timeout is unproven. Subsequent primary-only final suite passed. Flushed phase diagnostics and a 60 s CTest limit now make recurrence bounded and inspectable; no production fix is claimed. Native-dialog manual import completion was not verified; real Host/API import, Qt GUI contract and visible edit/Undo were verified. Revisit if recurrence blocks the next checkpoint. No current failing test or external sync blocker is known.
 
-The current task authorizes GitHub branch synchronization only, then stops. The
-handoff target is [codex/practical-alpha](https://github.com/46slv/Nect/tree/codex/practical-alpha),
-with upstream `origin/codex/practical-alpha`; final local/remote HEAD equality and
-working-tree state are verified in the sync handoff. Do not merge into or push main.
-
-The private-email audit found 16 affected commits among 17 unpublished branch
-commits. No original branch commit was reachable from any advertised origin ref
-(including PR refs) or existing remote/tag ref. Backup
-`backup/practical-alpha-pre-email-rewrite` retains the original `4184fe3` HEAD
-locally; do not push this backup. The 16 author/committer identities were corrected
-to `46slv <254147489+46slv@users.noreply.github.com>`, preserving every commit tree,
-message, timestamp and parent order. Descendant SHAs changed accordingly.
-`origin/main` at `d88e855` was merged without conflict; its only tree change was the
-latest AGENTS.md operating rules. Product code and fixtures match the prior tested
-checkpoint exactly. Only AGENTS.md and this checkpoint record differ in the final
-tree, so the existing 35/35 test and runtime evidence remains applicable; no full
-rerun is needed. Account privacy/protection settings and shared history are intact.
-
-Next safe action for a new operator: read `START_HERE.md` and this file, confirm
-branch/HEAD/status and obtain the new operating scope. Do not automatically start
-inherited Artboard content or any other feature. Requirements/decisions remain
-owned by Notion; implementation truth remains in this repository.
+**Authority:** Current user Mission instruction, `START_HERE.md`, latest `AGENTS.md`, accepted Snap direction. Continue within this Mission; Next task is a candidate and may be replanned from live evidence. At this completed boundary, end the current context and resume in a fresh one from Mission Brief → active checkpoint → live state → needed owners. No successor was launched; this runtime exposes separate-task/fork operations, not an in-place fresh-context rollover. No new sidebar task is requested.
