@@ -1281,3 +1281,24 @@ remaining full evaluation work, especially literal authored properties; preserve
 all expression/generated topology checks and measure after an actual change.
 
 Full Release39/39 passed,64.04s (`responsive-regression.log`).
+
+
+## Responsive editing: literal dependency leaves (2026-09-23)
+
+Full evaluation now directly range-checks/inserts already-indexed, non-generated,
+non-driven literals. They have no dependencies; avoid repeated index lookup and
+active-set allocation. Generated point overrides retain topology/role validation;
+expressions, links and subset evaluation retain existing traversal. Focused6/6
+and full39/39 pass (56.44s), `literal-leaf-focused.log` and
+`literal-leaf-regression.log` in build/daily-layout.
+
+Visible changed-code run `literal-leaf-benchmark.json`: all-operation30fps p95
+interval floor passes; release and60fps aggregate still false. Representative
+point/handle/object intervals32.47/30.60/22.90ms; semantic preview15.40/15.73/12.03ms;
+projection9.61/8.41/6.56ms; release34.43/52.98/22.06ms. Compared with previous run,
+point semantic cost falls but handle increases, so no uniform evaluator speedup
+claim under run variance. Retain every receipt. One confirmed remaining repeated
+cost: successful Canvas commit calls Host.edited → Window.refresh → full Canvas
+projection despite already displaying that exact validated preview. Investigate
+that synchronous notification boundary next, retaining full refresh for external
+edits/Undo/load and failed/cancelled gestures.

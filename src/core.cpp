@@ -524,8 +524,15 @@ std::map<Ref,double> evaluate_properties(const Document& d,const std::vector<Ref
         return values;
     }
     for (const auto& [ref, scalar] : index) {
-        (void)scalar;
-        visit(ref, 0);
+        // Plain authored literals are dependency leaves. Avoid a second index
+        // lookup and active-set allocation for each one during full evaluation.
+        // Generated point overrides still need topology/role validation in visit.
+        const auto object=d.objects.find(ref.object);
+        const bool generated=object!=d.objects.end()&&object->second.source&&!ref.point.empty();
+        if(scalar&&!driven(*scalar)&&!generated) {
+            value_range(ref,scalar->literal);
+            values.emplace_hint(values.end(),ref,scalar->literal);
+        } else visit(ref, 0);
     }
     for(const auto& [id,object]:d.objects)if(object.source) {
         const auto& generated=topology(object,0);

@@ -14,19 +14,19 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Identify and reduce repeated evaluation/projection cost in representative object/point drag without weakening preview or commit correctness.
+**Goal:** Reduce remaining full-evaluation overhead for authored literal leaves while preserving driven/generated property validation.
 
-**Current phase:** Preview reuse checkpoint accepted: exact derived-value lifetime contracts and full39/39 pass. Visible projection p95 improved across point/handle/object drags; point total/release still miss floor. Saving coherent checkpoint before further evaluation work.
+**Current phase:** Literal leaf checkpoint verified: focused6/6 and full39/39,56.44s. Visible changed-code run passes all-operation30fps interval floor, still misses release/60fps budgets. Save and synchronize before next bounded repair.
 
-**Proven:** `docs/first-usable.md` records both comparable runs and all failures: object projection15.77→4.69ms, interval36.23→20.55ms; point interval35.70/release50.17ms after repair. Six focused contracts and full39/39,64.04s. No60fps/all-operation floor claim.
+**Proven:** `docs/first-usable.md` records retained baseline/reuse/literal-leaf receipts. Latest representative point/handle/object intervals32.47/30.60/22.90ms; release34.43/52.98/22.06ms. No uniform timing/60fps claim; authored/driven/generated contracts pass.
 
-**Next task:** Inspect literal-property dependency traversal overhead in measured semantic evaluation; make bounded repair only with unchanged generated topology/range/dependency guarantees.
+**Next task:** Remove redundant full Canvas projection in synchronous successful Canvas-edit notification; Window Inspector/structure/history and Host recovery still update. External edit/Undo/load/failure must refresh normally.
 
-**Approach:** Keep the current evaluation traversal for generated/driven properties. Remove avoidable work for proven leaf literals; compare actual visible fixture after code change, no blind reruns.
+**Approach:** Inspect existing Canvas → Host.edited → Window.refresh boundary. Reuse only the known successful current projection with identity/revision guard; avoid a global revision-only cache.
 
-**Done for next:** Coherent checkpoint synchronized; then establish semantic-equivalent next repair and measure impact.
+**Done for next:** Coherent literal-leaf checkpoint synchronized, then guarded notification repair proven through real Window interaction and comparative timing.
 
-**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `e27c4a106d1f8cbbd8358a0ec6e6894ea3aefa61`. Owned benchmark windows closed; Full access/never approvals. Native0.13 unchanged.
+**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `be2fa7758e09d4a75923b81f17ccfb15e60bb30e`. Owned benchmark windows closed; Full access/never approvals. Native0.13 unchanged.
 
 **Authority:** Explicit continuous-development user instruction; no successor Task, no stop solely at checkpoint/Mission boundary.
 
