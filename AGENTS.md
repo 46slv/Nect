@@ -119,6 +119,13 @@ At completion:
 
 Use a fresh Task, not a conversation fork. Transfer only Mission Brief, latest
 active checkpoint, repo/branch/HEAD and the owner documents needed for that work.
+The user's further 2026-09-22 instruction requires new Tasks/chats to start with
+Full access and no approval prompts. Verify the actual successor runtime's
+permissions, not just a prompt or config value. If the creation API cannot
+override permissions, retain the existing Full-access defaults and make runtime
+permission verification the successor's first step; do not start implementation
+under a restricted profile or repeatedly ask for approval. Report a concrete
+permission-launch blocker if Full access was not applied.
 Do not transfer old conversation, raw logs or completed-work transcripts.
 If new-Task creation is unavailable, leave a complete handoff marked
 `WAIT_SUCCESSOR_TASK` and stop without implementing the next checkpoint here.

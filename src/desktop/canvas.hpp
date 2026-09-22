@@ -60,6 +60,8 @@ public:
     QString breadcrumb() const;
     void leave_group();
     double zoom() const { return zoom_; }
+    void set_snap_enabled(bool enabled);
+    bool snap_enabled() const { return snap_enabled_; }
 
     // Raw widget paint observations, not a claim about presentation/GPU latency.
     // An interval of -1 is the first paint in an input sequence. Input cadence is
@@ -169,6 +171,10 @@ private:
     std::vector<PointStart> point_starts_;
     bool gesture_owned_ = false;
     bool drag_moved_ = false;
+    bool snap_enabled_ = true;
+    std::optional<QRectF> snap_bounds_;
+    std::vector<double> snap_x_, snap_y_;
+    std::optional<double> snap_guide_x_, snap_guide_y_;
     QRectF breadcrumb_rect_;
 
     QElapsedTimer clock_;
@@ -192,6 +198,8 @@ private:
     void toggle_selection(Selection item);
     void set_scope(Id scope);
     void begin_drag(Drag kind, QPointF screen);
+    void prepare_snap();
+    QPointF snap_delta(QPointF delta);
     void update_drag(QPointF screen);
     void finish_drag();
     void append_draw_point(QPointF screen);

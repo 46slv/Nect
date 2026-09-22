@@ -415,6 +415,11 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* draw=action(add,"Draw Path",QKeySequence("P"),[this]{canvas->set_draw_mode(true);canvas->setFocus();statusBar()->showMessage("Click to add points · Enter finishes the path · Escape exits",10000);});
     action(view,"Fit Artboard",QKeySequence("Ctrl+0"),[this]{canvas->fit_artboard();});
     action(view,"Fit all artboards",QKeySequence("Ctrl+Shift+0"),[this]{canvas->fit_all_artboards();});
+    auto* snap = view->addAction("Snap ON"); snap->setObjectName("canvas-snap");
+    snap->setCheckable(true); snap->setChecked(canvas->snap_enabled());
+    snap->setToolTip("Snap object edges and centers near Artboards and visible objects (6 px). Numeric edits stay exact.");
+    connect(snap, &QAction::toggled, canvas, &Canvas::set_snap_enabled);
+    connect(snap, &QAction::toggled, this, [snap](bool enabled) { snap->setText(enabled ? "Snap ON" : "Snap OFF"); });
     action(view,"Return to parent Group",{},[this]{canvas->leave_group();});
     auto* colors=action(view,"Colors…",{},[this]{color_tools_->show_manager();});colors->setObjectName("show-colors");
     auto* history=action(view,"History…",QKeySequence("Ctrl+Shift+H"),[this]{show_history();});history->setObjectName("show-history");
@@ -424,6 +429,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* curve=toolbar->addAction("+ Curve"); connect(curve,&QAction::triggered,this,[this]{perform([this]{add_curve();});});
     toolbar->addAction(draw);toolbar->addSeparator();toolbar->addAction(undo_);toolbar->addAction(redo_);
     auto* fit=toolbar->addAction("Fit");connect(fit,&QAction::triggered,canvas,&Canvas::fit_artboard);
+    toolbar->addAction(snap);
     toolbar->addAction(colors);
     breadcrumb_=new QLabel("Composition");toolbar->addWidget(breadcrumb_);
     status_=new QLabel;statusBar()->addPermanentWidget(status_);

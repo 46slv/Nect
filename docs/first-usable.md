@@ -727,3 +727,76 @@ chooser was visibly opened/cancelled; manual native-dialog import completion is
 not claimed because the UI automation tool could not reliably target its field.
 Import itself passed through the real Host/API and Qt GUI contract test.
 Owned runtime closed normally; original `examples` files were unchanged.
+
+## Gentle object-placement Snap — 2026-09-22
+
+Implemented from `c723a678` on `codex/practical-alpha`. The per-window Snap ON/OFF
+action beside Fit and in View defaults ON. Object-body translation attracts each
+axis within 6 logical screen pixels to the active Artboard edges/center and
+document-visible leaf geometry edges/centers in the active Composition. The
+moving selection uses aggregate world geometric bounds; effective transform
+followers are excluded from targets, including followers outside a structural
+Group. Candidates are fixed and sorted at press; pointer updates use binary
+search. Dashed alignment guides exist only in the view during the gesture.
+
+Bounds project the shared evaluated final paths, earlier paint instances, Text
+frames and Image rectangles; they exclude stroke thickness. Hidden/zero-opacity
+objects and ancestors do not contribute. Bounds describe geometry, not masked
+or occluded paint silhouettes. Target Groups contribute their visible leaves,
+not an additional enclosing Group candidate. Point/handle/Anchor edits, numeric
+fields and API commands do not implicitly snap. No native format change or
+persistent guides/grid/preferences was added. Existing Session Set/TranslateObjects
+previews retain one-gesture Undo, cancellation and concurrent-edit rejection.
+
+Verification:
+- Current Release build completed. `tests/canvas_tests.cpp`: 112 checks, including
+  50/100/200% attraction and free motion, tolerance boundary, frozen candidates,
+  exact numeric edits, Escape/return home, concurrent writes, aggregate selection,
+  effective followers, visibility and nonuniform rotated-parent coordinates.
+  Current `batch_ui_tests` and `transform_ui_tests` pass; the existing exact-motion
+  batch fixture explicitly turns Snap OFF. New Snap fixtures exercise ON.
+- Initial full CTest run: 32/35, `build/snap-initial-ctest.log`. Two fixtures were
+  corrected: the hidden-target fixture accidentally coincided with Artboard
+  center, and the old batch test assumed free motion. Their current runs pass.
+  The previously recorded `assets_desktop_contract` chooser-destruction timeout
+  recurred at 60 s. A subsequent isolated run passed all 70 checks in 752 ms
+  (chooser destruction start 504 ms, import return 516 ms). The intermittent
+  cause remains unproven; this checkpoint does not claim to fix it or claim a
+  fresh single-run 35/35 suite.
+- Real Windows Canvas events also passed 113 checks, including saving
+  `build/snap-guide-windows.png`; direct inspection shows the dashed guide at
+  the aligned center. This used `QT_QPA_PLATFORM=windows`, not offscreen.
+- Real production Window, 118% zoom: an identical mouse drag from (437,368) to
+  (645,400) committed X=180 with Snap ON and X=176.78618857901728 with OFF;
+  Y=27.197875166002657 in both cases. Toolbar Undo restored Position X/Y=0 in one
+  step. API/native readbacks: `build/snap-ui-on.json`,
+  `build/snap-ui-off-native.json`; owned document `build/snap-study.nect`.
+  The owned visible Session closed normally. Original examples were unchanged.
+
+Visible Windows/Qt 6.5.3 performance uses the existing production Window benchmark
+with Snap ON, 12 warmups and 90 measured input-triggered QWidget paints per
+operation, 893x824 Canvas/DPR 1. Native compositor/GPU presentation is unmeasured.
+The benchmark now also records press/candidate setup; semantic assertions permit
+at most 6 screen pixels of snap correction and preserve multi-target spacing.
+`build/canvas-benchmark-snap.json` passed the 30 fps p95 interval floor for the
+2/80-curve fixtures. On 80 curves: object-move p95=29.16 ms, press=4.02 ms and
+release/UI commit=33.85 ms (slightly exceeds the 33.33 ms release budget).
+Snap performs no candidate scan at release; the cause of this single release
+overrun was not isolated. The lightweight pass overlapped a brief offscreen
+contract run; the following mixed-image measurement ran without concurrent tests.
+
+`build/canvas-benchmark-snap-assets.json` used the existing 24-image/eight-source,
+two-curve fixture with masks/blending. All five interval and release budgets pass:
+
+| Operation | p95 interval ms | press ms | release/UI commit ms |
+|---|---:|---:|---:|
+| Pan |17.99|0.03|0.02|
+| Zoom |17.91|0.00|0.00|
+| Point drag |18.38|0.12|15.53|
+| Handle drag |18.59|0.11|11.76|
+| Object translation |18.66|0.23|12.83|
+
+The 30 fps interaction floor passes; 60 fps and every-scene release budget are
+not claimed. The next selected workflow gap is independent object duplication:
+only Artboard-frame duplication exists in `window.cpp`; no object-duplicate
+Session command or GUI action exists in the current core/adapter/Window.

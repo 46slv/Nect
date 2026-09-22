@@ -200,6 +200,7 @@ bool edits_document(Operation operation) {
 
 struct SequenceResult {
     double elapsed_ms = 0;
+    double press_ms = 0;
     double release_and_ui_commit_ms = 0;
 };
 
@@ -223,7 +224,9 @@ SequenceResult sequence(Window& window, Operation operation, int frames, bool co
     const auto start = operation == Operation::pan || operation == Operation::zoom
         ? QPointF(canvas.width() / 2.0, canvas.height() / 2.0) : screen_point(window, world_start);
     const auto button = operation == Operation::pan ? Qt::MiddleButton : Qt::LeftButton;
+    QElapsedTimer press; press.start();
     if (operation != Operation::zoom) mouse(canvas, QEvent::MouseButtonPress, start, button, button);
+    const auto press_ms = press.nsecsElapsed() / 1e6;
     if (edits_document(operation)) require(window.host.session.gesture_active(), "Viewport edit failed to start a gesture");
     const auto revision = window.host.session.revision();
     const auto initial_values=evaluate(window.host.session.document());
@@ -255,6 +258,7 @@ SequenceResult sequence(Window& window, Operation operation, int frames, bool co
                 "; focused widget="+(QApplication::focusWidget()?std::string(QApplication::focusWidget()->metaObject()->className()):"none"));
     }
     SequenceResult result;
+    result.press_ms = press_ms;
     result.elapsed_ms = elapsed.nsecsElapsed() / 1e6;
     QElapsedTimer release;
     release.start();
@@ -274,16 +278,18 @@ SequenceResult sequence(Window& window, Operation operation, int frames, bool co
                  "Handle drag produced incorrect length");
         } else {
             const auto values=evaluate(window.host.session.document());const auto object=text_transform?"bench-text-0":"bench-path-0";
-            near(values.at({object,"","transform.tx"}), 54 / zoom, "Object drag produced incorrect translation X");
-            near(values.at({object,"","transform.ty"}), 12 / zoom, "Object drag produced incorrect translation Y");
+            require(std::abs(values.at({object,"","transform.tx"})-54/zoom)<=6.0/zoom+1e-6,"Snap X stays within screen tolerance");
+            require(std::abs(values.at({object,"","transform.ty"})-12/zoom)<=6.0/zoom+1e-6,"Snap Y stays within screen tolerance");
         }
         if(selection_count>1&&(operation==Operation::point||operation==Operation::transform)) {
             const auto values=evaluate(window.host.session.document());
             for(int i=0;i<selection_count;++i) {
                 const auto object="bench-path-"+std::to_string(i),point=operation==Operation::point?"bench-point-"+std::to_string(i)+"-0":Id{};
                 const Ref x{object,point,operation==Operation::point?"x":"transform.tx"},y{object,point,operation==Operation::point?"y":"transform.ty"};
-                near(values.at(x),initial_values.at(x)+54/zoom,"Every selected target translates once X");
-                near(values.at(y),initial_values.at(y)+12/zoom,"Every selected target translates once Y");
+                const double dx=operation==Operation::point?54/zoom:values.at({"bench-path-0","","transform.tx"})-initial_values.at({"bench-path-0","","transform.tx"});
+                const double dy=operation==Operation::point?12/zoom:values.at({"bench-path-0","","transform.ty"})-initial_values.at({"bench-path-0","","transform.ty"});
+                near(values.at(x),initial_values.at(x)+dx,"Every selected target translates once X");
+                near(values.at(y),initial_values.at(y)+dy,"Every selected target translates once Y");
             }
         }
     } else {
@@ -329,6 +335,7 @@ QJsonObject summarize(const Canvas& canvas, Operation operation, SequenceResult 
         {"observed_paints", static_cast<int>(paints.size())}, {"warmup_inputs", warmup_frames},
         {"requested_interval_ms", target_interval_ms}, {"elapsed_ms", sequence.elapsed_ms},
         {"release_and_ui_commit_ms", sequence.release_and_ui_commit_ms},
+        {"press_and_snap_candidates_ms", sequence.press_ms}, {"snap_enabled",canvas.snap_enabled()},
         {"revision_before", static_cast<qint64>(revision_before)}, {"revision_after", static_cast<qint64>(revision_after)},
         {"committed_notifications", commits}, {"sufficient_interval_samples", enough},
         {"meets_30fps_p95_interval_budget", floor}, {"meets_60fps_p95_interval_budget", target},

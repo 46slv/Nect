@@ -271,6 +271,118 @@ void driven_coordinate_rejects_atomically_but_free_axis_can_move() {
     check(f.session.revision() == 1 && f.commits == 1, "Independent axis edit commits normally");
     f.no_error();
 }
+Document snap_document() {
+    auto document = empty_document("snap-document", "test-composition", "test-artboard");
+    document.compositions.front().artboards.front().width = 640;
+    document.compositions.front().artboards.front().height = 480;
+    const auto rectangle = [&](Id id, double x, double y) {
+        Object object; object.id = id; object.name = id;
+        object.source = default_primitive(id + "-source", "nect.shape.rectangle");
+        for (auto [field, value] : std::map<std::string,double>{{"center_x",x},{"center_y",y},{"width",80},{"height",60}})
+            object.source->parameters.at(field).literal = value;
+        object.stack.push_back(default_operation(id + "-fill", "nect.paint.fill"));
+        document.objects.emplace(id, object); document.compositions.front().roots.push_back(id);
+    };
+    rectangle("path", 140, 130); // edges 100..180, 100..160
+    rectangle("target", 400, 300); // edges 360..440, 270..330
+    return document;
+}
+
+void snap_tolerance_zoom_and_exact_edits() {
+    for (double zoom : {0.5, 1.0, 2.0}) {
+        Fixture f(snap_document());
+        f.canvas.resize(qRound(640 * zoom + 100), qRound(480 * zoom + 100));
+        // QWidget minimum prevents half-size resize; use a larger Artboard for zoom-out.
+        if (zoom == 0.5) {
+            auto board = f.session.document().compositions.front().artboards.front();
+            board.x = -320; board.y = -240; board.width = 1280; board.height = 960;
+            f.session.apply({UpdateArtboard{"test-composition",board}}, f.session.revision());
+            f.canvas.resize(740,580); f.canvas.refresh();
+        }
+        f.canvas.fit_artboard(); near(f.canvas.zoom(), zoom, "Snap fixture zoom");
+        f.canvas.set_selection("path");
+        const auto original = encode(f.session.document());
+        const auto start = f.screen(140,130);
+        // Right edge approaches target left, four logical pixels short.
+        const auto end = f.screen(320,157) - QPoint(4,0);
+        f.press(start); f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),180,"Snap reaches target edge at each zoom");
+        if (zoom == 1 && !qEnvironmentVariableIsEmpty("NECT_SNAP_SCREENSHOT"))
+            check(f.canvas.grab().save(qEnvironmentVariable("NECT_SNAP_SCREENSHOT")), "Save live snap guide evidence");
+        f.move(end + QPoint(1,0)); // frozen candidates do not drift with preview
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),180,"Repeated preview keeps target fixed");
+        f.release(end);
+        near(f.value("path",{},"transform.tx"),180,"Snapped gesture commits placement");
+        f.session.undo(f.session.revision()); f.canvas.refresh();
+        check(encode(f.session.document()) == original,"Single Undo restores snapped gesture exactly");
+        f.canvas.set_snap_enabled(false);
+        f.drag(start,end);
+        near(f.value("path",{},"transform.tx"),180-4/zoom,"Snap OFF permits nearby free placement");
+        f.session.undo(f.session.revision()); f.canvas.refresh(); f.canvas.set_snap_enabled(true);
+        f.drag(start, f.screen(320,157) - QPoint(8,0));
+        near(f.value("path",{},"transform.tx"),180-8/zoom,"Outside tolerance stays free");
+        f.session.undo(f.session.revision()); f.canvas.refresh();
+        f.session.apply({Set{{"path","","transform.tx"},177.125}}, f.session.revision());
+        f.canvas.refresh(); near(f.value("path",{},"transform.tx"),177.125,"Exact Session numeric edit never snaps");
+        f.no_error();
+    }
+}
+
+void snap_cancellation_and_artboard() {
+    Fixture f(snap_document()); f.canvas.set_selection("path");
+    const auto original = encode(f.session.document()); const auto start = f.screen(140,130);
+    f.press(start); f.move(f.screen(317,157));
+    try { f.session.apply({Set{{"target","","transform.tx"},1}},f.session.revision()); check(false,"Concurrent edit must reject"); }
+    catch (const Error&) { check(true,"Concurrent edit remains guarded"); }
+    QTest::keyClick(&f.canvas,Qt::Key_Escape); f.release(f.screen(317,157));
+    check(encode(f.session.document())==original&&!f.session.can_undo(),"Escape restores all snapped state and history");
+    f.press(start); f.move(f.screen(317,157)); f.move(start); f.release(start);
+    check(encode(f.session.document())==original&&!f.session.can_undo(),"Returning to press position restores exact start");
+    f.drag(start,f.screen(177,236));
+    near(f.value("path",{},"transform.ty"),110,"Selection center snaps to Artboard center Y");
+    f.no_error();
+}
+
+void snap_multi_and_effective_followers() {
+    auto document=snap_document();
+    auto follower=document.objects.at("path"); follower.id="follower"; follower.source->id="follower-source";
+    follower.stack.front().id="follower-fill";
+    follower.source->parameters.at("center_x").literal=208;
+    follower.source->parameters.at("center_y").literal=130;
+    follower.transform_parent="path";
+    document.objects.emplace(follower.id,follower); document.compositions.front().roots.push_back(follower.id);
+    Fixture f(document); f.canvas.set_selection("path");
+    f.drag(f.screen(140,130),f.screen(164,150));
+    near(f.value("path",{},"transform.tx"),24,"Effective follower is excluded from snap targets");
+    near(f.value("follower",{},"transform.tx"),0,"Unselected follower retains local transform");
+    f.session.undo(f.session.revision()); f.canvas.refresh();
+    f.canvas.set_selections({{"path",{}},{"follower",{}}});
+    const auto original=encode(f.session.document());
+    f.drag(f.screen(140,130),f.screen(249,150)); // union right 248 + 109 is near 360
+    near(f.value("path",{},"transform.tx"),112,"Multi selection snaps aggregate bounds");
+    near(f.value("follower",{},"transform.tx"),0,"Selected follower does not translate twice");
+    const auto transforms=evaluate_transforms(f.session.document(),evaluate(f.session.document()));
+    near(transforms.at("follower").world[4],112,"Follower preserves relative world placement");
+    f.session.undo(f.session.revision()); check(encode(f.session.document())==original,"Multi snapped Undo is exact");
+    f.no_error();
+}
+
+void snap_visibility_and_parent_coordinates() {
+    auto document=snap_document(); document.objects.at("target").visible=false;
+    document.objects.at("target").source->parameters.at("center_x").literal=430;
+    Fixture hidden(document); hidden.canvas.set_selection("path");
+    hidden.drag(hidden.screen(140,130),hidden.screen(347,157));
+    near(hidden.value("path",{},"transform.tx"),207,"Hidden objects are not snap targets"); hidden.no_error();
+    document=snap_document(); Object parent; parent.kind=Kind::group; parent.id="parent"; parent.children={"path"};
+    parent.transform={{{0,{}},{2,{}},{-1,{}},{0,{}},{400,{}},{0,{}}}};
+    document.objects.emplace(parent.id,parent); document.compositions.front().roots={"parent","target"};
+    Fixture f(document); f.canvas.set_selection("path");
+    // World bounds 240..300,200..360; right edge approaches target left.
+    f.drag(f.screen(270,280),f.screen(327,297));
+    near(f.value("path",{},"transform.tx"),10,"Snap maps through nonuniform rotated parent X");
+    near(f.value("path",{},"transform.ty"),-60,"Snap maps world correction through parent Y");
+    f.no_error();
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -285,6 +397,10 @@ int main(int argc, char** argv) {
         create_and_collapse_handles_preserves_authored_angle();
         hierarchy_selection_and_inverse_coordinates();
         driven_coordinate_rejects_atomically_but_free_axis_can_move();
+        snap_tolerance_zoom_and_exact_edits();
+        snap_cancellation_and_artboard();
+        snap_multi_and_effective_followers();
+        snap_visibility_and_parent_coordinates();
         std::cout << "Canvas widget contract: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

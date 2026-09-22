@@ -702,6 +702,15 @@ void Canvas::paintEvent(QPaintEvent*) {
             if(render_error_!=message){render_error_=message;report_error(exception);}
         }
         painter.resetTransform();
+        painter.setPen(QPen(QColor(153, 210, 225, 170), 1, Qt::DashLine));
+        if (snap_guide_x_) {
+            const auto x = view().map(QPointF(*snap_guide_x_, 0)).x();
+            painter.drawLine(QPointF(x, 0), QPointF(x, height()));
+        }
+        if (snap_guide_y_) {
+            const auto y = view().map(QPointF(0, *snap_guide_y_)).y();
+            painter.drawLine(QPointF(0, y), QPointF(width(), y));
+        }
         for (const auto& artboard : artboards_) {
             const auto frame = view().mapRect(QRectF(artboard.x, artboard.y, artboard.width, artboard.height));
             const bool active = artboard.id == active_artboard_;
@@ -836,6 +845,96 @@ void Canvas::paintEvent(QPaintEvent*) {
     }
 }
 
+void Canvas::set_snap_enabled(bool enabled) {
+    if (enabled == snap_enabled_) return;
+    cancel_interaction();
+    snap_enabled_ = enabled;
+    update();
+}
+
+void Canvas::prepare_snap() {
+    snap_bounds_.reset(); snap_x_.clear(); snap_y_.clear();
+    snap_guide_x_.reset(); snap_guide_y_.reset();
+    if (!snap_enabled_) return;
+    const auto selected = selected_objects();
+    const std::set<Id> selection(selected.begin(), selected.end());
+    // Effective descendants move even outside their structural group. Freeze
+    // all candidates before preview starts, and never target these followers.
+    std::map<Id, bool> moving;
+    std::function<bool(const Id&)> moves = [&](const Id& id) {
+        if (id.empty()) return false;
+        if (const auto found = moving.find(id); found != moving.end()) return found->second;
+        const bool result = selection.contains(id) || moves(transforms_.at(id).effective_parent);
+        moving.emplace(id, result); return result;
+    };
+    const auto unite = [](std::optional<QRectF>& result, QRectF area) {
+        if (!result) result = area;
+        else *result = QRectF(QPointF(std::min(result->left(), area.left()), std::min(result->top(), area.top())),
+                             QPointF(std::max(result->right(), area.right()), std::max(result->bottom(), area.bottom())));
+    };
+    const auto target = [&](QRectF area) {
+        for (double x : {area.left(), area.center().x(), area.right()}) snap_x_.push_back(x);
+        for (double y : {area.top(), area.center().y(), area.bottom()}) snap_y_.push_back(y);
+    };
+    for (const auto& board : artboards_) if (board.id == active_artboard_)
+        target({board.x, board.y, board.width, board.height});
+    for (const auto& item : geometry_) {
+        if (!item.normal_visible) continue;
+        std::optional<QRectF> bounds;
+        // Project the shared evaluated geometry, including retained operations
+        // and earlier paint instances. Stroke thickness is not a snap edge.
+        if (item.image_bounds) bounds = item.world.mapRect(*item.image_bounds);
+        else {
+            const auto path = [&](const PathInstance& instance, QTransform parent) {
+                const auto transform = qt_transform(instance.transform) * parent;
+                if (instance.contours && !instance.contours->empty())
+                    unite(bounds, transform.map(qt_path(*instance.contours)).boundingRect());
+                if (item.text_bounds) unite(bounds, transform.mapRect(*item.text_bounds));
+            };
+            const auto& shape = scene_.shapes.at(item.id);
+            for (const auto& instance : shape.paths) path(instance, item.world);
+            for (const auto& paint : shape.paints)
+                for (const auto& instance : paint.paths) path(instance, qt_transform(paint.transform) * item.world);
+        }
+        if (!bounds) continue;
+        const bool belongs = selection.contains(item.id) || std::any_of(item.ancestors.begin(), item.ancestors.end(),
+            [&](const Id& id) { return selection.contains(id); });
+        if (moves(item.id)) {
+            if (belongs) unite(snap_bounds_, *bounds);
+        } else if (!belongs) target(*bounds);
+    }
+    for (auto* axis : {&snap_x_, &snap_y_}) {
+        std::sort(axis->begin(), axis->end());
+        axis->erase(std::unique(axis->begin(), axis->end()), axis->end());
+    }
+}
+
+QPointF Canvas::snap_delta(QPointF delta) {
+    snap_guide_x_.reset(); snap_guide_y_.reset();
+    if (!snap_enabled_ || !snap_bounds_ || delta.isNull()) return delta;
+    const auto axis = [&](const std::vector<double>& targets, double low, double high, double offset,
+                          std::optional<double>& guide) {
+        const double tolerance = 6.0 / zoom_;
+        double correction = 0, best = tolerance;
+        for (double source : {low, (low + high) / 2, high}) {
+            const double position = source + offset;
+            const auto next = std::lower_bound(targets.begin(), targets.end(), position);
+            const auto consider = [&](double value) {
+                const double gap = value - position;
+                // Sorted targets and fixed edge/center order resolve ties.
+                if (std::abs(gap) <= tolerance && (!guide || std::abs(gap) < best - 1e-10)) {
+                    best = std::abs(gap); correction = gap; guide = value;
+                }
+            };
+            if (next != targets.begin()) consider(*std::prev(next));
+            if (next != targets.end()) consider(*next);
+        }
+        return offset + correction;
+    };
+    return {axis(snap_x_, snap_bounds_->left(), snap_bounds_->right(), delta.x(), snap_guide_x_),
+            axis(snap_y_, snap_bounds_->top(), snap_bounds_->bottom(), delta.y(), snap_guide_y_)};
+}
+
 void Canvas::begin_drag(Drag kind, QPointF screen) {
     press_position_ = screen;
     press_pan_ = pan_;
@@ -861,6 +960,7 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
             start_anchor_={values_.at({selected_object,"","transform.anchor_x"}),values_.at({selected_object,"","transform.anchor_y"})};
             start_values_.emplace("transform.anchor_x",start_anchor_.x());start_values_.emplace("transform.anchor_y",start_anchor_.y());
         } else if (kind == Drag::object) {
+            prepare_snap();
             // The shared command solves the complete effective-parent graph so
             // selecting an ancestor and its follower never translates twice.
             drag_inverse_=QTransform{};invertible=true;
@@ -941,7 +1041,8 @@ void Canvas::update_drag(QPointF screen) {
                 if(std::abs(delta.y())>1e-10)commands.push_back(Set{{item.target.object,item.target.point,"y"},item.anchor.y()+delta.y()});
             }
         } else if (drag_ == Drag::object) {
-            const auto delta=local-press_local;
+            const auto world_delta = snap_delta((screen - press_position_) / zoom_);
+            const auto delta = drag_inverse_.map(world_delta) - drag_inverse_.map(QPointF{});
             if(selections_.size()==1) {
                 const auto target=start_translation_+delta;set({},"transform.tx",target.x());set({},"transform.ty",target.y());
             } else if(std::abs(delta.x())>1e-10||std::abs(delta.y())>1e-10)commands.push_back(TranslateObjects{selected_objects(),delta.x(),delta.y()});
@@ -973,6 +1074,7 @@ void Canvas::update_drag(QPointF screen) {
 }
 
 void Canvas::finish_drag() {
+    snap_guide_x_.reset(); snap_guide_y_.reset();
     if (gesture_owned_) {
         const auto revision = session_.revision();
         try {
@@ -996,6 +1098,7 @@ void Canvas::finish_drag() {
 }
 
 void Canvas::cancel_interaction() {
+    snap_guide_x_.reset(); snap_guide_y_.reset();
     if (gesture_owned_ && session_.gesture_active()) session_.cancel_gesture();
     const bool had_preview = gesture_owned_;
     gesture_owned_ = false;

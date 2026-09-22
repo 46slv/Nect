@@ -97,8 +97,12 @@ Path and click anchors (Enter finishes).
 Drag anchors/handles; Alt-drag an anchor to create handles. Escape cancels a drag.
 Shift-click adds/removes objects or points; Ctrl/Shift extended selection in the
 tree uses the same selection. Dragging multiple objects or points is one Undo.
-Space-drag pans; wheel zooms; Fit frames the artboard. Groups select as a unit;
-double-click enters them and the breadcrumb returns. Inspector fields accept
+Space-drag pans; wheel zooms; Fit frames the artboard.
+Snap ON/OFF beside Fit (also in View) gently aligns object-body drags to the active
+Artboard and visible objects' geometric edges/centers within 6 screen pixels.
+Dashed guides appear while aligned. Snap starts ON and is a per-window view
+preference; exact numeric/API edits and point/handle edits stay unchanged.
+Groups select as a unit; double-click enters them and the breadcrumb returns. Inspector fields accept
 numbers and one-shot `+=`/`-=` adjustments. Right-click provides Copy Value,
 Copy Reference, Paste Value, Paste Link and explicit Unlink. Drag ↗ to a source
 field (hover Objects to inspect another source); click ↗ to search.

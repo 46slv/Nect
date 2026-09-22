@@ -25,6 +25,10 @@ void input(Window& w,const char* name,const char* text,bool commit=true){
 }
 void window_controls(){
     QTemporaryDir temp;Window window(temp.path());window.show();QApplication::processEvents();auto& s=window.host.session;
+    auto* snap=window.findChild<QAction*>("canvas-snap");
+    check(snap&&snap->isChecked()&&window.canvas->snap_enabled(),"Snap is discoverable and enabled by default");
+    snap->trigger();check(!window.canvas->snap_enabled(),"Snap control turns attraction OFF");
+    snap->trigger();check(window.canvas->snap_enabled()&&s.revision()==0,"Snap ON changes view only");
     window.findChild<QAction*>("add-rectangle")->trigger();QApplication::processEvents();const auto first=window.canvas->selected_object;
     auto values=evaluate(s.document());const auto ax=values.at({first,"","transform.anchor_x"}),ay=values.at({first,"","transform.anchor_y"});
     near(ax,480,"GUI Add initializes centered Anchor");near(ay,320,"GUI Add initializes centered Anchor Y");

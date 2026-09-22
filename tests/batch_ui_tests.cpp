@@ -75,7 +75,7 @@ void controls() {
 }
 void canvas_drag() {
     Session s(empty_document("doc","comp","board"));s.apply(fixture(),s.revision());auto board=s.document().compositions.front().artboards.front();board.width=640;board.height=480;
-    s.apply({UpdateArtboard{"comp",board}},s.revision());Canvas c(s);QString error;c.error=[&](QString e){error=e;};c.resize(740,580);c.show();QApplication::processEvents();c.fit_artboard();
+    s.apply({UpdateArtboard{"comp",board}},s.revision());Canvas c(s);c.set_snap_enabled(false);QString error;c.error=[&](QString e){error=e;};c.resize(740,580);c.show();QApplication::processEvents();c.fit_artboard();
     auto click=[&](int x,int y,Qt::KeyboardModifiers m=Qt::NoModifier){QTest::mouseClick(&c,Qt::LeftButton,m,QPoint(x+50,y+50));QApplication::processEvents();};
     auto drag=[&](int x,int y,int dx,int dy,bool cancel=false){QTest::mousePress(&c,Qt::LeftButton,Qt::NoModifier,QPoint(x+50,y+50));QTest::mouseMove(&c,QPoint(x+50+dx,y+50+dy),1);QApplication::processEvents();
         if(cancel)QTest::keyClick(&c,Qt::Key_Escape);QTest::mouseRelease(&c,Qt::LeftButton,Qt::NoModifier,QPoint(x+50+dx,y+50+dy));QApplication::processEvents();};
