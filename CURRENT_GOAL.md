@@ -1,33 +1,33 @@
-# Direct-edit-flow Mission
+# Area-selection Mission
 
 ## Mission Brief
 
-**Mission identity:** `Nect/direct-edit-flow`; same primary executor, same `codex/practical-alpha` branch.
+**Mission identity:** `Nect/area-selection`; same primary executor / Task / working branch.
 
-**Final Goal:** Make repeated selection, close inspection and small placement adjustments efficient in ordinary desktop production, preserving shared Session authoring semantics.
+**Final Goal:** Select useful subsets of artwork with one rectangle gesture, reducing repeated Shift-clicks in ordinary multi-object and point editing.
 
-**Completion conditions:** Scope-aware selection and framing work on real grouped/point artwork without modifying documents; keyboard placement uses existing atomic Session commands with Undo and source preservation. Native format remains0.13. Actual Windows GUI and focused contracts establish the acceptance paths.
+**Completion conditions:** Empty-Canvas drag selects contained visible whole objects at the current Group scope, or point anchors in current point-edit targets. Shift extends selection. Click and Escape remain predictable. No authored revisions/history changes. Actual Windows GUI, focused interaction contracts and proportional viewport evidence establish behavior.
 
-**Constraints / Authority:** Current user's continuous-development authorization supersedes old stop/handoff rules. Commit/push only the working branch. No release, main push/merge, dependencies, account changes or unrelated edits. Same Task continues across Mission boundaries. Accepted direct-editing/expert workflow direction in `docs/product-direction.md`; not a blanket Candidate backlog.
+**Constraints / Authority:** Current continuous-development instruction permits reversible UI choices and working-branch commits/pushes. Accepted direct-editing/group selection direction in `docs/product-direction.md`. No main push/merge, releases, new dependencies, external changes or new Tasks. Selection is view state, not another Session authoring authority.
 
-**Coarse checkpoint map:** (1) Scope-aware Select All and Fit Selection, including safe keyboard focus. (2) Small keyboard moves through existing object/point Session translations, with predictable world units and Undo. Reassess live production value afterward.
+**Coarse checkpoint map:** (1) Rectangle gesture, clear contained-bounds contract and visual feedback. (2) Verify real production selection/Undo interactions and repair any exposed issues; reassess next Mission here.
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Move selected objects/points accurately with Canvas arrow keys, with predictable world distance, atomic failure and Undo.
+**Goal:** Add rectangle selection on empty Canvas for visible scoped objects and current point-edit targets.
 
-**Current phase:** Selection/framing accepted; save checkpoint before keyboard implementation.
+**Current phase:** Direct-edit-flow accepted; synchronize keyboard checkpoint then implement rectangle selection.
 
-**Proven:** Daily-layout synchronized `dd64b02`. Selection/framing focused Canvas/Window2/2 in3.95s plus actual GUI628%/128% framing and unchanged revision0. Evidence: `docs/first-usable.md` direct-edit-flow section, `build/daily-layout/gui-navigation.json`.
+**Proven:** Selection/framing synchronized `f7e3fef`. Keyboard focused tests2/2 in4.21s and actual GUI retained Rectangle/Point Edit/Undo saved native recorded in `docs/first-usable.md`. Existing Canvas has scope-aware selection and multi-selection commands but empty-space mouse press only clears selection; no rectangle gesture.
 
-**Next task:** Implement Canvas arrows with1du steps, Shift10du, using shared Session commands. Whole-object translation already handles effective parents; point deltas need inverse world mapping and atomic Set operations. Avoid intercepting text/tree editing and active gestures.
+**Next task:** Inspect current mouse/drag cancellation and overlay paths; implement screen-space rectangle with full containment, Shift-add and release-only selection commit.
 
-**Approach:** Reuse semantic primitives without new saved state. Test transformed parents, multiple targets, driven-axis failure, retained Point Edit behavior, Undo and focus. Each key event is one explicit atomic command transaction; repeated events retain ordinary bounded history.
+**Approach:** Reuse selection_target and evaluated geometry caches. Group ancestors are single targets, hidden/mask-only geometry excluded. Point mode preserves frozen target objects. Selection updates only at release to avoid rebuilding Inspector during drag. Escape restores prior selection; no semantic gesture or history entry.
 
-**Done for next:** Keyboard object/point placement and Undo demonstrated through focused contracts and actual GUI/readback, coherent commit/push equality. Reassess Mission completion and next useful development here.
+**Done for next:** Direction-independent rectangle, scope/points/hidden targets, modifier behavior, cancellation and unchanged Session state proven in focused tests and actual GUI. Check relevant viewport behavior; commit/push and verify remote HEAD.
 
-**State:** `D:\Documents\Nect`, `codex/practical-alpha`; selection/framing ready to commit, prior remote `dd64b02c49cb168cd1b2d715ecb2b1e841bb6b17`. Owned GUI closed; Full access/never approvals.
+**State:** `D:\Documents\Nect`; `codex/practical-alpha`; keyboard changes ready to commit; prior remote `f7e3fef7522bf116aedfdcca9b6fda6ed819f50b`. Owned GUI closed. Full access / never approvals.
 
-**Authority:** User continuous-development scope, accepted direct editing direction. No main push/merge, release, new dependency or external policy changes.
+**Authority:** Current explicit continuous-development user instruction. Continue after checkpoints and Mission boundaries.
 
 **Handoff:** CONTINUE_CURRENT_TASK; no successor Task.

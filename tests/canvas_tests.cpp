@@ -403,6 +403,22 @@ void contextual_selection_and_framing() {
     f.canvas.set_selection({});const auto zoom=f.canvas.zoom();f.canvas.fit_selection();near(f.canvas.zoom(),zoom,"Empty selection leaves view unchanged");
     check(f.session.document()==before&&f.session.revision()==0,"Selection and framing never author changes");f.no_error();
 }
+void keyboard_world_placement() {
+    Fixture f;const auto original=f.session.document();
+    f.canvas.set_selection("path");QTest::keyClick(&f.canvas,Qt::Key_Right);QTest::keyClick(&f.canvas,Qt::Key_Down,Qt::ShiftModifier);
+    near(f.value("path",{},"transform.tx"),1,"Arrow moves object one world du");near(f.value("path",{},"transform.ty"),10,"Shift arrow moves ten world du");
+    check(f.commits==2,"Each key transaction notifies the shared host");f.session.undo(2);f.session.undo(3);f.canvas.refresh();check(f.session.document()==original,"Two key transactions undo exactly");
+    auto d=fixture_document();d.objects.at("path").transform={{{0,{}},{2,{}},{-1,{}},{0,{}},{400,{}},{0,{}}}};
+    Fixture transformed(d);transformed.canvas.set_selection("path","p1");
+    QTest::keyClick(&transformed.canvas,Qt::Key_Right);
+    near(transformed.value("path","p1","x"),120,"World horizontal nudge preserves local X under rotation");near(transformed.value("path","p1","y"),159,"World horizontal nudge inverse maps to local Y");
+    transformed.canvas.select_all_in_context();QTest::keyClick(&transformed.canvas,Qt::Key_Down,Qt::ShiftModifier);
+    near(transformed.value("path","p1","x"),125,"Rotated point selection first anchor moves");near(transformed.value("path","p2","x"),365,"Rotated point selection second anchor moves");transformed.no_error();
+    d=fixture_document();d.objects.at("path").contours[0].points[0].x.binding=Binding{{"path","p2","x"},1,0,"copy_local_value"};Fixture driven(d);
+    QTest::keyClick(&driven.canvas,Qt::Key_Down);check(driven.session.revision()==1,"Nudge does not touch unchanged driven axis");
+    driven.canvas.select_all_in_context();const auto before=driven.session.document();QTest::keyClick(&driven.canvas,Qt::Key_Right);
+    check(driven.session.document()==before&&driven.session.revision()==1&&driven.last_error.startsWith("DRIVEN_PROPERTY"),"Driven batch nudge rejects atomically");
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -411,6 +427,7 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication application(argc, argv);
     try {
+        keyboard_world_placement();
         contextual_selection_and_framing();
         point_drag_is_one_transaction();
         cancellation_and_return_home_do_not_commit();

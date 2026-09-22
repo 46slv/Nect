@@ -319,6 +319,28 @@ void Canvas::select_all_in_context() {
     select_many(std::move(selected));
 }
 
+void Canvas::nudge_selection(double dx,double dy) {
+    if(drag_!=Drag::none||gesture_owned_||draw_mode_||anchor_edit_||gradient_control_||selections_.empty())return;
+    try {
+        std::vector<Command> commands;
+        if(selected_point.empty())commands.push_back(TranslateObjects{selected_objects(),dx,dy});
+        else {
+            for(const auto& selection:selections_) {
+                const auto* g=geometry(selection.object);const auto* p=g?point(*g,selection.point):nullptr;
+                if(!p)throw Error("MISSING_POINT","Selected point is no longer available");
+                bool invertible=false;const auto inverse=g->world.inverted(&invertible);
+                if(!invertible)throw Error("SINGULAR_TRANSFORM","Cannot move points through a singular world transform");
+                const auto x=inverse.m11()*dx+inverse.m21()*dy,y=inverse.m12()*dx+inverse.m22()*dy;
+                if(x!=0)commands.push_back(Set{{selection.object,selection.point,"x"},p->anchor.x()+x});
+                if(y!=0)commands.push_back(Set{{selection.object,selection.point,"y"},p->anchor.y()+y});
+            }
+        }
+        if(commands.empty())return;
+        session_.apply(commands,session_.revision());refresh();
+        if(document_changed)document_changed();
+    } catch(const std::exception& exception){report_error(exception);}
+}
+
 void Canvas::fit_selection() {
     if(drag_!=Drag::none||gesture_owned_||draw_mode_||selections_.empty())return;
     try {
@@ -1323,6 +1345,11 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
         else if (gradient_control_) clear_gradient_edit();
         else if (!scope_.empty()) leave_group();
         else select({});
+    } else if ((event->key()==Qt::Key_Left||event->key()==Qt::Key_Right||event->key()==Qt::Key_Up||event->key()==Qt::Key_Down)&&
+        (event->modifiers()==Qt::NoModifier||event->modifiers()==Qt::ShiftModifier)) {
+        const double step=event->modifiers()==Qt::ShiftModifier?10.0:1.0;
+        nudge_selection(event->key()==Qt::Key_Left?-step:event->key()==Qt::Key_Right?step:0,
+            event->key()==Qt::Key_Up?-step:event->key()==Qt::Key_Down?step:0);
     } else if (event->matches(QKeySequence::SelectAll)) {
         select_all_in_context();
     } else if (event->key() == Qt::Key_F && event->modifiers() == Qt::ShiftModifier) {

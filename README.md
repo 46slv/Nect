@@ -379,3 +379,10 @@ editing context offers the same operation. Text fields keep their normal Ctrl+A.
 excluded). Canvas **Shift+F** does the same; **F** still fits the active Artboard.
 Point selection frames anchor positions. Empty selection leaves the view alone;
 a single point uses bounded zoom. View/selection operations never author history.
+
+Canvas **arrow keys** move selected whole objects or points by1 world du;
+**Shift+arrow** moves10du, independent of zoom and Snap. Each key event (including
+auto-repeat) is one undoable Session transaction. Rotated/scaled point coordinates
+are inverse-mapped; retained shapes gain ordinary Point Edit overrides. Driven
+changes reject the whole transaction. Text/tree keys remain their usual editing
+keys; draw/drag, Anchor Edit and gradient-handle modes do not nudge artwork.

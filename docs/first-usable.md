@@ -1072,3 +1072,28 @@ owned Window closed. No renderer or authored format change.
 Next checkpoint: keyboard placement. Live key handling has no arrow movement;
 reuse existing Session object translation and atomic point edits, preserve
 world-space direction under affine parents, and keep input-field keys local.
+
+
+## Direct-edit-flow keyboard / Mission acceptance — 2026-09-23
+
+Canvas arrows now move1 world du (Shift10), independent of zoom/Snap. Whole
+objects use TranslateObjects; points inverse-map the world delta and submit
+ordinary Set commands together. Existing Session atomicity, Point Edit promotion
+and history are preserved. Each key event is a transaction, including repeat.
+No keyboard interception outside Canvas and no nudge during draw/drag, Anchor Edit
+or gradient control modes. No schema/core/API duplication.
+
+Focused Canvas/Window contracts2/2 in4.21s verify object steps/Undo, inverse
+rotation/nonuniform point movement, multi-point placement, untouched driven axis
+and atomic refusal when a driven coordinate must change. Actual Windows GUI:
+Shift+Right changed retained Rectangle tx0→10 (r1); selecting top-left then Right
+changed its local x70→71 with one Point Edit override (r2), source width120 and
+center130 remained. Ctrl+Z removed Point Edit while retaining tx10 (r3). Saved
+owned native confirms the Undo state. Receipt `build/daily-layout/gui-keyboard.json`
+and `keyboard.nect`. Owned window closed.
+
+Direct-edit-flow completion conditions are met. Live interaction review exposes
+the next high-frequency gap: selecting arbitrary subsets still requires repeated
+Shift-clicks because dragging empty Canvas has no marquee behavior. The next
+Mission will add bounded rectangle selection, preserving Group/point contexts,
+without authored mutations. Continue in this Task.

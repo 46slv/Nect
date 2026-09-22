@@ -44,6 +44,7 @@ public:
     const std::map<Id,EvaluatedTransform>& evaluated_transforms() const {return transforms_;}
     void fit_selection();
     void select_all_in_context();
+    void nudge_selection(double dx,double dy);
     void fit_artboard();
     void fit_all_artboards();
     const Id& active_composition() const { return active_composition_; }
