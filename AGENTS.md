@@ -65,6 +65,7 @@ Approach:
 Done for next:
 State:
 Authority:
+Handoff: CONTINUE_CURRENT_TASK | NEW_TASK
 ```
 
 Meaning:
@@ -76,6 +77,7 @@ Meaning:
 - **Done for next** — what must be true before advancing to the following checkpoint.
 - **State** — branch/HEAD, working-tree state, relevant format/version and live blockers.
 - **Authority** — the current instruction/source that authorizes this work and any stop boundary.
+- **Handoff** — whether the next semantic checkpoint should reuse the current Task or start a fresh Task.
 
 Historical checkpoints belong in Git history, an existing issue/PR, or evidence receipts.
 Do not keep multiple old checkpoints active and do not paste completed logs back into the
@@ -98,6 +100,7 @@ real semantic API/tests/runtime, but visual/interaction claims require actual UI
 with it, prefer the live source of truth and replan within the same Mission Goal. Record the
 change rather than following stale checkpoint text mechanically.
 
+<<<<<<< HEAD
 ## Practical-alpha Mission: one checkpoint per Task
 
 For the `Nect/practical-alpha` Mission, the user's 2026-09-22 addendum makes
@@ -131,35 +134,86 @@ If new-Task creation is unavailable, leave a complete handoff marked
 `WAIT_SUCCESSOR_TASK` and stop without implementing the next checkpoint here.
 
 ## Fresh-context rotation
+=======
+## Task boundaries and fresh-context rotation
+>>>>>>> origin/main
 
-Past conversation, raw logs and completed work should not be carried into the next context in
+A durable checkpoint is not automatically a Task boundary.
+
+Default operating target: one Task should usually cover about 1–3 coherent semantic
+checkpoints when the same mental model, files, fixtures and acceptance path remain useful.
+This is a guideline, not a quota.
+
+At every completed checkpoint, set `Handoff` explicitly:
+
+- `CONTINUE_CURRENT_TASK` when the next checkpoint strongly reuses the current context and
+  continuing is cheaper/clearer than reloading it.
+- `NEW_TASK` when the next checkpoint is meaningfully independent, changes owner/domain,
+  changes research/implementation mode, accumulated logs are mostly irrelevant, substantial
+  compaction has already occurred, or the current Task has become context-heavy.
+
+Past conversation, raw logs and completed work should not be carried into a successor Task in
 bulk.
 
-When context becomes large, or a coherent checkpoint boundary permits a fresh context:
-1. completely save the current active checkpoint;
-2. synchronize the durable state as required below;
-3. end the current context.
+When `Handoff: NEW_TASK`:
+1. completely save the active checkpoint;
+2. synchronize durable state as required below;
+3. determine the next active checkpoint from live state;
+4. transfer single-writer ownership of the worktree/Session to the successor;
+5. start a fresh Task when the runtime supports it;
+6. hand off only:
+   - Mission Brief;
+   - latest active checkpoint;
+   - repo / branch / HEAD;
+   - current runtime state needed to resume;
+   - owner docs required for that checkpoint;
+7. end the current Task before the successor mutates the same live worktree/Session.
 
-A fresh context reads only:
-1. Mission Brief;
-2. latest active checkpoint;
-3. current repo/runtime state;
-4. owner docs needed for the active checkpoint.
-
-Do not reconstruct state from the full previous conversation.
-
-Useful rotation signals include:
-- active checkpoint completed;
-- next checkpoint changes owner/domain substantially;
-- research transitions into implementation;
-- most accumulated tool/log context is no longer relevant;
-- substantial context compaction has already occurred.
+The successor must verify live state before acting. It must not reconstruct state from the
+full previous conversation.
 
 Do not rotate merely because a fixed amount of time passed, and do not interrupt a coherent
 task only to satisfy a context rule.
 
-If the runtime cannot actually start a fresh successor, save the checkpoint and stop. Do not
-pretend a successor was launched.
+If the runtime cannot actually start a fresh successor, save the complete handoff and stop
+with `WAIT_SUCCESSOR_TASK`. Do not silently continue the next independent checkpoint in the
+same Task and do not pretend a successor was launched.
+
+
+## Successor Task access and approval policy
+
+A successor Task should not be launched in a restricted mode that forces routine approval
+prompts for work already authorized by the Mission.
+
+When the runtime supports per-Task access/approval settings, launch the successor with the
+broadest **project-scoped** access already authorized by the current Mission, including as
+needed:
+- read/write access to the Nect worktree and normal build/test artifacts;
+- build/test/process execution;
+- Windows UI/runtime interaction needed for Nect validation;
+- ordinary network/tool access needed for documented dependencies or research;
+- Git operations and push/update of the current working branch.
+
+For these already-authorized, reversible project operations, prefer a non-interactive /
+no-routine-approval mode so the Task can run autonomously. Routine edits, tests, local process
+control and working-branch synchronization should not stop for confirmation merely because a
+new Task was created.
+
+This access policy does **not** expand Mission authority. It does not authorize:
+- merging to `main` without current authorization;
+- release/publishing/distribution;
+- repository visibility, permissions, protection or account-policy changes;
+- destructive rewrite of pushed/shared history;
+- credential disclosure or unrelated filesystem/account access;
+- irreversible external side effects outside the authorized project scope.
+
+If the runtime cannot provision sufficient project-scoped access without interactive
+approval, do not start a crippled successor and then repeatedly ask for routine approvals.
+Save the handoff and stop with `WAIT_SUCCESSOR_ACCESS`, naming the exact missing capability.
+
+Task creation and access provisioning are operational mechanics, not product decisions. When
+the Mission has already authorized the work, do not ask the user again for approval merely to
+continue the same authorized Mission in a fresh Task.
 
 ## Autonomous continuation and stop conditions
 
