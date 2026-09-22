@@ -98,6 +98,31 @@ real semantic API/tests/runtime, but visual/interaction claims require actual UI
 with it, prefer the live source of truth and replan within the same Mission Goal. Record the
 change rather than following stale checkpoint text mechanically.
 
+## Practical-alpha Mission: one checkpoint per Task
+
+For the `Nect/practical-alpha` Mission, the user's 2026-09-22 addendum makes
+**1 semantic checkpoint = 1 Task** mandatory. This overrides the optional
+fresh-context judgement below. Implementation, debugging, verification and repair
+may continue within the current checkpoint; do not implement the next checkpoint
+in the same Task after `Done for next` is satisfied.
+
+At completion:
+1. save the durable checkpoint, make a coherent commit, push the working branch
+   and verify local/remote HEAD equality;
+2. select the next checkpoint from live evidence and update the single active
+   checkpoint in `CURRENT_GOAL.md` (synchronize any resulting handoff edit);
+3. actually create a new Task for that checkpoint when the runtime supports it;
+4. bind it to the same `Nect/practical-alpha` Mission through this repository's
+   Mission Brief and active checkpoint, with repo/branch/HEAD and needed owners;
+5. end the current Task. Transfer implementation ownership once; never leave two
+   writers on the same working tree or live Session.
+
+Use a fresh Task, not a conversation fork. Transfer only Mission Brief, latest
+active checkpoint, repo/branch/HEAD and the owner documents needed for that work.
+Do not transfer old conversation, raw logs or completed-work transcripts.
+If new-Task creation is unavailable, leave a complete handoff marked
+`WAIT_SUCCESSOR_TASK` and stop without implementing the next checkpoint here.
+
 ## Fresh-context rotation
 
 Past conversation, raw logs and completed work should not be carried into the next context in
