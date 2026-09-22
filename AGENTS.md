@@ -100,7 +100,6 @@ real semantic API/tests/runtime, but visual/interaction claims require actual UI
 with it, prefer the live source of truth and replan within the same Mission Goal. Record the
 change rather than following stale checkpoint text mechanically.
 
-<<<<<<< HEAD
 ## Practical-alpha Mission: one checkpoint per Task
 
 For the `Nect/practical-alpha` Mission, the user's 2026-09-22 addendum makes
@@ -133,10 +132,7 @@ Do not transfer old conversation, raw logs or completed-work transcripts.
 If new-Task creation is unavailable, leave a complete handoff marked
 `WAIT_SUCCESSOR_TASK` and stop without implementing the next checkpoint here.
 
-## Fresh-context rotation
-=======
 ## Task boundaries and fresh-context rotation
->>>>>>> origin/main
 
 A durable checkpoint is not automatically a Task boundary.
 
