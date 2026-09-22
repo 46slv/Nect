@@ -69,6 +69,8 @@ During source picking, target property IDs remain frozen independently of the vi
 
 ## Continuous gestures and background evaluation
 
+Session may expose the derived property values produced by its last successful gesture validation to Canvas. They belong to that exact preview snapshot, are read-only, and are discarded on an empty update, commit or cancel. Failed updates/failed history admission retain the last valid preview/value pair. Non-gesture projection still evaluates authored state normally; this does not add editing authority or skip validation.
+
 A completed drag/scrub is one undoable edit; cancellation restores its starting state. Use a Session-owned edit context or command grouping, not unmanaged widget geometry. Define queue/reject/rebase behavior for API edits arriving during a gesture; never silently overwrite concurrent work.
 
 Start synchronously while sufficient. Add background work when a measured operation needs it: snapshot session/revision/parameters, support cancellation and discard stale results. Evaluation publishes matching derived output. A solver intentionally changing authored points proposes a command for Session commit.

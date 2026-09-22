@@ -461,6 +461,9 @@ public:
     void cancel_gesture();
     bool gesture_active() const { return preview_.has_value(); }
     const Document& preview_document() const { return preview_ ? *preview_ : document_; }
+    // Derived values from the last successful preview validation. Null before an
+    // update or after an empty/reset/commit/cancel. Invalidated by gesture changes.
+    const std::map<Ref,double>* preview_values() const { return preview_values_ ? &*preview_values_ : nullptr; }
 private:
     template<class T> struct HistoryChange {
         Id key;
@@ -483,6 +486,7 @@ private:
     std::size_t history_cursor_=0,history_bytes_=0,pruned_entries_=0;
     std::uint64_t boundary_id_=0,next_history_id_=1;
     std::optional<Document> preview_;
+    std::optional<std::map<Ref,double>> preview_values_;
     bool preview_changed_ = false;
     std::string preview_label_;
     void check_revision(std::uint64_t expected) const;

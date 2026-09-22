@@ -1252,3 +1252,32 @@ neutral imported Group reorganization through semantic authority. Continue with
 measured viewport latency: prior80-curve object move timing varied around30fps;
 its semantic-preview/projection stages each consumed more than painting. Measure
 current baseline before choosing a repair; do not claim60fps or hide failed runs.
+
+
+## Responsive editing: reuse validated preview values (2026-09-23)
+
+Session now exposes read-only values from its last successful preview validation.
+Canvas uses that exact derived snapshot instead of evaluating the same document
+again. Begin/reset/commit/cancel invalidate it; failed update/history admission
+retain the matching last-valid preview/value pair. No authored format, authority,
+validation or dependency changes. Six focused core/history/expression/Canvas
+contracts passed (`build/daily-layout/responsive-focused.log`).
+
+Comparable visible production Windows benchmark receipts are
+`responsive-baseline.json` and `responsive-preview-reuse.json` in that directory.
+Representative80-curve p95 timings (ms):
+
+| Operation | Interval before/after | Preview before/after | Projection before/after | Release before/after |
+| --- | --- | --- | --- | --- |
+| Point drag |31.88 /35.70|14.61 /23.86|13.74 /8.53|30.79 /50.17|
+| Outgoing handle |33.34 /24.11|14.43 /13.84|14.54 /5.53|26.34 /28.97|
+| Object translation |36.23 /20.55|16.54 /12.13|15.77 /4.69|35.91 /26.11|
+
+Projection improves in all three operations. Point timing worsened in the same
+run along with semantic preview/paint, so this is not an all-operation floor
+pass. Both receipts complete; both report30fps/release and60fps aggregate false.
+No unchanged rerun was used to replace the failed timing. Next inspect the
+remaining full evaluation work, especially literal authored properties; preserve
+all expression/generated topology checks and measure after an actual change.
+
+Full Release39/39 passed,64.04s (`responsive-regression.log`).

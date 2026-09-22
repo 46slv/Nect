@@ -559,7 +559,7 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
     return result;
 }
 
-void validate(const Document& d) {
+static std::map<Ref,double> validate_evaluated(const Document& d) {
     require(d.objects.size()<=10000 && d.compositions.size()<=128,"LIMIT","Document size limit");
     std::set<Id> ids;
     auto add=[&](const Id& id) {
@@ -747,7 +747,7 @@ void validate(const Document& d) {
         }
     }
 
-    const auto values=evaluate(d);
+    auto values=evaluate(d);
     (void)evaluate_transforms(d,values);
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
         const auto& source=scalar->binding->source;
@@ -785,7 +785,10 @@ void validate(const Document& d) {
         if(check_shape)
             (void)evaluate_shape(d,id,values);
     }
+    return values;
 }
+
+void validate(const Document& d) { (void)validate_evaluated(d); }
 
 Session::Session(Document d,HistoryLimits limits):document_(std::move(d)),history_limits_(limits) {
     require(limits.max_entries>0&&limits.max_bytes>0,"INVALID_HISTORY_LIMITS","History limits must both be positive");
@@ -1167,7 +1170,7 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
     for(auto& comp:document.compositions)insert(comp.roots);
     for(const auto& [id,object]:original.objects){(void)object;if(!plan.objects.contains(id))insert(document.objects.at(id).children);}
 }
-Document edited(const Document& document,const std::vector<Command>& commands) {
+Document edited(const Document& document,const std::vector<Command>& commands,std::map<Ref,double>* evaluated=nullptr) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
 
     auto candidate=document;
@@ -1479,7 +1482,8 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
         }
     },command);
 
-    validate(candidate);
+    auto values=validate_evaluated(candidate);
+    if(evaluated)*evaluated=std::move(values);
     return candidate;
 }
 }
@@ -1499,16 +1503,19 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
 void Session::begin_gesture(std::uint64_t expected) {
     check_revision(expected);
     preview_=document_;
+    preview_values_.reset();
     preview_changed_=false;
     preview_label_.clear();
 }
 
 void Session::update_gesture(const std::vector<Command>& commands) {
     require(gesture_active(),"NO_GESTURE","No active gesture");
-    if(commands.empty()) { preview_=document_; preview_changed_=false; preview_label_.clear(); return; }
-    auto next=edited(document_,commands);
+    if(commands.empty()) { preview_=document_; preview_values_.reset(); preview_changed_=false; preview_label_.clear(); return; }
+    std::map<Ref,double> values;
+    auto next=edited(document_,commands,&values);
     auto label=history_label(commands,next);
     preview_=std::move(next);
+    preview_values_=std::move(values);
     preview_label_=std::move(label);
     preview_changed_=true;
 }
@@ -1518,12 +1525,14 @@ void Session::commit_gesture() {
     // Keep the preview intact if history admission rejects the commit.
     if(preview_changed_) commit(*preview_,preview_label_);
     preview_.reset();
+    preview_values_.reset();
     preview_changed_=false;
     preview_label_.clear();
 }
 
 void Session::cancel_gesture() {
     preview_.reset();
+    preview_values_.reset();
     preview_changed_=false;
     preview_label_.clear();
 }

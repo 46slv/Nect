@@ -128,6 +128,7 @@ void limits_and_gestures() {
     bytes.begin_gesture(bytes.revision());bytes.update_gesture({large});const auto preview=encode(bytes.preview_document());
     rejects("HISTORY_LIMIT",[&]{bytes.commit_gesture();});
     check(bytes.gesture_active()&&encode(bytes.preview_document())==preview&&bytes.history()==before&&encode(bytes.document())==before_native,"Failed gesture commit retains its preview and the entire committed timeline");
+    check(bytes.preview_values()&&*bytes.preview_values()==evaluate(bytes.preview_document()),"History rejection retains matching preview evaluation");
     bytes.cancel_gesture();check(bytes.history()==before,"Cancel after failed admission does not add history");
     Session gestures(document);gestures.begin_gesture(0);
     for(int i=1;i<=40;++i)gestures.update_gesture({Set{x,200.0+i}});

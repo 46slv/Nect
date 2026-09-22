@@ -118,7 +118,8 @@ void Canvas::refresh() {
                 active_artboard_ = composition->artboards.empty() ? Id{} : composition->artboards.front().id;
             for (const auto& board : composition->artboards) artboards_.push_back(evaluate_artboard(*composition, board.id));
         } else { active_composition_.clear(); active_artboard_.clear(); }
-        values_ = evaluate(document);
+        if(const auto* validated=session_.preview_values())values_=*validated;
+        else values_=evaluate(document);
         transforms_ = evaluate_transforms(document,values_);
         geometry_.clear();
         geometry_index_.clear();mask_paths_.clear();scene_={};

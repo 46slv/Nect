@@ -16,17 +16,17 @@
 
 **Goal:** Identify and reduce repeated evaluation/projection cost in representative object/point drag without weakening preview or commit correctness.
 
-**Current phase:** Ungroup/everyday-arrangement accepted; checkpoint synchronization before fresh visible measurement.
+**Current phase:** Preview reuse checkpoint accepted: exact derived-value lifetime contracts and full39/39 pass. Visible projection p95 improved across point/handle/object drags; point total/release still miss floor. Saving coherent checkpoint before further evaluation work.
 
-**Proven:** Ungroup full39/39 and actual Windows before/after byte-identical PNG, exact Undo/Redo/native reopen. See `docs/first-usable.md`. Earlier marquee profiling recorded representative object move28.60ms with13.43ms semantic preview,11.37ms projection,3.95ms paint; separate run49.28ms. Both retained as variance, not a repaired baseline.
+**Proven:** `docs/first-usable.md` records both comparable runs and all failures: object projection15.77→4.69ms, interval36.23→20.55ms; point interval35.70/release50.17ms after repair. Six focused contracts and full39/39,64.04s. No60fps/all-operation floor claim.
 
-**Next task:** Run one current visible benchmark and summarize frame/stage/release metrics, then inspect Canvas::refresh and Session gesture evaluation for confirmed duplicate work.
+**Next task:** Inspect literal-property dependency traversal overhead in measured semantic evaluation; make bounded repair only with unchanged generated topology/range/dependency guarantees.
 
-**Approach:** Preserve existing real benchmark fixtures and stage instrumentation; no blind reruns. Compare equivalent runs after any actual change. Use existing property/evaluation owners, avoid a second state cache unless validity contract is explicit and minimal.
+**Approach:** Keep the current evaluation traversal for generated/driven properties. Remove avoidable work for proven leaf literals; compare actual visible fixture after code change, no blind reruns.
 
-**Done for next:** Measured bottleneck addressed or evidence shows another higher-value target; preview/commit/cancel tests pass; actual Windows timing and limitations recorded; coherent commit/push and local/remote equality.
+**Done for next:** Coherent checkpoint synchronized; then establish semantic-equivalent next repair and measure impact.
 
-**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `5bd18ffc38cf8ef9b446eea68389e9df69c0dccb`, accepted Ungroup awaiting commit. Owned GUI closed; Full access/never approvals.
+**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `e27c4a106d1f8cbbd8358a0ec6e6894ea3aefa61`. Owned benchmark windows closed; Full access/never approvals. Native0.13 unchanged.
 
 **Authority:** Explicit continuous-development user instruction; no successor Task, no stop solely at checkpoint/Mission boundary.
 

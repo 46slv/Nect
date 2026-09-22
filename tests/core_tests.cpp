@@ -111,25 +111,30 @@ int main() {
             "Create from empty document through commands");
         const auto start=encode(author.document());
         author.begin_gesture(1);
+        check(!author.preview_values(),"Beginning preview has no stale evaluated projection");
         author.update_gesture({Set{created,40}});
+        check(author.preview_values()&&*author.preview_values()==evaluate(author.preview_document()),"Validated preview values equal independent evaluation");
         check(author.revision()==1 && encode(author.document())==start &&
             property(author.preview_document(),created).literal==40,"Preview is not committed state");
         rejects("GESTURE_ACTIVE",[&]{author.apply({Set{created,999}},1);});
         rejects("GESTURE_ACTIVE",[&]{author.undo(1);});
         rejects("OUT_OF_RANGE",[&]{author.update_gesture({Set{{"new-path","new-p1","in.length"},-2}});});
         check(property(author.preview_document(),created).literal==40,"Failed preview preserves valid preview");
+        check(author.preview_values()&&author.preview_values()->at(created)==40,"Failed update retains matching last-valid derived values");
         author.cancel_gesture();
+        check(!author.preview_values(),"Cancellation discards derived preview values");
         check(author.revision()==1 && encode(author.document())==start,"Cancel retains revision and authored state");
         author.begin_gesture(1);
         author.update_gesture({Set{created,30}});
         author.update_gesture({Set{created,50}});
         author.commit_gesture();
+        check(!author.preview_values(),"Commit invalidates preview-derived values");
         author.undo(2);
         check(encode(author.document())==start,"Whole gesture has one undo entry");
         author.redo(3);
         check(property(author.document(),created).literal==50,"Gesture redo");
         author.begin_gesture(4);
-        author.update_gesture({Set{created,90}});author.update_gesture({});author.commit_gesture();
+        author.update_gesture({Set{created,90}});author.update_gesture({});check(!author.preview_values(),"Empty update cannot retain displaced evaluation");author.commit_gesture();
         check(author.revision()==4 && property(author.document(),created).literal==50,"Drag back to start is no-op");
         author.apply({CloseContour{"new-path","new-contour",true},
             ReorderPoints{"new-path","new-contour",{"new-p2","new-p1"}}},4);
