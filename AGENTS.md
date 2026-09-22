@@ -2,11 +2,13 @@
 
 If you arrived from only a GitHub repository link, read `START_HERE.md` first.
 
-Current scope: `CURRENT_GOAL.md`.
+Current scope is selected by the current user instruction plus `CURRENT_GOAL.md`.
+A broad mission may authorize bounded follow-on work, but product Candidates are not
+blanket implementation scope merely because they exist in Notion.
 
 Read `ARCHITECTURE.md` when changing ownership or data flow. For model/codec work read
 `docs/model-v0.md` and the relevant schema. For quality decisions read `docs/quality.md`.
-The parity backlog is a discovery shelf, not blanket implementation authorization.
+Do not recursively read the full backlog or historical chat.
 
 Protected boundaries:
 - GUI, CLI, API and MCP use the same core Session commands.
@@ -20,125 +22,187 @@ Build/test entrypoints are in README. Focus checks on the change; release/host v
 is not mandatory for every small edit. Do not redesign the architecture for a local task.
 
 Notion owns product requirements/decisions. This repository owns implementation truth.
-Do not copy the whole Notion backlog into prompts or implement Candidates unless selected by the current goal.
 
-## Astra rolling mission execution
+## Long Mission model
 
-Astra is the default mission owner, planner and primary implementer when it has the
-working tree, build/test path and required UI access.
+Treat substantial work as a long-lived Mission whose continuity is durable in the repo,
+not in one chat context.
 
-For a substantial mission, Astra should:
-1. inspect the live repository/worktree and current checkpoint;
-2. maintain a compact rolling plan of roughly 3–5 bounded semantic tasks;
-3. implement the current task end-to-end;
-4. update the rolling plan when implementation evidence changes priorities;
-5. leave a durable checkpoint before moving to an independent task.
+At Mission start:
+1. confirm the final Goal, completion conditions and hard constraints;
+2. record them in `CURRENT_GOAL.md` as the Mission Brief;
+3. divide the Mission into a coarse sequence of semantic checkpoints;
+4. make only the active checkpoint concrete; keep distant checkpoints intentionally coarse.
 
-Do not create a permanent planner/coordinator/reviewer/verifier hierarchy for work that
-Astra can complete coherently itself. Mission continuity lives in repository state and
-checkpoints, not in a long chat transcript.
+Do not freeze a detailed far-future plan. Results from the current checkpoint may change the
+order, split or contents of later checkpoints without changing the Mission Goal.
 
-### Checkpoints and context rotation
+For Nect implementation, prefer one primary executor that owns planning, implementation,
+integration and local judgement for the active checkpoint. Avoid permanent planner /
+implementer / reviewer / verifier hierarchies.
 
-At a coherent semantic boundary, record:
-- mission / completed task;
-- branch / HEAD and exact working-tree state;
-- relevant tests, runtime and performance evidence;
-- known failures, limitations and blockers;
-- current persisted/native-format state when relevant;
-- the next bounded task and why it is next;
-- a concise execution approach, acceptance and non-goals for that next task;
-- any bounded research request.
+## Mission Brief and active checkpoint
 
-The checkpoint is both durable state and the handoff instruction for the next executor.
+`CURRENT_GOAL.md` is the default durable home for:
+- the Mission Brief; and
+- exactly one active checkpoint.
 
-Prefer a fresh Astra context for the next independent task when the previous task is
-complete or when most accumulated logs/tool output are no longer relevant. Other useful
-rotation points include a major owner/domain change, research-to-implementation transition,
-or substantial context compaction. Do not rotate merely because a fixed amount of time
-has passed.
+The Mission Brief should remain compact:
+- Final Goal
+- Completion conditions
+- Constraints / authority boundaries
+- Coarse checkpoint map
 
-A fresh Astra verifies live state, reads the latest checkpoint and relevant owners, then
-continues from the recorded next task. It should not require the previous chat transcript.
-
-Suggested checkpoint shape:
+The active checkpoint is the only checkpoint that should be detailed. It must contain at least:
 
 ```text
-CHECKPOINT
-Mission:
-Completed:
-Branch / HEAD:
-Working tree:
-Evidence:
-Known limitations / blockers:
-Persistence / format state:
-
+ACTIVE CHECKPOINT
+Goal:
+Current phase:
+Proven:
 Next task:
-Why next:
-Execution approach:
-Acceptance:
-Non-goals:
-
-Research:
-- NONE
-  or
-- Luna: <bounded research question and expected compact output>
+Approach:
+Done for next:
+State:
+Authority:
 ```
 
+Meaning:
+- **Goal** — the bounded semantic result for this checkpoint.
+- **Current phase** — where execution currently is.
+- **Proven** — only durable evidence already established; point to tests/receipts/commits.
+- **Next task** — the best current next action, not an irrevocable instruction.
+- **Approach** — concise intended route for the next action.
+- **Done for next** — what must be true before advancing to the following checkpoint.
+- **State** — branch/HEAD, working-tree state, relevant format/version and live blockers.
+- **Authority** — the current instruction/source that authorizes this work and any stop boundary.
 
-### GitHub synchronization
+Historical checkpoints belong in Git history, an existing issue/PR, or evidence receipts.
+Do not keep multiple old checkpoints active and do not paste completed logs back into the
+current one.
 
-When GitHub access is available, a coherent checkpoint is not complete until its durable
-state is synchronized remotely or a concrete sync blocker is recorded.
+## Checkpoint execution
 
-For each checkpoint:
-- create a coherent local commit when the work is in a valid state;
+Within an active checkpoint:
+1. inspect current repo/runtime state;
+2. implement the bounded work;
+3. verify the real acceptance path;
+4. fix issues exposed by that verification;
+5. save a durable checkpoint only after implementation and verification are coherent.
+
+Keep evidence proportional. Point to receipts, files, tests and logs instead of copying large
+outputs. Human review is not required for correctness that can be established through the
+real semantic API/tests/runtime, but visual/interaction claims require actual UI evidence.
+
+`Next task` is a candidate based on current evidence. If live code/runtime state conflicts
+with it, prefer the live source of truth and replan within the same Mission Goal. Record the
+change rather than following stale checkpoint text mechanically.
+
+## Fresh-context rotation
+
+Past conversation, raw logs and completed work should not be carried into the next context in
+bulk.
+
+When context becomes large, or a coherent checkpoint boundary permits a fresh context:
+1. completely save the current active checkpoint;
+2. synchronize the durable state as required below;
+3. end the current context.
+
+A fresh context reads only:
+1. Mission Brief;
+2. latest active checkpoint;
+3. current repo/runtime state;
+4. owner docs needed for the active checkpoint.
+
+Do not reconstruct state from the full previous conversation.
+
+Useful rotation signals include:
+- active checkpoint completed;
+- next checkpoint changes owner/domain substantially;
+- research transitions into implementation;
+- most accumulated tool/log context is no longer relevant;
+- substantial context compaction has already occurred.
+
+Do not rotate merely because a fixed amount of time passed, and do not interrupt a coherent
+task only to satisfy a context rule.
+
+If the runtime cannot actually start a fresh successor, save the checkpoint and stop. Do not
+pretend a successor was launched.
+
+## Autonomous continuation and stop conditions
+
+Continue autonomously while the Mission Goal remains authorized and the next safe action is
+clear.
+
+Stop only for:
+- Mission Goal completed;
+- a concrete blocker that cannot be resolved with current authority/access;
+- an authority boundary or required user decision;
+- repeated no-progress with no new evidence;
+- a required fresh-context handoff that this runtime cannot perform.
+
+Ordinary reversible implementation/UI decisions are not stop conditions.
+
+## GitHub synchronization
+
+When GitHub access is available, a durable semantic checkpoint should be synchronized
+remotely or carry a concrete sync blocker.
+
+For a checkpoint:
+- create a coherent local commit when the work is valid;
 - push the working branch;
-- create or update the relevant PR/issue/checkpoint record when useful for handoff;
+- reuse/update the existing PR or issue when useful rather than creating one per checkpoint;
 - verify the remote branch/PR HEAD matches the intended local checkpoint SHA;
-- include the remote branch/PR/issue pointer in the handoff when one exists.
+- record the remote pointer in the handoff when one exists.
 
-Prefer GitHub as the remote durable handoff surface; do not rely on an unpublished local
-branch when a normal push is available.
+GitHub synchronization means preserving the remote checkpoint branch. It does **not**
+authorize merging to `main`, closing the Mission, releasing, publishing, or changing
+repository/account policy. Those actions require current authorization.
 
-Before making checkpoint commits intended for GitHub, verify the configured Git identity
-will satisfy repository privacy/protection rules. Prefer the user's GitHub noreply identity
-when appropriate.
+Before commits intended for GitHub, verify the configured identity satisfies repository
+privacy/protection rules. Prefer the user's GitHub noreply identity when appropriate.
 
-If an unpublished local branch is blocked only because Astra's own local commits contain
-a disallowed private author/committer email, Astra may correct commit metadata on that
-unpublished branch while preserving the trees and recording the pre-rewrite HEAD. Never
-rewrite already-pushed/shared history for this purpose without explicit authorization.
+If an unpublished local branch is blocked only because the executor's own local commits
+contain a disallowed private author/committer email, metadata may be corrected on that
+unpublished branch while preserving trees and recording the pre-rewrite HEAD. Never rewrite
+pushed/shared history for this purpose without explicit authorization.
 
-If synchronization is blocked by authentication, branch protection, GH007/private-email
-protection, permissions, network failure, or another external constraint:
+If synchronization is blocked by authentication, protection, GH007/private-email checks,
+permissions, network failure or another external constraint:
 - keep the coherent local commit/checkpoint;
-- record the exact local HEAD and blocker;
-- do not pretend GitHub is synchronized;
-- make restoring GitHub synchronization an early next action when it can be resolved
-  without changing account/repository policy.
+- record exact local HEAD and blocker;
+- do not claim GitHub is synchronized;
+- make restoring synchronization an early next action when it can be resolved without
+  changing repository/account policy.
 
 Do not change repository visibility, permissions, protection rules, account privacy
-settings, or release/distribution state merely to make a push succeed.
+settings, release state or distribution settings merely to make a push succeed.
 
-### Delegation
+## Delegation and model routing
 
 Delegate primarily to reduce information volume, not to split responsibility.
 
-Use Luna for bounded reading/research work such as:
-- long official documentation or specifications;
-- broad prior-art / compatibility surveys;
+Use a lightweight research worker for bounded information-heavy work such as:
+- long official documentation/specifications;
+- broad prior-art or compatibility surveys;
 - repository reconnaissance requiring large reading volume;
 - summarizing large evidence sets.
 
-Luna returns a compact evidence packet. Astra remains responsible for planning,
-implementation, integration and the final local judgement unless explicitly instructed
-otherwise.
+Give the worker a narrow question and source scope. It returns a compact evidence packet with
+conclusions, relevant edge cases and source pointers. Do not forward long raw research
+transcripts into the implementation context.
 
-Do not routinely create separate planner, implementer, reviewer and verifier agents for a
-single coherent task. Astra may use a helper only when the work is genuinely independent
-or information-heavy enough to justify the handoff.
+For the current model family:
+- prefer Astra when the active checkpoint needs difficult implementation, tool-heavy debugging,
+  Windows/GUI operation, or long-horizon software integration;
+- prefer Sol for reasoning-heavy architecture/specification synthesis when direct host
+  interaction is not the hard part;
+- prefer Luna for focused/repetitive reading, extraction, classification and short edits.
 
-Use Sol only at a real reasoning boundary: unresolved cross-owner architecture, conflicting
-requirements, repeated failure without new evidence, difficult interoperability semantics,
-or genuinely ambiguous acceptance. After the decision, execution ownership returns to Astra.
+Start with the lowest reasoning effort likely to succeed and raise it only when evidence shows
+the task needs more. Do not create extra agents merely because a stronger model is available.
+
+Use a higher-reasoning consultation only at a real boundary: unresolved cross-owner
+architecture, conflicting requirements, repeated failure without new evidence, difficult
+interoperability semantics, or genuinely ambiguous acceptance. After the decision, execution
+ownership returns to the primary executor.
