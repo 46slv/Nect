@@ -369,6 +369,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
                 commands.push_back(RemovePoint{selection.object,contour.id,selection.point});
         canvas->cancel_interaction();host.session.apply(commands,host.session.revision());host.edited();
     });
+    action(edit,"Select all in editing context",{},[this]{canvas->select_all_in_context();})->setObjectName("select-all-context");
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
     action(edit,"Duplicate objects in place",QKeySequence("Ctrl+D"),[this]{duplicate_selection();})->setObjectName("duplicate-objects");
     auto* align=edit->addMenu("Align objects (geometric bounds)");
@@ -432,6 +433,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* add_curve_action=action(add,"Curve",QKeySequence("Ctrl+Shift+P"),[this]{add_curve();});add_curve_action->setObjectName("add-curve");
     auto* draw=action(add,"Draw Path",QKeySequence("P"),[this]{canvas->set_draw_mode(true);canvas->setFocus();statusBar()->showMessage("Click to add points · Enter finishes the path · Escape exits",10000);});
     action(view,"Fit Artboard",QKeySequence("Ctrl+0"),[this]{canvas->fit_artboard();});
+    action(view,"Fit selection",QKeySequence("Ctrl+2"),[this]{canvas->fit_selection();})->setObjectName("fit-selection");
     action(view,"Fit all artboards",QKeySequence("Ctrl+Shift+0"),[this]{canvas->fit_all_artboards();});
     auto* snap = view->addAction("Snap ON"); snap->setObjectName("canvas-snap");
     snap->setCheckable(true); snap->setChecked(canvas->snap_enabled());

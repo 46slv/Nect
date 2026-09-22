@@ -1052,3 +1052,23 @@ live Canvas supports explicit selection, Group scope and Fit Artboard, but lacks
 contextual Select All and Fit Selection, and has no arrow-key placement. These
 frequent operations build on existing selection/translation semantics, avoiding
 new authoring formats or speculative frameworks. Continue in this Task.
+
+
+## Direct-edit-flow selection/framing checkpoint — 2026-09-23
+
+Canvas Ctrl+A / Edit context selection operates on visible scope-level objects,
+without selecting both a Group and its descendants. In point context it expands
+the current objects' anchors. View Fit Selection / Ctrl+2 and Canvas Shift+F frame
+world geometric bounds or point positions. Empty/degenerate cases are explicit;
+active drag/draw interactions cannot be reframed by these new actions.
+
+Focused Canvas/Window contracts2/2 in3.95s verify Group/hidden/root selection,
+point expansion, single-point bounded framing, unchanged native/revision, menu
+entry and text-field Ctrl+A. Actual Windows GUI selected a rectangle, Ctrl+2
+framed it at628%, Canvas Ctrl+A selected3 objects, Shift+F framed them at128%.
+Live Session stayed revision0. Receipt `build/daily-layout/gui-navigation.json`;
+owned Window closed. No renderer or authored format change.
+
+Next checkpoint: keyboard placement. Live key handling has no arrow movement;
+reuse existing Session object translation and atomic point edits, preserve
+world-space direction under affine parents, and keep input-field keys local.

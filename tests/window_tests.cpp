@@ -666,6 +666,14 @@ int main(int argc,char** argv) {
         const auto before_spacing=layout_session.document();visible_child<QPushButton>(layout,"quick-distribute-x")->click();
         check(layout_session.revision()==7&&evaluate(layout_session.document()).at({"layout-right","","transform.tx"})==55,"Quick equal gaps uses shared Session despite Artboard alignment target");
         layout_session.undo(7);layout.host.edited();check(layout_session.document()==before_spacing,"GUI spacing is one Undo");
+        layout.canvas->set_selection("layout-left");QApplication::processEvents();
+        // Ordinary text editing retains Ctrl+A; Canvas selection remains intact.
+        QLineEdit shortcut_text(&layout);shortcut_text.setText("editable draft");shortcut_text.show();shortcut_text.setFocus();QApplication::processEvents();
+        QTest::keyClick(&shortcut_text,Qt::Key_A,Qt::ControlModifier);
+        check(shortcut_text.selectedText()=="editable draft"&&layout.canvas->selected_objects()==std::vector<Id>{"layout-left"},"Ctrl+A remains local to a text field");
+        shortcut_text.hide();layout.canvas->setFocus();
+        named_action(layout,"fit-selection")->trigger();check(layout.canvas->zoom()==64,"Fit Selection menu frames degenerate point geometry");
+        check(layout_session.revision()==8,"View/selection actions preserve authored revision");
         std::cout<<"PASS Inspector, pick-whip, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

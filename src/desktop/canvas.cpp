@@ -303,6 +303,46 @@ void Canvas::refresh() {
         active_artboard_changed();
 }
 
+void Canvas::select_all_in_context() {
+    if(drag_!=Drag::none||gesture_owned_||draw_mode_)return;
+    std::vector<Selection> selected;
+    if(!selected_point.empty()) {
+        for(const auto& id:selected_objects())if(const auto* item=geometry(id))
+            for(const auto& point:item->points)selected.push_back({id,point.id});
+    } else {
+        std::set<Id> seen;
+        for(const auto& item:geometry_)if(item.normal_visible) {
+            const auto target=selection_target(item);
+            if(!target.empty()&&seen.insert(target).second)selected.push_back({target,{}});
+        }
+    }
+    select_many(std::move(selected));
+}
+
+void Canvas::fit_selection() {
+    if(drag_!=Drag::none||gesture_owned_||draw_mode_||selections_.empty())return;
+    try {
+        std::optional<Bounds> bounds;
+        auto include=[&](Bounds b) {
+            if(!bounds)bounds=b;
+            else {bounds->left=std::min(bounds->left,b.left);bounds->right=std::max(bounds->right,b.right);
+                bounds->top=std::min(bounds->top,b.top);bounds->bottom=std::max(bounds->bottom,b.bottom);}
+        };
+        for(const auto& selection:selections_) {
+            if(selection.point.empty()) {
+                if(const auto b=object_bounds(session_.document(),selection.object,values_,transforms_,true))include(*b);
+            } else if(const auto* g=geometry(selection.object))if(const auto* p=point(*g,selection.point)) {
+                const auto world=g->world.map(p->anchor);include({world.x(),world.y(),world.x(),world.y()});
+            }
+        }
+        if(!bounds)return;
+        // A point or horizontal/vertical path must frame itself, not fall back
+        // to all artwork through QRectF::isEmpty(). One du gives a bounded zoom.
+        const auto w=std::max(1.0,bounds->right-bounds->left),h=std::max(1.0,bounds->bottom-bounds->top);
+        fit_bounds({bounds->left+(bounds->right-bounds->left-w)/2,bounds->top+(bounds->bottom-bounds->top-h)/2,w,h});
+    } catch(const std::exception& exception){report_error(exception);}
+}
+
 void Canvas::fit_artboard() {
     QRectF bounds;
     for (const auto& artboard : artboards_) if (artboard.id == active_artboard_)
@@ -1283,6 +1323,10 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
         else if (gradient_control_) clear_gradient_edit();
         else if (!scope_.empty()) leave_group();
         else select({});
+    } else if (event->matches(QKeySequence::SelectAll)) {
+        select_all_in_context();
+    } else if (event->key() == Qt::Key_F && event->modifiers() == Qt::ShiftModifier) {
+        fit_selection();
     } else if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
         space_down_ = true;
         update_cursor();

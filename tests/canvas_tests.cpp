@@ -383,6 +383,26 @@ void snap_visibility_and_parent_coordinates() {
     near(f.value("path",{},"transform.ty"),-60,"Snap maps world correction through parent Y");
     f.no_error();
 }
+void contextual_selection_and_framing() {
+    auto d=fixture_document();Object group;group.id="group";group.kind=Kind::group;group.children={"path"};
+    auto other=d.objects.at("path");other.id="other";other.contours.front().id="other-contour";
+    for(auto& point:other.contours.front().points)point.id="other-"+point.id;
+    auto hidden=other;hidden.id="hidden";hidden.contours.front().id="hidden-contour";hidden.visible=false;
+    for(auto& point:hidden.contours.front().points)point.id="hidden-"+point.id;
+    d.objects.emplace("group",group);d.objects.emplace("other",other);d.objects.emplace("hidden",hidden);
+    d.compositions.front().roots={"group","other","hidden"};
+    Fixture f(d);const auto before=f.session.document();
+    f.canvas.set_selection("group");QTest::keyClick(&f.canvas,Qt::Key_A,Qt::ControlModifier);
+    check(f.canvas.selected_objects()==std::vector<Id>({"group","other"}),"Select All chooses visible roots without descendants or hidden artwork");
+    f.canvas.set_selection("path");f.canvas.select_all_in_context();
+    check(f.canvas.drill_scope()=="group"&&f.canvas.selected_objects()==std::vector<Id>{"path"},"Select All respects current Group scope");
+    f.canvas.set_selection("path","p1");f.canvas.select_all_in_context();
+    check(f.canvas.selections().size()==2&&!f.canvas.selected_point.empty(),"Point context selects anchors in current objects");
+    f.canvas.fit_selection();near(f.canvas.zoom(),640.0/240,"Point selection fits world anchor envelope");
+    f.canvas.set_selection("path","p1");f.canvas.fit_selection();near(f.canvas.zoom(),64,"Single point framing is bounded and does not fit entire scene");
+    f.canvas.set_selection({});const auto zoom=f.canvas.zoom();f.canvas.fit_selection();near(f.canvas.zoom(),zoom,"Empty selection leaves view unchanged");
+    check(f.session.document()==before&&f.session.revision()==0,"Selection and framing never author changes");f.no_error();
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -391,6 +411,7 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication application(argc, argv);
     try {
+        contextual_selection_and_framing();
         point_drag_is_one_transaction();
         cancellation_and_return_home_do_not_commit();
         independent_polar_handle_edits();

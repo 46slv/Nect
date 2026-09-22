@@ -366,3 +366,16 @@ Inspector **Equal H gaps / Equal V gaps** (also in Edit → Align objects) space
 independent of selection order; the outer two stay fixed. This ignores the
 alignment-target chooser. Overlap on the chosen axis rejects explicitly. API/MCP
 command: `{"type":"distribute_objects","objects":["a","b","c"],"axis":"x"}`.
+
+
+## Selection and close inspection
+
+On the Canvas, **Ctrl+A** selects visible artwork in the current Composition or
+entered Group, treating child Groups as whole objects. In point-edit context it
+selects all anchors of the currently selected objects. Edit → Select all in
+editing context offers the same operation. Text fields keep their normal Ctrl+A.
+
+**Ctrl+2** / View → Fit selection frames selected geometric bounds (stroke width
+excluded). Canvas **Shift+F** does the same; **F** still fits the active Artboard.
+Point selection frames anchor positions. Empty selection leaves the view alone;
+a single point uses bounded zoom. View/selection operations never author history.

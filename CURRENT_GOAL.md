@@ -14,20 +14,20 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Select and closely frame artwork in the current editing context without repetitive Shift-click/zoom work.
+**Goal:** Move selected objects/points accurately with Canvas arrow keys, with predictable world distance, atomic failure and Undo.
 
-**Current phase:** Daily-layout accepted (38/38 full regression, actual GUI); synchronize spacing checkpoint, then begin scoped selection.
+**Current phase:** Selection/framing accepted; save checkpoint before keyboard implementation.
 
-**Proven:** Alignment synchronized at `811e38b59e27723b68fd41d2538c4f7265a30df9`. Equal gaps have focused core/window/formal MCP acceptance and actual Windows GUI Undo/Redo/readback in `build/daily-layout/gui-spacing.json`. Evidence owner `docs/first-usable.md`. Live Canvas has Fit Artboard/all Artboards, Group scope and point/object selection, but no Select All command or Fit Selection.
+**Proven:** Daily-layout synchronized `dd64b02`. Selection/framing focused Canvas/Window2/2 in3.95s plus actual GUI628%/128% framing and unchanged revision0. Evidence: `docs/first-usable.md` direct-edit-flow section, `build/daily-layout/gui-navigation.json`.
 
-**Next task:** Add scoped Select All and Fit Selection using current selection/geometry caches. Check text-field shortcuts remain native; points frame their actual world positions, whole objects frame their evaluated geometry. Keep hidden mask-only objects out of normal Select All, avoid ancestor+descendant selection.
+**Next task:** Implement Canvas arrows with1du steps, Shift10du, using shared Session commands. Whole-object translation already handles effective parents; point deltas need inverse world mapping and atomic Set operations. Avoid intercepting text/tree editing and active gestures.
 
-**Approach:** Reuse Canvas view and selection state; no authored state/API command for viewport changes. Explicit View/Edit actions; canvas shortcuts only where they do not capture text editing. Degenerate/empty selections and active gestures must not cause accidental framing or edits.
+**Approach:** Reuse semantic primitives without new saved state. Test transformed parents, multiple targets, driven-axis failure, retained Point Edit behavior, Undo and focus. Each key event is one explicit atomic command transaction; repeated events retain ordinary bounded history.
 
-**Done for next:** Group/Composition scope, point context, fit bounds, no authored revision changes, focus-safe shortcuts and real Windows GUI proven; checkpoint committed/pushed with HEAD equality. Continue same Task to keyboard placement.
+**Done for next:** Keyboard object/point placement and Undo demonstrated through focused contracts and actual GUI/readback, coherent commit/push equality. Reassess Mission completion and next useful development here.
 
-**State:** `D:\Documents\Nect`; branch `codex/practical-alpha`; spacing changes awaiting commit. Owned GUI closed. Full access / never approvals.
+**State:** `D:\Documents\Nect`, `codex/practical-alpha`; selection/framing ready to commit, prior remote `dd64b02c49cb168cd1b2d715ecb2b1e841bb6b17`. Owned GUI closed; Full access/never approvals.
 
-**Authority:** Current explicit continuous-development instruction and accepted direct editing direction.
+**Authority:** User continuous-development scope, accepted direct editing direction. No main push/merge, release, new dependency or external policy changes.
 
-**Handoff:** CONTINUE_CURRENT_TASK; no successor/new Task.
+**Handoff:** CONTINUE_CURRENT_TASK; no successor Task.

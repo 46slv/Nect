@@ -42,6 +42,8 @@ public:
     static QImage render_artboard(const Document&,const Id& composition,const Id& artboard,double scale,bool white_background);
     const std::map<Ref,double>& evaluated_values() const {return values_;}
     const std::map<Id,EvaluatedTransform>& evaluated_transforms() const {return transforms_;}
+    void fit_selection();
+    void select_all_in_context();
     void fit_artboard();
     void fit_all_artboards();
     const Id& active_composition() const { return active_composition_; }
