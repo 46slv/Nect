@@ -19,14 +19,18 @@ https://app.notion.com/p/3dffd279a6f381cca8c7c4dec111b131
 
 ## Current status
 
-**M1 desktop loop delivered; practical alpha in progress**
+**Practical-alpha workflow acceptance demonstrated (Windows, 2026-09-22)**
 
 The Windows Qt desktop now creates paths from an empty document, selects and edits
 points/handles, provides a property-source picker, and shares atomic commands and
 Undo with a live local API and formal MCP stdio adapter. Native save, previous-file
 backups and recovery snapshots are implemented. The Windows 30 fps viewport
-baseline and M1 evidence are in `docs/first-usable.md`. Next work is selected in
-`CURRENT_GOAL.md`; this is not yet the completed practical alpha.
+baseline and integrated authoring/recovery/SVG acceptance are in
+[docs/first-usable.md](docs/first-usable.md#integrated-practical-alpha-acceptance--2026-09-22).
+The scoped Mission completion conditions are demonstrated; this is a development
+checkpoint, not a release. Known limits include intermittent image-chooser teardown
+delay, a 34.75 ms dense-scene point-release measurement, and SVG-only output.
+`CURRENT_GOAL.md` records the completed Mission and its boundaries.
 
 Circle, Rectangle, Polygon and Star retain their generators after direct point edits, with
 visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local

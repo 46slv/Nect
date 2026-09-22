@@ -2,7 +2,8 @@
 
 M0 is the headless kernel baseline. The M1 desktop loop was implemented and
 exercised on Windows on 2026-09-20; the evidence and its limits are below.
-The practical-alpha Mission continues beyond this milestone.
+The practical-alpha Mission extends this milestone; its current completion evidence
+is in [Integrated practical-alpha acceptance](#integrated-practical-alpha-acceptance--2026-09-22).
 
 ## Windows evidence — 2026-09-20
 
@@ -841,3 +842,69 @@ The image chooser passed this suite in22.44s; its known intermittent teardown
 delay is **not fixed** by this work. Earlier Snap performance/release limits remain
 as recorded. Next: integrated authoring/recovery/export and warm interaction
 acceptance, selected from the live workflow rather than the full backlog.
+
+## Integrated practical-alpha acceptance — 2026-09-22
+
+The scoped `Nect/practical-alpha` Mission completion conditions are demonstrated
+on production implementation `ebbacf75701de17dbd31bebbfa6bb1b82b34b200`.
+This closes the selected daily editing/native-protection/SVG workflow; it does not
+claim a release, full Illustrator/Photoshop parity or completion of all Candidates.
+The current 36/36 contract suite and 52 focused duplication checks are recorded
+above. No production code changed during this final acceptance.
+
+An owned material-study variation combines 21 objects: eight editable Text
+objects, eight Image placements sharing two assets, vector geometry, three Named
+Colors, masks, Multiply and two independently editable image Groups. Session/API
+commands prepared the expanded 960x820 layout and linked styles. Actual Windows
+GUI interaction then revised the headline, created a retained Circle, set its
+radius to 28 through keyboard Inspector editing, positioned it with Snap, and
+saved using Ctrl+S. The previous duplication checkpoint exercised image/Group
+Ctrl+D, Canvas placement and exact GUI Undo. This is a combined GUI/API production
+flow, not a claim that the entire composition was authored manually from blank.
+
+Acceptance artifacts are under ignored `build/practical-alpha-acceptance/`:
+- `material-variations.nect` and `accepted.json`: saved native exactly matches
+  the authored revision 8; all eight Text entries have no overflow/warning.
+- `receipt.json`: live recovery snapshot equals the same authored state. Opening
+  recovery detaches it from the original filename; Save As to
+  `material-variations-recovered.nect` leaves the recovery source bytes unchanged.
+  A normal close and fresh desktop process reopen that file with exact authored
+  equality, revision 0, and an identical SVG export. Actual restarted UI was
+  inspected. Owned desktop processes then closed normally; examples were unchanged.
+- `material-variations.svg`: independent XML parsing verifies the 960x820 viewBox,
+  embedded assets, eight image uses and clipping. A preinstalled offline
+  Sharp 0.35.4/librsvg 2.62.91 renderer produced `material-variations-preview.png`;
+  visual inspection confirms mask, Multiply, images and outlined Text placement
+  against the actual Canvas. The QA PNG is not a Nect raster-export capability.
+  Browser Use blocked local `file://` access; no browser-rendering claim or URL
+  workaround was used. No dependency was added to the app or environment.
+
+Fresh visible Windows/Qt 6.5.3 benchmarks used the reference machine above,
+893x824 Canvas/DPR 1/96 DPI, Snap ON, 12 warmups and 90 measured inputs per operation.
+No concurrent suite ran. Measurement includes normal queued input and QWidget
+paint completion, not DWM/compositor/scanout. Current p95 intervals meet the
+recorded 30 fps floor for lightweight, 80-curve and mixed-image fixtures:
+
+| Operation | Mixed images p95 / release ms | 80 curves p95 / release ms |
+|---|---:|---:|
+| Pan |18.76 /0.41|18.51 /0.41|
+| Zoom |18.23 /0.00|17.63 /0.00|
+| Point drag |18.25 /14.72|29.56 /34.75|
+| Handle drag |18.18 /13.99|30.20 /25.49|
+| Object translation |18.95 /13.26|26.54 /28.41|
+
+Mixed-image fixture: 24 placements/eight 512x384 sources (4,121,532 encoded bytes),
+two four-point paths and three masks; zero measured intervals exceed 33.333 ms.
+The 80-curve fixture has 320 points; point drag has one interval over 33.333 ms.
+The lightweight two-curve p95 range is 18.16–21.24 ms. Raw evidence:
+`build/practical-alpha-acceptance-performance.json` and
+`build/practical-alpha-acceptance-curves.json`, with matching `.log` files.
+
+Limits remain explicit: the dense point-release/UI commit is 34.75 ms, above the
+33.33 ms release target; the earlier 33.85 ms result is not considered fixed. The
+30 fps p95 interaction floor passes, but 60 fps and every-frame/release budgets do
+not. The intermittent image chooser teardown delay remains uncorrected despite
+the successful current suite. Font portability, raster export/vector import,
+full codecs/typography/compositing and maximum-size scenes remain outside the
+demonstrated subset. Native retains authored intent while SVG uses the declared
+lossy output subset. These limits do not prevent the recorded production flow.
