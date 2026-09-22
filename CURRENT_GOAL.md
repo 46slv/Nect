@@ -1,33 +1,33 @@
-# Daily-output Mission
+# Daily-layout Mission
 
 ## Mission Brief
 
-**Mission identity:** `Nect/daily-output`; sole primary executor is this Task on `codex/practical-alpha`.
+**Mission identity:** `Nect/daily-layout`; same sole primary executor and `codex/practical-alpha` working branch.
 
-**Final Goal:** Make everyday artwork usable outside Nect through dependable raster output while retaining editable native authoring.
+**Final Goal:** Reduce repetitive placement work in everyday multi-object compositions with exact, undoable alignment and spacing through GUI/API/MCP.
 
-**Completion conditions:** A representative mixed composition exports a correctly cropped, transparent or opaque PNG at explicit resolution through GUI/API/formal MCP; independent decoding proves dimensions/colors/alpha; native state/history remain unchanged; failure preserves existing files; Windows interaction and current regression remain sound.
+**Completion conditions:** Mixed retained objects/Groups can be aligned to a selected geometric envelope or Artboard, and evenly spaced where useful, through shared Session commands. Stable IDs, sources, references and native0.13 are preserved. Commands are atomic, Undo/Redo/save/reopen work, driven or unrepresentable changes reject explicitly. Actual Windows GUI verifies discoverable actions and resulting placement; relevant contracts and viewport floor remain sound.
 
-**Constraints / Authority:** The current 2026-09-22 user instruction accepts completed practical-alpha and authorizes autonomous accepted-direction selection, reversible implementation and branch commit/push. No main push/merge, release/distribution, policy changes, shared-history rewrite, unrelated changes or paid services. Existing dependencies only unless justified separately. Session remains semantic authority. Mission/checkpoint completion is not a stop condition. New/successor Tasks are temporarily disabled; continue here with compact durable state.
+**Constraints / Authority:** User's continuous-development instruction (2026-09-22; runtime date now2026-09-23) authorizes accepted-direction daily-workflow selection and branch commits/pushes. `docs/product-direction.md` owns deliberate layout/reflow intent. No main integration, release, policy changes, unrelated modifications or new dependencies. Complete Mission/checkpoints without stopping; no new/successor Task. Native data stays authoritative.
 
-**Coarse checkpoint map:** (1) Shared artwork-only rendering and bounded PNG output through desktop Host, GUI and MCP. (2) Representative production output/failure/native-integrity and viewport performance acceptance. Reassess live product value after these; select the next Mission in this same Task.
+**Coarse checkpoint map:** (1) Exact edge/center alignment to selection or Artboard with shared world-space bounds/translation, GUI/API/MCP and atomicity acceptance. (2) Measured real-layout use, then bounded spacing/distribution if evidence confirms value. Reassess the next Mission after acceptance; no full Illustrator feature-copy backlog.
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Make repeated PNG export predictable with one settings dialog, live output dimensions and per-window settings.
+**Goal:** Evenly space three or more whole objects along x/y while preserving the outer geometric envelope and retained authoring.
 
-**Current phase:** COMPLETE; daily-output Mission conditions accepted in `docs/first-usable.md#daily-output-settings-acceptance--2026-09-23`. First PNG checkpoint completed and synchronized at `9a6209059b58a39e877936664f942270cccb727f` (local/remote equality verified).
+**Current phase:** Alignment accepted; prepare the next bounded shared Session command.
 
-**Proven:** Shared renderer/Host/GUI/MCP,37/37 regression, WIC reimport repair and30fps mixed-image evidence: `docs/first-usable.md#daily-output-png-checkpoint--2026-09-22`. Actual use found three sequential dialogs hide output size until completion.
+**Proven:** Daily-output synchronized at `a3b053d`. Alignment acceptance,38-test regression, actual Windows Inspector/readback/Undo and current multi-selection benchmark are recorded in `docs/first-usable.md`, Daily-layout alignment acceptance. Core now has exact world bounds and simultaneous translation solving across effective parents.
 
-**Next task:** Synchronize settings checkpoint, then start a daily-layout Mission for exact multi-object alignment through shared Session commands.
+**Next task:** Implement equal geometric gaps using existing bounds/translation validation, expose Inspector/Edit and API/MCP, and verify mixed widths/Undo/atomic refusals in a real layout.
 
-**Approach:** Keep existing Host exporter and renderer. Freeze target/revision while settings are open; cancel changes nothing. Confirm replacement of existing output once. Use focused UI flow plus actual Windows readback; no new dependency or persistence schema.
+**Approach:** Stable spatial ordering; preserve first/last positions and outer envelope, move only interior objects. Reject overlapping initial geometry to keep ordering/envelope unambiguous. Reuse alignment preservation checks, reject driven/unrepresentable results. No persistent constraint or format change.
 
-**Done for next:** Successful repeated GUI exports have predictable dimensions and preserved settings; oversize/cancel/stale state paths do not write; focused tests and actual Windows flow pass; commit/push and verify HEAD equality. Then reassess next product Mission in this same Task.
+**Done for next:** Equal x/y gaps, source preservation, atomic failures, Undo/native/API/MCP and actual Windows GUI verified; coherent commit pushed with local/remote equality. Reassess Mission completion and next production value here.
 
-**State:** `D:\Documents\Nect`, `codex/practical-alpha`, upstream `origin/codex/practical-alpha`; clean at first checkpoint before this update. Native0.13 unchanged. All owned app/benchmark windows closed. Runtime danger-full-access / never approvals; sole primary executor.
+**State:** `D:\Documents\Nect`; `codex/practical-alpha`, upstream `origin/codex/practical-alpha`. Alignment changes ready for coherent commit; remote prior checkpoint `a3b053d486662a5626eded7045bb76f4d350abe6`. No owned desktop remains. Full access / never approvals.
 
-**Authority:** Current user continuous-development instruction; no main integration/release, account/policy changes, shared-history rewrite or unrelated changes.
+**Authority:** Current user continuous-development instruction; working-branch commit/push authorized, no main push/merge or release.
 
-**Handoff:** CONTINUE_CURRENT_TASK; no successor Tasks. Checkpoints/Missions are durable planning units, not stop conditions.
+**Handoff:** CONTINUE_CURRENT_TASK. No successor Task.

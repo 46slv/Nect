@@ -869,11 +869,11 @@ Ref canonical_target(const Document& document,const Ref& target) {
         return operation_ref(target.object,document.objects.at(target.object).legacy_stroke,target.field.substr(7));
     return target;
 }
-void translate_objects(Document& document,const TranslateObjects& command) {
-    require(!command.objects.empty()&&command.objects.size()<=1000,"INVALID_BATCH","Translation requires 1..1000 unique objects");
-    finite(command.dx);finite(command.dy);
+void translate_objects(Document& document,const std::vector<Id>& objects,const std::map<Id,Vec2>& displacements) {
+    require(!objects.empty()&&objects.size()<=1000,"INVALID_BATCH","Translation requires 1..1000 unique objects");
+    for(const auto& [id,delta]:displacements){(void)id;finite(delta.x);finite(delta.y);}
     std::set<Id> selected;
-    for(const auto& id:command.objects) {
+    for(const auto& id:objects) {
         require(document.objects.contains(id),"MISSING_OBJECT",id);
         require(selected.insert(id).second,"DUPLICATE_TARGET","Each translated object may occur only once");
     }
@@ -893,10 +893,10 @@ void translate_objects(Document& document,const TranslateObjects& command) {
         };
         for(const auto& root:plane.roots)own(root);
     }
-    if(command.dx==0&&command.dy==0)return;
+    if(std::all_of(displacements.begin(),displacements.end(),[](const auto& item){return item.second.x==0&&item.second.y==0;}))return;
     std::map<Id,Affine> desired,prospective;
     for(const auto& id:selected) {
-        auto world=transforms.at(id).world;world[4]+=command.dx;world[5]+=command.dy;
+        auto world=transforms.at(id).world;world[4]+=displacements.at(id).x;world[5]+=displacements.at(id).y;
         for(const auto number:world)require(std::isfinite(number),"OUTPUT_RANGE","Translated world matrix must be finite");
         desired.emplace(id,world);
     }
@@ -913,20 +913,18 @@ void translate_objects(Document& document,const TranslateObjects& command) {
     for(const auto& id:selected) {
         const auto& transform=transforms.at(id);
         const auto basis=transform.effective_parent.empty()?identity_matrix:world(transform.effective_parent);
-        auto ancestor=transform.effective_parent;bool inherited_motion=false;
+        Vec2 inherited{};auto ancestor=transform.effective_parent;
         while(!ancestor.empty()) {
-            if(selected.contains(ancestor)){inherited_motion=true;break;}
+            if(selected.contains(ancestor)){inherited=displacements.at(ancestor);break;}
             ancestor=transforms.at(ancestor).effective_parent;
         }
-        // Every selected ancestor receives the same world displacement. Its
-        // effective descendants need no local rewrite (or singular inverse),
-        // even through intervening unselected objects. Keep their Scalars exact.
-        if(inherited_motion)continue;
+        // Subtract authored requested displacements rather than large world
+        // positions, preserving representable sub-epsilon free translations.
+        const auto dx=displacements.at(id).x-inherited.x,dy=displacements.at(id).y-inherited.y;
+        if(dx==0&&dy==0)continue;
         const auto inverse=inverse_affine(basis);
-        // World translation never rewrites the linear matrix or Anchor. Solve
-        // only the local translation difference through the prospective basis.
-        const auto tx=transform.local[4]+inverse[0]*command.dx+inverse[2]*command.dy;
-        const auto ty=transform.local[5]+inverse[1]*command.dx+inverse[3]*command.dy;
+        const auto tx=transform.local[4]+inverse[0]*dx+inverse[2]*dy;
+        const auto ty=transform.local[5]+inverse[1]*dx+inverse[3]*dy;
         set_changed_scalar(document,{id,"","transform.tx"},tx,values);
         set_changed_scalar(document,{id,"","transform.ty"},ty,values);
     }
@@ -934,6 +932,42 @@ void translate_objects(Document& document,const TranslateObjects& command) {
     for(const auto& [id,target]:desired)for(std::size_t i=0;i<target.size();++i)
         require(transform_equal(after.at(id).world[i],target[i]),"TRANSFORM_PRESERVATION",
             "Selected world translation changed through dependent bindings or numeric conditioning");
+}
+void align_objects(Document& document,const AlignObjects& command) {
+    require(command.axis=="x"||command.axis=="y","INVALID_ALIGNMENT","Axis must be x or y");
+    require(command.alignment=="min"||command.alignment=="center"||command.alignment=="max","INVALID_ALIGNMENT","Alignment must be min, center or max");
+    require(command.objects.size()>=(command.artboard?1u:2u)&&command.objects.size()<=1000,"INVALID_BATCH","Alignment needs 2..1000 objects, or 1..1000 with an Artboard");
+    std::set<Id> selected;
+    for(const auto& id:command.objects){require(document.objects.contains(id),"MISSING_OBJECT",id);require(selected.insert(id).second,"DUPLICATE_TARGET",id);}
+    const Composition* plane=nullptr;
+    for(const auto& composition:document.compositions) {
+        std::function<void(const Id&,bool)> visit=[&](const Id& id,bool selected_ancestor){
+            const bool own=selected.contains(id);
+            if(own){require(!selected_ancestor,"OVERLAPPING_SELECTION","Select a Group or its descendants, not both");require(!plane||plane==&composition,"CROSS_COMPOSITION","Alignment requires one Composition");plane=&composition;}
+            for(const auto& child:document.objects.at(id).children)visit(child,selected_ancestor||own);
+        };
+        for(const auto& root:composition.roots)visit(root,false);
+    }
+    const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
+    std::map<Id,Bounds> initial;std::optional<Bounds> envelope;
+    for(const auto& id:command.objects) {
+        const auto bounds=object_bounds(document,id,values,transforms,true);require(bounds.has_value(),"EMPTY_BOUNDS","Object has no geometric bounds: "+id);
+        initial.emplace(id,*bounds);
+        if(!envelope)envelope=bounds;
+        else {envelope->left=std::min(envelope->left,bounds->left);envelope->right=std::max(envelope->right,bounds->right);envelope->top=std::min(envelope->top,bounds->top);envelope->bottom=std::max(envelope->bottom,bounds->bottom);}
+    }
+    if(command.artboard) {require(plane!=nullptr,"MISSING_COMPOSITION","Selection has no owning Composition");const auto board=evaluate_artboard(*plane,*command.artboard);envelope=Bounds{board.x,board.y,board.x+board.width,board.y+board.height};}
+    const auto coordinate=[&](const Bounds& bounds){const auto minimum=command.axis=="x"?bounds.left:bounds.top,maximum=command.axis=="x"?bounds.right:bounds.bottom;return command.alignment=="min"?minimum:command.alignment=="max"?maximum:minimum+(maximum-minimum)/2;};
+    const auto target=coordinate(*envelope);std::map<Id,Vec2> displacements;
+    for(const auto& [id,bounds]:initial){const auto delta=target-coordinate(bounds);displacements.emplace(id,command.axis=="x"?Vec2{delta,0}:Vec2{0,delta});}
+    translate_objects(document,command.objects,displacements);
+    const auto after_values=evaluate(document);const auto after_transforms=evaluate_transforms(document,after_values);
+    for(const auto& [id,before]:initial) {
+        const auto after=object_bounds(document,id,after_values,after_transforms,true);const auto delta=displacements.at(id);
+        require(after&&transform_equal(after->left,before.left+delta.x)&&transform_equal(after->right,before.right+delta.x)&&
+            transform_equal(after->top,before.top+delta.y)&&transform_equal(after->bottom,before.bottom+delta.y),"ALIGNMENT_PRESERVATION",
+            "Dependent geometry changed during alignment; resolve the dependency before aligning");
+    }
 }
 void group_contiguous(Document& document,const Id& composition,const Id& parent,const std::vector<Id>& members,const Id& id,const std::string& name) {
     require(!members.empty()&&!document.objects.contains(id),"INVALID_GROUP","New group ID and members required");
@@ -1135,7 +1169,10 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
                 } else scalar=Scalar{values.at(target),{}};
             }
         } else if constexpr(std::is_same_v<T,TranslateObjects>) {
-            translate_objects(candidate,c);
+            std::map<Id,Vec2> displacements;for(const auto& id:c.objects)displacements.emplace(id,Vec2{c.dx,c.dy});
+            translate_objects(candidate,c.objects,displacements);
+        } else if constexpr(std::is_same_v<T,AlignObjects>) {
+            align_objects(candidate,c);
         } else if constexpr(std::is_same_v<T,CenterAnchor>) {
             center_anchor(candidate,c.object,true);
         } else if constexpr(std::is_same_v<T,SetPosition>||std::is_same_v<T,TransformAroundAnchor>) {

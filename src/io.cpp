@@ -564,6 +564,10 @@ Command read_command(const j::value& v) {
         if(type=="link_properties")return LinkProperties{std::move(targets),read_ref(o.at("source")),o.at("relative").as_bool()};
         return UnlinkProperties{std::move(targets)};
     }
+    if(type=="align_objects") {
+        keys(o,{"type","objects","axis","alignment","artboard"});
+        return AlignObjects{ids(o.at("objects")),text(o.at("axis")),text(o.at("alignment")),o.at("artboard").is_null()?std::optional<Id>{}:std::optional<Id>{text(o.at("artboard"))}};
+    }
     if(type=="translate_objects") {
         keys(o,{"type","objects","dx","dy"});return TranslateObjects{ids(o.at("objects")),number(o.at("dx")),number(o.at("dy"))};
     }

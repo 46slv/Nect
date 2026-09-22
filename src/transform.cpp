@@ -127,12 +127,13 @@ std::map<Id,EvaluatedTransform> evaluate_transforms(const Document& document,con
 }
 
 std::optional<Bounds> object_bounds(const Document& document,const Id& id,const std::map<Ref,double>& values,
-    const std::map<Id,EvaluatedTransform>& transforms) {
+    const std::map<Id,EvaluatedTransform>& transforms,bool world_space) {
     require(document.objects.contains(id),"MISSING_OBJECT",id);
     require(transforms.contains(id),"MISSING_TRANSFORM",id);
     BoundsBuilder bounds;
     std::optional<Affine> target_inverse;
     const auto relative=[&](const Id& child) {
+        if(world_space)return transforms.at(child).world;
         // Descendants whose effective chain reaches the target can be evaluated
         // locally even when an ancestor has collapsed an axis. An external chain
         // requires the actual target-world inverse and fails explicitly if singular.

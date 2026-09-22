@@ -812,3 +812,25 @@ on raster images remain unsupported.
 Primary platform references: [WIC native pixel formats](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-codec-native-pixel-formats),
 [WIC metadata](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-about-metadata),
 [IWICColorContext](https://learn.microsoft.com/en-us/windows/win32/api/wincodec/nn-wincodec-iwiccolorcontext).
+
+
+## One-shot geometric alignment
+
+`AlignObjects` / `align_objects` uses evaluated world-space geometric bounds
+(exact transformed cubic extrema, evaluated paint instances, text contours and
+image rectangles). Group bounds include descendant geometry; visibility, stroke
+width and masks do not redefine these bounds. It moves transforms, preserving
+source geometry, stable IDs, linear transforms and native0.13.
+
+Required JSON fields are objects, axis (x/y), alignment (min/center/max), and
+artboard (null or ID). Selection-envelope targets require2–1000 unique objects;
+an Artboard target allows1–1000 in its Composition. Structural ancestor plus
+descendant selection rejects as OVERLAPPING_SELECTION. Empty bounds, cross-
+Composition targets, driven translations and unrepresentable transforms reject.
+
+Displacements are solved together across effective Transform Parents. A selected
+follower can move independently of its selected parent. Results are reevaluated
+and must equal every original bound translated by its requested displacement;
+geometry/reference side effects reject as ALIGNMENT_PRESERVATION. Session applies
+the command atomically with ordinary history. No persistent layout constraint or
+new saved format is introduced.

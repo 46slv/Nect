@@ -642,6 +642,21 @@ int main(int argc,char** argv) {
         w.hide();Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
         gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
         boards.hide();Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);
+        texts.hide();Window layout(temp.path()+"/layout");layout.show();QApplication::processEvents();
+        auto& layout_session=layout.host.session;const auto layout_comp=layout_session.document().compositions.front().id;
+        Point left,right;left.id="layout-left-point";left.x.literal=30;left.y.literal=40;right.id="layout-right-point";right.x.literal=160;right.y.literal=100;
+        layout_session.apply({CreatePath{layout_comp,"","layout-left","Left",{{"layout-left-contour",false,{left}}}},CreatePath{layout_comp,"","layout-right","Right",{{"layout-right-contour",false,{right}}}}},0);
+        layout.host.edited();layout.canvas->set_selections({{"layout-left",""},{"layout-right",""}});
+        const auto layout_before=layout_session.document();named_action(layout,"align-selection-x-min")->trigger();
+        check(layout_session.revision()==2&&evaluate(layout_session.document()).at({"layout-right","","transform.tx"})==-130,"GUI alignment uses Session world translation");
+        layout_session.undo(2);layout.host.edited();check(layout_session.document()==layout_before,"GUI alignment is one Undo");
+        layout.canvas->set_selection("layout-left","layout-left-point");named_action(layout,"align-artboard-x-center")->trigger();
+        check(layout_session.revision()==3&&layout.statusBar()->currentMessage().startsWith("INVALID_SELECTION"),"Point selection cannot silently align whole object");
+        layout.canvas->set_selections({{"layout-left",""},{"layout-right",""}});QApplication::processEvents();
+        visible_child<QComboBox>(layout,"alignment-target")->setCurrentIndex(1);
+        visible_child<QPushButton>(layout,"quick-align-x-center")->click();
+        const auto aligned_values=evaluate(layout_session.document());
+        check(layout_session.revision()==4&&aligned_values.at({"layout-left","","transform.tx"})==290&&aligned_values.at({"layout-right","","transform.tx"})==160,"Quick alignment buttons share the Artboard Session command");
         std::cout<<"PASS Inspector, pick-whip, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

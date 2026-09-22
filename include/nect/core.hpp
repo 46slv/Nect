@@ -312,6 +312,9 @@ struct PutInside { Id composition,parent,group; std::vector<Id> members; };
 // World-space displacement, applied once per selected object across Structure
 // and Transform Parent relationships. Selection is one Composition, 1..1000 IDs.
 struct TranslateObjects { std::vector<Id> objects; double dx,dy; };
+// One-shot geometric alignment, excluding stroke width. Empty artboard uses the
+// initial selection envelope; otherwise target that Artboard in the same plane.
+struct AlignObjects { std::vector<Id> objects; std::string axis,alignment; std::optional<Id> artboard; };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
@@ -322,7 +325,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,SetExpression,
     SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,
-    AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects>;
+    AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
@@ -372,8 +375,9 @@ std::map<Id,EvaluatedTransform> evaluate_transforms(const Document&,const std::m
 struct Bounds {double left=0,top=0,right=0,bottom=0;};
 // Geometric bounds in the target object's local coordinates, including cubic
 // extrema, Shape instances/paints and Text layout; excludes stroke thickness.
+// world_space=true computes extrema directly in the Composition plane.
 std::optional<Bounds> object_bounds(const Document&,const Id&,const std::map<Ref,double>&,
-    const std::map<Id,EvaluatedTransform>&);
+    const std::map<Id,EvaluatedTransform>&,bool world_space=false);
 EvaluatedShape evaluate_shape(const Document&,const Id&,const std::map<Ref,double>&);
 struct EvaluatedMask {
     Id source;

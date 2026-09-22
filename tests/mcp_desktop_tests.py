@@ -440,8 +440,17 @@ try:
         live=tool('nect_session');identity={key:live[key] for key in ('session_id','document_id')}
         assert live['file']=='' and live['persistence']['saved_revision'] is None
         assert core('inspect')['result']==expected
+        align_commands=[]
+        for index,x in enumerate((10,110)):
+            align_commands.append(dict(type='create_path',composition=comp['id'],parent='',id=f'align-{index}',name=f'Align {index}',
+                contours=[dict(id=f'align-contour-{index}',closed=False,points=[point(f'align-{index}-a',x,5),point(f'align-{index}-b',x+20,5)])]))
+        alignment_rev=apply(align_commands,0)
+        alignment_before=core('inspect')['result']
+        alignment_rev=apply([dict(type='align_objects',objects=['align-0','align-1'],axis='x',alignment='min',artboard=None)],alignment_rev)
+        assert core('get',ref=dict(object='align-1',point='',field='transform.tx'))['result']['evaluated']==-100
+        assert core('undo',expected_revision=alignment_rev)['ok'] and core('inspect')['result']==alignment_before
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,
-            mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True, independent_duplication=True,
+            mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True, independent_duplication=True, geometric_alignment_undo=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,
             independent_svg_parser_paths=expected_svg_paths, ordered_stack_readback=True,
             automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, image_lifecycle_native_recovery=True, gui_performance_claim=False)

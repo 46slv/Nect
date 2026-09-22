@@ -344,3 +344,19 @@ for a masked Linked JPEG shared across four placements plus an Embedded transpar
 PNG, Multiply, named colors and editable Text. Its procedural source files are
 original fixture artwork; another checkout may need Relink, while cached artwork
 remains intact.
+
+
+## Exact object alignment
+
+Select whole objects and use Inspector **Align · geometric bounds**, or Edit →
+Align objects. Align left/center/right or top/center/bottom to the initial
+selection envelope or the active Artboard. A single object can align to an
+Artboard. Point selections are excluded. Each action is one Undo and preserves
+retained sources. Bounds include evaluated geometry, text and image rectangles;
+stroke width and mask cropping are excluded. This is a one-time placement, not
+a persistent constraint. Structural ancestor/descendant selections and driven
+transforms that cannot represent the result reject without partial changes.
+
+API/MCP `apply` accepts `{"type":"align_objects","objects":["a","b"],
+"axis":"x","alignment":"min","artboard":null}`. Axis is x/y; alignment is
+min/center/max; artboard is null for selection bounds or an Artboard ID.

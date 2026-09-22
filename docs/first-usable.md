@@ -982,3 +982,39 @@ Qt renderer,16MP/8192 and compositing budgets. File-dialog shell latency is not
 claimed fixed. Current product reassessment selects everyday alignment/layout
 as the next Mission: multi-selection and Snap exist, but exact multi-object edge/
 center alignment has no semantic command or GUI action in live code.
+
+
+## Daily-layout alignment acceptance — 2026-09-23
+
+Shared AlignObjects now aligns exact world geometric edges/centers to the initial
+selection envelope or a named Artboard. Inspector controls and Edit actions use
+the same Session command as JSON API/formal MCP. Sources and stable IDs remain;
+parent/follower translations are solved together. Geometry-changing dependencies,
+driven axes, empty bounds and structural overlapping selection reject atomically.
+
+Full regression38/38 in37.30s (`build/daily-layout-regression.log`). Focused tests
+cover six directions, Artboard, rotation, Groups, selected effective parents,
+invalid/driven failures, Undo/Redo, native roundtrip and JSON. Existing batch tests
+caught a tiny-translation regression during solver extraction; exact requested
+displacement differences repaired it before acceptance. Formal MCP aligns and
+undoes two paths. After Inspector controls were added, window/batch UI tests2/2
+passed4.24s; the final Inspector-button assertion also passed4.77s.
+
+Actual Windows GUI: three retained rectangles at geometric left70/280/580 were
+selected in the tree and aligned with Inspector Left. Canvas visibly aligned;
+Session readback showed tx0/-210/-510 and revision1. Ctrl+Z restored all tx0 in
+one action, revision2. Receipt `build/daily-layout/gui-alignment.json`; fixture
+`build/daily-layout/alignment.nect`. Owned Window closed.
+
+Current relinked visible multi-selection benchmark completed with all30fps p95
+interval and33ms release budgets met. P95 ranges17.16–19.23ms lightweight and
+17.22–32.37ms representative;60fps target unmet. Receipt
+`build/daily-layout/current-viewport-benchmark.json`. An earlier executable run
+recorded33–45ms intervals and failed the floor (`viewport-benchmark.json` in the
+same directory); its paint times were2–5ms. Both results are retained. The later
+run explicitly relinked current UI; scheduling/measurement variability is not a
+proven performance repair. Native compositor timing is outside this benchmark.
+
+Next practical gap: equal geometric spacing of mixed-width objects. Alignment
+removes one repetitive task; distributing three or more items currently requires
+manual per-object placement. Continue the same Mission/Task with bounded spacing.

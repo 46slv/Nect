@@ -39,6 +39,7 @@
 #include <cmath>
 #include <algorithm>
 #include <set>
+#include <tuple>
 #include <QTreeWidgetItemIterator>
 #include <QMouseEvent>
 #include <QKeyEvent>
@@ -370,6 +371,20 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     });
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
     action(edit,"Duplicate objects in place",QKeySequence("Ctrl+D"),[this]{duplicate_selection();})->setObjectName("duplicate-objects");
+    auto* align=edit->addMenu("Align objects (geometric bounds)");
+    for(const bool to_artboard:{false,true}) {
+        auto* target=align->addMenu(to_artboard?"To active Artboard":"To selection bounds");
+        for(const auto& choice:std::vector<std::tuple<QString,std::string,std::string>>{
+            {"Left edges","x","min"},{"Horizontal centers","x","center"},{"Right edges","x","max"},
+            {"Top edges","y","min"},{"Vertical centers","y","center"},{"Bottom edges","y","max"}}) {
+            const auto [label,axis,alignment]=choice;
+            auto* command=action(target,label,{},[this,to_artboard,axis,alignment]{
+                align_selection(axis,alignment,to_artboard);
+            });
+            command->setObjectName(QString("align-%1-%2-%3").arg(to_artboard?"artboard":"selection",qs(axis),qs(alignment)));
+            command->setToolTip("Align evaluated geometric bounds, excluding stroke width. Retained shapes remain editable.");
+        }
+    }
     action(edit,"Mask With Top",{},[this]{mask_selection(true);});
     action(edit,"Mask With Bottom",{},[this]{mask_selection(false);});
     action(edit,"Put Inside top selected Group",{},[this]{put_selection_inside();});
@@ -1487,6 +1502,13 @@ void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& labe
     add_properties(layout,{ref},label);
 }
 
+void Window::align_selection(const std::string& axis,const std::string& alignment,bool to_artboard) {
+    if(std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& selection){return !selection.point.empty();}))
+        throw Error("INVALID_SELECTION","Select whole objects to align their bounds");
+    host.session.apply({AlignObjects{canvas->selected_objects(),axis,alignment,to_artboard?std::optional<Id>{canvas->active_artboard()}:std::optional<Id>{}}},host.session.revision());
+    host.edited();
+}
+
 void Window::add_multi_properties(QVBoxLayout* layout) {
     const auto& d=host.session.document();const auto selected=canvas->selections();
     auto* heading=new QLabel(QString::number(selected.size())+(canvas->selected_point.empty()?" objects selected":" points selected"));
@@ -1502,6 +1524,19 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})common(form,field,QString::fromLatin1(field));
         layout->addStretch();return;
     }
+    auto* alignment_box=new QGroupBox("Align · geometric bounds");auto* alignment_layout=new QVBoxLayout(alignment_box);
+    auto* alignment_target=new QComboBox;alignment_target->setObjectName("alignment-target");alignment_target->addItems({"Selection bounds","Active Artboard"});alignment_target->setCurrentIndex(alignment_to_artboard_?1:0);alignment_layout->addWidget(alignment_target);
+    connect(alignment_target,qOverload<int>(&QComboBox::currentIndexChanged),this,[this](int index){alignment_to_artboard_=index==1;});
+    for(const auto axis:{"x","y"}) {
+        auto* row=new QHBoxLayout;alignment_layout->addLayout(row);
+        for(int index=0;index<3;++index) {
+            const std::string mode=index==0?"min":index==1?"center":"max";
+            const auto label=std::string(axis)=="x"?(index==0?"Left":index==1?"H center":"Right"):(index==0?"Top":index==1?"V center":"Bottom");
+            auto* button=new QPushButton(label);button->setObjectName(QString("quick-align-%1-%2").arg(axis,qs(mode)));button->setToolTip("Align evaluated geometry; excludes stroke width");row->addWidget(button);
+            connect(button,&QPushButton::clicked,this,[this,axis,mode]{perform([&]{align_selection(axis,mode,alignment_to_artboard_);});});
+        }
+    }
+    layout->addWidget(alignment_box);
     auto* transform=section("Transform · each object");
     common(transform,"composite.opacity","Object opacity");
     common(transform,"transform.tx","Translation X");common(transform,"transform.ty","Translation Y");
