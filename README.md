@@ -416,3 +416,15 @@ Host `import_svg` and formal MCP `nect_import_svg` require current identity/revi
 absolute local path, Composition, fresh identifier prefix, name and x/y. The
 result reports root, paths, points, viewport dimensions and conversion boundary.
 Core-only CLI does not include the Qt reader or claim SVG import.
+
+
+### Stacking order
+
+Edit → Arrange stacking order and the selection context menu expose Bring forward
+(Ctrl+]), Send backward (Ctrl+[), Bring to front (Ctrl+Shift+]) and Send to back
+(Ctrl+Shift+[). Select objects/Groups sharing one structural parent. Selected
+siblings retain their relative order; one-step moves cross one unselected neighbor.
+Operations remain inside that parent, preserve coordinates/references, and use the
+same `reorder_objects` Session command available to API/MCP. A boundary no-op does
+not add history. Point selections and mixed parents are refused. Layering changes
+naturally affect overlaps, blending and masks; Undo restores the exact ordering.

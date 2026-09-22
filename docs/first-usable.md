@@ -1203,3 +1203,24 @@ new dependencies/native format changes. This is not general SVG fidelity:
 CSS/gradients/text/images/masks and alternate cap/join semantics remain explicit
 refusals. Next Mission chosen from live UI: expose existing core stacking-order
 commands for everyday overlapping artwork, then reassess other direct-edit gaps.
+
+
+## Everyday arrangement: stacking acceptance (2026-09-23)
+
+Edit/context menus and Ctrl+]/Ctrl+[/Ctrl+Shift+]/Ctrl+Shift+[ expose sibling
+forward/backward/front/back through existing Session ReorderObjects. Stable
+selection order, one-neighbor block steps, nested Groups, no-op boundaries and
+atomic mixed-parent/point refusal; coordinates and references remain unchanged.
+Focused Release Window/compositing UI/batch UI:3/3 passed,5.84s
+(`build/daily-layout/stacking-tests.log`). Tests cover exact Undo and native codec.
+
+Actual Windows: three overlapping Coral/Mint/Gold objects. Ctrl+] placed Coral
+above Mint but below Gold; Ctrl+Shift+] moved Coral over both. Context menu Send
+to back restored the initial overlap, Ctrl+Z restored Coral to front. Live API
+confirmed child order and exact native save/reopen (`stacking-gui-acceptance.json`
+and `stacking-gui.nect` under build/daily-layout). Owned GUI closed.
+Computer-use popup input required its bounded transient screenshot ID; targeting
+the main-window screenshot dismissed the popup. No product defect was inferred.
+Next live gap: no Ungroup command exists, leaving imported nesting tedious to
+reorganize. Start with neutral static Groups and refuse cases that cannot retain
+appearance/dependencies, rather than silently dropping compositing behavior.

@@ -93,7 +93,8 @@ private:
     void add_text_properties(QVBoxLayout* layout,const Object& object);
     void add_transform_properties(QVBoxLayout* layout,const Object& object);
     void add_compositing_properties(QVBoxLayout* layout,const Object& object);
-    std::vector<Id> selected_siblings(Id& parent) const;
+    std::vector<Id> selected_siblings(Id& parent,std::size_t minimum=2) const;
+    void stack_selection(int direction,bool to_edge);
     void mask_selection(bool top);
     void put_selection_inside();
     void selection_menu(const QPoint& global);

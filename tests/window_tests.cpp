@@ -56,6 +56,30 @@ QAction* named_action(Window& window,const char* name) {
     check(action!=nullptr,"Named production action exists");
     return action;
 }
+void stacking_authoring(Window& w) {
+    auto& s=w.host.session;const auto comp=s.document().compositions.front().id;std::vector<Command> commands;
+    for(const auto* id:{"a","b","c","d"}){Point p;p.id=std::string(id)+"-point";p.x.literal=10;commands.push_back(CreatePath{comp,"",id,id,{{std::string(id)+"-contour",false,{p}}}});}
+    commands.push_back(Link{{"d","d-point","x"},{{"a","a-point","x"},2,3,"copy_local_value"}});s.apply(commands,0);w.host.edited();
+    auto order=[&](){return s.document().compositions.front().roots;};
+    auto act=[&](const char* name){named_action(w,name)->trigger();};
+    auto undo=[&](){s.undo(s.revision());w.host.edited();};
+    const auto authored=s.document();w.canvas->set_selection("b");act("stack-forward");
+    check(order()==std::vector<Id>{"a","c","b","d"},"Bring forward changes only neighboring stacking order");
+    check(s.document().objects==authored.objects&&evaluate(s.document()).at({"d","d-point","x"})==23,"Stacking preserves points, references and transforms");undo();check(s.document()==authored,"Stacking is one exact Undo");
+    w.canvas->set_selections({{"d",""},{"b",""}});act("stack-back");check(order()==std::vector<Id>{"b","d","a","c"},"Send to back preserves sibling order, not click order");undo();
+    w.canvas->set_selections({{"b",""},{"a",""}});act("stack-forward");check(order()==std::vector<Id>{"c","a","b","d"},"Selected block moves one unselected neighbor");
+    act("stack-front");check(order()==std::vector<Id>{"c","d","a","b"},"Front moves selected block past all remaining siblings");
+    const auto edge_revision=s.revision();act("stack-front");check(s.revision()==edge_revision,"Stacking boundary is history-free no-op");
+    act("stack-backward");check(order()==std::vector<Id>{"c","a","b","d"},"Send backward moves block one neighbor");
+    act("stack-back");check(order()==std::vector<Id>{"a","b","c","d"},"Back restores original stacking order");
+    s.apply({GroupContiguous{comp,"",{"b","c"},"group","Group"}},s.revision());w.host.edited();w.canvas->set_selection("c");
+    const auto grouped=s.document();act("stack-backward");check(s.document().objects.at("group").children==std::vector<Id>{"c","b"}&&order()==std::vector<Id>{"a","group","d"},"Nested selection only reorders within its parent");undo();check(s.document()==grouped,"Nested stacking exact Undo");
+    const auto revision=s.revision();w.canvas->set_selections({{"a",""},{"b",""}});act("stack-front");check(s.revision()==revision&&w.statusBar()->currentMessage().startsWith("INVALID_SELECTION"),"Mixed parents refuse atomically");
+    w.canvas->set_selections({{"a","a-point"},{"d",""}});act("stack-front");check(s.revision()==revision,"Mixed point/object selection cannot reorder objects silently");
+    w.canvas->set_selection("group");act("stack-front");check(order()==std::vector<Id>{"a","d","group"},"Groups reorder as structural units");
+    check(decode(encode(s.document()))==s.document(),"Stacking survives native serialization");
+    check(named_action(w,"stack-forward")->shortcut()==QKeySequence("Ctrl+]")&&named_action(w,"stack-back")->shortcut()==QKeySequence("Ctrl+Shift+["),"Stacking keyboard accelerators exposed");
+}
 void history_action(Window& window,const char* text) {
     for(auto* action:window.findChildren<QAction*>())if(action->text()==QString::fromLatin1(text)) {
         check(action->isEnabled(),"History action is enabled");action->trigger();QApplication::processEvents();return;
@@ -674,6 +698,7 @@ int main(int argc,char** argv) {
         shortcut_text.hide();layout.canvas->setFocus();
         named_action(layout,"fit-selection")->trigger();check(layout.canvas->zoom()==64,"Fit Selection menu frames degenerate point geometry");
         check(layout_session.revision()==8,"View/selection actions preserve authored revision");
+        layout.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
         std::cout<<"PASS Inspector, pick-whip, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

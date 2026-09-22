@@ -373,6 +373,11 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     action(edit,"Select all in editing context",{},[this]{canvas->select_all_in_context();})->setObjectName("select-all-context");
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
     action(edit,"Duplicate objects in place",QKeySequence("Ctrl+D"),[this]{duplicate_selection();})->setObjectName("duplicate-objects");
+    auto* arrange=edit->addMenu("Arrange stacking order");
+    for(const auto& [label,key,direction,edge,name]:std::vector<std::tuple<QString,QString,int,bool,QString>>{
+        {"Bring forward","Ctrl+]",1,false,"stack-forward"},{"Send backward","Ctrl+[",-1,false,"stack-backward"},
+        {"Bring to front","Ctrl+Shift+]",1,true,"stack-front"},{"Send to back","Ctrl+Shift+[",-1,true,"stack-back"}})
+        action(arrange,label,QKeySequence(key),[this,direction,edge]{stack_selection(direction,edge);})->setObjectName(name);
     auto* align=edit->addMenu("Align objects (geometric bounds)");
     for(const bool to_artboard:{false,true}) {
         auto* target=align->addMenu(to_artboard?"To active Artboard":"To selection bounds");
@@ -2023,9 +2028,9 @@ void Window::convert_to_path() {
     });
     dialog->show();
 }
-std::vector<Id> Window::selected_siblings(Id& parent) const {
+std::vector<Id> Window::selected_siblings(Id& parent,std::size_t minimum) const {
     const auto selected=canvas->selected_objects();
-    if(selected.size()<2||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select two or more sibling objects");
+    if(selected.size()<minimum||std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& item){return !item.point.empty();}))throw Error("INVALID_SELECTION",minimum==1?"Select sibling objects, not points":"Select two or more sibling objects");
     const std::set<Id> chosen(selected.begin(),selected.end());const auto& d=host.session.document();std::vector<Id> result;
     std::function<void(const std::vector<Id>&,const Id&)> search=[&](const std::vector<Id>& siblings,const Id& owner){
         std::vector<Id> found;for(const auto& id:siblings)if(chosen.contains(id))found.push_back(id);
@@ -2034,6 +2039,17 @@ std::vector<Id> Window::selected_siblings(Id& parent) const {
     };
     search(find_composition(d,canvas->active_composition()).roots,{});
     if(result.empty())throw Error("INVALID_SELECTION","Select sibling objects in the same Composition");return result;
+}
+void Window::stack_selection(int direction,bool to_edge) {
+    Id parent;const auto selected=selected_siblings(parent,1);const std::set<Id> chosen(selected.begin(),selected.end());
+    const auto& d=host.session.document();const auto& comp=find_composition(d,canvas->active_composition());
+    const auto original=parent.empty()?comp.roots:d.objects.at(parent).children;auto order=original;
+    if(to_edge)std::stable_partition(order.begin(),order.end(),[&](const Id& id){return direction>0?!chosen.contains(id):chosen.contains(id);});
+    else if(direction>0){for(std::size_t i=order.size()-1;i>0;--i)if(chosen.contains(order[i-1])&&!chosen.contains(order[i]))std::swap(order[i-1],order[i]);}
+    else {for(std::size_t i=1;i<order.size();++i)if(chosen.contains(order[i])&&!chosen.contains(order[i-1]))std::swap(order[i-1],order[i]);}
+    if(order==original)return;
+    canvas->cancel_interaction();host.session.apply({ReorderObjects{comp.id,parent,std::move(order)}},host.session.revision());host.edited();
+    statusBar()->showMessage("Stacking order changed within the parent Group/Composition; coordinates are unchanged",5000);
 }
 void Window::mask_selection(bool top) {
     Id parent;const auto members=selected_siblings(parent);const auto id=new_id();
@@ -2047,6 +2063,11 @@ void Window::put_selection_inside() {
 void Window::selection_menu(const QPoint& global) {
     const auto menu_session=host.session_id;const auto menu_revision=host.session.revision();
     QMenu menu;auto* duplicate=menu.addAction("Duplicate objects in place");duplicate->setEnabled(!canvas->selected_objects().empty()&&canvas->selected_point.empty());
+    auto* stacking=menu.addMenu("Arrange stacking order");
+    std::map<QAction*,std::pair<int,bool>> stack_actions;
+    for(const auto& [label,direction,edge]:std::vector<std::tuple<QString,int,bool>>{{"Bring forward",1,false},{"Send backward",-1,false},{"Bring to front",1,true},{"Send to back",-1,true}})
+        stack_actions.emplace(stacking->addAction(label),std::pair{direction,edge});
+    try{Id parent;(void)selected_siblings(parent,1);}catch(const Error&){stacking->setEnabled(false);}
     auto* group=menu.addAction("Group selected siblings");
     auto* top=menu.addAction("Mask With Top");auto* bottom=menu.addAction("Mask With Bottom");auto* inside=menu.addAction("Put Inside top selected Group");
     try {
@@ -2055,8 +2076,8 @@ void Window::selection_menu(const QPoint& global) {
         inside->setText("Put Inside · "+qs(d.objects.at(members.back()).name));
         top->setEnabled((d.objects.at(members.back()).kind==Kind::path||d.objects.at(members.back()).kind==Kind::text));bottom->setEnabled((d.objects.at(members.front()).kind==Kind::path||d.objects.at(members.front()).kind==Kind::text));inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
     } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
-    const auto* chosen=menu.exec(global);if(!chosen)return;
-    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==group)group_selection();});
+    auto* chosen=menu.exec(global);if(!chosen)return;
+    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==group)group_selection();});
 }
 void Window::duplicate_selection() {
     if(canvas->selected_objects().empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select objects or Groups to duplicate");
