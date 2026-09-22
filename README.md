@@ -428,3 +428,13 @@ Operations remain inside that parent, preserve coordinates/references, and use t
 same `reorder_objects` Session command available to API/MCP. A boundary no-op does
 not add history. Point selections and mixed parents are refused. Layering changes
 naturally affect overlaps, blending and masks; Undo restores the exact ordering.
+
+
+**Ungroup selected Groups (Ctrl+Shift+G)** in Edit or the selection context menu
+removes ordinary neutral static containers and selects their children. Child
+shape, order and world placement stay intact; one Undo restores the Group.
+Opacity/masks/blends, dynamic Group transforms, explicit Group Transform Parents,
+references to the removed Group and unpreservable child dependencies are refused
+with an explanation. This is especially useful for static imported SVG nesting.
+The same `ungroup {composition,parent,group}` command works through API/MCP;
+[the precise preservation contract](docs/model-v0.md) applies to all callers.

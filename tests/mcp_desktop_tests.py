@@ -458,7 +458,11 @@ try:
         vector=tool('nect_import_svg',dict(identity,op='import_svg',expected_revision=spacing_rev+1,path=str(svg_input),composition=comp['id'],prefix='mcp-vector',name='Vector',x=10,y=20))
         assert vector['ok'] and vector['result']['paths']==2 and vector['result']['root']=='mcp-vector'
         assert any(o['id']=='mcp-vector' and o['kind']=='group' for o in core('inspect')['result']['objects'])
-        assert core('undo',expected_revision=vector['revision'])['ok'] and core('inspect')['result']==vector_before
+        vector_document=core('inspect')['result']
+        ungroup_revision=apply([dict(type='ungroup',composition=comp['id'],parent='',group='mcp-vector')],vector['revision'])
+        assert not any(o['id']=='mcp-vector' for o in core('inspect')['result']['objects'])
+        assert core('undo',expected_revision=ungroup_revision)['ok'] and core('inspect')['result']==vector_document
+        assert core('undo',expected_revision=ungroup_revision+1)['ok'] and core('inspect')['result']==vector_before
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,
             mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True, independent_duplication=True, geometric_alignment_undo=True, equal_gap_spacing_undo=True, editable_svg_undo=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,

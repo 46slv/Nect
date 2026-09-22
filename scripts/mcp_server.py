@@ -48,6 +48,7 @@ TOOLS = [
                      'compositing_types lists exact blends and geometry-mask semantics; compositing_plan {composition} reports ordered resolved scopes. '
                      'set_mask {object,mask:null|{id,source,version:1,enabled,fill_rule:"nonzero"|"evenodd"}} uses final Path/Text geometry in Composition space, ignoring source paint/opacity/visibility. '
                      'mask_objects {composition,parent,members:[ordered contiguous sibling IDs],id,mask_id,name,top:bool} wraps members in a masked Group and hides the topmost (last) or bottommost (first) source. '
+                     'ungroup {composition,parent,group} removes a visible neutral static Group, preserving child IDs/order/world geometry in one Undo; compositing, dynamic Group transforms, removed-Group references and changing dependencies reject atomically. '
                      'put_inside {composition,parent,group,members:[ordered IDs]} moves contiguous siblings immediately preceding group into its children before existing content, preserving world transforms; target effects intentionally apply. '
                      'Normal Groups pass through; opacity/blend/mask/nonneutral scopes isolate then apply to the aggregate. Full AE blend and alpha/luma mask parity are unsupported. '
                      'set_expression {targets:[Ref],expression:{source:string,version:1},replace_binding:bool} assigns a bounded pure expression to compatible scalars. '

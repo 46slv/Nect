@@ -33,7 +33,7 @@ Changing Collection membership does not reparent source objects but can change o
 
 ## Grouping, parenting and pivots
 
-**GroupContiguous** replaces ordered contiguous siblings in paint order by an identity Group and initializes its Anchor once from geometric bounds. Transform-parent attach/detach can preserve world coordinates through an explicit command; general structural keep-world reparenting is not implemented.
+**GroupContiguous** replaces ordered contiguous siblings in paint order by an identity Group and initializes its Anchor once from geometric bounds. Transform-parent attach/detach can preserve world coordinates through an explicit command. Bounded Ungroup removes neutral static containers with child affine/value preservation checks; unsafe compositing/dynamic/reference cases refuse. General structural keep-world reparenting is not implemented.
 
 Future reparenting must distinguish coordinate preservation from appearance preservation. Parent-matrix inversion addresses coordinates only and fails for singular transforms. Masks, backdrop blend, isolation, effects and order can still change appearance. Reject or show a conversion plan when preservation is not possible; do not silently flatten.
 

@@ -1030,6 +1030,30 @@ void put_inside(Document& document,const PutInside& command) {
     for(const auto& id:command.members)for(std::size_t i=0;i<6;++i)
         require(transform_equal(before.at(id).world[i],after.at(id).world[i]),"TRANSFORM_PRESERVATION","Put Inside could not preserve moved world transforms through dependent bindings");
 }
+void ungroup(Document& document,const Ungroup& command) {
+    require(document.objects.contains(command.group)&&document.objects.at(command.group).kind==Kind::group,"INVALID_GROUP","Ungroup requires a Group");
+    const auto group=document.objects.at(command.group);auto& list=siblings(document,command.composition,command.parent);
+    const auto at=std::find(list.begin(),list.end(),command.group);require(at!=list.end(),"INVALID_GROUP","Group must belong to the specified parent");
+    require(group.visible&&group.compositing.blend=="normal"&&!group.compositing.isolated&&!group.compositing.mask&&
+        group.compositing.opacity.literal==1&&!driven(group.compositing.opacity)&&group.stack.empty(),"UNGROUP_APPEARANCE","Ungroup requires a visible neutral Group without opacity, blend, isolation, mask or effects");
+    require(!group.transform_parent&&std::none_of(group.transform.begin(),group.transform.end(),[](const Scalar& v){return driven(v);}),"UNGROUP_DYNAMIC","Ungroup requires static Group transforms following structure");
+    const auto values=evaluate(document);const auto before=evaluate_transforms(document,values);std::set<Ref> changed_matrices;
+    for(const auto& id:group.children) {
+        if(document.objects.at(id).transform_parent)continue;
+        set_affine(document,id,compose(before.at(command.group).local,before.at(id).local),values);
+        for(const auto& field:affine_fields)changed_matrices.insert({id,"",field});
+    }
+    const auto index=std::distance(list.begin(),at);list.erase(at);list.insert(list.begin()+index,group.children.begin(),group.children.end());
+    for(auto& collection:document.collections)std::erase(collection.members,command.group);
+    document.objects.erase(command.group);
+    // Existing reference validation refuses surviving links, expressions and
+    // explicit Transform Parents that still address the removed container.
+    validate(document);const auto after_values=evaluate(document);const auto after=evaluate_transforms(document,after_values);
+    for(const auto& [id,old]:before)if(id!=command.group)for(std::size_t i=0;i<6;++i)
+        require(transform_equal(old.world[i],after.at(id).world[i]),"TRANSFORM_PRESERVATION","Ungroup changed a surviving world transform");
+    for(const auto& [ref,value]:values)if(ref.object!=command.group&&!changed_matrices.contains(ref))
+        require(transform_equal(value,after_values.at(ref)),"UNGROUP_DEPENDENCY","Ungroup changed geometry or another property through a transform dependency");
+}
 struct DuplicationPlan {
     std::map<Id,Id> ids;
     std::vector<Id> roots;
@@ -1162,6 +1186,8 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
             require(candidate.objects.contains(source)&&(candidate.objects.at(source).kind==Kind::path||candidate.objects.at(source).kind==Kind::text),"INVALID_MASK_SOURCE","Mask With source must be a Path or Text");
             group_contiguous(candidate,c.composition,c.parent,c.members,c.id,c.name);
             candidate.objects.at(c.id).compositing.mask=GeometryMask{c.mask_id,source};candidate.objects.at(source).visible=false;
+        } else if constexpr(std::is_same_v<T,Ungroup>) {
+            ungroup(candidate,c);
         } else if constexpr(std::is_same_v<T,PutInside>) {
             put_inside(candidate,c);
         } else if constexpr(std::is_same_v<T,SetExpression>) {

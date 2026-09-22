@@ -372,6 +372,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     });
     action(edit,"Select all in editing context",{},[this]{canvas->select_all_in_context();})->setObjectName("select-all-context");
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
+    action(edit,"Ungroup selected Groups",QKeySequence("Ctrl+Shift+G"),[this]{ungroup_selection();})->setObjectName("ungroup-objects");
     action(edit,"Duplicate objects in place",QKeySequence("Ctrl+D"),[this]{duplicate_selection();})->setObjectName("duplicate-objects");
     auto* arrange=edit->addMenu("Arrange stacking order");
     for(const auto& [label,key,direction,edge,name]:std::vector<std::tuple<QString,QString,int,bool,QString>>{
@@ -2069,6 +2070,8 @@ void Window::selection_menu(const QPoint& global) {
         stack_actions.emplace(stacking->addAction(label),std::pair{direction,edge});
     try{Id parent;(void)selected_siblings(parent,1);}catch(const Error&){stacking->setEnabled(false);}
     auto* group=menu.addAction("Group selected siblings");
+    auto* ungroup=menu.addAction("Ungroup selected Groups");
+    try{Id parent;const auto members=selected_siblings(parent,1);ungroup->setEnabled(std::all_of(members.begin(),members.end(),[&](const Id& id){return host.session.document().objects.at(id).kind==Kind::group;}));}catch(const Error&){ungroup->setEnabled(false);}
     auto* top=menu.addAction("Mask With Top");auto* bottom=menu.addAction("Mask With Bottom");auto* inside=menu.addAction("Put Inside top selected Group");
     try {
         Id parent;const auto members=selected_siblings(parent);const auto& d=host.session.document();
@@ -2077,7 +2080,7 @@ void Window::selection_menu(const QPoint& global) {
         top->setEnabled((d.objects.at(members.back()).kind==Kind::path||d.objects.at(members.back()).kind==Kind::text));bottom->setEnabled((d.objects.at(members.front()).kind==Kind::path||d.objects.at(members.front()).kind==Kind::text));inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
     } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
     auto* chosen=menu.exec(global);if(!chosen)return;
-    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==group)group_selection();});
+    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();});
 }
 void Window::duplicate_selection() {
     if(canvas->selected_objects().empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select objects or Groups to duplicate");
@@ -2087,6 +2090,13 @@ void Window::duplicate_selection() {
     std::vector<Canvas::Selection> selection;for(const auto& id:roots)selection.push_back({id,{}});
     canvas->set_selections(std::move(selection));host.edited();canvas->setFocus();
     statusBar()->showMessage("Duplicated in place; drag the selected copies to move them",6000);
+}
+void Window::ungroup_selection() {
+    Id parent;const auto groups=selected_siblings(parent,1);std::vector<Command> commands;std::vector<Canvas::Selection> children;
+    for(const auto& id:groups){const auto& object=host.session.document().objects.at(id);if(object.kind!=Kind::group)throw Error("INVALID_GROUP","Select Groups to ungroup");
+        commands.push_back(Ungroup{canvas->active_composition(),parent,id});for(const auto& child:object.children)children.push_back({child,{}});}
+    canvas->cancel_interaction();host.session.apply(commands,host.session.revision());canvas->set_selections(std::move(children));host.edited();
+    statusBar()->showMessage("Ungrouped with child geometry and order preserved; Undo restores the container",6000);
 }
 void Window::group_selection() {
     if(!canvas->selected_point.empty())throw Error("INVALID_GROUP","Select objects, not points, to group");

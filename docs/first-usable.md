@@ -1224,3 +1224,31 @@ the main-window screenshot dismissed the popup. No product defect was inferred.
 Next live gap: no Ungroup command exists, leaving imported nesting tedious to
 reorganize. Start with neutral static Groups and refuse cases that cannot retain
 appearance/dependencies, rather than silently dropping compositing behavior.
+
+
+## Everyday-arrangement Mission completion: neutral Ungroup (2026-09-23)
+
+Added core/API/MCP `ungroup {composition,parent,group}`, meaningful History label,
+Edit/context action and Ctrl+Shift+G. Neutral static Groups unwrap at their exact
+stacking slot. Child IDs/geometry/Anchors remain; inherited static affine is
+composed into child matrices. Explicit external child parents remain. References
+to the removed Group and non-preserving compositing/dynamic/dependency cases
+reject atomically. Group Collection membership alone is pruned. No inverse,
+native migration or new dependency. Contract in `docs/model-v0.md`.
+
+Focused3/3 passed; full Release **39/39 passed**,60.99s
+(`build/daily-layout/ungroup-focused.log`, `ungroup-regression.log`). Covers nested,
+singular, external-parent, reference/dependency refusal, exact Undo/Redo, Window
+selection and formal MCP. Actual Windows imported original wayfinding fixture,
+selected rotated/translated beacon Group and used Ctrl+Shift+G. Diamond/arrow
+remained visually identical and selected; PNG before/after bytes identical
+(SHA256 `7d4f56683e83f4dc29b77cba1bd693425e260b43597ada084f939280ccced98e`).
+GUI Undo restored exact original document; Redo/save/reopen exact. Receipt
+`build/daily-layout/ungroup-gui-acceptance.json`, before/after JSON/PNG and native
+file alongside. Owned GUI closed.
+
+`Nect/everyday-arrangement` bounded completion conditions now met: stacking and
+neutral imported Group reorganization through semantic authority. Continue with
+measured viewport latency: prior80-curve object move timing varied around30fps;
+its semantic-preview/projection stages each consumed more than painting. Measure
+current baseline before choosing a repair; do not claim60fps or hide failed runs.

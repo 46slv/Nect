@@ -104,8 +104,29 @@ void mask_with_and_put_inside() {
     auto coupled=document;matrix(coupled.objects.at("group"),identity_matrix);coupled.objects.at("group").transform[4].binding=Binding{{"a","","transform.tx"},1,0,"copy_local_value"};Session dependent(coupled);
     atomic(dependent,"TRANSFORM_PRESERVATION",{PutInside{"comp","","group",{"a","b"}}});
 }
+void neutral_ungroup() {
+    auto document=fixture();Object group;group.id="group";group.name="Group";group.kind=Kind::group;group.children={"a","b"};matrix(group,{0,2,-3,0,200,30});
+    document.objects.emplace(group.id,group);document.compositions[0].roots={"group","source"};document.collections={{"collection","Members",{"group","a"}}};
+    document.objects.at("b").transform_parent="source";matrix(document.objects.at("b"),{1,0,0,1,15,20});
+    Session session(document);const auto before=transforms(document);apply(session,{Ungroup{"comp","","group"}});const auto after=transforms(session.document());
+    check(session.document().compositions[0].roots==std::vector<Id>{"a","b","source"}&&!session.document().objects.contains("group"),"Ungroup replaces exact stacking slot with children");
+    for(const auto* id:{"a","b","source"}){same_matrix(before.at(id).world,after.at(id).world);check(session.document().objects.at(id).contours==document.objects.at(id).contours,"Ungroup preserves stable authored geometry");}
+    check(session.document().objects.at("b")==document.objects.at("b"),"Explicit external child parent and local state remain intact");
+    check(session.document().collections[0].members==std::vector<Id>{"a"},"Only removed Group collection membership pruned");
+    const auto ungrouped=session.document();session.undo(session.revision());check(session.document()==document,"Ungroup exact Undo");session.redo(session.revision());check(session.document()==ungrouped,"Ungroup exact Redo");
+    for(int case_id=0;case_id<5;++case_id){auto d=document;auto& g=d.objects.at("group");if(case_id==0)g.visible=false;if(case_id==1)g.compositing.opacity.literal=.5;if(case_id==2)g.compositing.blend="multiply";if(case_id==3)g.compositing.isolated=true;if(case_id==4)g.compositing.mask=GeometryMask{"mask","source"};Session blocked(d);atomic(blocked,"UNGROUP_APPEARANCE",{Ungroup{"comp","","group"}});}
+    auto dynamic=document;dynamic.objects.at("group").transform[4].expression=Expression{"200"};Session driven_group(dynamic);atomic(driven_group,"UNGROUP_DYNAMIC",{Ungroup{"comp","","group"}});
+    dynamic=document;dynamic.objects.at("group").transform_parent="source";Session followed(dynamic);atomic(followed,"UNGROUP_DYNAMIC",{Ungroup{"comp","","group"}});
+    auto linked=document;linked.objects.at("source").contours[0].points[0].x.binding=Binding{{"group","","transform.tx"},1,0};Session referenced(linked);atomic(referenced,"MISSING_REFERENCE",{Ungroup{"comp","","group"}});
+    linked=document;linked.objects.at("b").transform_parent="group";Session parented(linked);atomic(parented,"MISSING_TRANSFORM_PARENT",{Ungroup{"comp","","group"}});
+    linked=document;linked.objects.at("a").transform[0].expression=Expression{"1"};Session driven_child(linked);atomic(driven_child,"DRIVEN_PROPERTY",{Ungroup{"comp","","group"}});
+    linked=document;linked.objects.at("a").contours[0].points[0].x.binding=Binding{{"a","","transform.tx"},1,0};Session geometry_dependency(linked);atomic(geometry_dependency,"UNGROUP_DEPENDENCY",{Ungroup{"comp","","group"}});
+    auto singular=document;matrix(singular.objects.at("group"),{0,0,0,1,20,30});Session collapsed(singular);const auto old=transforms(singular);apply(collapsed,{Ungroup{"comp","","group"}});same_matrix(old.at("a").world,transforms(collapsed.document()).at("a").world);
+    auto nested=document;Object outer;outer.id="outer";outer.name="Outer";outer.kind=Kind::group;outer.children={"group"};matrix(outer,{2,0,0,2,50,60});nested.objects.emplace("outer",outer);nested.compositions[0].roots={"outer","source"};Session nesting(nested);const auto prior=transforms(nested);apply(nesting,{Ungroup{"comp","outer","group"}});same_matrix(prior.at("a").world,transforms(nesting.document()).at("a").world);check(nesting.document().objects.at("outer").children==std::vector<Id>{"a","b"},"Nested Group unwrap preserves outer container");
+}
+
 }
 int main() {
-    try{scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

@@ -119,6 +119,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,SetCompositing>)return "Compositing: "+name(c.object);
         else if constexpr(std::is_same_v<T,SetMask>)return std::string(c.mask?"Set geometry mask: ":"Remove geometry mask: ")+name(c.object);
         else if constexpr(std::is_same_v<T,MaskObjects>)return std::string(c.top?"Mask with top: ":"Mask with bottom: ")+c.name;
+        else if constexpr(std::is_same_v<T,Ungroup>)return "Ungroup: "+name(c.group);
         else if constexpr(std::is_same_v<T,PutInside>)return "Put "+std::to_string(c.members.size())+" objects inside: "+name(c.group);
         else if constexpr(std::is_same_v<T,SetExpression>)return "Expression: "+std::to_string(c.targets.size())+" properties: "+property_label(c.targets.front());
         else if constexpr(std::is_same_v<T,Link>)return "Link "+property_label(c.target);

@@ -107,6 +107,7 @@ private:
     void add_stack(QVBoxLayout* layout,const Object& object);
     void add_gradient(QFormLayout* layout,const Object& object,const ShapeOperation& operation);
     void group_selection();
+    void ungroup_selection();
     void duplicate_selection();
     void rebuild_artboards();
     void add_artboard(bool duplicate);

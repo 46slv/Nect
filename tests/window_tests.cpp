@@ -78,6 +78,11 @@ void stacking_authoring(Window& w) {
     w.canvas->set_selections({{"a","a-point"},{"d",""}});act("stack-front");check(s.revision()==revision,"Mixed point/object selection cannot reorder objects silently");
     w.canvas->set_selection("group");act("stack-front");check(order()==std::vector<Id>{"a","d","group"},"Groups reorder as structural units");
     check(decode(encode(s.document()))==s.document(),"Stacking survives native serialization");
+    const auto before_ungroup=s.document();const auto ungroup_revision=s.revision();named_action(w,"ungroup-objects")->trigger();
+    check(s.revision()==ungroup_revision+1&&!s.document().objects.contains("group")&&order()==std::vector<Id>{"a","d","b","c"},"GUI Ungroup commits shared structural command");
+    check(w.canvas->selected_objects()==std::vector<Id>{"b","c"},"Ungroup selects surviving children");
+    check(decode(encode(s.document()))==s.document(),"Ungroup native codec exact");undo();check(s.document()==before_ungroup,"GUI Ungroup restores Group in one Undo");
+
     check(named_action(w,"stack-forward")->shortcut()==QKeySequence("Ctrl+]")&&named_action(w,"stack-back")->shortcut()==QKeySequence("Ctrl+Shift+["),"Stacking keyboard accelerators exposed");
 }
 void history_action(Window& window,const char* text) {

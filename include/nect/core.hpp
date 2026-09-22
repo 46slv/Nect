@@ -309,6 +309,7 @@ struct SetCompositing { Id object; std::string blend; bool isolated; };
 struct SetMask { Id object; std::optional<GeometryMask> mask; };
 struct MaskObjects { Id composition,parent; std::vector<Id> members; Id id,mask_id; std::string name; bool top=true; };
 struct PutInside { Id composition,parent,group; std::vector<Id> members; };
+struct Ungroup { Id composition,parent,group; };
 // World-space displacement, applied once per selected object across Structure
 // and Transform Parent relationships. Selection is one Composition, 1..1000 IDs.
 struct TranslateObjects { std::vector<Id> objects; double dx,dy; };
@@ -325,7 +326,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,SetExpression,
-    SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,
+    SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,
     AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects>;
 
 using Affine=std::array<double,6>;

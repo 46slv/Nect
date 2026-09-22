@@ -546,6 +546,10 @@ Command read_command(const j::value& v) {
         keys(o,{"type","composition","parent","members","id","mask_id","name","top"});
         return MaskObjects{text(o.at("composition")),text(o.at("parent")),ids(o.at("members")),text(o.at("id")),text(o.at("mask_id")),text(o.at("name")),o.at("top").as_bool()};
     }
+    if(type=="ungroup") {
+        keys(o,{"type","composition","parent","group"});
+        return Ungroup{text(o.at("composition")),text(o.at("parent")),text(o.at("group"))};
+    }
     if(type=="put_inside") {
         keys(o,{"type","composition","parent","group","members"});
         return PutInside{text(o.at("composition")),text(o.at("parent")),text(o.at("group")),ids(o.at("members"))};

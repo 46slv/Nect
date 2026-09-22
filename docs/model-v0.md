@@ -844,3 +844,25 @@ overlap rejects as OVERLAPPING_BOUNDS, including nested intervals. Zero gaps and
 zero-size geometry are allowed. All other preservation/atomicity rules apply;
 dependent geometry failure is DISTRIBUTION_PRESERVATION. No persistent layout
 constraint is authored.
+
+
+### Neutral static Group ungrouping
+
+`ungroup {composition,parent,group}` replaces one Group at its sibling position
+with its ordered children. Surviving object/point/operator IDs and geometry are
+retained. Inheriting children compose the removed Group's static local affine
+into their own; explicitly external child Transform Parents remain unchanged.
+No inverse is needed, including singular parent/group transforms. Group membership
+in Collections is pruned; child membership stays intact. One Session Undo restores
+all authored state. Native format remains0.13.
+
+The Group must be visible, normal/pass-through, literal opacity1, with no mask or
+shape stack. Driven Group affine values and explicit Group Transform Parent are
+refused (`UNGROUP_APPEARANCE`/`UNGROUP_DYNAMIC`). Surviving references to the removed
+Group, including explicit child Transform Parents, remain invalid; they are never
+silently retargeted or frozen. Driven child matrix changes refuse normally.
+All surviving world matrices and evaluated non-matrix values must stay equal;
+transform-dependent geometry changing through the reorganization rejects
+`UNGROUP_DEPENDENCY`. Group Anchor is removed with its container; child Anchors
+and local geometry remain authored unchanged. This is bounded source-preserving
+reorganization, not a flatten-compositing conversion.
