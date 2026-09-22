@@ -404,9 +404,11 @@ solid Fill/Stroke become normal native authoring, ready for point edits, layout,
 references and native save. [wayfinding-mark.svg](examples/wayfinding-mark.svg)
 is an original supported fixture.
 
-This initial static subset supports M/L/H/V/C/S/Q/T/Z, including relative and
-short forms; quadratic curves become cubic handles. Arcs, basic-shape elements,
-text/images, gradients, CSS stylesheets, masks/filters and external content reject
+The static subset supports M/L/H/V/C/S/Q/T/A/Z, relative and short forms, plus
+rect/circle/ellipse/line/polyline/polygon. Quadratics lower exactly; elliptical
+arcs and rounded shapes use disclosed cubic approximation. Original
+[shape badge](examples/shape-badge.svg) and [arc mark](examples/arc-mark.svg)
+exercise these paths. Text/images, gradients, CSS stylesheets, masks/filters and external content reject
 the whole import. SVG viewport maps coordinates but does not create a crop or
 Artboard; off-viewport artwork remains editable. See [exact contract and limits](docs/svg-import.md).
 

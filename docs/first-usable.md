@@ -1177,3 +1177,29 @@ showed the approximation disclosure and correctly rendered the artwork. Live
 Session edited an imported circle anchor, undid it, saved and reopened exact
 native state. Receipt `build/daily-layout/svg-shapes-gui-acceptance.json` and
 `svg-shapes-gui.nect`. Owned GUI closed. Next coverage blocker: path A/a arcs.
+
+
+## Vector-intake Mission completion: elliptical arcs (2026-09-23)
+
+SVG A/a now lowers through endpoint-to-center conversion and shared <=45-degree
+cubic spans with basic shapes. Handles radius correction, all large/sweep flags,
+axis rotation, relative/repeated commands and compact single-bit flags. Exact
+input endpoints retained; zero radii become lines and coincident endpoints emit
+no segment. Unsupported content and resource limits still reject atomically.
+The focused test caught floating angular-boundary subdivision drift; fixed by
+removing rounding noise before selecting span count (1e-12 span tolerance).
+
+Release full regression **39/39 passed**,63.03s
+(`build/daily-layout/svg-final-regression.log`). Actual Windows GUI imported
+`examples/arc-mark.svg`:270-degree ring, rotated open ellipse and compact relative
+semicircles visually verified. Same live Session Undo/Redo restored exact state,
+native save/reopen matched and SVG re-export succeeded. Receipt:
+`build/daily-layout/svg-arcs-gui-acceptance.json`, native/output SVG beside it.
+Owned GUI closed. Geometry/style conversion contract: `docs/svg-import.md`.
+
+`Nect/vector-intake` completion conditions are met for its explicit static solid
+paint subset, through GUI/API/formal MCP, with original input unchanged and no
+new dependencies/native format changes. This is not general SVG fidelity:
+CSS/gradients/text/images/masks and alternate cap/join semantics remain explicit
+refusals. Next Mission chosen from live UI: expose existing core stacking-order
+commands for everyday overlapping artwork, then reassess other direct-edit gaps.

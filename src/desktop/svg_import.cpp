@@ -64,6 +64,28 @@ void handle(Point& p,bool outgoing,Vec2 control) {
     (outgoing?p.out_length:p.in_length).literal=std::hypot(dx,dy);
     (outgoing?p.out_angle:p.in_angle).literal=std::atan2(dy,dx)*180/std::numbers::pi;
 }
+// Shared by path arcs and curved basic shapes; each entry is c1,c2,end.
+std::vector<std::array<Vec2,3>> ellipse_segments(Vec2 center,double rx,double ry,double rotation,double start,double sweep) {
+    const int spans=std::max(1,static_cast<int>(std::ceil(std::abs(sweep)/(std::numbers::pi/4)-1e-12)));
+    need(spans<=8,"SVG_RANGE","Invalid elliptical sweep");const double step=sweep/spans,k=4.0/3*std::tan(step/4),co=std::cos(rotation),si=std::sin(rotation);
+    auto map=[&](double x,double y){Vec2 v{center.x+co*rx*x-si*ry*y,center.y+si*rx*x+co*ry*y};need(std::isfinite(v.x)&&std::isfinite(v.y)&&std::abs(v.x)<=1e7&&std::abs(v.y)<=1e7,"SVG_RANGE","Elliptical geometry exceeds supported range");return v;};
+    std::vector<std::array<Vec2,3>> result;
+    for(int i=0;i<spans;++i){const auto t=start+i*step,u=t+step;result.push_back({map(std::cos(t)-k*std::sin(t),std::sin(t)+k*std::cos(t)),map(std::cos(u)+k*std::sin(u),std::sin(u)-k*std::cos(u)),map(std::cos(u),std::sin(u))});}
+    return result;
+}
+std::vector<std::array<Vec2,3>> endpoint_arc(Vec2 start,Vec2 end,double rx,double ry,double degrees,bool large,bool sweep) {
+    rx=std::abs(rx);ry=std::abs(ry);const auto phi=std::fmod(degrees,360.0)*std::numbers::pi/180,co=std::cos(phi),si=std::sin(phi);
+    const auto dx=(start.x-end.x)/2,dy=(start.y-end.y)/2;double u=(co*dx+si*dy)/rx,v=(-si*dx+co*dy)/ry;
+    double norm=std::hypot(u,v);need(std::isfinite(norm)&&norm>0,"SVG_RANGE","Arc radii/endpoint ratio exceeds supported range");
+    if(norm>1){rx*=norm;ry*=norm;u/=norm;v/=norm;norm=1;}
+    need(std::isfinite(rx)&&std::isfinite(ry)&&rx<=1e7&&ry<=1e7,"SVG_RANGE","Corrected arc radii exceed supported range");
+    const auto factor=(large==sweep?-1:1)*std::sqrt(std::max(0.0,1-norm*norm));
+    const double nx=factor*(v/norm),ny=-factor*(u/norm);
+    const Vec2 center{co*rx*nx-si*ry*ny+(start.x+end.x)/2,si*rx*nx+co*ry*ny+(start.y+end.y)/2};
+    const Vec2 a{u-nx,v-ny},b{-u-nx,-v-ny};const auto angle=std::atan2(a.y,a.x);double delta=std::atan2(a.x*b.y-a.y*b.x,a.x*b.x+a.y*b.y);
+    if(sweep&&delta<0)delta+=2*std::numbers::pi;if(!sweep&&delta>0)delta-=2*std::numbers::pi;
+    auto result=ellipse_segments(center,rx,ry,phi,angle,delta);result.back()[2]=end;return result;
+}
 std::vector<Contour> path(QString text,const Id& id,std::size_t& total) {
     Numbers n(text);std::vector<Contour> contours;Vec2 current{},start{},control{};char previous=0,command=0;std::size_t point_id=0;
     auto add=[&](Vec2 v){need(++total<=10000,"SVG_LIMIT","SVG point limit10000");Point p;p.id=id+"-p"+std::to_string(point_id++);p.x.literal=v.x;p.y.literal=v.y;contours.back().points.push_back(p);current=v;};
@@ -71,7 +93,7 @@ std::vector<Contour> path(QString text,const Id& id,std::size_t& total) {
     while(!n.end()) {
         if(n.text[n.at].isLetter())command=n.text[n.at++].toLatin1();else need(command!=0,"SVG_SYNTAX","Path command required");
         const auto upper=static_cast<char>(std::toupper(static_cast<unsigned char>(command)));const bool relative=command!=upper;
-        need(std::string("MLHVCSQTZ").find(upper)!=std::string::npos,"SVG_UNSUPPORTED","Unsupported path command (elliptical arcs are not yet supported)");
+        need(std::string("MLHVCSQTAZ").find(upper)!=std::string::npos,"SVG_UNSUPPORTED","Unsupported path command");
         if(upper=='Z') {
             need(!contours.empty()&&!contours.back().closed,"SVG_SYNTAX","Close requires an open subpath");auto& c=contours.back();
             if(c.points.size()>1&&current.x==start.x&&current.y==start.y){c.points.front().in_angle=c.points.back().in_angle;c.points.front().in_length=c.points.back().in_length;c.points.pop_back();}
@@ -88,6 +110,15 @@ std::vector<Contour> path(QString text,const Id& id,std::size_t& total) {
             if(upper=='L')add(pair());
             else if(upper=='H'){const auto x=value();add({x+(relative?origin.x:0),origin.y});}
             else if(upper=='V'){const auto y=value();add({origin.x,y+(relative?origin.y:0)});}
+            else if(upper=='A') {
+                const auto rx=value(),ry=value(),rotation=value();
+                auto flag=[&](){n.space();if(n.at<n.text.size()&&n.text[n.at]==','){++n.at;n.space();}need(n.at<n.text.size()&&(n.text[n.at]=='0'||n.text[n.at]=='1'),"SVG_SYNTAX","Arc flags must be single 0 or 1");return n.text[n.at++]=='1';};
+                const bool large=flag(),sweep=flag();const auto end=pair();
+                if(end.x!=origin.x||end.y!=origin.y) {
+                    if(rx==0||ry==0)add(end);
+                    else for(const auto& segment:endpoint_arc(origin,end,rx,ry,rotation,large,sweep)){handle(contours.back().points.back(),true,segment[0]);add(segment[2]);handle(contours.back().points.back(),false,segment[1]);}
+                }
+            }
             else {
                 Vec2 c1{},c2{},end{};
                 if(upper=='C'){c1=pair();c2=pair();end=pair();control=c2;}
@@ -112,12 +143,7 @@ std::vector<Contour> shape(const QString& tag,Attributes& a,const Id& id,std::si
     auto add=[&](Vec2 v){need(++total<=10000,"SVG_LIMIT","SVG point limit10000");Point p;p.id=id+"-p"+std::to_string(serial++);p.x.literal=v.x;p.y.literal=v.y;c.points.push_back(p);};
     auto close=[&](bool curved=false){c.closed=true;if(c.points.size()>1){auto& first=c.points.front();const auto& last=c.points.back();if(curved||(first.x.literal==last.x.literal&&first.y.literal==last.y.literal)){first.in_angle=last.in_angle;first.in_length=last.in_length;c.points.pop_back();}}};
     auto arc=[&](Vec2 center,double rx,double ry,double start,double sweep) {
-        const int spans=static_cast<int>(std::ceil(std::abs(sweep)/(std::numbers::pi/4)));const double step=sweep/spans,k=4.0/3*std::tan(step/4);
-        for(int i=0;i<spans;++i){const auto t=start+i*step,u=t+step;
-            const Vec2 c1{center.x+rx*(std::cos(t)-k*std::sin(t)),center.y+ry*(std::sin(t)+k*std::cos(t))};
-            const Vec2 c2{center.x+rx*(std::cos(u)+k*std::sin(u)),center.y+ry*(std::sin(u)-k*std::cos(u))};
-            handle(c.points.back(),true,c1);add({center.x+rx*std::cos(u),center.y+ry*std::sin(u)});handle(c.points.back(),false,c2);
-        }
+        for(const auto& segment:ellipse_segments(center,rx,ry,0,start,sweep)){handle(c.points.back(),true,segment[0]);add(segment[2]);handle(c.points.back(),false,segment[1]);}
     };
     if(tag=="line") {const Vec2 p{length("x1"),length("y1")},q{length("x2"),length("y2")};add(p);add(q);}
     else if(tag=="polyline"||tag=="polygon") {

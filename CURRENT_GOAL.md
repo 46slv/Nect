@@ -1,33 +1,33 @@
-# Vector-intake Mission
+# Everyday-arrangement Mission
 
 ## Mission Brief
 
-**Mission identity:** `Nect/vector-intake`; same sole primary executor, same Task and branch.
+**Mission identity:** `Nect/everyday-arrangement`; same sole primary executor, same Task and branch.
 
-**Final Goal:** Reuse static SVG artwork as editable native objects through GUI/API/MCP, removing a practical vector-asset intake blocker.
+**Final Goal:** Make ordinary overlapping artwork easy to arrange in the GUI using existing semantic Session commands, preserving object identity, references and reversible native state.
 
-**Completion conditions:** A useful explicit SVG subset imports into the current Composition as an editable Group in one atomic Undo; malformed/unsupported input leaves the Session untouched. Transforms, order and supported paint survive native save/reopen and export. Actual GUI and formal API/MCP acceptance with original fixtures. Unsupported capabilities disclosed. No imported code/URLs execute.
+**Completion conditions:** Front/back and one-step stacking changes work for selected sibling objects and Groups with predictable multi-selection order, context menu/keyboard access, one-step Undo and native persistence. Actual Windows overlapping-artwork evidence. Reassess nearby direct-edit blockers after this vertical slice.
 
-**Constraints / Authority:** Current continuous-development instruction and accepted interoperability direction. Existing Qt Core XML stack only in desktop adapter; no new runtime dependency for core-only CLI, no native format change. Immutable input is conversion source, not a second document authority. Working branch commits/pushes permitted; no main push/merge, release or policy changes. Continue this Task across checkpoints.
+**Constraints / Authority:** Explicit continuous-development user instruction and accepted expert direct-edit direction. Working branch commit/push allowed; no main merge/release, no new dependency/native format change. GUI/API/MCP share core authority. No successor Task. Completed vector-intake evidence is in `docs/first-usable.md` and Git.
 
-**Coarse checkpoint map:** (1) Bounded path/group SVG geometry and solid paint intake, same Host path for GUI/API/MCP, atomic/native/visual acceptance. (2) Reassess actual asset coverage (basic shapes/arcs if justified), expand or choose next Mission based on evidence.
+**Coarse checkpoint map:** (1) Expose existing ReorderObjects semantic authority as practical selection-relative stacking actions. (2) Reassess adjacent editing needs from actual use; keep future scope coarse.
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Support SVG elliptical path arcs with bounded, disclosed cubic conversion, completing useful static geometry intake.
+**Goal:** Bring forward/send backward/bring to front/send to back for selected sibling objects and Groups without moving coordinates or retargeting references.
 
-**Current phase:** Basic-shape checkpoint accepted; synchronizing before arc implementation.
+**Current phase:** SVG arcs and vector-intake accepted; checkpoint commit/synchronization, then stacking implementation.
 
-**Proven:** Path/group checkpoint `ccc0604177f8090f2e7e8b30b3bb5aa26b3f0d32` synchronized, full39/39 regression. Basic shapes focused2/2 + actual Windows fixture accepted; native point edit/Undo/save/reopen exact. See `docs/first-usable.md` SVG sections and `docs/svg-import.md` contract.
+**Proven:** Core ReorderObjects already exists; live Window has no corresponding object stacking actions. SVG final full regression39/39 passed plus actual GUI/native/export acceptance; see `docs/first-usable.md`.
 
-**Next task:** Implement A/a endpoint-to-center conversion, radius correction, sweep/large flags and degenerate cases. Verify official equations against independent endpoint/ellipse cases; preserve budgets and atomic refusal.
+**Next task:** Inspect existing selection scope, context menus and ReorderObjects ordering contract. Implement thin GUI actions with stable multi-selection partition/step behavior and focused semantic/UI tests.
 
-**Approach:** Existing path cubic representation, no external parser/dependency. Keep quadratic exact lowering; arcs use bounded angular spans and disclose approximation. Geometry contracts plus GUI representative fixture, Undo/native/Host validation.
+**Approach:** Reuse Session ReorderObjects, keep selected siblings relative order, no-op at boundaries. Respect group scope; reject ambiguous mixed-parent selection. Actual overlapping shapes confirm visual order, Undo and point/reference preservation.
 
-**Done for next:** Arc artwork imports with correct endpoints/orientation/flags and explicit unsupported boundaries; focused tests and actual visual acceptance; coherent commit/push and remote equality. Reassess next Mission in this Task.
+**Done for next:** Four actions work from menus/shortcuts, multi-selection and nested scopes behave predictably, semantic checks and real GUI pass; coherent commit/push and remote HEAD equality. Reassess within this Task.
 
-**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `ccc0604177f8090f2e7e8b30b3bb5aa26b3f0d32`, accepted shape work awaiting commit. Owned GUI closed; Full access/never approvals.
+**State:** `D:\Documents\Nect`, `codex/practical-alpha`; base `4b635409006210a9211a04537e703a319b80e786`, accepted arc changes awaiting commit. Owned GUI closed; Full access/never approvals.
 
-**Authority:** Explicit continuous-development user instruction; working-branch commit/push authorized, no main merge/release. No new Task or stop at Mission completion.
+**Authority:** Explicit continuous-development user instruction; working-branch commit/push authorized, no main merge/release. Continue across Mission/checkpoint boundaries in this Task.
 
 **Handoff:** CONTINUE_CURRENT_TASK.

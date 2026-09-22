@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 480 320">
+  <title>Original Nect arc mark</title>
+  <rect x="24" y="24" width="432" height="272" rx="28" fill="#172F3A"/>
+  <path d="M160 70 A90 90 0 1 1 70 160 L112 160 A48 48 0 1 0 160 112 Z" fill="#59D8B0"/>
+  <path d="M275 114 a70 32 -25 1 1 100 60" fill="none" stroke="#F7C65D" stroke-width="8"/>
+  <path d="M278 224 a20 20 0 0140 0 20 20 0 0140 0" fill="none" stroke="#E4F0EA" stroke-width="6"/>
+</svg>

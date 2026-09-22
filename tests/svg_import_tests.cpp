@@ -27,7 +27,7 @@ int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplicati
     auto exported=export_svg(accepted,"comp","art");check(exported.find("<path")!=std::string::npos,"Imported paths export normally");
     auto compact=read_svg(R"svg(<svg viewBox="0 0 20 20"><path d="M.5.5 10-2 C1 2 3 4 5 6s7 8 9 10z"/></svg>)svg","comp","compact","Compact",0,0);check(compact.paths==1,"Compact SVG number grammar");
     for(const auto& invalid:std::vector<std::string>{
-        R"svg(<svg viewBox="0 0 10 10"><path d="M0 0A2 2 0 0 0 4 4"/></svg>)svg",
+        R"svg(<svg viewBox="0 0 10 10"><path d="M0 0A2 2 0 2 0 4 4"/></svg>)svg",
         R"svg(<!DOCTYPE svg [<!ENTITY x "boom">]><svg viewBox="0 0 10 10"><path d="M0 0"/></svg>)svg",
         R"svg(<svg viewBox="0 0 10 10"><script/></svg>)svg",
         R"svg(<svg viewBox="0 0 10 10"><path d="M0 0L1,"/></svg>)svg",
@@ -65,6 +65,17 @@ int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplicati
     for(const auto& element:std::vector<std::string>{"<rect width='-1' height='10'/>","<circle r='0'/>","<ellipse rx='10' ry='-2'/>","<polyline points='0 0 10'/>","<polygon points='0 0 10 20,'/>","<rect width='10%' height='20'/>","<circle r='5'><rect width='2' height='2'/></circle>"}) {
         bool rejected=false;try{(void)read_svg("<svg viewBox='0 0 40 40'>"+element+"</svg>","comp","invalid-shape","Bad",0,0);}catch(const Error&){rejected=true;}check(rejected,"Invalid/unsupported shape refuses entirely");
     }
+    for(bool large:{false,true})for(bool sweep:{false,true}) {
+        const auto input=std::string("<svg viewBox='-100 -100 400 400'><path d='M100 0 A100 100 0 ")+(large?"1":"0")+" "+(sweep?"1":"0")+" 0 100'/></svg>";
+        const auto plan=read_svg(input,"comp","arc","Arc",0,0);Session arcs(empty_document("arc-doc","comp","art"));arcs.apply(plan.commands,0);const auto& points=arcs.document().objects.at("arc-n1").contours[0].points;
+        check(points.size()==(large?7:3),"Arc sweep spans and flags");const auto& mid=points[points.size()/2];const double d=std::sqrt(0.5)*100,expected=large?(sweep?100+d:-d):(sweep?d:100-d);near(mid.x.literal,expected);near(mid.y.literal,expected);near(points.back().x.literal,0);near(points.back().y.literal,100);
+    }
+    const auto arc_plan=read_svg(R"svg(<svg viewBox="0 0 400 300"><path d="M0 0a10 10 0 0120 0 A0 10 0 0 1 30 0 A10 10 0 1 1 30 0 S40 5 50 0"/><path d="M10 0A1 1 0 0 1-10 0"/><path d="M0 20A20 10 90 0 1 0-20"/></svg>)svg","comp","arcs","Arcs",0,0);
+    Session arcs(empty_document("arc-doc","comp","art"));arcs.apply(arc_plan.commands,0);
+    const auto& degenerate=arcs.document().objects.at("arcs-n1").contours[0].points;check(degenerate.size()==7,"Relative compact flags, zero radius line, coincident endpoint omission");near(degenerate[5].x.literal,30);near(degenerate[5].out_length.literal,0);
+    const auto& corrected=arcs.document().objects.at("arcs-n2").contours[0].points;near(corrected[2].y.literal,10);
+    const auto& rotated=arcs.document().objects.at("arcs-n3").contours[0].points;near(rotated[2].x.literal,-10);near(rotated[2].y.literal,0);
+    check(decode(encode(arcs.document()))==arcs.document(),"Arc authored/native roundtrip");
     QTemporaryDir temp;const auto input=temp.path()+"/art.svg";QFile file(input);check(file.open(QIODevice::WriteOnly),"Write owned SVG fixture");file.write(QByteArray::fromStdString(svg));file.close();
     Window window(temp.path()+"/recovery");window.show();QApplication::processEvents();auto& host=window.host;
     const auto composition=host.session.document().compositions.front().id;const auto original=host.session.document();
