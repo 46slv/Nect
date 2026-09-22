@@ -356,18 +356,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
             throw Error("IO_ERROR",output.errorString().toStdString());
         statusBar()->showMessage("SVG exported with text as outlines; native text remains editable",10000);
     });
-    action(file,"Export PNG…",{},[this]{
-        bool ok=false;
-        const auto scale=QInputDialog::getDouble(this,"PNG output resolution","Pixels per document unit (maximum 8192 per axis / 16 MP)",1,0.01,16,2,&ok);
-        if(!ok)return;
-        const auto background=QInputDialog::getItem(this,"PNG background","Background",{"Transparent","White"},0,false,&ok);
-        if(!ok)return;
-        auto path=QFileDialog::getSaveFileName(this,"Export current artboard as PNG",{},"PNG (*.png)");
-        if(path.isEmpty())return;
-        if(QFileInfo(path).suffix().isEmpty())path+=".png";
-        const auto result=host.export_png(path,canvas->active_composition(),canvas->active_artboard(),scale,background=="White",host.session.revision());
-        statusBar()->showMessage(QString("PNG exported: %1 x %2 px, sRGB, %3 background").arg(result["width"].toInt()).arg(result["height"].toInt()).arg(background.toLower()),10000);
-    });
+    action(file,"Export PNG…",{},[this]{export_png();})->setObjectName("export-png");
     undo_=action(edit,"Undo",QKeySequence::Undo,[this]{canvas->cancel_interaction();host.session.undo(host.session.revision());host.edited();});
     redo_=action(edit,"Redo",QKeySequence::Redo,[this]{canvas->cancel_interaction();host.session.redo(host.session.revision());host.edited();});
     action(edit,"Delete selection",QKeySequence::Delete,[this]{
@@ -1764,6 +1753,50 @@ void Window::pick_source(std::vector<Ref> targets,bool relative) {
     connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
     dialog->show();search->setFocus();
 }
+void Window::export_png() {
+    const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
+    const auto revision=host.session.revision();const auto identity=host.session_id;
+    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before exporting");
+    const auto& compositions=host.session.document().compositions;
+    const auto comp=std::find_if(compositions.begin(),compositions.end(),[&](const auto& c){return c.id==composition;});
+    if(comp==compositions.end())throw Error("MISSING_COMPOSITION",composition);
+    const auto board=evaluate_artboard(*comp,artboard);
+    QDialog dialog(this);dialog.setObjectName("png-export-dialog");dialog.setWindowTitle("Export PNG");
+    auto* layout=new QVBoxLayout(&dialog);
+    auto* frame=new QLabel(QString("Artboard: %1").arg(qs(board.name)),&dialog);layout->addWidget(frame);
+    auto* form=new QFormLayout;layout->addLayout(form);
+    auto* scale=new QDoubleSpinBox(&dialog);scale->setObjectName("png-scale");scale->setDecimals(3);scale->setRange(.001,16);scale->setSingleStep(.25);scale->setValue(png_scale_);
+    form->addRow("Pixels per document unit",scale);
+    auto* background=new QComboBox(&dialog);background->setObjectName("png-background");background->addItems({"Transparent","White"});background->setCurrentIndex(png_white_?1:0);form->addRow("Background",background);
+    auto* dimensions=new QLabel(&dialog);dimensions->setObjectName("png-dimensions");form->addRow("Output",dimensions);
+    auto* destination=new QWidget(&dialog);auto* path_layout=new QHBoxLayout(destination);path_layout->setContentsMargins(0,0,0,0);
+    auto* path=new QLineEdit(png_path_,destination);path->setObjectName("png-path");path->setMinimumWidth(360);
+    if(path->text().isEmpty()&&!host.file_path.isEmpty())path->setText(QFileInfo(host.file_path).absolutePath()+"/"+QFileInfo(host.file_path).completeBaseName()+".png");
+    auto* browse=new QPushButton("Browse…",destination);path_layout->addWidget(path);path_layout->addWidget(browse);form->addRow("Save to",destination);
+    auto* hint=new QLabel("8-bit sRGB · Maximum 8192 pixels per axis / 16 MP.\nNative artwork remains editable.",&dialog);layout->addWidget(hint);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Save|QDialogButtonBox::Cancel,&dialog);buttons->button(QDialogButtonBox::Save)->setText("Export");layout->addWidget(buttons);
+    const auto update=[&]{
+        const auto width=std::ceil(board.width*scale->value()),height=std::ceil(board.height*scale->value());
+        const auto valid=width>=1&&height>=1&&width<=8192&&height<=8192&&width*height<=16777216;
+        dimensions->setText(QString("%1 × %2 px%3").arg(width,0,'f',0).arg(height,0,'f',0).arg(valid?"":" — exceeds output limit"));
+        buttons->button(QDialogButtonBox::Save)->setEnabled(valid&&!path->text().trimmed().isEmpty());
+    };
+    connect(scale,qOverload<double>(&QDoubleSpinBox::valueChanged),&dialog,[&]{update();});
+    connect(path,&QLineEdit::textChanged,&dialog,[&]{update();});
+    connect(browse,&QPushButton::clicked,&dialog,[&]{
+        const auto selected=QFileDialog::getSaveFileName(&dialog,"PNG destination",path->text(),"PNG (*.png)",nullptr,QFileDialog::DontConfirmOverwrite);
+        if(!selected.isEmpty())path->setText(selected);
+    });
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);update();
+    if(dialog.exec()!=QDialog::Accepted)return;
+    auto output=path->text().trimmed();if(QFileInfo(output).suffix().isEmpty())output+=".png";
+    if(QFileInfo::exists(output)&&QMessageBox::question(this,"Replace PNG?","Replace the existing output file?",QMessageBox::Yes|QMessageBox::No,QMessageBox::No)!=QMessageBox::Yes)return;
+    if(identity!=host.session_id)throw Error("SESSION_CONFLICT","Document changed while export settings were open");
+    const auto result=host.export_png(output,composition,artboard,scale->value(),background->currentIndex()==1,revision);
+    png_scale_=scale->value();png_white_=background->currentIndex()==1;png_path_=output;
+    statusBar()->showMessage(QString("PNG exported: %1 × %2 px, sRGB, %3 background").arg(result["width"].toInt()).arg(result["height"].toInt()).arg(png_white_?"white":"transparent"),10000);
+}
+
 void Window::save(bool choose) {
     auto path=host.file_path;
     if(choose||path.isEmpty())path=QFileDialog::getSaveFileName(this,"Save Nect document",path,"Nect (*.nect)");

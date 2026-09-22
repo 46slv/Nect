@@ -76,6 +76,10 @@ private:
     void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);
     void pick_source(std::vector<Ref> targets,bool relative=false);
     void save(bool choose);
+    void export_png();
+    double png_scale_=1;
+    bool png_white_=false;
+    QString png_path_;
     void add_curve();
     void add_primitive(const std::string& type);
     void add_text();

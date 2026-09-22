@@ -953,3 +953,32 @@ Next evidence-driven improvement: combine output resolution/background settings,
 show resulting pixel dimensions before choosing a file, and preserve the settings
 for repeated exports within the Window. Current three-dialog path works but hides
 result size until completion; no new model/format or dependency is needed.
+
+
+## Daily-output settings acceptance — 2026-09-23
+
+A single PNG dialog now contains scale, background, live ceiled pixel dimensions
+and destination with optional Browse. Oversized output is disabled before writing;
+existing-file replacement asks once. Only successful settings are remembered in
+the Window. Target Artboard, Session identity and revision are frozen at entry so
+API edits during the dialog cannot silently substitute a different export.
+
+Focused PNG/window/formal MCP contracts passed3/3 in11.32s
+(`build/daily-output/settings-tests.log`); an added stale-UI-revision assertion also
+passed afterward. The PNG test drives the real action/dialog, writes150x120 white
+output, checks disabled oversized settings, successful setting reuse and cancel,
+and proves a concurrent Rename makes export reject without creating a file.
+
+Actual Windows GUI showed960x820 at1x and immediately480x410 after typing0.5.
+Export succeeded directly from this dialog without opening a native chooser;
+status remained native revision0. Pillow independently decoded the resulting
+`build/daily-output/material-variations.png` as480x410 RGBA with standard sRGB
+intent0. This also verifies the post-ICC-repair encoder in the actual GUI. Owned
+window was closed. Previous rendering/performance evidence is unchanged.
+
+The daily-output Mission's bounded delivery conditions are now satisfied.
+Known limits remain8-bit sRGB PNG, no print/CMYK/high-bit-depth, no core-only CLI
+Qt renderer,16MP/8192 and compositing budgets. File-dialog shell latency is not
+claimed fixed. Current product reassessment selects everyday alignment/layout
+as the next Mission: multi-selection and Snap exist, but exact multi-object edge/
+center alignment has no semantic command or GUI action in live code.

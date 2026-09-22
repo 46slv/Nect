@@ -14,20 +14,20 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Export the selected Artboard to a bounded PNG using the same evaluated artwork and compositing as Canvas.
+**Goal:** Make repeated PNG export predictable with one settings dialog, live output dimensions and per-window settings.
 
-**Current phase:** COMPLETE; implementation and vertical acceptance passed. Practical-alpha completion accepted from `docs/first-usable.md`; live code confirms retained geometry, text, raster assets, compositing, and SVG export but no artwork PNG command.
+**Current phase:** COMPLETE; daily-output Mission conditions accepted in `docs/first-usable.md#daily-output-settings-acceptance--2026-09-23`. First PNG checkpoint completed and synchronized at `9a6209059b58a39e877936664f942270cccb727f` (local/remote equality verified).
 
-**Proven:** PNG implementation/GUI/API/MCP,37/37 regression, WIC reimport repair and30fps mixed-image evidence are recorded in `docs/first-usable.md#daily-output-png-checkpoint--2026-09-22`. Start was clean at `d6e350f`; fetched origin/main `e405afc`. Operational guidance merged without dropping branch-specific rules (merge `ff6338e`, marker repair `c05fc5a`). No owned desktop process was running. Existing Qt/WIC stack supplies renderer and PNG codec; no added dependency required.
+**Proven:** Shared renderer/Host/GUI/MCP,37/37 regression, WIC reimport repair and30fps mixed-image evidence: `docs/first-usable.md#daily-output-png-checkpoint--2026-09-22`. Actual use found three sequential dialogs hide output size until completion.
 
-**Next task:** Synchronize this checkpoint, then consolidate PNG settings with live pixel dimensions and remembered per-window values.
+**Next task:** Synchronize settings checkpoint, then start a daily-layout Mission for exact multi-object alignment through shared Session commands.
 
-**Approach:** Reuse evaluated Session data and Qt paint/compositing semantics. Exclude UI paper, selection, guides and drafts. Bound allocation; atomic output; reject invalid resolution and unsupported requests. Keep native0.13 unchanged.
+**Approach:** Keep existing Host exporter and renderer. Freeze target/revision while settings are open; cancel changes nothing. Confirm replacement of existing output once. Use focused UI flow plus actual Windows readback; no new dependency or persistence schema.
 
-**Done for next:** Focused rendering/output contracts and actual Windows GUI export pass; document API and limits; coherent commit/push and local/remote HEAD equality.
+**Done for next:** Successful repeated GUI exports have predictable dimensions and preserved settings; oversize/cancel/stale state paths do not write; focused tests and actual Windows flow pass; commit/push and verify HEAD equality. Then reassess next product Mission in this same Task.
 
-**State:** `D:\Documents\Nect`, `codex/practical-alpha`; upstream `origin/codex/practical-alpha`. Runtime unrestricted filesystem / danger-full-access / never approvals. No other writer. Prior practical-alpha receipts remain under `build/practical-alpha-acceptance/`.
+**State:** `D:\Documents\Nect`, `codex/practical-alpha`, upstream `origin/codex/practical-alpha`; clean at first checkpoint before this update. Native0.13 unchanged. All owned app/benchmark windows closed. Runtime danger-full-access / never approvals; sole primary executor.
 
-**Authority:** Current user continuous-development instruction supersedes old completed-Mission stop and Task-rotation conditions. Only working branch synchronization is authorized.
+**Authority:** Current user continuous-development instruction; no main integration/release, account/policy changes, shared-history rewrite or unrelated changes.
 
-**Handoff:** CONTINUE_CURRENT_TASK. Save coherent checkpoints, synchronize and proceed here; never create a successor Task for this run.
+**Handoff:** CONTINUE_CURRENT_TASK; no successor Tasks. Checkpoints/Missions are durable planning units, not stop conditions.

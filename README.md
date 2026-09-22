@@ -58,7 +58,11 @@ Implemented in M0:
 8. expose a local JSON-lines command adapter for black-box testing
 
 File → **Export PNG…** exports the active Artboard at an explicit number of pixels
-per document unit, with transparent or white background. Output uses the Canvas
+per document unit, with transparent or white background. One settings dialog shows
+the resulting pixel dimensions before export and disables output above the limits.
+Successful scale/background/destination settings are remembered within the Window;
+cancel leaves them unchanged. Settings freeze the source revision; concurrent API
+edits reject the stale export. Existing output replacement asks once. Output uses the Canvas
 artwork/compositing renderer, excludes paper/selection/guides, and declares 8-bit
 sRGB. Dimensions round up; limits are 8192 pixels per axis / 16,777,216 pixels,
 scale >0 through16, with the existing128MiB compositing surface budget. White is

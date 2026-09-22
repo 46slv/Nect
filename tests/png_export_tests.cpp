@@ -1,4 +1,13 @@
 #include "canvas.hpp"
+#include "window.hpp"
+#include <QTimer>
+#include <QAction>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QComboBox>
+#include <QPushButton>
+#include <QStatusBar>
 #include "host.hpp"
 #include "nect/io.hpp"
 #include <QApplication>
@@ -75,6 +84,35 @@ int main(int argc,char** argv) {
   host.import_image(path,"linked","composition","","exported-asset","exported-image","Reimport",0,0,0);
   check(host.session.document().raster_assets.at("exported-asset").payload->width()==300,"Export reimports through production WIC parser");
   rejected=false;try{host.export_png(path,"composition","artboard",1,false,1);}catch(const Error& e){rejected=e.code=="EXPORT_TARGET";}check(rejected,"Linked source protected");
+  Window window(dir.path()+"/ui-recovery");window.host.session=Session(d);window.refresh();
+  auto* export_action=window.findChild<QAction*>("export-png");check(export_action,"Discoverable export action");
+  bool valid_dimensions=false,invalid_disabled=false;
+  const auto ui_path=dir.path()+"/ui.png";
+  QTimer::singleShot(0,&window,[&]{
+   auto* dialog=window.findChild<QDialog*>("png-export-dialog");
+   auto* scale=dialog->findChild<QDoubleSpinBox*>("png-scale");auto* buttons=dialog->findChild<QDialogButtonBox*>();
+   dialog->findChild<QLineEdit*>("png-path")->setText(ui_path);
+   scale->setValue(16);invalid_disabled=!buttons->button(QDialogButtonBox::Save)->isEnabled();
+   scale->setValue(.5);valid_dimensions=dialog->findChild<QLabel*>("png-dimensions")->text().contains("150")&&buttons->button(QDialogButtonBox::Save)->isEnabled();
+   dialog->findChild<QComboBox*>("png-background")->setCurrentIndex(1);buttons->button(QDialogButtonBox::Save)->click();
+  });
+  export_action->trigger();check(valid_dimensions&&invalid_disabled,"Live size and preflight output limit");
+  QImage ui_output(ui_path);check(ui_output.size()==QSize(150,120)&&ui_output.pixelColor(149,119)==QColor(Qt::white),"Settings drive real export");
+  bool remembered=false;
+  QTimer::singleShot(0,&window,[&]{
+   auto* dialog=window.findChild<QDialog*>("png-export-dialog");
+   remembered=dialog->findChild<QDoubleSpinBox*>("png-scale")->value()==.5&&dialog->findChild<QComboBox*>("png-background")->currentIndex()==1&&dialog->findChild<QLineEdit*>("png-path")->text()==ui_path;
+   dialog->findChild<QDoubleSpinBox*>("png-scale")->setValue(2);dialog->reject();
+  });
+  export_action->trigger();check(remembered&&window.host.session.revision()==0,"Successful settings remembered; cancel does not edit");
+  const auto stale_path=dir.path()+"/stale.png";
+  QTimer::singleShot(0,&window,[&]{
+   auto* dialog=window.findChild<QDialog*>("png-export-dialog");
+   dialog->findChild<QLineEdit*>("png-path")->setText(stale_path);
+   window.host.session.apply({Rename{"a","Changed during export"}},0);
+   dialog->accept();
+  });
+  export_action->trigger();check(!QFile::exists(stale_path)&&window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT"),"Settings revision frozen during concurrent API changes");
   std::cout<<"PNG export crop/alpha/compositing/encoding/integrity/failure contracts passed\n";
  } catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;}
 }
