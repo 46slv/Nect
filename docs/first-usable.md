@@ -1348,3 +1348,36 @@ Tests cover parent/follower order, rotated external parent, zero/negative scale,
 retained generator editing, empty geometry with explicit pivot, malformed input,
 cross-Composition/duplicate/range refusal, exact Undo/Redo/native roundtrip and
 live formal MCP. GUI selection workflow is the next checkpoint, not yet claimed.
+
+
+## Selection-transform Mission completion: GUI workflow (2026-09-23)
+
+Edit/context/Inspector action and Ctrl+Shift+T open a compact common-pivot dialog:
+clockwise degrees, linked or independent percentage scales, Flip X/Y and
+selection-center/custom canvas pivot. Selection/session/revision freeze during
+the modal; cancel/default no-op preserve History; stale edits refuse. Existing
+single-object Anchor controls stay separate.
+
+Release build passed. Window/batch UI2/2 passed; new transform UI test initially
+timed out because its mixed-selection fixture normalized to object context and
+opened a legitimate modal without a closing callback. Diagnostic run identified
+the exact phase; repaired fixture asserts actual point context and tests refusal.
+Rebuilt focused transform UI **1/1 passed**,0.94s
+(`selection-transform-ui-repaired.log`). Prior core/API/MCP full39/39 remains
+valid; this checkpoint changes only GUI adapter/test/docs. Failure/diagnostic logs
+are retained in build/daily-layout, not overwritten by a success-only rerun.
+
+Actual Windows imported original shape-badge, unwrapped its outer Group, selected
+four roots (six paths, one nested Group), opened Ctrl+Shift+T and applied30°,
+80% scale plus Flip X about common center(420,310). Readback verified all seven
+world matrices (max error5.69e-14) and unchanged non-transform authored fields.
+GUI Ctrl+Z / Ctrl+Y restored exact before/after documents. Native save/reopen exact;
+PNG visually inspected without selection overlays; SVG exported and XML parsed.
+Receipt `build/daily-layout/selection-transform-gui-acceptance.json`, before/after
+JSON/PNG, matrices, SVG and native file alongside. Owned GUI closed.
+
+Selection-transform Mission complete. Live next bottleneck: stroke painting and
+SVG intake/output are fixed to butt caps/miter joins/miterlimit4. Rounded icon
+lines and beveled strokes require source-altering workarounds or fail import.
+Next bounded Mission investigates retained stroke style across core, renderer,
+UI and SVG interoperability, using existing versioned ShapeOperation ownership.

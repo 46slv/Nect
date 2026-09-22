@@ -375,6 +375,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
     action(edit,"Ungroup selected Groups",QKeySequence("Ctrl+Shift+G"),[this]{ungroup_selection();})->setObjectName("ungroup-objects");
     action(edit,"Duplicate objects in place",QKeySequence("Ctrl+D"),[this]{duplicate_selection();})->setObjectName("duplicate-objects");
+    action(edit,"Rotate / scale selection…",QKeySequence("Ctrl+Shift+T"),[this]{transform_selection();})->setObjectName("transform-selection");
     auto* arrange=edit->addMenu("Arrange stacking order");
     for(const auto& [label,key,direction,edge,name]:std::vector<std::tuple<QString,QString,int,bool,QString>>{
         {"Bring forward","Ctrl+]",1,false,"stack-forward"},{"Send backward","Ctrl+[",-1,false,"stack-backward"},
@@ -1524,6 +1525,48 @@ void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& labe
     add_properties(layout,{ref},label);
 }
 
+void Window::transform_selection() {
+    if(canvas->selections().empty()||std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& item){return !item.point.empty();}))
+        throw Error("INVALID_SELECTION","Select whole objects or Groups to rotate or scale together");
+    canvas->cancel_interaction();
+    const auto objects=canvas->selected_objects();const auto revision=host.session.revision();const auto identity=host.session_id;
+    QDialog dialog(this);dialog.setObjectName("selection-transform-dialog");dialog.setWindowTitle("Rotate / scale selection");dialog.resize(460,380);
+    auto* layout=new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel(QString("Transform %1 selected object(s) together").arg(objects.size()),&dialog));
+    auto* form=new QFormLayout;layout->addLayout(form);
+    auto number=[&](const char* name,const QString& label,double initial,double limit,const QString& suffix) {
+        auto* input=new QDoubleSpinBox(&dialog);input->setObjectName(name);input->setAccessibleName(label);
+        input->setDecimals(3);input->setRange(-limit,limit);input->setValue(initial);input->setSuffix(suffix);form->addRow(label,input);return input;
+    };
+    auto* rotation=number("selection-rotation","Rotation clockwise",0,1e9,"°");
+    auto* sx=number("selection-scale-x","Scale X",100,1e6," %");
+    auto* sy=number("selection-scale-y","Scale Y",100,1e6," %");
+    auto* linked=new QCheckBox("Keep X and Y scale equal",&dialog);linked->setObjectName("selection-scale-linked");linked->setChecked(true);form->addRow(linked);
+    connect(sx,qOverload<double>(&QDoubleSpinBox::valueChanged),&dialog,[=](double value){if(linked->isChecked()){const QSignalBlocker block(sy);sy->setValue(value);}});
+    connect(sy,qOverload<double>(&QDoubleSpinBox::valueChanged),&dialog,[=](double value){if(linked->isChecked()){const QSignalBlocker block(sx);sx->setValue(value);}});
+    connect(linked,&QCheckBox::toggled,&dialog,[=](bool enabled){if(enabled)sy->setValue(sx->value());});
+    auto* mirrors=new QWidget(&dialog);auto* mirror_layout=new QHBoxLayout(mirrors);mirror_layout->setContentsMargins(0,0,0,0);
+    for(const bool horizontal:{true,false}) {
+        auto* button=new QPushButton(horizontal?"Flip X":"Flip Y",mirrors);button->setObjectName(horizontal?"selection-flip-x":"selection-flip-y");mirror_layout->addWidget(button);
+        connect(button,&QPushButton::clicked,&dialog,[=]{linked->setChecked(false);auto* axis=horizontal?sx:sy;axis->setValue(-axis->value());});
+    }
+    form->addRow("Reflect",mirrors);
+    auto* pivot=new QComboBox(&dialog);pivot->setObjectName("selection-pivot-mode");pivot->addItems({"Selection center · geometric bounds","Custom canvas coordinates"});form->addRow("Shared pivot",pivot);
+    auto* px=number("selection-pivot-x","Pivot X",0,1e9,"");auto* py=number("selection-pivot-y","Pivot Y",0,1e9,"");px->setEnabled(false);py->setEnabled(false);
+    connect(pivot,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[=](int index){px->setEnabled(index==1);py->setEnabled(index==1);});
+    auto* hint=new QLabel("Scale along canvas X/Y, then rotate about one shared pivot.\nSelection center excludes stroke width. Authored Anchors stay unchanged.\n0% collapses an axis; negative scale reflects it.",&dialog);hint->setWordWrap(true);layout->addWidget(hint);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);buttons->button(QDialogButtonBox::Ok)->setText("Apply");layout->addWidget(buttons);
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    if(identity!=host.session_id)throw Error("SESSION_CONFLICT","Document changed while selection transform was open");
+    if(revision!=host.session.revision())throw Error("REVISION_CONFLICT","Artwork changed while selection transform was open; reopen it");
+    if(std::remainder(rotation->value(),360.0)==0&&sx->value()==100&&sy->value()==100)return;
+    std::optional<std::array<double,2>> center;
+    if(pivot->currentIndex()==1)center=std::array<double,2>{px->value(),py->value()};
+    host.session.apply({TransformObjects{objects,rotation->value(),sx->value()/100,sy->value()/100,center}},revision);
+    host.edited();canvas->setFocus();
+}
+
 void Window::distribute_selection(const std::string& axis) {
     if(std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& selection){return !selection.point.empty();}))
         throw Error("INVALID_SELECTION","Select whole objects to distribute their bounds");
@@ -1572,6 +1615,8 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         connect(button,&QPushButton::clicked,this,[this,axis]{perform([&]{distribute_selection(axis);});});
     }
     layout->addWidget(alignment_box);
+    auto* selection_transform=new QPushButton("Rotate / scale selection…");selection_transform->setObjectName("selection-transform-open");
+    layout->addWidget(selection_transform);connect(selection_transform,&QPushButton::clicked,this,[this]{perform([&]{transform_selection();});});
     auto* transform=section("Transform · each object");
     common(transform,"composite.opacity","Object opacity");
     common(transform,"transform.tx","Translation X");common(transform,"transform.ty","Translation Y");
@@ -2076,6 +2121,8 @@ void Window::put_selection_inside() {
 void Window::selection_menu(const QPoint& global) {
     const auto menu_session=host.session_id;const auto menu_revision=host.session.revision();
     QMenu menu;auto* duplicate=menu.addAction("Duplicate objects in place");duplicate->setEnabled(!canvas->selected_objects().empty()&&canvas->selected_point.empty());
+    auto* transform=menu.addAction("Rotate / scale selection…");
+    transform->setEnabled(!canvas->selections().empty()&&std::all_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& item){return item.point.empty();}));
     auto* stacking=menu.addMenu("Arrange stacking order");
     std::map<QAction*,std::pair<int,bool>> stack_actions;
     for(const auto& [label,direction,edge]:std::vector<std::tuple<QString,int,bool>>{{"Bring forward",1,false},{"Send backward",-1,false},{"Bring to front",1,true},{"Send to back",-1,true}})
@@ -2092,7 +2139,7 @@ void Window::selection_menu(const QPoint& global) {
         top->setEnabled((d.objects.at(members.back()).kind==Kind::path||d.objects.at(members.back()).kind==Kind::text));bottom->setEnabled((d.objects.at(members.front()).kind==Kind::path||d.objects.at(members.front()).kind==Kind::text));inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
     } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
     auto* chosen=menu.exec(global);if(!chosen)return;
-    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();});
+    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==transform)transform_selection();else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();});
 }
 void Window::duplicate_selection() {
     if(canvas->selected_objects().empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select objects or Groups to duplicate");

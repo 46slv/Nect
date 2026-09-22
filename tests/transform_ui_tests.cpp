@@ -10,6 +10,10 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QDoubleSpinBox>
+#include <QComboBox>
+#include <QCheckBox>
+#include <QStatusBar>
 #include <cmath>
 #include <iostream>
 
@@ -65,6 +69,58 @@ void window_controls(){
     window.host.save(temp.path()+"/transform.nect");const auto expected=encode(s.document());window.host.open(temp.path()+"/transform.nect");
     check(encode(window.host.session.document())==expected,"Native reopen retains anchors and external parent");
 }
+void selection_controls() {
+    QTemporaryDir temp;Window window(temp.path());window.show();QApplication::processEvents();auto& session=window.host.session;
+    const auto plane=session.document().compositions.front().id;
+    session.apply({CreatePrimitive{plane,"","left","Left",default_primitive("left-source","nect.shape.rectangle")},
+        CreatePrimitive{plane,"","right","Right",default_primitive("right-source","nect.shape.circle")},
+        Set{{"right","","transform.tx"},300}},0);window.host.edited();
+    window.canvas->set_selections({{"right",""},{"left",""}});QApplication::processEvents();
+    auto* action=window.findChild<QAction*>("transform-selection");check(action&&action->shortcut()==QKeySequence("Ctrl+Shift+T"),"Selection transform shortcut exposed");
+    auto dialog=[&](const std::function<void(QDialog*)>& edit,bool inspector=false) {
+        bool seen=false;QTimer::singleShot(0,[&]{
+            for(auto* top:QApplication::topLevelWidgets())if(auto* form=qobject_cast<QDialog*>(top);form&&form->objectName()=="selection-transform-dialog") {seen=true;edit(form);return;}
+        });
+        if(inspector)widget<QPushButton>(window,"selection-transform-open")->click();else action->trigger();
+        QApplication::processEvents();check(seen,"Production selection transform dialog opened");
+    };
+    auto accept=[](QDialog* form){form->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();};
+    const auto original=session.document();auto revision=session.revision();
+    dialog([](QDialog* form){form->findChild<QDoubleSpinBox*>("selection-rotation")->setValue(45);form->reject();});
+    check(session.document()==original&&session.revision()==revision,"Cancel discards draft transform");
+    dialog(accept);check(session.revision()==revision,"Default no-op does not add History");
+    dialog([&](QDialog* form){
+        auto* sx=form->findChild<QDoubleSpinBox*>("selection-scale-x");auto* sy=form->findChild<QDoubleSpinBox*>("selection-scale-y");
+        sx->setValue(200);check(sy->value()==200,"Linked scale changes both axes");
+        form->findChild<QCheckBox*>("selection-scale-linked")->setChecked(false);sy->setValue(50);
+        form->findChild<QDoubleSpinBox*>("selection-rotation")->setValue(90);
+        form->findChild<QComboBox*>("selection-pivot-mode")->setCurrentIndex(1);
+        check(form->findChild<QDoubleSpinBox*>("selection-pivot-x")->isEnabled(),"Custom pivot fields enabled explicitly");accept(form);
+    },true);
+    check(session.revision()==revision+1,"Dialog commits exactly one transaction");
+    const auto transformed=session.document();const auto values=evaluate(transformed);const auto matrices=evaluate_transforms(transformed,values);
+    near(matrices.at("left").world[1],2,"Common rotation and X scale applied");near(matrices.at("left").world[2],-.5,"Common Y scale applied");
+    near(matrices.at("right").world[5],600,"Explicit world pivot moves selection layout");
+    check(transformed.objects.at("left").source==original.objects.at("left").source,"GUI retains generator parameters");
+    check(window.canvas->selected_objects()==std::vector<Id>{"right","left"},"Selection remains intact");
+    session.undo(session.revision());window.host.edited();check(session.document()==original,"GUI transform one Undo exact");
+    session.redo(session.revision());window.host.edited();check(session.document()==transformed,"GUI transform Redo exact");
+    const auto path=temp.filePath("selection.nect");window.host.save(path);window.host.open(path);check(session.document()==transformed,"GUI transform save/reopen exact");
+    window.canvas->set_selections({{"right",""},{"left",""}});revision=session.revision();
+    dialog([&](QDialog* form){form->findChild<QPushButton*>("selection-flip-x")->click();
+        check(!form->findChild<QCheckBox*>("selection-scale-linked")->isChecked()&&form->findChild<QDoubleSpinBox*>("selection-scale-y")->value()==100,"Flip affects one axis");accept(form);});
+    check(session.revision()==revision+1,"Reflection uses common selection command");session.undo(session.revision());window.host.edited();
+    Document external;dialog([&](QDialog* form){
+        form->findChild<QDoubleSpinBox*>("selection-rotation")->setValue(90);
+        session.apply({Rename{"left","Changed externally"}},session.revision());window.host.edited();external=session.document();accept(form);
+    });
+    check(session.document()==external&&window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT"),"Stale modal selection refuses without losing external edit");
+    window.canvas->set_selections({{"right",""},{"left","left-source-top-left"}});check(!window.canvas->selected_point.empty(),"Fixture is in actual point editing context");revision=session.revision();action->trigger();
+    check(session.revision()==revision&&window.statusBar()->currentMessage().startsWith("INVALID_SELECTION"),"Point editing context cannot silently transform whole objects");
+    window.canvas->set_selection("left");session.apply({Link{{"left","","transform.a"},{{"right","","transform.a"},1,0,"copy_local_value"}}},session.revision());window.host.edited();
+    const auto driven=session.document();dialog([&](QDialog* form){form->findChild<QDoubleSpinBox*>("selection-rotation")->setValue(90);accept(form);});
+    check(session.document()==driven&&window.statusBar()->currentMessage().startsWith("DRIVEN_PROPERTY"),"Driven transform failure is visible and atomic");
+}
 void canvas_coordinates(){
     Session s(empty_document("doc","comp","board"));auto source=default_primitive("parent-source","nect.shape.rectangle");
     source.parameters.at("center_x").literal=20;source.parameters.at("center_y").literal=20;source.parameters.at("width").literal=20;source.parameters.at("height").literal=20;
@@ -96,5 +152,5 @@ void canvas_coordinates(){
 }
 }
 int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
-    try{window_controls();canvas_coordinates();std::cout<<"PASS Anchor, affine controls, parent picker, transformed drag and native reopen\n";return 0;}
+    try{window_controls();selection_controls();canvas_coordinates();std::cout<<"PASS Anchor, affine controls, parent picker, transformed drag and native reopen\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

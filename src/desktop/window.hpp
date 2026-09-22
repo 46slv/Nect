@@ -72,6 +72,7 @@ private:
     void rebuild_inspector(bool use_canvas_values=false);
     void sync_tree_selection();
     void add_multi_properties(QVBoxLayout* layout);
+    void transform_selection();
     void distribute_selection(const std::string& axis);
     void align_selection(const std::string& axis,const std::string& alignment,bool to_artboard);
     bool alignment_to_artboard_=false;

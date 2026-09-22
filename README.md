@@ -368,6 +368,24 @@ alignment-target chooser. Overlap on the chosen axis rejects explicitly. API/MCP
 command: `{"type":"distribute_objects","objects":["a","b","c"],"axis":"x"}`.
 
 
+## Rotate, scale and reflect a selection
+
+Select whole objects or Groups, then **Ctrl+Shift+T**, Edit → **Rotate / scale
+selection…**, or the same Inspector/context action. Rotation uses clockwise
+degrees; scales use percentages. Link X/Y for uniform scaling, or use **Flip X /
+Flip Y** for reflection. The shared pivot is the selection's geometric bounds
+center (excluding strokes) or explicit canvas coordinates. Scaling uses canvas
+axes before rotation. Authored object Anchors stay unchanged.
+
+Apply is one Undo; cancel/default no-op does not edit the document. Selected
+parents/followers move once, retained sources remain editable, and a changed
+driven transform or necessary singular inverse refuses atomically. The dialog
+rejects stale artwork if another API edit occurs while it is open. Existing
+single-object Anchor rotation/scale controls remain available separately.
+API/MCP: `{"type":"transform_objects","objects":["a","b"],"rotation":30,
+"scale_x":0.8,"scale_y":0.8,"pivot":null}`. Factors (not percentages) in the API;
+explicit pivot is `[x,y]`. Negative/zero factors reflect/collapse an axis.
+
 ## Selection and close inspection
 
 On the Canvas, **Ctrl+A** selects visible artwork in the current Composition or
