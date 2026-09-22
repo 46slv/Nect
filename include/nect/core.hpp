@@ -314,6 +314,7 @@ struct PutInside { Id composition,parent,group; std::vector<Id> members; };
 struct TranslateObjects { std::vector<Id> objects; double dx,dy; };
 // One-shot geometric alignment, excluding stroke width. Empty artboard uses the
 // initial selection envelope; otherwise target that Artboard in the same plane.
+struct DistributeObjects { std::vector<Id> objects; std::string axis; };
 struct AlignObjects { std::vector<Id> objects; std::string axis,alignment; std::optional<Id> artboard; };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
@@ -325,7 +326,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,SetExpression,
     SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,
-    AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects>;
+    AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};

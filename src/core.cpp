@@ -933,12 +933,13 @@ void translate_objects(Document& document,const std::vector<Id>& objects,const s
         require(transform_equal(after.at(id).world[i],target[i]),"TRANSFORM_PRESERVATION",
             "Selected world translation changed through dependent bindings or numeric conditioning");
 }
-void align_objects(Document& document,const AlignObjects& command) {
-    require(command.axis=="x"||command.axis=="y","INVALID_ALIGNMENT","Axis must be x or y");
-    require(command.alignment=="min"||command.alignment=="center"||command.alignment=="max","INVALID_ALIGNMENT","Alignment must be min, center or max");
-    require(command.objects.size()>=(command.artboard?1u:2u)&&command.objects.size()<=1000,"INVALID_BATCH","Alignment needs 2..1000 objects, or 1..1000 with an Artboard");
+void arrange_objects(Document& document,const std::vector<Id>& objects,const std::string& axis,
+    const std::optional<std::string>& alignment,const std::optional<Id>& artboard) {
+    require(axis=="x"||axis=="y","INVALID_ALIGNMENT","Axis must be x or y");
+    require(!alignment||alignment=="min"||alignment=="center"||alignment=="max","INVALID_ALIGNMENT","Alignment must be min, center or max");
+    require(objects.size()>=(alignment?(artboard?1u:2u):3u)&&objects.size()<=1000,"INVALID_BATCH","Layout needs 3..1000 objects for spacing, 2..1000 for alignment, or 1..1000 to an Artboard");
     std::set<Id> selected;
-    for(const auto& id:command.objects){require(document.objects.contains(id),"MISSING_OBJECT",id);require(selected.insert(id).second,"DUPLICATE_TARGET",id);}
+    for(const auto& id:objects){require(document.objects.contains(id),"MISSING_OBJECT",id);require(selected.insert(id).second,"DUPLICATE_TARGET",id);}
     const Composition* plane=nullptr;
     for(const auto& composition:document.compositions) {
         std::function<void(const Id&,bool)> visit=[&](const Id& id,bool selected_ancestor){
@@ -950,23 +951,47 @@ void align_objects(Document& document,const AlignObjects& command) {
     }
     const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
     std::map<Id,Bounds> initial;std::optional<Bounds> envelope;
-    for(const auto& id:command.objects) {
+    for(const auto& id:objects) {
         const auto bounds=object_bounds(document,id,values,transforms,true);require(bounds.has_value(),"EMPTY_BOUNDS","Object has no geometric bounds: "+id);
         initial.emplace(id,*bounds);
         if(!envelope)envelope=bounds;
         else {envelope->left=std::min(envelope->left,bounds->left);envelope->right=std::max(envelope->right,bounds->right);envelope->top=std::min(envelope->top,bounds->top);envelope->bottom=std::max(envelope->bottom,bounds->bottom);}
     }
-    if(command.artboard) {require(plane!=nullptr,"MISSING_COMPOSITION","Selection has no owning Composition");const auto board=evaluate_artboard(*plane,*command.artboard);envelope=Bounds{board.x,board.y,board.x+board.width,board.y+board.height};}
-    const auto coordinate=[&](const Bounds& bounds){const auto minimum=command.axis=="x"?bounds.left:bounds.top,maximum=command.axis=="x"?bounds.right:bounds.bottom;return command.alignment=="min"?minimum:command.alignment=="max"?maximum:minimum+(maximum-minimum)/2;};
-    const auto target=coordinate(*envelope);std::map<Id,Vec2> displacements;
-    for(const auto& [id,bounds]:initial){const auto delta=target-coordinate(bounds);displacements.emplace(id,command.axis=="x"?Vec2{delta,0}:Vec2{0,delta});}
-    translate_objects(document,command.objects,displacements);
+    if(artboard) {require(plane!=nullptr,"MISSING_COMPOSITION","Selection has no owning Composition");const auto board=evaluate_artboard(*plane,*artboard);envelope=Bounds{board.x,board.y,board.x+board.width,board.y+board.height};}
+    std::map<Id,Vec2> displacements;
+    if(alignment) {
+        const auto coordinate=[&](const Bounds& bounds){const auto minimum=axis=="x"?bounds.left:bounds.top,maximum=axis=="x"?bounds.right:bounds.bottom;return alignment=="min"?minimum:alignment=="max"?maximum:minimum+(maximum-minimum)/2;};
+        const auto target=coordinate(*envelope);
+        for(const auto& [id,bounds]:initial){const auto delta=target-coordinate(bounds);displacements.emplace(id,axis=="x"?Vec2{delta,0}:Vec2{0,delta});}
+    } else {
+        auto minimum=[&](const Bounds& b){return axis=="x"?b.left:b.top;};
+        auto maximum=[&](const Bounds& b){return axis=="x"?b.right:b.bottom;};
+        auto ordered=objects;
+        std::sort(ordered.begin(),ordered.end(),[&](const Id& a,const Id& b){
+            const auto x=minimum(initial.at(a)),y=minimum(initial.at(b));return x==y?a<b:x<y;
+        });
+        double available=0;
+        for(std::size_t i=1;i<ordered.size();++i) {
+            const auto gap=minimum(initial.at(ordered[i]))-maximum(initial.at(ordered[i-1]));
+            require(gap>=0,"OVERLAPPING_BOUNDS","Equal gaps require non-overlapping geometric bounds on the chosen axis");
+            available+=gap;
+        }
+        const auto gap=available/static_cast<double>(ordered.size()-1);
+        double next=minimum(initial.at(ordered.front()));
+        for(std::size_t i=0;i<ordered.size();++i) {
+            const auto& id=ordered[i];const auto& b=initial.at(id);
+            const auto delta=(i==0||i+1==ordered.size())?0.0:next-minimum(b);
+            displacements.emplace(id,axis=="x"?Vec2{delta,0}:Vec2{0,delta});
+            next+=maximum(b)-minimum(b)+gap;
+        }
+    }
+    translate_objects(document,objects,displacements);
     const auto after_values=evaluate(document);const auto after_transforms=evaluate_transforms(document,after_values);
     for(const auto& [id,before]:initial) {
         const auto after=object_bounds(document,id,after_values,after_transforms,true);const auto delta=displacements.at(id);
         require(after&&transform_equal(after->left,before.left+delta.x)&&transform_equal(after->right,before.right+delta.x)&&
-            transform_equal(after->top,before.top+delta.y)&&transform_equal(after->bottom,before.bottom+delta.y),"ALIGNMENT_PRESERVATION",
-            "Dependent geometry changed during alignment; resolve the dependency before aligning");
+            transform_equal(after->top,before.top+delta.y)&&transform_equal(after->bottom,before.bottom+delta.y),alignment?"ALIGNMENT_PRESERVATION":"DISTRIBUTION_PRESERVATION",
+            "Dependent geometry changed during layout; resolve the dependency before arranging");
     }
 }
 void group_contiguous(Document& document,const Id& composition,const Id& parent,const std::vector<Id>& members,const Id& id,const std::string& name) {
@@ -1172,7 +1197,9 @@ Document edited(const Document& document,const std::vector<Command>& commands) {
             std::map<Id,Vec2> displacements;for(const auto& id:c.objects)displacements.emplace(id,Vec2{c.dx,c.dy});
             translate_objects(candidate,c.objects,displacements);
         } else if constexpr(std::is_same_v<T,AlignObjects>) {
-            align_objects(candidate,c);
+            arrange_objects(candidate,c.objects,c.axis,c.alignment,c.artboard);
+        } else if constexpr(std::is_same_v<T,DistributeObjects>) {
+            arrange_objects(candidate,c.objects,c.axis,{},{});
         } else if constexpr(std::is_same_v<T,CenterAnchor>) {
             center_anchor(candidate,c.object,true);
         } else if constexpr(std::is_same_v<T,SetPosition>||std::is_same_v<T,TransformAroundAnchor>) {

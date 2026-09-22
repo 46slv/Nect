@@ -834,3 +834,13 @@ and must equal every original bound translated by its requested displacement;
 geometry/reference side effects reject as ALIGNMENT_PRESERVATION. Session applies
 the command atomically with ordinary history. No persistent layout constraint or
 new saved format is introduced.
+
+`DistributeObjects` / `distribute_objects` shares the alignment bounds and
+simultaneous translation solver. It requires3–1000 unique objects in one
+Composition, axis x/y, no structural overlapping selection. Sort by starting
+minimum on that axis (stable ID breaks ties), preserve both outer objects, and
+divide the sum of original adjacent gaps equally among all gaps. Initial axis
+overlap rejects as OVERLAPPING_BOUNDS, including nested intervals. Zero gaps and
+zero-size geometry are allowed. All other preservation/atomicity rules apply;
+dependent geometry failure is DISTRIBUTION_PRESERVATION. No persistent layout
+constraint is authored.

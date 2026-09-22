@@ -385,6 +385,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
             command->setToolTip("Align evaluated geometric bounds, excluding stroke width. Retained shapes remain editable.");
         }
     }
+    for(const auto axis:{"x","y"})action(align,std::string(axis)=="x"?"Equal horizontal gaps":"Equal vertical gaps",{},[this,axis]{distribute_selection(axis);})->setObjectName(QString("distribute-%1").arg(axis));
     action(edit,"Mask With Top",{},[this]{mask_selection(true);});
     action(edit,"Mask With Bottom",{},[this]{mask_selection(false);});
     action(edit,"Put Inside top selected Group",{},[this]{put_selection_inside();});
@@ -1502,6 +1503,13 @@ void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& labe
     add_properties(layout,{ref},label);
 }
 
+void Window::distribute_selection(const std::string& axis) {
+    if(std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& selection){return !selection.point.empty();}))
+        throw Error("INVALID_SELECTION","Select whole objects to distribute their bounds");
+    host.session.apply({DistributeObjects{canvas->selected_objects(),axis}},host.session.revision());
+    host.edited();
+}
+
 void Window::align_selection(const std::string& axis,const std::string& alignment,bool to_artboard) {
     if(std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& selection){return !selection.point.empty();}))
         throw Error("INVALID_SELECTION","Select whole objects to align their bounds");
@@ -1535,6 +1543,12 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
             auto* button=new QPushButton(label);button->setObjectName(QString("quick-align-%1-%2").arg(axis,qs(mode)));button->setToolTip("Align evaluated geometry; excludes stroke width");row->addWidget(button);
             connect(button,&QPushButton::clicked,this,[this,axis,mode]{perform([&]{align_selection(axis,mode,alignment_to_artboard_);});});
         }
+    }
+    auto* spacing_row=new QHBoxLayout;alignment_layout->addLayout(spacing_row);
+    for(const auto axis:{"x","y"}) {
+        auto* button=new QPushButton(std::string(axis)=="x"?"Equal H gaps":"Equal V gaps");button->setObjectName(QString("quick-distribute-%1").arg(axis));
+        button->setEnabled(selected.size()>=3);button->setToolTip("Space 3+ non-overlapping objects evenly; keep outer objects fixed. Excludes stroke width; ignores alignment target.");spacing_row->addWidget(button);
+        connect(button,&QPushButton::clicked,this,[this,axis]{perform([&]{distribute_selection(axis);});});
     }
     layout->addWidget(alignment_box);
     auto* transform=section("Transform · each object");

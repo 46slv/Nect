@@ -54,6 +54,7 @@ TOOLS = [
                      'Use expression_language for limits/functions; ref("object-id","point-id-or-empty","field") uses stable IDs. '
                      'Typing numbers cannot replace a formula. Unlink freezes its result; link commands explicitly replace it. Existing binding replacement needs replace_binding:true. '
                      'Formula errors/cycles/units/ranges reject the whole command; expressions persist in native 0.13 and SVG contains evaluated values only. '
+                     'distribute_objects {objects:[id],axis:x/y} makes equal geometric gaps among 3..1000 non-overlapping objects, keeping the outer objects fixed. Spatial order is independent of selection order. '
                      'align_objects {objects:[id],axis:x/y,alignment:min/center/max,artboard:null/id} aligns geometric bounds (excluding stroke) to initial selection envelope or an Artboard in the same Composition. Rejects structural ancestor/descendant overlap and driven/unpreservable changes atomically. '
                      'translate_objects {objects:[id],dx:number,dy:number} translates selected world matrices once, including selected ancestors/followers, in one Composition. '
                      'duplicate_objects {objects:[id],prefix:unused ID prefix of 1..48 characters} makes independent in-place copies, once per selected Group closure, in one Composition. '

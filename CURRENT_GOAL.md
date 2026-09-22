@@ -1,33 +1,33 @@
-# Daily-layout Mission
+# Direct-edit-flow Mission
 
 ## Mission Brief
 
-**Mission identity:** `Nect/daily-layout`; same sole primary executor and `codex/practical-alpha` working branch.
+**Mission identity:** `Nect/direct-edit-flow`; same primary executor, same `codex/practical-alpha` branch.
 
-**Final Goal:** Reduce repetitive placement work in everyday multi-object compositions with exact, undoable alignment and spacing through GUI/API/MCP.
+**Final Goal:** Make repeated selection, close inspection and small placement adjustments efficient in ordinary desktop production, preserving shared Session authoring semantics.
 
-**Completion conditions:** Mixed retained objects/Groups can be aligned to a selected geometric envelope or Artboard, and evenly spaced where useful, through shared Session commands. Stable IDs, sources, references and native0.13 are preserved. Commands are atomic, Undo/Redo/save/reopen work, driven or unrepresentable changes reject explicitly. Actual Windows GUI verifies discoverable actions and resulting placement; relevant contracts and viewport floor remain sound.
+**Completion conditions:** Scope-aware selection and framing work on real grouped/point artwork without modifying documents; keyboard placement uses existing atomic Session commands with Undo and source preservation. Native format remains0.13. Actual Windows GUI and focused contracts establish the acceptance paths.
 
-**Constraints / Authority:** User's continuous-development instruction (2026-09-22; runtime date now2026-09-23) authorizes accepted-direction daily-workflow selection and branch commits/pushes. `docs/product-direction.md` owns deliberate layout/reflow intent. No main integration, release, policy changes, unrelated modifications or new dependencies. Complete Mission/checkpoints without stopping; no new/successor Task. Native data stays authoritative.
+**Constraints / Authority:** Current user's continuous-development authorization supersedes old stop/handoff rules. Commit/push only the working branch. No release, main push/merge, dependencies, account changes or unrelated edits. Same Task continues across Mission boundaries. Accepted direct-editing/expert workflow direction in `docs/product-direction.md`; not a blanket Candidate backlog.
 
-**Coarse checkpoint map:** (1) Exact edge/center alignment to selection or Artboard with shared world-space bounds/translation, GUI/API/MCP and atomicity acceptance. (2) Measured real-layout use, then bounded spacing/distribution if evidence confirms value. Reassess the next Mission after acceptance; no full Illustrator feature-copy backlog.
+**Coarse checkpoint map:** (1) Scope-aware Select All and Fit Selection, including safe keyboard focus. (2) Small keyboard moves through existing object/point Session translations, with predictable world units and Undo. Reassess live production value afterward.
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Evenly space three or more whole objects along x/y while preserving the outer geometric envelope and retained authoring.
+**Goal:** Select and closely frame artwork in the current editing context without repetitive Shift-click/zoom work.
 
-**Current phase:** Alignment accepted; prepare the next bounded shared Session command.
+**Current phase:** Daily-layout accepted (38/38 full regression, actual GUI); synchronize spacing checkpoint, then begin scoped selection.
 
-**Proven:** Daily-output synchronized at `a3b053d`. Alignment acceptance,38-test regression, actual Windows Inspector/readback/Undo and current multi-selection benchmark are recorded in `docs/first-usable.md`, Daily-layout alignment acceptance. Core now has exact world bounds and simultaneous translation solving across effective parents.
+**Proven:** Alignment synchronized at `811e38b59e27723b68fd41d2538c4f7265a30df9`. Equal gaps have focused core/window/formal MCP acceptance and actual Windows GUI Undo/Redo/readback in `build/daily-layout/gui-spacing.json`. Evidence owner `docs/first-usable.md`. Live Canvas has Fit Artboard/all Artboards, Group scope and point/object selection, but no Select All command or Fit Selection.
 
-**Next task:** Implement equal geometric gaps using existing bounds/translation validation, expose Inspector/Edit and API/MCP, and verify mixed widths/Undo/atomic refusals in a real layout.
+**Next task:** Add scoped Select All and Fit Selection using current selection/geometry caches. Check text-field shortcuts remain native; points frame their actual world positions, whole objects frame their evaluated geometry. Keep hidden mask-only objects out of normal Select All, avoid ancestor+descendant selection.
 
-**Approach:** Stable spatial ordering; preserve first/last positions and outer envelope, move only interior objects. Reject overlapping initial geometry to keep ordering/envelope unambiguous. Reuse alignment preservation checks, reject driven/unrepresentable results. No persistent constraint or format change.
+**Approach:** Reuse Canvas view and selection state; no authored state/API command for viewport changes. Explicit View/Edit actions; canvas shortcuts only where they do not capture text editing. Degenerate/empty selections and active gestures must not cause accidental framing or edits.
 
-**Done for next:** Equal x/y gaps, source preservation, atomic failures, Undo/native/API/MCP and actual Windows GUI verified; coherent commit pushed with local/remote equality. Reassess Mission completion and next production value here.
+**Done for next:** Group/Composition scope, point context, fit bounds, no authored revision changes, focus-safe shortcuts and real Windows GUI proven; checkpoint committed/pushed with HEAD equality. Continue same Task to keyboard placement.
 
-**State:** `D:\Documents\Nect`; `codex/practical-alpha`, upstream `origin/codex/practical-alpha`. Alignment changes ready for coherent commit; remote prior checkpoint `a3b053d486662a5626eded7045bb76f4d350abe6`. No owned desktop remains. Full access / never approvals.
+**State:** `D:\Documents\Nect`; branch `codex/practical-alpha`; spacing changes awaiting commit. Owned GUI closed. Full access / never approvals.
 
-**Authority:** Current user continuous-development instruction; working-branch commit/push authorized, no main push/merge or release.
+**Authority:** Current explicit continuous-development instruction and accepted direct editing direction.
 
-**Handoff:** CONTINUE_CURRENT_TASK. No successor Task.
+**Handoff:** CONTINUE_CURRENT_TASK; no successor/new Task.

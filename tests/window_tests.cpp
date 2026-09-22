@@ -656,7 +656,16 @@ int main(int argc,char** argv) {
         visible_child<QComboBox>(layout,"alignment-target")->setCurrentIndex(1);
         visible_child<QPushButton>(layout,"quick-align-x-center")->click();
         const auto aligned_values=evaluate(layout_session.document());
-        check(layout_session.revision()==4&&aligned_values.at({"layout-left","","transform.tx"})==290&&aligned_values.at({"layout-right","","transform.tx"})==160,"Quick alignment buttons share the Artboard Session command");
+        const auto active_board=evaluate_artboard(layout_session.document().compositions.front(),layout.canvas->active_artboard());
+        const auto board_center=active_board.x+active_board.width/2;
+        check(layout_session.revision()==4&&aligned_values.at({"layout-left","","transform.tx"})==board_center-30&&aligned_values.at({"layout-right","","transform.tx"})==board_center-160,"Quick alignment buttons share the Artboard Session command");
+        layout_session.undo(4);layout.host.edited();
+        Point third;third.id="layout-third-point";third.x.literal=400;third.y.literal=200;
+        layout_session.apply({CreatePath{layout_comp,"","layout-third","Third",{{"layout-third-contour",false,{third}}}}},5);layout.host.edited();
+        layout.canvas->set_selections({{"layout-third",""},{"layout-left",""},{"layout-right",""}});QApplication::processEvents();
+        const auto before_spacing=layout_session.document();visible_child<QPushButton>(layout,"quick-distribute-x")->click();
+        check(layout_session.revision()==7&&evaluate(layout_session.document()).at({"layout-right","","transform.tx"})==55,"Quick equal gaps uses shared Session despite Artboard alignment target");
+        layout_session.undo(7);layout.host.edited();check(layout_session.document()==before_spacing,"GUI spacing is one Undo");
         std::cout<<"PASS Inspector, pick-whip, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

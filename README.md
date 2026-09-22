@@ -360,3 +360,9 @@ transforms that cannot represent the result reject without partial changes.
 API/MCP `apply` accepts `{"type":"align_objects","objects":["a","b"],
 "axis":"x","alignment":"min","artboard":null}`. Axis is x/y; alignment is
 min/center/max; artboard is null for selection bounds or an Artboard ID.
+
+Inspector **Equal H gaps / Equal V gaps** (also in Edit → Align objects) spaces
+3–1000 non-overlapping whole objects by their geometric bounds. Spatial order is
+independent of selection order; the outer two stay fixed. This ignores the
+alignment-target chooser. Overlap on the chosen axis rejects explicitly. API/MCP
+command: `{"type":"distribute_objects","objects":["a","b","c"],"axis":"x"}`.

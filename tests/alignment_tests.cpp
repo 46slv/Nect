@@ -35,5 +35,22 @@ int main(){try{
  const auto root=std::sqrt(.5);diagonal.transform[0].literal=root;diagonal.transform[1].literal=root;diagonal.transform[2].literal=-root;diagonal.transform[3].literal=root;
  near(bounds(d,"a").left,0);near(bounds(d,"a").right,0);
  auto api=request(bad,R"({"op":"apply","expected_revision":0,"commands":[{"type":"align_objects","objects":["a","b"],"axis":"x","alignment":"center","artboard":null}]})");check(api.find("\"ok\":true")!=std::string::npos,"Semantic JSON API command");
+ // Unequal widths, shuffled selection order and both axes preserve outer positions.
+ for(const auto axis:{"x","y"}) {
+  d=fixture();d.objects.emplace("c",rectangle("c",240,260,10,10));d.compositions[0].roots.push_back("c");
+  Session spacing(d);spacing.apply({DistributeObjects{{"c","a","b"},axis}},0);
+  const auto a=bounds(spacing.document(),"a"),b=bounds(spacing.document(),"b"),c=bounds(spacing.document(),"c");
+  if(std::string(axis)=="x"){near(a.left,10);near(c.left,240);near(b.left-a.right,c.left-b.right);near(b.top,140);}
+  else {near(a.top,20);near(c.top,260);near(b.top-a.bottom,c.top-b.bottom);near(b.left,100);}
+  check(spacing.document().objects.at("b").contours==d.objects.at("b").contours,"Spacing retains geometry");
+  const auto result=spacing.document();check(decode(encode(result))==result,"Spacing native roundtrip");spacing.undo(1);check(spacing.document()==d,"Spacing one Undo");spacing.redo(2);check(spacing.document()==result,"Spacing Redo");
+ }
+ d=fixture();d.objects.emplace("c",rectangle("c",240,260,10,10));d.compositions[0].roots.push_back("c");
+ d.objects.at("b").transform_parent="a";Session spaced_follower(d);spaced_follower.apply({DistributeObjects{{"b","c","a"},"x"}},0);near(bounds(spaced_follower.document(),"b").left,110);
+ d.objects.at("b").transform[4].binding=Binding{{"a","","transform.tx"},1,0,"copy_local_value"};
+ Session spaced_driven(d);try{spaced_driven.apply({DistributeObjects{{"a","b","c"},"x"}},0);throw std::runtime_error("Expected driven spacing failure");}catch(const Error& e){check(e.code=="DRIVEN_PROPERTY","Spacing driven rejection");}check(spaced_driven.document()==d&&spaced_driven.revision()==0,"Spacing failure atomic");
+ d=fixture();d.objects.emplace("c",rectangle("c",105,260,10,10));d.compositions[0].roots.push_back("c");Session overlap(d);
+ auto spacing_api=request(overlap,R"({"op":"apply","expected_revision":0,"commands":[{"type":"distribute_objects","objects":["a","b","c"],"axis":"x"}]})");check(spacing_api.find("OVERLAPPING_BOUNDS")!=std::string::npos&&overlap.document()==d,"Overlapping spacing rejects through API atomically");
+ spacing_api=request(overlap,R"({"op":"apply","expected_revision":0,"commands":[{"type":"distribute_objects","objects":["c","a","b"],"axis":"y"}]})");check(spacing_api.find("\"ok\":true")!=std::string::npos,"Spacing JSON API");
  std::cout<<"Alignment axes/targets/transforms/atomicity/undo/native/API contracts passed\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;}}

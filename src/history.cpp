@@ -147,6 +147,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,EditProperties>)return std::string(c.relative?"Adjust ":"Set ")+std::to_string(c.targets.size())+" properties: "+property_label(c.targets.front());
         else if constexpr(std::is_same_v<T,LinkProperties>)return std::string(c.relative?"Relative link ":"Link ")+std::to_string(c.targets.size())+" properties from "+property_label(c.source);
         else if constexpr(std::is_same_v<T,UnlinkProperties>)return "Unlink "+std::to_string(c.targets.size())+" properties: "+property_label(c.targets.front());
+        else if constexpr(std::is_same_v<T,DistributeObjects>)return "Equal object gaps: "+c.axis;
         else if constexpr(std::is_same_v<T,AlignObjects>)return "Align objects: "+c.axis+" "+c.alignment+(c.artboard?" to Artboard":" to selection");
         else if constexpr(std::is_same_v<T,TranslateObjects>)return "Move "+std::to_string(c.objects.size())+" objects: "+name(c.objects.front());
         else if constexpr(std::is_same_v<T,DeleteObjects>)return "Delete "+std::to_string(c.objects.size())+" object(s): "+name(c.objects.front());

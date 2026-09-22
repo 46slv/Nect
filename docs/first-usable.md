@@ -998,7 +998,9 @@ invalid/driven failures, Undo/Redo, native roundtrip and JSON. Existing batch te
 caught a tiny-translation regression during solver extraction; exact requested
 displacement differences repaired it before acceptance. Formal MCP aligns and
 undoes two paths. After Inspector controls were added, window/batch UI tests2/2
-passed4.24s; the final Inspector-button assertion also passed4.77s.
+passed4.24s. A later fully relinked run exposed a hard-coded Artboard-center
+expectation in the final button assertion; it now derives the expected center
+from the live Artboard and passes in the spacing regression below.
 
 Actual Windows GUI: three retained rectangles at geometric left70/280/580 were
 selected in the tree and aligned with Inspector Left. Canvas visibly aligned;
@@ -1018,3 +1020,35 @@ proven performance repair. Native compositor timing is outside this benchmark.
 Next practical gap: equal geometric spacing of mixed-width objects. Alignment
 removes one repetitive task; distributing three or more items currently requires
 manual per-object placement. Continue the same Mission/Task with bounded spacing.
+
+
+## Daily-layout spacing / Mission acceptance — 2026-09-23
+
+DistributeObjects adds equal horizontal/vertical geometric gaps for3–1000 objects,
+keeping outer positions fixed and selection order irrelevant. Inspector buttons
+and Edit menu use the same Session command as API/formal MCP. Overlap, structural
+ancestor selection and unpreservable/driven changes reject atomically. The bounds
+and simultaneous translation solver are shared with alignment; no model version
+or dependency change. Sources/references and one-step Undo/Redo remain intact.
+
+Full rebuilt regression38/38 in72.81s (`build/daily-layout/spacing-regression.log`),
+after focused core/window/MCP3/3 in10.37s. Mixed sizes, shuffled order, x/y,
+Transform Parent, rejection, native roundtrip, Undo/Redo and formal MCP verified.
+The Window test now derives Artboard center from actual dimensions instead of
+assuming640px; the earlier assertion failure was a fixture expectation error.
+An initial test invocation raced an unfinished desktop link and saw the old
+command set; only the post-build runs above are acceptance evidence.
+
+Actual Windows GUI: width120/160/80 rectangles initially at left70/280/580.
+Inspector Equal H gaps moved only the middle object by25, yielding115du gaps.
+Ctrl+Z returned all tx0 (revision2); toolbar Redo restored tx0/25/0 (revision3),
+confirmed through live Session readback. Receipt `build/daily-layout/gui-spacing.json`.
+Owned fixture `build/daily-layout/spacing.nect`; owned window closed. No Canvas
+paint-loop change in this checkpoint; alignment benchmark remains the viewport
+baseline, with its recorded variability rather than a new performance claim.
+
+Daily-layout completion conditions are met. The next Mission is direct-edit-flow:
+live Canvas supports explicit selection, Group scope and Fit Artboard, but lacks
+contextual Select All and Fit Selection, and has no arrow-key placement. These
+frequent operations build on existing selection/translation semantics, avoiding
+new authoring formats or speculative frameworks. Continue in this Task.
