@@ -221,6 +221,15 @@ void primitive_authoring(Window& window) {
         evaluate(session.document()).at({rectangle,"","generator.height"})==140&&
         path_contours(rectangle_object).front().points.size()==4,
         "Add Rectangle creates the usable default source with stable four-point topology");
+    window.canvas->set_selection(object);window.host.edited();QApplication::processEvents();
+    named_action(window,"add-stroke")->trigger();QApplication::processEvents();
+    const auto circle_stroke=session.document().objects.at(object).stack.back().id;
+    auto* circle_cap=visible_child<QComboBox>(window,("stroke-line-cap-"+circle_stroke).c_str());reveal(window,circle_cap);
+    circle_cap->setCurrentIndex(circle_cap->findData("round"));QApplication::processEvents();
+    check(session.document().objects.at(object).source&&session.document().objects.at(object).stack.back().line_cap=="round"&&
+        session.document().objects.at(object).stack.back().version==2,
+        "Circle source retains topology while its Stroke Inspector commits style");
+    window.canvas->set_selection(rectangle);window.host.edited();QApplication::processEvents();
 }
 void stack_authoring(Window& window) {
     auto& session=window.host.session;
@@ -306,6 +315,37 @@ void stack_authoring(Window& window) {
     edit_number(window,operation_ref(object,stroke,"width"),"7");
     check(evaluate(session.document()).at(operation_ref(object,stroke,"width"))==7,
         "Additional Stroke width is independently addressable in the Inspector");
+    auto* enable_miter=visible_child<QPushButton>(window,("stroke-enable-miter-"+stroke).c_str());reveal(window,enable_miter);
+    const auto promotion_revision=session.revision();QTest::mouseClick(enable_miter,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==promotion_revision+1&&session.document().objects.at(object).stack.back().version==2&&
+        evaluate(session.document()).at(operation_ref(object,stroke,"miter_limit"))==4,
+        "Native v1 Stroke promotes to editable v2 miter without changing appearance");
+    auto* stale_cap=visible_child<QComboBox>(window,("stroke-line-cap-"+stroke).c_str());reveal(window,stale_cap);
+    const auto stale_revision=session.revision();session.apply({Set{operation_ref(object,stroke,"width"),8}},stale_revision);
+    stale_cap->setCurrentIndex(stale_cap->findData("round"));QApplication::processEvents();
+    check(session.revision()==stale_revision+1&&session.document().objects.at(object).stack.back().line_cap=="butt"&&
+        window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT"),
+        "A stale Stroke Inspector handler rejects without retargeting the operation");
+    window.host.edited();QApplication::processEvents();
+    const auto miter_ref=operation_ref(object,stroke,"miter_limit");
+    session.apply({SetExpression{{miter_ref},{"4 + 4",1},false}},session.revision());window.host.edited();QApplication::processEvents();
+    auto* cap=visible_child<QComboBox>(window,("stroke-line-cap-"+stroke).c_str());reveal(window,cap);
+    cap->setCurrentIndex(cap->findData("round"));QApplication::processEvents();
+    check(session.document().objects.at(object).stack.back().line_cap=="round"&&
+        evaluate(session.document()).at(miter_ref)==8&&nect::property(session.document(),miter_ref).expression.has_value(),
+        "Changing cap preserves an expression-driven evaluated miter");
+    cap=visible_child<QComboBox>(window,("stroke-line-cap-"+stroke).c_str());reveal(window,cap);
+    const auto no_op_revision=session.revision();cap->setCurrentIndex(cap->findData("butt"));QApplication::processEvents();
+    check(session.document().objects.at(object).stack.back().line_cap=="butt"&&session.revision()==no_op_revision+1,
+        "Inspector line-cap control commits shared StrokeStyle");
+    cap=visible_child<QComboBox>(window,("stroke-line-cap-"+stroke).c_str());reveal(window,cap);
+    const auto same_cap_revision=session.revision();cap->setCurrentIndex(cap->findData("butt"));QApplication::processEvents();
+    check(session.revision()==same_cap_revision,"Choosing the existing line cap is a history-free no-op");
+    auto* join=visible_child<QComboBox>(window,("stroke-line-join-"+stroke).c_str());reveal(window,join);join->setCurrentIndex(join->findData("bevel"));QApplication::processEvents();
+    check(session.document().objects.at(object).stack.back().line_join=="bevel"&&
+        evaluate(session.document()).at(operation_ref(object,stroke,"miter_limit"))==8&&
+        nect::property(session.document(),miter_ref).expression.has_value(),
+        "Inspector line-join control preserves the evaluated miter limit");
 }
 void gradient_authoring(Window& window) {
     auto& session=window.host.session;
@@ -590,6 +630,12 @@ void text_authoring(Window& window) {
     check(field<QLineEdit>(window,font_size)->hasFocus()&&window.findChild<QScrollArea*>()->verticalScrollBar()->value()==scroll,
         "Numeric Return preserves focus and Inspector scroll position after rebuilding text controls");
     named_action(window,"add-stroke")->trigger();QApplication::processEvents();check(session.document().objects.at(id).stack.size()==2,"Text supports the common editable paint stack");
+    const auto text_stroke=session.document().objects.at(id).stack.back().id;
+    auto* text_cap=visible_child<QComboBox>(window,("stroke-line-cap-"+text_stroke).c_str());reveal(window,text_cap);
+    text_cap->setCurrentIndex(text_cap->findData("square"));QApplication::processEvents();
+    check(session.document().objects.at(id).text&&session.document().objects.at(id).stack.back().line_cap=="square"&&
+        session.document().objects.at(id).stack.back().version==2,
+        "Text source remains editable while its Stroke Inspector commits style");
     auto* family=visible_child<QComboBox>(window,"text-family");reveal(window,family);
     const auto original_family=family->currentText();auto* font_model=family->completer()->model();
     check(font_model&&font_model->rowCount()>1,"Font completion can discover installed families before opening the dropdown");

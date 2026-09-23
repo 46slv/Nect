@@ -133,7 +133,11 @@ std::vector<Contour> path(QString text,const Id& id,std::size_t& total) {
     }
     need(!contours.empty(),"SVG_SYNTAX","Empty path data is unsupported");return contours;
 }
-struct Style {QString fill="black",stroke="none",rule="nonzero";double fill_alpha=1,stroke_alpha=1,width=1;};
+struct Style {
+    QString fill="black",stroke="none",rule="nonzero";
+    QString line_cap="butt",line_join="miter";
+    double fill_alpha=1,stroke_alpha=1,width=1,miter_limit=4;
+};
 using Attributes=std::map<QString,QString>;
 // Basic shapes become editable paths. Elliptical segments use cubic spans <=45deg.
 std::vector<Contour> shape(const QString& tag,Attributes& a,const Id& id,std::size_t& total) {
@@ -177,7 +181,12 @@ Attributes attributes(const QXmlStreamReader& xml) {
         for(const auto& part:style->second.split(';',Qt::SkipEmptyParts)) {
             const auto colon=part.indexOf(':');need(colon>0&&part.indexOf(':',colon+1)<0,"SVG_UNSUPPORTED","Unsupported inline style");
             const auto key=part.left(colon).trimmed();need(std::set<QString>{"fill","stroke","fill-opacity","stroke-opacity","stroke-width","fill-rule","opacity","stroke-linecap","stroke-linejoin","stroke-miterlimit"}.contains(key),"SVG_UNSUPPORTED","Unsupported style property: "+key.toStdString());
-            result[key]=part.mid(colon+1).trimmed();
+            const auto value=part.mid(colon+1).trimmed();
+            // Reject !important before a later duplicate declaration can overwrite
+            // the rejected value. SVG intake deliberately does not implement CSS.
+            if(key=="stroke-linecap"||key=="stroke-linejoin"||key=="stroke-miterlimit")
+                need(!value.contains('!'),"SVG_UNSUPPORTED","!important is unsupported for stroke style");
+            result[key]=value;
         }
         result.erase("style");
     }
@@ -190,28 +199,47 @@ Style style(Attributes& a,Style s,double& alpha,Affine& matrix) {
     if(auto v=take("fill-opacity"))s.fill_alpha=opacity(*v);if(auto v=take("stroke-opacity"))s.stroke_alpha=opacity(*v);
     if(auto v=take("stroke-width")){s.width=scalar(*v,true);need(s.width>=0,"SVG_RANGE","Negative stroke-width");}
     if(auto v=take("opacity"))alpha=opacity(*v);if(auto v=take("transform"))matrix=transform(*v);
-    if(auto v=take("stroke-linecap"))need(*v=="butt","SVG_UNSUPPORTED","Only butt stroke caps supported");
-    if(auto v=take("stroke-linejoin"))need(*v=="miter","SVG_UNSUPPORTED","Only miter stroke joins supported");
-    if(auto v=take("stroke-miterlimit"))need(scalar(*v)==4,"SVG_UNSUPPORTED","Only stroke miterlimit4 supported");
+    if(auto v=take("stroke-linecap")) {
+        const auto value=v->trimmed();
+        if(value!="inherit") { need(value=="butt"||value=="round"||value=="square","SVG_UNSUPPORTED","Unsupported stroke-linecap");s.line_cap=value; }
+    }
+    if(auto v=take("stroke-linejoin")) {
+        const auto value=v->trimmed();
+        if(value!="inherit") { need(value=="miter"||value=="round"||value=="bevel","SVG_UNSUPPORTED","Unsupported stroke-linejoin");s.line_join=value; }
+    }
+    if(auto v=take("stroke-miterlimit")) {
+        const auto value=v->trimmed();
+        if(value!="inherit") {
+            const auto limit=scalar(value);need(limit>=1&&limit<=1000,"SVG_RANGE","Stroke miterlimit must be in [1,1000]");s.miter_limit=limit;
+        }
+    }
     return s;
 }
 class Reader {
     QXmlStreamReader xml;Id composition,prefix;std::string name;std::size_t nodes=0,parsed_points=0;double x,y;
     Id fresh(){need(++nodes<=128,"SVG_LIMIT","SVG element limit128");return prefix+"-n"+std::to_string(nodes);}
+    void append(Command command) {
+        plan.commands.push_back(std::move(command));
+        need(plan.commands.size()<=1000,"SVG_LIMIT","SVG command limit1000");
+    }
     void placement(const Id& id,const Affine& matrix,double alpha) {
         constexpr const char* fields[]{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty"};
-        for(std::size_t i=0;i<6;++i)if(matrix[i]!=identity[i])plan.commands.push_back(Set{{id,"",fields[i]},matrix[i]});
-        if(alpha!=1)plan.commands.push_back(Set{{id,"","composite.opacity"},alpha});
+        for(std::size_t i=0;i<6;++i)if(matrix[i]!=identity[i])append(Set{{id,"",fields[i]},matrix[i]});
+        if(alpha!=1)append(Set{{id,"","composite.opacity"},alpha});
     }
     void paint(const Id& id,const Style& s) {
-        plan.commands.push_back(RemoveOperation{id,id+"-stroke"});std::size_t index=0;
+        append(RemoveOperation{id,id+"-stroke"});std::size_t index=0;
         for(const bool stroke:{false,true}) {
             const auto color=(stroke?s.stroke:s.fill).trimmed();if(color=="none"||(stroke&&s.width==0))continue;
             need(!color.contains('(')&&!color.contains('!')&&( !color.startsWith('#')||color.size()==4||color.size()==7),"SVG_UNSUPPORTED","Unsupported SVG color: "+color.toStdString());
             const QColor value(color);need(value.isValid()&&value.alpha()==255,"SVG_UNSUPPORTED","Only opaque named/HEX sRGB colors supported; use opacity attributes");
-            auto op=default_operation(id+(stroke?"-paint-stroke":"-paint-fill"),stroke?"nect.paint.stroke":"nect.paint.fill");op.fill_rule=s.rule.toStdString();
+            const auto operation_id=id+(stroke?"-paint-stroke":"-paint-fill");
+            auto op=default_operation(operation_id,stroke?"nect.paint.stroke":"nect.paint.fill");op.fill_rule=s.rule.toStdString();
             op.parameters["r"].literal=value.redF();op.parameters["g"].literal=value.greenF();op.parameters["b"].literal=value.blueF();op.parameters["a"].literal=stroke?s.stroke_alpha:s.fill_alpha;
-            if(stroke)op.parameters["width"].literal=s.width;plan.commands.push_back(AddOperation{id,std::move(op),index++});
+            if(stroke)op.parameters["width"].literal=s.width;
+            append(AddOperation{id,std::move(op),index++});
+            if(stroke&&(s.line_cap!="butt"||s.line_join!="miter"||std::abs(s.miter_limit-4)>1e-12))
+                append(StrokeStyle{id,operation_id,s.line_cap.toStdString(),s.line_join.toStdString(),s.miter_limit});
         }
     }
     void next() {xml.readNext();need(!xml.hasError(),"SVG_XML",xml.errorString().toStdString());need(xml.tokenType()!=QXmlStreamReader::DTD&&xml.tokenType()!=QXmlStreamReader::EntityReference&&xml.tokenType()!=QXmlStreamReader::ProcessingInstruction,"SVG_UNSUPPORTED","DTD, entities and processing instructions are unsupported");}
@@ -238,7 +266,7 @@ class Reader {
             if(tag=="path"){need(a.contains("d"),"SVG_SYNTAX","Path requires d");contours=path(a.at("d"),id,parsed_points);a.erase("d");}
             else contours=shape(tag,a,id,parsed_points);
             for(const auto& c:contours)plan.points+=c.points.size();
-            plan.commands.push_back(CreatePath{composition,"",id,label,std::move(contours)});paint(id,inherited_style);++plan.paths;
+            append(CreatePath{composition,"",id,label,std::move(contours)});paint(id,inherited_style);++plan.paths;
         }
         need(a.empty(),"SVG_UNSUPPORTED",a.empty()?"":"Unsupported SVG attribute: "+a.begin()->first.toStdString());
         while(true) {
@@ -250,8 +278,8 @@ class Reader {
                 } else {need(!drawable,"SVG_UNSUPPORTED","Shape child content unsupported");children.push_back(element(inherited_style,depth+1));}
             } else if(xml.isCharacters())need(xml.isWhitespace(),"SVG_UNSUPPORTED","Unexpected SVG text");
         }
-        if(!drawable) {need(!children.empty(),"SVG_UNSUPPORTED","Empty SVG Groups unsupported");plan.commands.push_back(GroupContiguous{composition,"",children,id,label});}
-        placement(id,matrix,alpha);need(plan.commands.size()<=1000,"SVG_LIMIT","SVG command limit1000");return id;
+        if(!drawable) {need(!children.empty(),"SVG_UNSUPPORTED","Empty SVG Groups unsupported");append(GroupContiguous{composition,"",children,id,label});}
+        placement(id,matrix,alpha);return id;
     }
 public:
     SvgImportPlan plan;

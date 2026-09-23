@@ -1413,3 +1413,34 @@ of new visible-GUI acceptance or a new performance benchmark. Previous visible
 
 Latest user instruction requests stopping after this checkpoint, with a report
 and next-Task prompt. No next-checkpoint implementation or successor launch.
+
+## Stroke-authoring CP2 r4 — Inspector and strict SVG intake (2026-09-23)
+
+Resumed from the r4 fixture-access checkpoint after re-fetching the canonical
+Brief (`revision 4 / READY`). The exact inline r1/r2 bytes were materialized in
+ignored `build/stroke-cp2-r4-fixtures/` and matched their required lengths and
+SHA-256 values before source changes. The Inspector now exposes cap/join controls
+per Stroke operation, explicit v1 miter promotion, normal v2 miter editing and
+session/revision/gesture guards. Same-value choices are history-free; evaluated
+Binding/Expression miter sources remain intact when cap/join changes commit.
+
+SVG intake accepts the bounded cap/join/miter subset with strict inheritance and
+inline precedence, emits `StrokeStyle` only for non-default effective values and
+counts it toward the existing 1000-command atomic budget. Unsupported hidden
+stroke styles, `!important`, units/ranges, dashes and over-budget plans reject
+without partial import. Non-default import was saved, reopened in a fresh Host,
+and undone as one transaction. See [docs/svg-import.md](svg-import.md) for the
+current acceptance boundary.
+
+Changed-code evidence:
+
+- Focused Release: 7/7 passed — `stroke_contract`, `svg_import_contract`,
+  `window_interaction`, `expression_ui_interaction`, `batch_ui_interaction`,
+  `png_export_contract`, `mcp_desktop_contract`.
+- Full Release CTest: 40/40 passed; the prior 5/5 focused result remains only
+  historical S0 baseline evidence.
+- Visible T8 benchmark before/after: `build/stroke-cp2-r4-benchmark-before-20260923-102733/`
+  and `build/stroke-cp2-r4-benchmark-after-20260923-110840/`. Both runs used the
+  same Windows/Qt visible lane, 2/80 paths, 1440×900, warm-up12 and 90 measured
+  frames; both met the 30fps p95 and 33ms release floors. The 60fps aggregate
+  remained unmet in both runs and is not treated as a CP2 failure.

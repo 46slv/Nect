@@ -1372,6 +1372,57 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             for(const auto* parameter:{"width","r","g","b","a"})
                 if(operation.parameters.contains(parameter))add_property(form,operation_ref(object.id,operation.id,parameter),
                     std::string(parameter)=="a"?QStringLiteral("Paint opacity"):parameter_label(parameter));
+            if(operation.type=="nect.paint.stroke") {
+                const auto stroke_session=host.session_id;
+                const auto stroke_revision=host.session.revision();
+                auto apply_style=[this,id=object.id,op=operation.id,stroke_session,stroke_revision](
+                    const std::string& line_cap,const std::string& line_join,bool promote) {
+                    if(host.session_id!=stroke_session)throw Error("SESSION_CONFLICT","The stroke belongs to another document");
+                    if(host.session.revision()!=stroke_revision)throw Error("REVISION_CONFLICT","The stroke changed elsewhere; reopen the Inspector");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before changing stroke style");
+                    const auto& current=find_operation(host.session.document(),id,op);
+                    if(current.type!="nect.paint.stroke")throw Error("INVALID_DOMAIN","The selected operation is no longer a stroke");
+                    const auto values=evaluate(host.session.document());
+                    const auto miter=current.version==1?4.0:values.at(operation_ref(id,op,"miter_limit"));
+                    if(!promote&&current.line_cap==line_cap&&current.line_join==line_join)return;
+                    host.session.apply({StrokeStyle{id,op,line_cap,line_join,miter}},stroke_revision);
+                    host.edited();
+                };
+                auto* cap=new QComboBox;
+                cap->setObjectName("stroke-line-cap-"+qs(operation.id));cap->setAccessibleName("Line cap");
+                cap->addItem("Butt","butt");cap->addItem("Round","round");cap->addItem("Square","square");
+                {const QSignalBlocker blocker(cap);cap->setCurrentIndex(cap->findData(qs(operation.line_cap)));}
+                form->addRow("Line cap",cap);
+                const QPointer<QComboBox> safe_cap(cap);
+                connect(cap,&QComboBox::currentIndexChanged,this,[this,safe_cap,cap,apply_style,id=object.id,op=operation.id,before=cap->currentIndex()](int) {
+                    const auto selected=cap->currentData().toString().toStdString();bool applied=false;
+                    perform([&]{const auto& current=find_operation(host.session.document(),id,op);
+                        apply_style(selected,current.line_join,false);applied=true;});
+                    if(!applied&&safe_cap){const QSignalBlocker blocker(safe_cap);safe_cap->setCurrentIndex(before);}
+                });
+                auto* join=new QComboBox;
+                join->setObjectName("stroke-line-join-"+qs(operation.id));join->setAccessibleName("Line join");
+                join->addItem("Miter","miter");join->addItem("Round","round");join->addItem("Bevel","bevel");
+                {const QSignalBlocker blocker(join);join->setCurrentIndex(join->findData(qs(operation.line_join)));}
+                form->addRow("Line join",join);
+                const QPointer<QComboBox> safe_join(join);
+                connect(join,&QComboBox::currentIndexChanged,this,[this,safe_join,join,apply_style,id=object.id,op=operation.id,before=join->currentIndex()](int) {
+                    const auto selected=join->currentData().toString().toStdString();bool applied=false;
+                    perform([&]{const auto& current=find_operation(host.session.document(),id,op);
+                        apply_style(current.line_cap,selected,false);applied=true;});
+                    if(!applied&&safe_join){const QSignalBlocker blocker(safe_join);safe_join->setCurrentIndex(before);}
+                });
+                if(operation.version>=2&&operation.parameters.contains("miter_limit")) {
+                    add_property(form,operation_ref(object.id,operation.id,"miter_limit"),QStringLiteral("Miter limit"));
+                } else {
+                    auto* miter_row=new QWidget;auto* box=new QHBoxLayout(miter_row);box->setContentsMargins(0,0,0,0);
+                    auto* value=new QLabel("4 (v1 default)");value->setObjectName("stroke-miter-limit-"+qs(operation.id));box->addWidget(value);
+                    auto* enable=new QPushButton("Enable miter limit");enable->setObjectName("stroke-enable-miter-"+qs(operation.id));
+                    enable->setToolTip("Promote this native stroke to v2 without changing its evaluated appearance");box->addWidget(enable);
+                    form->addRow("Miter limit",miter_row);
+                    connect(enable,&QPushButton::clicked,this,[this,apply_style]{perform([&]{apply_style("butt","miter",true);});});
+                }
+            }
         } else if(operation.type=="nect.shape.offset") {
             for(const auto* parameter:{"amount","miter_limit"})
                 add_property(form,operation_ref(object.id,operation.id,parameter),parameter_label(parameter));
@@ -1769,15 +1820,16 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         const auto frozen_session=host.session_id;
         perform([&]{
             if(host.session_id!=field_session)throw Error("SESSION_CONFLICT","These properties belong to another document");
+            if(host.session.revision()!=field_revision)throw Error("REVISION_CONFLICT","These properties changed elsewhere; reopen the Inspector");
             auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");
             if(text.startsWith('=')) {
                 try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);host.edited();}
-                catch(const Error&){expand(text);input->setText(display_value(inspector_values_.at(ref)));}
+                catch(const Error& e){if(e.code=="REVISION_CONFLICT"||e.code=="SESSION_CONFLICT")throw;expand(text);input->setText(display_value(inspector_values_.at(ref)));}
                 return;
             }
             auto value=(relative?text.mid(2):text).toDouble(&valid);if(relative&&text.startsWith("-="))value=-value;
             if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number, += / -= adjustment, or =expression");
-            canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},host.session.revision());host.edited();
+            canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},field_revision);host.edited();
             if(keep_focus)QTimer::singleShot(0,this,[this,target_data,scroll,frozen_session]{
                 if(host.session_id!=frozen_session)return;
                 for(auto* current:inspector_->findChildren<QLineEdit*>())if(current->isVisible()&&current->property("nect-targets").toByteArray()==target_data) {
@@ -1788,7 +1840,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         });
     });
     input->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session,expand,initial_expression](const QPoint& point) {
+    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session,field_revision,expand,initial_expression](const QPoint& point) {
         QMenu menu;
         auto* copy=menu.addAction("Copy Value");auto* reference=menu.addAction("Copy Reference");
         auto* paste=menu.addAction("Paste Value");auto* link=menu.addAction("Paste Link");
@@ -1798,6 +1850,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         auto* chosen=menu.exec(input->mapToGlobal(point));if(!chosen)return;
         perform([&] {
             if(host.session_id!=field_session)throw Error("SESSION_CONFLICT","These properties belong to another document");
+            if(host.session.revision()!=field_revision)throw Error("REVISION_CONFLICT","These properties changed elsewhere; reopen the Inspector");
             if(chosen==expression)expand(initial_expression);
             else if(chosen==paste_expression)expand(QApplication::clipboard()->text());
             else if(chosen==copy) QApplication::clipboard()->setText(QString::number(evaluate(host.session.document()).at(ref),'g',17));
@@ -1807,12 +1860,12 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             } else if(chosen==paste) {
                 bool valid=false;const auto value=QApplication::clipboard()->text().toDouble(&valid);
                 if(!valid)throw Error("INVALID_VALUE","Clipboard is not a numeric value");
-                host.session.apply({EditProperties{targets,value,false}},host.session.revision());host.edited();
+                host.session.apply({EditProperties{targets,value,false}},field_revision);host.edited();
             } else if(chosen==link) {
                 const auto* mime=QApplication::clipboard()->mimeData();
                 const auto source=read_ref(mime->hasFormat(reference_mime)?mime->data(reference_mime):mime->text().toUtf8());
-                host.session.apply({LinkProperties{targets,source,false}},host.session.revision());host.edited();
-            } else if(chosen==unlink) {host.session.apply({UnlinkProperties{targets}},host.session.revision());host.edited();}
+                host.session.apply({LinkProperties{targets,source,false}},field_revision);host.edited();
+            } else if(chosen==unlink) {host.session.apply({UnlinkProperties{targets}},field_revision);host.edited();}
             else if(chosen==relative) pick_source(targets,true);
         });
     });

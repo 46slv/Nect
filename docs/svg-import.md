@@ -25,18 +25,22 @@ Supported subset:
   origin; preserveAspectRatio none or xMidYMid meet (default).
 - Solid opaque named or #RGB/#RRGGBB sRGB colors, none, inherited fill/stroke,
   fill/stroke opacity and width, nonzero/evenodd, object/Group opacity. Restricted
-  inline style overrides presentation attributes. Stroke butt/miter/miterlimit4.
+  inline style overrides presentation attributes. Stroke linecap butt/round/square,
+  linejoin miter/round/bevel and finite unitless miterlimit 1–1000 are supported;
+  explicit `inherit` is accepted for those three properties only.
 
 Unsupported semantics reject the entire import:
 text/images, gradients/patterns, use/links, masks/clips/filters, CSS stylesheets,
-classes, variables, alternate cap/join/dashes, unknown attributes/elements,
+classes, variables, dashes, `initial`/`unset`/`revert`, `!important`, miter-clip,
+unknown attributes/elements,
 physical/percentage lengths, other aspect policies and foreign namespaces.
 DTD, entity references, processing instructions, scripts and external resources
 never execute or fetch. XML declaration/comments and predefined XML escapes are
 ordinary parsing, not an extension mechanism.
 
 Limits:1MiB encoded input,128 non-root drawable/group nodes,32 nested levels,
-10000 parsed anchors,1000 generated Session commands; existing model ranges and
+10000 parsed anchors,1000 generated Session commands (including lowered StrokeStyle
+commands); existing model ranges and
 native serialized limits still apply. This is synchronous bounded conversion.
 
 Basic-shape lengths accept unitless/px values. Coordinates default to zero. Rect
@@ -59,3 +63,15 @@ Sources: [SVG2 basic shapes](https://www.w3.org/TR/SVG2/shapes.html),
 [structure](https://www.w3.org/TR/SVG2/struct.html),
 [Qt stream reader](https://doc.qt.io/qt-6/qxmlstreamreader.html),
 [Qt XML streaming](https://doc.qt.io/qt-6/xml-streaming.html).
+
+## Stroke CP2 r4 acceptance — 2026-09-23
+
+The exact task-owned r1/r2 fixture bytes were verified before implementation:
+`build/stroke-cp2-r4-fixtures/` (r1 5597 bytes, SHA-256
+`4b23b6f719a335155164786ff3738d277bd9e5ad2908e1b6870a33fa328dd1c1`; r2 5877
+bytes, SHA-256 `fc586ecb77076b50d23933bf185ee679f409bea87503017c59ceac166e4e65ee`).
+`svg_import_contract` executes the positive/negative cases against real Session
+objects, including inheritance, inline precedence, no-painted-stroke handling,
+exact 1000-command acceptance, 1001-command rejection and atomic refusal.
+Non-default style import is also saved, reopened in a fresh Host and undone as one
+transaction. This remains a strict static subset, not general CSS/SVG fidelity.
