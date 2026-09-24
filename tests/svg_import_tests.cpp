@@ -11,9 +11,12 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QCryptographicHash>
 #include "nect/io.hpp"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <set>
 using namespace nect;
 using namespace nect::desktop;
 void check(bool v,const char* why){if(!v)throw std::runtime_error(why);}
@@ -28,7 +31,17 @@ QString fixture_file(const QString& name) {
 }
 QJsonObject fixture_json(const QString& name) {
     QFile file(fixture_file(name));check(file.open(QIODevice::ReadOnly),"Open exact CP2 fixture");
-    QJsonParseError error;const auto doc=QJsonDocument::fromJson(file.readAll(),&error);
+    const auto bytes=file.readAll();
+    const auto expected_bytes=name=="nect-stroke-cp2-cases-r1.json"?5597:5877;
+    const auto expected_sha=name=="nect-stroke-cp2-cases-r1.json"
+        ?QByteArrayLiteral("4b23b6f719a335155164786ff3738d277bd9e5ad2908e1b6870a33fa328dd1c1")
+        :QByteArrayLiteral("fc586ecb77076b50d23933bf185ee679f409bea87503017c59ceac166e4e65ee");
+    check(bytes.size()==expected_bytes,"Canonical CP2 fixture byte length changed");
+    check(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex()==expected_sha,
+        "Canonical CP2 fixture SHA-256 changed");
+    check(!bytes.startsWith(QByteArray::fromHex("efbbbf"))&&!bytes.contains('\r')&&bytes.endsWith('\n'),
+        "Canonical CP2 fixture must be UTF-8 BOM-free LF text");
+    QJsonParseError error;const auto doc=QJsonDocument::fromJson(bytes,&error);
     check(error.error==QJsonParseError::NoError&&doc.isObject(),"Parse exact CP2 fixture JSON");return doc.object();
 }
 std::string materialize_root(QString root,QString body,QString extra={}) {
@@ -42,9 +55,11 @@ const ShapeOperation* stroke_named(const Session& session,const QString& label,I
 }
 void check_stroke_expectations(const Session& session,const QJsonArray& expected) {
     const auto values=evaluate(session.document());
+    std::vector<QString> expected_labels;
     for(const auto& item:expected) {
         const auto object_name=item.toObject().value("label").toString();Id id;const auto* operation=stroke_named(session,object_name,&id);
         check(operation!=nullptr,"Fixture stroke label did not produce a Stroke operation");
+        expected_labels.push_back(object_name);
         const auto object=QString::fromStdString(id);const auto cap=QString::fromStdString(operation->line_cap);
         const auto join=QString::fromStdString(operation->line_join);check(cap==item.toObject().value("cap").toString(),"Fixture cap mismatch");
         check(join==item.toObject().value("join").toString(),"Fixture join mismatch");
@@ -52,11 +67,60 @@ void check_stroke_expectations(const Session& session,const QJsonArray& expected
         const auto miter=operation->version==1?4.0:values.at(operation_ref(id,operation->id,"miter_limit"));
         near(miter,item.toObject().value("miter").toDouble());
     }
+    std::vector<QString> actual_labels;
+    for(const auto& [id,object]:session.document().objects) {
+        (void)id;
+        for(const auto& operation:object.stack)if(operation.type=="nect.paint.stroke")actual_labels.push_back(QString::fromStdString(object.name));
+    }
+    std::sort(expected_labels.begin(),expected_labels.end());std::sort(actual_labels.begin(),actual_labels.end());
+    check(actual_labels==expected_labels,"Fixture Stroke operation set/count mismatch");
 }
 void apply_fixture_case(const std::string& svg,const QJsonArray& expected,const char* prefix) {
     const auto plan=read_svg(svg,"comp",prefix,"Fixture",0,0);Session session(empty_document("fixture-doc","comp","art"));
     session.apply(plan.commands,0);check_stroke_expectations(session,expected);
     check(decode(encode(session.document()))==session.document(),"Fixture native roundtrip");
+}
+void check_fixture_matrix(const Session& session,const QJsonObject& item) {
+    const auto expected_count=item.value("expected_count").toInt();check(expected_count>0,"Fixture matrix count missing");
+    const auto values=evaluate(session.document());std::set<std::pair<QString,QString>> combinations;
+    for(const auto& [id,object]:session.document().objects) {
+        (void)id;
+        for(const auto& operation:object.stack)if(operation.type=="nect.paint.stroke") {
+            const auto cap=QString::fromStdString(operation.line_cap),join=QString::fromStdString(operation.line_join);
+            combinations.emplace(cap,join);const auto miter=operation.version==1?4.0:values.at(operation_ref(object.id,operation.id,"miter_limit"));
+            near(miter,item.value("expected_miter").toDouble());
+            const auto expected_version=(cap=="butt"&&join=="miter")?1:2;
+            check(static_cast<int>(operation.version)==expected_version,"Fixture matrix Stroke version mismatch");
+        }
+    }
+    check(static_cast<int>(combinations.size())==expected_count,"Fixture matrix Stroke operation count mismatch");
+    for(const auto& cap:{QString("butt"),QString("round"),QString("square")})
+        for(const auto& join:{QString("miter"),QString("round"),QString("bevel")})
+            check(combinations.contains({cap,join}),"Fixture matrix is missing a cap/join branch");
+}
+void write_owned_file(const QString& path,const QByteArray& bytes) {
+    QFile file(path);check(file.open(QIODevice::WriteOnly|QIODevice::Truncate),"Write owned SVG fixture");
+    check(file.write(bytes)==bytes.size(),"Write complete SVG fixture");file.close();
+}
+void verify_host_reject_atomic(const QByteArray& svg,const char* expected_code,const char* label) {
+    QTemporaryDir temp;check(temp.isValid(),"Allocate reject atomicity scratch");
+    Host host(temp.path()+"/recovery");const auto composition=host.session.document().compositions.front().id;
+    Point a,b;a.id="seed-a";a.x.literal=40;a.y.literal=80;b.id="seed-b";b.x.literal=240;b.y.literal=80;
+    host.session.apply({CreatePath{composition,"","seed","Existing",{{"seed-contour",false,{a,b}}}}},0);host.edited();
+    const auto native=temp.path()+"/existing.nect";host.save(native);host.recover();
+    const auto recovery=host.persistence().value("recovery_file").toString();
+    QFile native_file(native),recovery_file(recovery);check(native_file.open(QIODevice::ReadOnly)&&recovery_file.open(QIODevice::ReadOnly),"Read pre-reject persistence");
+    const auto native_before=native_file.readAll(),recovery_before=recovery_file.readAll();
+    const auto document_before=host.session.document();const auto history_before=host.session.history();const auto revision=host.session.revision();
+    const auto input=temp.path()+"/"+label+".svg";write_owned_file(input,svg);
+    bool rejected=false;try { (void)host.import_svg(input,composition,std::string("reject-")+label,label,0,0,revision); }
+    catch(const Error& error) {rejected=true;check(error.code==expected_code,"Unexpected production SVG reject code");}
+    if(!rejected)throw std::runtime_error(std::string("Production Host import must reject the negative fixture: ")+label);
+    check(host.session.document()==document_before&&host.session.history()==history_before&&host.session.revision()==revision,
+        "Rejected SVG must preserve document, History and revision");
+    QFile native_after(native),recovery_after(recovery);check(native_after.open(QIODevice::ReadOnly)&&recovery_after.open(QIODevice::ReadOnly),"Read post-reject persistence");
+    check(native_after.readAll()==native_before&&recovery_after.readAll()==recovery_before,
+        "Rejected SVG must preserve native and recovery bytes");
 }
 std::string budget_body(const QString& matrix,const QString& last={}) {
     QString body;for(int i=0;i<100;++i) {const auto transform=i==99&&!last.isEmpty()?last:matrix;body+=QString("<path id=\"budget-%1\" d=\"M20 20 L80 20\" transform=\"%2\"/>").arg(i).arg(transform);}return body.toStdString();
@@ -134,7 +198,9 @@ int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplicati
     apply_fixture_case(materialize_root(root1,r1_positive.at(0).toObject().value("body").toString()),r1_positive.at(0).toObject().value("expected").toArray(),"r1-i00");
     QString i01;for(int i=0;i<3;++i)for(int j=0;j<3;++j)i01+=QString("<path id=\"%1-%2\" d=\"M%3 %4 L%5 %6 L%7 %8\" stroke-linecap=\"%1\" stroke-linejoin=\"%2\"/>")
         .arg(QStringList{"butt","round","square"}.at(i)).arg(QStringList{"miter","round","bevel"}.at(j)).arg(20+90*i).arg(20+65*j+30).arg(20+90*i+25).arg(20+65*j).arg(20+90*i+50).arg(20+65*j+30);
-    apply_fixture_case(materialize_root(root1,i01),r1_positive.at(1).toObject().value("expected").toArray(),"r1-i01");
+    const auto i01_case=r1_positive.at(1).toObject();const auto i01_plan=read_svg(materialize_root(root1,i01),"comp","r1-i01","Fixture",0,0);
+    Session i01_session(empty_document("fixture-doc","comp","art"));i01_session.apply(i01_plan.commands,0);check_fixture_matrix(i01_session,i01_case);
+    check(decode(encode(i01_session.document()))==i01_session.document(),"Fixture matrix native roundtrip");
     for(int index: {2,3,4}) {
         const auto item=r1_positive.at(index).toObject();apply_fixture_case(materialize_root(root1,item.value("body").toString()),item.value("expected").toArray(),("r1-i0"+std::to_string(index)).c_str());
     }
@@ -144,6 +210,11 @@ int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplicati
     const auto i06_plan=read_svg(materialize_root(root2,i06.value("body").toString()),"comp","r2-i06","Fixture",0,0);int i06_strokes=0,i06_styles=0;
     for(const auto& command:i06_plan.commands) {if(const auto* add=std::get_if<AddOperation>(&command))if(add->operation.type=="nect.paint.stroke")++i06_strokes;if(std::holds_alternative<StrokeStyle>(command))++i06_styles;}
     check(i06_plan.paths==2&&i06_strokes==0&&i06_styles==0,"No-painted-stroke fixture creates no Stroke or StrokeStyle command");
+    Session i06_session(empty_document("fixture-doc","comp","art"));i06_session.apply(i06_plan.commands,0);
+    check(i06_session.document().objects.size()==3,"No-painted-stroke fixture retains both paths and root group");
+    check(std::none_of(i06_session.document().objects.begin(),i06_session.document().objects.end(),[](const auto& entry){
+        return std::any_of(entry.second.stack.begin(),entry.second.stack.end(),[](const auto& op){return op.type=="nect.paint.stroke";});
+    }),"No-painted-stroke Session has no Stroke operation");
     apply_fixture_case(materialize_root(root2,r2_positive.at(2).toObject().value("body").toString()),r2_positive.at(2).toObject().value("expected").toArray(),"r2-i07");
     const auto i08=r2_positive.at(3).toObject();
     const auto budget_generator=r2.value("generators").toObject().value("budget100").toObject();
@@ -152,6 +223,9 @@ int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplicati
     int i08_strokes=0,i08_styles=0;for(const auto& command:i08_plan.commands){if(const auto* add=std::get_if<AddOperation>(&command))if(add->operation.type=="nect.paint.stroke")++i08_strokes;if(std::holds_alternative<StrokeStyle>(command))++i08_styles;}
     check(i08_plan.paths==100&&i08_plan.commands.size()==1000,"Exact 1000-command SVG fixture stays within the budget");
     check(i08_strokes==100&&i08_styles==100,"Budget fixture retains all non-default StrokeStyle commands");
+    Session i08_session(empty_document("fixture-doc","comp","art"));i08_session.apply(i08_plan.commands,0);int i08_session_strokes=0;
+    for(const auto& [id,object]:i08_session.document().objects){(void)id;for(const auto& operation:object.stack)if(operation.type=="nect.paint.stroke")++i08_session_strokes;}
+    check(i08_session_strokes==100,"Budget fixture applies exactly 100 imported Stroke operations");
     apply_fixture_case(materialize_root(root2,r2_positive.at(4).toObject().value("body").toString()),r2_positive.at(4).toObject().value("expected").toArray(),"r2-i09");
     const auto r1_template=r1.value("negative_template").toString();const auto r1_errors=r2.value("base_error_expectations").toObject();
     for(const auto& item:r1.value("negative_cases").toArray()) {const auto entry=item.toObject();const auto id=entry.value("id").toString();auto body=r1_template;body.replace("ATTRIBUTE",entry.value("attribute").toString());bool rejected=false;try{(void)read_svg(materialize_root(root1,body),"comp","r1-neg","Negative",0,0);}catch(const Error& e){rejected=true;check(e.code==r1_errors.value(id).toString().toStdString(),"Historical negative fixture error code mismatch");}check(rejected,"Historical negative fixture must reject");}
@@ -161,6 +235,26 @@ int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplicati
         if(id=="N11-over-command-budget") {bool rejected=false;try{(void)read_svg(materialize_root(root2,QString::fromStdString(budget_body("matrix(2 1 1 2 3 4)")),r2.value("generators").toObject().value("budget100").toObject().value("root_extra").toString()),"comp","r2-n11","Negative",0,0);}catch(const Error& e){rejected=true;check(e.code=="SVG_LIMIT","Over-budget fixture reports SVG_LIMIT");}check(rejected,"Over-budget fixture must reject");continue;}
         auto body=r2_template;body.replace("ATTRIBUTE",entry.value("attribute").toString());bool rejected=false;try{(void)read_svg(materialize_root(root2,body),"comp","r2-neg","Negative",0,0);}catch(const Error& e){rejected=true;const auto expected=entry.value("expected_error").toString();if(!expected.isEmpty())check(e.code==expected.toStdString(),"Supplement negative fixture error code mismatch");}check(rejected,"Supplement negative fixture must reject");
     }
+    auto r1_negative=[&](const QString& id) {
+        for(const auto& item:r1.value("negative_cases").toArray())if(item.toObject().value("id").toString()==id) {
+            auto body=r1_template;body.replace("ATTRIBUTE",item.toObject().value("attribute").toString());return QByteArray::fromStdString(materialize_root(root1,body));
+        }
+        throw std::runtime_error("Missing r1 negative fixture");
+    };
+    auto r2_negative=[&](const QString& id) {
+        for(const auto& item:r2.value("negative_cases").toArray())if(item.toObject().value("id").toString()==id) {
+            const auto entry=item.toObject();
+            if(id=="N11-over-command-budget") {
+                const auto generator=r2.value("generators").toObject().value("budget100").toObject();
+                return QByteArray::fromStdString(materialize_root(root2,QString::fromStdString(budget_body("matrix(2 1 1 2 3 4)")),generator.value("root_extra").toString()));
+            }
+            auto body=r2_template;body.replace("ATTRIBUTE",entry.value("attribute").toString());return QByteArray::fromStdString(materialize_root(root2,body));
+        }
+        throw std::runtime_error("Missing r2 negative fixture");
+    };
+    verify_host_reject_atomic(r1_negative("N00-cap"),"SVG_UNSUPPORTED","r1-n00-host");
+    verify_host_reject_atomic(r2_negative("N11-over-command-budget"),"SVG_LIMIT","r2-n11-host");
+    verify_host_reject_atomic(r2_negative("N12-important-overridden"),"SVG_UNSUPPORTED","r2-n12-host");
     QTemporaryDir styled_temp;check(styled_temp.isValid(),"Allocate style save/recovery scratch");
     const auto styled_input=styled_temp.path()+"/styled.svg";QFile styled_file(styled_input);check(styled_file.open(QIODevice::WriteOnly),"Write styled SVG fixture");
     const auto styled_case=r1_positive.at(2).toObject();styled_file.write(QByteArray::fromStdString(materialize_root(root2,styled_case.value("body").toString())));styled_file.close();
