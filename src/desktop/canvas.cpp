@@ -1325,11 +1325,43 @@ void Canvas::prepare_snap(bool point_drag) {
                 const auto& left=ordered[i];const auto& right=ordered[i+1];
                 const double trailing=x_axis?left.second.right():left.second.bottom();
                 const double leading=x_axis?right.second.left():right.second.top();
-                if(leading<trailing||leading-trailing<source_size)continue;
-                const double target_min=(trailing+leading-source_size)/2;
+                if(leading<trailing)continue;
+                const double gap=leading-trailing;
+                if(!std::isfinite(gap))continue;
                 const auto id=left.first+"\x1f"+right.first;
-                output.push_back({target_min,SnapKind::equal_gap,id,
-                    QStringLiteral("equal gap between %1 and %2").arg(QString::fromStdString(left.first),QString::fromStdString(right.first)),0});
+                const auto axis_min=[&](const QRectF& bounds) {return x_axis?bounds.left():bounds.top();};
+                const auto axis_max=[&](const QRectF& bounds) {return x_axis?bounds.right():bounds.bottom();};
+                const auto add_if_clear=[&](double target_position,int source_feature_order,int feature_order,
+                                            const QString& feature) {
+                    const double proposed_min=source_feature_order==0?target_position:target_position-source_size;
+                    const double proposed_max=proposed_min+source_size;
+                    if(!std::isfinite(proposed_min)||!std::isfinite(proposed_max))return;
+                    for(const auto& [other_id,other_bounds]:target_bounds) {
+                        if(other_id==left.first||other_id==right.first)continue;
+                        if(axis_min(other_bounds)<proposed_max&&proposed_min<axis_max(other_bounds))return;
+                    }
+                    output.push_back({target_position,SnapKind::equal_gap,id,feature,feature_order,source_feature_order});
+                };
+
+                // Preserve the existing centered placement when the moving bounds
+                // fit inside the gap between the two stationary targets.
+                if(gap>=source_size) {
+                    const double target_min=(trailing+leading-source_size)/2;
+                    if(std::isfinite(target_min))
+                        output.push_back({target_min,SnapKind::equal_gap,id,
+                            QStringLiteral("equal gap between %1 and %2").arg(QString::fromStdString(left.first),QString::fromStdString(right.first)),0,0});
+                }
+
+                // Reuse the same gap on either side of the pair. Each side is
+                // constrained to its corresponding frozen source edge.
+                const auto after=axis_max(right.second)+gap;
+                const auto before=axis_min(left.second)-gap;
+                add_if_clear(after,0,2,
+                    QStringLiteral("repeated gap between %1 and %2 after %2")
+                        .arg(QString::fromStdString(left.first),QString::fromStdString(right.first)));
+                add_if_clear(before,2,1,
+                    QStringLiteral("repeated gap between %1 and %2 before %1")
+                        .arg(QString::fromStdString(left.first),QString::fromStdString(right.first)));
             }
         };
         make_equal_gap(true);make_equal_gap(false);
@@ -1400,7 +1432,7 @@ QPointF Canvas::snap_delta(QPointF delta) {
         };
         for(const auto& source:sources)for(const auto& target:targets) {
             if(target.kind==SnapKind::text_baseline&&source.label!=QStringLiteral("first-line baseline"))continue;
-            if(target.kind==SnapKind::equal_gap&&source.order!=0)continue;
+            if(target.kind==SnapKind::equal_gap&&source.order!=target.source_feature_order)continue;
             const double source_position=source.position+raw;
             const double correction=target.position-source_position;
             const double distance=std::abs(correction);
@@ -1420,6 +1452,9 @@ QPointF Canvas::snap_delta(QPointF delta) {
 
     QStringList feedback;
     const auto describe=[&](const QString& axis,const SnapMatch& match) {
+        if(match.target.kind==SnapKind::equal_gap)
+            return QStringLiteral("%1: %2 %3 → %4")
+                .arg(axis,match.source.label,kind_name(match.target.kind),match.target.target_feature);
         const auto target_id=QString::fromStdString(match.target.target_id);
         return QStringLiteral("%1: %2 %3 → %4 %5")
             .arg(axis,match.source.label,kind_name(match.target.kind),target_id,match.target.target_feature);

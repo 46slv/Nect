@@ -314,6 +314,31 @@ Document equal_gap_snap_document() {
     return document;
 }
 
+void add_snap_rectangle(Document& document,const Id& id,double center_x,double center_y,double width,double height) {
+    Object object;object.id=id;object.name=id;
+    object.source=default_primitive(id+"-source","nect.shape.rectangle");
+    for(const auto& [field,value]:std::map<std::string,double>{{"center_x",center_x},{"center_y",center_y},
+            {"width",width},{"height",height}})object.source->parameters.at(field).literal=value;
+    object.stack.push_back(default_operation(id+"-fill","nect.paint.fill"));
+    document.objects.emplace(id,std::move(object));document.compositions.front().roots.push_back(id);
+}
+
+Document repeated_gap_snap_document(bool vertical=false) {
+    auto document=empty_document("repeated-gap-document","test-composition","test-artboard");
+    document.compositions.front().artboards.front().width=640;
+    document.compositions.front().artboards.front().height=480;
+    if(vertical) {
+        add_snap_rectangle(document,"gap-a",180,120,40,40);  // Y bounds 100..140
+        add_snap_rectangle(document,"gap-b",180,200,40,40);  // Y bounds 180..220
+        add_snap_rectangle(document,"moving",300,440,60,80); // Y bounds 400..480
+    } else {
+        add_snap_rectangle(document,"gap-a",120,180,40,40);  // X bounds 100..140
+        add_snap_rectangle(document,"gap-b",200,180,40,40);  // X bounds 180..220
+        add_snap_rectangle(document,"moving",440,300,80,60); // X bounds 400..480
+    }
+    return document;
+}
+
 Document point_snap_document(bool driven=false) {
     auto document=empty_document("point-snap-document","test-composition","test-artboard");
     document.compositions.front().artboards.front().width=640;
@@ -506,6 +531,149 @@ void snap_two_sided_equal_gap_and_point_world_correction() {
         check(f.last_error.startsWith("DRIVEN_PROPERTY:")&&encode(f.session.document())==original&&
               f.session.revision()==0&&!f.session.can_undo()&&!f.session.gesture_active(),
             "A driven selected anchor rejects the full snapped multi-point edit atomically");
+    }
+}
+
+void snap_repeated_gap_fixed_oracles_and_eligibility() {
+    for(const bool vertical:{false,true}) {
+        const auto start=vertical?QPoint(300,440):QPoint(440,300);
+        const auto after_raw=vertical?QPoint(300,303):QPoint(303,300); // moving min 263, three du from 260
+        const auto before_raw=vertical?QPoint(300,17):QPoint(17,300); // moving max 57, three du from 60
+        const auto field=vertical?"transform.ty":"transform.tx";
+        const auto axis=vertical?QStringLiteral("Y:"):QStringLiteral("X:");
+        {
+            Fixture f(repeated_gap_snap_document(vertical));f.canvas.set_selection("moving");
+            const auto original=encode(f.session.document());
+            f.press(f.screen(start.x(),start.y()));f.move(f.screen(after_raw.x(),after_raw.y()));
+            const auto expected=axis+QStringLiteral(" min Equal gap");
+            const auto feedback=f.canvas.last_snap_feedback();
+            check(feedback.contains(expected)&&feedback.contains("gap-a")&&feedback.contains("gap-b")&&
+                  feedback.contains("repeated gap between gap-a and gap-b after gap-b"),
+                "After repeated-gap feedback names the axis, moving minimum, both targets and side: "+feedback.toStdString());
+            f.release(f.screen(after_raw.x(),after_raw.y()));
+            near(f.value("moving",{},field),-140,vertical?"Y after repeated-gap fixed coordinate":"X after repeated-gap fixed coordinate");
+            check(f.session.revision()==1&&f.session.can_undo(),"Repeated-gap release commits one transaction");
+            f.session.undo(f.session.revision());f.canvas.refresh();
+            check(encode(f.session.document())==original,"One Undo restores the after repeated-gap gesture exactly");f.no_error();
+        }
+        {
+            Fixture f(repeated_gap_snap_document(vertical));f.canvas.set_selection("moving");
+            f.press(f.screen(start.x(),start.y()));f.move(f.screen(before_raw.x(),before_raw.y()));
+            const auto expected=axis+QStringLiteral(" max Equal gap");
+            const auto feedback=f.canvas.last_snap_feedback();
+            check(feedback.contains(expected)&&feedback.contains("gap-a")&&feedback.contains("gap-b")&&
+                  feedback.contains("repeated gap between gap-a and gap-b before gap-a"),
+                "Before repeated-gap feedback names the axis, moving maximum, both targets and side: "+feedback.toStdString());
+            f.release(f.screen(before_raw.x(),before_raw.y()));
+            near(f.value("moving",{},field),-420,vertical?"Y before repeated-gap fixed coordinate":"X before repeated-gap fixed coordinate");
+            f.no_error();
+        }
+        {
+            Fixture f(repeated_gap_snap_document(vertical));f.canvas.set_selection("moving");
+            const auto outside=vertical?QPoint(300,307):QPoint(307,300); // seven du from the after candidate
+            f.drag(f.screen(start.x(),start.y()),f.screen(outside.x(),outside.y()));
+            near(f.value("moving",{},field),-133,vertical?"Y repeated gap outside threshold stays free":"X repeated gap outside threshold stays free");
+            check(!f.canvas.last_snap_feedback().contains("repeated gap"),"Seven-du candidate has no repeated-gap feedback");
+            f.no_error();
+        }
+    }
+
+    {
+        auto document=repeated_gap_snap_document();
+        document.objects.at("gap-b").source->parameters.at("center_x").literal=150; // [130,170] overlaps A [100,140]
+        Fixture f(document);f.canvas.set_selection("moving");
+        f.drag(f.screen(440,300),f.screen(203,300)); // raw moving min 163 is three du from the invalid repeated candidate 160
+        near(f.value("moving",{},"transform.tx"),-237,"Overlapping pair offers no repeated-gap candidate");
+        check(!f.canvas.last_snap_feedback().contains("repeated gap"),"Overlapping pair publishes no repeated-gap feedback");f.no_error();
+    }
+
+    const auto after_fixture=[](Document document,const std::string& label) {
+        Fixture f(std::move(document));f.canvas.set_selection("moving");
+        f.press(f.screen(440,300));f.move(f.screen(303,300));
+        const auto feedback=f.canvas.last_snap_feedback();
+        check(feedback.contains("X: min Equal gap")&&feedback.contains("gap-a")&&feedback.contains("gap-b")&&
+              feedback.contains("repeated gap between gap-a and gap-b after gap-b"),
+            label+" does not block or replace the eligible repeated-gap candidate: "+feedback.toStdString());
+        f.release(f.screen(303,300));near(f.value("moving",{},"transform.tx"),-140,label+" leaves the exact repeated-gap placement");
+        f.no_error();
+    };
+    const auto blocker=[](Document document) {
+        add_snap_rectangle(document,"blocker",332.5,180,5,40); // [330,335], overlaps [260,340] but stays outside every six-du source feature
+        return document;
+    };
+
+    {
+        auto document=blocker(repeated_gap_snap_document());
+        Fixture f(document);f.canvas.set_selection("moving");
+        f.drag(f.screen(440,300),f.screen(303,300));
+        near(f.value("moving",{},"transform.tx"),-137,"Visible stationary overlap omits the after candidate");
+        check(!f.canvas.last_snap_feedback().contains("repeated gap"),"Blocked after candidate has no repeated-gap feedback");f.no_error();
+    }
+    {
+        auto document=blocker(repeated_gap_snap_document());document.objects.at("blocker").visible=false;
+        after_fixture(std::move(document),"Hidden object");
+    }
+    {
+        auto document=repeated_gap_snap_document();document.objects.at("gap-a").visible=false;document.objects.at("gap-b").visible=false;
+        Fixture f(document);f.canvas.set_selection("moving");
+        f.drag(f.screen(440,300),f.screen(303,300));
+        near(f.value("moving",{},"transform.tx"),-137,"Hidden pair cannot seed a repeated-gap candidate");
+        check(!f.canvas.last_snap_feedback().contains("repeated gap"),"Hidden pair publishes no repeated-gap feedback");f.no_error();
+    }
+    {
+        auto document=empty_document("moving-seed-document","test-composition","test-artboard");
+        document.compositions.front().artboards.front().width=640;document.compositions.front().artboards.front().height=480;
+        add_snap_rectangle(document,"gap-a",120,180,40,40);add_snap_rectangle(document,"moving",200,300,40,60);
+        Fixture f(document);f.canvas.set_selection("moving");
+        f.drag(f.screen(200,300),f.screen(283,300));
+        near(f.value("moving",{},"transform.tx"),83,"Moving object cannot seed its own repeated-gap pair");
+        check(!f.canvas.last_snap_feedback().contains("repeated gap"),"Moving object publishes no repeated-gap feedback as a target");f.no_error();
+    }
+    {
+        auto document=repeated_gap_snap_document();std::erase(document.compositions.front().roots,Id("gap-b"));document.objects.erase("gap-b");
+        add_snap_rectangle(document,"follower",200,180,40,40);document.objects.at("follower").transform_parent="moving";
+        Fixture f(document);f.canvas.set_selection("moving");
+        f.drag(f.screen(440,300),f.screen(303,300));
+        near(f.value("moving",{},"transform.tx"),-137,"Effective follower cannot seed a repeated-gap pair");
+        check(!f.canvas.last_snap_feedback().contains("repeated gap"),"Effective follower publishes no repeated-gap feedback as a target");f.no_error();
+    }
+    {
+        auto document=repeated_gap_snap_document();
+        std::erase(document.compositions.front().roots,Id("gap-a"));std::erase(document.compositions.front().roots,Id("gap-b"));
+        auto other=document.compositions.front();other.id="other-composition";other.name="Other composition";
+        other.roots={"gap-a","gap-b"};other.artboards.front().id="other-artboard";
+        document.compositions.push_back(std::move(other));
+        Fixture f(document);f.canvas.set_selection("moving");
+        f.drag(f.screen(440,300),f.screen(303,300));
+        near(f.value("moving",{},"transform.tx"),-137,"Cross-composition pair cannot seed a repeated-gap candidate");
+        check(!f.canvas.last_snap_feedback().contains("repeated gap"),"Cross-composition pair publishes no repeated-gap feedback");f.no_error();
+    }
+    {
+        auto document=repeated_gap_snap_document();
+        Object group;group.id="scope";group.kind=Kind::group;group.children={"moving"};document.objects.emplace(group.id,group);
+        std::erase(document.compositions.front().roots,Id("moving"));document.compositions.front().roots.push_back("scope");
+        Fixture f(document);f.canvas.set_selection("moving");
+        f.drag(f.screen(440,300),f.screen(303,300));
+        near(f.value("moving",{},"transform.tx"),-137,"Out-of-scope pair cannot seed a repeated-gap candidate");
+        check(!f.canvas.last_snap_feedback().contains("repeated gap"),"Out-of-scope pair publishes no repeated-gap feedback");f.no_error();
+    }
+    {
+        auto document=blocker(repeated_gap_snap_document());document.objects.at("blocker").transform_parent="moving";
+        after_fixture(std::move(document),"Effective follower");
+    }
+    {
+        auto document=blocker(repeated_gap_snap_document());std::erase(document.compositions.front().roots,Id("blocker"));
+        auto other=document.compositions.front();other.id="other-composition";other.name="Other composition";other.roots={"blocker"};
+        other.artboards.front().id="other-artboard";document.compositions.push_back(std::move(other));
+        after_fixture(std::move(document),"Cross-composition object");
+    }
+    {
+        auto document=blocker(repeated_gap_snap_document());
+        Object group;group.id="scope";group.kind=Kind::group;group.children={"gap-a","gap-b","moving"};
+        document.objects.emplace(group.id,group);
+        std::erase(document.compositions.front().roots,Id("gap-a"));std::erase(document.compositions.front().roots,Id("gap-b"));
+        std::erase(document.compositions.front().roots,Id("moving"));document.compositions.front().roots.push_back("scope");
+        after_fixture(std::move(document),"Out-of-scope object");
     }
 }
 
@@ -799,6 +967,7 @@ int main(int argc, char** argv) {
         snap_tolerance_zoom_and_exact_edits();
         snap_guide_grid_priority_visibility_and_controls();
         snap_two_sided_equal_gap_and_point_world_correction();
+        snap_repeated_gap_fixed_oracles_and_eligibility();
         snap_scope_and_singular_point_rejections();
         snap_text_baseline_and_unsupported_axis_omission();
         snap_cancellation_and_artboard();

@@ -125,6 +125,9 @@ private:
         Id target_id;
         QString target_feature;
         int target_feature_order=0;
+        // Equal-gap candidates may be tied to one side of the moving bounds.
+        // The existing centered two-sided candidate keeps using the minimum.
+        int source_feature_order=0;
     };
     struct SnapSourceFeature {
         double position=0;
