@@ -1,4 +1,4 @@
-# Nect — autonomous Mission ownership / P02-C2 synchronization
+# Nect — autonomous Mission ownership / P02-D first slice
 
 ## Mission Brief
 
@@ -12,20 +12,20 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Deliver P02-C2 explicit Align/Distribute reference semantics through the shared Session and GUI, then continue to P02-D first-slice adapters in this Sol Task unless a material DEC-71 rollover condition arises.
+**Goal:** Deliver the accepted P02-D Canvas Utility Strip, Repeater angle editor and Draw Path `G` alias/collision help through the existing Desktop and Session surfaces; then continue the live Completion Route in this Sol Task unless a material DEC-71 rollover condition arises.
 
-**Current phase:** P02-C2 / SOL_ACCEPTED / REMOTE_SYNC_PENDING. P02-A/B/C1 are synchronized. The fresh disposable C2 Worker handed off an eight-file candidate and is retired; Sol reviewed it, repaired one Inspector width defect, and is the sole writer. C2 packet revision 1 remains bound to the exact C1 source baseline.
+**Current phase:** P02-D / PACKET APPROVED / IMPLEMENTATION PENDING. P02-A/B/C1/C2 are synchronized. C2 Worker and owned GUI are closed. Sol remains the sole Git/worktree writer; the next code writer is a fresh disposable Luna Max Worker under `P02-D-ENTRY-01` revision 1.
 
-**Proven:** P02-A native v0.14 synchronized at `d21c968e309abdbccec061721e6906ecaee1a020`; P02-B at `68a700f2be1f9550ead9c0f911cc0d04350bd66d`; P02-C1 at `3eb4a625f8b057083aec8bd35c0aaeb08a93a38e`, all read back from origin. C2 Sol review accepted the exact candidate after an Inspector width repair. Full Release build and serial CTest 41/41 PASS before that UI-only repair; Release Desktop/Window build and focused alignment/window 2/2 PASS afterward. Actual 96-DPI GUI key spacing, Guide align, Grid virtual-edge distribution, Undo, native v0.14 save/reopen and byte-identical recovery PASS; the repaired Inspector fit all controls without horizontal scrolling. Exact identities/results are in `docs/p02-c2-entry.md`. Full 200% interactive GUI remains BLOCKED_ENV by host geometry. P01 R1/R5/R8 are separate BLOCKED_ENV routes, not P02 product blockers.
+**Proven:** P02-A native v0.14 synchronized at `d21c968e309abdbccec061721e6906ecaee1a020`; P02-B at `68a700f2be1f9550ead9c0f911cc0d04350bd66d`; P02-C1 at `3eb4a625f8b057083aec8bd35c0aaeb08a93a38e`; P02-C2 at `c82bf5606a18027bd6a166fb243d9fb8ed3cde5b`. Each exact local/tracking/remote pointer matched after non-force push with clean tree. C2 Sol review and actual 96-DPI GUI key spacing, Guide align, Grid virtual-edge distribution, Undo, native v0.14 save/reopen and byte-identical recovery PASS. Full Release/serial CTest 41/41 PASS before one UI-only width repair, then focused alignment/window 2/2 PASS and real GUI layout readback. Exact identities/results are in `docs/p02-c2-entry.md`. Full 200% interactive GUI remains BLOCKED_ENV by host geometry. P01 R1/R5/R8 are separate BLOCKED_ENV routes, not P02 product blockers.
 
-**Next task:** Make the coherent C2 implementation/evidence commit, non-force push `codex/practical-alpha`, read back exact remote SHA and clean tree. Freeze P02-D first-slice packet against that exact C2 SHA, update this single active checkpoint, then dispatch a fresh disposable Luna Max Worker and continue in this Sol Task.
+**Next task:** Synchronize the P02-D packet/docs-only dispatch commit, update live Notion Home/Worker packet status, then dispatch one fresh disposable Luna Max Worker to implement the bounded D slice without Git mutation. Sol reviews the exact candidate and runs focused plus actual GUI acceptance.
 
-**Approach:** Review the staged file list and diff one last time, commit only the C2 candidate and acceptance docs, push without force, then compare local, origin tracking and `ls-remote` SHA. Use that readback to freeze the next packet; keep native 0.14 unchanged.
+**Approach:** Use the existing Canvas toggles and layout preview/commit path, existing Repeater `op.<id>.rotation` Scalar Ref and Session gesture semantics, and existing Draw Path action. Keep native 0.14 unchanged. Sol owns docs/Git/GUI; Worker owns only D code/tests. Do not infer workspace persistence or close REQ-33 residuals.
 
-**Done for next:** C2 implementation/evidence commit has exact local/remote SHA equality and clean tree; P02-D packet and active checkpoint are bound to that immutable SHA. Continue P02-D in this Task.
+**Done for next:** D candidate passes Sol exact review, focused and proportionate regression checks, real Windows GUI/runtime readback including numeric/knob/Undo and native recovery; acceptance evidence and any environment blocks are explicit; coherent commit has exact remote SHA equality and clean tree. Then select the next live eligible Route step in this Task.
 
-**State:** D:\Documents\Nect, branch `codex/practical-alpha`, dispatch HEAD `7ccf0e205fc4fbbff7ec8723760129385f326115` before the C2 implementation/evidence commit; only the accepted C2 files and docs are dirty. Native writer remains 0.14. Owned Nect GUI Sessions and the C2 Worker are closed. Sol is the sole Git/worktree owner.
+**State:** `D:\Documents\Nect`, branch `codex/practical-alpha`, exact C2 source baseline/local/tracking/remote SHA `c82bf5606a18027bd6a166fb243d9fb8ed3cde5b`; packet docs are the only current edits until dispatch commit. Native writer remains 0.14. No owned Nect GUI Session or code Worker is active. Sol is the sole Git/worktree owner.
 
-**Authority:** Current user standing authorization, live DEC-71 clarification and DEC-70, scoped Confirmed Requirements, repo AGENTS.md, P02-ENTRY-01 revision 5 and P02-C2-ENTRY-01 revision 1. This Task has Full access/no routine approval and sole worktree/Session ownership. A future Sol rollover successor must verify Project/model/effective authority/HEAD/single-writer and record TAKEOVER_ACK before ownership transfer.
+**Authority:** Current user standing authorization, live DEC-71 clarification and DEC-70, scoped Confirmed Requirements, repo AGENTS.md, P02-ENTRY-01 revision 6 and P02-D-ENTRY-01 revision 1. This Task has Full access/no routine approval and sole worktree/Session ownership. A future Sol rollover successor must verify Project/model/effective authority/HEAD/single-writer and record TAKEOVER_ACK before ownership transfer.
 
-**Handoff:** CONTINUE_CURRENT_TASK. Continue across P02-C2/D and subsequent eligible Route steps while context remains healthy; rollover only on a material DEC-71 condition.
+**Handoff:** CONTINUE_CURRENT_TASK. Continue through P02-D and subsequent eligible Route steps while context remains healthy; rollover only on a material DEC-71 condition.
