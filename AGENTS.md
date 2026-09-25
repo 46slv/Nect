@@ -1,5 +1,13 @@
 # Agent entry
 
+## 2026-09-25 standing Mission ownership (DEC-71)
+
+For Nect, the current user instruction and [DEC-71](https://app.notion.com/p/3e6fd279a6f381219079f6b9a024fece) supersede older packet text that stopped at DESIGN_GATE, packet completion, review readiness, a commit/push, or a Task boundary. Codex Sol is the Mission Owner: it selects the next eligible Route step, resolves ordinary engineering ambiguity within accepted product intent, freezes/approves bounded packets, dispatches fresh disposable Luna Max Workers, reviews exact candidates, repairs and rechecks, reconciles Git/Notion/runtime evidence, and continues through durable checkpoint and fresh Task rollover. ChatGPT is optional external review, not a mandatory checkpoint relay. P02 implementation is authorized from `P02-ENTRY-01` on `codex/practical-alpha`.
+
+Keep one semantic checkpoint per Task for practical-alpha, but create and transfer to a fresh Task automatically when that checkpoint closes; the old wording that treated Task completion or successor creation as a stop condition is superseded. A successor must verify the same Nect Project, actual model/profile, effective authority, HEAD and single-writer state, then record `TAKEOVER_ACK` before writing. If fresh Task creation is unavailable, leave `HANDOFF_READY` with a complete resume prompt and stop. A terminal Worker is disposable; dispatch a fresh one for later repair unless new evidence is still being developed in the same packet.
+
+Ordinary reversible lifecycle inside the current Mission is authorized: edit/build/test, coherent commit, non-force push, branch/PR maintenance and non-force merge after required checks. Human confirmation is reserved for actual hands-on/subjective product acceptance, material preference-dependent product/UX/art choices, replacement or major expansion of the accepted Goal, platform-required confirmation, credentials/account/billing, destructive or irreversible action, release/publication and other public external action. Existing confirmed requirements and non-goals remain protected. Do not interpret this authority as permission for force push, history rewrite, unrelated mutation, or unverified completion claims. Where older sections below are narrower on Mission progression or ordinary Git lifecycle, this dated section controls; their Document/Session, identity, evidence and safety rules still apply.
+
 If you arrived from only a GitHub repository link, read `START_HERE.md` first.
 
 Current scope is selected by the current user instruction plus `CURRENT_GOAL.md`.
