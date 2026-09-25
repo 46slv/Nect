@@ -354,10 +354,21 @@ struct TransformObjects {
     std::vector<Id> objects; double rotation=0,scale_x=1,scale_y=1;
     std::optional<std::array<double,2>> pivot;
 };
-// One-shot geometric alignment, excluding stroke width. Empty artboard uses the
-// initial selection envelope; otherwise target that Artboard in the same plane.
-struct DistributeObjects { std::vector<Id> objects; std::string axis; };
-struct AlignObjects { std::vector<Id> objects; std::string axis,alignment; std::optional<Id> artboard; };
+// One-shot layout from evaluated geometry, excluding stroke width. The legacy
+// artboard field remains a source-compatible alias for an explicit reference.
+struct DistributeObjects {
+    std::vector<Id> objects;
+    std::string axis;
+    std::string reference="selection";
+    std::optional<double> spacing;
+};
+struct AlignObjects {
+    std::vector<Id> objects;
+    std::string axis,alignment;
+    // Retained as a source-compatible C++ alias. JSON callers should use reference.
+    std::optional<Id> artboard;
+    std::string reference="selection";
+};
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,

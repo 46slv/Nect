@@ -905,8 +905,10 @@ int main(int argc,char** argv) {
         Point third;third.id="layout-third-point";third.x.literal=400;third.y.literal=200;
         layout_session.apply({CreatePath{layout_comp,"","layout-third","Third",{{"layout-third-contour",false,{third}}}}},5);layout.host.edited();
         layout.canvas->set_selections({{"layout-third",""},{"layout-left",""},{"layout-right",""}});QApplication::processEvents();
-        const auto before_spacing=layout_session.document();visible_child<QPushButton>(layout,"quick-distribute-x")->click();
-        check(layout_session.revision()==7&&evaluate(layout_session.document()).at({"layout-right","","transform.tx"})==55,"Quick equal gaps uses shared Session despite Artboard alignment target");
+        const auto before_spacing=layout_session.document();
+        auto* layout_reference=visible_child<QComboBox>(layout,"alignment-target");layout_reference->setCurrentIndex(layout_reference->findData("selection"));
+        visible_child<QPushButton>(layout,"quick-distribute-x")->click();
+        check(layout_session.revision()==7&&evaluate(layout_session.document()).at({"layout-right","","transform.tx"})==55,"Selection distribution uses the explicit Selection reference");
         layout_session.undo(7);layout.host.edited();check(layout_session.document()==before_spacing,"GUI spacing is one Undo");
         layout.canvas->set_selection("layout-left");QApplication::processEvents();
         // Ordinary text editing retains Ctrl+A; Canvas selection remains intact.
@@ -932,6 +934,37 @@ int main(int argc,char** argv) {
         layout.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
         stacking.hide();Window layout_setup(temp.path()+"/layout-setup");layout_setup.show();QApplication::processEvents();
         layout_setup_previews_commit_and_recovers(layout_setup);layout_setup.hide();
+        Window layout_refs(temp.path()+"/layout-references");layout_refs.show();QApplication::processEvents();
+        auto& refs_session=layout_refs.host.session;const auto refs_comp=refs_session.document().compositions.front().id;
+        const auto refs_art=refs_session.document().compositions.front().artboards.front().id;
+        Point ref_a;ref_a.id="ref-a-point";ref_a.x.literal=30;ref_a.y.literal=30;
+        Point ref_b;ref_b.id="ref-b-point";ref_b.x.literal=100;ref_b.y.literal=30;
+        refs_session.apply({SetArtboardLayout{refs_comp,refs_art,ArtboardLayout{std::nullopt,Grid{"layout-grid",{0,0,100,100},1,1,0,0}}},
+            AddGuide{refs_comp,Guide{"layout-guide","Vertical guide","x",80}},
+            CreatePath{refs_comp,"","ref-a","Reference A",{{"ref-a-contour",false,{ref_a}}}},
+            CreatePath{refs_comp,"","ref-b","Reference B",{{"ref-b-contour",false,{ref_b}}}}},0);
+        layout_refs.host.edited();layout_refs.canvas->set_selections({{"ref-a",""},{"ref-b",""}});QApplication::processEvents();
+        auto* reference_picker=visible_child<QComboBox>(layout_refs,"alignment-target");
+        check(reference_picker->findData("grid:layout-grid")>=0&&reference_picker->findData("guide:layout-guide")>=0&&
+            reference_picker->findData("key_object:ref-a")>=0&&reference_picker->itemText(reference_picker->findData("grid:layout-grid")).contains("layout-grid"),
+            "Inspector exposes stable Artboard/Grid/Guide/key identities before Apply");
+        const auto refs_before=refs_session.document();const auto refs_revision=refs_session.revision();
+        reference_picker->setCurrentIndex(reference_picker->findData("guide:layout-guide"));
+        check(visible_child<QPushButton>(layout_refs,"quick-align-x-min")->isEnabled()&&
+            !visible_child<QPushButton>(layout_refs,"quick-align-y-min")->isEnabled(),"Guide alignment enables only its declared axis");
+        visible_child<QPushButton>(layout_refs,"quick-align-x-min")->click();
+        check(refs_session.revision()==refs_revision+1,"Guide alignment commits through one Session command");
+        refs_session.undo(refs_session.revision());layout_refs.host.edited();QApplication::processEvents();check(refs_session.document()==refs_before,"Guide alignment is one exact Undo");
+        reference_picker=visible_child<QComboBox>(layout_refs,"alignment-target");reference_picker->setCurrentIndex(reference_picker->findData("key_object:ref-a"));
+        auto* spacing_draft=visible_child<QLineEdit>(layout_refs,"distribution-spacing");auto* key_distribute=visible_child<QPushButton>(layout_refs,"quick-distribute-x");
+        check(!key_distribute->isEnabled(),"Key-object Distribute is disabled until explicit spacing is entered");
+        spacing_draft->setText("15");check(refs_session.revision()==refs_revision+2&&refs_session.document()==refs_before,"Spacing entry remains a non-mutating draft");
+        check(key_distribute->isEnabled(),"Finite nonnegative key spacing enables Distribute");
+        const auto key_object_before=refs_session.document().objects.at("ref-a");key_distribute->click();
+        check(refs_session.revision()==refs_revision+3&&refs_session.document().objects.at("ref-a")==key_object_before,
+            "Key-object UI distribution applies explicit spacing and keeps its key fixed");
+        const auto key_result=refs_session.document();refs_session.undo(refs_session.revision());layout_refs.host.edited();
+        check(refs_session.document()==refs_before&&key_result!=refs_before,"Key-object distribution is one Undo");layout_refs.hide();
         std::cout<<"PASS Inspector, pick-whip, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

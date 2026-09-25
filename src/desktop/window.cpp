@@ -390,7 +390,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
             {"Top edges","y","min"},{"Vertical centers","y","center"},{"Bottom edges","y","max"}}) {
             const auto [label,axis,alignment]=choice;
             auto* command=action(target,label,{},[this,to_artboard,axis,alignment]{
-                align_selection(axis,alignment,to_artboard);
+                align_selection(axis,alignment,to_artboard?"artboard:"+canvas->active_artboard():"selection");
             });
             command->setObjectName(QString("align-%1-%2-%3").arg(to_artboard?"artboard":"selection",qs(axis),qs(alignment)));
             command->setToolTip("Align evaluated geometric bounds, excluding stroke width. Retained shapes remain editable.");
@@ -1163,6 +1163,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     // an active preview still read committed values through the core evaluator.
     inspector_values_=use_canvas_values&&!host.session.gesture_active()?canvas->evaluated_values():evaluate(d);
     if(canvas->selections().size()>1){add_multi_properties(layout);return;}
+    if(canvas->selections().size()==1&&canvas->selections().front().point.empty())
+        add_alignment_controls(layout,canvas->selections());
     auto* name=new QLineEdit(qs(o.name));name->setAccessibleName("Object name");layout->addWidget(name);
     connect(name,&QLineEdit::editingFinished,this,[this,name,id=o.id]{
         if(!name->isModified()) return;
@@ -1894,18 +1896,139 @@ void Window::transform_selection() {
     host.edited();canvas->setFocus();
 }
 
-void Window::distribute_selection(const std::string& axis) {
+void Window::distribute_selection(const std::string& axis,const std::string& reference,std::optional<double> spacing) {
     if(std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& selection){return !selection.point.empty();}))
         throw Error("INVALID_SELECTION","Select whole objects to distribute their bounds");
-    host.session.apply({DistributeObjects{canvas->selected_objects(),axis}},host.session.revision());
-    host.edited();
+    const auto revision=host.session.revision();
+    host.session.apply({DistributeObjects{canvas->selected_objects(),axis,reference,spacing}},revision);
+    if(host.session.revision()!=revision)host.edited();
 }
 
-void Window::align_selection(const std::string& axis,const std::string& alignment,bool to_artboard) {
+void Window::align_selection(const std::string& axis,const std::string& alignment,const std::string& reference) {
     if(std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& selection){return !selection.point.empty();}))
         throw Error("INVALID_SELECTION","Select whole objects to align their bounds");
-    host.session.apply({AlignObjects{canvas->selected_objects(),axis,alignment,to_artboard?std::optional<Id>{canvas->active_artboard()}:std::optional<Id>{}}},host.session.revision());
-    host.edited();
+    const auto revision=host.session.revision();
+    host.session.apply({AlignObjects{canvas->selected_objects(),axis,alignment,{},reference}},revision);
+    if(host.session.revision()!=revision)host.edited();
+}
+
+void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected) {
+    const auto& d=host.session.document();
+    auto* alignment_box=new QGroupBox("Align · geometric bounds");auto* alignment_layout=new QVBoxLayout(alignment_box);
+    auto* alignment_target=new QComboBox;alignment_target->setObjectName("alignment-target");
+    alignment_target->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    alignment_target->setMinimumContentsLength(16);
+    alignment_target->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
+    alignment_target->addItem("Selection bounds","selection");
+    const auto& active_composition=find_composition(d,canvas->active_composition());
+    const auto active_artboard=canvas->active_artboard();
+    for(const auto& board:active_composition.artboards)if(board.id==active_artboard)
+        alignment_target->addItem(QString("Artboard: %1 (%2)").arg(qs(board.name),qs(board.id)),qs("artboard:"+board.id));
+    for(const auto& board:active_composition.artboards)if(board.id!=active_artboard)
+        alignment_target->addItem(QString("Artboard: %1 (%2)").arg(qs(board.name),qs(board.id)),qs("artboard:"+board.id));
+    const auto selected_objects=canvas->selected_objects();
+    for(const auto& id:selected_objects) {
+        const auto& object=d.objects.at(id);
+        alignment_target->addItem(QString("Key object: %1 (%2)").arg(qs(object.name),qs(id)),qs("key_object:"+id));
+    }
+    for(const auto& board:active_composition.artboards)if(board.layout&&board.layout->grid)
+        alignment_target->addItem(QString("Grid: %1 · Artboard: %2 (%3)")
+            .arg(qs(board.layout->grid->id),qs(board.name),qs(board.id)),qs("grid:"+board.layout->grid->id));
+    for(const auto& guide:active_composition.guides)
+        alignment_target->addItem(QString("Guide: %1 (%2) · %3=%4")
+            .arg(qs(guide.name),qs(guide.id),qs(guide.axis),QString::number(guide.position,'g',15)),qs("guide:"+guide.id));
+    for(int index=0;index<alignment_target->count();++index)
+        alignment_target->setItemData(index,alignment_target->itemText(index),Qt::ToolTipRole);
+    auto target_index=alignment_target->findData(qs(alignment_reference_));
+    if(target_index<0){alignment_reference_="selection";target_index=0;}
+    alignment_target->setCurrentIndex(target_index);
+    alignment_target->setToolTip(alignment_target->itemText(target_index));
+    alignment_layout->addWidget(alignment_target);
+    connect(alignment_target,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,alignment_target](int index){
+        alignment_reference_=alignment_target->itemData(index).toString().toStdString();
+        alignment_target->setToolTip(alignment_target->itemText(index));
+    });
+    auto* spacing_row=new QVBoxLayout;alignment_layout->addLayout(spacing_row);
+    spacing_row->addWidget(new QLabel("Key spacing (du):"));
+    auto* spacing_input=new QLineEdit;spacing_input->setObjectName("distribution-spacing");
+    spacing_input->setPlaceholderText("Enter explicit gap");
+    spacing_input->setToolTip("Explicit nonnegative spacing in Composition du. Text entry is a draft; a Distribute button applies it.");
+    spacing_row->addWidget(spacing_input);
+    const bool selected_has_points=std::any_of(selected.begin(),selected.end(),[](const auto& item){return !item.point.empty();});
+    const bool selected_text_only=!selected_objects.empty()&&std::all_of(selected_objects.begin(),selected_objects.end(),[&](const auto& id){return d.objects.at(id).kind==Kind::text&&d.objects.at(id).text.has_value();});
+    const auto apply_enabled=[alignment_target,spacing_input,selected_objects,selected_has_points,selected_text_only]() {
+        const auto reference=alignment_target->currentData().toString().toStdString();
+        const bool selection_or_key=reference=="selection"||reference.starts_with("key_object:");
+        const bool key=reference.starts_with("key_object:");
+        bool spacing_valid=false;bool spacing_ok=false;
+        const auto spacing_value=spacing_input->text().trimmed().toDouble(&spacing_ok);
+        spacing_valid=spacing_ok&&std::isfinite(spacing_value)&&spacing_value>=0;
+        const bool count_for_align=selected_objects.size()>=(selection_or_key?2u:1u);
+        const bool count_for_distribute=selected_objects.size()>=(reference=="selection"?3u:key?2u:1u);
+        return std::tuple{!selected_has_points&&count_for_align,
+            !selected_has_points&&count_for_align&&selection_or_key&&selected_text_only,
+            !selected_has_points&&count_for_distribute&&!reference.starts_with("guide:")&&(!key||spacing_valid),
+            spacing_valid};
+    };
+    auto* spacing_hint=new QLabel("Reference is explicit in the selector; disabled actions explain unsupported axis or selection combinations.");
+    spacing_hint->setWordWrap(true);alignment_layout->addWidget(spacing_hint);
+    for(const auto axis:{"x","y"}) {
+        auto* row=new QHBoxLayout;alignment_layout->addLayout(row);
+        for(int index=0;index<3;++index) {
+            const std::string mode=index==0?"min":index==1?"center":"max";
+            const auto label=std::string(axis)=="x"?(index==0?"Left":index==1?"H center":"Right"):(index==0?"Top":index==1?"V center":"Bottom");
+            auto* button=new QPushButton(label);button->setObjectName(QString("quick-align-%1-%2").arg(axis,qs(mode)));
+            button->setToolTip("Align evaluated geometric bounds in Composition du; excludes stroke width.");row->addWidget(button);
+            connect(button,&QPushButton::clicked,this,[this,axis,mode,alignment_target]{
+                const auto reference=alignment_target->currentData().toString().toStdString();
+                perform([&]{align_selection(axis,mode,reference);});
+            });
+        }
+    }
+    auto* baseline_button=new QPushButton("Align first-line baseline");
+    baseline_button->setObjectName("quick-align-y-baseline");
+    baseline_button->setToolTip("Align actual first-line baselines for horizontal, axis-aligned Text. Selection keeps the source with minimum Composition y fixed; a key-object reference keeps that Text fixed.");
+    connect(baseline_button,&QPushButton::clicked,this,[this,alignment_target]{
+        const auto reference=alignment_target->currentData().toString().toStdString();
+        perform([&]{align_selection("y","baseline",reference);});
+    });alignment_layout->addWidget(baseline_button);
+    auto* distribute_row=new QHBoxLayout;alignment_layout->addLayout(distribute_row);
+    for(const auto axis:{"x","y"}) {
+        auto* button=new QPushButton(std::string(axis)=="x"?"Distribute H":"Distribute V");button->setObjectName(QString("quick-distribute-%1").arg(axis));
+        button->setToolTip("Apply equal gaps for the selected reference. Key-object distribution requires explicit nonnegative spacing; Guide distribution is unsupported.");distribute_row->addWidget(button);
+        connect(button,&QPushButton::clicked,this,[this,axis,alignment_target,spacing_input]{
+            perform([&]{
+                const auto reference=alignment_target->currentData().toString().toStdString();std::optional<double> spacing;
+                if(reference.starts_with("key_object:")) {
+                    bool ok=false;const auto value=spacing_input->text().trimmed().toDouble(&ok);
+                    if(!ok||!std::isfinite(value))throw Error("INVALID_SPACING","Enter a finite explicit spacing in Composition du");
+                    spacing=value;
+                }
+                distribute_selection(axis,reference,spacing);
+            });
+        });
+    }
+    const auto active_composition_id=canvas->active_composition();
+    const auto update_alignment_actions=[this,alignment_box,alignment_target,spacing_input,spacing_hint,apply_enabled,active_composition_id] {
+        const auto [ordinary,baseline_ok,distribution,spacing_valid]=apply_enabled();
+        const auto reference=alignment_target->currentData().toString().toStdString();
+        const auto& composition=find_composition(host.session.document(),active_composition_id);
+        const auto guide=reference.starts_with("guide:")?std::find_if(composition.guides.begin(),composition.guides.end(),[&](const auto& item){return "guide:"+item.id==reference;}):composition.guides.end();
+        for(const auto axis:{"x","y"})for(const auto mode:{"min","center","max"})
+            if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-align-%1-%2").arg(axis,mode)))
+                button->setEnabled(ordinary&&(!reference.starts_with("guide:")||(guide!=composition.guides.end()&&guide->axis==axis)));
+        if(auto* button=alignment_box->findChild<QPushButton*>("quick-align-y-baseline"))button->setEnabled(baseline_ok);
+        for(const auto axis:{"x","y"})if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-distribute-%1").arg(axis)))button->setEnabled(distribution);
+        spacing_input->setEnabled(reference.starts_with("key_object:"));
+        spacing_hint->setText(reference.starts_with("key_object:")?
+            (spacing_valid?"Key object is fixed; explicit spacing is ready in Composition du.":"Enter finite, nonnegative spacing to enable Distribute."):
+            reference.starts_with("guide:")?"Guide can align only on its axis; Guide distribution is unsupported.":
+            "Selection, key object, Artboard, and Grid references are explicit; input edits apply only after a button click.");
+    };
+    connect(alignment_target,qOverload<int>(&QComboBox::currentIndexChanged),alignment_box,[update_alignment_actions](int){update_alignment_actions();});
+    connect(spacing_input,&QLineEdit::textChanged,alignment_box,[update_alignment_actions](const QString&){update_alignment_actions();});
+    update_alignment_actions();
+    layout->addWidget(alignment_box);
 }
 
 void Window::add_multi_properties(QVBoxLayout* layout) {
@@ -1923,25 +2046,7 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})common(form,field,QString::fromLatin1(field));
         layout->addStretch();return;
     }
-    auto* alignment_box=new QGroupBox("Align · geometric bounds");auto* alignment_layout=new QVBoxLayout(alignment_box);
-    auto* alignment_target=new QComboBox;alignment_target->setObjectName("alignment-target");alignment_target->addItems({"Selection bounds","Active Artboard"});alignment_target->setCurrentIndex(alignment_to_artboard_?1:0);alignment_layout->addWidget(alignment_target);
-    connect(alignment_target,qOverload<int>(&QComboBox::currentIndexChanged),this,[this](int index){alignment_to_artboard_=index==1;});
-    for(const auto axis:{"x","y"}) {
-        auto* row=new QHBoxLayout;alignment_layout->addLayout(row);
-        for(int index=0;index<3;++index) {
-            const std::string mode=index==0?"min":index==1?"center":"max";
-            const auto label=std::string(axis)=="x"?(index==0?"Left":index==1?"H center":"Right"):(index==0?"Top":index==1?"V center":"Bottom");
-            auto* button=new QPushButton(label);button->setObjectName(QString("quick-align-%1-%2").arg(axis,qs(mode)));button->setToolTip("Align evaluated geometry; excludes stroke width");row->addWidget(button);
-            connect(button,&QPushButton::clicked,this,[this,axis,mode]{perform([&]{align_selection(axis,mode,alignment_to_artboard_);});});
-        }
-    }
-    auto* spacing_row=new QHBoxLayout;alignment_layout->addLayout(spacing_row);
-    for(const auto axis:{"x","y"}) {
-        auto* button=new QPushButton(std::string(axis)=="x"?"Equal H gaps":"Equal V gaps");button->setObjectName(QString("quick-distribute-%1").arg(axis));
-        button->setEnabled(selected.size()>=3);button->setToolTip("Space 3+ non-overlapping objects evenly; keep outer objects fixed. Excludes stroke width; ignores alignment target.");spacing_row->addWidget(button);
-        connect(button,&QPushButton::clicked,this,[this,axis]{perform([&]{distribute_selection(axis);});});
-    }
-    layout->addWidget(alignment_box);
+    add_alignment_controls(layout,selected);
     auto* selection_transform=new QPushButton("Rotate / scale selection…");selection_transform->setObjectName("selection-transform-open");
     layout->addWidget(selection_transform);connect(selection_transform,&QPushButton::clicked,this,[this]{perform([&]{transform_selection();});});
     auto* transform=section("Transform · each object");

@@ -81,11 +81,12 @@ private:
     bool reject_stale_layout_draft();
     void rebuild_inspector(bool use_canvas_values=false);
     void sync_tree_selection();
+    void add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected);
     void add_multi_properties(QVBoxLayout* layout);
     void transform_selection();
-    void distribute_selection(const std::string& axis);
-    void align_selection(const std::string& axis,const std::string& alignment,bool to_artboard);
-    bool alignment_to_artboard_=false;
+    void distribute_selection(const std::string& axis,const std::string& reference="selection",std::optional<double> spacing={});
+    void align_selection(const std::string& axis,const std::string& alignment,const std::string& reference);
+    std::string alignment_reference_="selection";
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
     void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);

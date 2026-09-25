@@ -681,12 +681,20 @@ Command read_command(const j::value& v) {
         return UnlinkProperties{std::move(targets)};
     }
     if(type=="distribute_objects") {
-        keys(o,{"type","objects","axis"});
-        return DistributeObjects{ids(o.at("objects")),text(o.at("axis"))};
+        keys(o,{"type","objects","axis","reference","spacing"});
+        std::optional<double> spacing;
+        if(o.contains("spacing")&&!o.at("spacing").is_null())spacing=number(o.at("spacing"));
+        return DistributeObjects{ids(o.at("objects")),text(o.at("axis")),
+            o.contains("reference")?text(o.at("reference")):"selection",spacing};
     }
     if(type=="align_objects") {
-        keys(o,{"type","objects","axis","alignment","artboard"});
-        return AlignObjects{ids(o.at("objects")),text(o.at("axis")),text(o.at("alignment")),o.at("artboard").is_null()?std::optional<Id>{}:std::optional<Id>{text(o.at("artboard"))}};
+        keys(o,{"type","objects","axis","alignment","artboard","reference"});
+        if(o.contains("artboard")&&o.contains("reference"))
+            throw Error("INVALID_REFERENCE","Specify either reference or the legacy artboard alias, not both");
+        std::optional<Id> artboard;
+        if(o.contains("artboard")&&!o.at("artboard").is_null())artboard=text(o.at("artboard"));
+        return AlignObjects{ids(o.at("objects")),text(o.at("axis")),text(o.at("alignment")),artboard,
+            o.contains("reference")?text(o.at("reference")):"selection"};
     }
     if(type=="transform_objects") {
         keys(o,{"type","objects","rotation","scale_x","scale_y","pivot"});

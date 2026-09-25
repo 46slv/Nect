@@ -1,4 +1,4 @@
-# Nect — autonomous Mission ownership / P02-C2 Align and Distribute
+# Nect — autonomous Mission ownership / P02-C2 synchronization
 
 ## Mission Brief
 
@@ -14,17 +14,17 @@
 
 **Goal:** Deliver P02-C2 explicit Align/Distribute reference semantics through the shared Session and GUI, then continue to P02-D first-slice adapters in this Sol Task unless a material DEC-71 rollover condition arises.
 
-**Current phase:** P02-C2 / APPROVED_PACKET / WORKER_DISPATCH_PENDING. P02-A/B/C1 are synchronized. The fresh disposable C1 Worker is retired; Sol is the sole writer between packets. C2 packet revision 1 is frozen at the exact C1 implementation source baseline.
+**Current phase:** P02-C2 / SOL_ACCEPTED / REMOTE_SYNC_PENDING. P02-A/B/C1 are synchronized. The fresh disposable C2 Worker handed off an eight-file candidate and is retired; Sol reviewed it, repaired one Inspector width defect, and is the sole writer. C2 packet revision 1 remains bound to the exact C1 source baseline.
 
-**Proven:** P02-A native v0.14 synchronized at `d21c968e309abdbccec061721e6906ecaee1a020`; P02-B at `68a700f2be1f9550ead9c0f911cc0d04350bd66d`; P02-C1 Smart Snap at `3eb4a625f8b057083aec8bd35c0aaeb08a93a38e`, exact local/remote match and clean tree. C1 Release build PASS, serial CTest 41/41 PASS, focused 3/3 PASS, DPR2 Canvas 1/1 PASS, actual 96-DPI hidden-Guide Snap/Undo/Redo/native/recovery/reopen PASS, and visible Window benchmark p95 17.31–24.16 ms, zero over 33.333 ms. Full 200% interactive visual acceptance is BLOCKED_ENV by host window geometry; no 200% GUI PASS claim. P01 R1/R5/R8 remain separate BLOCKED_ENV routes, not P02 product blockers. Evidence detail is in `docs/p02-c1-entry.md`.
+**Proven:** P02-A native v0.14 synchronized at `d21c968e309abdbccec061721e6906ecaee1a020`; P02-B at `68a700f2be1f9550ead9c0f911cc0d04350bd66d`; P02-C1 at `3eb4a625f8b057083aec8bd35c0aaeb08a93a38e`, all read back from origin. C2 Sol review accepted the exact candidate after an Inspector width repair. Full Release build and serial CTest 41/41 PASS before that UI-only repair; Release Desktop/Window build and focused alignment/window 2/2 PASS afterward. Actual 96-DPI GUI key spacing, Guide align, Grid virtual-edge distribution, Undo, native v0.14 save/reopen and byte-identical recovery PASS; the repaired Inspector fit all controls without horizontal scrolling. Exact identities/results are in `docs/p02-c2-entry.md`. Full 200% interactive GUI remains BLOCKED_ENV by host geometry. P01 R1/R5/R8 are separate BLOCKED_ENV routes, not P02 product blockers.
 
-**Next task:** Dispatch a fresh disposable Luna Max Worker against `P02-C2-ENTRY-01` revision 1 and exact source baseline `3eb4a625f8b057083aec8bd35c0aaeb08a93a38e`. Sol reviews/repairs the candidate, verifies core/API/GUI/runtime, synchronizes C2, freezes P02-D and continues here.
+**Next task:** Make the coherent C2 implementation/evidence commit, non-force push `codex/practical-alpha`, read back exact remote SHA and clean tree. Freeze P02-D first-slice packet against that exact C2 SHA, update this single active checkpoint, then dispatch a fresh disposable Luna Max Worker and continue in this Sol Task.
 
-**Approach:** Extend existing `AlignObjects`/`DistributeObjects` command and JSON parser with one explicit reference variant while preserving legacy aliases. Reuse evaluated Composition bounds and the effective-parent-aware translation solver. Fix key object, require explicit nonnegative distribution spacing, use virtual Artboard/Grid outer edges, reject Guide distribution, and expose reference/spacing in the current Desktop action. Keep native 0.14 unchanged.
+**Approach:** Review the staged file list and diff one last time, commit only the C2 candidate and acceptance docs, push without force, then compare local, origin tracking and `ls-remote` SHA. Use that readback to freeze the next packet; keep native 0.14 unchanged.
 
-**Done for next:** `P02-ALIGN-05`, `P02-BASELINE-05B`, `P02-DIST-06` and `C2-NEG-07` pass fixed core/API oracles; GUI visibly names each reference, key and spacing, executes a real accepted edit and explicit reject; one Undo, native/recovery/reopen and legacy alias are verified. Sol accepts the exact diff, commits coherently, non-force pushes, reads back remote SHA and clean tree. Continue to P02-D in this Task.
+**Done for next:** C2 implementation/evidence commit has exact local/remote SHA equality and clean tree; P02-D packet and active checkpoint are bound to that immutable SHA. Continue P02-D in this Task.
 
-**State:** D:\Documents\Nect, branch `codex/practical-alpha`; exact synchronized C1 implementation source baseline `3eb4a625f8b057083aec8bd35c0aaeb08a93a38e`. Packet/checkpoint documentation commit advances dispatch HEAD without replacing that source baseline. Native writer remains 0.14. No Nect GUI Session or Worker writer is active at packet freeze; Sol is the sole Git/worktree owner.
+**State:** D:\Documents\Nect, branch `codex/practical-alpha`, dispatch HEAD `7ccf0e205fc4fbbff7ec8723760129385f326115` before the C2 implementation/evidence commit; only the accepted C2 files and docs are dirty. Native writer remains 0.14. Owned Nect GUI Sessions and the C2 Worker are closed. Sol is the sole Git/worktree owner.
 
 **Authority:** Current user standing authorization, live DEC-71 clarification and DEC-70, scoped Confirmed Requirements, repo AGENTS.md, P02-ENTRY-01 revision 5 and P02-C2-ENTRY-01 revision 1. This Task has Full access/no routine approval and sole worktree/Session ownership. A future Sol rollover successor must verify Project/model/effective authority/HEAD/single-writer and record TAKEOVER_ACK before ownership transfer.
 
