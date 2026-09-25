@@ -394,6 +394,9 @@ struct TextLayout {
     std::optional<double> first_line_baseline_y;
     // Measured horizontal line baselines in layout order; empty for vertical text.
     std::vector<double> line_baselines_y;
+    // Measured vertical column baseline origins in layout order. Empty if a
+    // column has no run or its DirectWrite run origins disagree.
+    std::vector<double> column_baselines_x;
     bool overflow=false;
     std::size_t glyph_count=0;
     std::vector<std::string> warnings,used_fonts;

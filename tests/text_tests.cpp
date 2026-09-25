@@ -79,6 +79,13 @@ int main() {
         cjk.direction="vertical";const auto vertical_cjk=evaluate_text(cjk,values(cjk));const auto upright_vertical=bounds(vertical_cjk);
         check(!vertical_cjk.first_line_baseline_y.has_value(),
             "Vertical text does not expose a horizontal-baseline snap metric");
+        check(vertical_cjk.column_baselines_x.size()==1&&std::isfinite(vertical_cjk.column_baselines_x.front()),
+            "One vertical CJK column exposes its measured DirectWrite run baseline X");
+        cjk.parameters.at("origin_x").literal=123.25;
+        const auto shifted_vertical_cjk=evaluate_text(cjk,values(cjk));
+        near(shifted_vertical_cjk.column_baselines_x.front()-vertical_cjk.column_baselines_x.front(),123.25,
+            "Measured vertical baseline follows the authored X origin");
+        cjk.parameters.at("origin_x").literal=0;
         near(upright_vertical.width(),upright.width(),"CJK glyphs stay upright in Japanese vertical text");
         near(upright_vertical.height(),upright.height(),"CJK vertical shape keeps its upright proportions");
         check(horizontal_cjk.contours->size()==vertical_cjk.contours->size(),"Upright CJK uses matching outline contours");
@@ -115,6 +122,15 @@ int main() {
         const auto half=uniform.contours->size()/2;
         near(uniform.contours->at(half).points.front().anchor.y-uniform.contours->front().points.front().anchor.y,80,
             "Uniform line spacing sets the actual distance between baselines");
+        lines.direction="vertical";
+        const auto vertical_columns=evaluate_text(lines,values(lines));
+        check(vertical_columns.column_baselines_x.size()==2,
+            "Two vertical columns expose two measured run baseline origins");
+        near(vertical_columns.column_baselines_x[1]-vertical_columns.column_baselines_x[0],-80,
+            "Vertical columns progress right to left by measured uniform spacing");
+        lines.content="H\n\nH";
+        check(evaluate_text(lines,values(lines)).column_baselines_x.empty(),
+            "A blank vertical column does not get a fabricated baseline");
 
         auto paragraph=default_text("paragraph","");for(int i=0;i<30;++i)paragraph.content+="日本";
         const auto auto_paragraph=evaluate_text(paragraph,values(paragraph));paragraph.layout="frame";

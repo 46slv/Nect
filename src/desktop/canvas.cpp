@@ -191,6 +191,7 @@ void Canvas::refresh() {
                     const auto layout=evaluate_text(*object.text,parameters);
                     item.text_bounds=QRectF(layout.x,layout.y,std::max(1.0,layout.width),std::max(1.0,layout.height));
                     item.text_line_baselines_y=layout.line_baselines_y;
+                    item.text_column_baselines_x=layout.column_baselines_x;
                     item.text_overflow=layout.overflow;
                 }
                 std::map<const std::vector<EvaluatedContour>*, QPainterPath> contour_paths;
@@ -1287,22 +1288,24 @@ void Canvas::prepare_snap(bool point_drag) {
 
     const auto baseline_world=[&](const Geometry& item,bool x_axis)->std::vector<double> {
         const auto object=document.objects.find(item.id);
-        if(object==document.objects.end()||!object->second.text||object->second.text->direction!="horizontal"||
-           item.text_line_baselines_y.empty())return {};
+        if(object==document.objects.end()||!object->second.text)return {};
+        const bool vertical=object->second.text->direction=="vertical";
+        const auto& measured=vertical?item.text_column_baselines_x:item.text_line_baselines_y;
+        if(measured.empty())return {};
         const auto shape=scene_.shapes.find(item.id);
         if(shape==scene_.shapes.end()||shape->second.paths.size()!=1)return {};
         const auto transform=qt_transform(shape->second.paths.front().transform)*item.world;
         constexpr double epsilon=1e-10;
-        if(x_axis) {
-            // A quarter-turn maps the measured horizontal line to a vertical
-            // world line, whose fixed coordinate is X.
+        const bool quarter_turn=(x_axis&&!vertical)||(!x_axis&&vertical);
+        if(quarter_turn) {
+            // A quarter turn swaps the line's fixed world coordinate.
             if(std::abs(transform.m11())>epsilon||std::abs(transform.m22())>epsilon||
                std::abs(transform.m12())<=epsilon||std::abs(transform.m21())<=epsilon)return {};
         } else if(std::abs(transform.m12())>epsilon||std::abs(transform.m21())>epsilon||
                   std::abs(transform.m11())<=epsilon||std::abs(transform.m22())<=epsilon)return {};
         std::vector<double> baselines;
-        for(const auto local:item.text_line_baselines_y) {
-            const auto point=transform.map(QPointF(0,local));
+        for(const auto local:measured) {
+            const auto point=transform.map(vertical?QPointF(local,0):QPointF(0,local));
             const auto baseline=x_axis?point.x():point.y();
             if(std::isfinite(baseline))baselines.push_back(baseline);
         }
@@ -1316,7 +1319,9 @@ void Canvas::prepare_snap(bool point_drag) {
                 auto& output=x_axis?snap_x_sources_:snap_y_sources_;
                 for(std::size_t line=0;line<baselines.size();++line)
                     output.push_back({baselines[line],static_cast<int>(line)+1,
-                        line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
+                        document.objects.at(source->id).text->direction=="vertical"
+                            ?QStringLiteral("column %1 baseline").arg(line+1)
+                            :line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
                         SnapSourceKind::text_line_baseline});
             }
         }
@@ -1329,7 +1334,9 @@ void Canvas::prepare_snap(bool point_drag) {
             auto& output=x_axis?snap_x_targets_:snap_y_targets_;
             for(std::size_t line=0;line<baselines.size();++line)
                 output.push_back({baselines[line],SnapKind::text_baseline,item->id,
-                    line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
+                    document.objects.at(item->id).text->direction=="vertical"
+                        ?QStringLiteral("column %1 baseline").arg(line+1)
+                        :line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
                     static_cast<int>(line)});
         }
     }

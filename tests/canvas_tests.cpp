@@ -897,6 +897,124 @@ void snap_text_baseline_and_unsupported_axis_omission() {
         QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);f.no_error();
     }
     {
+        auto document=text_baseline_snap_document(true,false);
+        auto& target=*document.objects.at("target-text").text;
+        target.direction="vertical";
+        target.parameters.at("origin_x").literal=40;
+        target.parameters.at("origin_y").literal=320;
+        document.objects.at("target-text").transform[4].literal=16;
+        const auto& source=*document.objects.at("moving-text").text;
+        const auto source_layout=evaluate_text(source,text_parameters(source));
+        const auto target_layout=evaluate_text(target,text_parameters(target));
+        check(source_layout.column_baselines_x.size()==1&&target_layout.column_baselines_x.size()==1,
+            "Vertical source and target each expose one measured column baseline");
+        near(target_layout.column_baselines_x[0]-source_layout.column_baselines_x[0],0,
+            "Matching vertical Text metrics isolate the target's authored 16-du translation");
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const auto start=f.screen(source_layout.x+source_layout.width/2,source_layout.y+source_layout.height/2);
+        const auto end=start+QPoint(15,0);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"moving-text","","transform.tx"}),16,
+            "Raw 15-du horizontal drag snaps vertical column baselines by 16 du");
+        check(f.canvas.last_snap_feedback().contains("X: column 1 baseline Text baseline → target-text column 1 baseline"),
+            "Vertical Text feedback names both measured columns: "+f.canvas.last_snap_feedback().toStdString());
+        f.release(end);near(f.value("moving-text",{},"transform.tx"),16,
+            "Vertical Text baseline release commits one translation");
+        check(f.session.revision()==1&&f.commits==1,"Vertical baseline release is one Session transaction");
+        check(decode(encode(f.session.document()))==f.session.document(),"Vertical placement survives native encode/decode");
+        f.session.undo(f.session.revision());near(f.value("moving-text",{},"transform.tx"),0,
+            "Vertical baseline Undo restores authored translation");f.no_error();
+
+        Fixture miss(document);miss.canvas.set_selection("moving-text");
+        const auto miss_start=miss.screen(source_layout.x+source_layout.width/2,source_layout.y+source_layout.height/2);
+        const auto miss_end=miss_start+QPoint(9,0);
+        miss.press(miss_start);miss.move(miss_end);
+        check(!miss.canvas.last_snap_feedback().contains("Text baseline"),
+            "Seven-du vertical-column miss does not choose Text baseline");
+        QTest::keyClick(&miss.canvas,Qt::Key_Escape);miss.release(miss_end);
+        check(miss.session.revision()==0&&!miss.session.can_undo(),"Vertical miss cancel leaves authored history unchanged");miss.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document(true,false);
+        auto& source=*document.objects.at("moving-text").text;
+        source.content="H\nH";source.parameters.at("line_spacing").literal=80;
+        auto& target=*document.objects.at("target-text").text;
+        target.direction="vertical";target.content="H";
+        target.parameters.at("origin_x").literal=40;target.parameters.at("origin_y").literal=320;
+        target.parameters.at("line_spacing").literal=80;
+        target.parameters.at("font_size").literal=80;
+        document.objects.at("target-text").transform[4].literal=28;
+        const auto source_layout=evaluate_text(source,text_parameters(source));
+        const auto target_layout=evaluate_text(target,text_parameters(target));
+        check(source_layout.column_baselines_x.size()==2&&target_layout.column_baselines_x.size()==1,
+            "Vertical multiline source exposes two measured columns against one target");
+        const double required=target_layout.column_baselines_x[0]+28-source_layout.column_baselines_x[1];
+        check(std::isfinite(required)&&std::abs(required)<200,"Vertical column-2 alignment has a bounded measured delta");
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const auto& glyph=source_layout.contours->front();
+        double low_x=std::numeric_limits<double>::infinity(),high_x=-low_x;
+        double low_y=std::numeric_limits<double>::infinity(),high_y=-low_y;
+        for(const auto& point:glyph.points) {
+            low_x=std::min(low_x,point.anchor.x);high_x=std::max(high_x,point.anchor.x);
+            low_y=std::min(low_y,point.anchor.y);high_y=std::max(high_y,point.anchor.y);
+        }
+        const auto start=f.screen((low_x+high_x)/2,(low_y+high_y)/2);
+        const auto end=start+QPoint(qRound(required-1),0);
+        f.press(start);f.move(end);
+        const auto preview_tx=evaluate(f.session.preview_document()).at({"moving-text","","transform.tx"});
+        check(std::abs(preview_tx-required)<1e-4,
+            "Vertical moving column 2 snaps to stationary column 1 at measured X: expected "+std::to_string(required)+
+                ", got "+std::to_string(preview_tx)+", feedback "+f.canvas.last_snap_feedback().toStdString());
+        check(f.canvas.last_snap_feedback().contains("X: column 2 baseline Text baseline → target-text column 1 baseline"),
+            "Vertical multiline feedback identifies both columns: "+f.canvas.last_snap_feedback().toStdString());
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);
+        check(f.session.revision()==0&&!f.session.can_undo(),"Vertical multiline cancel preserves authored state");f.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document(true,false);
+        auto& target=*document.objects.at("target-text").text;
+        target.direction="vertical";
+        target.parameters.at("origin_x").literal=40;
+        target.parameters.at("origin_y").literal=320;
+        document.objects.at("moving-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{0,{}}}};
+        document.objects.at("target-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{16,{}}}};
+        const auto& source=*document.objects.at("moving-text").text;
+        const auto layout=evaluate_text(source,text_parameters(source));
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const QTransform quarter_turn(0,1,-1,0,220,0);
+        const QPointF body_center(layout.x+layout.width/2,layout.y+layout.height/2);
+        const auto world=quarter_turn.map(body_center);
+        const auto start=f.screen(world.x(),world.y()),end=start+QPoint(0,15);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"moving-text","","transform.ty"}),16,
+            "Quarter-turn vertical column snaps on the world Y axis");
+        check(f.canvas.last_snap_feedback().contains("Y: column 1 baseline Text baseline → target-text column 1 baseline"),
+            "Quarter-turn vertical feedback names Y and both columns: "+f.canvas.last_snap_feedback().toStdString());
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);
+        check(f.session.revision()==0&&!f.session.can_undo(),"Rotated vertical cancel preserves authored state");f.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document(true,false);
+        auto& target=*document.objects.at("target-text").text;
+        target.direction="vertical";
+        target.parameters.at("origin_x").literal=40;
+        target.parameters.at("origin_y").literal=320;
+        constexpr double cosine=0.8660254037844386;
+        document.objects.at("moving-text").transform={{{cosine,{}},{0.5,{}},{-0.5,{}},{cosine,{}},{220,{}},{0,{}}}};
+        document.objects.at("target-text").transform=document.objects.at("moving-text").transform;
+        const auto& source=*document.objects.at("moving-text").text;
+        const auto layout=evaluate_text(source,text_parameters(source));
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const QTransform oblique(cosine,0.5,-0.5,cosine,220,0);
+        const auto world=oblique.map(QPointF(layout.x+layout.width/2,layout.y+layout.height/2));
+        const auto start=f.screen(world.x(),world.y()),end=start+QPoint(15,0);
+        f.press(start);f.move(end);
+        check(!f.canvas.last_snap_feedback().contains("Text baseline"),
+            "Oblique vertical-writing Text offers no axis-only baseline candidate");
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);
+        check(f.session.revision()==0&&!f.session.can_undo(),"Oblique vertical cancel leaves authored history unchanged");f.no_error();
+    }
+    {
         auto document=text_baseline_snap_document();
         const auto& source=*document.objects.at("moving-text").text;
         const auto& target=*document.objects.at("target-text").text;

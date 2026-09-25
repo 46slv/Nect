@@ -157,9 +157,10 @@ bool visible_characters(const DWRITE_GLYPH_RUN_DESCRIPTION* description) {
 class OutlineRenderer final : public IDWriteTextRenderer1 {
 public:
     OutlineRenderer(IDWriteTextAnalyzer2* analyzer,IDWriteFontCollection* fonts,const std::wstring& requested,
-        const std::wstring& locale,std::vector<EvaluatedContour>& contours,TextLayout& result)
-        :analyzer_(analyzer),fonts_(fonts),requested_(requested),locale_(locale),contours_(contours),result_(result){}
+        const std::wstring& locale,std::vector<EvaluatedContour>& contours,TextLayout& result,bool vertical)
+        :analyzer_(analyzer),fonts_(fonts),requested_(requested),locale_(locale),contours_(contours),result_(result),vertical_(vertical){}
     std::exception_ptr failure;
+    std::vector<std::pair<UINT32,double>> column_run_origins;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** object) override {
         if(!object)return E_POINTER;*object=nullptr;
         if(iid==__uuidof(IUnknown)||iid==__uuidof(IDWritePixelSnapping)||iid==__uuidof(IDWriteTextRenderer)||iid==__uuidof(IDWriteTextRenderer1)) {
@@ -224,6 +225,8 @@ public:
             check_hr(hr,"Project glyph outlines");
             if(before==anchor_count_&&run->glyphCount>0&&visible_characters(description))
                 throw Error(color_font?"TEXT_COLOR_UNSUPPORTED":"TEXT_OUTLINE_UNSUPPORTED","Visible text has no supported glyph outlines; no blank replacement was committed");
+            if(vertical_&&description&&std::isfinite(x))
+                column_run_origins.emplace_back(description->textPosition,x);
             return S_OK;
         } catch(...) {failure=std::current_exception();return E_FAIL;}
     }
@@ -238,6 +241,7 @@ private:
     IDWriteTextAnalyzer2* analyzer_;IDWriteFontCollection* fonts_;
     const std::wstring& requested_;const std::wstring& locale_;
     std::vector<EvaluatedContour>& contours_;TextLayout& result_;std::size_t anchor_count_=0;
+    bool vertical_=false;
     void verify_color_base(const DWRITE_GLYPH_RUN& run,UINT32 index) {
         std::vector<EvaluatedContour> contours;std::size_t count=0;
         ComPtr<OutlineSink> sink;sink.Attach(new OutlineSink(contours,count,{1,0,0,1,0,0},0,0));
@@ -394,10 +398,38 @@ TextLayout evaluate_text(const TextSource& source,const std::map<std::string,dou
     check_hr(factory->CreateTextAnalyzer(&base_analyzer),"Create glyph orientation analyzer");
     check_hr(base_analyzer.As(&analyzer),"Get glyph orientation analyzer");
     auto contours=std::make_shared<std::vector<EvaluatedContour>>();
-    ComPtr<OutlineRenderer> renderer;renderer.Attach(new OutlineRenderer(analyzer.Get(),fonts.Get(),family,locale,*contours,result));
+    ComPtr<OutlineRenderer> renderer;renderer.Attach(new OutlineRenderer(analyzer.Get(),fonts.Get(),family,locale,*contours,result,vertical));
     const auto hr=layout->Draw(nullptr,renderer.Get(),origin_x-(automatic?metrics.left:0),draw_origin_y);
     if(renderer->failure)std::rethrow_exception(renderer->failure);
-    check_hr(hr,"Draw shaped text outlines");result.contours=std::move(contours);return result;
+    check_hr(hr,"Draw shaped text outlines");
+    if(vertical) {
+        UINT32 line_count=0;
+        const auto line_hr=layout->GetLineMetrics(nullptr,0,&line_count);
+        if(FAILED(line_hr)&&line_hr!=E_NOT_SUFFICIENT_BUFFER)check_hr(line_hr,"Measure vertical columns");
+        if(line_count>32769)throw Error("TEXT_LAYOUT_LIMIT","Text has too many columns");
+        std::vector<DWRITE_LINE_METRICS> lines(line_count);
+        if(line_count)check_hr(layout->GetLineMetrics(lines.data(),line_count,&line_count),"Measure vertical column positions");
+        auto runs=renderer->column_run_origins;
+        std::sort(runs.begin(),runs.end(),[](const auto& a,const auto& b){return a.first<b.first;});
+        std::uint64_t start=0;
+        std::size_t run_index=0;
+        bool complete=true;
+        for(UINT32 i=0;i<line_count;++i) {
+            const auto end=start+lines[i].length;
+            std::optional<double> baseline;
+            while(run_index<runs.size()&&runs[run_index].first<start)++run_index;
+            while(run_index<runs.size()&&runs[run_index].first<end) {
+                const auto x=runs[run_index++].second;
+                if(baseline&&std::abs(x-*baseline)>1e-5) {complete=false;break;}
+                baseline=x;
+            }
+            if(!complete||!baseline) {complete=false;break;}
+            result.column_baselines_x.push_back(*baseline);
+            start=end;
+        }
+        if(!complete)result.column_baselines_x.clear();
+    }
+    result.contours=std::move(contours);return result;
 #endif
 }
 } // namespace nect
