@@ -898,6 +898,79 @@ void snap_text_baseline_and_unsupported_axis_omission() {
     }
     {
         auto document=text_baseline_snap_document();
+        const auto& source=*document.objects.at("moving-text").text;
+        const auto& target=*document.objects.at("target-text").text;
+        const auto source_layout=evaluate_text(source,text_parameters(source));
+        const auto target_layout=evaluate_text(target,text_parameters(target));
+        near(target_layout.line_baselines_y.front()-source_layout.line_baselines_y.front(),16,
+            "Quarter-turn fixture has measured baselines separated by 16 du");
+        const QTransform quarter_turn(0,1,-1,0,220,0);
+        document.objects.at("moving-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{0,{}}}};
+        document.objects.at("target-text").transform=document.objects.at("moving-text").transform;
+        document.compositions.front().artboards.front().y=20;
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const auto screen=[&](QPointF point) {
+            return QPoint(qRound(f.canvas.width()/2.0+(point.x()-320)*f.canvas.zoom()),
+                          qRound(f.canvas.height()/2.0+(point.y()-260)*f.canvas.zoom()));
+        };
+        const QPointF body_center(source_layout.x+source_layout.width/2,source_layout.y+source_layout.height/2);
+        const auto start=screen(quarter_turn.map(body_center));
+        const auto end=start+QPoint(-15,0);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"moving-text","","transform.tx"}),204,
+            "Raw -15-du horizontal drag snaps quarter-turn baseline by -16 du");
+        check(f.canvas.last_snap_feedback().contains("X: first-line baseline Text baseline → target-text first-line baseline"),
+            "Quarter-turn Snap feedback names both measured baselines: "+f.canvas.last_snap_feedback().toStdString());
+        f.release(end);near(f.value("moving-text",{},"transform.tx"),204,
+            "Quarter-turn baseline release commits one translation");
+        check(f.session.revision()==1&&f.commits==1,"Quarter-turn release is one Session transaction");
+        check(decode(encode(f.session.document()))==f.session.document(),"Native round trip retains quarter-turn placement");
+        f.session.undo(f.session.revision());near(f.value("moving-text",{},"transform.tx"),220,
+            "One Undo restores quarter-turn Text placement");f.no_error();
+
+        Fixture miss(document);miss.canvas.set_selection("moving-text");
+        const auto miss_world=quarter_turn.map(body_center);
+        const auto miss_start=QPoint(qRound(miss.canvas.width()/2.0+(miss_world.x()-320)*miss.canvas.zoom()),
+                                     qRound(miss.canvas.height()/2.0+(miss_world.y()-260)*miss.canvas.zoom()));
+        const auto miss_end=miss_start+QPoint(-9,0);
+        miss.press(miss_start);miss.move(miss_end);
+        check(!miss.canvas.last_snap_feedback().contains("Text baseline"),
+            "Seven-du quarter-turn miss does not choose Text baseline");
+        QTest::keyClick(&miss.canvas,Qt::Key_Escape);miss.release(miss_end);
+        check(miss.session.revision()==0&&!miss.session.can_undo(),"Cancelled quarter-turn miss leaves history unchanged");miss.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document();
+        auto& source=*document.objects.at("moving-text").text;
+        source.content="H\nH";source.parameters.at("line_spacing").literal=80;
+        auto& target=*document.objects.at("target-text").text;
+        target.content="H";target.parameters.at("line_spacing").literal=80;
+        const auto source_layout=evaluate_text(source,text_parameters(source));
+        const auto target_layout=evaluate_text(target,text_parameters(target));
+        near(source_layout.line_baselines_y[1]-source_layout.line_baselines_y[0],80,
+            "Quarter-turn moving line 2 retains its measured spacing");
+        const double required=source_layout.line_baselines_y[1]-target_layout.line_baselines_y[0];
+        near(required,64,"Quarter-turn line 2 requires 64-du horizontal translation");
+        document.objects.at("moving-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{0,{}}}};
+        document.objects.at("target-text").transform=document.objects.at("moving-text").transform;
+        document.compositions.front().artboards.front().y=20;
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const QTransform quarter_turn(0,1,-1,0,220,0);
+        const QPointF body_center(source_layout.x+source_layout.width/2,source_layout.y+source_layout.height/2);
+        const auto world=quarter_turn.map(body_center);
+        const auto start=QPoint(qRound(f.canvas.width()/2.0+(world.x()-320)*f.canvas.zoom()),
+                                qRound(f.canvas.height()/2.0+(world.y()-260)*f.canvas.zoom()));
+        const auto end=start+QPoint(63,0);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"moving-text","","transform.tx"}),284,
+            "Moving quarter-turn line 2 snaps to stationary first line");
+        check(f.canvas.last_snap_feedback().contains("X: line 2 baseline Text baseline → target-text first-line baseline"),
+            "Quarter-turn multiline feedback identifies both lines: "+f.canvas.last_snap_feedback().toStdString());
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);
+        check(f.session.revision()==0&&!f.session.can_undo(),"Multiline cancel preserves authored placement");f.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document();
         auto& target=*document.objects.at("target-text").text;
         target.content="H";target.parameters.at("origin_y").literal=80;target.parameters.at("line_spacing").literal=80;
         auto& source=*document.objects.at("moving-text").text;

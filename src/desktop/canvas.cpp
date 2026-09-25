@@ -1285,7 +1285,7 @@ void Canvas::prepare_snap(bool point_drag) {
         snap_y_targets_.push_back({bounds.center().y(),SnapKind::object_center,id,QStringLiteral("center"),1});
     }
 
-    const auto baseline_world_y=[&](const Geometry& item)->std::vector<double> {
+    const auto baseline_world=[&](const Geometry& item,bool x_axis)->std::vector<double> {
         const auto object=document.objects.find(item.id);
         if(object==document.objects.end()||!object->second.text||object->second.text->direction!="horizontal"||
            item.text_line_baselines_y.empty())return {};
@@ -1293,11 +1293,17 @@ void Canvas::prepare_snap(bool point_drag) {
         if(shape==scene_.shapes.end()||shape->second.paths.size()!=1)return {};
         const auto transform=qt_transform(shape->second.paths.front().transform)*item.world;
         constexpr double epsilon=1e-10;
-        if(std::abs(transform.m12())>epsilon||std::abs(transform.m21())>epsilon||
-           std::abs(transform.m11())<=epsilon||std::abs(transform.m22())<=epsilon)return {};
+        if(x_axis) {
+            // A quarter-turn maps the measured horizontal line to a vertical
+            // world line, whose fixed coordinate is X.
+            if(std::abs(transform.m11())>epsilon||std::abs(transform.m22())>epsilon||
+               std::abs(transform.m12())<=epsilon||std::abs(transform.m21())<=epsilon)return {};
+        } else if(std::abs(transform.m12())>epsilon||std::abs(transform.m21())>epsilon||
+                  std::abs(transform.m11())<=epsilon||std::abs(transform.m22())<=epsilon)return {};
         std::vector<double> baselines;
         for(const auto local:item.text_line_baselines_y) {
-            const auto baseline=transform.map(QPointF(0,local)).y();
+            const auto point=transform.map(QPointF(0,local));
+            const auto baseline=x_axis?point.x():point.y();
             if(std::isfinite(baseline))baselines.push_back(baseline);
         }
         return baselines;
@@ -1305,21 +1311,27 @@ void Canvas::prepare_snap(bool point_drag) {
     if(!point_drag&&selected.size()==1&&selection.contains(selected.front())) {
         const auto* source=geometry(selected.front());
         if(source&&parents_.at(source->id)==scope_) {
-            const auto baselines=baseline_world_y(*source);
-            for(std::size_t line=0;line<baselines.size();++line)
-                snap_y_sources_.push_back({baselines[line],static_cast<int>(line)+1,
-                    line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
-                    SnapSourceKind::text_line_baseline});
+            for(const bool x_axis:{true,false}) {
+                const auto baselines=baseline_world(*source,x_axis);
+                auto& output=x_axis?snap_x_sources_:snap_y_sources_;
+                for(std::size_t line=0;line<baselines.size();++line)
+                    output.push_back({baselines[line],static_cast<int>(line)+1,
+                        line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
+                        SnapSourceKind::text_line_baseline});
+            }
         }
     }
     for(const auto& [item,bounds]:visible_geometry) {
         const auto key=selection_target(*item);
         if(key.empty()||key!=item->id||moves(item->id)||parents_.at(item->id)!=scope_)continue;
-        const auto baselines=baseline_world_y(*item);
-        for(std::size_t line=0;line<baselines.size();++line)
-            snap_y_targets_.push_back({baselines[line],SnapKind::text_baseline,item->id,
-                line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
-                static_cast<int>(line)});
+        for(const bool x_axis:{true,false}) {
+            const auto baselines=baseline_world(*item,x_axis);
+            auto& output=x_axis?snap_x_targets_:snap_y_targets_;
+            for(std::size_t line=0;line<baselines.size();++line)
+                output.push_back({baselines[line],SnapKind::text_baseline,item->id,
+                    line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
+                    static_cast<int>(line)});
+        }
     }
 
     if(!point_drag&&snap_bounds_) {
