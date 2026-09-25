@@ -199,6 +199,9 @@ try:
             dict(type='set_color',ref=brand_ref,value=dict(space='srgb',profile='srgb',alpha='straight',rgba=[.7,.3,.2,.9]))])
         assert changed['ok'] and {'brand-color','title','path-0','path-1'}.issubset(changed['result']['changed_ids'])
         assert 'path-2' not in changed['result']['changed_ids'];rev=changed['revision']
+        discovered_color=core('resolve_name',name='Linked accent',point='',field='color')['result']
+        assert discovered_color==brand_ref
+        assert core('get',ref=discovered_color)['result']['evaluated']['rgba']==[.7,.3,.2,.9]
         assert core('get',ref=title_color)['result']['evaluated']['rgba']==[.7,.3,.2,.9]
         assert core('get',ref=independent_color)['result']['evaluated']['rgba']==[.2,.4,.6,.8]
         assert core('get',ref=gradient_color)['result']['link']==brand_ref

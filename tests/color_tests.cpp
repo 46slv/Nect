@@ -12,7 +12,8 @@ int main(){try{
     NamedColor primary;primary.id="brand";primary.name="Brand";
     apply({CreateNamedColor{primary},CreatePrimitive{"comp","","rect","Rectangle",{"source","nect.shape.rectangle",1,
         {{"center_x",{100,{}}},{"center_y",{100,{}}},{"width",{160,{}}},{"height",{100,{}}}}}}});
-    const Ref named{"brand","","color"},paint{"rect","","op.rect-stroke.color"};
+    const Ref named=resolve_name(s.document(),"Brand","","color"),paint{"rect","","op.rect-stroke.color"};
+    check(named==Ref{"brand","","color"},"Named color aggregate resolves by unique name");
     apply({SetColor{named,color(.2,.4,.6,.8)},LinkColor{paint,named}});
     auto value=[&](const Ref& ref){return color_value(s.document(),ref,evaluate(s.document()));};
     check(value(paint)==color(.2,.4,.6,.8)&&color_link(s.document(),paint)==named,"Typed color link uses all four stable normal channel references");
@@ -20,6 +21,19 @@ int main(){try{
     apply({RenameNamedColor{"brand","Renamed Brand"},SetColor{named,color(.8,.1,.2,.5)}});
     check(value(paint)==color(.8,.1,.2,.5)&&color_link(s.document(),paint)==named,"Rename preserves color identity and explicit links propagate updates");
     check(resolve_name(s.document(),"Renamed Brand","","color.r")==Ref{"brand","","color.r"},"Named scalar properties support explicit name resolution");
+    check(resolve_name(s.document(),"Renamed Brand","","color")==named,"Renamed aggregate discovery preserves the stable named-color ID");
+    check(request(s,R"({"op":"resolve_name","name":"Renamed Brand","point":"","field":"color"})").find("\"field\":\"color\"")!=std::string::npos,
+        "JSON command adapter exposes named aggregate color discovery");
+    NamedColor duplicate;duplicate.id="brand-copy";duplicate.name="Renamed Brand";
+    apply({CreateNamedColor{duplicate}});
+    rejects("AMBIGUOUS_NAME",[&]{(void)resolve_name(s.document(),"Renamed Brand","","color");});
+    apply({DeleteNamedColor{"brand-copy"}});
+    const auto resolve_revision=s.revision();const auto resolve_state=encode(s.document());
+    rejects("MISSING_NAME",[&]{(void)resolve_name(s.document(),"Missing Brand","","color");});
+    rejects("MISSING_REFERENCE",[&]{(void)resolve_name(s.document(),"Renamed Brand","","color.invalid");});
+    rejects("MISSING_REFERENCE",[&]{(void)resolve_name(s.document(),"Rectangle","","color");});
+    rejects("MISSING_REFERENCE",[&]{(void)resolve_name(s.document(),"Renamed Brand","invalid","color");});
+    check(s.revision()==resolve_revision&&encode(s.document())==resolve_state,"Failed aggregate, scalar-field and owner discovery is read-only");
     const auto saved=encode(s.document());const auto revision=s.revision();
     rejects("DRIVEN_PROPERTY",[&]{apply({SetColor{paint,color(1,1,1)}});});
     rejects("MISSING_REFERENCE",[&]{apply({DeleteNamedColor{"brand"}});});

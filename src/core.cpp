@@ -430,6 +430,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     require(!matches.empty(),"MISSING_NAME","No matching object: "+name);
     require(matches.size()==1,"AMBIGUOUS_NAME","Name must resolve to exactly one object: "+name);
     Ref r{matches.front(),p,f};
+    if(d.named_colors.contains(r.object)&&r.point.empty()&&r.field=="color") {
+        (void)color_channels(d,r);
+        return r;
+    }
     (void)property(d,r);
     return r;
 }
