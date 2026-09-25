@@ -20,6 +20,10 @@ using namespace nect;
 using namespace nect::desktop;
 namespace {
 void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
+QScrollArea* inspector_scroll(Window& window) {
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    check(scroll,"Production Inspector scroll exists");return scroll;
+}
 template<class T>T* widget(Window& window,const QString& name) {
     QApplication::processEvents();
     for(auto* item:window.findChildren<T*>())if(item->isVisible()&&item->objectName()==name)return item;
@@ -31,7 +35,7 @@ void edit(Window& window,const Ref& ref,const char* text) {
         {"field",QString::fromStdString(ref.field)}}).toJson(QJsonDocument::Compact);
     QLineEdit* input=nullptr;
     for(auto* candidate:window.findChildren<QLineEdit*>())if(candidate->isVisible()&&candidate->property("nect-reference").toByteArray()==key){input=candidate;break;}
-    check(input,"Offset uses normal property controls");window.findChild<QScrollArea*>()->ensureWidgetVisible(input);
+    check(input,"Offset uses normal property controls");inspector_scroll(window)->ensureWidgetVisible(input);
     input->setFocus();input->selectAll();QTest::keyClicks(input,text);QTest::keyClick(input,Qt::Key_Return);QApplication::processEvents();
 }
 }
@@ -44,7 +48,7 @@ int main(int argc,char** argv) {
         trigger(window,"add-offset");const auto offset=s.document().objects.at(id).stack.back().id;
         const auto operation=QString::fromStdString(offset);const auto amount=operation_ref(id,offset,"amount");
         check(s.document().objects.at(id).stack.back().type=="nect.shape.offset","Add menu creates retained Offset");
-        auto* scroll=window.findChild<QScrollArea*>();scroll->verticalScrollBar()->setValue(0);
+        auto* scroll=inspector_scroll(window);scroll->verticalScrollBar()->setValue(0);
         const auto navigation_revision=s.revision();widget<QPushButton>(window,"stack-jump")->menu()->actions().back()->trigger();QApplication::processEvents();
         auto* group=widget<QGroupBox>(window,"stack-operation-"+operation);
         check(scroll->viewport()->rect().contains(group->mapTo(scroll->viewport(),QPoint(10,20)))&&s.revision()==navigation_revision,
