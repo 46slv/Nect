@@ -375,8 +375,8 @@ int main(int argc, char** argv) {
         "QMenu{border:1px solid #49515c;}QMenu::item:selected{background:#43505f;}");
     app.setQuitOnLastWindowClosed(false);
     if (app.arguments().size() < 2 || app.arguments().size()>3 ||
-        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi"&&app.arguments().at(2)!="--expressions"&&app.arguments().at(2)!="--compositing"&&app.arguments().at(2)!="--offset"&&app.arguments().at(2)!="--assets")) {
-        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions|--compositing|--offset|--assets]\n";
+        (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi"&&app.arguments().at(2)!="--expressions"&&app.arguments().at(2)!="--compositing"&&app.arguments().at(2)!="--offset"&&app.arguments().at(2)!="--assets"&&app.arguments().at(2)!="--layout")) {
+        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions|--compositing|--offset|--assets|--layout]\n";
         return 2;
     }
     const auto output = app.arguments().at(1);
@@ -385,6 +385,7 @@ int main(int argc, char** argv) {
     const bool polystar_scene=app.arguments().contains("--polystar");
     const bool expression_scene=app.arguments().contains("--expressions");
     const bool assets_scene=app.arguments().contains("--assets");
+    const bool layout_scene=app.arguments().contains("--layout");
     const bool offset_scene=app.arguments().contains("--offset");
     const bool compositing_scene=app.arguments().contains("--compositing");
     const bool multi_scene=app.arguments().contains("--multi")||expression_scene;
@@ -421,6 +422,19 @@ int main(int argc, char** argv) {
             }
             require(window.windowHandle() && window.windowHandle()->isExposed(), "Benchmark window did not become exposed");
             seed(window, paths);
+            if(layout_scene) {
+                const auto& comp=window.host.session.document().compositions.front();
+                ArtboardLayout layout;layout.margin=Margin{40,20,40,20};
+                layout.grid=Grid{"bench-layout-grid",{40,20,880,600},2,2,20,20};
+                window.host.session.apply({
+                    AddGuide{comp.id,{"bench-guide-x1","Guide X1","x",100}},
+                    AddGuide{comp.id,{"bench-guide-x2","Guide X2","x",480}},
+                    AddGuide{comp.id,{"bench-guide-y1","Guide Y1","y",120}},
+                    AddGuide{comp.id,{"bench-guide-y2","Guide Y2","y",320}},
+                    SetArtboardLayout{comp.id,comp.artboards.front().id,layout}
+                },window.host.session.revision());
+                window.host.edited();wait_events(40);
+            }
             if(compositing_scene)seed_compositing(window,paths);
             if(expression_scene) {
                 std::vector<Ref> targets;for(int i=0;i<paths;++i)targets.push_back({"bench-path-"+std::to_string(i),"","stroke.width"});
@@ -516,11 +530,15 @@ int main(int argc, char** argv) {
             };
             InteractionCleanup cleanup{*window.canvas};
             const auto* screen = window.screen();
-            QJsonObject scene{{"name", repeated?"repeated-paint":paths == 2 ? "lightweight" : "representative"},
+            QJsonObject scene{{"name", layout_scene?(paths == 2 ? "layout-lightweight" : "layout-representative"):
+                repeated?"repeated-paint":paths == 2 ? "lightweight" : "representative"},
                 {"path_count", paths}, {"point_count", paths * 4}, {"points_per_path", 4},
                 {"binding_count", 0}, {"group_count", 0}, {"artboard_count", 1},
                 {"artboard_width", 960}, {"artboard_height", 640},
-                {"fixture", "Semantic CreatePath commands; deterministic 10-column grid; four cubic anchors per open path; 18 du polar handles; native default stroke."},
+                {"fixture", layout_scene?
+                    "Semantic CreatePath commands; four authored Guides, Margin 40/20/40/20 and a 2x2 Grid with 20 du gutters; visible production Canvas overlays.":
+                    "Semantic CreatePath commands; deterministic 10-column grid; four cubic anchors per open path; 18 du polar handles; native default stroke."},
+                {"layout_overlays", layout_scene},
                 {"fixture_revision", static_cast<qint64>(window.host.session.revision())},
                 {"window_width", window.width()}, {"window_height", window.height()},
                 {"active_window_at_start", window.isActiveWindow()},

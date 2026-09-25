@@ -591,6 +591,149 @@ void artboard_authoring(Window& window) {
         "New document resets stale composition and artboard view identities");
 }
 }
+void layout_setup_previews_commit_and_recovers(Window& window) {
+    auto& session=window.host.session;
+    auto click=[&](const char* name) {
+        auto* control=visible_child<QPushButton>(window,name);reveal(window,control);
+        QTest::mouseClick(control,Qt::LeftButton);QApplication::processEvents();
+    };
+    QTest::mouseClick(visible_child<QPushButton>(window,"artboard-edit"),Qt::LeftButton);QApplication::processEvents();
+    auto input=[&](const char* name,const char* value,bool enter) {
+        auto* control=visible_child<QLineEdit>(window,name);reveal(window,control);control->setFocus();
+        QTest::keyClick(control,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(control,value);QApplication::processEvents();
+        if(enter){QTest::keyClick(control,Qt::Key_Return);QApplication::processEvents();}
+        return control;
+    };
+    auto board=[&]() -> const Artboard& {return session.document().compositions.front().artboards.front();};
+    auto preview_board=[&]() -> const Artboard& {return session.preview_document().compositions.front().artboards.front();};
+    const auto baseline=session.revision();
+
+    auto* guides=visible_child<QCheckBox>(window,"overlay-show-guides");
+    QTest::mouseClick(guides,Qt::LeftButton);QApplication::processEvents();
+    check(!window.canvas->show_guides()&&window.canvas->show_grid()&&window.canvas->show_margin()&&session.revision()==baseline,
+        "Guide, Grid and Margin visibility remain independent per-window view state");
+    QTest::mouseClick(guides,Qt::LeftButton);QApplication::processEvents();
+
+    input("margin-left","10",false);input("margin-top","10",false);input("margin-right","10",false);auto* bottom=input("margin-bottom","10",false);
+    check(session.revision()==baseline&&!board().layout&&preview_board().layout&&preview_board().layout->margin->left==10&&
+          !session.can_undo(),"Valid Margin drafts preview in the live Session without changing committed state or history");
+    QTest::keyClick(bottom,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==baseline+1&&board().layout&&board().layout->margin==Margin{10,10,10,10}&&session.can_undo(),
+        "Enter commits a complete Margin through one Session command");
+
+    const auto before_copy=session.revision();
+    const auto evaluated_before_copy=evaluate_artboard(session.document().compositions.front(),board().id);
+    click("grid-copy-margin-box");
+    const auto copied=board().layout->grid.value();
+    check(session.revision()==before_copy+1&&copied.bounds==LayoutRect{10,10,evaluated_before_copy.width-20,evaluated_before_copy.height-20}&&copied.columns==1&&!copied.id.empty(),
+        "Set Grid to margin box copies evaluated local bounds once and creates a stable Grid ID");
+    check(decode(encode(session.document()))==session.document(),"Committed Guide/Grid/Margin state survives native encode/decode");
+
+    input("margin-left","20",false);
+    check(board().layout->margin->left==10&&preview_board().layout->margin->left==20&&preview_board().layout->grid->bounds.x==10,
+        "Margin preview is independent of the one-time copied Grid bounds");
+    auto* left=visible_child<QLineEdit>(window,"margin-left");QTest::keyClick(left,Qt::Key_Return);QApplication::processEvents();
+    check(board().layout->margin->left==20&&board().layout->grid->bounds.x==10,
+        "A later Margin edit does not maintain a persistent link to Grid");
+
+    auto* columns=input("grid-columns","2",false);const auto invalid_revision=session.revision();
+    check(session.preview_document().compositions.front().artboards.front().layout->grid->columns==2&&
+          session.revision()==invalid_revision&&session.document().compositions.front().artboards.front().layout->grid->columns==1,
+        "A valid Grid count draft previews without changing committed authored state");
+    columns=input("grid-columns","2.5",false);
+    check(session.preview_document().compositions.front().artboards.front().layout->grid->columns==2&&
+          session.document().compositions.front().artboards.front().layout->grid->columns==1,
+        "An invalid fractional count leaves the latest valid Session preview visible");
+    QTest::keyClick(columns,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==invalid_revision&&session.document().compositions.front().artboards.front().layout->grid->columns==1&&
+          columns->text()=="2.5"&&window.statusBar()->currentMessage().contains("INVALID_LAYOUT"),
+        "Invalid numeric draft stays visible with an error and never becomes authored");
+    click("grid-clear");
+    check(session.revision()==invalid_revision+1&&board().layout&&board().layout->margin&&!board().layout->grid,
+        "Explicit Clear Grid discards the invalid draft and preserves Margin");
+
+    input("guide-new-position","25",false);
+    check(session.revision()==invalid_revision+1&&session.document().compositions.front().guides.empty()&&
+          session.preview_document().compositions.front().guides.size()==1&&session.preview_document().compositions.front().guides.front().position==25,
+        "New Guide position previews without committing an ID or revision");
+    click("guide-add");const auto guide_id=session.document().compositions.front().guides.front().id;
+    check(!guide_id.empty()&&session.revision()==invalid_revision+2&&session.document().compositions.front().guides.front().position==25,
+        "Apply Guide creation commits one stable Guide identity through the shared Session");
+    const std::string position_name="guide-position-"+guide_id;
+    auto* guide_position=window.findChild<QLineEdit*>(QString::fromStdString(position_name));
+    check(guide_position!=nullptr,"Committed Guide appears in the refreshed Guide editor list");
+    reveal(window,guide_position);
+    auto* edited_position=input(position_name.c_str(),"100",false);
+    check(session.document().compositions.front().guides.front().position==25&&
+          session.preview_document().compositions.front().guides.front().id==guide_id&&
+          session.preview_document().compositions.front().guides.front().position==100,
+        "Guide edit preview retains stable identity and does not commit early");
+    QTest::keyClick(edited_position,Qt::Key_Escape);QApplication::processEvents();QApplication::processEvents();
+    check(session.revision()==invalid_revision+2&&!session.gesture_active()&&session.document().compositions.front().guides.front().position==25,
+        "Escape cancels numeric Guide preview without history");
+    auto* restored_position=visible_child<QLineEdit>(window,position_name.c_str());int visible_position_fields=0;
+    for(auto* field:window.findChildren<QLineEdit*>(QString::fromStdString(position_name)))if(field->isVisible())++visible_position_fields;
+    check(visible_position_fields==1&&restored_position->text()=="25",
+        "After queued Escape refresh settles, one current Guide editor is visible with authored state");
+
+    input(position_name.c_str(),"nan",false);const auto before_delete=session.revision();
+    check(window.statusBar()->currentMessage().contains("INVALID_VALUE")&&session.document().compositions.front().guides.front().position==25,
+        "Nonfinite Guide input is rejected while the invalid draft remains visible");
+    const std::string delete_name="guide-delete-"+guide_id;click(delete_name.c_str());
+    check(session.revision()==before_delete+1&&session.document().compositions.front().guides.empty(),
+        "Explicit Delete Guide discards an invalid draft and removes only that stable ID");
+
+    click("margin-clear");const auto before_copy_without_margin=session.revision();click("grid-copy-margin-box");
+    check(session.revision()==before_copy_without_margin&&window.statusBar()->currentMessage().contains("INVALID_LAYOUT"),
+        "Grid copy without authored Margin reports a visible error and leaves revision unchanged");
+
+    const auto& composition=session.document().compositions.front();
+    const auto composition_id=composition.id,board_id=composition.artboards.front().id;
+    auto external_margin=[&](double left) {
+        // An external host owner can end the preview before advancing Session.
+        if(session.gesture_active())session.cancel_gesture();
+        session.apply({SetArtboardLayout{composition_id,board_id,ArtboardLayout{Margin{left,0,0,0},std::nullopt}}},session.revision());
+    };
+    auto* stale_field=input("margin-left","30",false);
+    check(session.gesture_active()&&board().layout==std::nullopt,
+        "Margin preview remains a draft before an external revision");
+    const auto before_external=session.revision();external_margin(15);
+    QTest::keyClicks(stale_field,"1");QApplication::processEvents();QApplication::processEvents();
+    check(session.revision()==before_external+1&&!session.gesture_active()&&board().layout->margin->left==15&&
+          session.preview_document()==session.document()&&window.statusBar()->currentMessage().contains("REVISION_CONFLICT")&&
+          visible_child<QLineEdit>(window,"margin-left")->text()=="15",
+        "Typing into a stale layout draft rejects and refreshes without silently rebasing old fields");
+
+    stale_field=input("margin-left","35",false);const auto before_stale_apply=session.revision();external_margin(20);
+    QTest::keyClick(stale_field,Qt::Key_Return);QApplication::processEvents();QApplication::processEvents();
+    check(session.revision()==before_stale_apply+1&&!session.gesture_active()&&board().layout->margin->left==20&&
+          session.preview_document()==session.document()&&window.statusBar()->currentMessage().contains("REVISION_CONFLICT")&&
+          visible_child<QLineEdit>(window,"margin-left")->text()=="20",
+        "Applying a stale layout draft rejects and requires a fresh editor gesture");
+
+    const auto before_stale_editor=session.revision();external_margin(25);
+    input("margin-left","45",false);QApplication::processEvents();
+    check(session.revision()==before_stale_editor+1&&!session.gesture_active()&&board().layout->margin->left==25&&
+          session.preview_document()==session.document()&&window.statusBar()->currentMessage().contains("REVISION_CONFLICT")&&
+          visible_child<QLineEdit>(window,"margin-left")->text()=="25",
+        "An untouched Inspector built at an older revision cannot overwrite current layout values");
+
+    session.apply({SetArtboardLayout{composition_id,board_id,
+                       ArtboardLayout{Margin{25,0,0,0},Grid{"recovery-grid",{25,0,100,100},2,1,10,0}}},
+                   AddGuide{composition_id,{"recovery-guide","Recovery","y",25}}},session.revision());
+    window.host.edited();window.host.recover();
+    const auto recovery_path=window.host.persistence()["recovery_file"].toString();
+    const auto protected_document=session.document();
+    check(window.host.persistence()["recovery_revision"].toInteger(-1)==session.revision()&&
+          load_native(recovery_path).document==protected_document,
+        "Recovery protects the committed native layout and Guide state at the exact revision");
+    window.host.open_recovery(recovery_path);QApplication::processEvents();
+    check(session.document()==protected_document&&board().layout->margin->left==25&&
+          board().layout->grid->id=="recovery-grid"&&session.document().compositions.front().guides.front().id=="recovery-guide"&&
+          window.host.file_path.isEmpty(),
+        "Opening the owned recovery restores authored layout without overwriting its source");
+}
+
 void text_authoring(Window& window) {
     auto& session=window.host.session;named_action(window,"add-text")->trigger();QApplication::processEvents();
     const auto id=window.canvas->selected_object;
@@ -772,6 +915,8 @@ int main(int argc,char** argv) {
         layout_session.undo(layout_session.revision());layout.host.edited();
         check(layout.canvas->evaluated_values()==evaluate(layout_session.document()),"External Undo refreshes projection after Canvas notification scope ends");
         layout.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
+        stacking.hide();Window layout_setup(temp.path()+"/layout-setup");layout_setup.show();QApplication::processEvents();
+        layout_setup_previews_commit_and_recovers(layout_setup);layout_setup.hide();
         std::cout<<"PASS Inspector, pick-whip, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

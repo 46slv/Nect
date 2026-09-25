@@ -105,6 +105,11 @@ const Canvas::EvaluatedPoint* Canvas::point(const Geometry& item, const Id& id) 
 
 void Canvas::refresh() {
     projection_error_ = {};
+    if(drag_==Drag::guide&&!guide_context_current()) {
+        if(gesture_owned_&&session_.gesture_active())session_.cancel_gesture();
+        gesture_owned_=false;drag_=Drag::none;guide_drag_invalid_=false;
+        report_error(Error("REVISION_CONFLICT","Guide drag belongs to an older document session or revision"));
+    }
     const auto& document = session_.preview_document();
     const auto previous_composition = active_composition_, previous_artboard = active_artboard_;
     try {
@@ -811,6 +816,7 @@ void Canvas::paintEvent(QPaintEvent*) {
         }
         try {
             paint_artwork(painter,view(),size(),devicePixelRatioF());
+            paint_layout_overlays(painter,document);
             render_error_.clear();
         } catch(const std::exception& exception) {
             const auto message=QString::fromUtf8(exception.what());
@@ -972,6 +978,125 @@ void Canvas::set_snap_enabled(bool enabled) {
     update();
 }
 
+void Canvas::set_show_guides(bool enabled) {
+    if(show_guides_==enabled)return;
+    if(!enabled&&drag_==Drag::guide)cancel_interaction();
+    show_guides_=enabled;update();
+}
+
+void Canvas::set_show_grid(bool enabled) {
+    if(show_grid_==enabled)return;
+    show_grid_=enabled;update();
+}
+
+void Canvas::set_show_margin(bool enabled) {
+    if(show_margin_==enabled)return;
+    show_margin_=enabled;update();
+}
+
+void Canvas::set_guide_edit_mode(bool enabled) {
+    if(guide_edit_mode_==enabled)return;
+    if(!enabled&&drag_==Drag::guide)cancel_interaction();
+    if(enabled) {set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();}
+    guide_edit_mode_=enabled;
+    update_cursor();update();
+}
+
+bool Canvas::guide_context_current() const {
+    if(guide_drag_document_.empty()||guide_drag_composition_.empty())return false;
+    if(session_.document().id!=guide_drag_document_||session_.revision()!=guide_drag_revision_||
+       active_composition_!=guide_drag_composition_)return false;
+    if(session_identity_provider_&&session_identity_provider_()!=guide_drag_session_)return false;
+    const auto composition=std::find_if(session_.document().compositions.begin(),session_.document().compositions.end(),
+        [&](const auto& item){return item.id==guide_drag_composition_;});
+    return composition!=session_.document().compositions.end()&&
+        std::any_of(composition->guides.begin(),composition->guides.end(),[&](const auto& guide){return guide.id==guide_drag_start_.id;});
+}
+
+const Guide* Canvas::hit_guide(QPointF screen) const {
+    if(!guide_edit_mode_||!show_guides_||active_composition_.empty())return nullptr;
+    const auto& document=session_.preview_document();
+    const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),
+        [&](const auto& item){return item.id==active_composition_;});
+    if(composition==document.compositions.end())return nullptr;
+    const Guide* chosen=nullptr;double best=6.0;
+    for(const auto& guide:composition->guides) {
+        const auto world=guide.axis=="x"?QPointF(guide.position,0):QPointF(0,guide.position);
+        const auto mapped=view().map(world);
+        const auto separation=guide.axis=="x"?std::abs(screen.x()-mapped.x()):std::abs(screen.y()-mapped.y());
+        if(separation>6.0)continue;
+        if(!chosen||separation<best||(separation==best&&guide.id<chosen->id)) {
+            chosen=&guide;best=separation;
+        }
+    }
+    return chosen;
+}
+
+void Canvas::begin_guide_drag(const Guide& guide,QPointF screen) {
+    try {
+        guide_drag_start_=guide;guide_drag_inverse_view_=view().inverted();guide_drag_world_start_=guide_drag_inverse_view_.map(screen);
+        guide_drag_session_=session_identity_provider_?session_identity_provider_():QString::fromStdString(session_.document().id);
+        guide_drag_document_=session_.document().id;guide_drag_composition_=active_composition_;
+        guide_drag_revision_=session_.revision();guide_drag_invalid_=false;
+        press_position_=screen;press_pan_=pan_;drag_moved_=false;
+        session_.begin_gesture(guide_drag_revision_);gesture_owned_=true;drag_=Drag::guide;
+        ++input_sequence_;update_cursor();update();
+    } catch(const std::exception& exception) {report_error(exception);}
+}
+
+void Canvas::paint_layout_overlays(QPainter& painter,const Document& document) const {
+    const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),
+        [&](const auto& item){return item.id==active_composition_;});
+    if(composition==document.compositions.end())return;
+    painter.save();painter.setWorldTransform(view());painter.setBrush(Qt::NoBrush);
+    if(show_guides_) {
+        const auto visible=view().inverted().mapRect(QRectF(rect()));
+        QPen pen(QColor(44,151,205,190),1,Qt::DashLine);pen.setCosmetic(true);
+        painter.setPen(pen);
+        for(const auto& guide:composition->guides) {
+            if(guide.axis=="x")painter.drawLine(QPointF(guide.position,visible.top()),QPointF(guide.position,visible.bottom()));
+            else if(guide.axis=="y")painter.drawLine(QPointF(visible.left(),guide.position),QPointF(visible.right(),guide.position));
+        }
+    }
+    for(const auto& source:composition->artboards) {
+        const auto board=evaluate_artboard(*composition,source.id);
+        if(!board.layout)continue;
+        if(show_margin_&&board.id==active_artboard_&&board.layout->margin) {
+            const auto& margin=*board.layout->margin;
+            const QRectF inset(board.x+margin.left,board.y+margin.top,
+                board.width-margin.left-margin.right,board.height-margin.top-margin.bottom);
+            QPen pen(QColor(193,126,202,205),1.2,Qt::DashLine);pen.setCosmetic(true);
+            painter.setPen(pen);painter.drawRect(inset);
+        }
+        if(!show_grid_||!board.layout->grid)continue;
+        const auto& grid=*board.layout->grid;
+        const QRectF bounds(board.x+grid.bounds.x,board.y+grid.bounds.y,grid.bounds.width,grid.bounds.height);
+        painter.save();painter.setClipRect(bounds,Qt::IntersectClip);
+        QPen border(QColor(91,158,112,220),1.25);border.setCosmetic(true);
+        painter.setPen(border);painter.drawRect(bounds);
+        QPen cells(QColor(91,158,112,155),1,Qt::SolidLine);cells.setCosmetic(true);
+        painter.setPen(cells);
+        if(grid.columns>0) {
+            const auto cell=(grid.bounds.width-static_cast<double>(grid.columns-1)*grid.column_gutter)/static_cast<double>(grid.columns);
+            for(std::size_t i=1;i<grid.columns;++i) {
+                const auto cell_end=grid.bounds.x+static_cast<double>(i)*cell+static_cast<double>(i-1)*grid.column_gutter;
+                painter.drawLine(QPointF(board.x+cell_end,bounds.top()),QPointF(board.x+cell_end,bounds.bottom()));
+                if(grid.column_gutter>0)painter.drawLine(QPointF(board.x+cell_end+grid.column_gutter,bounds.top()),QPointF(board.x+cell_end+grid.column_gutter,bounds.bottom()));
+            }
+        }
+        if(grid.rows>0) {
+            const auto cell=(grid.bounds.height-static_cast<double>(grid.rows-1)*grid.row_gutter)/static_cast<double>(grid.rows);
+            for(std::size_t i=1;i<grid.rows;++i) {
+                const auto cell_end=grid.bounds.y+static_cast<double>(i)*cell+static_cast<double>(i-1)*grid.row_gutter;
+                painter.drawLine(QPointF(bounds.left(),board.y+cell_end),QPointF(bounds.right(),board.y+cell_end));
+                if(grid.row_gutter>0)painter.drawLine(QPointF(bounds.left(),board.y+cell_end+grid.row_gutter),QPointF(bounds.right(),board.y+cell_end+grid.row_gutter));
+            }
+        }
+        painter.restore();
+    }
+    painter.restore();
+}
+
 void Canvas::prepare_snap() {
     snap_bounds_.reset(); snap_x_.clear(); snap_y_.clear();
     snap_guide_x_.reset(); snap_guide_y_.reset();
@@ -1123,6 +1248,24 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
 
 void Canvas::update_drag(QPointF screen) {
     if (drag_ == Drag::none) return;
+    if(drag_==Drag::guide) {
+        if(!guide_context_current()) {
+            cancel_interaction();report_error(Error("REVISION_CONFLICT","Guide drag belongs to an older document session or revision"));return;
+        }
+        if(!drag_moved_&&distance(screen,press_position_)<QApplication::startDragDistance())return;
+        drag_moved_=true;request_frame(QStringLiteral("guide"));
+        const auto world=guide_drag_inverse_view_.map(screen);
+        auto changed=guide_drag_start_;
+        changed.position=guide_drag_start_.position+(guide_drag_start_.axis=="x"
+            ?world.x()-guide_drag_world_start_.x():world.y()-guide_drag_world_start_.y());
+        try {
+            session_.update_gesture({UpdateGuide{guide_drag_composition_,changed}});
+            guide_drag_invalid_=false;refresh();
+        } catch(const std::exception& exception) {
+            guide_drag_invalid_=true;report_error(exception);
+        }
+        update();return;
+    }
     if (drag_ == Drag::marquee) {
         marquee_position_=screen;
         if(distance(screen,press_position_)>=QApplication::startDragDistance())drag_moved_=true;
@@ -1228,6 +1371,14 @@ void Canvas::finish_drag() {
         try {finish_marquee();}catch(const std::exception& exception){cancel_interaction();report_error(exception);}
         return;
     }
+    if(drag_==Drag::guide) {
+        if(!guide_context_current()) {
+            cancel_interaction();report_error(Error("REVISION_CONFLICT","Guide drag belongs to an older document session or revision"));return;
+        }
+        if(guide_drag_invalid_) {
+            cancel_interaction();report_error(Error("INVALID_GUIDE","The last Guide position was invalid; the drag was canceled"));return;
+        }
+    }
     snap_guide_x_.reset(); snap_guide_y_.reset();
     if (gesture_owned_) {
         const auto revision = session_.revision();
@@ -1259,6 +1410,7 @@ void Canvas::cancel_interaction() {
     gesture_owned_ = false;
     drag_ = Drag::none;
     drag_moved_ = false;
+    guide_drag_invalid_=false;guide_drag_document_.clear();guide_drag_composition_.clear();guide_drag_session_.clear();
     update_cursor();
     if (had_preview) refresh();
     else if(had_marquee)update();
@@ -1324,6 +1476,9 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         append_draw_point(event->position());
         return;
     }
+    if(const auto* guide=hit_guide(event->position())) {
+        begin_guide_drag(*guide,event->position());event->accept();return;
+    }
     const auto hit = hit_control(event->position());
     const bool extend=event->modifiers().testFlag(Qt::ShiftModifier);
     if (hit.kind != Drag::none) {
@@ -1358,7 +1513,7 @@ void Canvas::mouseMoveEvent(QMouseEvent* event) {
     if (drag_ != Drag::none) update_drag(event->position());
     else if (!space_down_ && !draw_mode_) {
         const auto hit = hit_control(event->position());
-        setCursor(hit.kind != Drag::none ? Qt::CrossCursor : Qt::ArrowCursor);
+        setCursor((guide_edit_mode_&&hit_guide(event->position()))||hit.kind != Drag::none ? Qt::CrossCursor : Qt::ArrowCursor);
     }
     event->accept();
 }
@@ -1476,7 +1631,7 @@ void Canvas::reset_timing() {
 void Canvas::update_cursor() {
     if (drag_ == Drag::pan) setCursor(Qt::ClosedHandCursor);
     else if (space_down_) setCursor(Qt::OpenHandCursor);
-    else if (draw_mode_ || anchor_edit_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
+    else if (draw_mode_ || anchor_edit_ || guide_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
              drag_ == Drag::outgoing || drag_ == Drag::symmetric || drag_ == Drag::gradient_start ||
              drag_ == Drag::gradient_end) setCursor(Qt::CrossCursor);
     else if (drag_ == Drag::object) setCursor(Qt::SizeAllCursor);

@@ -67,8 +67,18 @@ private:
     QPoint whip_start_;
     bool whip_dragged_=false;
     QWidget* whip_overlay_=nullptr;
+    QPointer<QWidget> layout_preview_scope_;
+    bool layout_preview_active_=false;
+    bool layout_preview_invalid_=false;
+    QString layout_preview_session_;
+    std::uint64_t layout_preview_revision_=0;
     void cancel_whip();
     void reveal_whip_source();
+    bool preview_layout_draft(const std::vector<Command>& commands,QWidget* scope);
+    bool commit_layout_draft(const std::vector<Command>& commands,QWidget* scope);
+    void cancel_layout_draft(bool refresh_canvas=true);
+    bool layout_draft_current() const;
+    bool reject_stale_layout_draft();
     void rebuild_inspector(bool use_canvas_values=false);
     void sync_tree_selection();
     void add_multi_properties(QVBoxLayout* layout);

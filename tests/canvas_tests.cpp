@@ -440,6 +440,73 @@ void rectangle_selection_is_view_only() {
     grouped.canvas.set_selection("path");grouped.drag(grouped.screen(80,100),grouped.screen(400,280));check(grouped.canvas.selected_objects()==std::vector<Id>{"path"}&&grouped.canvas.drill_scope()=="group","Marquee selects within entered Group");
     d.objects.at("path").visible=false;Fixture hidden(d);hidden.canvas.set_selection({});hidden.drag(hidden.screen(80,100),hidden.screen(400,280));check(hidden.canvas.selections().empty(),"Hidden artwork does not become a marquee target");
 }
+
+void guide_drag_uses_stable_identity_and_one_session_undo() {
+    auto document=fixture_document();
+    document.compositions.front().artboards.push_back({"far-artboard","Far",2000,0,2000,1000});
+    document.compositions.front().guides={{"z-guide","Later","x",100},{"a-guide","Earlier","x",100}};
+    Fixture f(document);const auto initial_revision=f.session.revision();
+    check(!f.canvas.guide_edit_mode(),"Guide dragging is off until the explicit edit mode is enabled");
+    f.canvas.set_guide_edit_mode(true);
+    const auto start=f.screen(100,20),finish=start+QPoint(20,0);
+    f.press(start);check(f.session.gesture_active(),"Pressing a Guide in edit mode starts a Session gesture");
+    f.move(finish);
+    check(f.session.revision()==initial_revision&&f.session.document().compositions.front().guides[1].position==100,
+        "Guide preview does not change committed state or revision");
+    check(f.session.preview_document().compositions.front().guides[1].position==120,
+        "Exact-distance Guide tie chooses the lexicographically earlier stable ID");
+    f.release(finish);
+    check(f.session.revision()==initial_revision+1&&f.session.document().compositions.front().guides[1].position==120&&
+          f.session.document().compositions.front().guides[0].position==100,"Guide release commits only the chosen Guide in one revision");
+    f.session.undo(f.session.revision());f.canvas.refresh();
+    check(f.session.document().compositions.front().guides[1].position==100&&!f.session.can_undo(),"One Undo restores the Guide's starting coordinate");
+
+    const auto start_zoom=f.canvas.zoom();f.press(start);f.canvas.fit_all_artboards();
+    check(std::abs(f.canvas.zoom()-start_zoom)>1e-3&&f.session.gesture_active(),"View-fit does not replace an active Guide gesture");
+    f.move(finish);
+    check(f.session.preview_document().compositions.front().guides[1].position==120,
+        "Guide drag maps pointer deltas through its frozen starting view transform");
+    f.release(finish);f.session.undo(f.session.revision());f.canvas.refresh();f.canvas.fit_artboard();QApplication::processEvents();
+
+    const auto revision=f.session.revision();f.press(start);f.move(start+QPoint(30,0));
+    check(f.session.preview_document().compositions.front().guides[1].position==130,"Second Guide drag has a visible transient preview");
+    QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(start+QPoint(30,0));
+    check(f.session.revision()==revision&&!f.session.gesture_active()&&
+          f.session.document().compositions.front().guides[1].position==100,"Escape cancels Guide preview without history");
+
+    f.press(start);f.move(start+QPoint(25,0));f.canvas.set_show_guides(false);f.release(start+QPoint(25,0));
+    check(f.session.revision()==revision&&!f.session.gesture_active()&&
+          f.session.document().compositions.front().guides[1].position==100,"Hiding Guide overlay cancels an active Guide drag safely");
+    f.canvas.set_show_guides(true);
+
+    QString session_identity="session-one";f.canvas.set_session_identity_provider([&]{return session_identity;});
+    f.press(start);session_identity="session-two";f.move(start+QPoint(15,0));f.release(start+QPoint(15,0));
+    check(f.session.revision()==revision&&!f.session.gesture_active()&&f.session.document().compositions.front().guides[1].position==100&&
+          f.last_error.startsWith("REVISION_CONFLICT"),"A stale Session identity cancels instead of rebasing a Guide drag");
+}
+
+void layout_overlays_are_view_only_and_not_exported() {
+    auto document=empty_document("overlay-document","overlay-composition","overlay-artboard");
+    auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
+    board.layout=ArtboardLayout{Margin{10,15,20,25},Grid{"overlay-grid",{20,25,150,110},2,2,10,10}};
+    document.compositions.front().guides={{"overlay-guide-x","Vertical","x",30},{"overlay-guide-y","Horizontal","y",40}};
+    Session session(document);Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();canvas.fit_artboard();QApplication::processEvents();
+    check(canvas.show_guides()&&canvas.show_grid()&&canvas.show_margin(),"Authored layout overlays default visible per Canvas window");
+    const auto committed=session.document();const auto revision=session.revision();
+    const auto image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    const int guide_x=qRound(canvas.width()/2.0+(30-100)*canvas.zoom());int guide_pixels=0;
+    for(int y=55;y<215;++y)for(int x=guide_x-2;x<=guide_x+2;++x) {
+        const auto pixel=image.pixelColor(x,y);if(pixel.blue()>pixel.red()+25&&pixel.blue()>pixel.green()+15)++guide_pixels;
+    }
+    check(guide_pixels>20,"Canvas paints Session Guides over the composition viewport");
+    const auto exported=Canvas::render_artboard(session.document(),"overlay-composition","overlay-artboard",1,true);
+    check(exported.pixelColor(30,70)==QColor(Qt::white),"Guide overlay is absent from the Artboard export projection");
+    canvas.set_show_guides(false);check(!canvas.show_guides()&&canvas.show_grid()&&canvas.show_margin(),"Guide, Grid and Margin visibility toggle independently");
+    canvas.set_show_grid(false);check(!canvas.show_grid()&&canvas.show_margin(),"Grid visibility does not change Margin visibility");
+    canvas.set_show_margin(false);check(!canvas.show_margin(),"Margin visibility has its own per-window toggle");
+    check(session.document()==committed&&session.revision()==revision&&!session.can_undo(),"Overlay visibility changes no authored state or history");
+    Canvas second(session);check(second.show_guides()&&second.show_grid()&&second.show_margin(),"A second Canvas has independent default visibility state");
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -461,6 +528,8 @@ int main(int argc, char** argv) {
         snap_cancellation_and_artboard();
         snap_multi_and_effective_followers();
         snap_visibility_and_parent_coordinates();
+        guide_drag_uses_stable_identity_and_one_session_undo();
+        layout_overlays_are_view_only_and_not_exported();
         std::cout << "Canvas widget contract: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

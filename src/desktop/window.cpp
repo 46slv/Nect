@@ -284,6 +284,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     resize(1400,900);
     setMinimumSize(1000,650);
     canvas=new Canvas(host.session,this);
+    canvas->set_session_identity_provider([this]{return host.session_id;});
     color_tools_=new ColorTools(*this);
     setCentralWidget(canvas);
     tree_=new QTreeWidget;
@@ -497,10 +498,24 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
 Window::~Window() {
     qApp->removeEventFilter(this);
     cancel_whip();
+    cancel_layout_draft(false);
     canvas->cancel_interaction();
 }
 
 bool Window::eventFilter(QObject* watched,QEvent* event) {
+    if(layout_preview_active_||layout_preview_invalid_) {
+        auto* widget=qobject_cast<QWidget*>(watched);
+        const bool inside=widget&&layout_preview_scope_&&(widget==layout_preview_scope_||layout_preview_scope_->isAncestorOf(widget));
+        if(event->type()==QEvent::KeyPress) {
+            const auto key=static_cast<QKeyEvent*>(event)->key();
+            if(key==Qt::Key_Escape&&inside) {
+                cancel_layout_draft();
+                QTimer::singleShot(0,this,[this]{if(artboard_editing_)rebuild_inspector();});
+                return true;
+            } else if(!inside)cancel_layout_draft();
+        } else if(event->type()==QEvent::MouseButtonPress&&!inside)cancel_layout_draft();
+        else if(event->type()==QEvent::ApplicationDeactivate)cancel_layout_draft();
+    }
     if(event->type()==QEvent::MouseButtonPress&&!whip_target_) {
         const auto* mouse=static_cast<QMouseEvent*>(event);
         if(mouse->button()==Qt::LeftButton&&watched->property("nect-pick-whip").toBool()) {
@@ -607,11 +622,81 @@ void Window::cancel_whip() {
 }
 
 void Window::perform(const std::function<void()>& action) {
+    if(layout_preview_active_||layout_preview_invalid_)cancel_layout_draft();
     try {action();} catch(const Error& e) {statusBar()->showMessage(qs(e.code)+": "+QString::fromUtf8(e.what()),12000);}
     catch(const std::exception& e) {statusBar()->showMessage(QString::fromUtf8(e.what()),12000);}
 }
+
+bool Window::layout_draft_current() const {
+    return layout_preview_active_&&layout_preview_session_==host.session_id&&
+        layout_preview_revision_==host.session.revision();
+}
+
+bool Window::reject_stale_layout_draft() {
+    if((!layout_preview_active_&&!layout_preview_invalid_)||
+       (layout_preview_session_==host.session_id&&layout_preview_revision_==host.session.revision()))return false;
+    cancel_layout_draft();
+    statusBar()->showMessage("REVISION_CONFLICT: Discarded a stale layout draft",12000);
+    QTimer::singleShot(0,this,[this]{if(artboard_editing_)rebuild_inspector();});
+    return true;
+}
+
+void Window::cancel_layout_draft(bool refresh_canvas) {
+    const bool active=layout_preview_active_;
+    if(active&&host.session.gesture_active())host.session.cancel_gesture();
+    layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
+    layout_preview_revision_=0;layout_preview_scope_.clear();
+    if(refresh_canvas&&active&&canvas) {canvas->refresh();canvas->update();}
+}
+
+bool Window::preview_layout_draft(const std::vector<Command>& commands,QWidget* scope) {
+    if(reject_stale_layout_draft())return false;
+    if(commands.empty())return false;
+    if(layout_preview_active_&&layout_preview_scope_!=scope)cancel_layout_draft();
+    const bool starting=!layout_preview_active_;
+    try {
+        if(starting) {
+            layout_preview_session_=host.session_id;layout_preview_revision_=host.session.revision();
+            layout_preview_scope_=scope;host.session.begin_gesture(layout_preview_revision_);layout_preview_active_=true;
+        }
+        if(!layout_draft_current())throw Error("REVISION_CONFLICT","Layout draft belongs to an older document session or revision");
+        host.session.update_gesture(commands);layout_preview_invalid_=false;
+        canvas->refresh();canvas->update();return true;
+    } catch(const Error& error) {
+        if(starting)cancel_layout_draft();
+        else layout_preview_invalid_=true;
+        statusBar()->showMessage(qs(error.code)+": "+QString::fromUtf8(error.what()),12000);return false;
+    } catch(const std::exception& error) {
+        if(starting)cancel_layout_draft();
+        else layout_preview_invalid_=true;
+        statusBar()->showMessage(QString::fromUtf8(error.what()),12000);return false;
+    }
+}
+
+bool Window::commit_layout_draft(const std::vector<Command>& commands,QWidget* scope) {
+    if(reject_stale_layout_draft())return false;
+    if(layout_preview_invalid_) {
+        statusBar()->showMessage("INVALID_LAYOUT: Correct the draft before applying it",12000);return false;
+    }
+    if(!preview_layout_draft(commands,scope))return false;
+    try {
+        if(!layout_draft_current())throw Error("REVISION_CONFLICT","Layout draft belongs to an older document session or revision");
+        host.session.commit_gesture();
+        layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
+        layout_preview_revision_=0;layout_preview_scope_.clear();
+        host.edited();return true;
+    } catch(const Error& error) {
+        cancel_layout_draft();statusBar()->showMessage(qs(error.code)+": "+QString::fromUtf8(error.what()),12000);return false;
+    } catch(const std::exception& error) {
+        cancel_layout_draft();statusBar()->showMessage(QString::fromUtf8(error.what()),12000);return false;
+    }
+}
+
 void Window::refresh(bool project_canvas) {
     if(refreshing_)return;
+    if(layout_preview_active_&&!layout_draft_current()) {
+        cancel_layout_draft(false);statusBar()->showMessage("REVISION_CONFLICT: Discarded a stale layout preview",12000);
+    }
     refreshing_=true;
     if(project_canvas)canvas->refresh();
     const QSignalBlocker blocker(tree_);
@@ -787,6 +872,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto& board=find_artboard(comp,canvas->active_artboard());
     const auto resolved=evaluate_artboard(comp,board.id);
     const auto composition=comp.id,id=board.id;const auto frozen_session=host.session_id;
+    const auto frozen_revision=host.session.revision();
     auto apply=[this,frozen_session](const std::vector<Command>& commands) {
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","This frame belongs to another document");
         canvas->cancel_interaction();host.session.apply(commands,host.session.revision());host.edited();
@@ -822,6 +908,183 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     };
     number("x","Frame X · crop",&Artboard::x);number("y","Frame Y · crop",&Artboard::y);
     number("width","Width",&Artboard::width);number("height","Height",&Artboard::height);
+
+    auto* overlays=new QGroupBox("Layout overlays · this window");auto* overlay_layout=new QVBoxLayout(overlays);
+    auto* show_guides=new QCheckBox("Show Guides");show_guides->setObjectName("overlay-show-guides");show_guides->setChecked(canvas->show_guides());overlay_layout->addWidget(show_guides);
+    auto* show_grid=new QCheckBox("Show Grid");show_grid->setObjectName("overlay-show-grid");show_grid->setChecked(canvas->show_grid());overlay_layout->addWidget(show_grid);
+    auto* show_margin=new QCheckBox("Show Margin");show_margin->setObjectName("overlay-show-margin");show_margin->setChecked(canvas->show_margin());overlay_layout->addWidget(show_margin);
+    auto* guide_edit=new QCheckBox("Edit Guide positions on Canvas");guide_edit->setObjectName("guide-edit-mode");guide_edit->setChecked(canvas->guide_edit_mode());overlay_layout->addWidget(guide_edit);
+    connect(show_guides,&QCheckBox::toggled,canvas,&Canvas::set_show_guides);
+    connect(show_grid,&QCheckBox::toggled,canvas,&Canvas::set_show_grid);
+    connect(show_margin,&QCheckBox::toggled,canvas,&Canvas::set_show_margin);
+    connect(guide_edit,&QCheckBox::toggled,this,[this](bool enabled){if(layout_preview_active_||layout_preview_invalid_)cancel_layout_draft();canvas->set_guide_edit_mode(enabled);});
+    layout->addWidget(overlays);
+
+    auto make_number=[&](QWidget* parent,const char* object_name,const QString& name,const QString& initial) {
+        auto* input=new QLineEdit(initial,parent);input->setObjectName(QString::fromLatin1(object_name));input->setAccessibleName(name+" · du");
+        input->setToolTip(name+" in Composition distance units (du). Press Enter or Apply to commit.");return input;
+    };
+    auto parse_number=[](QLineEdit* input) {
+        bool valid=false;const auto value=input->text().trimmed().toDouble(&valid);
+        if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite number");
+        return value;
+    };
+    auto parse_count=[](QLineEdit* input) {
+        bool valid=false;const auto value=input->text().trimmed().toDouble(&valid);
+        if(!valid||!std::isfinite(value)||value<1||value>1000||std::floor(value)!=value)
+            throw Error("INVALID_LAYOUT","Counts must be whole numbers from 1 to 1000");
+        return static_cast<std::size_t>(value);
+    };
+    auto mark_invalid=[this](QWidget* scope,const QString& message) {
+        layout_preview_invalid_=true;layout_preview_scope_=scope;
+        if(!layout_preview_active_){layout_preview_session_=host.session_id;layout_preview_revision_=host.session.revision();}
+        statusBar()->showMessage(message,12000);
+    };
+    auto guard_editor=[this,frozen_session,frozen_revision] {
+        if(reject_stale_layout_draft())return true;
+        if(host.session_id==frozen_session&&host.session.revision()==frozen_revision)return false;
+        statusBar()->showMessage("REVISION_CONFLICT: Refresh layout controls before editing",12000);
+        QTimer::singleShot(0,this,[this]{if(artboard_editing_)rebuild_inspector();});
+        return true;
+    };
+    using LayoutBuilder=std::function<std::vector<Command>()>;
+    auto preview_from=[this,mark_invalid,guard_editor](QWidget* scope,const LayoutBuilder& build) {
+        if(guard_editor())return;
+        try {preview_layout_draft(build(),scope);}
+        catch(const Error& error){mark_invalid(scope,qs(error.code)+": "+QString::fromUtf8(error.what()));}
+        catch(const std::exception& error){mark_invalid(scope,QString::fromUtf8(error.what()));}
+    };
+    auto commit_from=[this,mark_invalid,guard_editor](QWidget* scope,const LayoutBuilder& build) {
+        if(guard_editor())return;
+        try {commit_layout_draft(build(),scope);}
+        catch(const Error& error){mark_invalid(scope,qs(error.code)+": "+QString::fromUtf8(error.what()));}
+        catch(const std::exception& error){mark_invalid(scope,QString::fromUtf8(error.what()));}
+    };
+    auto commit_explicit=[this,commit_from,guard_editor](QWidget* scope,const LayoutBuilder& build) {
+        if(guard_editor())return;
+        if(layout_preview_invalid_)cancel_layout_draft();
+        commit_from(scope,build);
+    };
+    auto bind_number=[this,preview_from,commit_from](QLineEdit* input,QWidget* scope,const LayoutBuilder& build) {
+        connect(input,&QLineEdit::textEdited,this,[preview_from,scope,build]{preview_from(scope,build);});
+        connect(input,&QLineEdit::returnPressed,this,[commit_from,scope,build]{commit_from(scope,build);});
+    };
+    auto set_layout_command=[composition,id](const ArtboardLayout& value)->std::vector<Command> {
+        auto payload=std::optional<ArtboardLayout>{value};
+        if(!payload->margin&&!payload->grid)payload.reset();
+        return {SetArtboardLayout{composition,id,std::move(payload)}};
+    };
+
+    auto* margin_box=new QGroupBox("Margin inset · du");margin_box->setObjectName("layout-margin");
+    auto* margin_form=new QFormLayout(margin_box);margin_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    const Margin initial_margin=board.layout&&board.layout->margin?*board.layout->margin:Margin{};
+    auto* margin_left=make_number(margin_box,"margin-left","Left",QString::number(initial_margin.left,'g',15));
+    auto* margin_top=make_number(margin_box,"margin-top","Top",QString::number(initial_margin.top,'g',15));
+    auto* margin_right=make_number(margin_box,"margin-right","Right",QString::number(initial_margin.right,'g',15));
+    auto* margin_bottom=make_number(margin_box,"margin-bottom","Bottom",QString::number(initial_margin.bottom,'g',15));
+    margin_form->addRow("Left · du",margin_left);margin_form->addRow("Top · du",margin_top);
+    margin_form->addRow("Right · du",margin_right);margin_form->addRow("Bottom · du",margin_bottom);
+    const LayoutBuilder margin_builder=[read,composition,id,parse_number,set_layout_command,margin_left,margin_top,margin_right,margin_bottom] {
+        auto current=read();auto value=current.layout.value_or(ArtboardLayout{});
+        value.margin=Margin{parse_number(margin_left),parse_number(margin_top),parse_number(margin_right),parse_number(margin_bottom)};
+        return set_layout_command(value);
+    };
+    auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new QHBoxLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
+    auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
+    auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(board.layout&&board.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
+    for(auto* input:{margin_left,margin_top,margin_right,margin_bottom})bind_number(input,margin_box,margin_builder);
+    connect(margin_apply,&QPushButton::clicked,this,[commit_from,margin_box,margin_builder]{commit_from(margin_box,margin_builder);});
+    connect(margin_clear,&QPushButton::clicked,this,[this,read,composition,id,commit_explicit,margin_box] {
+        auto current=read();auto value=current.layout.value_or(ArtboardLayout{});value.margin.reset();
+        const auto payload=(value.grid?std::optional<ArtboardLayout>(value):std::nullopt);
+        commit_explicit(margin_box,[composition,id,payload]{return std::vector<Command>{SetArtboardLayout{composition,id,payload}};});
+    });
+    layout->addWidget(margin_box);
+
+    auto* grid_box=new QGroupBox("Grid · Artboard-local bounds and cells · du");grid_box->setObjectName("layout-grid");
+    auto* grid_form=new QFormLayout(grid_box);grid_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    const Grid initial_grid=board.layout&&board.layout->grid?*board.layout->grid:Grid{new_id(),{0,0,resolved.width,resolved.height},1,1,0,0};
+    const Id grid_id=initial_grid.id;
+    auto* grid_x=make_number(grid_box,"grid-x","Grid X",QString::number(initial_grid.bounds.x,'g',15));
+    auto* grid_y=make_number(grid_box,"grid-y","Grid Y",QString::number(initial_grid.bounds.y,'g',15));
+    auto* grid_width=make_number(grid_box,"grid-width","Grid width",QString::number(initial_grid.bounds.width,'g',15));
+    auto* grid_height=make_number(grid_box,"grid-height","Grid height",QString::number(initial_grid.bounds.height,'g',15));
+    auto* grid_columns=make_number(grid_box,"grid-columns","Columns",QString::number(static_cast<qulonglong>(initial_grid.columns)));
+    auto* grid_rows=make_number(grid_box,"grid-rows","Rows",QString::number(static_cast<qulonglong>(initial_grid.rows)));
+    auto* grid_column_gutter=make_number(grid_box,"grid-column-gutter","Column gutter",QString::number(initial_grid.column_gutter,'g',15));
+    auto* grid_row_gutter=make_number(grid_box,"grid-row-gutter","Row gutter",QString::number(initial_grid.row_gutter,'g',15));
+    grid_form->addRow("X · du",grid_x);grid_form->addRow("Y · du",grid_y);
+    grid_form->addRow("Width · du",grid_width);grid_form->addRow("Height · du",grid_height);
+    grid_form->addRow("Columns · integer",grid_columns);grid_form->addRow("Rows · integer",grid_rows);
+    grid_form->addRow("Column gutter · du",grid_column_gutter);grid_form->addRow("Row gutter · du",grid_row_gutter);
+    const LayoutBuilder grid_builder=[read,composition,id,parse_number,parse_count,set_layout_command,grid_id,grid_x,grid_y,grid_width,grid_height,grid_columns,grid_rows,grid_column_gutter,grid_row_gutter] {
+        auto current=read();auto value=current.layout.value_or(ArtboardLayout{});
+        Grid grid{grid_id,{parse_number(grid_x),parse_number(grid_y),parse_number(grid_width),parse_number(grid_height)},
+            parse_count(grid_columns),parse_count(grid_rows),parse_number(grid_column_gutter),parse_number(grid_row_gutter)};
+        value.grid=std::move(grid);return set_layout_command(value);
+    };
+    auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new QHBoxLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
+    auto* grid_apply=new QPushButton("Apply Grid",grid_actions);grid_apply->setObjectName("grid-apply");grid_buttons->addWidget(grid_apply);
+    auto* grid_copy=new QPushButton("Set Grid to margin box",grid_actions);grid_copy->setObjectName("grid-copy-margin-box");grid_copy->setToolTip("Copy the authored Margin box once; later Margin edits do not change Grid.");grid_buttons->addWidget(grid_copy);
+    auto* grid_clear=new QPushButton("Clear Grid",grid_actions);grid_clear->setObjectName("grid-clear");grid_clear->setEnabled(board.layout&&board.layout->grid);grid_buttons->addWidget(grid_clear);
+    grid_form->addRow(grid_actions);
+    for(auto* input:{grid_x,grid_y,grid_width,grid_height,grid_columns,grid_rows,grid_column_gutter,grid_row_gutter})bind_number(input,grid_box,grid_builder);
+    connect(grid_apply,&QPushButton::clicked,this,[commit_from,grid_box,grid_builder]{commit_from(grid_box,grid_builder);});
+    connect(grid_copy,&QPushButton::clicked,this,[this,read,composition,id,grid_id,commit_explicit,guard_editor,grid_box] {
+        if(guard_editor())return;
+        const auto current=read();
+        if(!current.layout||!current.layout->margin) {statusBar()->showMessage("INVALID_LAYOUT: Add an authored Margin before copying its box",12000);return;}
+        const auto board_now=evaluate_artboard(find_composition(host.session.document(),composition),id);
+        const auto& margin=*current.layout->margin;auto value=current.layout.value();
+        auto grid=value.grid.value_or(Grid{grid_id,{},1,1,0,0});
+        grid.bounds={margin.left,margin.top,board_now.width-margin.left-margin.right,board_now.height-margin.top-margin.bottom};
+        value.grid=std::move(grid);
+        commit_explicit(grid_box,[composition,id,value]{return std::vector<Command>{SetArtboardLayout{composition,id,value}};});
+    });
+    connect(grid_clear,&QPushButton::clicked,this,[this,read,composition,id,commit_explicit,grid_box] {
+        auto current=read();auto value=current.layout.value_or(ArtboardLayout{});value.grid.reset();
+        const auto payload=(value.margin?std::optional<ArtboardLayout>(value):std::nullopt);
+        commit_explicit(grid_box,[composition,id,payload]{return std::vector<Command>{SetArtboardLayout{composition,id,payload}};});
+    });
+    layout->addWidget(grid_box);
+
+    auto* guides_box=new QGroupBox("Composition Guides");guides_box->setObjectName("composition-guides");auto* guides_layout=new QVBoxLayout(guides_box);
+    auto build_guide_row=[&](const Guide& source) {
+        auto* row=new QGroupBox(qs(source.name),guides_box);row->setObjectName("guide-row-"+qs(source.id));auto* form=new QFormLayout(row);
+        auto* name_input=new QLineEdit(qs(source.name),row);name_input->setObjectName("guide-name-"+qs(source.id));
+        auto* axis_input=new QComboBox(row);axis_input->setObjectName("guide-axis-"+qs(source.id));axis_input->addItem("Vertical · x",QStringLiteral("x"));axis_input->addItem("Horizontal · y",QStringLiteral("y"));axis_input->setCurrentIndex(axis_input->findData(qs(source.axis)));
+        auto* position_input=make_number(row,("guide-position-"+source.id).c_str(),"Guide position",QString::number(source.position,'g',15));
+        form->addRow("Name",name_input);form->addRow("Axis",axis_input);form->addRow("Position · du",position_input);
+        auto* actions=new QWidget(row);auto* buttons=new QHBoxLayout(actions);buttons->setContentsMargins(0,0,0,0);
+        auto* apply=new QPushButton("Apply Guide",actions);apply->setObjectName("guide-apply-"+qs(source.id));buttons->addWidget(apply);
+        auto* remove=new QPushButton("Delete Guide",actions);remove->setObjectName("guide-delete-"+qs(source.id));buttons->addWidget(remove);form->addRow(actions);
+        const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,parse_number] {
+            auto changed=source;changed.name=name_input->text().toStdString();changed.axis=axis_input->currentData().toString().toStdString();changed.position=parse_number(position_input);
+            return std::vector<Command>{UpdateGuide{composition,std::move(changed)}};
+        };
+        bind_number(name_input,row,builder);bind_number(position_input,row,builder);
+        connect(axis_input,qOverload<int>(&QComboBox::currentIndexChanged),this,[preview_from,row,builder](int){preview_from(row,builder);});
+        connect(apply,&QPushButton::clicked,this,[commit_from,row,builder]{commit_from(row,builder);});
+        connect(remove,&QPushButton::clicked,this,[commit_explicit,row,composition,guide_id=source.id]{commit_explicit(row,[composition,guide_id]{return std::vector<Command>{DeleteGuide{composition,guide_id}};});});
+        guides_layout->addWidget(row);
+    };
+    for(const auto& guide:comp.guides)build_guide_row(guide);
+    auto* add_guide_box=new QGroupBox("Add Guide");add_guide_box->setObjectName("guide-add-row");auto* add_guide_form=new QFormLayout(add_guide_box);
+    const Guide new_guide{new_id(),"Guide","x",0};
+    auto* new_guide_name=new QLineEdit(QString::fromStdString(new_guide.name),add_guide_box);new_guide_name->setObjectName("guide-new-name");
+    auto* new_guide_axis=new QComboBox(add_guide_box);new_guide_axis->setObjectName("guide-new-axis");new_guide_axis->addItem("Vertical · x",QStringLiteral("x"));new_guide_axis->addItem("Horizontal · y",QStringLiteral("y"));
+    auto* new_guide_position=make_number(add_guide_box,"guide-new-position","Guide position","0");
+    add_guide_form->addRow("Name",new_guide_name);add_guide_form->addRow("Axis",new_guide_axis);add_guide_form->addRow("Position · du",new_guide_position);
+    auto* add_guide=new QPushButton("Add Guide",add_guide_box);add_guide->setObjectName("guide-add");add_guide_form->addRow(add_guide);
+    const LayoutBuilder add_guide_builder=[composition,new_guide,new_guide_name,new_guide_axis,new_guide_position,parse_number] {
+        auto value=new_guide;value.name=new_guide_name->text().toStdString();value.axis=new_guide_axis->currentData().toString().toStdString();value.position=parse_number(new_guide_position);
+        return std::vector<Command>{AddGuide{composition,std::move(value)}};
+    };
+    bind_number(new_guide_name,add_guide_box,add_guide_builder);bind_number(new_guide_position,add_guide_box,add_guide_builder);
+    connect(new_guide_axis,qOverload<int>(&QComboBox::currentIndexChanged),this,[preview_from,add_guide_box,add_guide_builder](int){preview_from(add_guide_box,add_guide_builder);});
+    connect(add_guide,&QPushButton::clicked,this,[commit_from,add_guide_box,add_guide_builder]{commit_from(add_guide_box,add_guide_builder);});
+    guides_layout->addWidget(add_guide_box);layout->addWidget(guides_box);
+
     auto* parent_group=new QGroupBox("Parent size");auto* parent_form=new QFormLayout(parent_group);
     parent_form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(parent_group);
     auto* parent=new QComboBox;parent->setObjectName("artboard-parent");

@@ -69,6 +69,15 @@ public:
     double zoom() const { return zoom_; }
     void set_snap_enabled(bool enabled);
     bool snap_enabled() const { return snap_enabled_; }
+    void set_show_guides(bool enabled);
+    void set_show_grid(bool enabled);
+    void set_show_margin(bool enabled);
+    bool show_guides() const { return show_guides_; }
+    bool show_grid() const { return show_grid_; }
+    bool show_margin() const { return show_margin_; }
+    void set_guide_edit_mode(bool enabled);
+    bool guide_edit_mode() const { return guide_edit_mode_; }
+    void set_session_identity_provider(std::function<QString()> provider) { session_identity_provider_=std::move(provider); }
 
     // Raw widget paint observations, not a claim about presentation/GPU latency.
     // An interval of -1 is the first paint in an input sequence. Input cadence is
@@ -135,7 +144,7 @@ private:
         bool text_overflow=false;
         bool normal_visible=true;
     };
-    enum class Drag { none, marquee, pan, anchor, pivot, incoming, outgoing, symmetric, object, gradient_start, gradient_end };
+    enum class Drag { none, marquee, pan, anchor, pivot, incoming, outgoing, symmetric, object, gradient_start, gradient_end, guide };
     struct Hit {
         Drag kind = Drag::none;
         Id object;
@@ -190,6 +199,15 @@ private:
     bool gesture_owned_ = false;
     bool drag_moved_ = false;
     bool snap_enabled_ = true;
+    bool show_guides_=true,show_grid_=true,show_margin_=true,guide_edit_mode_=false;
+    std::function<QString()> session_identity_provider_;
+    Guide guide_drag_start_;
+    QPointF guide_drag_world_start_;
+    QTransform guide_drag_inverse_view_;
+    QString guide_drag_session_;
+    Id guide_drag_document_,guide_drag_composition_;
+    std::uint64_t guide_drag_revision_=0;
+    bool guide_drag_invalid_=false;
     std::optional<QRectF> snap_bounds_;
     std::vector<double> snap_x_, snap_y_;
     std::optional<double> snap_guide_x_, snap_guide_y_;
@@ -217,6 +235,10 @@ private:
     void toggle_selection(Selection item);
     void set_scope(Id scope);
     void begin_drag(Drag kind, QPointF screen);
+    bool guide_context_current() const;
+    const Guide* hit_guide(QPointF screen) const;
+    void begin_guide_drag(const Guide&,QPointF screen);
+    void paint_layout_overlays(QPainter&,const Document&) const;
     void prepare_snap();
     QPointF snap_delta(QPointF delta);
     void update_drag(QPointF screen);
