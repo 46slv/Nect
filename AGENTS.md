@@ -4,7 +4,7 @@
 
 For Nect, the current user instruction and [DEC-71](https://app.notion.com/p/3e6fd279a6f381219079f6b9a024fece) supersede older packet text that stopped at DESIGN_GATE, packet completion, review readiness, a commit/push, or a Task boundary. Codex Sol is the Mission Owner: it selects the next eligible Route step, resolves ordinary engineering ambiguity within accepted product intent, freezes/approves bounded packets, dispatches fresh disposable Luna Max Workers, reviews exact candidates, repairs and rechecks, reconciles Git/Notion/runtime evidence, and continues through durable checkpoint and fresh Task rollover. ChatGPT is optional external review, not a mandatory checkpoint relay. P02 implementation is authorized from `P02-ENTRY-01` on `codex/practical-alpha`.
 
-Keep one semantic checkpoint per Task for practical-alpha, but create and transfer to a fresh Task automatically when that checkpoint closes; the old wording that treated Task completion or successor creation as a stop condition is superseded. A successor must verify the same Nect Project, actual model/profile, effective authority, HEAD and single-writer state, then record `TAKEOVER_ACK` before writing. If fresh Task creation is unavailable, leave `HANDOFF_READY` with a complete resume prompt and stop. A terminal Worker is disposable; dispatch a fresh one for later repair unless new evidence is still being developed in the same packet.
+Mission continuity is above a Task boundary. One Sol Task may execute multiple coherent semantic checkpoints while its context remains healthy. Ordinary checkpoint/packet/review/commit transitions, including P02-A to P02-B to P02-C, do not require a fresh top-level Task or a user-facing stop. Rollover only for material context pressure, a meaningfully independent next phase, a capability/authority boundary, or a clear safety/clarity advantage. On rollover, save the durable checkpoint, create a fresh Sol successor, verify its Nect Project/model/effective authority/HEAD/single-writer state and `TAKEOVER_ACK`, then transfer ownership and end the old Task. If creation is unavailable, leave `HANDOFF_READY` with a complete resume prompt. A terminal Worker is disposable; dispatch a fresh one for later repair unless new evidence is still being developed in the same packet.
 
 Ordinary reversible lifecycle inside the current Mission is authorized: edit/build/test, coherent commit, non-force push, branch/PR maintenance and non-force merge after required checks. Human confirmation is reserved for actual hands-on/subjective product acceptance, material preference-dependent product/UX/art choices, replacement or major expansion of the accepted Goal, platform-required confirmation, credentials/account/billing, destructive or irreversible action, release/publication and other public external action. Existing confirmed requirements and non-goals remain protected. Do not interpret this authority as permission for force push, history rewrite, unrelated mutation, or unverified completion claims. Where older sections below are narrower on Mission progression or ordinary Git lifecycle, this dated section controls; their Document/Session, identity, evidence and safety rules still apply.
 
@@ -85,7 +85,7 @@ Meaning:
 - **Done for next** — what must be true before advancing to the following checkpoint.
 - **State** — branch/HEAD, working-tree state, relevant format/version and live blockers.
 - **Authority** — the current instruction/source that authorizes this work and any stop boundary.
-- **Handoff** — whether the next semantic checkpoint should reuse the current Task or start a fresh Task.
+- **Handoff** — whether a material rollover condition exists. Default to `CONTINUE_CURRENT_TASK` across coherent checkpoints; `NEW_TASK` requires an actual context, independence, capability/authority, or safety/clarity reason.
 
 Historical checkpoints belong in Git history, an existing issue/PR, or evidence receipts.
 Do not keep multiple old checkpoints active and do not paste completed logs back into the
@@ -108,81 +108,17 @@ real semantic API/tests/runtime, but visual/interaction claims require actual UI
 with it, prefer the live source of truth and replan within the same Mission Goal. Record the
 change rather than following stale checkpoint text mechanically.
 
-## Practical-alpha Mission: one checkpoint per Task
+## Practical-alpha Mission: checkpoint continuity
 
-For the `Nect/practical-alpha` Mission, the user's 2026-09-22 addendum makes
-**1 semantic checkpoint = 1 Task** mandatory. This overrides the optional
-fresh-context judgement below. Implementation, debugging, verification and repair
-may continue within the current checkpoint; do not implement the next checkpoint
-in the same Task after `Done for next` is satisfied.
+The 2026-09-25 DEC-71 clarification replaces the older one-checkpoint-per-Task rule. A Sol Mission Owner normally implements, verifies, reviews, repairs if needed, commits, non-force pushes, updates the single active checkpoint in `CURRENT_GOAL.md`, and continues to the next eligible checkpoint in the **same Task**. A checkpoint is a durable semantic state, not an automatic Task boundary. Keep only the active checkpoint detailed; use Git history, existing issues/PRs or evidence receipts for closed ones.
 
-At completion:
-1. save the durable checkpoint, make a coherent commit, push the working branch
-   and verify local/remote HEAD equality;
-2. select the next checkpoint from live evidence and update the single active
-   checkpoint in `CURRENT_GOAL.md` (synchronize any resulting handoff edit);
-3. actually create a new Task for that checkpoint when the runtime supports it;
-4. bind it to the same `Nect/practical-alpha` Mission through this repository's
-   Mission Brief and active checkpoint, with repo/branch/HEAD and needed owners;
-5. end the current Task. Transfer implementation ownership once; never leave two
-   writers on the same working tree or live Session.
+At each checkpoint closure, record exact local/remote state and the next best action from live Route/requirements/runtime evidence. Set `Handoff: CONTINUE_CURRENT_TASK` unless there is material context pressure, a meaningfully independent next phase, a capability/authority boundary, or a concrete safety/clarity advantage to fresh context. Do not rotate because a fixed amount of time elapsed, a packet became REVIEW_READY, tests passed, or a commit/push completed.
 
-Use a fresh Task, not a conversation fork. Transfer only Mission Brief, latest
-active checkpoint, repo/branch/HEAD and the owner documents needed for that work.
-The user's further 2026-09-22 instruction requires new Tasks/chats to start with
-Full access and no approval prompts. Verify the actual successor runtime's
-permissions, not just a prompt or config value. If the creation API cannot
-override permissions, retain the existing Full-access defaults and make runtime
-permission verification the successor's first step; do not start implementation
-under a restricted profile or repeatedly ask for approval. Report a concrete
-permission-launch blocker if Full access was not applied.
-Do not transfer old conversation, raw logs or completed-work transcripts.
-If new-Task creation is unavailable, leave a complete handoff marked
-`WAIT_SUCCESSOR_TASK` and stop without implementing the next checkpoint here.
+When `Handoff: NEW_TASK` is justified, complete and synchronize the durable checkpoint first. Transfer only the Mission Brief, single active checkpoint, repo/branch/HEAD, runtime state and owner documents needed for the next work; do not transfer raw logs or whole conversation history. Create a fresh Sol Task in the same Nect Project with authorized Full access/no routine approvals when the runtime supports it. The successor must fresh-verify its actual model/profile, effective authority, HEAD, dirty state and single-writer ownership, then record `TAKEOVER_ACK` **before** the old Task ends or the successor mutates the shared worktree/Session. Transfer one writer once. If fresh Task creation is unavailable when rollover is genuinely required, leave `HANDOFF_READY` and a complete resume prompt.
 
 ## Task boundaries and fresh-context rotation
 
-A durable checkpoint is not automatically a Task boundary.
-
-Default operating target: one Task should usually cover about 1–3 coherent semantic
-checkpoints when the same mental model, files, fixtures and acceptance path remain useful.
-This is a guideline, not a quota.
-
-At every completed checkpoint, set `Handoff` explicitly:
-
-- `CONTINUE_CURRENT_TASK` when the next checkpoint strongly reuses the current context and
-  continuing is cheaper/clearer than reloading it.
-- `NEW_TASK` when the next checkpoint is meaningfully independent, changes owner/domain,
-  changes research/implementation mode, accumulated logs are mostly irrelevant, substantial
-  compaction has already occurred, or the current Task has become context-heavy.
-
-Past conversation, raw logs and completed work should not be carried into a successor Task in
-bulk.
-
-When `Handoff: NEW_TASK`:
-1. completely save the active checkpoint;
-2. synchronize durable state as required below;
-3. determine the next active checkpoint from live state;
-4. transfer single-writer ownership of the worktree/Session to the successor;
-5. start a fresh Task when the runtime supports it;
-6. hand off only:
-   - Mission Brief;
-   - latest active checkpoint;
-   - repo / branch / HEAD;
-   - current runtime state needed to resume;
-   - owner docs required for that checkpoint;
-7. end the current Task before the successor mutates the same live worktree/Session.
-
-The successor must verify live state before acting. It must not reconstruct state from the
-full previous conversation.
-
-Do not rotate merely because a fixed amount of time passed, and do not interrupt a coherent
-task only to satisfy a context rule.
-
-If the runtime cannot actually start a fresh successor, save the complete handoff and stop
-with `WAIT_SUCCESSOR_TASK`. Do not silently continue the next independent checkpoint in the
-same Task and do not pretend a successor was launched.
-
+Use the current Task for coherent P02-A/B/C/D checkpoints while context remains healthy. Rotate only for one of the DEC-71 conditions above. A fresh Task is an operational context change within the same Mission, never a product completion gate or reason to ask the user for routine approval. The successor reads live state before acting; it does not reconstruct authority or results from the old conversation.
 
 ## Successor Task access and approval policy
 
@@ -204,7 +140,7 @@ control and working-branch synchronization should not stop for confirmation mere
 new Task was created.
 
 This access policy does **not** expand Mission authority. It does not authorize:
-- merging to `main` without current authorization;
+- merging without the current Mission's required checks or by force;
 - release/publishing/distribution;
 - repository visibility, permissions, protection or account-policy changes;
 - destructive rewrite of pushed/shared history;
@@ -222,14 +158,18 @@ continue the same authorized Mission in a fresh Task.
 ## Autonomous continuation and stop conditions
 
 Continue autonomously while the Mission Goal remains authorized and the next safe action is
-clear.
+clear. An ordinary semantic checkpoint, REVIEW_READY state, packet closure, commit/push or
+P02 phase transition is never by itself a stop condition.
 
 Stop only for:
-- Mission Goal completed;
-- a concrete blocker that cannot be resolved with current authority/access;
-- an authority boundary or required user decision;
-- repeated no-progress with no new evidence;
-- a required fresh-context handoff that this runtime cannot perform.
+- the Brief/Mission completion gate actually achieved;
+- a DEC-71 Human Gate requiring actual hands-on/subjective acceptance, a material product
+  preference choice, platform confirmation, credentials/account/billing, destructive or
+  irreversible action, release/publication, or major Goal replacement/expansion;
+- a concrete runtime/capability blocker that cannot be resolved with current access;
+- repeated no-progress with no new evidence, recorded as a concrete blocker;
+- a genuinely required rollover when Task creation is unavailable, with `HANDOFF_READY`
+  and a complete resume prompt.
 
 Ordinary reversible implementation/UI decisions are not stop conditions.
 
@@ -245,9 +185,10 @@ For a checkpoint:
 - verify the remote branch/PR HEAD matches the intended local checkpoint SHA;
 - record the remote pointer in the handoff when one exists.
 
-GitHub synchronization means preserving the remote checkpoint branch. It does **not**
-authorize merging to `main`, closing the Mission, releasing, publishing, or changing
-repository/account policy. Those actions require current authorization.
+GitHub synchronization means preserving the remote checkpoint branch. The current DEC-71
+Mission authority allows a non-force merge after the relevant required checks; a push alone
+does not prove those checks or close the Mission. Release, publication, repository/account
+policy changes and forced history changes remain outside ordinary synchronization.
 
 Before commits intended for GitHub, verify the configured identity satisfies repository
 privacy/protection rules. Prefer the user's GitHub noreply identity when appropriate.
