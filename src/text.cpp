@@ -372,9 +372,15 @@ TextLayout evaluate_text(const TextSource& source,const std::map<std::string,dou
         if(line_count>32769)throw Error("TEXT_LAYOUT_LIMIT","Text has too many lines");
         if(line_count) {
             std::vector<DWRITE_LINE_METRICS> lines(line_count);
-            check_hr(layout->GetLineMetrics(lines.data(),line_count,&line_count),"Measure first-line baseline");
-            const auto baseline=draw_origin_y+lines.front().baseline;
-            if(std::isfinite(baseline))result.first_line_baseline_y=baseline;
+            check_hr(layout->GetLineMetrics(lines.data(),line_count,&line_count),"Measure line baselines");
+            lines.resize(line_count);
+            double line_top=draw_origin_y;
+            for(const auto& line:lines) {
+                const auto baseline=line_top+line.baseline;
+                if(std::isfinite(baseline))result.line_baselines_y.push_back(baseline);
+                line_top+=line.height;
+            }
+            if(!result.line_baselines_y.empty())result.first_line_baseline_y=result.line_baselines_y.front();
         }
     }
     if(!automatic) {

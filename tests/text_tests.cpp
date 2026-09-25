@@ -108,6 +108,9 @@ int main() {
         check(vertical_spaced.height>vertical_normal.height+15,"Tracking follows the vertical reading axis");
         auto lines=default_text("lines","H\nH");lines.family=latin.family;lines.parameters.at("line_spacing").literal=80;
         const auto uniform=evaluate_text(lines,values(lines));
+        check(uniform.line_baselines_y.size()==2,"Two horizontal lines expose two measured baselines");
+        near(uniform.line_baselines_y[1]-uniform.line_baselines_y[0],80,
+            "Second-line baseline follows DirectWrite uniform line spacing");
         check(uniform.contours->size()>=2&&uniform.contours->size()%2==0,"Repeated letters retain matching outlines on both lines");
         const auto half=uniform.contours->size()/2;
         near(uniform.contours->at(half).points.front().anchor.y-uniform.contours->front().points.front().anchor.y,80,

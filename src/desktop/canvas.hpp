@@ -172,7 +172,7 @@ private:
         std::optional<QRectF> image_bounds;
         QImage image;
         std::optional<QRectF> text_bounds;
-        std::optional<double> text_first_line_baseline_y;
+        std::vector<double> text_line_baselines_y;
         bool text_overflow=false;
         bool normal_visible=true;
     };

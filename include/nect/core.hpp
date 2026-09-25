@@ -392,6 +392,8 @@ struct TextLayout {
     // Derived layout metric in the same local coordinates as the glyph outlines.
     // Available only for horizontal text with a measurable first line.
     std::optional<double> first_line_baseline_y;
+    // Measured horizontal line baselines in layout order; empty for vertical text.
+    std::vector<double> line_baselines_y;
     bool overflow=false;
     std::size_t glyph_count=0;
     std::vector<std::string> warnings,used_fonts;

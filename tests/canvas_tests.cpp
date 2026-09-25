@@ -736,6 +736,49 @@ void snap_text_baseline_and_unsupported_axis_omission() {
         f.release(end);near(f.value("moving-text",{},"transform.ty"),16,"Baseline Snap commits the shared object translation");f.no_error();
     }
     {
+        auto document=text_baseline_snap_document();
+        auto& target=*document.objects.at("target-text").text;
+        target.content="H\nH";
+        target.parameters.at("line_spacing").literal=80;
+        auto& source=*document.objects.at("moving-text").text;
+        source.content="H";
+        source.parameters.at("line_spacing").literal=80;
+        const auto target_layout=evaluate_text(target,text_parameters(target));
+        const auto source_layout=evaluate_text(source,text_parameters(source));
+        check(target_layout.line_baselines_y.size()==2,"Target exposes measured second-line baseline");
+        near(target_layout.line_baselines_y[1]-source_layout.line_baselines_y[0],96,
+            "Second-line baseline has a fixed 96-du target offset");
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const auto start=f.screen(source_layout.x+source_layout.width/2,source_layout.y+source_layout.height/2);
+        const auto end=start+QPoint(0,97);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"moving-text","","transform.ty"}),96,
+            "Raw 97-du drag snaps source first baseline to target second line");
+        check(f.canvas.last_snap_feedback().contains("Text baseline → target-text")&&
+              f.canvas.last_snap_feedback().contains("line 2 baseline"),
+            "Second-line feedback names the actual Text line");
+        f.release(end);near(f.value("moving-text",{},"transform.ty"),96,
+            "Second-line Snap commits one object translation");
+        check(f.session.can_undo(),"Second-line Snap creates one Undo step");
+        f.session.undo(f.session.revision());near(f.value("moving-text",{},"transform.ty"),0,
+            "Second-line Snap Undo restores original translation");f.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document();
+        auto& target=*document.objects.at("target-text").text;
+        target.content="H\nH";target.parameters.at("line_spacing").literal=80;
+        auto& source=*document.objects.at("moving-text").text;
+        source.content="H";source.parameters.at("line_spacing").literal=80;
+        const auto layout=evaluate_text(source,text_parameters(source));
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const auto start=f.screen(layout.x+layout.width/2,layout.y+layout.height/2);
+        const auto end=start+QPoint(0,103);
+        f.press(start);f.move(end);
+        check(!f.canvas.last_snap_feedback().contains("line 2 baseline"),
+            "Seven-du raw gap does not choose the second-line baseline");
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);f.no_error();
+    }
+    {
         auto document=text_baseline_snap_document(true,false);
         const auto& source=*document.objects.at("moving-text").text;
         const auto layout=evaluate_text(source,text_parameters(source));

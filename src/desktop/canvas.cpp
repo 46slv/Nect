@@ -190,7 +190,7 @@ void Canvas::refresh() {
                     for(const auto& [name,scalar]:object.text->parameters){(void)scalar;parameters[name]=values_.at({id,"","text."+name});}
                     const auto layout=evaluate_text(*object.text,parameters);
                     item.text_bounds=QRectF(layout.x,layout.y,std::max(1.0,layout.width),std::max(1.0,layout.height));
-                    item.text_first_line_baseline_y=layout.first_line_baseline_y;
+                    item.text_line_baselines_y=layout.line_baselines_y;
                     item.text_overflow=layout.overflow;
                 }
                 std::map<const std::vector<EvaluatedContour>*, QPainterPath> contour_paths;
@@ -1285,29 +1285,36 @@ void Canvas::prepare_snap(bool point_drag) {
         snap_y_targets_.push_back({bounds.center().y(),SnapKind::object_center,id,QStringLiteral("center"),1});
     }
 
-    const auto baseline_world_y=[&](const Geometry& item)->std::optional<double> {
+    const auto baseline_world_y=[&](const Geometry& item)->std::vector<double> {
         const auto object=document.objects.find(item.id);
         if(object==document.objects.end()||!object->second.text||object->second.text->direction!="horizontal"||
-           !item.text_first_line_baseline_y)return std::nullopt;
+           item.text_line_baselines_y.empty())return {};
         const auto shape=scene_.shapes.find(item.id);
-        if(shape==scene_.shapes.end()||shape->second.paths.size()!=1)return std::nullopt;
+        if(shape==scene_.shapes.end()||shape->second.paths.size()!=1)return {};
         const auto transform=qt_transform(shape->second.paths.front().transform)*item.world;
         constexpr double epsilon=1e-10;
         if(std::abs(transform.m12())>epsilon||std::abs(transform.m21())>epsilon||
-           std::abs(transform.m11())<=epsilon||std::abs(transform.m22())<=epsilon)return std::nullopt;
-        const auto baseline=transform.map(QPointF(0,*item.text_first_line_baseline_y)).y();
-        return std::isfinite(baseline)?std::optional<double>(baseline):std::nullopt;
+           std::abs(transform.m11())<=epsilon||std::abs(transform.m22())<=epsilon)return {};
+        std::vector<double> baselines;
+        for(const auto local:item.text_line_baselines_y) {
+            const auto baseline=transform.map(QPointF(0,local)).y();
+            if(std::isfinite(baseline))baselines.push_back(baseline);
+        }
+        return baselines;
     };
     if(!point_drag&&selected.size()==1&&selection.contains(selected.front())) {
         const auto* source=geometry(selected.front());
-        if(source&&parents_.at(source->id)==scope_)if(const auto baseline=baseline_world_y(*source))
-            snap_y_sources_.push_back({*baseline,1,QStringLiteral("first-line baseline")});
+        if(source&&parents_.at(source->id)==scope_)if(const auto baselines=baseline_world_y(*source);!baselines.empty())
+            snap_y_sources_.push_back({baselines.front(),1,QStringLiteral("first-line baseline")});
     }
     for(const auto& [item,bounds]:visible_geometry) {
         const auto key=selection_target(*item);
         if(key.empty()||key!=item->id||moves(item->id)||parents_.at(item->id)!=scope_)continue;
-        if(const auto baseline=baseline_world_y(*item))
-            snap_y_targets_.push_back({*baseline,SnapKind::text_baseline,item->id,QStringLiteral("first-line baseline"),0});
+        const auto baselines=baseline_world_y(*item);
+        for(std::size_t line=0;line<baselines.size();++line)
+            snap_y_targets_.push_back({baselines[line],SnapKind::text_baseline,item->id,
+                line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
+                static_cast<int>(line)});
     }
 
     if(!point_drag&&snap_bounds_) {
