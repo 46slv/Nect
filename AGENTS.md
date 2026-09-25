@@ -2,6 +2,10 @@
 
 ## 2026-09-25 standing Mission ownership (DEC-71)
 
+### 2026-09-26 DEC-71 / Autonomous Mission Owner v0.2 locality update
+
+Treat `NEEDS_HUMAN`, `BLOCKED_ENV` and missing host capability as `LOCAL_WAIT` for the exact Requirement, acceptance row or Route edge unless all meaningful eligible work depends on that blocker. Record the blocked obligation, observed cause, proven evidence and resume trigger durably; fresh-read the Completion Route and dependencies, then continue the highest-value independent eligible work. Only a shared blocker across every eligible path, or a genuine Human decision needed to preserve accepted intent, is `MISSION_BLOCKING`. A hands-on GUI acceptance wait normally remains local. Do not retry the same failed Computer Use inventory without new host evidence. At each semantic checkpoint compare current-context reuse with carry cost, drift and fresh-resume cost; roll over to a fresh Sol at a safe boundary when it lowers total Mission cost, using the verified single-writer takeover contract below.
+
 For Nect, the current user instruction and [DEC-71](https://app.notion.com/p/3e6fd279a6f381219079f6b9a024fece) supersede older packet text that stopped at DESIGN_GATE, packet completion, review readiness, a commit/push, or a Task boundary. Codex Sol is the Mission Owner: it selects the next eligible Route step, resolves ordinary engineering ambiguity within accepted product intent, freezes/approves bounded packets, dispatches fresh disposable Luna Max Workers, reviews exact candidates, repairs and rechecks, reconciles Git/Notion/runtime evidence, and continues through durable checkpoint and fresh Task rollover. ChatGPT is optional external review, not a mandatory checkpoint relay. P02 implementation is authorized from `P02-ENTRY-01` on `codex/practical-alpha`.
 
 Mission continuity is above a Task boundary. One Sol Task may execute multiple coherent semantic checkpoints while its context remains healthy. Ordinary checkpoint/packet/review/commit transitions, including P02-A to P02-B to P02-C, do not require a fresh top-level Task or a user-facing stop. Rollover only for material context pressure, a meaningfully independent next phase, a capability/authority boundary, or a clear safety/clarity advantage. On rollover, save the durable checkpoint, create a fresh Sol successor, verify its Nect Project/model/effective authority/HEAD/single-writer state and `TAKEOVER_ACK`, then transfer ownership and end the old Task. If creation is unavailable, leave `HANDOFF_READY` with a complete resume prompt. A terminal Worker is disposable; dispatch a fresh one for later repair unless new evidence is still being developed in the same packet.
@@ -165,15 +169,16 @@ P02 phase transition is never by itself a stop condition.
 
 Stop only for:
 - the Brief/Mission completion gate actually achieved;
-- a DEC-71 Human Gate requiring actual hands-on/subjective acceptance, a material product
-  preference choice, platform confirmation, credentials/account/billing, destructive or
-  irreversible action, release/publication, or major Goal replacement/expansion;
-- a concrete runtime/capability blocker that cannot be resolved with current access;
+- a DEC-71 Human Gate requiring a material product preference choice, platform confirmation,
+  credentials/account/billing, destructive or irreversible action, release/publication, or
+  major Goal replacement/expansion **when every eligible path depends on that decision**;
+- a concrete runtime/capability blocker shared by every meaningful eligible Route path;
 - repeated no-progress with no new evidence, recorded as a concrete blocker;
 - a genuinely required rollover when Task creation is unavailable, with `HANDOFF_READY`
   and a complete resume prompt.
 
 Ordinary reversible implementation/UI decisions are not stop conditions.
+Hands-on/subjective acceptance for one row is a `LOCAL_WAIT` while independent work remains.
 
 ## GitHub synchronization
 
