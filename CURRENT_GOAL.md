@@ -24,7 +24,7 @@
 
 **Done for next:** Exact requirement leaves and product decisions are recorded with their owner; the schema/coordinate/priority/UI contract has independently calculated positive and negative fixtures, failure semantics, acceptance paths, owner/files and allowed writes; the approved design is synchronized to the working branch. P02 implementation remains outside this Task and needs its own authority/checkpoint.
 
-**State:** Repository `D:\Documents\Nect`, working branch `codex/practical-alpha`, native format 0.13; takeover base `7386c30b4ec63edd46ad056d4aeb68adb29da467` matched the remote. The design proposal is pending owner decision and local document synchronization. R1 Alt+drag, R5 Linked Image activation, R8 Unlink/recovery-open remain separate unresolved GUI qualification routes, not accepted product failures. No Nect GUI Session is active.
+**State:** Repository `D:\Documents\Nect`, working branch `codex/practical-alpha`, native format 0.13; takeover base `7386c30b4ec63edd46ad056d4aeb68adb29da467` matched the remote. The design proposal is committed and synchronized on the working branch; read live Git for the current exact SHA. Product-owner decisions remain pending. R1 Alt+drag, R5 Linked Image activation, R8 Unlink/recovery-open remain separate unresolved GUI qualification routes, not accepted product failures. No Nect GUI Session is active.
 
 **Authority:** Current user P01 instruction and Notion Worker packets revision 3 for design preparation only, subject to repo `AGENTS.md`. No P02 implementation authority. One checkpoint per Task and Full access/no routine approvals are required for the successor runtime; verify effective settings, not only a prompt claim.
 
