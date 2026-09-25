@@ -119,6 +119,7 @@ protected:
 
 private:
     enum class SnapKind { guide, grid, artboard, text_baseline, object_edge, object_center, equal_gap };
+    enum class SnapSourceKind { geometry_bounds, point_anchor, text_line_baseline };
     struct SnapCandidate {
         double position=0;
         SnapKind kind=SnapKind::guide;
@@ -133,6 +134,7 @@ private:
         double position=0;
         int order=0;
         QString label;
+        SnapSourceKind kind=SnapSourceKind::geometry_bounds;
     };
     struct SnapMatch {
         SnapCandidate target;

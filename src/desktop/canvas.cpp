@@ -1216,15 +1216,15 @@ void Canvas::prepare_snap(bool point_drag) {
         const auto* geometry_item=geometry(active->target.object);
         if(!geometry_item||parents_.at(active->target.object)!=scope_)return;
         snap_point_world_=geometry_item->world.map(active->anchor);
-        snap_x_sources_.push_back({snap_point_world_->x(),1,QStringLiteral("point anchor")});
-        snap_y_sources_.push_back({snap_point_world_->y(),1,QStringLiteral("point anchor")});
+        snap_x_sources_.push_back({snap_point_world_->x(),1,QStringLiteral("point anchor"),SnapSourceKind::point_anchor});
+        snap_y_sources_.push_back({snap_point_world_->y(),1,QStringLiteral("point anchor"),SnapSourceKind::point_anchor});
     } else if(snap_bounds_) {
         for(const auto& [position,label,order]:std::array<std::tuple<double,const char*,int>,3>{{
             {snap_bounds_->left(),"min",0},{snap_bounds_->center().x(),"center",1},{snap_bounds_->right(),"max",2}}})
-            snap_x_sources_.push_back({position,order,QString::fromLatin1(label)});
+            snap_x_sources_.push_back({position,order,QString::fromLatin1(label),SnapSourceKind::geometry_bounds});
         for(const auto& [position,label,order]:std::array<std::tuple<double,const char*,int>,3>{{
             {snap_bounds_->top(),"min",0},{snap_bounds_->center().y(),"center",1},{snap_bounds_->bottom(),"max",2}}})
-            snap_y_sources_.push_back({position,order,QString::fromLatin1(label)});
+            snap_y_sources_.push_back({position,order,QString::fromLatin1(label),SnapSourceKind::geometry_bounds});
     }
 
     const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),
@@ -1304,8 +1304,13 @@ void Canvas::prepare_snap(bool point_drag) {
     };
     if(!point_drag&&selected.size()==1&&selection.contains(selected.front())) {
         const auto* source=geometry(selected.front());
-        if(source&&parents_.at(source->id)==scope_)if(const auto baselines=baseline_world_y(*source);!baselines.empty())
-            snap_y_sources_.push_back({baselines.front(),1,QStringLiteral("first-line baseline")});
+        if(source&&parents_.at(source->id)==scope_) {
+            const auto baselines=baseline_world_y(*source);
+            for(std::size_t line=0;line<baselines.size();++line)
+                snap_y_sources_.push_back({baselines[line],static_cast<int>(line)+1,
+                    line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
+                    SnapSourceKind::text_line_baseline});
+        }
     }
     for(const auto& [item,bounds]:visible_geometry) {
         const auto key=selection_target(*item);
@@ -1438,7 +1443,10 @@ QPointF Canvas::snap_delta(QPointF delta) {
             return candidate.target.position<current.target.position;
         };
         for(const auto& source:sources)for(const auto& target:targets) {
-            if(target.kind==SnapKind::text_baseline&&source.label!=QStringLiteral("first-line baseline"))continue;
+            if(target.kind==SnapKind::text_baseline&&source.kind!=SnapSourceKind::text_line_baseline)continue;
+            // The first-line source already participates in ordinary Snap. Keep
+            // that behavior; additional measured lines only target Text baselines.
+            if(target.kind!=SnapKind::text_baseline&&source.kind==SnapSourceKind::text_line_baseline&&source.order>1)continue;
             if(target.kind==SnapKind::equal_gap&&source.order!=target.source_feature_order)continue;
             const double source_position=source.position+raw;
             const double correction=target.position-source_position;

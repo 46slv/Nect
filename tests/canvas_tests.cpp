@@ -721,6 +721,44 @@ void snap_text_baseline_and_unsupported_axis_omission() {
     };
     {
         auto document=text_baseline_snap_document();
+        auto& target=*document.objects.at("target-text").text;
+        target.content="H";
+        target.parameters.at("origin_y").literal=80;
+        target.parameters.at("line_spacing").literal=80;
+        auto& source=*document.objects.at("moving-text").text;
+        source.content="H\nH";source.parameters.at("line_spacing").literal=80;
+        const auto target_layout=evaluate_text(target,text_parameters(target));
+        const auto source_layout=evaluate_text(source,text_parameters(source));
+        check(source_layout.line_baselines_y.size()==2,"Moving multiline Text exposes both measured baseline sources");
+        near(target_layout.line_baselines_y[0],source_layout.line_baselines_y[0],
+            "Matching line spacing gives the stationary and moving first lines the same measured baseline");
+        near(source_layout.line_baselines_y[1]-source_layout.line_baselines_y[0],80,
+            "Moving source line 2 uses its measured DirectWrite baseline");
+        near(target_layout.line_baselines_y[0]-source_layout.line_baselines_y[1],-80,
+            "Moving source line 2 is 80 du above the stationary first-line target");
+        document.compositions.front().artboards.front().y=20;
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const auto screen=[&](double x,double y) {
+            return QPoint(qRound(f.canvas.width()/2.0+(x-320)*f.canvas.zoom()),
+                          qRound(f.canvas.height()/2.0+(y-260)*f.canvas.zoom()));
+        };
+        const auto start=screen(source_layout.x+source_layout.width/2,source_layout.y+source_layout.height/2);
+        const auto end=start+QPoint(0,-79);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"moving-text","","transform.ty"}),-80,
+            "Raw -79-du drag snaps moving source line 2 to target first line");
+        check(f.canvas.last_snap_feedback().contains("line 2 baseline Text baseline → target-text first-line baseline"),
+            "Baseline Snap feedback names source line 2 and target first line: "+f.canvas.last_snap_feedback().toStdString());
+        f.release(end);
+        near(f.value("moving-text",{},"transform.ty"),-80,"Line-2 Snap commits the expected shared translation");
+        check(f.session.revision()==1&&f.commits==1,"Moving-baseline release is one Session transaction");
+        check(decode(encode(f.session.document()))==f.session.document(),"Native serialization retains the accepted baseline translation");
+        f.session.undo(f.session.revision());
+        near(f.value("moving-text",{},"transform.ty"),0,"One Undo restores the moving Text transform");
+        check(!f.session.can_undo(),"Moving-baseline Snap creates exactly one Undo step");f.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document();
         const auto& source=*document.objects.at("moving-text").text;
         const auto layout=evaluate_text(source,text_parameters(source));
         check(layout.first_line_baseline_y.has_value(),"Horizontal source Text exposes its first-line baseline metric");
@@ -779,6 +817,73 @@ void snap_text_baseline_and_unsupported_axis_omission() {
         QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);f.no_error();
     }
     {
+        auto document=text_baseline_snap_document();
+        auto& target=*document.objects.at("target-text").text;target.content="H";
+        target.parameters.at("origin_y").literal=80;target.parameters.at("line_spacing").literal=80;
+        auto& source=*document.objects.at("moving-text").text;
+        source.content="H\nH";source.parameters.at("line_spacing").literal=80;
+        const auto target_layout=evaluate_text(target,text_parameters(target));
+        const auto layout=evaluate_text(source,text_parameters(source));
+        near(target_layout.line_baselines_y[0]-layout.line_baselines_y[1],-80,
+            "Negative fixture measures an exact 7-du miss from the accepted baseline alignment");
+        document.compositions.front().artboards.front().y=20;
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const auto screen=[&](double x,double y) {
+            return QPoint(qRound(f.canvas.width()/2.0+(x-320)*f.canvas.zoom()),
+                          qRound(f.canvas.height()/2.0+(y-260)*f.canvas.zoom()));
+        };
+        const auto start=screen(layout.x+layout.width/2,layout.y+layout.height/2);
+        const auto end=start+QPoint(0,-73);
+        f.press(start);f.move(end);
+        check(!f.canvas.last_snap_feedback().contains("Text baseline"),
+            "A raw 7-du gap does not snap moving source line 2 to the Text baseline");
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);
+        check(f.session.revision()==0&&!f.session.can_undo(),"Seven-du baseline miss leaves authored history unchanged");f.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document();
+        auto& target=*document.objects.at("target-text").text;target.content="H";
+        auto& source=*document.objects.at("moving-text").text;source.content="H";
+        const auto layout=evaluate_text(source,text_parameters(source));
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const auto start=f.screen(layout.x+layout.width/2,layout.y+layout.height/2);
+        const auto end=start+QPoint(0,-79);
+        f.press(start);f.move(end);
+        check(!f.canvas.last_snap_feedback().contains("line 2 baseline"),
+            "A one-line moving Text has no line-2 baseline source");
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);f.no_error();
+    }
+    for(const bool point_source:{false,true}) {
+        auto document=text_baseline_snap_document();
+        auto& target=*document.objects.at("target-text").text;
+        target.content="H";target.parameters.at("origin_y").literal=80;target.parameters.at("line_spacing").literal=80;
+        const auto target_layout=evaluate_text(target,text_parameters(target));
+        const double baseline=target_layout.line_baselines_y.front();
+        auto& roots=document.compositions.front().roots;
+        std::erase(roots,Id("moving-text"));document.objects.erase("moving-text");
+        auto path=fixture_document().objects.at("path");
+        path.id="moving-path";path.name="ordinary source";path.contours.front().id="moving-contour";
+        path.stack.push_back(default_operation("moving-fill","nect.paint.fill"));
+        auto& points=path.contours.front().points;
+        points[0].id="moving-p1";points[1].id="moving-p2";
+        points[0].y.literal=baseline+(point_source?-5:-14);
+        points[1].y.literal=baseline+(point_source?20:22);
+        document.objects.emplace(path.id,path);roots.insert(roots.begin(),path.id);
+        document.compositions.front().artboards.front().y=20;
+        Fixture f(document);f.canvas.set_selection("moving-path",point_source?"moving-p1":Id{});
+        const auto screen=[&](double x,double y) {
+            return QPoint(qRound(f.canvas.width()/2.0+(x-320)*f.canvas.zoom()),
+                          qRound(f.canvas.height()/2.0+(y-260)*f.canvas.zoom()));
+        };
+        const auto start=point_source?screen(120,points[0].y.literal):screen(240,baseline+4);
+        const auto end=start+QPoint(0,1);
+        f.press(start);f.move(end);
+        check(!f.canvas.last_snap_feedback().contains("Text baseline"),
+            point_source?"A point anchor within 4 du cannot use a Text baseline target":"An ordinary bounds center within 5 du cannot use a Text baseline target");
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);
+        check(f.session.revision()==0&&!f.session.can_undo(),"An ordinary source feature cannot author a Text baseline Snap");f.no_error();
+    }
+    {
         auto document=text_baseline_snap_document(true,false);
         const auto& source=*document.objects.at("moving-text").text;
         const auto layout=evaluate_text(source,text_parameters(source));
@@ -790,6 +895,31 @@ void snap_text_baseline_and_unsupported_axis_omission() {
         check(!f.canvas.last_snap_feedback().contains("Text baseline"),
             "Vertical Text does not use a baseline candidate or substitute its glyph-box edge");
         QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);f.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document();
+        auto& target=*document.objects.at("target-text").text;
+        target.content="H";target.parameters.at("origin_y").literal=80;target.parameters.at("line_spacing").literal=80;
+        auto& source=*document.objects.at("moving-text").text;
+        source.content="H\nH";source.parameters.at("line_spacing").literal=80;
+        const auto target_layout=evaluate_text(target,text_parameters(target));
+        const auto source_layout=evaluate_text(source,text_parameters(source));
+        const QPointF body_center(source_layout.x+source_layout.width/2,source_layout.y+source_layout.height/2);
+        const double translate_y=target_layout.line_baselines_y.front()-body_center.x()-11;
+        document.objects.at("moving-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{translate_y,{}}}};
+        document.compositions.front().artboards.front().y=20;
+        const QTransform rotated_source(0,1,-1,0,220,translate_y);
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const auto screen=[&](QPointF point) {
+            return QPoint(qRound(f.canvas.width()/2.0+(point.x()-320)*f.canvas.zoom()),
+                          qRound(f.canvas.height()/2.0+(point.y()-260)*f.canvas.zoom()));
+        };
+        const auto start=screen(rotated_source.map(body_center)),end=start+QPoint(0,11);
+        f.press(start);f.move(end);
+        check(!f.canvas.last_snap_feedback().contains("Text baseline"),
+            "A rotated multiline moving Text offers no baseline even when its ordinary bounds center reaches the target baseline");
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);
+        check(f.session.revision()==0&&!f.session.can_undo(),"Rotated-source baseline exclusion leaves authored history unchanged");f.no_error();
     }
     {
         auto document=text_baseline_snap_document(false,true);
