@@ -56,11 +56,15 @@ int main() {
         const auto mixed=evaluate_text(source,values(source));const auto mixed_bounds=bounds(mixed);
         check(mixed.glyph_count>=6&&!mixed.contours->empty()&&!mixed.used_fonts.empty(),
             "Japanese and Latin text uses shaped glyph outlines and reports actual installed families");
+        check(mixed.first_line_baseline_y.has_value(),
+            "Horizontal text exposes its measured first-line baseline independently of glyph bounds");
         check(mixed.width>mixed.height&&mixed_bounds.width()>100&&!mixed.overflow,
             "Automatic horizontal text measures its actual line instead of a large layout container");
         auto shifted_values=values(source);shifted_values["origin_x"]=123.25;shifted_values["origin_y"]=-17.5;
         const auto shifted=evaluate_text(source,shifted_values);
         near(shifted.x,123.25,"Layout retains authored origin X");near(shifted.y,-17.5,"Layout retains authored origin Y");
+        near(*shifted.first_line_baseline_y-*mixed.first_line_baseline_y,-17.5,
+            "First-line baseline follows the authored vertical origin");
         check(shifted.contours->size()==mixed.contours->size(),"Moving text does not change its shaped outline topology");
         for(std::size_t c=0;c<mixed.contours->size();++c) {
             check(mixed.contours->at(c).closed&&mixed.contours->at(c).points.size()==shifted.contours->at(c).points.size(),
@@ -73,6 +77,8 @@ int main() {
 
         auto cjk=default_text("cjk","上");const auto horizontal_cjk=evaluate_text(cjk,values(cjk));const auto upright=bounds(horizontal_cjk);
         cjk.direction="vertical";const auto vertical_cjk=evaluate_text(cjk,values(cjk));const auto upright_vertical=bounds(vertical_cjk);
+        check(!vertical_cjk.first_line_baseline_y.has_value(),
+            "Vertical text does not expose a horizontal-baseline snap metric");
         near(upright_vertical.width(),upright.width(),"CJK glyphs stay upright in Japanese vertical text");
         near(upright_vertical.height(),upright.height(),"CJK vertical shape keeps its upright proportions");
         check(horizontal_cjk.contours->size()==vertical_cjk.contours->size(),"Upright CJK uses matching outline contours");

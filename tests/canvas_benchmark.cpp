@@ -42,7 +42,8 @@ void require(bool condition, const char* message) {
 }
 
 void near(double actual, double expected, const char* message) {
-    if (std::abs(actual - expected) > 1e-6) throw std::runtime_error(message);
+    if (std::abs(actual - expected) > 1e-6)
+        throw std::runtime_error(std::string(message)+": actual="+std::to_string(actual)+" expected="+std::to_string(expected));
 }
 
 void check_errors(const QStringList& errors) {
@@ -271,8 +272,11 @@ SequenceResult sequence(Window& window, Operation operation, int frames, bool co
         require(window.host.session.revision() == revision + 1,
                 "Viewport edit did not commit exactly one Session revision");
         if (operation == Operation::point) {
-            near(value(window, "bench-point-0-0", "x"), 70 + 54 / zoom, "Point drag produced incorrect X");
-            near(value(window, "bench-point-0-0", "y"), 70 + 12 / zoom, "Point drag produced incorrect Y");
+            const auto x=value(window,"bench-point-0-0","x"),y=value(window,"bench-point-0-0","y");
+            require(std::isfinite(x)&&std::abs(x-(70+54/zoom))<=6.0/zoom+1e-6,
+                "Point Snap X correction exceeds its 6-logical-pixel budget");
+            require(std::isfinite(y)&&std::abs(y-(70+12/zoom))<=6.0/zoom+1e-6,
+                "Point Snap Y correction exceeds its 6-logical-pixel budget");
         } else if (operation == Operation::handle) {
             near(value(window, "bench-point-0-0", "out.length"), std::hypot(18 + 28 / zoom, 18 / zoom),
                  "Handle drag produced incorrect length");
@@ -286,8 +290,12 @@ SequenceResult sequence(Window& window, Operation operation, int frames, bool co
             for(int i=0;i<selection_count;++i) {
                 const auto object="bench-path-"+std::to_string(i),point=operation==Operation::point?"bench-point-"+std::to_string(i)+"-0":Id{};
                 const Ref x{object,point,operation==Operation::point?"x":"transform.tx"},y{object,point,operation==Operation::point?"y":"transform.ty"};
-                const double dx=operation==Operation::point?54/zoom:values.at({"bench-path-0","","transform.tx"})-initial_values.at({"bench-path-0","","transform.tx"});
-                const double dy=operation==Operation::point?12/zoom:values.at({"bench-path-0","","transform.ty"})-initial_values.at({"bench-path-0","","transform.ty"});
+                const double dx=operation==Operation::point?
+                    values.at({"bench-path-0","bench-point-0-0","x"})-initial_values.at({"bench-path-0","bench-point-0-0","x"}):
+                    values.at({"bench-path-0","","transform.tx"})-initial_values.at({"bench-path-0","","transform.tx"});
+                const double dy=operation==Operation::point?
+                    values.at({"bench-path-0","bench-point-0-0","y"})-initial_values.at({"bench-path-0","bench-point-0-0","y"}):
+                    values.at({"bench-path-0","","transform.ty"})-initial_values.at({"bench-path-0","","transform.ty"});
                 near(values.at(x),initial_values.at(x)+dx,"Every selected target translates once X");
                 near(values.at(y),initial_values.at(y)+dy,"Every selected target translates once Y");
             }

@@ -288,6 +288,67 @@ Document snap_document() {
     return document;
 }
 
+Document grid_guide_snap_document(double guide_x,std::size_t columns=1,double gutter=0) {
+    auto document=snap_document();
+    auto& composition=document.compositions.front();
+    composition.guides.push_back({"guide-snap","Snap guide","x",guide_x});
+    document.compositions.front().artboards.front().layout=ArtboardLayout{
+        std::nullopt,Grid{"grid-snap",{200,20,100,100},columns,1,gutter,0}};
+    return document;
+}
+
+Document equal_gap_snap_document() {
+    auto document=snap_document();
+    document.objects.erase("target");
+    std::erase(document.compositions.front().roots,Id("target"));
+    const auto rectangle=[&](Id id,double center_x,double center_y,double width,double height) {
+        Object object;object.id=id;object.name=id;
+        object.source=default_primitive(id+"-source","nect.shape.rectangle");
+        for(const auto& [field,value]:std::map<std::string,double>{{"center_x",center_x},{"center_y",center_y},
+                {"width",width},{"height",height}})object.source->parameters.at(field).literal=value;
+        object.stack.push_back(default_operation(id+"-fill","nect.paint.fill"));
+        document.objects.emplace(id,object);document.compositions.front().roots.push_back(id);
+    };
+    rectangle("left",120,390,40,40);  // bounds 100..140
+    rectangle("right",340,390,40,40); // bounds 320..360
+    return document;
+}
+
+Document point_snap_document(bool driven=false) {
+    auto document=empty_document("point-snap-document","test-composition","test-artboard");
+    document.compositions.front().artboards.front().width=640;
+    document.compositions.front().artboards.front().height=480;
+    document.compositions.front().guides.push_back({"point-guide","Point target","x",125});
+    Object path;path.id="path";path.name="Point source";
+    Point first;first.id="p1";first.x.literal=10;first.y.literal=20;
+    Point second;second.id="p2";second.x.literal=20;second.y.literal=30;
+    path.contours={{"point-contour",false,{first,second}}};
+    if(driven)path.contours.front().points.front().x.binding=Binding{{"path","p2","x"},1,-10,"copy_local_value"};
+    Object parent;parent.id="parent";parent.name="Scaled parent";parent.kind=Kind::group;parent.children={"path"};
+    parent.transform={{{2,{}},{0,{}},{0,{}},{2,{}},{100,{}},{50,{}}}};
+    document.objects.emplace(path.id,path);document.objects.emplace(parent.id,parent);
+    document.compositions.front().roots={parent.id};
+    return document;
+}
+
+Document text_baseline_snap_document(bool vertical_source=false,bool rotated_target=false) {
+    auto document=empty_document("text-snap-document","test-composition","test-artboard");
+    document.compositions.front().artboards.front().width=640;
+    document.compositions.front().artboards.front().height=480;
+    const auto add_text=[&](Id id,double x,double y) {
+        Object object;object.id=id;object.name=id;object.kind=Kind::text;
+        object.text=default_text(id+"-source","Baseline");
+        object.text->parameters.at("origin_x").literal=x;
+        object.text->parameters.at("origin_y").literal=y;
+        object.stack.push_back(default_operation(id+"-fill","nect.paint.fill"));
+        document.objects.emplace(id,std::move(object));document.compositions.front().roots.push_back(id);
+    };
+    add_text("moving-text",40,80);add_text("target-text",320,96);
+    if(vertical_source)document.objects.at("moving-text").text->direction="vertical";
+    if(rotated_target)document.objects.at("target-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{0,{}},{0,{}}}};
+    return document;
+}
+
 void snap_tolerance_zoom_and_exact_edits() {
     for (double zoom : {0.5, 1.0, 2.0}) {
         Fixture f(snap_document());
@@ -300,11 +361,14 @@ void snap_tolerance_zoom_and_exact_edits() {
             f.canvas.resize(740,580); f.canvas.refresh();
         }
         f.canvas.fit_artboard(); near(f.canvas.zoom(), zoom, "Snap fixture zoom");
+        if(!qEnvironmentVariableIsEmpty("QT_SCALE_FACTOR"))
+            near(f.canvas.devicePixelRatioF(),qEnvironmentVariable("QT_SCALE_FACTOR").toDouble(),
+                "Offscreen fixture honors the requested device-pixel ratio");
         f.canvas.set_selection("path");
         const auto original = encode(f.session.document());
         const auto start = f.screen(140,130);
-        // Right edge approaches target left, four logical pixels short.
-        const auto end = f.screen(320,157) - QPoint(4,0);
+        // Right edge approaches target left, five logical pixels short.
+        const auto end = f.screen(320,157) - QPoint(5,0);
         f.press(start); f.move(end);
         near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),180,"Snap reaches target edge at each zoom");
         if (zoom == 1 && !qEnvironmentVariableIsEmpty("NECT_SNAP_SCREENSHOT"))
@@ -317,15 +381,218 @@ void snap_tolerance_zoom_and_exact_edits() {
         check(encode(f.session.document()) == original,"Single Undo restores snapped gesture exactly");
         f.canvas.set_snap_enabled(false);
         f.drag(start,end);
-        near(f.value("path",{},"transform.tx"),180-4/zoom,"Snap OFF permits nearby free placement");
+        near(f.value("path",{},"transform.tx"),180-5/zoom,"Snap OFF permits nearby free placement");
         f.session.undo(f.session.revision()); f.canvas.refresh(); f.canvas.set_snap_enabled(true);
-        f.drag(start, f.screen(320,157) - QPoint(8,0));
-        near(f.value("path",{},"transform.tx"),180-8/zoom,"Outside tolerance stays free");
+        f.drag(start, f.screen(320,157) - QPoint(7,0));
+        near(f.value("path",{},"transform.tx"),180-7/zoom,"Outside tolerance stays free");
         f.session.undo(f.session.revision()); f.canvas.refresh();
+        f.drag(start,f.screen(320,157)-QPoint(6,0));
+        near(f.value("path",{},"transform.tx"),180,"Exactly six logical pixels remains inside the Snap threshold");
+        f.session.undo(f.session.revision());f.canvas.refresh();
         f.session.apply({Set{{"path","","transform.tx"},177.125}}, f.session.revision());
         f.canvas.refresh(); near(f.value("path",{},"transform.tx"),177.125,"Exact Session numeric edit never snaps");
         f.no_error();
     }
+}
+
+void snap_guide_grid_priority_visibility_and_controls() {
+    {
+        auto document=grid_guide_snap_document(200);
+        document.compositions.front().guides.push_back({"guide-a","Stable ID tie winner","x",200});
+        Fixture f(document);f.canvas.set_selection("path");
+        f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);
+        const auto start=f.screen(140,130),end=f.screen(156,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),20,
+            "Exact Guide/Grid tie snaps the moving maximum to the shared line");
+        const auto tie_feedback=f.canvas.last_snap_feedback().toStdString();
+        check(f.canvas.last_snap_feedback().contains("Guide → guide-a")&&
+              f.canvas.last_snap_feedback().contains("max")&&
+              f.canvas.last_snap_feedback().contains("guide line"),
+            "Hidden Guide feedback mismatch: "+tie_feedback);
+        f.release(end);f.no_error();
+    }
+    {
+        Fixture f(grid_guide_snap_document(202));f.canvas.set_selection("path");
+        f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);
+        const auto start=f.screen(140,130),end=f.screen(156,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),20,
+            "Closer Grid target wins over a farther Guide target");
+        check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
+              f.canvas.last_snap_feedback().contains("column 1 boundary"),
+            "Hidden Grid overlay still snaps and feedback identifies its line feature");
+        f.release(end);f.no_error();
+    }
+    {
+        Fixture f(grid_guide_snap_document(200,2,20));f.canvas.set_selection("path");
+        const auto start=f.screen(140,130),end=f.screen(176,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),40,
+            "Grid cell center is a snap candidate independently of its boundary");
+        check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
+              f.canvas.last_snap_feedback().contains("column 1 center"),
+            "Grid cell-center feedback names the stable Grid and column feature");
+        f.release(end);f.no_error();
+    }
+    {
+        Fixture f(grid_guide_snap_document(200));f.canvas.set_selection("path");
+        f.canvas.set_snap_grid_enabled(false);
+        const auto start=f.screen(140,130),end=f.screen(156,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),20,
+            "Guide Snap remains enabled when Grid Snap is disabled");
+        check(f.canvas.last_snap_feedback().contains("Guide → guide-snap"),
+            "Grid Snap OFF leaves the same-position Guide candidate active");
+        f.release(end);f.no_error();
+    }
+    {
+        Fixture f(grid_guide_snap_document(200));f.canvas.set_selection("path");
+        f.canvas.set_snap_guides_enabled(false);f.canvas.set_snap_grid_enabled(false);
+        const auto start=f.screen(140,130),end=f.screen(156,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),16,
+            "Visible overlays do not qualify after their independent Snap toggles are disabled");
+        check(f.canvas.last_snap_feedback().isEmpty(),"Disabled Guide and Grid candidates publish no Snap feedback");
+        f.release(end);f.no_error();
+    }
+    {
+        Fixture f(grid_guide_snap_document(200));f.canvas.set_selection("path");
+        f.canvas.set_snap_enabled(false);
+        const auto start=f.screen(140,130),end=f.screen(156,130);
+        f.drag(start,end);
+        near(f.value("path",{},"transform.tx"),16,"Master Snap OFF keeps pointer placement free");
+        check(f.canvas.last_snap_feedback().isEmpty(),"Master Snap OFF has no transient snap feedback");
+        f.no_error();
+    }
+}
+
+void snap_two_sided_equal_gap_and_point_world_correction() {
+    {
+        Fixture f(equal_gap_snap_document());f.canvas.set_selection("path");
+        const auto start=f.screen(140,130),end=f.screen(228,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),90,
+            "Two-sided equal-gap candidate places the moving bounds at the computed equal-gap position");
+        check(f.canvas.last_snap_feedback().contains("Equal gap")&&
+              f.canvas.last_snap_feedback().contains("left")&&f.canvas.last_snap_feedback().contains("right"),
+            "Equal-gap feedback identifies both stable neighboring objects");
+        f.release(end);
+        near(f.value("path",{},"transform.tx"),90,"Equal-gap placement commits through one object command");
+        f.session.undo(f.session.revision());f.canvas.refresh();
+        near(f.value("path",{},"transform.tx"),0,"One Undo restores the equal-gap gesture");f.no_error();
+    }
+    {
+        Fixture f(point_snap_document());
+        f.canvas.set_selections({{"path","p2"},{"path","p1"}});
+        const auto original=encode(f.session.document());
+        const auto start=f.screen(120,90),end=start+QPoint(11,0);
+        f.press(start);f.move(end);
+        const auto preview=evaluate(f.session.preview_document());
+        near(preview.at({"path","p1","x"}),12.5,"Grabbed point world correction maps through its frozen inverse");
+        near(preview.at({"path","p2","x"}),22.5,"All selected anchors receive the same world correction");
+        near(preview.at({"path","p1","y"}),20,"Point Snap leaves the independent Y coordinate unchanged");
+        check(f.canvas.last_snap_feedback().contains("Guide → point-guide"),
+            "Point Snap feedback names the Guide target");
+        f.release(end);
+        check(f.session.revision()==1&&f.session.can_undo(),"Multi-point snapped gesture commits one history entry");
+        f.session.undo(f.session.revision());f.canvas.refresh();
+        check(encode(f.session.document())==original,"One Undo restores every selected point exactly");f.no_error();
+    }
+    {
+        Fixture f(point_snap_document(true));f.canvas.set_selections({{"path","p2"},{"path","p1"}});
+        const auto original=encode(f.session.document());const auto start=f.screen(120,90),end=start+QPoint(11,0);
+        f.press(start);f.move(end);f.release(end);
+        check(f.last_error.startsWith("DRIVEN_PROPERTY:")&&encode(f.session.document())==original&&
+              f.session.revision()==0&&!f.session.can_undo()&&!f.session.gesture_active(),
+            "A driven selected anchor rejects the full snapped multi-point edit atomically");
+    }
+}
+
+void snap_scope_and_singular_point_rejections() {
+    {
+        auto document=snap_document();
+        document.objects.at("target").source->parameters.at("center_x").literal=540;
+        Object parent;parent.id="scope-parent";parent.name="Entered scope";parent.kind=Kind::group;parent.children={"path"};
+        document.objects.emplace(parent.id,parent);
+        document.compositions.front().roots={parent.id,"target"};
+        Fixture f(document);f.canvas.set_selection("path");
+        check(f.canvas.drill_scope()=="scope-parent","Selecting the nested object enters its Group scope");
+        const auto start=f.screen(140,130),end=f.screen(460,157)-QPoint(5,0);
+        f.drag(start,end);
+        near(f.value("path",{},"transform.tx"),315,
+            "An object in a different Group scope cannot attract the moving child");
+        f.no_error();
+    }
+    {
+        auto document=point_snap_document();document.objects.at("parent").transform[0].literal=0;
+        Fixture f(document);f.canvas.set_selections({{"path","p2"},{"path","p1"}});
+        const auto original=encode(f.session.document());const auto start=f.screen(100,90),end=start+QPoint(11,0);
+        f.press(start);f.move(end);f.release(end);
+        check(f.last_error.startsWith("SINGULAR_TRANSFORM:")&&encode(f.session.document())==original&&
+              f.session.revision()==0&&!f.session.can_undo()&&!f.session.gesture_active(),
+            "A singular selected-point inverse rejects without changing any authored point or history");
+    }
+    {
+        Fixture f(snap_document());f.canvas.set_selection("path");
+        QString identity="session-one";f.canvas.set_session_identity_provider([&]{return identity;});
+        const auto original=encode(f.session.document());const auto start=f.screen(140,130),end=start+QPoint(11,0);
+        f.press(start);identity="session-two";f.move(end);f.release(end);
+        check(f.last_error.startsWith("REVISION_CONFLICT:")&&encode(f.session.document())==original&&
+              f.session.revision()==0&&!f.session.can_undo()&&!f.session.gesture_active(),
+            "A stale Snap session identity cancels without rebasing or creating history");
+    }
+}
+
+void snap_text_baseline_and_unsupported_axis_omission() {
+#ifdef _WIN32
+    const auto text_parameters=[](const TextSource& source) {
+        std::map<std::string,double> values;
+        for(const auto& [name,scalar]:source.parameters)values[name]=scalar.literal;
+        return values;
+    };
+    {
+        auto document=text_baseline_snap_document();
+        const auto& source=*document.objects.at("moving-text").text;
+        const auto layout=evaluate_text(source,text_parameters(source));
+        check(layout.first_line_baseline_y.has_value(),"Horizontal source Text exposes its first-line baseline metric");
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const QPointF body_center(layout.x+layout.width/2,layout.y+layout.height/2);
+        const auto start=f.screen(body_center.x(),body_center.y()),end=start+QPoint(0,11);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"moving-text","","transform.ty"}),16,
+            "Text source snaps its actual first-line baseline to a same-scope horizontal Text baseline");
+        check(f.canvas.last_snap_feedback().contains("Text baseline → target-text")&&
+              f.canvas.last_snap_feedback().contains("first-line baseline"),
+            "Baseline Snap feedback names the target Text and first-line feature");
+        f.release(end);near(f.value("moving-text",{},"transform.ty"),16,"Baseline Snap commits the shared object translation");f.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document(true,false);
+        const auto& source=*document.objects.at("moving-text").text;
+        const auto layout=evaluate_text(source,text_parameters(source));
+        check(!layout.first_line_baseline_y.has_value(),"Vertical source Text has no horizontal-baseline metric");
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const QPointF body_center(layout.x+layout.width/2,layout.y+layout.height/2);
+        const auto start=f.screen(body_center.x(),body_center.y()),end=start+QPoint(0,11);
+        f.press(start);f.move(end);
+        check(!f.canvas.last_snap_feedback().contains("Text baseline"),
+            "Vertical Text does not use a baseline candidate or substitute its glyph-box edge");
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);f.no_error();
+    }
+    {
+        auto document=text_baseline_snap_document(false,true);
+        const auto& source=*document.objects.at("moving-text").text;
+        const auto layout=evaluate_text(source,text_parameters(source));
+        Fixture f(document);f.canvas.set_selection("moving-text");
+        const QPointF body_center(layout.x+layout.width/2,layout.y+layout.height/2);
+        const auto start=f.screen(body_center.x(),body_center.y()),end=start+QPoint(0,11);
+        f.press(start);f.move(end);
+        check(!f.canvas.last_snap_feedback().contains("Text baseline"),
+            "A rotated target Text does not offer a baseline Snap candidate");
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);f.no_error();
+    }
+#endif
 }
 
 void snap_cancellation_and_artboard() {
@@ -373,9 +640,12 @@ void snap_visibility_and_parent_coordinates() {
     Fixture hidden(document); hidden.canvas.set_selection("path");
     hidden.drag(hidden.screen(140,130),hidden.screen(347,157));
     near(hidden.value("path",{},"transform.tx"),207,"Hidden objects are not snap targets"); hidden.no_error();
-    document=snap_document(); Object parent; parent.kind=Kind::group; parent.id="parent"; parent.children={"path"};
+    document=snap_document();
+    document.objects.at("target").source->parameters.at("center_x").literal=150;
+    document.objects.at("target").source->parameters.at("center_y").literal=10;
+    Object parent; parent.kind=Kind::group; parent.id="parent"; parent.children={"path","target"};
     parent.transform={{{0,{}},{2,{}},{-1,{}},{0,{}},{400,{}},{0,{}}}};
-    document.objects.emplace(parent.id,parent); document.compositions.front().roots={"parent","target"};
+    document.objects.emplace(parent.id,parent); document.compositions.front().roots={"parent"};
     Fixture f(document); f.canvas.set_selection("path");
     // World bounds 240..300,200..360; right edge approaches target left.
     f.drag(f.screen(270,280),f.screen(327,297));
@@ -494,8 +764,10 @@ void layout_overlays_are_view_only_and_not_exported() {
     check(canvas.show_guides()&&canvas.show_grid()&&canvas.show_margin(),"Authored layout overlays default visible per Canvas window");
     const auto committed=session.document();const auto revision=session.revision();
     const auto image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    const int guide_x=qRound(canvas.width()/2.0+(30-100)*canvas.zoom());int guide_pixels=0;
-    for(int y=55;y<215;++y)for(int x=guide_x-2;x<=guide_x+2;++x) {
+    const double image_scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
+    const int guide_x=qRound((canvas.width()/2.0+(30-100)*canvas.zoom())*image_scale);int guide_pixels=0;
+    for(int y=qRound(55*image_scale);y<qRound(215*image_scale);++y)
+      for(int x=guide_x-qMax(2,qRound(2*image_scale));x<=guide_x+qMax(2,qRound(2*image_scale));++x) {
         const auto pixel=image.pixelColor(x,y);if(pixel.blue()>pixel.red()+25&&pixel.blue()>pixel.green()+15)++guide_pixels;
     }
     check(guide_pixels>20,"Canvas paints Session Guides over the composition viewport");
@@ -525,6 +797,10 @@ int main(int argc, char** argv) {
         hierarchy_selection_and_inverse_coordinates();
         driven_coordinate_rejects_atomically_but_free_axis_can_move();
         snap_tolerance_zoom_and_exact_edits();
+        snap_guide_grid_priority_visibility_and_controls();
+        snap_two_sided_equal_gap_and_point_world_correction();
+        snap_scope_and_singular_point_rejections();
+        snap_text_baseline_and_unsupported_axis_omission();
         snap_cancellation_and_artboard();
         snap_multi_and_effective_followers();
         snap_visibility_and_parent_coordinates();

@@ -612,7 +612,22 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     QTest::mouseClick(guides,Qt::LeftButton);QApplication::processEvents();
     check(!window.canvas->show_guides()&&window.canvas->show_grid()&&window.canvas->show_margin()&&session.revision()==baseline,
         "Guide, Grid and Margin visibility remain independent per-window view state");
-    QTest::mouseClick(guides,Qt::LeftButton);QApplication::processEvents();
+    guides->setChecked(true);QApplication::processEvents();
+    auto* snap_guides=window.findChild<QAction*>("snap-guides");
+    auto* snap_grid=window.findChild<QAction*>("snap-grid");
+    check(snap_guides&&snap_grid&&!snap_guides->toolTip().isEmpty()&&!snap_grid->toolTip().isEmpty(),
+        "Guide Snap and Grid Snap have distinct named controls and help text");
+    snap_guides->setChecked(false);snap_grid->setChecked(false);QApplication::processEvents();
+    const auto snap_state_error="Guide/Grid Snap state failure: guide_snap="+std::to_string(window.canvas->snap_guides_enabled())+
+        " grid_snap="+std::to_string(window.canvas->snap_grid_enabled())+
+        " guides_visible="+std::to_string(window.canvas->show_guides())+
+        " grid_visible="+std::to_string(window.canvas->show_grid())+
+        " revision="+std::to_string(session.revision())+
+        " baseline="+std::to_string(baseline);
+    check(!window.canvas->snap_guides_enabled()&&!window.canvas->snap_grid_enabled()&&
+          window.canvas->show_guides()&&window.canvas->show_grid()&&session.revision()==baseline,
+        snap_state_error.c_str());
+    snap_guides->setChecked(true);snap_grid->setChecked(true);QApplication::processEvents();
 
     input("margin-left","10",false);input("margin-top","10",false);input("margin-right","10",false);auto* bottom=input("margin-bottom","10",false);
     check(session.revision()==baseline&&!board().layout&&preview_board().layout&&preview_board().layout->margin->left==10&&

@@ -362,6 +362,21 @@ TextLayout evaluate_text(const TextSource& source,const std::map<std::string,dou
         throw Error("TEXT_LAYOUT_LIMIT","Text dimensions exceed the supported finite layout range");
     result.width=automatic?metrics.widthIncludingTrailingWhitespace:frame_width;
     result.height=automatic?metrics.heightIncludingTrailingWhitespace:frame_height;
+    double draw_origin_y=origin_y;
+    if(automatic)draw_origin_y-=metrics.top;
+    if(!vertical) {
+        UINT32 line_count=0;
+        const auto line_hr=layout->GetLineMetrics(nullptr,0,&line_count);
+        if(FAILED(line_hr)&&line_hr!=E_NOT_SUFFICIENT_BUFFER)
+            check_hr(line_hr,"Measure first-line baseline");
+        if(line_count>32769)throw Error("TEXT_LAYOUT_LIMIT","Text has too many lines");
+        if(line_count) {
+            std::vector<DWRITE_LINE_METRICS> lines(line_count);
+            check_hr(layout->GetLineMetrics(lines.data(),line_count,&line_count),"Measure first-line baseline");
+            const auto baseline=draw_origin_y+lines.front().baseline;
+            if(std::isfinite(baseline))result.first_line_baseline_y=baseline;
+        }
+    }
     if(!automatic) {
         constexpr double tolerance=0.01;
         result.overflow=metrics.left<-tolerance||metrics.top<-tolerance||
@@ -374,7 +389,7 @@ TextLayout evaluate_text(const TextSource& source,const std::map<std::string,dou
     check_hr(base_analyzer.As(&analyzer),"Get glyph orientation analyzer");
     auto contours=std::make_shared<std::vector<EvaluatedContour>>();
     ComPtr<OutlineRenderer> renderer;renderer.Attach(new OutlineRenderer(analyzer.Get(),fonts.Get(),family,locale,*contours,result));
-    const auto hr=layout->Draw(nullptr,renderer.Get(),origin_x-(automatic?metrics.left:0),origin_y-(automatic?metrics.top:0));
+    const auto hr=layout->Draw(nullptr,renderer.Get(),origin_x-(automatic?metrics.left:0),draw_origin_y);
     if(renderer->failure)std::rethrow_exception(renderer->failure);
     check_hr(hr,"Draw shaped text outlines");result.contours=std::move(contours);return result;
 #endif

@@ -447,9 +447,17 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     action(view,"Fit all artboards",QKeySequence("Ctrl+Shift+0"),[this]{canvas->fit_all_artboards();});
     auto* snap = view->addAction("Snap ON"); snap->setObjectName("canvas-snap");
     snap->setCheckable(true); snap->setChecked(canvas->snap_enabled());
-    snap->setToolTip("Snap object edges and centers near Artboards and visible objects (6 px). Numeric edits stay exact.");
+    snap->setToolTip("Snap object bounds and point anchors to Guides, Grids, Artboards and same-scope geometry within 6 logical px. Hidden Guide/Grid overlays remain Snap targets. Numeric edits stay exact.");
     connect(snap, &QAction::toggled, canvas, &Canvas::set_snap_enabled);
     connect(snap, &QAction::toggled, this, [snap](bool enabled) { snap->setText(enabled ? "Snap ON" : "Snap OFF"); });
+    auto* snap_guides=view->addAction("Snap to Guides");snap_guides->setObjectName("snap-guides");
+    snap_guides->setCheckable(true);snap_guides->setChecked(canvas->snap_guides_enabled());
+    snap_guides->setToolTip("Use authored Composition Guides as Snap targets. This setting is independent of Show Guides.");
+    connect(snap_guides,&QAction::toggled,canvas,&Canvas::set_snap_guides_enabled);
+    auto* snap_grid=view->addAction("Snap to Grid");snap_grid->setObjectName("snap-grid");
+    snap_grid->setCheckable(true);snap_grid->setChecked(canvas->snap_grid_enabled());
+    snap_grid->setToolTip("Use authored Artboard Grid bounds, cell edges and centers as Snap targets. This setting is independent of Show Grid.");
+    connect(snap_grid,&QAction::toggled,canvas,&Canvas::set_snap_grid_enabled);
     action(view,"Return to parent Group",{},[this]{canvas->leave_group();});
     auto* colors=action(view,"Colors…",{},[this]{color_tools_->show_manager();});colors->setObjectName("show-colors");
     auto* history=action(view,"History…",QKeySequence("Ctrl+Shift+H"),[this]{show_history();});history->setObjectName("show-history");
@@ -491,6 +499,10 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     canvas->gradient_edit_changed=[this]{rebuild_inspector();};
     canvas->scope_changed=[this]{breadcrumb_->setText(canvas->breadcrumb());};
     canvas->error=[this](const QString& message){statusBar()->showMessage(message,10000);};
+    canvas->snap_feedback=[this](const QString& message) {
+        if(message.isEmpty())statusBar()->clearMessage();
+        else statusBar()->showMessage(message);
+    };
     qApp->installEventFilter(this);
     refresh();
 }

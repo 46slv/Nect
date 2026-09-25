@@ -190,6 +190,7 @@ void Canvas::refresh() {
                     for(const auto& [name,scalar]:object.text->parameters){(void)scalar;parameters[name]=values_.at({id,"","text."+name});}
                     const auto layout=evaluate_text(*object.text,parameters);
                     item.text_bounds=QRectF(layout.x,layout.y,std::max(1.0,layout.width),std::max(1.0,layout.height));
+                    item.text_first_line_baseline_y=layout.first_line_baseline_y;
                     item.text_overflow=layout.overflow;
                 }
                 std::map<const std::vector<EvaluatedContour>*, QPainterPath> contour_paths;
@@ -978,6 +979,16 @@ void Canvas::set_snap_enabled(bool enabled) {
     update();
 }
 
+void Canvas::set_snap_guides_enabled(bool enabled) {
+    if(enabled==snap_guides_enabled_)return;
+    cancel_interaction();snap_guides_enabled_=enabled;update();
+}
+
+void Canvas::set_snap_grid_enabled(bool enabled) {
+    if(enabled==snap_grid_enabled_)return;
+    cancel_interaction();snap_grid_enabled_=enabled;update();
+}
+
 void Canvas::set_show_guides(bool enabled) {
     if(show_guides_==enabled)return;
     if(!enabled&&drag_==Drag::guide)cancel_interaction();
@@ -1097,87 +1108,313 @@ void Canvas::paint_layout_overlays(QPainter& painter,const Document& document) c
     painter.restore();
 }
 
-void Canvas::prepare_snap() {
-    snap_bounds_.reset(); snap_x_.clear(); snap_y_.clear();
-    snap_guide_x_.reset(); snap_guide_y_.reset();
-    if (!snap_enabled_) return;
-    const auto selected = selected_objects();
-    const std::set<Id> selection(selected.begin(), selected.end());
-    // Effective descendants move even outside their structural group. Freeze
-    // all candidates before preview starts, and never target these followers.
-    std::map<Id, bool> moving;
-    std::function<bool(const Id&)> moves = [&](const Id& id) {
-        if (id.empty()) return false;
-        if (const auto found = moving.find(id); found != moving.end()) return found->second;
-        const bool result = selection.contains(id) || moves(transforms_.at(id).effective_parent);
-        moving.emplace(id, result); return result;
+void Canvas::prepare_snap(bool point_drag) {
+    snap_bounds_.reset();
+    snap_x_sources_.clear(); snap_y_sources_.clear();
+    snap_x_targets_.clear(); snap_y_targets_.clear();
+    snap_x_match_.reset(); snap_y_match_.reset();
+    snap_point_world_.reset(); snap_guide_x_.reset(); snap_guide_y_.reset();
+    publish_snap_feedback({});
+    snap_point_mode_=point_drag; snap_start_zoom_=zoom_;
+    const auto& document=session_.document();
+    snap_document_=document.id; snap_composition_=active_composition_; snap_scope_=scope_;
+    snap_revision_=session_.revision();
+    snap_session_=session_identity_provider_?session_identity_provider_():QString::fromStdString(document.id);
+    snap_prepared_=true;
+    if(!snap_enabled_)return;
+
+    const auto selected=selected_objects();
+    const std::set<Id> selection(selected.begin(),selected.end());
+    // Effective followers are part of the frozen moving set even when the
+    // shared TranslateObjects solver reaches them outside structural ancestry.
+    std::map<Id,bool> moving;
+    std::function<bool(const Id&)> moves=[&](const Id& id) {
+        if(id.empty())return false;
+        if(const auto found=moving.find(id);found!=moving.end())return found->second;
+        const auto transform=transforms_.find(id);
+        const bool result=selection.contains(id)||
+            (transform!=transforms_.end()&&moves(transform->second.effective_parent));
+        moving.emplace(id,result);return result;
     };
-    const auto unite = [](std::optional<QRectF>& result, QRectF area) {
-        if (!result) result = area;
-        else *result = QRectF(QPointF(std::min(result->left(), area.left()), std::min(result->top(), area.top())),
-                             QPointF(std::max(result->right(), area.right()), std::max(result->bottom(), area.bottom())));
+    const auto unite=[](std::optional<QRectF>& result,QRectF area) {
+        if(!result)result=area;
+        else *result=QRectF(QPointF(std::min(result->left(),area.left()),std::min(result->top(),area.top())),
+                            QPointF(std::max(result->right(),area.right()),std::max(result->bottom(),area.bottom())));
     };
-    const auto target = [&](QRectF area) {
-        for (double x : {area.left(), area.center().x(), area.right()}) snap_x_.push_back(x);
-        for (double y : {area.top(), area.center().y(), area.bottom()}) snap_y_.push_back(y);
-    };
-    for (const auto& board : artboards_) if (board.id == active_artboard_)
-        target({board.x, board.y, board.width, board.height});
-    for (const auto& item : geometry_) {
-        if (!item.normal_visible) continue;
+    const auto geometry_bounds=[&](const Geometry& item)->std::optional<QRectF> {
         std::optional<QRectF> bounds;
-        // Project the shared evaluated geometry, including retained operations
-        // and earlier paint instances. Stroke thickness is not a snap edge.
-        if (item.image_bounds) bounds = item.world.mapRect(*item.image_bounds);
+        if(item.image_bounds)bounds=item.world.mapRect(*item.image_bounds);
         else {
-            const auto path = [&](const PathInstance& instance, QTransform parent) {
-                const auto transform = qt_transform(instance.transform) * parent;
-                if (instance.contours && !instance.contours->empty())
-                    unite(bounds, transform.map(qt_path(*instance.contours)).boundingRect());
-                if (item.text_bounds) unite(bounds, transform.mapRect(*item.text_bounds));
+            const auto path=[&](const PathInstance& instance,QTransform parent) {
+                const auto transform=qt_transform(instance.transform)*parent;
+                if(instance.contours&&!instance.contours->empty())
+                    unite(bounds,transform.map(qt_path(*instance.contours)).boundingRect());
+                if(item.text_bounds)unite(bounds,transform.mapRect(*item.text_bounds));
             };
-            const auto& shape = scene_.shapes.at(item.id);
-            for (const auto& instance : shape.paths) path(instance, item.world);
-            for (const auto& paint : shape.paints)
-                for (const auto& instance : paint.paths) path(instance, qt_transform(paint.transform) * item.world);
+            const auto shape=scene_.shapes.find(item.id);
+            if(shape==scene_.shapes.end())return bounds;
+            for(const auto& instance:shape->second.paths)path(instance,item.world);
+            for(const auto& paint:shape->second.paints)
+                for(const auto& instance:paint.paths)path(instance,qt_transform(paint.transform)*item.world);
         }
-        if (!bounds) continue;
-        const bool belongs = selection.contains(item.id) || std::any_of(item.ancestors.begin(), item.ancestors.end(),
-            [&](const Id& id) { return selection.contains(id); });
-        if (moves(item.id)) {
-            if (belongs) unite(snap_bounds_, *bounds);
-        } else if (!belongs) target(*bounds);
+        return bounds;
+    };
+    const auto add_bound_candidates=[&](const Id& id,QRectF bounds,SnapKind kind) {
+        const std::array<std::pair<double,const char*>,3> xs{{{bounds.left(),"min"},{bounds.center().x(),"center"},{bounds.right(),"max"}}};
+        const std::array<std::pair<double,const char*>,3> ys{{{bounds.top(),"min"},{bounds.center().y(),"center"},{bounds.bottom(),"max"}}};
+        for(std::size_t i=0;i<xs.size();++i)if(std::isfinite(xs[i].first))
+            if(kind!=SnapKind::object_edge||i!=1)
+                snap_x_targets_.push_back({xs[i].first,kind,id,QString::fromLatin1(xs[i].second),static_cast<int>(i)});
+        for(std::size_t i=0;i<ys.size();++i)if(std::isfinite(ys[i].first))
+            if(kind!=SnapKind::object_edge||i!=1)
+                snap_y_targets_.push_back({ys[i].first,kind,id,QString::fromLatin1(ys[i].second),static_cast<int>(i)});
+    };
+
+    std::map<Id,QRectF> target_bounds;
+    std::vector<std::pair<const Geometry*,QRectF>> visible_geometry;
+    for(const auto& item:geometry_) {
+        if(!item.normal_visible)continue;
+        const auto bounds=geometry_bounds(item);
+        if(!bounds||!std::isfinite(bounds->left())||!std::isfinite(bounds->top())||
+           !std::isfinite(bounds->right())||!std::isfinite(bounds->bottom()))continue;
+        visible_geometry.emplace_back(&item,*bounds);
+        const bool in_scope=scope_.empty()||std::find(item.ancestors.begin(),item.ancestors.end(),scope_)!=item.ancestors.end();
+        const auto key=in_scope?selection_target(item):Id{};
+        if(key.empty())continue;
+        const bool belongs=selection.contains(item.id)||std::any_of(item.ancestors.begin(),item.ancestors.end(),
+            [&](const Id& id){return selection.contains(id);});
+        if(moves(item.id)) {
+            if(belongs) {if(snap_bounds_)unite(snap_bounds_,*bounds);else snap_bounds_=*bounds;}
+        } else {
+            auto found=target_bounds.find(key);
+            if(found==target_bounds.end())target_bounds.emplace(key,*bounds);
+            else {
+                std::optional<QRectF> combined=found->second;unite(combined,*bounds);found->second=*combined;
+            }
+        }
     }
-    for (auto* axis : {&snap_x_, &snap_y_}) {
-        std::sort(axis->begin(), axis->end());
-        axis->erase(std::unique(axis->begin(), axis->end()), axis->end());
+
+    if(point_drag) {
+        if(point_starts_.empty())return;
+        const auto active=std::find_if(point_starts_.begin(),point_starts_.end(),[&](const auto& item) {
+            return item.target.object==selected_object&&item.target.point==selected_point;
+        });
+        if(active==point_starts_.end())return;
+        const auto* geometry_item=geometry(active->target.object);
+        if(!geometry_item||parents_.at(active->target.object)!=scope_)return;
+        snap_point_world_=geometry_item->world.map(active->anchor);
+        snap_x_sources_.push_back({snap_point_world_->x(),1,QStringLiteral("point anchor")});
+        snap_y_sources_.push_back({snap_point_world_->y(),1,QStringLiteral("point anchor")});
+    } else if(snap_bounds_) {
+        for(const auto& [position,label,order]:std::array<std::tuple<double,const char*,int>,3>{{
+            {snap_bounds_->left(),"min",0},{snap_bounds_->center().x(),"center",1},{snap_bounds_->right(),"max",2}}})
+            snap_x_sources_.push_back({position,order,QString::fromLatin1(label)});
+        for(const auto& [position,label,order]:std::array<std::tuple<double,const char*,int>,3>{{
+            {snap_bounds_->top(),"min",0},{snap_bounds_->center().y(),"center",1},{snap_bounds_->bottom(),"max",2}}})
+            snap_y_sources_.push_back({position,order,QString::fromLatin1(label)});
     }
+
+    const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),
+        [&](const auto& item){return item.id==active_composition_;});
+    if(composition==document.compositions.end())return;
+    if(snap_guides_enabled_)for(const auto& guide:composition->guides) {
+        if(!std::isfinite(guide.position))continue;
+        SnapCandidate candidate{guide.position,SnapKind::guide,guide.id,QStringLiteral("guide line"),0};
+        if(guide.axis=="x")snap_x_targets_.push_back(candidate);
+        else if(guide.axis=="y")snap_y_targets_.push_back(candidate);
+    }
+
+    for(const auto& source:composition->artboards) {
+        const auto board=evaluate_artboard(*composition,source.id);
+        const QRectF bounds(board.x,board.y,board.width,board.height);
+        add_bound_candidates(board.id,bounds,SnapKind::artboard);
+        if(!snap_grid_enabled_||!board.layout||!board.layout->grid)continue;
+        const auto& grid=*board.layout->grid;
+        const auto grid_id=grid.id;
+        const auto add_grid_axis=[&](bool x_axis) {
+            const double local_start=x_axis?grid.bounds.x:grid.bounds.y;
+            const double extent=x_axis?grid.bounds.width:grid.bounds.height;
+            const double gutter=x_axis?grid.column_gutter:grid.row_gutter;
+            const auto count=x_axis?grid.columns:grid.rows;
+            if(count==0||!std::isfinite(extent)||!std::isfinite(gutter))return;
+            const double cell=(extent-static_cast<double>(count-1)*gutter)/static_cast<double>(count);
+            if(!(cell>0)||!std::isfinite(cell))return;
+            struct GridFeature {double position;bool center;QString name;};
+            std::vector<GridFeature> features;
+            const double origin=(x_axis?board.x:board.y)+local_start;
+            for(std::size_t index=0;index<count;++index) {
+                const double start=origin+static_cast<double>(index)*(cell+gutter);
+                const double end=start+cell;
+                features.push_back({start,false,QStringLiteral("%1 %2 boundary").arg(x_axis?QStringLiteral("column"):QStringLiteral("row")).arg(index+1)});
+                features.push_back({start+cell/2,true,QStringLiteral("%1 %2 center").arg(x_axis?QStringLiteral("column"):QStringLiteral("row")).arg(index+1)});
+                features.push_back({end,false,QStringLiteral("%1 %2 boundary").arg(x_axis?QStringLiteral("column"):QStringLiteral("row")).arg(index+1)});
+            }
+            std::sort(features.begin(),features.end(),[](const auto& lhs,const auto& rhs) {
+                if(lhs.position!=rhs.position)return lhs.position<rhs.position;
+                if(lhs.center!=rhs.center)return !lhs.center;
+                return lhs.name<rhs.name;
+            });
+            auto& output=x_axis?snap_x_targets_:snap_y_targets_;
+            double prior=std::numeric_limits<double>::quiet_NaN();int order=0;
+            for(const auto& feature:features) {
+                if(feature.position==prior)continue;
+                prior=feature.position;
+                output.push_back({feature.position,SnapKind::grid,grid_id,feature.name,order++});
+            }
+        };
+        add_grid_axis(true);add_grid_axis(false);
+    }
+
+    for(const auto& [id,bounds]:target_bounds) {
+        add_bound_candidates(id,bounds,SnapKind::object_edge);
+        for(const auto position:{bounds.center().x()})
+            snap_x_targets_.push_back({position,SnapKind::object_center,id,QStringLiteral("center"),1});
+        snap_y_targets_.push_back({bounds.center().y(),SnapKind::object_center,id,QStringLiteral("center"),1});
+    }
+
+    const auto baseline_world_y=[&](const Geometry& item)->std::optional<double> {
+        const auto object=document.objects.find(item.id);
+        if(object==document.objects.end()||!object->second.text||object->second.text->direction!="horizontal"||
+           !item.text_first_line_baseline_y)return std::nullopt;
+        const auto shape=scene_.shapes.find(item.id);
+        if(shape==scene_.shapes.end()||shape->second.paths.size()!=1)return std::nullopt;
+        const auto transform=qt_transform(shape->second.paths.front().transform)*item.world;
+        constexpr double epsilon=1e-10;
+        if(std::abs(transform.m12())>epsilon||std::abs(transform.m21())>epsilon||
+           std::abs(transform.m11())<=epsilon||std::abs(transform.m22())<=epsilon)return std::nullopt;
+        const auto baseline=transform.map(QPointF(0,*item.text_first_line_baseline_y)).y();
+        return std::isfinite(baseline)?std::optional<double>(baseline):std::nullopt;
+    };
+    if(!point_drag&&selected.size()==1&&selection.contains(selected.front())) {
+        const auto* source=geometry(selected.front());
+        if(source&&parents_.at(source->id)==scope_)if(const auto baseline=baseline_world_y(*source))
+            snap_y_sources_.push_back({*baseline,1,QStringLiteral("first-line baseline")});
+    }
+    for(const auto& [item,bounds]:visible_geometry) {
+        const auto key=selection_target(*item);
+        if(key.empty()||key!=item->id||moves(item->id)||parents_.at(item->id)!=scope_)continue;
+        if(const auto baseline=baseline_world_y(*item))
+            snap_y_targets_.push_back({*baseline,SnapKind::text_baseline,item->id,QStringLiteral("first-line baseline"),0});
+    }
+
+    if(!point_drag&&snap_bounds_) {
+        const auto make_equal_gap=[&](bool x_axis) {
+            if(target_bounds.size()<2)return;
+            const double source_size=x_axis?snap_bounds_->width():snap_bounds_->height();
+            std::vector<std::pair<Id,QRectF>> ordered(target_bounds.begin(),target_bounds.end());
+            std::sort(ordered.begin(),ordered.end(),[&](const auto& lhs,const auto& rhs) {
+                const double a=x_axis?lhs.second.left():lhs.second.top();
+                const double b=x_axis?rhs.second.left():rhs.second.top();
+                return a==b?lhs.first<rhs.first:a<b;
+            });
+            auto& output=x_axis?snap_x_targets_:snap_y_targets_;
+            for(std::size_t i=0;i+1<ordered.size();++i) {
+                const auto& left=ordered[i];const auto& right=ordered[i+1];
+                const double trailing=x_axis?left.second.right():left.second.bottom();
+                const double leading=x_axis?right.second.left():right.second.top();
+                if(leading<trailing||leading-trailing<source_size)continue;
+                const double target_min=(trailing+leading-source_size)/2;
+                const auto id=left.first+"\x1f"+right.first;
+                output.push_back({target_min,SnapKind::equal_gap,id,
+                    QStringLiteral("equal gap between %1 and %2").arg(QString::fromStdString(left.first),QString::fromStdString(right.first)),0});
+            }
+        };
+        make_equal_gap(true);make_equal_gap(false);
+    }
+
+}
+
+bool Canvas::snap_context_current() const {
+    if(!snap_prepared_||session_.document().id!=snap_document_||session_.revision()!=snap_revision_||
+       active_composition_!=snap_composition_||scope_!=snap_scope_||zoom_!=snap_start_zoom_)return false;
+    return !session_identity_provider_||session_identity_provider_()==snap_session_;
+}
+
+void Canvas::publish_snap_feedback(QString message) {
+    if(message==snap_feedback_text_)return;
+    snap_feedback_text_=std::move(message);
+    if(snap_feedback)snap_feedback(snap_feedback_text_);
 }
 
 QPointF Canvas::snap_delta(QPointF delta) {
-    snap_guide_x_.reset(); snap_guide_y_.reset();
-    if (!snap_enabled_ || !snap_bounds_ || delta.isNull()) return delta;
-    const auto axis = [&](const std::vector<double>& targets, double low, double high, double offset,
-                          std::optional<double>& guide) {
-        const double tolerance = 6.0 / zoom_;
-        double correction = 0, best = tolerance;
-        for (double source : {low, (low + high) / 2, high}) {
-            const double position = source + offset;
-            const auto next = std::lower_bound(targets.begin(), targets.end(), position);
-            const auto consider = [&](double value) {
-                const double gap = value - position;
-                // Sorted targets and fixed edge/center order resolve ties.
-                if (std::abs(gap) <= tolerance && (!guide || std::abs(gap) < best - 1e-10)) {
-                    best = std::abs(gap); correction = gap; guide = value;
-                }
-            };
-            if (next != targets.begin()) consider(*std::prev(next));
-            if (next != targets.end()) consider(*next);
+    snap_guide_x_.reset();snap_guide_y_.reset();snap_x_match_.reset();snap_y_match_.reset();
+    if(!snap_prepared_||!snap_context_current())
+        throw Error("REVISION_CONFLICT","Snap gesture belongs to an older document session, scope, zoom, or revision");
+    if(!snap_enabled_)return delta;
+    if(snap_point_mode_&&!snap_point_world_)return delta;
+    if(!snap_point_mode_&&!snap_bounds_)return delta;
+
+    const auto priority=[](SnapKind kind) {
+        switch(kind) {
+        case SnapKind::guide:return 0;
+        case SnapKind::grid:return 1;
+        case SnapKind::artboard:return 2;
+        case SnapKind::text_baseline:return 3;
+        case SnapKind::object_edge:return 4;
+        case SnapKind::object_center:return 5;
+        case SnapKind::equal_gap:return 6;
         }
-        return offset + correction;
+        return 7;
     };
-    return {axis(snap_x_, snap_bounds_->left(), snap_bounds_->right(), delta.x(), snap_guide_x_),
-            axis(snap_y_, snap_bounds_->top(), snap_bounds_->bottom(), delta.y(), snap_guide_y_)};
+    const auto kind_name=[](SnapKind kind) {
+        switch(kind) {
+        case SnapKind::guide:return QStringLiteral("Guide");
+        case SnapKind::grid:return QStringLiteral("Grid");
+        case SnapKind::artboard:return QStringLiteral("Artboard");
+        case SnapKind::text_baseline:return QStringLiteral("Text baseline");
+        case SnapKind::object_edge:return QStringLiteral("Object edge");
+        case SnapKind::object_center:return QStringLiteral("Object center");
+        case SnapKind::equal_gap:return QStringLiteral("Equal gap");
+        }
+        return QStringLiteral("Snap");
+    };
+    const auto choose=[&](const std::vector<SnapSourceFeature>& sources,
+                         const std::vector<SnapCandidate>& targets,double raw,
+                         std::optional<SnapMatch>& chosen)->double {
+        auto better=[&](const SnapMatch& candidate,const SnapMatch& current) {
+            if(candidate.distance!=current.distance)return candidate.distance<current.distance;
+            const auto candidate_priority=priority(candidate.target.kind);
+            const auto current_priority=priority(current.target.kind);
+            if(candidate_priority!=current_priority)return candidate_priority<current_priority;
+            if(candidate.target.target_id!=current.target.target_id)return candidate.target.target_id<current.target.target_id;
+            if(candidate.source.order!=current.source.order)return candidate.source.order<current.source.order;
+            if(candidate.target.target_feature_order!=current.target.target_feature_order)
+                return candidate.target.target_feature_order<current.target.target_feature_order;
+            if(candidate.target.target_feature!=current.target.target_feature)
+                return candidate.target.target_feature<current.target.target_feature;
+            if(candidate.source.label!=current.source.label)return candidate.source.label<current.source.label;
+            return candidate.target.position<current.target.position;
+        };
+        for(const auto& source:sources)for(const auto& target:targets) {
+            if(target.kind==SnapKind::text_baseline&&source.label!=QStringLiteral("first-line baseline"))continue;
+            if(target.kind==SnapKind::equal_gap&&source.order!=0)continue;
+            const double source_position=source.position+raw;
+            const double correction=target.position-source_position;
+            const double distance=std::abs(correction);
+            if(!std::isfinite(distance)||distance*snap_start_zoom_>6.0)continue;
+            SnapMatch candidate{target,source,correction,distance};
+            if(!chosen||better(candidate,*chosen))chosen=std::move(candidate);
+        }
+        return raw+(chosen?chosen->correction:0);
+    };
+    const auto source_offset=[&](bool x_axis) {
+        return x_axis?delta.x():delta.y();
+    };
+    const auto adjusted_x=choose(snap_x_sources_,snap_x_targets_,source_offset(true),snap_x_match_);
+    const auto adjusted_y=choose(snap_y_sources_,snap_y_targets_,source_offset(false),snap_y_match_);
+    if(snap_x_match_)snap_guide_x_=snap_x_match_->target.position;
+    if(snap_y_match_)snap_guide_y_=snap_y_match_->target.position;
+
+    QStringList feedback;
+    const auto describe=[&](const QString& axis,const SnapMatch& match) {
+        const auto target_id=QString::fromStdString(match.target.target_id);
+        return QStringLiteral("%1: %2 %3 → %4 %5")
+            .arg(axis,match.source.label,kind_name(match.target.kind),target_id,match.target.target_feature);
+    };
+    if(snap_x_match_)feedback.push_back(describe(QStringLiteral("X"),*snap_x_match_));
+    if(snap_y_match_)feedback.push_back(describe(QStringLiteral("Y"),*snap_y_match_));
+    publish_snap_feedback(feedback.join(QStringLiteral(" · ")));
+    return {adjusted_x,adjusted_y};
 }
 
 void Canvas::begin_drag(Drag kind, QPointF screen) {
@@ -1205,15 +1442,12 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
             start_anchor_={values_.at({selected_object,"","transform.anchor_x"}),values_.at({selected_object,"","transform.anchor_y"})};
             start_values_.emplace("transform.anchor_x",start_anchor_.x());start_values_.emplace("transform.anchor_y",start_anchor_.y());
         } else if (kind == Drag::object) {
-            prepare_snap();
             // The shared command solves the complete effective-parent graph so
             // selecting an ancestor and its follower never translates twice.
             drag_inverse_=QTransform{};invertible=true;
             if(selections_.size()==1) {
                 const auto parent=transforms_.at(selected_object).effective_parent;
                 drag_inverse_=(parent.empty()?QTransform{}:world_.at(parent)).inverted(&invertible);
-                start_translation_={values_.at({selected_object,"","transform.tx"}),values_.at({selected_object,"","transform.ty"})};
-                start_values_.emplace("transform.tx",start_translation_.x());start_values_.emplace("transform.ty",start_translation_.y());
             }
         } else {
             const auto* item = geometry(selected_object);
@@ -1229,13 +1463,17 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
                 start_values_.emplace(field, values_.at({selected_object, selected_point, field}));
             if(kind==Drag::anchor)for(const auto& selected:selections_) {
                 const auto* g=geometry(selected.object);const auto* selected_anchor=g?point(*g,selected.point):nullptr;
-                if(!selected_anchor)continue;
+                if(!selected_anchor)throw Error("INVALID_SELECTION","A selected point no longer exists in the active gesture scope");
+                if(parents_.at(selected.object)!=scope_)
+                    throw Error("INVALID_SELECTION","Point Snap requires all selected anchors in the active Group scope");
                 bool valid=false;const auto inverse=g->world.inverted(&valid);
                 if(!valid)throw Error("SINGULAR_TRANSFORM","Cannot drag points through a singular object transform");
                 point_starts_.push_back({selected,selected_anchor->anchor,inverse});
             }
         }
         if (!invertible) throw Error("SINGULAR_TRANSFORM", "Cannot drag through a singular parent/object transform");
+        if(kind==Drag::object)prepare_snap(false);
+        else if(kind==Drag::anchor)prepare_snap(true);
         session_.begin_gesture(session_.revision());
         gesture_owned_ = true;
         drag_ = kind;
@@ -1303,17 +1541,16 @@ void Canvas::update_drag(QPointF screen) {
             set({},"transform.anchor_x",target.x());set({},"transform.anchor_y",target.y());
         } else if (drag_ == Drag::anchor) {
             const auto world=view().inverted().map(screen),start=view().inverted().map(press_position_);
+            const auto world_delta=snap_delta(world-start);
             for(const auto& item:point_starts_) {
-                const auto delta=item.inverse.map(world)-item.inverse.map(start);
+                const auto delta=item.inverse.map(world_delta)-item.inverse.map(QPointF{});
                 if(std::abs(delta.x())>1e-10)commands.push_back(Set{{item.target.object,item.target.point,"x"},item.anchor.x()+delta.x()});
                 if(std::abs(delta.y())>1e-10)commands.push_back(Set{{item.target.object,item.target.point,"y"},item.anchor.y()+delta.y()});
             }
         } else if (drag_ == Drag::object) {
             const auto world_delta = snap_delta((screen - press_position_) / zoom_);
-            const auto delta = drag_inverse_.map(world_delta) - drag_inverse_.map(QPointF{});
-            if(selections_.size()==1) {
-                const auto target=start_translation_+delta;set({},"transform.tx",target.x());set({},"transform.ty",target.y());
-            } else if(std::abs(delta.x())>1e-10||std::abs(delta.y())>1e-10)commands.push_back(TranslateObjects{selected_objects(),delta.x(),delta.y()});
+            if(std::abs(world_delta.x())>1e-10||std::abs(world_delta.y())>1e-10)
+                commands.push_back(TranslateObjects{selected_objects(),world_delta.x(),world_delta.y()});
         } else {
             const auto delta = start_handle_ + local - press_local - start_anchor_;
             const auto length = std::hypot(delta.x(), delta.y());
@@ -1379,6 +1616,11 @@ void Canvas::finish_drag() {
             cancel_interaction();report_error(Error("INVALID_GUIDE","The last Guide position was invalid; the drag was canceled"));return;
         }
     }
+    if((drag_==Drag::object||drag_==Drag::anchor)&&snap_prepared_&&!snap_context_current()) {
+        cancel_interaction();
+        report_error(Error("REVISION_CONFLICT","Snap gesture belongs to an older document session, scope, zoom, or revision"));
+        return;
+    }
     snap_guide_x_.reset(); snap_guide_y_.reset();
     if (gesture_owned_) {
         const auto revision = session_.revision();
@@ -1399,11 +1641,17 @@ void Canvas::finish_drag() {
         } else refresh(); // A cancellation/failure may have restored the start state.
     }
     drag_ = Drag::none;
+    snap_prepared_=false;snap_point_mode_=false;snap_point_world_.reset();snap_bounds_.reset();
+    snap_x_sources_.clear();snap_y_sources_.clear();snap_x_targets_.clear();snap_y_targets_.clear();
+    snap_x_match_.reset();snap_y_match_.reset();publish_snap_feedback({});
     update_cursor();
 }
 
 void Canvas::cancel_interaction() {
     snap_guide_x_.reset(); snap_guide_y_.reset();
+    snap_prepared_=false;snap_point_mode_=false;snap_point_world_.reset();snap_bounds_.reset();
+    snap_x_sources_.clear();snap_y_sources_.clear();snap_x_targets_.clear();snap_y_targets_.clear();
+    snap_x_match_.reset();snap_y_match_.reset();publish_snap_feedback({});
     if (gesture_owned_ && session_.gesture_active()) session_.cancel_gesture();
     const bool had_marquee=drag_==Drag::marquee;marquee_start_.clear();
     const bool had_preview = gesture_owned_;

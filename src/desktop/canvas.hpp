@@ -38,6 +38,7 @@ public:
     std::function<void(bool)> anchor_edit_changed;
     std::function<void()> active_artboard_changed;
     std::function<void(QString)> error;
+    std::function<void(QString)> snap_feedback;
 
     void refresh();
     bool projection_succeeded() const {return !projection_error_;}
@@ -69,6 +70,11 @@ public:
     double zoom() const { return zoom_; }
     void set_snap_enabled(bool enabled);
     bool snap_enabled() const { return snap_enabled_; }
+    void set_snap_guides_enabled(bool enabled);
+    bool snap_guides_enabled() const { return snap_guides_enabled_; }
+    void set_snap_grid_enabled(bool enabled);
+    bool snap_grid_enabled() const { return snap_grid_enabled_; }
+    QString last_snap_feedback() const { return snap_feedback_text_; }
     void set_show_guides(bool enabled);
     void set_show_grid(bool enabled);
     void set_show_margin(bool enabled);
@@ -109,6 +115,25 @@ protected:
     void showEvent(QShowEvent*) override;
 
 private:
+    enum class SnapKind { guide, grid, artboard, text_baseline, object_edge, object_center, equal_gap };
+    struct SnapCandidate {
+        double position=0;
+        SnapKind kind=SnapKind::guide;
+        Id target_id;
+        QString target_feature;
+        int target_feature_order=0;
+    };
+    struct SnapSourceFeature {
+        double position=0;
+        int order=0;
+        QString label;
+    };
+    struct SnapMatch {
+        SnapCandidate target;
+        SnapSourceFeature source;
+        double correction=0;
+        double distance=0;
+    };
     struct EvaluatedPoint {
         Id id;
         Id contour;
@@ -141,6 +166,7 @@ private:
         std::optional<QRectF> image_bounds;
         QImage image;
         std::optional<QRectF> text_bounds;
+        std::optional<double> text_first_line_baseline_y;
         bool text_overflow=false;
         bool normal_visible=true;
     };
@@ -189,7 +215,6 @@ private:
     QPointF press_pan_;
     QPointF start_anchor_;
     QPointF start_handle_;
-    QPointF start_translation_;
     QTransform drag_inverse_;
     double start_in_angle_ = 0;
     double start_out_angle_ = 0;
@@ -199,6 +224,7 @@ private:
     bool gesture_owned_ = false;
     bool drag_moved_ = false;
     bool snap_enabled_ = true;
+    bool snap_guides_enabled_=true,snap_grid_enabled_=true;
     bool show_guides_=true,show_grid_=true,show_margin_=true,guide_edit_mode_=false;
     std::function<QString()> session_identity_provider_;
     Guide guide_drag_start_;
@@ -208,8 +234,18 @@ private:
     Id guide_drag_document_,guide_drag_composition_;
     std::uint64_t guide_drag_revision_=0;
     bool guide_drag_invalid_=false;
+    std::vector<SnapSourceFeature> snap_x_sources_, snap_y_sources_;
+    std::vector<SnapCandidate> snap_x_targets_, snap_y_targets_;
+    std::optional<SnapMatch> snap_x_match_,snap_y_match_;
+    // Frozen union of visible moving geometry, used for body edge/center and
+    // equal-gap source features. Point gestures use snap_point_world_ instead.
     std::optional<QRectF> snap_bounds_;
-    std::vector<double> snap_x_, snap_y_;
+    std::optional<QPointF> snap_point_world_;
+    QString snap_feedback_text_,snap_session_;
+    Id snap_document_,snap_composition_,snap_scope_;
+    std::uint64_t snap_revision_=0;
+    double snap_start_zoom_=1;
+    bool snap_prepared_=false,snap_point_mode_=false;
     std::optional<double> snap_guide_x_, snap_guide_y_;
     QRectF breadcrumb_rect_;
 
@@ -239,8 +275,10 @@ private:
     const Guide* hit_guide(QPointF screen) const;
     void begin_guide_drag(const Guide&,QPointF screen);
     void paint_layout_overlays(QPainter&,const Document&) const;
-    void prepare_snap();
+    void prepare_snap(bool point_drag=false);
     QPointF snap_delta(QPointF delta);
+    bool snap_context_current() const;
+    void publish_snap_feedback(QString message);
     void update_drag(QPointF screen);
     void finish_drag();
     void finish_marquee();

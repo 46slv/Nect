@@ -378,6 +378,9 @@ struct EvaluatedContour {bool closed=false;std::vector<CubicPoint> points;};
 struct TextLayout {
     std::shared_ptr<const std::vector<EvaluatedContour>> contours;
     double x=0,y=0,width=0,height=0;
+    // Derived layout metric in the same local coordinates as the glyph outlines.
+    // Available only for horizontal text with a measurable first line.
+    std::optional<double> first_line_baseline_y;
     bool overflow=false;
     std::size_t glyph_count=0;
     std::vector<std::string> warnings,used_fonts;
