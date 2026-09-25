@@ -1028,6 +1028,22 @@ void p02d_repeater_knob_acceptance(Window& window) {
         window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT")&&evaluate(session.document()).at(rotation)==1100,
         "A stale knob refuses to start and leaves external authored value intact");
     window.host.edited();QApplication::processEvents();
+
+    edit_number(window,rotation,"-999999999");
+    check(evaluate(session.document()).at(rotation)==-999999999,
+        "Signed near-limit numeric rotation stays unwrapped in the authored Ref");
+    const auto bounded_revision=session.revision();
+    edit_number(window,rotation,"1000000001");
+    check(session.revision()==bounded_revision&&evaluate(session.document()).at(rotation)==-999999999,
+        "Out-of-range rotation rejects without a partial authored edit");
+    window.host.edited();QApplication::processEvents();
+    const Ref source_rotation=operation_ref("knob-object","knob-repeater-source","rotation");
+    session.apply({AddOperation{"knob-object",default_operation("knob-repeater-source","nect.shape.repeater"),2},
+        Set{source_rotation,120},Link{rotation,{source_rotation,1,0,"copy_local_value"}}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    check(!knob->isEnabled()&&std::abs(evaluate(session.document()).at(rotation)-120)<1e-12,
+        "Driven rotation disables the dial and uses the same evaluated Ref");
 }
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
