@@ -24,7 +24,7 @@
 
 **Done for next:** `offset_ui_interaction` passes without reducing its assertions, the full relevant suite is rechecked, and actual UI behavior remains coherent. Commit/sync/read back the exact repair and reconcile Notion. Do not claim full REQ-33/R03 from a slice.
 
-**State:** Repository D:\Documents\Nect, branch codex/practical-alpha. The previous Owner released the single-writer role after `build/r03-baseline-takeover-ack.json` readback. The Text baseline candidate and evidence await coherent commit/sync; fresh-read exact HEAD/remote before the next mutation. Owned GUI processes are closed; baseline comparison sources/build and fixture/recovery artifacts remain ignored under build/.
+**State:** Repository D:\Documents\Nect, branch codex/practical-alpha. The previous Owner released the single-writer role after `build/r03-baseline-takeover-ack.json` readback. R03-BASELINE-01 implementation/evidence commit `36064f54f5a5e3058f73c3d1ccb43f88bb5e8327` was non-force pushed and matched local/tracking/fresh remote with a clean tree; Notion Home and Worker packet were read back with that exact semantic SHA. Fresh-read branch HEAD before the next mutation. Owned GUI processes are closed; baseline comparison sources/build and fixture/recovery artifacts remain ignored under build/.
 
 **Authority:** Current user standing Mission instruction, 2026-09-26 token-efficiency supplement, DEC-71, scoped live Requirements/Route and repo AGENTS.md. Reversible work and normal non-force branch sync are authorized; Human/destructive/public boundaries in the Mission Brief persist.
 
