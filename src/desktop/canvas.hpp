@@ -37,6 +37,8 @@ public:
     std::function<void()> gradient_edit_changed;
     std::function<void(bool)> anchor_edit_changed;
     std::function<void()> active_artboard_changed;
+    std::function<void()> view_state_changed;
+    std::function<void(double)> zoom_changed;
     std::function<void(QString)> error;
     std::function<void(QString)> snap_feedback;
 
@@ -68,6 +70,7 @@ public:
     QString breadcrumb() const;
     void leave_group();
     double zoom() const { return zoom_; }
+    void set_zoom(double zoom);
     void set_snap_enabled(bool enabled);
     bool snap_enabled() const { return snap_enabled_; }
     void set_snap_guides_enabled(bool enabled);

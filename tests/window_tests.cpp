@@ -7,6 +7,12 @@
 #include <QAbstractItemView>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QEnterEvent>
+#include <QGraphicsOpacityEffect>
+#include <QGroupBox>
+#include <QGuiApplication>
+#include <QLabel>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMouseEvent>
@@ -14,13 +20,16 @@
 #include <QListWidget>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QScreen>
 #include <QDebug>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QStatusBar>
 #include <QPlainTextEdit>
 #include <QTimer>
+#include <QToolButton>
 #include <QFile>
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -92,7 +101,7 @@ void history_action(Window& window,const char* text) {
     throw std::runtime_error("History action missing");
 }
 void reveal(Window& window,QWidget* widget) {
-    auto* scroll=window.findChild<QScrollArea*>();
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
     check(scroll!=nullptr,"Inspector scroll area exists");
     scroll->ensureWidgetVisible(widget);QApplication::processEvents();
 }
@@ -470,7 +479,7 @@ void artboard_authoring(Window& window) {
     auto& session=window.host.session;
     auto button=[&](const char* name) {
         auto* control=visible_child<QPushButton>(window,name);
-        if(window.findChild<QScrollArea*>()->widget()->isAncestorOf(control))reveal(window,control);
+        if(window.findChild<QScrollArea*>("inspector-scroll")->widget()->isAncestorOf(control))reveal(window,control);
         QTest::mouseClick(control,Qt::LeftButton);QApplication::processEvents();
     };
     auto input=[&](const char* name,const char* value) {
@@ -599,7 +608,9 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     };
     QTest::mouseClick(visible_child<QPushButton>(window,"artboard-edit"),Qt::LeftButton);QApplication::processEvents();
     auto input=[&](const char* name,const char* value,bool enter) {
-        auto* control=visible_child<QLineEdit>(window,name);reveal(window,control);control->setFocus();
+        auto candidates=window.findChildren<QLineEdit*>(QString::fromLatin1(name));
+        QLineEdit* control=nullptr;for(auto* candidate:candidates)if(candidate->isVisible()){control=candidate;break;}
+        check(control!=nullptr,(std::string("Layout editor remains visible: ")+name).c_str());reveal(window,control);control->setFocus();
         QTest::keyClick(control,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(control,value);QApplication::processEvents();
         if(enter){QTest::keyClick(control,Qt::Key_Return);QApplication::processEvents();}
         return control;
@@ -790,11 +801,11 @@ void text_authoring(Window& window) {
     check(visible_child<QLabel>(window,"text-layout-status")->text().contains("SVG exports glyph outlines"),"Inspector discloses export text projection");
     QApplication::setActiveWindow(&window);QApplication::processEvents();
     const Ref font_size{id,"","text.font_size"};auto* size=field<QLineEdit>(window,font_size);reveal(window,size);size->setFocus();
-    const auto scroll=window.findChild<QScrollArea*>()->verticalScrollBar()->value();const auto focused_before=size->hasFocus();
+    const auto scroll=window.findChild<QScrollArea*>("inspector-scroll")->verticalScrollBar()->value();const auto focused_before=size->hasFocus();
     size->selectAll();QTest::keyClicks(size,"52");QTest::keyClick(size,Qt::Key_Return);QApplication::processEvents();
-    if(!field<QLineEdit>(window,font_size)->hasFocus()||window.findChild<QScrollArea*>()->verticalScrollBar()->value()!=scroll)
-        std::cerr<<"TEXT SCROLL "<<focused_before<<" "<<field<QLineEdit>(window,font_size)->hasFocus()<<" "<<scroll<<" "<<window.findChild<QScrollArea*>()->verticalScrollBar()->value()<<'\n';
-    check(field<QLineEdit>(window,font_size)->hasFocus()&&window.findChild<QScrollArea*>()->verticalScrollBar()->value()==scroll,
+    if(!field<QLineEdit>(window,font_size)->hasFocus()||window.findChild<QScrollArea*>("inspector-scroll")->verticalScrollBar()->value()!=scroll)
+        std::cerr<<"TEXT SCROLL "<<focused_before<<" "<<field<QLineEdit>(window,font_size)->hasFocus()<<" "<<scroll<<" "<<window.findChild<QScrollArea*>("inspector-scroll")->verticalScrollBar()->value()<<'\n';
+    check(field<QLineEdit>(window,font_size)->hasFocus()&&window.findChild<QScrollArea*>("inspector-scroll")->verticalScrollBar()->value()==scroll,
         "Numeric Return preserves focus and Inspector scroll position after rebuilding text controls");
     named_action(window,"add-stroke")->trigger();QApplication::processEvents();check(session.document().objects.at(id).stack.size()==2,"Text supports the common editable paint stack");
     const auto text_stroke=session.document().objects.at(id).stack.back().id;
@@ -829,6 +840,195 @@ void text_authoring(Window& window) {
     check(session.document().objects.at(id).text->family==original_family.toStdString()&&session.revision()==font_revision+1,
         "An installed family entered with inline completion commits exactly once");
 }
+QPointF knob_point(double degrees) {
+    const auto radians=degrees*std::acos(-1.0)/180.0;
+    return {22.0+16.0*std::sin(radians),22.0-16.0*std::cos(radians)};
+}
+void knob_mouse(QWidget* knob,QEvent::Type type,QPointF local,Qt::MouseButton button,Qt::MouseButtons buttons) {
+    const QPointF global=QPointF(knob->mapToGlobal(QPoint(0,0)))+local;
+    QMouseEvent event(type,local,global,button,buttons,Qt::NoModifier);
+    QApplication::sendEvent(knob,&event);QApplication::processEvents();
+}
+void p02d_utility_acceptance(Window& window) {
+    auto& session=window.host.session;
+    const auto composition=session.document().compositions.front().id;
+    const auto artboard=session.document().compositions.front().artboards.front().id;
+    auto find_board=[&](const Document& document)->const Artboard& {
+        const auto owner=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const Composition& value){return value.id==composition;});
+        check(owner!=document.compositions.end(),"Layout fixture composition remains present");
+        const auto item=std::find_if(owner->artboards.begin(),owner->artboards.end(),[&](const Artboard& value){return value.id==artboard;});
+        check(item!=owner->artboards.end(),"Layout fixture Artboard remains present");return *item;
+    };
+    auto board=session.document().compositions.front().artboards.front();
+    board.width=960;board.height=640;
+    session.apply({UpdateArtboard{composition,board},
+        SetArtboardLayout{composition,artboard,ArtboardLayout{Margin{40,30,50,35},Grid{"utility-grid",{40,30,870,575},3,2,10,10}}},
+        AddGuide{composition,Guide{"utility-guide","Utility guide","x",70}}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    const Document setup_document=session.document();
+    const auto revision=session.revision();
+    auto* strip=window.findChild<QScrollArea*>("canvas-utility-scroll");
+    auto* guides=window.findChild<QToolButton*>("utility-show-guides");
+    auto* grid=window.findChild<QToolButton*>("utility-show-grid");
+    auto* snap=window.findChild<QToolButton*>("utility-snap");
+    auto* zoom=window.findChild<QDoubleSpinBox*>("canvas-zoom-percent");
+    auto* readback=window.findChild<QLabel*>("canvas-output-readback");
+    auto* fit=window.findChild<QToolButton*>("utility-fit");
+    auto* setup=window.findChild<QToolButton*>("utility-setup");
+    auto* keys=window.findChild<QToolButton*>("utility-shortcut-help");
+    check(strip&&guides&&grid&&snap&&zoom&&readback&&fit&&setup&&keys,"Utility strip exposes every fixed control");
+    check(readback->text().contains("960 × 640")||readback->accessibleDescription().contains("960 × 640"),
+        (std::string("Utility readback names active Artboard output dimensions: ")+readback->text().toStdString()+" / "+readback->accessibleDescription().toStdString()).c_str());
+    guides->setChecked(false);grid->setChecked(true);snap->setChecked(true);QApplication::processEvents();
+    check(!window.canvas->show_guides()&&window.canvas->show_grid()&&window.canvas->snap_enabled(),
+        "Guide visibility, Grid visibility and Snap remain independent view states");
+    snap->click();QApplication::processEvents();
+    check(!window.canvas->snap_enabled()&&window.canvas->show_grid(),"Snap can turn OFF while the Grid overlay stays ON");
+    zoom->setValue(75);QApplication::processEvents();
+    check(std::abs(window.canvas->zoom()-0.75)<1e-9,"Zoom control updates view scale");
+    fit->click();QApplication::processEvents();
+    check(session.revision()==revision,"Overlay, Snap, Fit and zoom changes create no document revision");
+
+    window.resize(1000,650);QApplication::processEvents();
+    auto* bar=strip->horizontalScrollBar();
+    check(bar->maximum()>0&&strip->height()>=58&&strip->viewport()->height()>=30,
+        "Narrow Utility Strip scrolls horizontally with enough height for controls and scrollbar");
+    const auto stable_setup_rect=setup->geometry();
+    strip->ensureWidgetVisible(setup);QApplication::processEvents();
+    check(setup->visibleRegion().contains(setup->rect().center()),"Setup remains reachable at the horizontal end of the narrow strip");
+    QTest::mouseMove(setup,setup->rect().center());QTest::qWait(150);
+    check(setup->geometry()==stable_setup_rect,"Hover feedback leaves the Setup hit target geometry stable");
+    strip->ensureWidgetVisible(keys);QApplication::processEvents();
+    check(keys->visibleRegion().contains(keys->rect().center()),"Shortcut help remains reachable at narrow width");
+
+    strip->ensureWidgetVisible(setup);QApplication::processEvents();setup->click();QApplication::processEvents();
+    auto* popup=visible_child<QDialog>(window,"utility-setup-popover");
+    auto* screen=popup->screen();check(screen!=nullptr,"Setup popup has an assigned screen");
+    const auto available=screen->availableGeometry();
+    check(popup->width()<=std::min(480,std::max(1,available.width()-16))&&
+        popup->geometry().left()>=available.left()&&popup->geometry().right()<=available.right(),
+        "Setup popup width and position fit a narrow available screen");
+    check(visible_child<QGroupBox>(window,"layout-margin")&&visible_child<QGroupBox>(window,"layout-grid")&&
+        visible_child<QGroupBox>(window,"composition-guides"),"Setup popover reuses the existing Margin, Grid and Guide editors");
+    auto* popup_scroll=popup->findChild<QScrollArea*>("utility-setup-scroll");
+    check(popup_scroll!=nullptr,"Setup popover scrolls its existing editor content");
+    auto popup_field=[&](const char* name)->QLineEdit* {
+        for(auto* field:window.findChildren<QLineEdit*>(QString::fromLatin1(name)))if(popup->isAncestorOf(field))return field;
+        return nullptr;
+    };
+    auto* margin=popup_field("margin-left");check(margin!=nullptr,"Setup popover owns an existing Margin editor");
+    popup_scroll->ensureWidgetVisible(margin);QApplication::processEvents();
+    check(margin->isVisible(),"Setup popover exposes its Margin field inside the scroll viewport");
+    margin->setFocus();QTest::keyClick(margin,Qt::Key_A,Qt::ControlModifier);
+    QTest::keyClicks(margin,"50");QApplication::processEvents();
+    const auto& preview=find_board(session.preview_document());
+    check(preview.layout&&preview.layout->margin&&preview.layout->margin->left==50&&session.revision()==revision,
+        "Margin editing previews transiently without changing authored revision");
+    QTest::keyClick(margin,Qt::Key_Escape);QApplication::processEvents();
+    check(!session.gesture_active()&&session.preview_document()==session.document()&&session.revision()==revision,
+        "Escape cancels a Margin preview atomically");
+
+    margin=popup_field("margin-left");check(margin!=nullptr,"Escape refresh keeps the Margin editor in Setup");popup_scroll->ensureWidgetVisible(margin);margin->setFocus();
+    QTest::keyClick(margin,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(margin,"55");QApplication::processEvents();
+    popup->reject();QApplication::processEvents();
+    check(!session.gesture_active()&&session.preview_document()==session.document()&&session.revision()==revision,
+        "Closing Setup cancels its active transient draft");
+
+    setup->click();QApplication::processEvents();popup=visible_child<QDialog>(window,"utility-setup-popover");
+    popup_scroll=popup->findChild<QScrollArea*>("utility-setup-scroll");
+    margin=popup_field("margin-left");check(margin!=nullptr,"Reopened Setup exposes its Margin editor");popup_scroll->ensureWidgetVisible(margin);margin->setFocus();
+    QTest::keyClick(margin,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(margin,"50");QApplication::processEvents();
+    visible_child<QPushButton>(window,"margin-apply")->click();QApplication::processEvents();
+    const auto& committed=find_board(session.document());
+    check(session.revision()==revision+1&&committed.layout&&committed.layout->margin&&committed.layout->margin->left==50,
+        "Margin Apply commits one authored transaction");
+    check(committed.layout->grid&&committed.layout->grid->id=="utility-grid"&&committed.layout->grid->bounds.x==40,
+        "Margin edits preserve the independently authored Grid bounds and identity");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==setup_document,"Setup commit is one exact Undo");
+    if(auto* active=window.findChild<QDialog*>("utility-setup-popover"))active->reject();QApplication::processEvents();
+}
+void p02d_shortcut_acceptance(Window& window) {
+    auto* draw=named_action(window,"draw-path");
+    check(draw->shortcuts().contains(QKeySequence("P"))&&draw->shortcuts().contains(QKeySequence("G")),
+        "P and G are aliases on the existing Draw Path action");
+    check(named_action(window,"transform-selection")->shortcut()==QKeySequence("Ctrl+Shift+T"),
+        "Existing Nect rotate/scale shortcut remains Ctrl+Shift+T");
+    QLineEdit text(&window);text.show();text.setFocus();QApplication::processEvents();QTest::keyClick(&text,Qt::Key_G);
+    check(text.text()=="g"&&!window.canvas->draw_mode(),"G typed in a focused text field stays text input");text.hide();
+    window.canvas->setFocus();QApplication::processEvents();QTest::keyClick(window.canvas,Qt::Key_P);
+    check(window.canvas->draw_mode(),"P enters Draw Path on the Canvas");QTest::keyClick(window.canvas,Qt::Key_Escape);
+    QTest::keyClick(window.canvas,Qt::Key_G);check(window.canvas->draw_mode(),"G enters the same Draw Path mode");
+    QTest::keyClick(window.canvas,Qt::Key_Escape);
+    named_action(window,"shortcut-help")->trigger();QApplication::processEvents();
+    auto* help=visible_child<QDialog>(window,"shortcut-help-dialog");QString copy;
+    for(auto* label:help->findChildren<QLabel*>())copy+=label->text()+"\n";
+    check(copy.contains("P = Position")&&copy.contains("G = Pen / Mask Feather")&&copy.contains("Ctrl+Shift+T = Effect Controls"),
+        "Shortcut help explicitly names both Nect shortcuts and their AE collisions");help->close();QApplication::processEvents();
+}
+void p02d_repeater_knob_acceptance(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    Point point;point.id="knob-point";point.x.literal=120;point.y.literal=120;
+    const Ref rotation=operation_ref("knob-object","knob-repeater","rotation");
+    session.apply({CreatePath{composition,"","knob-object","Knob",{{"knob-contour",false,{point}}}},
+        AddOperation{"knob-object",default_operation("knob-repeater","nect.shape.repeater"),1}},session.revision());
+    window.host.edited();window.canvas->set_selection("knob-object");QApplication::processEvents();
+    auto* numeric=field<QLineEdit>(window,rotation);
+    auto* knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    check(knob->property("nect-reference").toByteArray()==reference(rotation),"Knob and numeric editor carry the identical stable Rotation Ref");
+    const auto knob_hit_target=knob->geometry();
+    const auto knob_global=QPointF(knob->mapToGlobal(QPoint(0,0)))+QPointF(22,22);
+    QEnterEvent pointer_enter({22,22},{22,22},knob_global);QApplication::sendEvent(knob,&pointer_enter);QTest::qWait(150);
+    auto* hover=qobject_cast<QGraphicsOpacityEffect*>(knob->graphicsEffect());
+    check(hover&&hover->opacity()>=0.99&&knob->geometry()==knob_hit_target,
+        "Knob hover fades smoothly without changing its stable hit target");
+    QEvent pointer_leave(QEvent::Leave);QApplication::sendEvent(knob,&pointer_leave);QTest::qWait(150);
+    knob->setFocus();QApplication::processEvents();
+    check(knob->hasFocus()&&std::abs(hover->opacity()-0.90)<0.01&&knob->geometry()==knob_hit_target,
+        "Knob focus stays available as hover fades away without geometry movement");
+    edit_number(window,rotation,"725");
+    check(std::abs(evaluate(session.document()).at(rotation)-725)<1e-12,"Numeric rotation preserves exact unwrapped 725 degrees");
+    knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    check(knob->accessibleDescription().contains("indicator 5 degrees"),"Knob indicates 725 degrees modulo 360");
+    const auto plus_ten_revision=session.revision();
+    knob_mouse(knob,QEvent::MouseButtonPress,{22,6},Qt::LeftButton,Qt::LeftButton);
+    knob_mouse(knob,QEvent::MouseMove,knob_point(10),Qt::NoButton,Qt::LeftButton);
+    knob_mouse(knob,QEvent::MouseButtonRelease,knob_point(10),Qt::LeftButton,Qt::NoButton);
+    check(session.revision()==plus_ten_revision+1&&std::abs(evaluate(session.document()).at(rotation)-735)<1e-9,
+        "A +10 degree dial drag commits 735 degrees in exactly one revision");
+    knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    numeric=field<QLineEdit>(window,rotation);
+    check(numeric->text().toDouble()==735&&knob->accessibleDescription().contains("indicator 15 degrees"),
+        "Knob drag refreshes exact numeric editor and modulo indicator from the same Ref");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(std::abs(evaluate(session.document()).at(rotation)-725)<1e-12,"One Undo restores numeric rotation 725");
+
+    knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    const auto whole_turn_revision=session.revision();
+    knob_mouse(knob,QEvent::MouseButtonPress,knob_point(0),Qt::LeftButton,Qt::LeftButton);
+    for(int angle=45;angle<=360;angle+=45)knob_mouse(knob,QEvent::MouseMove,knob_point(angle%360),Qt::NoButton,Qt::LeftButton);
+    knob_mouse(knob,QEvent::MouseButtonRelease,knob_point(0),Qt::LeftButton,Qt::NoButton);
+    check(session.revision()==whole_turn_revision+1&&std::abs(evaluate(session.document()).at(rotation)-1085)<1e-8,
+        "Sampled full-circle travel adds 360 degrees without wrapping the authored value");
+
+    knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    const auto cancel_revision=session.revision();
+    knob_mouse(knob,QEvent::MouseButtonPress,knob_point(0),Qt::LeftButton,Qt::LeftButton);
+    knob_mouse(knob,QEvent::MouseMove,knob_point(25),Qt::NoButton,Qt::LeftButton);
+    check(std::abs(evaluate(session.preview_document()).at(rotation)-1110)<0.5,"Live angle drag previews through the shared Session gesture");
+    QTest::keyClick(knob,Qt::Key_Escape);QApplication::processEvents();
+    check(session.revision()==cancel_revision&&!session.gesture_active()&&std::abs(evaluate(session.document()).at(rotation)-1085)<1e-8,
+        "Escape cancels knob preview with no revision or partial authored change");
+
+    const auto old_knob_revision=session.revision();
+    session.apply({Set{rotation,1100}},session.revision());
+    knob_mouse(knob,QEvent::MouseButtonPress,knob_point(0),Qt::LeftButton,Qt::LeftButton);
+    knob_mouse(knob,QEvent::MouseButtonRelease,knob_point(0),Qt::LeftButton,Qt::NoButton);
+    check(session.revision()==old_knob_revision+1&&!session.gesture_active()&&
+        window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT")&&evaluate(session.document()).at(rotation)==1100,
+        "A stale knob refuses to start and leaves external authored value intact");
+    window.host.edited();QApplication::processEvents();
+}
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
     try {
@@ -853,7 +1053,7 @@ int main(int argc,char** argv) {
         check(w.canvas->selected_object=="b","Pick-whip can inspect another object without changing its target");
         auto* source_field=field<QLineEdit>(w,source);
         if(!source_field->visibleRegion().contains(source_field->rect().center())) {
-            auto* scroll=w.findChild<QScrollArea*>();
+            auto* scroll=w.findChild<QScrollArea*>("inspector-scroll");
             qWarning()<<"WHIP GEOMETRY"<<"field"<<source_field->geometry()<<"global"<<source_field->mapToGlobal(QPoint())
                 <<"region"<<source_field->visibleRegion()<<"viewport"<<scroll->viewport()->geometry()
                 <<"viewport-global"<<scroll->viewport()->mapToGlobal(QPoint())<<"content"<<scroll->widget()->geometry()
@@ -965,6 +1165,10 @@ int main(int argc,char** argv) {
             "Key-object UI distribution applies explicit spacing and keeps its key fixed");
         const auto key_result=refs_session.document();refs_session.undo(refs_session.revision());layout_refs.host.edited();
         check(refs_session.document()==refs_before&&key_result!=refs_before,"Key-object distribution is one Undo");layout_refs.hide();
-        std::cout<<"PASS Inspector, pick-whip, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
+        Window p02d(temp.path()+"/p02d");p02d.show();QApplication::processEvents();
+        p02d_utility_acceptance(p02d);p02d_shortcut_acceptance(p02d);p02d.hide();
+        Window repeater(temp.path()+"/p02d-repeater");repeater.show();QApplication::processEvents();
+        p02d_repeater_knob_acceptance(repeater);repeater.hide();
+        std::cout<<"PASS Inspector, P02-D strip/setup/knob/shortcuts, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

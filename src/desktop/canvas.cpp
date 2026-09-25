@@ -418,6 +418,18 @@ void Canvas::fit_bounds(QRectF bounds) {
     pan_ = QPointF(width() / 2.0, height() / 2.0) - bounds.center() * zoom_;
     initial_fit_ = false;
     request_frame(QStringLiteral("fit"), true);
+    if(zoom_changed)zoom_changed(zoom_);
+}
+
+void Canvas::set_zoom(double zoom) {
+    if(!std::isfinite(zoom)||gesture_owned_||drag_==Drag::marquee)return;
+    const auto center=QPointF(width()/2.0,height()/2.0);
+    const auto world_center=view().inverted().map(center);
+    zoom_=std::clamp(zoom,0.02,64.0);
+    pan_=center-world_center*zoom_;
+    initial_fit_=false;
+    request_frame(QStringLiteral("zoom"),true);
+    if(zoom_changed)zoom_changed(zoom_);
 }
 
 void Canvas::set_active_artboard(Id composition, Id artboard, bool fit) {
@@ -977,27 +989,28 @@ void Canvas::set_snap_enabled(bool enabled) {
     cancel_interaction();
     snap_enabled_ = enabled;
     update();
+    if(view_state_changed)view_state_changed();
 }
 
 void Canvas::set_snap_guides_enabled(bool enabled) {
     if(enabled==snap_guides_enabled_)return;
-    cancel_interaction();snap_guides_enabled_=enabled;update();
+    cancel_interaction();snap_guides_enabled_=enabled;update();if(view_state_changed)view_state_changed();
 }
 
 void Canvas::set_snap_grid_enabled(bool enabled) {
     if(enabled==snap_grid_enabled_)return;
-    cancel_interaction();snap_grid_enabled_=enabled;update();
+    cancel_interaction();snap_grid_enabled_=enabled;update();if(view_state_changed)view_state_changed();
 }
 
 void Canvas::set_show_guides(bool enabled) {
     if(show_guides_==enabled)return;
     if(!enabled&&drag_==Drag::guide)cancel_interaction();
-    show_guides_=enabled;update();
+    show_guides_=enabled;update();if(view_state_changed)view_state_changed();
 }
 
 void Canvas::set_show_grid(bool enabled) {
     if(show_grid_==enabled)return;
-    show_grid_=enabled;update();
+    show_grid_=enabled;update();if(view_state_changed)view_state_changed();
 }
 
 void Canvas::set_show_margin(bool enabled) {
@@ -1800,6 +1813,7 @@ void Canvas::wheelEvent(QWheelEvent* event) {
     zoom_ = std::clamp(zoom_ * std::pow(1.0015, delta), 0.02, 64.0);
     pan_ = cursor - under_cursor * zoom_;
     update();
+    if(zoom_changed)zoom_changed(zoom_);
     event->accept();
 }
 

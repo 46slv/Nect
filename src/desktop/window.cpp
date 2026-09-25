@@ -11,6 +11,9 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDockWidget>
+#include <QDoubleSpinBox>
+#include <QFrame>
+#include <QGraphicsOpacityEffect>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGroupBox>
@@ -29,6 +32,7 @@
 #include <QSaveFile>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QScreen>
 #include <QTimer>
 #include <QWheelEvent>
 #include <QSignalBlocker>
@@ -36,15 +40,19 @@
 #include <QStatusBar>
 #include <QStringListModel>
 #include <QToolBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <cmath>
 #include <algorithm>
 #include <set>
 #include <tuple>
+#include <numbers>
 #include <QTreeWidgetItemIterator>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QPainter>
+#include <QPropertyAnimation>
+#include <QEasingCurve>
 
 namespace nect::desktop {
 namespace {
@@ -278,6 +286,112 @@ QString property_label(const Document& d,const Ref& ref) {
     } else path.append(qs(ref.field));
     return path.join(" / ");
 }
+
+class RotationKnob final : public QWidget {
+public:
+    explicit RotationKnob(QWidget* parent=nullptr):QWidget(parent) {
+        setObjectName("repeater-angle-knob");
+        setAccessibleName("Repeater rotation angle knob");
+        setFocusPolicy(Qt::StrongFocus);
+        setMouseTracking(true);
+        setAttribute(Qt::WA_Hover,true);
+        hover_effect_=new QGraphicsOpacityEffect(this);setGraphicsEffect(hover_effect_);hover_effect_->setOpacity(0.90);
+        hover_animation_=new QPropertyAnimation(hover_effect_,"opacity",this);hover_animation_->setDuration(125);
+        hover_animation_->setEasingCurve(QEasingCurve::OutCubic);
+        setMinimumSize(44,44);
+        setMaximumSize(44,44);
+        setToolTip("Drag continuously to add signed degrees. The dial is modulo 360; the adjacent value remains exact.");
+    }
+    std::function<bool()> begin_drag;
+    std::function<void(double)> preview_value;
+    std::function<void()> commit_drag;
+    std::function<void()> cancel_drag;
+    void set_value(double value) {value_=value;update();update_accessibility();}
+    double value() const {return value_;}
+    QSize sizeHint() const override {return {44,44};}
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter painter(this);painter.setRenderHint(QPainter::Antialiasing,true);
+        const QRectF face=QRectF(rect()).adjusted(5,5,-5,-5);
+        QColor ring=isEnabled()?QColor("#526071"):QColor("#38414c");
+        painter.setPen(QPen(ring,2));painter.setBrush(QColor("#202833"));painter.drawEllipse(face);
+        painter.setPen(QPen(isEnabled()?QColor("#48c6e9"):QColor("#69717a"),3,Qt::SolidLine,Qt::RoundCap));
+        const auto normalized=std::fmod(value_,360.0)<0?std::fmod(value_,360.0)+360.0:std::fmod(value_,360.0);
+        const auto radians=(normalized-90.0)*std::numbers::pi/180.0;
+        const QPointF center=face.center();
+        const QPointF tip=center+QPointF(std::cos(radians),std::sin(radians))*(face.width()*0.34);
+        painter.drawLine(center,tip);painter.setPen(Qt::NoPen);painter.setBrush(isEnabled()?QColor("#48c6e9"):QColor("#69717a"));painter.drawEllipse(center,2.5,2.5);
+        if(underMouse()) {painter.setBrush(Qt::NoBrush);painter.setPen(QPen(QColor("#63cce9"),1.5));painter.drawEllipse(QRectF(rect()).adjusted(2,2,-2,-2));}
+        if(hasFocus()) {painter.setBrush(Qt::NoBrush);painter.setPen(QPen(QColor("#f3d17a"),1,Qt::DashLine));painter.drawEllipse(QRectF(rect()).adjusted(1,1,-1,-1));}
+    }
+    void mousePressEvent(QMouseEvent* event) override {
+        if(event->button()!=Qt::LeftButton||!isEnabled()){QWidget::mousePressEvent(event);return;}
+        if(begin_drag&&!begin_drag()){event->ignore();return;}
+        dragging_=true;previous_angle_=angle_at(event->position());accumulated_=0;press_value_=value_;setFocus(Qt::MouseFocusReason);event->accept();
+    }
+    void mouseMoveEvent(QMouseEvent* event) override {
+        if(!dragging_){QWidget::mouseMoveEvent(event);return;}
+        const auto current=angle_at(event->position());
+        accumulated_+=std::remainder(current-previous_angle_,360.0);previous_angle_=current;
+        value_=press_value_+accumulated_;update();update_accessibility();
+        if(preview_value)preview_value(value_);
+        event->accept();
+    }
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        if(event->button()!=Qt::LeftButton||!dragging_){QWidget::mouseReleaseEvent(event);return;}
+        dragging_=false;if(commit_drag)commit_drag();event->accept();
+    }
+    void keyPressEvent(QKeyEvent* event) override {
+        if(event->key()==Qt::Key_Escape&&dragging_) {
+            dragging_=false;value_=press_value_;update();update_accessibility();if(cancel_drag)cancel_drag();event->accept();return;
+        }
+        QWidget::keyPressEvent(event);
+    }
+    void focusInEvent(QFocusEvent* event) override {QWidget::focusInEvent(event);update();}
+    void focusOutEvent(QFocusEvent* event) override {QWidget::focusOutEvent(event);update();}
+    void enterEvent(QEnterEvent* event) override {QWidget::enterEvent(event);animate_hover(1.0);update();}
+    void leaveEvent(QEvent* event) override {QWidget::leaveEvent(event);animate_hover(0.90);update();}
+private:
+    double value_=0,press_value_=0,previous_angle_=0,accumulated_=0;
+    bool dragging_=false;
+    QGraphicsOpacityEffect* hover_effect_=nullptr;
+    QPropertyAnimation* hover_animation_=nullptr;
+    void animate_hover(qreal opacity) {
+        hover_animation_->stop();hover_animation_->setStartValue(hover_effect_->opacity());
+        hover_animation_->setEndValue(opacity);hover_animation_->start();
+    }
+    double angle_at(QPointF point) const {
+        const auto center=QPointF(width()/2.0,height()/2.0);
+        return std::atan2(point.y()-center.y(),point.x()-center.x())*180.0/std::numbers::pi+90.0;
+    }
+    void update_accessibility() {
+        const auto normalized=std::fmod(value_,360.0)<0?std::fmod(value_,360.0)+360.0:std::fmod(value_,360.0);
+        setAccessibleDescription(QString("Authored rotation %1 degrees; dial indicator %2 degrees. Press Escape during a drag to cancel.")
+            .arg(QString::number(value_,'g',17),QString::number(normalized,'g',15)));
+    }
+};
+
+class HoverFeedback final : public QObject {
+public:
+    explicit HoverFeedback(QWidget* widget):QObject(widget) {
+        effect_=new QGraphicsOpacityEffect(widget);widget->setGraphicsEffect(effect_);
+        effect_->setOpacity(widget->isEnabled()?0.90:0.62);
+        animation_=new QPropertyAnimation(effect_,"opacity",widget);animation_->setDuration(125);
+        animation_->setEasingCurve(QEasingCurve::OutCubic);widget->installEventFilter(this);
+    }
+protected:
+    bool eventFilter(QObject* watched,QEvent* event) override {
+        if(auto* widget=qobject_cast<QWidget*>(watched);widget&&
+           (event->type()==QEvent::Enter||event->type()==QEvent::Leave||event->type()==QEvent::EnabledChange)) {
+            const auto target=event->type()==QEvent::Enter?1.0:widget->isEnabled()?0.90:0.62;
+            animation_->stop();animation_->setStartValue(effect_->opacity());animation_->setEndValue(target);animation_->start();
+        }
+        return QObject::eventFilter(watched,event);
+    }
+private:
+    QGraphicsOpacityEffect* effect_=nullptr;
+    QPropertyAnimation* animation_=nullptr;
+};
 }
 
 Window::Window(QString recovery_directory):host(std::move(recovery_directory),this) {
@@ -286,7 +400,17 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     canvas=new Canvas(host.session,this);
     canvas->set_session_identity_provider([this]{return host.session_id;});
     color_tools_=new ColorTools(*this);
-    setCentralWidget(canvas);
+    auto* central=new QWidget(this);auto* central_layout=new QVBoxLayout(central);
+    central_layout->setContentsMargins(0,0,0,0);central_layout->setSpacing(0);
+    utility_scroll_=new QScrollArea(central);utility_scroll_->setObjectName("canvas-utility-scroll");
+    utility_scroll_->setFrameShape(QFrame::NoFrame);utility_scroll_->setWidgetResizable(true);
+    utility_scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);utility_scroll_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    utility_scroll_->setFixedHeight(42);
+    connect(utility_scroll_->horizontalScrollBar(),&QScrollBar::rangeChanged,this,[this](int,int maximum){utility_scroll_->setFixedHeight(maximum>0?58:42);});
+    auto* utility_contents=new QWidget;utility_contents->setObjectName("canvas-utility-strip");
+    utility_layout_=new QHBoxLayout(utility_contents);utility_layout_->setContentsMargins(6,4,6,4);utility_layout_->setSpacing(4);
+    utility_scroll_->setWidget(utility_contents);central_layout->addWidget(utility_scroll_);
+    central_layout->addWidget(canvas,1);setCentralWidget(central);
     tree_=new QTreeWidget;
     tree_->setHeaderHidden(true);
     tree_->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -325,7 +449,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     addDockWidget(Qt::LeftDockWidgetArea,structure);
     auto* right=new QDockWidget("Properties",this);
     right->setObjectName("properties");
-    auto* scroll=new QScrollArea;inspector_scroll_=scroll;
+    auto* scroll=new QScrollArea;inspector_scroll_=scroll;scroll->setObjectName("inspector-scroll");
     scroll->setWidgetResizable(true); scroll->setMinimumWidth(300);
     inspector_=new QWidget; scroll->setWidget(inspector_); right->setWidget(scroll);
     addDockWidget(Qt::RightDockWidgetArea,right);
@@ -442,6 +566,8 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     add->addSeparator();
     auto* add_curve_action=action(add,"Curve",QKeySequence("Ctrl+Shift+P"),[this]{add_curve();});add_curve_action->setObjectName("add-curve");
     auto* draw=action(add,"Draw Path",QKeySequence("P"),[this]{canvas->set_draw_mode(true);canvas->setFocus();statusBar()->showMessage("Click to add points · Enter finishes the path · Escape exits",10000);});
+    draw->setObjectName("draw-path");draw->setShortcuts({QKeySequence("P"),QKeySequence("G")});
+    draw->setShortcutContext(Qt::WidgetShortcut);canvas->addAction(draw);
     action(view,"Fit Artboard",QKeySequence("Ctrl+0"),[this]{canvas->fit_artboard();});
     action(view,"Fit selection",QKeySequence("Ctrl+2"),[this]{canvas->fit_selection();})->setObjectName("fit-selection");
     action(view,"Fit all artboards",QKeySequence("Ctrl+Shift+0"),[this]{canvas->fit_all_artboards();});
@@ -458,6 +584,75 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     snap_grid->setCheckable(true);snap_grid->setChecked(canvas->snap_grid_enabled());
     snap_grid->setToolTip("Use authored Artboard Grid bounds, cell edges and centers as Snap targets. This setting is independent of Show Grid.");
     connect(snap_grid,&QAction::toggled,canvas,&Canvas::set_snap_grid_enabled);
+    utility_guides_=new QToolButton(utility_contents);utility_guides_->setObjectName("utility-show-guides");
+    utility_guides_->setCheckable(true);utility_guides_->setChecked(canvas->show_guides());utility_layout_->addWidget(utility_guides_);
+    utility_grid_=new QToolButton(utility_contents);utility_grid_->setObjectName("utility-show-grid");
+    utility_grid_->setCheckable(true);utility_grid_->setChecked(canvas->show_grid());utility_layout_->addWidget(utility_grid_);
+    utility_snap_action_=snap;utility_snap_=new QToolButton(utility_contents);utility_snap_->setObjectName("utility-snap");
+    utility_snap_->setDefaultAction(snap);utility_layout_->addWidget(utility_snap_);
+    auto style_utility=[](QToolButton* button) {
+        button->setMinimumHeight(30);button->setToolButtonStyle(Qt::ToolButtonTextOnly);button->setAutoRaise(false);
+        button->setMouseTracking(true);new HoverFeedback(button);
+        button->setStyleSheet("QToolButton{color:#dbe4ee;background:#252d38;border:1px solid #566373;border-radius:4px;padding:4px 8px;}"
+            "QToolButton:hover{background:#354556;border-color:#63cce9;}"
+            "QToolButton:checked{color:#e9fbff;background:#244b5b;border-color:#48c6e9;}"
+            "QToolButton:focus{border:2px solid #f3d17a;}"
+            "QToolButton:disabled{color:#77818d;background:#20252c;border-color:#38414c;}");
+    };
+    auto sync_button=[](QToolButton* button,const QString& label,const QString& state,const QString& help,bool enabled) {
+        const QSignalBlocker blocker(button);button->setText(label+" "+state);button->setAccessibleName(label+" · "+state);
+        button->setAccessibleDescription(help+" Current state: "+state+".");button->setToolTip(help+" Current state: "+state+".");button->setEnabled(enabled);
+    };
+    for(auto* button:{utility_guides_,utility_grid_,utility_snap_})style_utility(button);
+    connect(utility_guides_,&QToolButton::toggled,canvas,&Canvas::set_show_guides);
+    connect(utility_grid_,&QToolButton::toggled,canvas,&Canvas::set_show_grid);
+    auto* fit_button=new QToolButton(utility_contents);fit_button->setObjectName("utility-fit");fit_button->setText("Fit");
+    fit_button->setAccessibleName("Fit active Artboard in Canvas");fit_button->setToolTip("Fit the active Artboard in the Canvas.");style_utility(fit_button);
+    connect(fit_button,&QToolButton::clicked,canvas,&Canvas::fit_artboard);utility_layout_->addWidget(fit_button);
+    utility_zoom_=new QDoubleSpinBox(utility_contents);utility_zoom_->setObjectName("canvas-zoom-percent");utility_zoom_->setAccessibleName("Canvas zoom percentage");
+    utility_zoom_->setRange(2,6400);utility_zoom_->setDecimals(0);utility_zoom_->setSingleStep(10);utility_zoom_->setSuffix("%");
+    utility_zoom_->setKeyboardTracking(false);utility_zoom_->setFixedWidth(92);utility_zoom_->setToolTip("Canvas view zoom · 2% to 6400%. This does not change the document.");
+    new HoverFeedback(utility_zoom_);
+    utility_layout_->addWidget(utility_zoom_);connect(utility_zoom_,qOverload<double>(&QDoubleSpinBox::valueChanged),this,[this](double percent){canvas->set_zoom(percent/100.0);});
+    utility_artboard_=new QLabel(utility_contents);utility_artboard_->setObjectName("canvas-output-readback");
+    utility_artboard_->setAccessibleName("Active Artboard and output dimensions");utility_artboard_->setMinimumWidth(185);utility_artboard_->setMaximumWidth(270);
+    utility_artboard_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Preferred);utility_layout_->addWidget(utility_artboard_);
+    auto* setup_button=new QToolButton(utility_contents);setup_button->setObjectName("utility-setup");setup_button->setText("Setup…");
+    setup_button->setAccessibleName("Open active Artboard Margin, Grid and Guide setup");
+    setup_button->setToolTip("Open the active Artboard Margin, Grid bounds/counts/gutters and Composition Guide editors.");style_utility(setup_button);
+    connect(setup_button,&QToolButton::clicked,this,[this,setup_button]{show_layout_setup(setup_button);});
+    utility_layout_->addWidget(setup_button);
+    auto show_shortcut_help=[this] {
+        auto* dialog=new QDialog(this);dialog->setObjectName("shortcut-help-dialog");dialog->setWindowTitle("Keyboard shortcuts and collisions");
+        dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setModal(false);auto* layout=new QVBoxLayout(dialog);
+        layout->addWidget(new QLabel("Draw Path · Nect: P and G (same action).\nAfter Effects: P = Position; G = Pen / Mask Feather.\n\nRotate / scale selection · Nect: Ctrl+Shift+T.\nAfter Effects: Ctrl+Shift+T = Effect Controls.\n\nWhen a text field has focus, typed letters edit that field; P/G act on the Canvas.",dialog));
+        auto* close=new QPushButton("Close",dialog);close->setObjectName("shortcut-help-close");connect(close,&QPushButton::clicked,dialog,&QDialog::close);layout->addWidget(close);
+        dialog->resize(430,225);dialog->show();
+    };
+    auto* keys_button=new QToolButton(utility_contents);keys_button->setObjectName("utility-shortcut-help");keys_button->setText("Keys");
+    keys_button->setAccessibleName("Keyboard shortcut and collision help");keys_button->setToolTip("Show Nect shortcuts and named After Effects collisions.");style_utility(keys_button);
+    connect(keys_button,&QToolButton::clicked,this,show_shortcut_help);utility_layout_->addWidget(keys_button);
+    auto* shortcuts_action=view->addAction("Keyboard shortcuts and collisions…");shortcuts_action->setObjectName("shortcut-help");
+    connect(shortcuts_action,&QAction::triggered,this,show_shortcut_help);
+    utility_layout_->addStretch();utility_contents->setMinimumWidth(utility_layout_->sizeHint().width());
+    auto* guides_button=utility_guides_;auto* grid_button=utility_grid_;auto* snap_button=utility_snap_;
+    const auto update_toggle_text=[guides_button,grid_button,snap,snap_button] {
+        const auto guides=guides_button->isChecked(),grid=grid_button->isChecked(),snapping=snap->isChecked();
+        auto state=[](bool on){return on?QStringLiteral("ON"):QStringLiteral("OFF");};
+        guides_button->setText("Guides "+state(guides));guides_button->setAccessibleName("Show Guides · "+state(guides));
+        guides_button->setAccessibleDescription("Guide overlay visibility, independent of Guide Snap. Current state: "+state(guides)+".");
+        guides_button->setToolTip("Show or hide Guide overlays; Guide Snap remains independent. Current state: "+state(guides)+".");
+        grid_button->setText("Grid "+state(grid));grid_button->setAccessibleName("Show Grid · "+state(grid));
+        grid_button->setAccessibleDescription("Grid overlay visibility, independent of Grid Snap. Current state: "+state(grid)+".");
+        grid_button->setToolTip("Show or hide Grid overlays; Grid Snap remains independent. Current state: "+state(grid)+".");
+        snap_button->setAccessibleName("Snap · "+state(snapping));
+    };
+    connect(utility_guides_,&QToolButton::toggled,this,[update_toggle_text](bool){update_toggle_text();});
+    connect(utility_grid_,&QToolButton::toggled,this,[update_toggle_text](bool){update_toggle_text();});
+    connect(snap,&QAction::toggled,this,[update_toggle_text](bool){update_toggle_text();});
+    sync_button(utility_guides_,"Show Guides",canvas->show_guides()?"ON":"OFF","Toggle Guide overlay visibility; Guide Snap is independent",true);
+    sync_button(utility_grid_,"Show Grid",canvas->show_grid()?"ON":"OFF","Toggle Grid overlay visibility; Grid Snap is independent",true);
+    update_toggle_text();
     action(view,"Return to parent Group",{},[this]{canvas->leave_group();});
     auto* colors=action(view,"Colors…",{},[this]{color_tools_->show_manager();});colors->setObjectName("show-colors");
     auto* history=action(view,"History…",QKeySequence("Ctrl+Shift+H"),[this]{show_history();});history->setObjectName("show-history");
@@ -467,7 +662,6 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* curve=toolbar->addAction("+ Curve"); connect(curve,&QAction::triggered,this,[this]{perform([this]{add_curve();});});
     toolbar->addAction(draw);toolbar->addSeparator();toolbar->addAction(undo_);toolbar->addAction(redo_);
     auto* fit=toolbar->addAction("Fit");connect(fit,&QAction::triggered,canvas,&Canvas::fit_artboard);
-    toolbar->addAction(snap);
     toolbar->addAction(colors);
     breadcrumb_=new QLabel("Composition");toolbar->addWidget(breadcrumb_);
     status_=new QLabel;statusBar()->addPermanentWidget(status_);
@@ -496,6 +690,10 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     };
     canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();};
     canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
+    canvas->view_state_changed=[this]{sync_utility_view_state();};
+    canvas->zoom_changed=[this](double zoom){
+        if(!utility_zoom_)return;const QSignalBlocker blocker(utility_zoom_);utility_zoom_->setValue(zoom*100.0);
+    };
     canvas->gradient_edit_changed=[this]{rebuild_inspector();};
     canvas->scope_changed=[this]{breadcrumb_->setText(canvas->breadcrumb());};
     canvas->error=[this](const QString& message){statusBar()->showMessage(message,10000);};
@@ -522,11 +720,18 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
             const auto key=static_cast<QKeyEvent*>(event)->key();
             if(key==Qt::Key_Escape&&inside) {
                 cancel_layout_draft();
-                QTimer::singleShot(0,this,[this]{if(artboard_editing_)rebuild_inspector();});
+                QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();else if(artboard_editing_)rebuild_inspector();});
                 return true;
-            } else if(!inside)cancel_layout_draft();
-        } else if(event->type()==QEvent::MouseButtonPress&&!inside)cancel_layout_draft();
-        else if(event->type()==QEvent::ApplicationDeactivate)cancel_layout_draft();
+            } else if(!inside) {
+                cancel_layout_draft();
+                if(utility_setup_dialog_)utility_setup_dialog_->reject();
+            }
+        } else if(event->type()==QEvent::MouseButtonPress&&!inside) {
+            cancel_layout_draft();
+            if(utility_setup_dialog_)utility_setup_dialog_->reject();
+        } else if(event->type()==QEvent::ApplicationDeactivate) {
+            cancel_layout_draft();if(utility_setup_dialog_)utility_setup_dialog_->reject();
+        }
     }
     if(event->type()==QEvent::MouseButtonPress&&!whip_target_) {
         const auto* mouse=static_cast<QMouseEvent*>(event);
@@ -649,7 +854,7 @@ bool Window::reject_stale_layout_draft() {
        (layout_preview_session_==host.session_id&&layout_preview_revision_==host.session.revision()))return false;
     cancel_layout_draft();
     statusBar()->showMessage("REVISION_CONFLICT: Discarded a stale layout draft",12000);
-    QTimer::singleShot(0,this,[this]{if(artboard_editing_)rebuild_inspector();});
+    QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();else if(artboard_editing_)rebuild_inspector();});
     return true;
 }
 
@@ -696,7 +901,9 @@ bool Window::commit_layout_draft(const std::vector<Command>& commands,QWidget* s
         host.session.commit_gesture();
         layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
         layout_preview_revision_=0;layout_preview_scope_.clear();
-        host.edited();return true;
+        host.edited();
+        QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();});
+        return true;
     } catch(const Error& error) {
         cancel_layout_draft();statusBar()->showMessage(qs(error.code)+": "+QString::fromUtf8(error.what()),12000);return false;
     } catch(const std::exception& error) {
@@ -759,6 +966,96 @@ void Window::refresh(bool project_canvas) {
     rebuild_inspector(true);
     color_tools_->refresh();
     refresh_history();
+    update_utility_strip();
+}
+
+void Window::sync_utility_view_state() {
+    if(!utility_guides_||!utility_grid_||!utility_snap_action_||!utility_snap_)return;
+    const auto state=[](bool enabled){return enabled?QStringLiteral("ON"):QStringLiteral("OFF");};
+    {
+        const QSignalBlocker blocker(utility_guides_);utility_guides_->setChecked(canvas->show_guides());
+        utility_guides_->setText("Guides "+state(canvas->show_guides()));
+        utility_guides_->setAccessibleName("Show Guides · "+state(canvas->show_guides()));
+        utility_guides_->setAccessibleDescription("Guide overlay visibility; Guide Snap is independent. Current state: "+state(canvas->show_guides())+".");
+        utility_guides_->setToolTip("Show or hide Guide overlays; Guide Snap remains independent. Current state: "+state(canvas->show_guides())+".");
+    }
+    {
+        const QSignalBlocker blocker(utility_grid_);utility_grid_->setChecked(canvas->show_grid());
+        utility_grid_->setText("Grid "+state(canvas->show_grid()));
+        utility_grid_->setAccessibleName("Show Grid · "+state(canvas->show_grid()));
+        utility_grid_->setAccessibleDescription("Grid overlay visibility; Grid Snap is independent. Current state: "+state(canvas->show_grid())+".");
+        utility_grid_->setToolTip("Show or hide Grid overlays; Grid Snap remains independent. Current state: "+state(canvas->show_grid())+".");
+    }
+    {
+        const QSignalBlocker blocker(utility_snap_action_);utility_snap_action_->setChecked(canvas->snap_enabled());
+        utility_snap_action_->setText("Snap "+state(canvas->snap_enabled()));
+    }
+    const auto snapping=state(canvas->snap_enabled());
+    utility_snap_->setAccessibleName("Snap · "+snapping);
+    utility_snap_->setAccessibleDescription("Enable or disable Snap candidates independently of Guide/Grid overlay visibility. Current state: "+snapping+".");
+    utility_snap_->setToolTip("Enable or disable Snap candidates; hidden Guide/Grid overlays remain eligible if their Snap category is enabled. Current state: "+snapping+".");
+}
+
+void Window::update_utility_strip() {
+    if(!utility_artboard_||!canvas)return;
+    sync_utility_view_state();
+    if(utility_zoom_) {const QSignalBlocker blocker(utility_zoom_);utility_zoom_->setValue(canvas->zoom()*100.0);}
+    try {
+        const auto& document=host.session.document();
+        const auto& composition=find_composition(document,canvas->active_composition());
+        const auto& board=find_artboard(composition,canvas->active_artboard());
+        const auto resolved=evaluate_artboard(composition,board.id);
+        const auto full=QString("%1 · %2 × %3 du").arg(qs(board.name),QString::number(resolved.width,'g',8),QString::number(resolved.height,'g',8));
+        const auto metrics=utility_artboard_->fontMetrics();
+        utility_artboard_->setText(metrics.elidedText(full,Qt::ElideMiddle,utility_artboard_->maximumWidth()));
+        utility_artboard_->setAccessibleDescription(full+" · active output Artboard");utility_artboard_->setToolTip(full);
+    } catch(const std::exception&) {
+        utility_artboard_->setText("No active Artboard");utility_artboard_->setAccessibleDescription("No active Artboard or output size is available.");
+    }
+}
+
+void Window::show_layout_setup(QWidget* anchor) {
+    if(layout_preview_active_||layout_preview_invalid_)cancel_layout_draft();
+    if(utility_setup_dialog_) {
+        utility_setup_dialog_->show();utility_setup_dialog_->raise();utility_setup_dialog_->activateWindow();return;
+    }
+    auto* dialog=new QDialog(this);utility_setup_dialog_=dialog;
+    dialog->setObjectName("utility-setup-popover");dialog->setAccessibleName("Active Artboard layout setup popover");
+    dialog->setWindowTitle("Artboard layout setup");dialog->setWindowFlags(Qt::Popup|Qt::FramelessWindowHint);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setStyleSheet("QDialog#utility-setup-popover{background:#202833;border:1px solid #566373;border-radius:6px;color:#dbe4ee;}");
+    auto* outer=new QVBoxLayout(dialog);outer->setContentsMargins(8,8,8,8);outer->setSpacing(6);
+    auto* heading=new QHBoxLayout;auto* title=new QLabel("Margin · Grid · Guides",dialog);title->setAccessibleName("Margin, Grid and Guide setup");
+    heading->addWidget(title);heading->addStretch();auto* close=new QToolButton(dialog);close->setObjectName("layout-setup-close");close->setText("Close");close->setAccessibleName("Close layout setup and cancel any draft");
+    new HoverFeedback(close);heading->addWidget(close);outer->addLayout(heading);
+    auto* scroll=new QScrollArea(dialog);scroll->setObjectName("utility-setup-scroll");scroll->setWidgetResizable(true);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    auto* body=new QWidget(scroll);body->setObjectName("utility-setup-body");scroll->setWidget(body);outer->addWidget(scroll,1);
+    connect(close,&QToolButton::clicked,dialog,&QDialog::reject);
+    connect(dialog,&QDialog::finished,this,[this,dialog](int){
+        if(layout_preview_active_||layout_preview_invalid_)cancel_layout_draft();
+        if(utility_setup_dialog_==dialog)utility_setup_dialog_.clear();
+    });
+    rebuild_layout_setup();
+    const auto* screen=anchor?anchor->screen():QGuiApplication::primaryScreen();
+    const QRect available=screen?screen->availableGeometry():QRect(0,0,1440,900);
+    const auto popup_width=std::min(480,std::max(1,available.width()-16));
+    const auto popup_height=std::min(700,std::max(1,available.height()-24));
+    dialog->setMinimumSize(0,0);dialog->resize(popup_width,popup_height);
+    QPoint position=anchor?anchor->mapToGlobal(QPoint(0,anchor->height()+2)):QPoint(available.left()+24,available.top()+24);
+    position.setX(std::clamp(position.x(),available.left(),std::max(available.left(),available.right()-dialog->width()+1)));
+    position.setY(std::clamp(position.y(),available.top(),std::max(available.top(),available.bottom()-dialog->height()+1)));
+    dialog->move(position);dialog->show();
+}
+
+void Window::rebuild_layout_setup() {
+    if(!utility_setup_dialog_)return;
+    if(layout_preview_active_||layout_preview_invalid_)cancel_layout_draft();
+    auto* body=utility_setup_dialog_->findChild<QWidget*>("utility-setup-body");if(!body)return;
+    if(auto* old=body->layout()) {
+        while(auto* item=old->takeAt(0)) {if(auto* widget=item->widget()){widget->hide();widget->deleteLater();}delete item;}
+        delete old;
+    }
+    auto* layout=new QVBoxLayout(body);layout->setContentsMargins(8,4,8,8);layout->setSpacing(6);
+    edit_artboard(layout);layout->activate();
 }
 
 void Window::sync_tree_selection() {
@@ -956,7 +1253,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         if(reject_stale_layout_draft())return true;
         if(host.session_id==frozen_session&&host.session.revision()==frozen_revision)return false;
         statusBar()->showMessage("REVISION_CONFLICT: Refresh layout controls before editing",12000);
-        QTimer::singleShot(0,this,[this]{if(artboard_editing_)rebuild_inspector();});
+        QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();else if(artboard_editing_)rebuild_inspector();});
         return true;
     };
     using LayoutBuilder=std::function<std::vector<Command>()>;
@@ -1717,7 +2014,86 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");form->addRow(note);
         } else if(operation.type=="nect.shape.repeater") {
             for(const auto* parameter:{"copies","position_x","position_y","anchor_x","anchor_y","rotation","scale_x","scale_y","offset","start_opacity","end_opacity"})
-                if(operation.parameters.contains(parameter))add_property(form,operation_ref(object.id,operation.id,parameter),parameter_label(parameter));
+                if(operation.parameters.contains(parameter)&&std::string(parameter)!="rotation")
+                    add_property(form,operation_ref(object.id,operation.id,parameter),parameter_label(parameter));
+            if(operation.parameters.contains("rotation")) {
+                const auto rotation_ref=operation_ref(object.id,operation.id,"rotation");
+                add_property(form,rotation_ref,QStringLiteral("Rotation · degrees"));
+                const auto reference=QJsonDocument(ref_json(rotation_ref)).toJson(QJsonDocument::Compact);
+                QLineEdit* numeric=nullptr;
+                for(auto* input:form->findChildren<QLineEdit*>())
+                    if(input->property("nect-reference").toByteArray()==reference){numeric=input;break;}
+                auto* dial_row=new QWidget;auto* dial_layout=new QHBoxLayout(dial_row);dial_layout->setContentsMargins(0,0,0,0);dial_layout->setSpacing(8);
+                auto* knob=new RotationKnob(dial_row);knob->setObjectName("repeater-angle-knob-"+qs(operation.id));
+                knob->setProperty("nect-reference",reference);
+                const auto initial_rotation=inspector_values_.at(rotation_ref);knob->set_value(initial_rotation);
+                const auto& scalar=nect::property(host.session.document(),rotation_ref);
+                const bool driven=scalar.binding.has_value()||scalar.expression.has_value();
+                knob->setEnabled(!driven);
+                if(driven)knob->setToolTip("Rotation is driven by a binding or expression. Unlink it in the numeric editor before using the dial.");
+                auto* dial_note=new QLabel("Dial · modulo 360",dial_row);dial_note->setAccessibleName("Dial shows rotation modulo 360; numeric value is exact");
+                dial_layout->addWidget(knob);dial_layout->addWidget(dial_note);dial_layout->addStretch();form->addRow("Angle dial",dial_row);
+                const auto rotation_session_id=host.session_id;const auto rotation_revision=host.session.revision();
+                auto gesture_active=std::make_shared<bool>(false);auto last_valid=std::make_shared<double>(initial_rotation);
+                auto report=[this](const std::exception& exception) {
+                    if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
+                    else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
+                };
+                knob->begin_drag=[this,rotation_ref,object_id=object.id,operation_id=operation.id,knob,numeric,rotation_session_id,rotation_revision,gesture_active,driven,report] {
+                    try {
+                        if(driven)throw Error("DRIVEN_PROPERTY","Unlink the Repeater rotation before using the dial");
+                        if(host.session_id!=rotation_session_id)throw Error("SESSION_CONFLICT","Repeater rotation belongs to another document");
+                        if(host.session.revision()!=rotation_revision)throw Error("REVISION_CONFLICT","Repeater rotation changed; reopen the Inspector");
+                        const auto& current=find_operation(host.session.document(),object_id,operation_id);
+                        if(current.type!="nect.shape.repeater"||!current.parameters.contains("rotation"))
+                            throw Error("MISSING_PROPERTY","Repeater rotation Ref is no longer available");
+                        const auto& current_scalar=nect::property(host.session.document(),rotation_ref);
+                        if(current_scalar.binding||current_scalar.expression)throw Error("DRIVEN_PROPERTY","Unlink the Repeater rotation before using the dial");
+                        host.session.begin_gesture(rotation_revision);*gesture_active=true;return true;
+                    } catch(const std::exception& exception) {
+                        if(numeric)numeric->setFocus(Qt::OtherFocusReason);report(exception);
+                        knob->set_value(inspector_values_.contains(rotation_ref)?inspector_values_.at(rotation_ref):knob->value());return false;
+                    }
+                };
+                knob->preview_value=[this,knob,numeric,rotation_ref,rotation_session_id,rotation_revision,gesture_active,last_valid,report](double value) {
+                    if(!*gesture_active)return;
+                    if(host.session_id!=rotation_session_id||host.session.revision()!=rotation_revision) {
+                        if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
+                        *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(*last_valid);
+                        statusBar()->showMessage("REVISION_CONFLICT: Repeater angle drag became stale and was canceled",12000);return;
+                    }
+                    try {
+                        host.session.update_gesture({EditProperties{{rotation_ref},value,false}});
+                        *last_valid=value;canvas->refresh();canvas->update();
+                        if(numeric){numeric->setText(QString::number(value,'g',17));numeric->setModified(false);}
+                    } catch(const std::exception& exception) {
+                        if(const auto* error=dynamic_cast<const Error*>(&exception);error&&error->code=="OUT_OF_RANGE") {
+                            knob->set_value(*last_valid);if(numeric)numeric->setText(QString::number(*last_valid,'g',17));report(exception);return;
+                        }
+                        if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
+                        *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(*last_valid);
+                        if(numeric)numeric->setText(QString::number(*last_valid,'g',17));report(exception);
+                    }
+                };
+                knob->commit_drag=[this,knob,rotation_session_id,rotation_revision,gesture_active,last_valid,report] {
+                    if(!*gesture_active)return;
+                    if(host.session_id!=rotation_session_id||host.session.revision()!=rotation_revision||!host.session.gesture_active()) {
+                        if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
+                        *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(*last_valid);
+                        statusBar()->showMessage("REVISION_CONFLICT: Repeater angle drag became stale and was canceled",12000);return;
+                    }
+                    try {host.session.commit_gesture();*gesture_active=false;host.edited();}
+                    catch(const std::exception& exception) {
+                        if(host.session.gesture_active())host.session.cancel_gesture();*gesture_active=false;
+                        canvas->refresh();canvas->update();knob->set_value(*last_valid);report(exception);
+                    }
+                };
+                knob->cancel_drag=[this,knob,numeric,rotation_session_id,gesture_active,initial_rotation] {
+                    if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
+                    *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(initial_rotation);
+                    if(numeric){numeric->setText(QString::number(initial_rotation,'g',17));numeric->setModified(false);}
+                };
+            }
             auto* note=new QLabel("Rotation is a fixed step per copy; changing Copies does not divide 360°. Scale 1 is unchanged. Copies remain virtual and share source points.");
             note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");form->addRow(note);
         }

@@ -12,7 +12,10 @@
 #include <QPointer>
 
 class QDialog;
+class QDoubleSpinBox;
 class QStringListModel;
+class QScrollArea;
+class QToolButton;
 
 namespace nect::desktop {
 class ColorTools;
@@ -31,6 +34,7 @@ private:
     ColorTools* color_tools_;
     QStringListModel* font_families_=nullptr;
     QPointer<QDialog> history_dialog_;
+    QPointer<QDialog> utility_setup_dialog_;
     QListWidget* history_states_=nullptr;
     QLabel* history_status_=nullptr;
     QString history_session_;
@@ -44,6 +48,14 @@ private:
     QScrollArea* inspector_scroll_;
     QLabel* status_;
     QLabel* breadcrumb_;
+    QScrollArea* utility_scroll_=nullptr;
+    QHBoxLayout* utility_layout_=nullptr;
+    QToolButton* utility_guides_=nullptr;
+    QToolButton* utility_grid_=nullptr;
+    QToolButton* utility_snap_=nullptr;
+    QDoubleSpinBox* utility_zoom_=nullptr;
+    QLabel* utility_artboard_=nullptr;
+    QAction* utility_snap_action_=nullptr;
     QAction* undo_;
     QAction* redo_;
     bool refreshing_=false;
@@ -123,6 +135,10 @@ private:
     void ungroup_selection();
     void duplicate_selection();
     void rebuild_artboards();
+    void sync_utility_view_state();
+    void update_utility_strip();
+    void show_layout_setup(QWidget* anchor);
+    void rebuild_layout_setup();
     void add_artboard(bool duplicate);
     void move_artboard(int direction);
     void edit_artboard(QVBoxLayout* layout);
