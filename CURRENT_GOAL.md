@@ -1,4 +1,4 @@
-# Nect — autonomous Mission ownership / P02-C1 closure
+# Nect — autonomous Mission ownership / P02-C2 Align and Distribute
 
 ## Mission Brief
 
@@ -12,20 +12,20 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Deliver P02-C1 object/point Smart Snap through the shared Session, then continue to C2 align/distribute in this Sol Task unless a material DEC-71 rollover condition arises.
+**Goal:** Deliver P02-C2 explicit Align/Distribute reference semantics through the shared Session and GUI, then continue to P02-D first-slice adapters in this Sol Task unless a material DEC-71 rollover condition arises.
 
-**Current phase:** P02-C1 / SOL_ACCEPTED / REMOTE_SYNC_PENDING. P02-A and P02-B are synchronized. The fresh disposable C1 Worker is retired; Sol completed exact candidate review and GUI/runtime acceptance. C2 explicit Align/Distribute is the next eligible checkpoint after remote readback.
+**Current phase:** P02-C2 / APPROVED_PACKET / WORKER_DISPATCH_PENDING. P02-A/B/C1 are synchronized. The fresh disposable C1 Worker is retired; Sol is the sole writer between packets. C2 packet revision 1 is frozen at the exact C1 implementation source baseline.
 
-**Proven:** P02-A native v0.14 synchronized at `d21c968e309abdbccec061721e6906ecaee1a020`; P02-B synchronized at `68a700f2be1f9550ead9c0f911cc0d04350bd66d`. C1 Sol review accepted the frozen Snap candidate: Release build PASS, serial CTest 41/41 PASS, focused 3/3 PASS and DPR2 Canvas 1/1 PASS. Disposable 96-DPI desktop point drag snapped to Guide x=500 with overlay visible and hidden, one Undo/Redo, native/recovery r7 readback and fresh-process reopen x=500. Visible production Window benchmark p95 17.31–24.16 ms, zero over 33.333 ms. Full 200% interactive visual acceptance is BLOCKED_ENV by offscreen host geometry; no 200% GUI PASS claim. P01 R1/R5/R8 remain separate BLOCKED_ENV routes, not P02 product blockers. Evidence detail is in `docs/p02-c1-entry.md`.
+**Proven:** P02-A native v0.14 synchronized at `d21c968e309abdbccec061721e6906ecaee1a020`; P02-B at `68a700f2be1f9550ead9c0f911cc0d04350bd66d`; P02-C1 Smart Snap at `3eb4a625f8b057083aec8bd35c0aaeb08a93a38e`, exact local/remote match and clean tree. C1 Release build PASS, serial CTest 41/41 PASS, focused 3/3 PASS, DPR2 Canvas 1/1 PASS, actual 96-DPI hidden-Guide Snap/Undo/Redo/native/recovery/reopen PASS, and visible Window benchmark p95 17.31–24.16 ms, zero over 33.333 ms. Full 200% interactive visual acceptance is BLOCKED_ENV by host window geometry; no 200% GUI PASS claim. P01 R1/R5/R8 remain separate BLOCKED_ENV routes, not P02 product blockers. Evidence detail is in `docs/p02-c1-entry.md`.
 
-**Next task:** Make one coherent P02-C1 implementation/evidence commit, non-force push `codex/practical-alpha`, read back exact remote SHA and clean tree; then freeze the C2 explicit Align/Distribute packet against that SHA and continue in this Sol Task.
+**Next task:** Dispatch a fresh disposable Luna Max Worker against `P02-C2-ENTRY-01` revision 1 and exact source baseline `3eb4a625f8b057083aec8bd35c0aaeb08a93a38e`. Sol reviews/repairs the candidate, verifies core/API/GUI/runtime, synchronizes C2, freezes P02-D and continues here.
 
-**Approach:** Extend the existing Canvas gesture candidate calculation with frozen same-Composition Guide/Grid/Artboard/text/object/equal-gap features. Rank per axis by absolute logical-pixel distance, then exact DEC-70 tie priority and stable identity; use one Session gesture for object/point deltas, with independent view visibility and Snap toggles. Keep native 0.14 unchanged. C2 owns explicit align/distribute commands after C1.
+**Approach:** Extend existing `AlignObjects`/`DistributeObjects` command and JSON parser with one explicit reference variant while preserving legacy aliases. Reuse evaluated Composition bounds and the effective-parent-aware translation solver. Fix key object, require explicit nonnegative distribution spacing, use virtual Artboard/Grid outer edges, reject Guide distribution, and expose reference/spacing in the current Desktop action. Keep native 0.14 unchanged.
 
-**Done for next:** C1 technical acceptance is recorded in `docs/p02-c1-entry.md`. Release build, serial CTest 41/41, focused 3/3, DPR2 Canvas 1/1, actual 96-DPI desktop Snap/hidden overlay/Undo/Redo/save/reopen/recovery, and visible Canvas benchmark passed. This checkpoint advances when its coherent commit is pushed non-force and exact local/remote equality and clean tree are read back. Continue to C2 in this Task.
+**Done for next:** `P02-ALIGN-05`, `P02-BASELINE-05B`, `P02-DIST-06` and `C2-NEG-07` pass fixed core/API oracles; GUI visibly names each reference, key and spacing, executes a real accepted edit and explicit reject; one Undo, native/recovery/reopen and legacy alias are verified. Sol accepts the exact diff, commits coherently, non-force pushes, reads back remote SHA and clean tree. Continue to P02-D in this Task.
 
-**State:** D:\Documents\Nect, branch `codex/practical-alpha`; current local/remote base `9b7a87be1c5a6f4947588fe4ac822cd811f40368` with reviewed C1 files pending commit. Native writer remains 0.14. No Nect GUI Session or Worker writer is active; Sol is the sole Git/worktree owner.
+**State:** D:\Documents\Nect, branch `codex/practical-alpha`; exact synchronized C1 implementation source baseline `3eb4a625f8b057083aec8bd35c0aaeb08a93a38e`. Packet/checkpoint documentation commit advances dispatch HEAD without replacing that source baseline. Native writer remains 0.14. No Nect GUI Session or Worker writer is active at packet freeze; Sol is the sole Git/worktree owner.
 
-**Authority:** Current user standing authorization, live DEC-71 clarification and DEC-70, scoped Confirmed Requirements, repo AGENTS.md, P02-ENTRY-01 revision 5 and P02-C1-ENTRY-01 revision 1. This Task has Full access/no routine approval and sole worktree/Session ownership. A future Sol rollover successor must verify Project/model/effective authority/HEAD/single-writer and record TAKEOVER_ACK before ownership transfer.
+**Authority:** Current user standing authorization, live DEC-71 clarification and DEC-70, scoped Confirmed Requirements, repo AGENTS.md, P02-ENTRY-01 revision 5 and P02-C2-ENTRY-01 revision 1. This Task has Full access/no routine approval and sole worktree/Session ownership. A future Sol rollover successor must verify Project/model/effective authority/HEAD/single-writer and record TAKEOVER_ACK before ownership transfer.
 
-**Handoff:** CONTINUE_CURRENT_TASK. Continue across P02-C1/C2/D and subsequent eligible Route steps while context remains healthy; rollover only on a material DEC-71 condition.
+**Handoff:** CONTINUE_CURRENT_TASK. Continue across P02-C2/D and subsequent eligible Route steps while context remains healthy; rollover only on a material DEC-71 condition.
