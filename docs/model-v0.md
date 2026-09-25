@@ -917,3 +917,31 @@ References: [SVG stroke semantics](https://www.w3.org/TR/svg-strokes/),
 Inspector style controls and SVG intake of these styles are the next checkpoint;
 this contract does not claim those adapters yet. Dashes, pressure, brushes and
 variable width remain unsupported.
+
+## Native 0.14 — authored Guides, Grid and Margin
+
+Composition `guides` is a required array in 0.14; each Guide has a document-unique
+ID, axis (`x` for a vertical line, `y` for a horizontal line), name and position
+in Composition coordinates. At most 10,000 Guides are allowed document-wide.
+An Artboard may own one optional `layout` with independently authored Margin
+insets and Grid. Grid has its own document-unique ID, Artboard-local bounds,
+column/row counts and gutters. Moving an Artboard carries the Grid in world
+space without changing its local numbers. Resizing an Artboard or an inherited
+parent size revalidates the layout and rejects the whole edit if it no longer
+fits; definitions are never automatically scaled or clamped.
+
+`AddGuide`, `UpdateGuide`, `DeleteGuide` and `SetArtboardLayout` use the shared
+Session command path and revision gate. `SetArtboardLayout` replaces one
+Artboard's complete optional layout; callers editing only Margin or Grid must
+carry the other authored component forward. The P02-B “Set Grid to margin
+box” control will copy the current evaluated Margin rectangle into Grid bounds
+once, without linking later edits. Undo, Redo and recovery use the accepted native
+state. Artboard duplication copies layout values with a fresh Grid ID; adding
+a blank Artboard starts without layout.
+
+The 0.14 reader migrates 0.1–0.13 with empty Guides and absent layouts, keeping
+existing IDs and geometry. The writer emits 0.14; the strict schema is
+`schemas/native-v0.14.schema.json`. Native save retains definitions, while
+SVG/PNG artwork export omits layout overlays. Canvas editing and visual
+acceptance are separate P02-B/C checkpoints; this section describes the
+authored model and codec.

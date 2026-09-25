@@ -178,7 +178,7 @@ across application restarts are not implemented in this slice.
 
 The semantic `stroke_style` command explicitly promotes a Stroke to behavior v2
 with butt/round/square caps, miter/round/bevel joins and a linkable miter limit
-(1–1000). Canvas/PNG/SVG output share this style; native0.13 and Undo preserve it.
+(1–1000). Canvas/PNG/SVG output share this style; native0.14 and Undo preserve it.
 Default Stroke v1 remains butt/miter/4. Inspector controls and SVG style import
 are pending the next checkpoint; see [the contract](docs/model-v0.md#stroke-behavior-v2-within-native-013).
 
@@ -294,7 +294,7 @@ geometry/appearance. See [model contract](docs/model-v0.md#native010-property-ex
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.13.schema.json` — current native JSON shape (0.1–0.12 readers retained)
+- `schemas/native-v0.14.schema.json` — current native JSON shape (0.1–0.13 readers retained)
 
 ## Project rules
 

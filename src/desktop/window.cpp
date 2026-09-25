@@ -755,10 +755,11 @@ void Window::add_artboard(bool duplicate) {
     const auto& comp=find_composition(host.session.document(),canvas->active_composition());
     const auto& selected=find_artboard(comp,canvas->active_artboard());
     auto board=duplicate?selected:evaluate_artboard(comp,selected.id);
-    if(!duplicate)board.parent_size.reset();
+    if(!duplicate){board.parent_size.reset();board.layout.reset();}
     double right=board.x+board.width;
     for(const auto& entry:comp.artboards) {const auto resolved=evaluate_artboard(comp,entry.id);right=std::max(right,resolved.x+resolved.width);}
     board.id=new_id();board.name=duplicate?selected.name+" copy":"Artboard "+std::to_string(comp.artboards.size()+1);
+    if(duplicate&&board.layout&&board.layout->grid)board.layout->grid->id=new_id();
     board.x=right+40;
     const auto index=static_cast<std::size_t>(std::find_if(comp.artboards.begin(),comp.artboards.end(),[&](const auto& entry){return entry.id==selected.id;})-comp.artboards.begin())+1;
     const auto comp_id=comp.id,board_id=board.id;

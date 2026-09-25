@@ -82,8 +82,13 @@ int main(int argc,char** argv) {
         numeric_transport(temp.path());
         Host host(temp.path()+"/recovery");
         const auto& comp=host.session.document().compositions.front();
+        const auto comp_id=comp.id;
+        const auto artboard_id=comp.artboards.front().id;
         Point p;p.id="p";p.x.literal=12;p.y.literal=24;
-        host.session.apply({CreatePath{comp.id,"","path","Path",{{"contour",false,{p}}}}},0);
+        ArtboardLayout layout;layout.margin=Margin{20,20,20,20};layout.grid=Grid{"recovery-grid",{20,20,600,440},2,2,20,20};
+        host.session.apply({CreatePath{comp.id,"","path","Path",{{"contour",false,{p}}}},
+            AddGuide{comp_id,{"recovery-guide","Recovery guide","x",40}},
+            SetArtboardLayout{comp_id,artboard_id,layout}},0);
         host.edited();
         const auto path=temp.path()+"/drawing.nect";
         host.save(path);const auto original=bytes(path);
@@ -94,10 +99,24 @@ int main(int argc,char** argv) {
         check(files.size()==1&&bytes(backups.filePath(files.front()))==original,"Backup retains exact previous file");
         const auto session=host.session_id;
         host.recover();
-        check(bytes(temp.path()+"/recovery/"+session+".nect")==changed,"Recovery is committed native state");
+        const auto recovery_file=temp.path()+"/recovery/"+session+".nect";
+        check(bytes(recovery_file)==changed,"Recovery is committed native state");
+        auto recovered=decode(bytes(recovery_file).toStdString());
+        check(recovered.compositions.front().guides.front().id=="recovery-guide"&&
+            recovered.compositions.front().artboards.front().layout->grid->id=="recovery-grid"&&
+            recovered.compositions.front().artboards.front().layout->margin==layout.margin,
+            "Recovery readback retains committed Guide, Grid and Margin IDs and values");
         host.session.begin_gesture(2);host.session.update_gesture({Set{{"path","p","x"},123}});host.recover();
-        check(bytes(temp.path()+"/recovery/"+session+".nect")==changed,"Draft gesture never becomes recovery authority");
+        check(bytes(recovery_file)==changed,"Draft gesture never becomes recovery authority");
         host.session.cancel_gesture();
+        const auto stale_layout=QJsonObject{{"op","core"},{"session_id",host.session_id},
+            {"document_id",QString::fromStdString(host.session.document().id)},
+            {"request",QJsonObject{{"op","apply"},{"expected_revision",1},
+                {"commands",QJsonArray{QJsonObject{{"type","set_artboard_layout"},{"composition",QString::fromStdString(comp_id)},
+                    {"artboard_id",QString::fromStdString(artboard_id)},{"layout",QJsonValue::Null}}}}}}};
+        const auto stale_reply=QJsonDocument::fromJson(host.dispatch(QJsonDocument(stale_layout).toJson())).object();
+        check(stale_reply["error"].toObject()["code"]=="REVISION_CONFLICT","Stale layout command is rejected before recovery state changes");
+        host.recover();check(bytes(recovery_file)==changed,"Stale layout request never enters recovery serialization");
         host.session.apply({Set{{"path","p","x"},99}},2);host.edited();
         try {host.save(temp.path()+"/missing/drawing.nect");throw std::runtime_error("Expected write failure");}
         catch(const Error& e) {check(e.code=="IO_ERROR","Write failure is explicit");}

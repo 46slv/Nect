@@ -36,6 +36,11 @@ std::size_t extra(const Object&);
 std::size_t extra(const ImageSource&);
 std::size_t extra(const RasterAsset&);
 std::size_t extra(const ArtboardParent&);
+std::size_t extra(const Guide&);
+std::size_t extra(const LayoutRect&);
+std::size_t extra(const Margin&);
+std::size_t extra(const Grid&);
+std::size_t extra(const ArtboardLayout&);
 std::size_t extra(const Artboard&);
 std::size_t extra(const Composition&);
 std::size_t extra(const Collection&);
@@ -76,8 +81,13 @@ std::size_t extra(const ImageSource& v){return total(extra(v.asset),extra(v.widt
 std::size_t extra(const RasterAsset& v){return total(extra(v.id),extra(v.name),extra(v.mode),extra(v.locator),v.payload?v.payload->bytes().size()+sizeof(RasterPayload)+allocation_overhead:0);}
 std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.compositing),extra(v.image));}
 std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
-std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size));}
-std::size_t extra(const Composition& v){return total(extra(v.id),extra(v.name),extra(v.roots),extra(v.artboards));}
+std::size_t extra(const Guide& v){return total(extra(v.id),extra(v.name),extra(v.axis));}
+std::size_t extra(const LayoutRect&){return 0;}
+std::size_t extra(const Margin&){return 0;}
+std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds));}
+std::size_t extra(const ArtboardLayout& v){return total(extra(v.margin),extra(v.grid));}
+std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size),extra(v.layout));}
+std::size_t extra(const Composition& v){return total(extra(v.id),extra(v.name),extra(v.roots),extra(v.artboards),extra(v.guides));}
 std::size_t extra(const Collection& v){return total(extra(v.id),extra(v.name),extra(v.members));}
 std::size_t extra(const NamedColor& v){return total(extra(v.id),extra(v.name),extra(v.rgba));}
 
@@ -89,6 +99,8 @@ std::string owner_name(const Document& before,const Document& after,const Id& id
         for(const auto& comp:document->compositions) {
             if(comp.id==id)return comp.name;
             for(const auto& board:comp.artboards)if(board.id==id)return board.name;
+            for(const auto& guide:comp.guides)if(guide.id==id)return guide.name;
+            for(const auto& board:comp.artboards)if(board.layout&&board.layout->grid&&board.layout->grid->id==id)return "Grid";
         }
     }
     return id;
@@ -161,6 +173,10 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,DeleteArtboard>)return "Delete Artboard: "+name(c.artboard);
         else if constexpr(std::is_same_v<T,ReorderArtboards>)return "Reorder Artboards: "+name(c.composition);
         else if constexpr(std::is_same_v<T,DetachArtboardParent>)return "Detach Artboard size: "+name(c.artboard);
+        else if constexpr(std::is_same_v<T,AddGuide>)return "Add Guide: "+c.guide.name;
+        else if constexpr(std::is_same_v<T,UpdateGuide>)return "Edit Guide: "+c.guide.name;
+        else if constexpr(std::is_same_v<T,DeleteGuide>)return "Delete Guide: "+name(c.guide_id);
+        else if constexpr(std::is_same_v<T,SetArtboardLayout>)return "Edit Layout: "+name(c.artboard_id);
         else if constexpr(std::is_same_v<T,AddPoint>)return "Add point: "+name(c.object);
         else if constexpr(std::is_same_v<T,RemovePoint>)return "Delete point: "+name(c.object);
         else if constexpr(std::is_same_v<T,CloseContour>)return std::string(c.closed?"Close contour: ":"Open contour: ")+name(c.object);

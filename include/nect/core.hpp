@@ -193,11 +193,39 @@ struct ArtboardParent {
     bool width=true,height=true;
     bool operator==(const ArtboardParent&) const = default;
 };
+struct Guide {
+    Id id;
+    std::string name;
+    std::string axis="x"; // x is a vertical line, y is horizontal.
+    double position=0;
+    bool operator==(const Guide&) const = default;
+};
+struct LayoutRect {
+    double x=0,y=0,width=0,height=0;
+    bool operator==(const LayoutRect&) const = default;
+};
+struct Margin {
+    double left=0,top=0,right=0,bottom=0;
+    bool operator==(const Margin&) const = default;
+};
+struct Grid {
+    Id id;
+    LayoutRect bounds;
+    std::size_t columns=1,rows=1;
+    double column_gutter=0,row_gutter=0;
+    bool operator==(const Grid&) const = default;
+};
+struct ArtboardLayout {
+    std::optional<Margin> margin;
+    std::optional<Grid> grid;
+    bool operator==(const ArtboardLayout&) const = default;
+};
 struct Artboard {
     Id id;
     std::string name;
     double x=0,y=0,width=640,height=480;
     std::optional<ArtboardParent> parent_size;
+    std::optional<ArtboardLayout> layout;
     bool operator==(const Artboard&) const = default;
 };
 
@@ -206,6 +234,7 @@ struct Composition {
     std::string name;
     std::vector<Id> roots;
     std::vector<Artboard> artboards;
+    std::vector<Guide> guides;
     bool operator==(const Composition&) const = default;
 };
 
@@ -284,6 +313,10 @@ struct UpdateArtboard { Id composition; Artboard artboard; };
 struct DeleteArtboard { Id composition; Id artboard; };
 struct ReorderArtboards { Id composition; std::vector<Id> order; };
 struct DetachArtboardParent { Id composition; Id artboard; };
+struct AddGuide { Id composition; Guide guide; };
+struct UpdateGuide { Id composition; Guide guide; };
+struct DeleteGuide { Id composition; Id guide_id; };
+struct SetArtboardLayout { Id composition; Id artboard_id; std::optional<ArtboardLayout> layout; };
 struct AddRasterAsset { RasterAsset asset; };
 struct ReplaceRasterAsset { RasterAsset asset; };
 struct DeleteRasterAsset { Id asset; };
@@ -330,7 +363,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,OperationOptions,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
-    DeleteArtboard,ReorderArtboards,DetachArtboardParent,CreateText,UpdateText,
+    DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,

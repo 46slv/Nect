@@ -506,9 +506,18 @@ void artboard_authoring(Window& window) {
     check(session.document().compositions.front().artboards.front().id==child&&authored(child).x==before_reorder.x&&
         authored(child).y==before_reorder.y&&authored(original).x==0&&evaluate(session.document())==geometry,
         "Changing frame order changes neither crop coordinates nor authored geometry");
+    ArtboardLayout child_layout;
+    child_layout.margin=Margin{10,10,10,10};
+    child_layout.grid=Grid{"source-grid",{10,10,100,100},2,2,10,10};
+    session.apply({SetArtboardLayout{session.document().compositions.front().id,child,child_layout}},session.revision());
+    window.host.edited();QApplication::processEvents();
     button("artboard-duplicate");const auto copy=window.canvas->active_artboard();
     check(copy!=child&&authored(copy).width==authored(child).width&&authored(copy).x>authored(child).x&&
         session.document().compositions.front().roots==roots,"Duplicate frame copies settings and leaves artwork ownership unchanged");
+    check(authored(copy).layout&&authored(copy).layout->margin==child_layout.margin&&
+        authored(copy).layout->grid&&authored(copy).layout->grid->bounds==child_layout.grid->bounds&&
+        authored(copy).layout->grid->id!=child_layout.grid->id,
+        "Duplicate frame copies layout values and assigns a fresh Grid identity");
     button("artboard-remove");
     check(window.canvas->active_artboard()==child&&session.document().compositions.front().artboards.size()==2,
         "Removing the active frame reconciles to a surviving frame");

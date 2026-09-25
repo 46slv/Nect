@@ -384,20 +384,109 @@ j::value operation_json(const ShapeOperation& op) {
     return result;
 }
 
-Artboard read_artboard(const j::value& v,bool allow_parent=true) {
+double layout_number(const j::value& value) {
+    if(!value.is_number())throw Error("INVALID_LAYOUT","Layout values must be JSON numbers");
+    return number(value);
+}
+std::size_t layout_count(const j::value& value) {
+    if(!value.is_number())throw Error("INVALID_LAYOUT","Grid counts must be integers from 1 through 1000");
+    const auto count=number(value);
+    if(!std::isfinite(count)||std::floor(count)!=count||count<1||count>1000)
+        throw Error("INVALID_LAYOUT","Grid counts must be integers from 1 through 1000");
+    return static_cast<std::size_t>(count);
+}
+Guide read_guide(const j::value& value) {
+    try {
+        if(!value.is_object())throw Error("INVALID_GUIDE","Guide must be an object");
+        const auto& object=value.as_object();keys(object,{"id","name","axis","position"});
+        if(!object.contains("id")||!object.contains("name")||!object.contains("axis")||!object.contains("position"))
+            throw Error("INVALID_GUIDE","Guide requires id, name, axis and position");
+        if(!object.at("id").is_string()||!object.at("name").is_string()||!object.at("axis").is_string()||
+           !object.at("position").is_number())
+            throw Error("INVALID_GUIDE","Guide fields must be strings except for numeric position");
+        return {text(object.at("id")),text(object.at("name")),text(object.at("axis")),number(object.at("position"))};
+    } catch(const Error& error) {
+        if(error.code=="INVALID_GUIDE")throw;
+        throw Error("INVALID_GUIDE",error.what());
+    } catch(const std::exception& error) {
+        throw Error("INVALID_GUIDE",error.what());
+    }
+}
+j::value guide_json(const Guide& guide) {
+    return j::object{{"id",guide.id},{"name",guide.name},{"axis",guide.axis},{"position",guide.position}};
+}
+ArtboardLayout read_layout(const j::value& value) {
+    try {
+        if(!value.is_object())throw Error("INVALID_LAYOUT","Layout must be an object");
+        const auto& object=value.as_object();keys(object,{"margin","grid"});ArtboardLayout layout;
+        if(object.contains("margin")) {
+            if(!object.at("margin").is_object())throw Error("INVALID_LAYOUT","Margin must be an object");
+            const auto& margin=object.at("margin").as_object();keys(margin,{"left","top","right","bottom"});
+            if(!margin.contains("left")||!margin.contains("top")||!margin.contains("right")||!margin.contains("bottom"))
+                throw Error("INVALID_LAYOUT","Margin requires left, top, right and bottom");
+            layout.margin=Margin{layout_number(margin.at("left")),layout_number(margin.at("top")),
+                layout_number(margin.at("right")),layout_number(margin.at("bottom"))};
+        }
+        if(object.contains("grid")) {
+            if(!object.at("grid").is_object())throw Error("INVALID_LAYOUT","Grid must be an object");
+            const auto& grid=object.at("grid").as_object();keys(grid,{"id","bounds","columns","rows","column_gutter","row_gutter"});
+            if(!grid.contains("id")||!grid.contains("bounds")||!grid.contains("columns")||!grid.contains("rows")||
+               !grid.contains("column_gutter")||!grid.contains("row_gutter"))
+                throw Error("INVALID_LAYOUT","Grid requires id, bounds, counts and gutters");
+            if(!grid.at("id").is_string()||!grid.at("bounds").is_object())
+                throw Error("INVALID_LAYOUT","Grid id must be a string and bounds must be an object");
+            const auto& bounds=grid.at("bounds").as_object();keys(bounds,{"x","y","width","height"});
+            if(!bounds.contains("x")||!bounds.contains("y")||!bounds.contains("width")||!bounds.contains("height"))
+                throw Error("INVALID_LAYOUT","Grid bounds require x, y, width and height");
+            layout.grid=Grid{text(grid.at("id")),
+                {layout_number(bounds.at("x")),layout_number(bounds.at("y")),layout_number(bounds.at("width")),layout_number(bounds.at("height"))},
+                layout_count(grid.at("columns")),layout_count(grid.at("rows")),
+                layout_number(grid.at("column_gutter")),layout_number(grid.at("row_gutter"))};
+        }
+        return layout;
+    } catch(const Error& error) {
+        if(error.code=="INVALID_LAYOUT")throw;
+        throw Error("INVALID_LAYOUT",error.what());
+    } catch(const std::exception& error) {
+        throw Error("INVALID_LAYOUT",error.what());
+    }
+}
+j::value grid_json(const Grid& grid) {
+    return j::object{{"id",grid.id},
+        {"bounds",j::object{{"x",grid.bounds.x},{"y",grid.bounds.y},
+            {"width",grid.bounds.width},{"height",grid.bounds.height}}},
+        {"columns",grid.columns},{"rows",grid.rows},
+        {"column_gutter",grid.column_gutter},{"row_gutter",grid.row_gutter}};
+}
+j::value layout_json(const ArtboardLayout& layout) {
+    j::object result;
+    if(layout.margin)result["margin"]=j::object{{"left",layout.margin->left},{"top",layout.margin->top},
+        {"right",layout.margin->right},{"bottom",layout.margin->bottom}};
+    if(layout.grid)result["grid"]=grid_json(*layout.grid);
+    return result;
+}
+
+Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layout=false) {
     const auto& a=v.as_object();
-    if(allow_parent)keys(a,{"id","name","x","y","width","height","parent_size"});
+    if(allow_parent&&allow_layout)keys(a,{"id","name","x","y","width","height","parent_size","layout"});
+    else if(allow_parent)keys(a,{"id","name","x","y","width","height","parent_size"});
+    else if(allow_layout)keys(a,{"id","name","x","y","width","height","layout"});
     else keys(a,{"id","name","x","y","width","height"});
     Artboard result{text(a.at("id")),text(a.at("name")),number(a.at("x")),number(a.at("y")),number(a.at("width")),number(a.at("height"))};
     if(const auto* p=a.if_contains("parent_size")) {
         const auto& parent=p->as_object();keys(parent,{"artboard","width","height"});
         result.parent_size=ArtboardParent{text(parent.at("artboard")),parent.at("width").as_bool(),parent.at("height").as_bool()};
     }
+    if(allow_layout)if(const auto* layout=a.if_contains("layout")) {
+        if(layout->is_null())throw Error("INVALID_LAYOUT","Artboard layout must be omitted or an object; clear it with set_artboard_layout");
+        result.layout=read_layout(*layout);
+    }
     return result;
 }
 j::object artboard_json(const Artboard& a) {
     j::object result{{"id",a.id},{"name",a.name},{"x",a.x},{"y",a.y},{"width",a.width},{"height",a.height}};
     if(a.parent_size)result["parent_size"]=j::object{{"artboard",a.parent_size->artboard},{"width",a.parent_size->width},{"height",a.parent_size->height}};
+    if(a.layout)result["layout"]=layout_json(*a.layout);
     return result;
 }
 
@@ -440,10 +529,23 @@ Command read_command(const j::value& v) {
     }
     if(type=="add_artboard") {
         keys(o,{"type","composition","artboard","index"});
-        return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard")),j::value_to<std::size_t>(o.at("index"))};
+        return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true),j::value_to<std::size_t>(o.at("index"))};
     }
     if(type=="update_artboard") {
-        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"))};
+        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true)};
+    }
+    if(type=="add_guide"||type=="update_guide") {
+        keys(o,{"type","composition","guide"});
+        if(type=="add_guide")return AddGuide{text(o.at("composition")),read_guide(o.at("guide"))};
+        return UpdateGuide{text(o.at("composition")),read_guide(o.at("guide"))};
+    }
+    if(type=="delete_guide") {
+        keys(o,{"type","composition","guide_id"});return DeleteGuide{text(o.at("composition")),text(o.at("guide_id"))};
+    }
+    if(type=="set_artboard_layout") {
+        keys(o,{"type","composition","artboard_id","layout"});
+        std::optional<ArtboardLayout> layout;if(!o.at("layout").is_null())layout=read_layout(o.at("layout"));
+        return SetArtboardLayout{text(o.at("composition")),text(o.at("artboard_id")),std::move(layout)};
     }
     if(type=="delete_artboard"||type=="detach_artboard_parent") {
         keys(o,{"type","composition","artboard"});
@@ -630,10 +732,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,13> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13"};
+        constexpr std::array<std::string_view,14> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.13 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.14 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -647,13 +749,15 @@ Document decode(std::string_view input) {
 
         for(const auto& cv:root.at("compositions").as_array()) {
             auto& co=cv.as_object();
-            keys(co,{"id","name","roots","artboards"});
+            if(minor>=14)keys(co,{"id","name","roots","artboards","guides"});
+            else keys(co,{"id","name","roots","artboards"});
             Composition c;
             c.id=text(co.at("id"));
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14));
+            if(minor>=14)for(const auto& gv:co.at("guides").as_array())c.guides.push_back(read_guide(gv));
             d.compositions.push_back(std::move(c));
         }
 
@@ -768,10 +872,11 @@ std::string encode(const Document& d) {
     for(const auto& [id,color]:d.named_colors){(void)id;named_colors.push_back(named_color_json(color));}
 
     for(const auto& c:d.compositions) {
-        j::array boards;
+        j::array boards,guides;
         for(const auto& a:c.artboards)boards.push_back(artboard_json(a));
+        for(const auto& guide:c.guides)guides.push_back(guide_json(guide));
         comps.push_back({
-            {"id",c.id},{"name",c.name},{"roots",ids_json(c.roots)},{"artboards",boards}});
+            {"id",c.id},{"name",c.name},{"roots",ids_json(c.roots)},{"artboards",boards},{"guides",guides}});
     }
 
     for(const auto& [id,o]:d.objects) {
@@ -970,11 +1075,17 @@ std::string request(Session& session,std::string_view input) {
         std::map<Ref,double> prior_values;
         std::map<Id,EvaluatedTransform> prior_transforms;
         std::map<Id,j::value> prior_frames;
+        std::map<Id,j::value> prior_guides,prior_grids;
         if(mutation) {
             prior=session.document();prior_values=evaluate(session.document());
             prior_transforms=evaluate_transforms(session.document(),prior_values);
-            for(const auto& c:session.document().compositions)for(const auto& a:c.artboards)
-                prior_frames.emplace(a.id,j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluate_artboard(c,a.id))}});
+            for(const auto& c:session.document().compositions) {
+                for(const auto& a:c.artboards) {
+                    prior_frames.emplace(a.id,j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluate_artboard(c,a.id))}});
+                    if(a.layout&&a.layout->grid)prior_grids.emplace(a.layout->grid->id,grid_json(*a.layout->grid));
+                }
+                for(const auto& guide:c.guides)prior_guides.emplace(guide.id,guide_json(guide));
+            }
         }
 
         if(op=="get") {
@@ -1239,6 +1350,20 @@ std::string request(Session& session,std::string_view input) {
                 prior_frames.erase(a.id);
             }
             for(const auto& [id,frame]:prior_frames){(void)frame;changed.insert(id);}
+            for(const auto& c:session.document().compositions) {
+                for(const auto& guide:c.guides) {
+                    const auto value=guide_json(guide);const auto found=prior_guides.find(guide.id);
+                    if(found==prior_guides.end()||found->second!=value)changed.insert(guide.id);
+                    prior_guides.erase(guide.id);
+                }
+                for(const auto& a:c.artboards)if(a.layout&&a.layout->grid) {
+                    const auto value=grid_json(*a.layout->grid);const auto id=a.layout->grid->id;const auto found=prior_grids.find(id);
+                    if(found==prior_grids.end()||found->second!=value)changed.insert(id);
+                    prior_grids.erase(id);
+                }
+            }
+            for(const auto& [id,guide]:prior_guides){(void)guide;changed.insert(id);}
+            for(const auto& [id,grid]:prior_grids){(void)grid;changed.insert(id);}
             for(const auto& [id,object]:session.document().objects)
                 if(object.compositing.mask&&object.compositing.mask->enabled&&changed.contains(object.compositing.mask->source))changed.insert(id);
             result.as_object()["changed_ids"]=ids_json(std::vector<Id>(changed.begin(),changed.end()));

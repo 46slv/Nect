@@ -327,7 +327,10 @@ void add_default_paint(Document& d,const Id& object,const std::string& type) {
     std::set<Id> ids{d.id};
     for(const auto& [id,color]:d.named_colors){(void)color;ids.insert(id);}
     for(const auto& [id,asset]:d.raster_assets){(void)asset;ids.insert(id);}
-    for(const auto& c:d.compositions){ids.insert(c.id);for(const auto& a:c.artboards)ids.insert(a.id);}
+    for(const auto& c:d.compositions){
+        ids.insert(c.id);for(const auto& a:c.artboards){ids.insert(a.id);if(a.layout&&a.layout->grid)ids.insert(a.layout->grid->id);}
+        for(const auto& guide:c.guides)ids.insert(guide.id);
+    }
     for(const auto& c:d.collections)ids.insert(c.id);
     for(const auto& [id,item]:d.objects) {
         ids.insert(id);for(const auto& op:item.stack) {
@@ -599,8 +602,18 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         add(id);require(id==color.id,"ID_MISMATCH",id);
         require(!color.name.empty()&&color.name.size()<=4096,"INVALID_NAME","Named color requires a name of 1..4096 bytes");text_utf8(color.name);
     }
+    std::size_t guide_count=0;
     for(const auto& comp:d.compositions) {
         add(comp.id);
+        require(comp.guides.size()<=10000-guide_count,"LIMIT","Document Guide count limit 10000");
+        guide_count+=comp.guides.size();
+        for(const auto& guide:comp.guides) {
+            add(guide.id);
+            require(guide.name.size()<=4096,"INVALID_GUIDE","Guide name exceeds 4096 bytes");
+            text_utf8(guide.name);
+            require(guide.axis=="x"||guide.axis=="y","INVALID_GUIDE","Guide axis must be x or y");
+            require(std::isfinite(guide.position)&&std::abs(guide.position)<=1e9,"INVALID_GUIDE","Guide position must be finite and within 1e9 du");
+        }
         require(comp.artboards.size()<=1024,"LIMIT","Artboards per Composition limit 1024");
         for(const auto& a:comp.artboards) {
             add(a.id);
@@ -610,7 +623,35 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             require(a.name.size()<=4096,"LIMIT","Artboard name too long");
             for(unsigned char ch:a.name)require(ch>=32||ch==9||ch==10||ch==13,"INVALID_NAME","XML-incompatible control character");
             if(a.parent_size)identity(a.parent_size->artboard);
-            (void)evaluate_artboard(comp,a.id);
+            const auto evaluated=evaluate_artboard(comp,a.id);
+            if(a.layout) {
+                const auto& layout=*a.layout;
+                require(layout.margin||layout.grid,"INVALID_LAYOUT","Artboard layout must contain Margin, Grid or both: "+a.id);
+                if(layout.margin) {
+                    const auto& margin=*layout.margin;
+                    require(std::isfinite(margin.left)&&std::isfinite(margin.top)&&std::isfinite(margin.right)&&std::isfinite(margin.bottom),
+                        "INVALID_LAYOUT","Margin values must be finite");
+                    require(margin.left>=0&&margin.top>=0&&margin.right>=0&&margin.bottom>=0&&
+                        margin.left+margin.right<evaluated.width&&margin.top+margin.bottom<evaluated.height,
+                        "INVALID_LAYOUT","Margins must be nonnegative and leave positive content width and height");
+                }
+                if(layout.grid) {
+                    const auto& grid=*layout.grid;add(grid.id);
+                    const auto& bounds=grid.bounds;
+                    require(std::isfinite(bounds.x)&&std::isfinite(bounds.y)&&std::isfinite(bounds.width)&&std::isfinite(bounds.height)&&
+                        std::isfinite(grid.column_gutter)&&std::isfinite(grid.row_gutter),
+                        "INVALID_LAYOUT","Grid values must be finite");
+                    require(bounds.x>=0&&bounds.y>=0&&bounds.width>0&&bounds.height>0&&
+                        bounds.x+bounds.width<=evaluated.width&&bounds.y+bounds.height<=evaluated.height,
+                        "INVALID_LAYOUT","Grid bounds must be positive and contained in the evaluated Artboard");
+                    require(grid.columns>=1&&grid.columns<=1000&&grid.rows>=1&&grid.rows<=1000&&
+                        grid.column_gutter>=0&&grid.row_gutter>=0,
+                        "INVALID_LAYOUT","Grid counts must be 1..1000 and gutters nonnegative");
+                    const auto cell_width=(bounds.width-static_cast<double>(grid.columns-1)*grid.column_gutter)/static_cast<double>(grid.columns);
+                    const auto cell_height=(bounds.height-static_cast<double>(grid.rows-1)*grid.row_gutter)/static_cast<double>(grid.rows);
+                    require(cell_width>0&&cell_height>0,"INVALID_LAYOUT","Grid gutters must leave positive cell width and height");
+                }
+            }
         }
     }
 
@@ -1406,7 +1447,13 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 const auto id=[&]{if constexpr(std::is_same_v<T,UpdateArtboard>)return c.artboard.id;else return c.artboard;}();
                 auto board=std::find_if(boards.begin(),boards.end(),[&](const auto& a){return a.id==id;});
                 require(board!=boards.end(),"MISSING_ARTBOARD",id);
-                if constexpr(std::is_same_v<T,UpdateArtboard>)*board=c.artboard;
+                if constexpr(std::is_same_v<T,UpdateArtboard>) {
+                    auto updated=c.artboard;
+                    // Legacy Artboard updates carry only frame fields. A missing
+                    // layout payload must not erase authored P02 definitions.
+                    if(!updated.layout)updated.layout=board->layout;
+                    *board=std::move(updated);
+                }
                 else if constexpr(std::is_same_v<T,DeleteArtboard>) {
                     require(boards.size()>1,"LAST_ARTBOARD","Keep at least one output frame per Composition");
                     boards.erase(board);
@@ -1414,6 +1461,35 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     auto resolved=evaluate_artboard(*comp,id);resolved.parent_size.reset();*board=std::move(resolved);
                 }
             }
+        } else if constexpr(std::is_same_v<T,AddGuide>||std::is_same_v<T,UpdateGuide>||std::is_same_v<T,DeleteGuide>) {
+            auto comp=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),[&](const auto& item){return item.id==c.composition;});
+            require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);
+            if constexpr(std::is_same_v<T,AddGuide>)comp->guides.push_back(c.guide);
+            else {
+                const auto id=[&]{if constexpr(std::is_same_v<T,UpdateGuide>)return c.guide.id;else return c.guide_id;}();
+                auto guide=std::find_if(comp->guides.begin(),comp->guides.end(),[&](const auto& item){return item.id==id;});
+                if(guide==comp->guides.end()) {
+                    const bool elsewhere=std::any_of(candidate.compositions.begin(),candidate.compositions.end(),[&](const auto& other) {
+                        return other.id!=c.composition&&std::any_of(other.guides.begin(),other.guides.end(),[&](const auto& item){return item.id==id;});
+                    });
+                    if(elsewhere)throw Error("WRONG_COMPOSITION",id);
+                    throw Error("MISSING_GUIDE",id);
+                }
+                if constexpr(std::is_same_v<T,UpdateGuide>)*guide=c.guide;
+                else comp->guides.erase(guide);
+            }
+        } else if constexpr(std::is_same_v<T,SetArtboardLayout>) {
+            auto comp=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),[&](const auto& item){return item.id==c.composition;});
+            require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);
+            auto board=std::find_if(comp->artboards.begin(),comp->artboards.end(),[&](const auto& item){return item.id==c.artboard_id;});
+            if(board==comp->artboards.end()) {
+                const bool elsewhere=std::any_of(candidate.compositions.begin(),candidate.compositions.end(),[&](const auto& other) {
+                    return other.id!=c.composition&&std::any_of(other.artboards.begin(),other.artboards.end(),[&](const auto& item){return item.id==c.artboard_id;});
+                });
+                if(elsewhere)throw Error("WRONG_COMPOSITION",c.artboard_id);
+                throw Error("MISSING_ARTBOARD",c.artboard_id);
+            }
+            board->layout=c.layout;
         } else if constexpr(std::is_same_v<T,Set>) {
             prepare_point_edit(candidate,c.ref);
             auto& p=lookup_property(candidate,c.ref);
