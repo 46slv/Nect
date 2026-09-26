@@ -490,6 +490,15 @@ void add_default_stroke(Document&,const Id& object);
 
 std::vector<Ref> properties(const Document& document);
 Scalar property(const Document& document, const Ref& ref);
+enum class TextPropertyKind { string, enumeration };
+struct TextPropertyValue {
+    TextPropertyKind kind=TextPropertyKind::string;
+    std::string literal;
+    std::vector<std::string> choices;
+    bool operator==(const TextPropertyValue&) const = default;
+};
+bool is_text_readonly_field(const std::string& field);
+TextPropertyValue text_readonly_property(const Document&,const Ref&);
 struct TextItalicProperty {
     bool literal=false;
     std::optional<TextItalicDriver> driver;

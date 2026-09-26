@@ -41,7 +41,9 @@ std::vector<Command> fixture() {
 void controls() {
     QTemporaryDir temp;Window w(temp.path());auto document=empty_document("doc","comp","board");
     document.compositions.push_back(empty_document("other-doc","other-comp","other-board").compositions.front());w.host.session=Session(document);
-    auto& s=w.host.session;auto commands=fixture();commands.push_back(CreatePrimitive{"other-comp","","foreign","Foreign source",default_primitive("foreign-source","nect.shape.circle")});
+    auto& s=w.host.session;auto commands=fixture();
+    commands.push_back(CreateText{"comp","","picker-text","Picker text",default_text("picker-text-source","Picker source")});
+    commands.push_back(CreatePrimitive{"other-comp","","foreign","Foreign source",default_primitive("foreign-source","nect.shape.circle")});
     s.apply(commands,s.revision());w.host.edited();w.show();QApplication::processEvents();
     const std::vector<Canvas::Selection> targets{{"rect-0",""},{"rect-1",""},{"rect-2",""}};
     w.canvas->set_selections(targets);QApplication::processEvents();const Ref x{"rect-0","","generator.center_x"};
@@ -54,10 +56,16 @@ void controls() {
     edit(w,x,"+=10");for(int i=0;i<3;++i)near(evaluate(s.document()).at({"rect-"+std::to_string(i),"","generator.center_x"}),110+100*i,"Relative preserves each difference");
     field<QPushButton>(w,x)->click();QApplication::processEvents();QDialog* picker=nullptr;
     for(auto* dialog:w.findChildren<QDialog*>())if(dialog->isVisible())picker=dialog;
-    check(picker,"Picker opens for multiple targets");auto* list=picker->findChild<QListWidget*>();int source=-1;
+    check(picker,"Picker opens for multiple targets");auto* list=picker->findChild<QListWidget*>();int source=-1;bool read_only_text_ref=false,numeric_text_ref=false;
     for(int i=0;i<list->count();++i){auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
-        if(ref["object"]=="foreign"&&ref["field"]=="generator.center_x")source=i;}
+        if(ref["object"]=="foreign"&&ref["field"]=="generator.center_x")source=i;
+        if(ref["object"]=="picker-text") {
+            const auto field=ref["field"].toString();
+            if(field=="text.content"||field=="text.family"||field=="text.locale"||field=="text.layout"||field=="text.direction"||field=="text.alignment")read_only_text_ref=true;
+            if(field=="text.font_size")numeric_text_ref=true;
+        }}
     check(source>=0,"Searchable source keeps stable reference");list->setCurrentRow(source);QApplication::processEvents();
+    check(!read_only_text_ref&&numeric_text_ref,"Numeric source picker omits read-only Text strings/enums and keeps Text Scalars");
     check(w.canvas->selected_object=="foreign"&&w.canvas->active_composition()=="other-comp","Source inspection can change composition and visible selection");
     picker->reject();QApplication::processEvents();check(w.canvas->selections()==targets&&w.canvas->active_artboard()=="board","Cancel restores complete frozen target selection and frame");
     field<QPushButton>(w,x)->click();QApplication::processEvents();picker=nullptr;

@@ -321,6 +321,16 @@ j::object text_weight_property_json(const Document& d,const Ref& ref,const TextW
         {"origin","authored"},{"range",j::object{{"min",1},{"max",999}}},
         {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},{"evaluated",value.evaluated}};
 }
+j::object text_readonly_property_json(const Document& d,const Ref& ref,const TextPropertyValue& value) {
+    const auto type=value.kind==TextPropertyKind::string?"string":"enum";
+    j::object result{{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type",type},{"origin","authored"},
+        {"authored",j::object{{"literal",value.literal}}},{"evaluated",value.literal},{"link",false},{"expression",false}};
+    if(value.kind==TextPropertyKind::enumeration) {
+        j::array choices;for(const auto& choice:value.choices)choices.push_back(j::value(choice));
+        result["choices"]=std::move(choices);
+    }
+    return result;
+}
 j::object text_layout_json(const Document& d,const Id& id) {
     const auto object=d.objects.find(id);
     if(object==d.objects.end())throw Error("MISSING_OBJECT",id);
@@ -1155,8 +1165,17 @@ std::string request(Session& session,std::string_view input) {
         if(op=="get") {
             keys(o,{"op","ref"});
             auto r=read_ref(o.at("ref"));
-            if(r.point.empty()&&r.field=="text.italic")result=text_italic_property_json(session.document(),r,text_italic_property(session.document(),r));
-            else if(r.point.empty()&&r.field=="text.weight")result=text_weight_property_json(session.document(),r,text_weight_property(session.document(),r));
+            if(r.field.starts_with("text.")&&!is_text_readonly_field(r.field)&&r.field!="text.italic"&&r.field!="text.weight") {
+                if(!r.point.empty())throw Error("INVALID_TEXT_REF","Text properties require an empty point ID");
+                const auto object=session.document().objects.find(r.object);
+                if(object==session.document().objects.end())throw Error("MISSING_REFERENCE",r.object);
+                if(object->second.kind!=Kind::text||!object->second.text)throw Error("TYPE_MISMATCH","Text property Ref must identify a Text object");
+                if(!object->second.text->parameters.contains(r.field.substr(5)))
+                    throw Error("UNKNOWN_TEXT_PROPERTY","Unsupported Text source property: "+r.field);
+            }
+            if(is_text_readonly_field(r.field))result=text_readonly_property_json(session.document(),r,text_readonly_property(session.document(),r));
+            else if(r.field=="text.italic")result=text_italic_property_json(session.document(),r,text_italic_property(session.document(),r));
+            else if(r.field=="text.weight")result=text_weight_property_json(session.document(),r,text_weight_property(session.document(),r));
             else if(r.point.empty()&&(r.field=="color"||r.field.ends_with(".color")))result=color_property_json(session.document(),r,evaluate(session.document()));
             else {
             const auto origin=property_origin(session.document(),r);
@@ -1176,6 +1195,10 @@ std::string request(Session& session,std::string_view input) {
             const auto italic_values=evaluate_text_italics(session.document());
             const auto weight_values=evaluate_text_weights(session.document());
             for(const auto& ref:properties(session.document())) {
+                if(is_text_readonly_field(ref.field)) {
+                    list.push_back(text_readonly_property_json(session.document(),ref,text_readonly_property(session.document(),ref)));
+                    continue;
+                }
                 if(ref.point.empty()&&ref.field=="text.italic") {
                     const auto& source=*session.document().objects.at(ref.object).text;
                     list.push_back(text_italic_property_json(session.document(),ref,{source.italic,source.italic_driver,italic_values.at(ref)}));

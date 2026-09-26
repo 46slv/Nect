@@ -183,6 +183,55 @@ try:
         rev=apply([dict(type='update_text',object='title',source=text_source),dict(type='link',
             target=dict(object='title',point='',field='text.font_size'),binding=dict(source=source,scale=.2,offset=0,mode='copy_local_value'))],rev)
         assert core('get',ref=dict(object='title',point='',field='text.font_size'))['result']['evaluated']==31
+        peer_source=core('text_defaults')['result'];peer_source.update(id='typed-peer-source',content='Peer text',family='Different Test Family',
+            locale='fr-FR',layout='frame',direction='vertical',alignment='center')
+        rev=apply([dict(type='create_text',composition=comp['id'],parent='',id='typed-peer',name='Second typed source',source=peer_source)],rev)
+        readonly_fields=['text.content','text.family','text.locale','text.layout','text.direction','text.alignment']
+        text_values={
+            'title':[text_source['content'],text_source['family'],text_source['locale'],text_source['layout'],text_source['direction'],text_source['alignment']],
+            'typed-peer':[peer_source['content'],peer_source['family'],peer_source['locale'],peer_source['layout'],peer_source['direction'],peer_source['alignment']],
+        }
+        properties_before=core('properties')['result']
+        for object_id,expected_values in text_values.items():
+            entries=[entry for entry in properties_before if entry['ref']['object']==object_id and entry['ref']['field'] in readonly_fields]
+            assert len(entries)==6 and {entry['ref']['field'] for entry in entries}==set(readonly_fields)
+            for field,value in zip(readonly_fields,expected_values):
+                ref=dict(object=object_id,point='',field=field)
+                entry=next(item for item in entries if item['ref']==ref)
+                result=core('get',ref=ref)['result']
+                kind='string' if field in readonly_fields[:3] else 'enum'
+                assert result==entry and result['type']==kind and result['authored']==dict(literal=value)
+                assert result['evaluated']==value and result['link'] is False and result['expression'] is False
+                if kind=='enum':
+                    choices={'text.layout':['auto','frame'],'text.direction':['horizontal','vertical'],
+                        'text.alignment':['start','center','end']}[field]
+                    assert result['choices']==choices
+        assert core('resolve_name',name='Editable title',point='',field='text.content')['result']==dict(object='title',point='',field='text.content')
+        before_reads=tool('nect_session')
+        properties_after=core('properties')['result']
+        core('get',ref=dict(object='title',point='',field='text.content'))
+        core('resolve_name',name='Editable title',point='',field='text.content')
+        assert properties_after==properties_before and tool('nect_session')['revision']==before_reads['revision']==rev
+        invalid=core('get',ref=dict(object='title',point='',field='text.unregistered'))
+        assert not invalid['ok'] and invalid['error']['code']=='UNKNOWN_TEXT_PROPERTY'
+        invalid=core('get',ref=dict(object='title',point='a-point',field='text.content'))
+        assert not invalid['ok'] and invalid['error']['code']=='INVALID_TEXT_REF'
+        invalid=core('get',ref=dict(object='path-0',point='',field='text.content'))
+        assert not invalid['ok'] and invalid['error']['code']=='TYPE_MISMATCH'
+        rejected=core('apply',expected_revision=rev,commands=[dict(type='link_properties',targets=[dict(object='title',point='',field='text.font_size')],
+            source=dict(object='title',point='',field='text.content'),relative=False)])
+        assert not rejected['ok'] and rejected['error']['code']=='MISSING_REFERENCE' and rejected['revision']==rev
+        rejected=core('apply',expected_revision=rev,commands=[dict(type='set_expression',targets=[dict(object='title',point='',field='text.content')],
+            expression=dict(source='1',version=1),replace_binding=False)])
+        assert not rejected['ok'] and rejected['revision']==rev
+        current_document=core('inspect')['result'];current_comp=next(item for item in current_document['compositions'] if item['id']==comp['id'])
+        rev=apply([dict(type='rename',object='title',name='Renamed typed title'),dict(type='reorder_objects',composition=comp['id'],parent='',
+            order=['title']+[object_id for object_id in current_comp['roots'] if object_id!='title'])],rev)
+        assert core('resolve_name',name='Renamed typed title',point='',field='text.content')['result']==dict(object='title',point='',field='text.content')
+        text_source['content']='Edited through UpdateText'
+        rev=apply([dict(type='update_text',object='title',source=text_source)],rev)
+        assert core('get',ref=dict(object='title',point='',field='text.content'))['result']['evaluated']=='Edited through UpdateText'
+        rev=apply([dict(type='delete_objects',objects=['typed-peer'])],rev)
         layout=core('text_layout',object='title')['result'];assert layout['glyph_count']>0 and layout['used_fonts']
         assert core('export_plan',composition=comp['id'],artboard=first['id'])['result']['text_policy']=='outlines'
         expected_svg_paths+=1

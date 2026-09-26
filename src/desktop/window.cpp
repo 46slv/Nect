@@ -2606,8 +2606,9 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
     connect(insert,&QPushButton::clicked,this,[this,editor] {
         auto* dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setWindowTitle("Insert expression reference");dialog->resize(660,450);
         auto* content=new QVBoxLayout(dialog);auto* search=new QLineEdit;search->setPlaceholderText("Search properties");content->addWidget(search);auto* list=new QListWidget;content->addWidget(list);
+        const auto scalar_values=evaluate(host.session.document());
         for(const auto& ref:properties(host.session.document())) {
-            if(ref.point.empty()&&(ref.field=="text.italic"||ref.field=="text.weight"))continue;
+            if(!scalar_values.contains(ref))continue;
             auto* item=new QListWidgetItem(property_label(host.session.document(),ref),list);item->setData(Qt::UserRole,expression_ref(ref));
         }
         connect(search,&QLineEdit::textChanged,dialog,[list](const QString& text){const auto terms=text.split(' ',Qt::SkipEmptyParts);for(int i=0;i<list->count();++i)list->item(i)->setHidden(!std::all_of(terms.begin(),terms.end(),[&](const auto& term){return list->item(i)->text().contains(term,Qt::CaseInsensitive);}));});
@@ -2744,7 +2745,7 @@ void Window::pick_source(std::vector<Ref> targets,bool relative) {
     auto* list=new QListWidget;layout->addWidget(list);
     const auto values=evaluate(host.session.document());
     for(const auto& ref:properties(host.session.document())) {
-        if(ref.point.empty()&&(ref.field=="text.italic"||ref.field=="text.weight"))continue;
+        if(!values.contains(ref))continue;
         if(std::find(targets.begin(),targets.end(),ref)!=targets.end())continue;
         const auto text=property_label(host.session.document(),ref)+" ["+qs(property_unit(ref))+", local]  = "+display_value(values.at(ref));
         auto* item=new QListWidgetItem(text,list);item->setData(Qt::UserRole,QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact));

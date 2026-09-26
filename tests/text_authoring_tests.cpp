@@ -1,4 +1,6 @@
 #include "nect/io.hpp"
+#include <algorithm>
+#include <array>
 #include <iostream>
 using namespace nect;
 namespace {
@@ -105,13 +107,78 @@ int main(){try{
     auto weight_apply=[&](std::vector<Command> commands){weight_session.apply(commands,weight_session.revision());};
     auto weight_a=default_text("weight-a-source","Weight A");weight_a.weight=700;
     auto weight_b=default_text("weight-b-source","Weight B");weight_b.weight=400;
+    weight_a.content="Source content A";weight_a.family="Family A";weight_a.locale="en-GB";
+    weight_a.layout="frame";weight_a.direction="vertical";weight_a.alignment="center";
+    weight_b.content="Source content B";weight_b.family="Family B";weight_b.locale="ja-JP";
+    weight_b.layout="auto";weight_b.direction="horizontal";weight_b.alignment="end";
     Point weight_path_point;weight_path_point.id="weight-path-point";
     weight_apply({CreateText{"weight-comp","","weight-a","Weight A",weight_a},
         CreateText{"weight-comp","","weight-b","Weight B",weight_b},
         CreatePath{"weight-comp","","weight-path","Weight Path",{{"weight-path-contour",false,{weight_path_point}}}}});
     const Ref weight_a_ref{"weight-a","","text.weight"},weight_b_ref{"weight-b","","text.weight"};
+    const std::array<std::string,6> readonly_fields{"text.content","text.family","text.locale","text.layout","text.direction","text.alignment"};
+    const Ref weight_a_content{"weight-a","","text.content"};
+    const std::array<std::string,6> values_a{"Source content A","Family A","en-GB","frame","vertical","center"};
+    const std::array<std::string,6> values_b{"Source content B","Family B","ja-JP","auto","horizontal","end"};
+    const auto readonly_refs=properties(weight_session.document());
+    for(int object_index=0;object_index<2;++object_index) {
+        const std::string object_id=object_index==0?"weight-a":"weight-b";
+        const auto& expected=object_index==0?values_a:values_b;
+        const auto count=std::count_if(readonly_refs.begin(),readonly_refs.end(),[&](const Ref& ref) {
+            return ref.object==object_id&&std::find(readonly_fields.begin(),readonly_fields.end(),ref.field)!=readonly_fields.end();
+        });
+        check(count==readonly_fields.size(),"Each Text contributes exactly six read-only source refs");
+        for(std::size_t i=0;i<readonly_fields.size();++i) {
+            const Ref ref{object_id,"",readonly_fields[i]};
+            check(std::find(readonly_refs.begin(),readonly_refs.end(),ref)!=readonly_refs.end(),"Text source discovery returns the stable object Ref");
+            const auto value=text_readonly_property(weight_session.document(),ref);
+            check(value.literal==expected[i],"Typed Text source read returns the authored literal");
+            const bool is_enum=i>=3;
+            check(value.kind==(is_enum?TextPropertyKind::enumeration:TextPropertyKind::string),"Text source discovery distinguishes strings and enums");
+            if(is_enum)check(!value.choices.empty(),"Text enum discovery includes its allowed choices");
+        }
+    }
     check(resolve_name(weight_session.document(),"Weight A","","text.weight")==weight_a_ref,
         "Name resolution discovers the stable typed Text weight Ref");
+    check(resolve_name(weight_session.document(),"Weight A","","text.content")==weight_a_content,
+        "Name resolution discovers the stable Text string Ref");
+    const auto readonly_bytes=encode(weight_session.document());const auto readonly_revision=weight_session.revision();
+    const auto readonly_properties=request(weight_session,R"({"op":"properties"})");
+    for(std::size_t i=0;i<readonly_fields.size();++i) {
+        const auto query=std::string("{\"op\":\"get\",\"ref\":{\"object\":\"weight-a\",\"point\":\"\",\"field\":\"")+readonly_fields[i]+"\"}}";
+        const auto get=request(weight_session,query);
+        const auto type=i<3?"string":"enum";
+        check(get.find("\"type\":\""+std::string(type)+"\"")!=std::string::npos&&
+            get.find("\"literal\":\""+values_a[i]+"\"")!=std::string::npos&&
+            get.find("\"evaluated\":\""+values_a[i]+"\"")!=std::string::npos&&
+            get.find("\"link\":false")!=std::string::npos&&get.find("\"expression\":false")!=std::string::npos,
+            "JSON-lines get returns the Text literal, type, and explicit unsupported capabilities");
+        check(readonly_properties.find("\"object\":\"weight-a\",\"point\":\"\",\"field\":\""+readonly_fields[i]+"\"")!=std::string::npos,
+            "JSON-lines properties lists each typed Text source ref");
+    }
+    check(readonly_properties.find("\"choices\":[\"auto\",\"frame\"]")!=std::string::npos&&
+        readonly_properties.find("\"choices\":[\"horizontal\",\"vertical\"]")!=std::string::npos&&
+        readonly_properties.find("\"choices\":[\"start\",\"center\",\"end\"]")!=std::string::npos,
+        "JSON-lines enum discovery returns the exact Text choice domains");
+    const auto resolved_text=request(weight_session,R"({"op":"resolve_name","name":"Weight A","point":"","field":"text.content"})");
+    check(resolved_text.find("\"field\":\"text.content\"")!=std::string::npos&&
+        weight_session.revision()==readonly_revision&&encode(weight_session.document())==readonly_bytes,
+        "Text get/properties/resolve_name reads leave native bytes and Session revision unchanged");
+    check(encode(decode(readonly_bytes))==readonly_bytes,"Native 0.16 roundtrip preserves Text source values exactly");
+    rejects("MISSING_NAME",[&]{resolve_name(weight_session.document(),"Missing Text","","text.content");});
+    auto duplicate_names=weight_session.document();duplicate_names.objects.at("weight-b").name="Weight A";
+    rejects("AMBIGUOUS_NAME",[&]{resolve_name(duplicate_names,"Weight A","","text.content");});
+    rejects("TYPE_MISMATCH",[&]{resolve_name(weight_session.document(),"Weight Path","","text.content");});
+    rejects("UNKNOWN_TEXT_PROPERTY",[&]{resolve_name(weight_session.document(),"Weight A","","text.unregistered");});
+    rejects("INVALID_TEXT_REF",[&]{resolve_name(weight_session.document(),"Weight A","a-point","text.content");});
+    check(request(weight_session,R"({"op":"get","ref":{"object":"weight-a","point":"","field":"text.unregistered"}})").find("\"code\":\"UNKNOWN_TEXT_PROPERTY\"")!=std::string::npos&&
+        request(weight_session,R"({"op":"get","ref":{"object":"weight-path","point":"","field":"text.content"}})").find("\"code\":\"TYPE_MISMATCH\"")!=std::string::npos&&
+        request(weight_session,R"({"op":"get","ref":{"object":"weight-a","point":"p1","field":"text.content"}})").find("\"code\":\"INVALID_TEXT_REF\"")!=std::string::npos,
+        "JSON-lines get rejects unknown, wrong-kind and point-specific Text refs with scoped errors");
+    rejects("MISSING_REFERENCE",[&]{weight_session.apply({LinkProperties{{{"weight-a","","text.font_size"}},weight_a_content,false}},readonly_revision);});
+    rejects("MISSING_REFERENCE",[&]{weight_session.apply({SetExpression{{weight_a_content},{"1",1},false}},readonly_revision);});
+    check(weight_session.revision()==readonly_revision&&encode(weight_session.document())==readonly_bytes,
+        "Scalar links and expressions reject typed Text refs without changing bytes or revision");
     const auto weight_discovered=properties(weight_session.document());
     check(std::find(weight_discovered.begin(),weight_discovered.end(),weight_a_ref)!=weight_discovered.end(),
         "Property discovery includes integer Text weight");

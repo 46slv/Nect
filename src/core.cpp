@@ -558,7 +558,9 @@ std::vector<Ref> properties(const Document& document) {
         refs.push_back(ref);
     }
     for(const auto& [id,object]:document.objects)if(object.kind==Kind::text&&object.text)
-        {refs.push_back({id,"","text.italic"});refs.push_back({id,"","text.weight"});}
+        {refs.push_back({id,"","text.italic"});refs.push_back({id,"","text.weight"});
+            refs.push_back({id,"","text.content"});refs.push_back({id,"","text.family"});refs.push_back({id,"","text.locale"});
+            refs.push_back({id,"","text.layout"});refs.push_back({id,"","text.direction"});refs.push_back({id,"","text.alignment"});}
     return refs;
 }
 
@@ -582,6 +584,24 @@ unsigned evaluate_text_weight(const Document& document,const Id& object) {
 std::map<Ref,unsigned> evaluate_text_weights(const Document& document) {
     return TextWeightEvaluator(document).all();
 }
+bool is_text_readonly_field(const std::string& field) {
+    return field=="text.content"||field=="text.family"||field=="text.locale"||
+        field=="text.layout"||field=="text.direction"||field=="text.alignment";
+}
+TextPropertyValue text_readonly_property(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_TEXT_REF","Text source properties require an empty point ID");
+    require(is_text_readonly_field(ref.field),"UNKNOWN_TEXT_PROPERTY","Unsupported Text source property: "+ref.field);
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text source property Ref must identify a Text object");
+    const auto& source=*object->second.text;
+    if(ref.field=="text.content")return {TextPropertyKind::string,source.content,{}};
+    if(ref.field=="text.family")return {TextPropertyKind::string,source.family,{}};
+    if(ref.field=="text.locale")return {TextPropertyKind::string,source.locale,{}};
+    if(ref.field=="text.layout")return {TextPropertyKind::enumeration,source.layout,{"auto","frame"}};
+    if(ref.field=="text.direction")return {TextPropertyKind::enumeration,source.direction,{"horizontal","vertical"}};
+    return {TextPropertyKind::enumeration,source.alignment,{"start","center","end"}};
+}
 std::string property_unit(const Ref& r) { return unit(r); }
 
 Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std::string& f) {
@@ -591,12 +611,25 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     require(!matches.empty(),"MISSING_NAME","No matching object: "+name);
     require(matches.size()==1,"AMBIGUOUS_NAME","Name must resolve to exactly one object: "+name);
     Ref r{matches.front(),p,f};
-    if(p.empty()&&f=="text.italic") {
-        (void)text_italic_property(d,r);
-        return r;
-    }
-    if(p.empty()&&f=="text.weight") {
-        (void)text_weight_property(d,r);
+    if(f.starts_with("text.")) {
+        require(p.empty(),"INVALID_TEXT_REF","Text properties require an empty point ID");
+        if(is_text_readonly_field(f)) {
+            (void)text_readonly_property(d,r);
+            return r;
+        }
+        if(f=="text.italic") {
+            (void)text_italic_property(d,r);
+            return r;
+        }
+        if(f=="text.weight") {
+            (void)text_weight_property(d,r);
+            return r;
+        }
+        const auto object=d.objects.find(r.object);
+        require(object!=d.objects.end(),"TYPE_MISMATCH","Text property Ref must identify a Text object");
+        require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text property Ref must identify a Text object");
+        require(object->second.text->parameters.contains(f.substr(5)),"UNKNOWN_TEXT_PROPERTY","Unsupported Text source property: "+f);
+        (void)property(d,r);
         return r;
     }
     if(d.named_colors.contains(r.object)&&r.point.empty()&&r.field=="color") {
