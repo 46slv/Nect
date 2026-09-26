@@ -162,9 +162,11 @@ editable. Zero Amount and bypass preserve input exactly.
 Add Text creates an editable source. Use Edit text to compose Japanese or other
 Unicode content, then Apply for one undo step. Select font, writing direction,
 alignment and sizing in Properties; numeric text fields also support links.
-Frame overflow and missing-font fallback are visible in the Inspector. Text is
-outlined in SVG exports; the native document retains editable content and font
-references. Fonts are not embedded.
+Frame overflow and missing-font fallback are visible in the Inspector. Text
+content and font family can link to the same field on another Text object;
+unlinking freezes the evaluated value into the authored literal. The native
+document retains editable text and font references. Text is outlined in SVG
+exports and fonts are not embedded.
 
 Colors opens three separate views: document-authored named colors, actual enabled
 paint inputs grouped by exact RGBA, and colors explicitly copied through Nect's
@@ -294,7 +296,7 @@ geometry/appearance. See [model contract](docs/model-v0.md#native010-property-ex
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.17.schema.json` — current native JSON shape (0.1–0.16 readers retained)
+- `schemas/native-v0.18.schema.json` — current native JSON shape (0.1–0.17 readers retained)
 
 ## Project rules
 

@@ -1021,3 +1021,29 @@ driver when absent. `schemas/native-v0.17.schema.json` constrains the wire
 shape; the core validates semantic references and cycles. Generic Scalar links,
 expressions, multi-target content edits and links for other Text strings or enums
 remain unsupported.
+
+## Native 0.18 — typed Text font-family link
+
+`TextSource.family` retains its authored nonempty UTF-8 literal (at most 1,024
+bytes) and may store one optional `family_driver:{"link":Ref}`. The link source
+and target are stable Text Object IDs with an empty point and field
+`text.family`; cross-field, cross-kind and Scalar coercion are unsupported.
+Evaluation follows same-type links with a 128-edge bound and validates the
+evaluated family against the existing font-family constraints. The shared Text
+projection supplies layout, Canvas, shape, bounds, SVG and Inspector measurement;
+native inspection retains the literal and driver. Font fallback and warning
+behavior remain the existing platform behavior.
+
+`link_text_family` requires `replace_driver:true` to replace a driver.
+`unlink_text_family` freezes the current evaluated family. `UpdateText` may edit
+other Text fields while preserving the driver, but cannot change its driven
+literal. Rename/reorder preserve the stable Ref; duplication remaps it when
+both ends are copied. A surviving dependent prevents source deletion. All
+commands use Session revision, atomic validation and Undo.
+
+The 0.18 writer adds only optional `family_driver`, omitting it for literal-only
+Text. Readers accept 0.1–0.17 family literals and reject this driver in older
+versions. `schemas/native-v0.18.schema.json` constrains the closed wire shape;
+the core verifies existence, same-field/type, cycles, UTF-8 and byte limits.
+Generic Scalar commands, expressions, offsets, name rebinding and links for
+other strings or enums remain unsupported.

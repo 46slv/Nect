@@ -80,15 +80,15 @@ int main(){try{
         "Boolean false expression remains authored as an expression");
     bool_apply({SetTextItalicExpression{italic_b,inverted,true}});
     const auto native16=encode(bool_session.document());
-    check(native16.find("\"version\":\"0.17\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
-        encode(decode(native16))==native16,"Native 0.17 roundtrip preserves Text italic expression exactly");
+    check(native16.find("\"version\":\"0.18\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
+        encode(decode(native16))==native16,"Native 0.18 roundtrip preserves Text italic expression exactly");
     auto invalid_driver=native16;const auto driver_at=invalid_driver.find("\"italic_driver\":{\"expression\":");
     check(driver_at!=std::string::npos,"Native Text italic driver is serialized as the expression alternative");
     invalid_driver.replace(driver_at,std::string("\"italic_driver\":{\"expression\":").size(),"\"italic_driver\":{\"other\":");
     rejects("INVALID_TEXT_ITALIC_DRIVER",[&]{decode(invalid_driver);});
-    auto old_with_driver=native16;const auto current_version=old_with_driver.find("\"version\":\"0.17\"");
-    check(current_version!=std::string::npos,"Native bool driver fixture identifies version 0.17");
-    old_with_driver.replace(current_version,std::string("\"version\":\"0.17\"").size(),"\"version\":\"0.14\"");
+    auto old_with_driver=native16;const auto current_version=old_with_driver.find("\"version\":\"0.18\"");
+    check(current_version!=std::string::npos,"Native bool driver fixture identifies version 0.18");
+    old_with_driver.replace(current_version,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.14\"");
     rejects("UNSUPPORTED_TEXT_ITALIC_DRIVER",[&]{decode(old_with_driver);});
     const auto before_delete=encode(bool_session.document());const auto before_delete_revision=bool_session.revision();
     rejects("MISSING_REFERENCE",[&]{bool_apply({DeleteObjects{{"title"}}});});
@@ -99,8 +99,8 @@ int main(){try{
     auto legacy=empty_document("legacy-doc","legacy-comp","legacy-frame");
     auto legacy_text=default_text("legacy-text","Legacy");legacy_text.italic=true;
     Session legacy_session(legacy);legacy_session.apply({CreateText{"legacy-comp","","legacy-object","Legacy",legacy_text}},legacy_session.revision());
-    auto native14=encode(legacy_session.document());const auto version_at=native14.find("\"version\":\"0.17\"");
-    check(version_at!=std::string::npos,"Native writer emits 0.17");native14.replace(version_at,std::string("\"version\":\"0.17\"").size(),"\"version\":\"0.14\"");
+    auto native14=encode(legacy_session.document());const auto version_at=native14.find("\"version\":\"0.18\"");
+    check(version_at!=std::string::npos,"Native writer emits 0.18");native14.replace(version_at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.14\"");
     const auto old_text=decode(native14);check(old_text.objects.at("legacy-object").text->italic&&!old_text.objects.at("legacy-object").text->italic_driver,
         "Native 0.14 Text decodes with its literal italic value");
     auto weight_document=empty_document("weight-doc","weight-comp","weight-frame");Session weight_session(weight_document);
@@ -148,12 +148,12 @@ int main(){try{
         const auto query=std::string("{\"op\":\"get\",\"ref\":{\"object\":\"weight-a\",\"point\":\"\",\"field\":\"")+readonly_fields[i]+"\"}}";
         const auto get=request(weight_session,query);
         const auto type=i<3?"string":"enum";
-        const auto link=i==0?"true":"false";
+        const auto link=i<=1?"true":"false";
         check(get.find("\"type\":\""+std::string(type)+"\"")!=std::string::npos&&
             get.find("\"literal\":\""+values_a[i]+"\"")!=std::string::npos&&
             get.find("\"evaluated\":\""+values_a[i]+"\"")!=std::string::npos&&
             get.find("\"link\":"+std::string(link))!=std::string::npos&&get.find("\"expression\":false")!=std::string::npos&&
-            (i!=0||get.find("\"driver\":null")!=std::string::npos),
+            (i>1||get.find("\"driver\":null")!=std::string::npos),
             "JSON-lines get returns the Text literal, type, and scoped string-link capability");
         check(readonly_properties.find("\"object\":\"weight-a\",\"point\":\"\",\"field\":\""+readonly_fields[i]+"\"")!=std::string::npos,
             "JSON-lines properties lists each typed Text source ref");
@@ -166,7 +166,7 @@ int main(){try{
     check(resolved_text.find("\"field\":\"text.content\"")!=std::string::npos&&
         weight_session.revision()==readonly_revision&&encode(weight_session.document())==readonly_bytes,
         "Text get/properties/resolve_name reads leave native bytes and Session revision unchanged");
-    check(encode(decode(readonly_bytes))==readonly_bytes,"Native 0.17 roundtrip preserves Text source values exactly");
+    check(encode(decode(readonly_bytes))==readonly_bytes,"Native 0.18 roundtrip preserves Text source values exactly");
     rejects("MISSING_NAME",[&]{resolve_name(weight_session.document(),"Missing Text","","text.content");});
     auto duplicate_names=weight_session.document();duplicate_names.objects.at("weight-b").name="Weight A";
     rejects("AMBIGUOUS_NAME",[&]{resolve_name(duplicate_names,"Weight A","","text.content");});
@@ -190,10 +190,10 @@ int main(){try{
         linked_weight_property.driver==TextWeightDriver{weight_a_ref},
         "Same-type weight link evaluates through its stable Ref and preserves the target literal");
     const auto weight_link_bytes=encode(weight_session.document());
-    check(weight_link_bytes.find("\"version\":\"0.17\"")!=std::string::npos&&
+    check(weight_link_bytes.find("\"version\":\"0.18\"")!=std::string::npos&&
         weight_link_bytes.find("\"weight_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(weight_link_bytes))==weight_link_bytes,
-        "Native 0.17 retains the optional Text weight Ref link exactly");
+        "Native 0.18 retains the optional Text weight Ref link exactly");
     const auto weight_get=request(weight_session,R"({"op":"get","ref":{"object":"weight-b","point":"","field":"text.weight"}})");
     const auto weight_properties=request(weight_session,R"({"op":"properties"})");
     check(weight_get.find("\"type\":\"integer\"")!=std::string::npos&&weight_get.find("\"unit\":\"unitless\"")!=std::string::npos&&
@@ -269,12 +269,12 @@ int main(){try{
     check(target_link_object!=std::string::npos,"Native weight Ref target ID is explicitly present");
     cyclic_weight.replace(target_link_object,std::string("weight-a").size(),"weight-b");
     rejects("DEPENDENCY_CYCLE",[&]{decode(cyclic_weight);});
-    auto old_weight_driver=weight_link_bytes;const auto weight_version_at=old_weight_driver.find("\"version\":\"0.17\"");
-    check(weight_version_at!=std::string::npos,"Native weight fixture identifies version 0.17");
-    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.17\"").size(),"\"version\":\"0.15\"");
+    auto old_weight_driver=weight_link_bytes;const auto weight_version_at=old_weight_driver.find("\"version\":\"0.18\"");
+    check(weight_version_at!=std::string::npos,"Native weight fixture identifies version 0.18");
+    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.15\"");
     rejects("UNSUPPORTED_TEXT_WEIGHT_DRIVER",[&]{decode(old_weight_driver);});
-    const auto legacy_weight=decode([&]{auto value=encode(weight_session.document());const auto at=value.find("\"version\":\"0.17\"");
-        value.replace(at,std::string("\"version\":\"0.17\"").size(),"\"version\":\"0.15\"");return value;}());
+    const auto legacy_weight=decode([&]{auto value=encode(weight_session.document());const auto at=value.find("\"version\":\"0.18\"");
+        value.replace(at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.15\"");return value;}());
     check(legacy_weight.objects.at("weight-a").text->weight==500&&!legacy_weight.objects.at("weight-a").text->weight_driver&&
         legacy_weight.objects.at("weight-b").text->weight==300&&!legacy_weight.objects.at("weight-b").text->weight_driver,
         "Native 0.15 Text migrates authored weights as literals");
@@ -288,9 +288,9 @@ int main(){try{
         CreatePath{"content-comp","","content-path","Content Path",{{"content-path-contour",false,{content_path_point}}}}});
     const Ref content_a_ref{"content-a","","text.content"},content_b_ref{"content-b","","text.content"};
     const auto literal_bytes=encode(content_session.document());
-    check(literal_bytes.find("\"version\":\"0.17\"")!=std::string::npos&&
+    check(literal_bytes.find("\"version\":\"0.18\"")!=std::string::npos&&
         literal_bytes.find("content_driver")==std::string::npos&&encode(decode(literal_bytes))==literal_bytes,
-        "Native 0.17 omits an absent Text content driver and preserves literal-only Text");
+        "Native 0.18 omits absent Text drivers and preserves literal-only Text");
     const auto content_properties=properties(content_session.document());
     check(std::find(content_properties.begin(),content_properties.end(),content_a_ref)!=content_properties.end()&&
         resolve_name(content_session.document(),"Content B","","text.content")==content_b_ref,
@@ -359,7 +359,7 @@ int main(){try{
     const auto copied_link_bytes=encode(content_session.document());
     check(copied_link_bytes.find("\"content_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(copied_link_bytes))==copied_link_bytes,
-        "Native 0.17 roundtrip retains the exact Text content driver");
+        "Native 0.18 roundtrip retains the exact Text content driver");
     const auto linked_copy_reopen=decode(copied_link_bytes);
     check(linked_copy_reopen.objects.at(copy_b).text->content_driver->link==Ref{copy_a,"","text.content"}&&
         evaluate_text_content(linked_copy_reopen,copy_b)=="Copied source",
@@ -398,18 +398,170 @@ int main(){try{
     else {const auto original_source_at=missing_content_source.find("content-a",content_driver_at);check(original_source_at!=std::string::npos,"Native content source ID is explicit");
         missing_content_source.replace(original_source_at,std::string("content-a").size(),"missing");}
     rejects("MISSING_REFERENCE",[&]{decode(missing_content_source);});
-    auto old_content_driver=copied_link_bytes;const auto content_version_at=old_content_driver.find("\"version\":\"0.17\"");
-    check(content_version_at!=std::string::npos,"Native content fixture identifies version 0.17");
-    old_content_driver.replace(content_version_at,std::string("\"version\":\"0.17\"").size(),"\"version\":\"0.16\"");
+    auto old_content_driver=copied_link_bytes;const auto content_version_at=old_content_driver.find("\"version\":\"0.18\"");
+    check(content_version_at!=std::string::npos,"Native content fixture identifies version 0.18");
+    old_content_driver.replace(content_version_at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.16\"");
     rejects("UNSUPPORTED_TEXT_CONTENT_DRIVER",[&]{decode(old_content_driver);});
-    auto legacy_content=literal_bytes;const auto legacy_version_at=legacy_content.find("\"version\":\"0.17\"");
-    legacy_content.replace(legacy_version_at,std::string("\"version\":\"0.17\"").size(),"\"version\":\"0.16\"");
+    auto legacy_content=literal_bytes;const auto legacy_version_at=legacy_content.find("\"version\":\"0.18\"");
+    legacy_content.replace(legacy_version_at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.16\"");
     const auto migrated_content=decode(legacy_content);
     check(migrated_content.objects.at("content-b").text->content=="Manual B"&&
         !migrated_content.objects.at("content-b").text->content_driver,
         "Native 0.16 migrates Text content as a literal");
     check(linked_content_bytes.find("\"content_driver\"")!=std::string::npos,
         "Text content link bytes are distinct from the original literal-only state");
+    Session family_session(empty_document("family-doc","family-comp","family-frame"));
+    auto family_apply=[&](std::vector<Command> commands){family_session.apply(commands,family_session.revision());};
+    auto family_a=default_text("family-a-source","Family source");family_a.family="Segoe UI";
+    auto family_b=default_text("family-b-source","Family target");family_b.family="Manual B";
+    auto family_c=default_text("family-c-source","Third family");family_c.family="Arial";
+    Point family_path_point;family_path_point.id="family-path-point";
+    family_apply({CreateText{"family-comp","","family-a","Family A",family_a},
+        CreateText{"family-comp","","family-b","Family B",family_b},
+        CreateText{"family-comp","","family-c","Family C",family_c},
+        CreatePath{"family-comp","","family-path","Family Path",{{"family-path-contour",false,{family_path_point}}}}});
+    const Ref family_a_ref{"family-a","","text.family"},family_b_ref{"family-b","","text.family"},family_c_ref{"family-c","","text.family"};
+    const auto family_literal_bytes=encode(family_session.document());
+    check(family_literal_bytes.find("\"version\":\"0.18\"")!=std::string::npos&&
+        family_literal_bytes.find("family_driver")==std::string::npos&&encode(decode(family_literal_bytes))==family_literal_bytes,
+        "Native 0.18 omits an absent Text family driver and preserves literal-only family values");
+    const auto family_refs=properties(family_session.document());
+    check(resolve_name(family_session.document(),"Family B","","text.family")==family_b_ref&&
+        std::find(family_refs.begin(),family_refs.end(),family_b_ref)!=family_refs.end(),
+        "Text family discovery and name resolution retain the stable object Ref");
+    const auto family_get=request(family_session,R"({"op":"get","ref":{"object":"family-b","point":"","field":"text.family"}})");
+    check(family_get.find("\"type\":\"string\"")!=std::string::npos&&
+        family_get.find("\"authored\":{\"literal\":\"Manual B\",\"driver\":null}")!=std::string::npos&&
+        family_get.find("\"link\":true")!=std::string::npos&&family_get.find("\"expression\":false")!=std::string::npos,
+        "JSON-lines family readback exposes the authored literal and link-only capability");
+    const auto family_revision=family_session.revision();
+    rejects("MISSING_REFERENCE",[&]{family_apply({LinkProperties{{family_b_ref},family_a_ref,false}});});
+    rejects("MISSING_REFERENCE",[&]{family_apply({SetExpression{{family_b_ref},{"1",1},false}});});
+    auto smuggled_family=default_text("smuggled-family-source","Smuggled");smuggled_family.family_driver=TextFamilyDriver{family_a_ref};
+    rejects("USE_TYPED_COMMAND",[&]{family_apply({CreateText{"family-comp","","smuggled-family","Smuggled",smuggled_family}});});
+    rejects("MISSING_REFERENCE",[&]{family_apply({LinkTextFamily{family_b_ref,{"missing-family","","text.family"},false}});});
+    rejects("INVALID_TEXT_REF",[&]{family_apply({LinkTextFamily{family_b_ref,{"family-a","p1","text.family"},false}});});
+    rejects("TYPE_MISMATCH",[&]{family_apply({LinkTextFamily{family_b_ref,{"family-a","","text.content"},false}});});
+    rejects("TYPE_MISMATCH",[&]{family_apply({LinkTextFamily{{"family-path","","text.family"},family_a_ref,false}});});
+    rejects("DEPENDENCY_CYCLE",[&]{family_apply({LinkTextFamily{family_b_ref,family_b_ref,false}});});
+    check(family_session.revision()==family_revision&&encode(family_session.document())==family_literal_bytes,
+        "Unsupported, malformed and self family links reject without authored changes");
+    family_apply({LinkTextFamily{family_b_ref,family_a_ref,false}});
+    auto linked_family=text_family_property(family_session.document(),family_b_ref);
+    check(linked_family.literal=="Manual B"&&linked_family.evaluated=="Segoe UI"&&
+        linked_family.driver==TextFamilyDriver{family_a_ref}&&evaluated_text_source(family_session.document(),"family-b").family=="Segoe UI",
+        "Same-type family link preserves the literal and feeds the shared Text projection");
+    const auto linked_family_get=request(family_session,R"({"op":"get","ref":{"object":"family-b","point":"","field":"text.family"}})");
+    check(linked_family_get.find("\"driver\":{\"link\":{\"object\":\"family-a\",\"point\":\"\",\"field\":\"text.family\"}}")!=std::string::npos&&
+        linked_family_get.find("\"literal\":\"Manual B\"")!=std::string::npos&&linked_family_get.find("\"evaluated\":\"Segoe UI\"")!=std::string::npos,
+        "Linked Text family get reports stable source Ref, authored literal and evaluated value");
+    const auto linked_family_bytes=encode(family_session.document());const auto linked_family_revision=family_session.revision();
+    rejects("DRIVEN_PROPERTY",[&]{family_apply({LinkTextFamily{family_b_ref,family_c_ref,false}});});
+    rejects("DRIVEN_PROPERTY",[&]{auto edit=*family_session.document().objects.at("family-b").text;edit.family="Changed B";
+        family_apply({UpdateText{"family-b",edit}});});
+    rejects("REVISION_CONFLICT",[&]{family_session.apply({UnlinkTextFamily{family_b_ref}},linked_family_revision-1);});
+    check(family_session.revision()==linked_family_revision&&encode(family_session.document())==linked_family_bytes,
+        "Rejected driver replacement, literal edit and stale unlink preserve family authored bytes and revision");
+    auto unrelated_family_edit=*family_session.document().objects.at("family-b").text;unrelated_family_edit.content="Changed while family linked";
+    family_apply({UpdateText{"family-b",unrelated_family_edit}});
+    check(family_session.document().objects.at("family-b").text->family=="Manual B"&&
+        family_session.document().objects.at("family-b").text->family_driver->link==family_a_ref,
+        "UpdateText preserves the family driver while editing an unrelated Text field");
+    const auto preserved_family_revision=family_session.revision();
+    family_apply({LinkTextFamily{family_b_ref,family_c_ref,true},LinkTextFamily{family_b_ref,family_a_ref,true}});
+    check(family_session.document().objects.at("family-b").text->family_driver->link==family_a_ref&&
+        family_session.revision()==preserved_family_revision+1,
+        "Explicit driver replacement commits atomically and retains the selected stable source");
+    const auto family_revision_before_rename=family_session.revision();
+    auto changed_family_a=*family_session.document().objects.at("family-a").text;changed_family_a.family="Revised source family";
+    family_apply({UpdateText{"family-a",changed_family_a},Rename{"family-a","Renamed Family A"},
+        ReorderObjects{"family-comp","",{"family-b","family-a","family-c","family-path"}}});
+    check(evaluate_text_family(family_session.document(),"family-b")=="Revised source family"&&
+        evaluated_text_source(family_session.document(),"family-b").family=="Revised source family"&&
+        family_session.document().objects.at("family-b").text->family_driver->link==family_a_ref,
+        "Family evaluation follows source edits, rename and reorder through the stable Ref");
+    const auto dependent_bytes=encode(family_session.document());const auto dependent_revision=family_session.revision();
+    rejects("MISSING_REFERENCE",[&]{family_apply({DeleteObjects{{"family-a"}}});});
+    check(family_session.revision()==dependent_revision&&encode(family_session.document())==dependent_bytes,
+        "Deleting a Text family source with a surviving dependent is atomic");
+    const DuplicateObjects copy_family{{"family-a","family-b"},"family-copy"};
+    const auto family_copies=duplicated_roots(family_session.document(),copy_family);
+    family_apply({copy_family});
+    const auto copied_family_target=*std::find_if(family_copies.begin(),family_copies.end(),[&](const auto& id){
+        return family_session.document().objects.at(id).text->family_driver.has_value();});
+    const auto copied_family_source=*std::find_if(family_copies.begin(),family_copies.end(),[&](const auto& id){return id!=copied_family_target;});
+    check(family_session.document().objects.at(copied_family_target).text->family_driver->link==Ref{copied_family_source,"","text.family"}&&
+        family_session.document().objects.at("family-b").text->family_driver->link==family_a_ref,
+        "Duplicating both linked Text objects remaps the copied family Ref and preserves the original");
+    const auto copied_family_bytes=encode(family_session.document());
+    check(copied_family_bytes.find("\"family_driver\":{\"link\"")!=std::string::npos&&
+        encode(decode(copied_family_bytes))==copied_family_bytes,
+        "Native 0.18 codec roundtrip retains the strict Text family driver");
+    const auto reopened_family=decode(copied_family_bytes);
+    check(reopened_family.objects.at(copied_family_target).text->family_driver->link==Ref{copied_family_source,"","text.family"}&&
+        evaluate_text_family(reopened_family,copied_family_target)=="Revised source family",
+        "Cold codec reopen preserves family driver identity and evaluation");
+    family_apply({UnlinkTextFamily{family_b_ref}});
+    check(family_session.document().objects.at("family-b").text->family=="Revised source family"&&
+        !family_session.document().objects.at("family-b").text->family_driver,
+        "Unlink freezes the evaluated font family into the authored literal");
+    family_session.undo(family_session.revision());
+    check(family_session.document().objects.at("family-b").text->family_driver->link==family_a_ref&&
+        evaluate_text_family(family_session.document(),"family-b")=="Revised source family",
+        "Undo restores the Text family link and evaluated value");
+    family_session.redo(family_session.revision());
+    changed_family_a=*family_session.document().objects.at("family-a").text;changed_family_a.family="Later source family";
+    family_apply({UpdateText{"family-a",changed_family_a}});
+    check(family_session.document().objects.at("family-b").text->family=="Revised source family"&&
+        evaluate_text_family(family_session.document(),"family-b")=="Revised source family",
+        "Unlinked Text family remains frozen when the former source changes");
+    const auto frozen_family_bytes=encode(family_session.document());const auto frozen_family_revision=family_session.revision();
+    auto invalid_family=*family_session.document().objects.at("family-a").text;invalid_family.family=std::string("\xc0\xaf",2);
+    rejects("INVALID_UTF8",[&]{family_apply({UpdateText{"family-a",invalid_family}});});
+    invalid_family=*family_session.document().objects.at("family-a").text;invalid_family.family=std::string(1025,'x');
+    rejects("LIMIT",[&]{family_apply({UpdateText{"family-a",invalid_family}});});
+    check(family_session.revision()==frozen_family_revision&&encode(family_session.document())==frozen_family_bytes,
+        "Invalid UTF-8 and oversized font-family literals reject without changing revision or bytes");
+    const auto copied_target_at=copied_family_bytes.find("\"id\":\""+copied_family_target+"\"");
+    check(copied_target_at!=std::string::npos,"Copied Native family target object is explicit");
+    auto malformed_family=copied_family_bytes;const auto family_driver_at=malformed_family.find("\"family_driver\":{\"link\":",copied_target_at);
+    check(family_driver_at!=std::string::npos,"Native family driver is serialized as a strict link alternative");
+    malformed_family.replace(family_driver_at,std::string("\"family_driver\":{\"link\":").size(),"\"family_driver\":{\"other\":");
+    rejects("INVALID_TEXT_FAMILY_DRIVER",[&]{decode(malformed_family);});
+    auto wrong_family_ref=copied_family_bytes;const auto family_ref_at=wrong_family_ref.find("text.family",family_driver_at);
+    check(family_ref_at!=std::string::npos,"Native family Ref declares its exact field");
+    wrong_family_ref.replace(family_ref_at,std::string("text.family").size(),"text.content");
+    rejects("TYPE_MISMATCH",[&]{decode(wrong_family_ref);});
+    auto missing_family_source=copied_family_bytes;const auto copied_source_id=missing_family_source.find(copied_family_source,family_driver_at);
+    check(copied_source_id!=std::string::npos,"Copied Native family driver identifies its copied source ID");
+    missing_family_source.replace(copied_source_id,copied_family_source.size(),"missing-family");
+    rejects("MISSING_REFERENCE",[&]{decode(missing_family_source);});
+    auto old_family_driver=copied_family_bytes;const auto family_version_at=old_family_driver.find("\"version\":\"0.18\"");
+    old_family_driver.replace(family_version_at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.17\"");
+    rejects("UNSUPPORTED_TEXT_FAMILY_DRIVER",[&]{decode(old_family_driver);});
+    auto legacy_family=family_literal_bytes;const auto legacy_family_version=legacy_family.find("\"version\":\"0.18\"");
+    legacy_family.replace(legacy_family_version,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.17\"");
+    const auto migrated_family=decode(legacy_family);
+    check(migrated_family.objects.at("family-b").text->family=="Manual B"&&
+        !migrated_family.objects.at("family-b").text->family_driver,
+        "Native 0.17 migrates Text family as its authored literal");
+    check(family_revision_before_rename<family_session.revision(),"Family source edit and unlink are separate undoable revisions");
+    Session family_depth_session(empty_document("family-depth-doc","family-depth-comp","family-depth-frame"));
+    std::vector<Command> family_depth_creates;for(int i=0;i<130;++i) {
+        auto text=default_text("family-depth-source-"+std::to_string(i),"Depth "+std::to_string(i));
+        family_depth_creates.push_back(CreateText{"family-depth-comp","","family-depth-"+std::to_string(i),
+            "Family depth "+std::to_string(i),std::move(text)});
+    }
+    family_depth_session.apply(family_depth_creates,family_depth_session.revision());
+    for(int i=0;i<128;++i)family_depth_session.apply({LinkTextFamily{{"family-depth-"+std::to_string(i),"","text.family"},
+        {"family-depth-"+std::to_string(i+1),"","text.family"},false}},family_depth_session.revision());
+    check(evaluate_text_family(family_depth_session.document(),"family-depth-0")=="Yu Gothic",
+        "Text family evaluator accepts the documented 128-link dependency depth");
+    const auto family_depth_revision=family_depth_session.revision();const auto family_depth_bytes=encode(family_depth_session.document());
+    rejects("DEPENDENCY_DEPTH",[&]{family_depth_session.apply({LinkTextFamily{{"family-depth-128","","text.family"},
+        {"family-depth-129","","text.family"},false}},family_depth_revision);});
+    check(family_depth_session.revision()==family_depth_revision&&encode(family_depth_session.document())==family_depth_bytes,
+        "Text family dependency depth overflow rejects atomically");
     Session depth_session(empty_document("depth-doc","depth-comp","depth-frame"));
     std::vector<Command> depth_creates;for(int i=0;i<130;++i) {
         auto text=default_text("depth-source-"+std::to_string(i),"Depth "+std::to_string(i));

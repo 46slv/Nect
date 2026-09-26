@@ -1811,12 +1811,73 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         auto reload=[this]{QStringList names;for(const auto& name:text_fonts())names<<qs(name);font_families_->setStringList(names);};
         reload();connect(qApp,&QGuiApplication::fontDatabaseChanged,this,[this,reload]{perform(reload);});
     }
+    const Ref family_ref{id,"","text.family"};const auto family_state=text_family_property(host.session.document(),family_ref);
+    const auto family_revision=host.session.revision();
+    auto* family_row=new QWidget(box);auto* family_layout=new QHBoxLayout(family_row);family_layout->setContentsMargins(0,0,0,0);
     auto* family=new FontFamilyCombo(font_families_);family->setObjectName("text-family");
-    family->addItem(qs(source.family));
-    family->setCurrentText(qs(source.family));form->addRow("Font family",family);
-    connect(family->lineEdit(),&QLineEdit::editingFinished,this,[this,family,update,before=source.family]{
+    family->addItem(qs(family_state.driver?family_state.evaluated:family_state.literal));
+    family->setCurrentText(qs(family_state.driver?family_state.evaluated:family_state.literal));
+    family->setEnabled(!family_state.driver);family_layout->addWidget(family);
+    auto* family_driver_button=new QToolButton(family_row);family_driver_button->setObjectName("text-family-driver");
+    family_driver_button->setText(family_state.driver?"Driver…":"Drive…");family_driver_button->setPopupMode(QToolButton::InstantPopup);
+    auto* family_menu=new QMenu(family_driver_button);family_driver_button->setMenu(family_menu);family_layout->addWidget(family_driver_button);
+    auto* link_family=family_menu->addAction("Link to Text family…");
+    auto* edit_linked_family=family_menu->addAction("Unlink and edit family…");edit_linked_family->setEnabled(family_state.driver.has_value());
+    QStringList family_source_labels;std::vector<Id> family_source_ids;
+    for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
+        family_source_ids.push_back(source_id);family_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+    }
+    link_family->setEnabled(!family_source_ids.empty());
+    const bool replace_family_driver=family_state.driver.has_value();
+    connect(link_family,&QAction::triggered,this,[this,id,frozen_session,family_revision,replace_family_driver,family_source_ids,family_source_labels]{
+        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text family","Source Text",family_source_labels,0,false,&accepted);
+        if(!accepted)return;
+        const auto index=family_source_labels.indexOf(choice);if(index<0)return;
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({LinkTextFamily{{id,"","text.family"},{family_source_ids.at(static_cast<std::size_t>(index)),"","text.family"},replace_family_driver}},family_revision);host.edited();});
+    });
+    connect(edit_linked_family,&QAction::triggered,this,[this,id,frozen_session,family_revision,family_state]{
+        QDialog dialog(this);dialog.setObjectName("text-family-dialog");dialog.setWindowTitle("Edit linked font family");
+        auto* box_layout=new QVBoxLayout(&dialog);
+        auto* editor=new FontFamilyCombo(font_families_);editor->setObjectName("text-family-editor");
+        editor->addItem(qs(family_state.evaluated));editor->setCurrentText(qs(family_state.evaluated));editor->setEnabled(false);box_layout->addWidget(editor);
+        auto* unlink=new QCheckBox("Unlink the driver and edit this font family",&dialog);unlink->setObjectName("unlink-text-family-driver");box_layout->addWidget(unlink);
+        auto* status=new QLabel("Apply commits the unlink and family edit together. Cancel keeps the current driver.",&dialog);
+        status->setObjectName("text-family-editor-status");status->setWordWrap(true);box_layout->addWidget(status);
+        connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
+        connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,family_revision,family_state,editor,unlink,status]{
+            try {
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=family_revision)throw Error("STALE_CONTEXT","Text changed while the family editor was open; copy this value and reopen the editor");
+                const auto found=host.session.document().objects.find(id);
+                if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
+                auto commands=std::vector<Command>{UnlinkTextFamily{{id,"","text.family"}}};
+                const auto value=editor->currentText().toStdString();
+                if(value!=family_state.evaluated) {
+                    auto next=*found->second.text;next.family=value;next.family_driver.reset();
+                    commands.push_back(UpdateText{id,std::move(next)});
+                }
+                if(!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a family edit");
+                host.session.apply(commands,family_revision);host.edited();dialog.accept();
+            } catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+        });
+        dialog.exec();
+    });
+    form->addRow("Font family",family_row);
+    connect(family->lineEdit(),&QLineEdit::editingFinished,this,[this,family,update,before=family_state.literal,linked=family_state.driver.has_value()]{
+        if(linked)return;
         const auto value=family->currentText().toStdString();if(value!=before)perform([&]{update([&](auto& s){s.family=value;});});});
     connect(family,QOverload<int>::of(&QComboBox::activated),this,[this,family,update]{perform([&]{update([&](auto& s){s.family=family->currentText().toStdString();});});});
+    const auto family_driver_name=[this](const std::optional<TextFamilyDriver>& driver) {
+        if(!driver)return QString("none");
+        const auto found=host.session.document().objects.find(driver->link.object);
+        return QString("link to ")+(found==host.session.document().objects.end()?qs(driver->link.object):qs(found->second.name)+" ("+qs(driver->link.object)+")");
+    };
+    auto* family_status=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
+        .arg(qs(family_state.literal),family_driver_name(family_state.driver),qs(family_state.evaluated)));
+    family_status->setObjectName("text-family-state");family_status->setWordWrap(true);family_status->setTextFormat(Qt::PlainText);form->addRow("",family_status);
     const Ref weight_ref{id,"","text.weight"};const auto weight_state=text_weight_property(host.session.document(),weight_ref);
     const auto weight_revision=host.session.revision();
     auto* weight_row=new QWidget(box);auto* weight_layout=new QHBoxLayout(weight_row);weight_layout->setContentsMargins(0,0,0,0);

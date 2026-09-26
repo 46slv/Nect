@@ -840,9 +840,65 @@ void text_authoring(Window& window) {
     QTest::keyClick(family->lineEdit(),Qt::Key_Return);QApplication::processEvents();
     check(session.document().objects.at(id).text->family==original_family.toStdString()&&session.revision()==font_revision+1,
         "An installed family entered with inline completion commits exactly once");
-    auto weight_source=default_text(new_id(),"Weight source");weight_source.weight=700;
+    auto family_source_text=default_text(new_id(),"Weight source");family_source_text.weight=700;family_source_text.family="Linked Family A";
     const auto source_id=new_id(),source_name=std::string("Weight source");const auto composition=session.document().compositions.front().id;
-    session.apply({CreateText{composition,"",source_id,source_name,weight_source}},session.revision());window.host.edited();QApplication::processEvents();
+    session.apply({CreateText{composition,"",source_id,source_name,family_source_text}},session.revision());window.host.edited();QApplication::processEvents();
+    auto* family_driver=visible_child<QToolButton>(window,"text-family-driver");bool chose_family_source=false;
+    check(visible_child<QComboBox>(window,"text-family")->isEnabled()&&family_driver->menu()->actions().size()==2,
+        "Text family Inspector exposes a literal control and link/edit menu");
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+        if(auto* combo=dialog->findChild<QComboBox*>()) {
+            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
+            dialog->accept();chose_family_source=true;return;
+        }
+    }});
+    family_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(chose_family_source&&session.document().objects.at(id).text->family==original_family.toStdString()&&
+        session.document().objects.at(id).text->family_driver->link==Ref{source_id,"","text.family"}&&
+        evaluate_text_family(session.document(),id)=="Linked Family A"&&
+        !visible_child<QComboBox>(window,"text-family")->isEnabled()&&
+        visible_child<QLabel>(window,"text-family-state")->text().contains("Evaluated: Linked Family A"),
+        "Text Family Inspector links through Session and reports literal, source and evaluated family");
+    auto changed_family_source=*session.document().objects.at(source_id).text;changed_family_source.family="Linked Family revised";
+    session.apply({UpdateText{source_id,changed_family_source}},session.revision());window.host.edited();QApplication::processEvents();
+    bool family_apply_failed=false,family_cancel_safe=false;
+    const auto before_family_draft=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-family-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-family-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-family-driver");
+        if(!editor||!unlink)return;
+        editor->setEditText("");unlink->click();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        family_apply_failed=dialog->isVisible()&&session.revision()==before_family_draft&&
+            session.document().objects.at(id).text->family_driver&&dialog->findChild<QLabel*>("text-family-editor-status")->text().contains("limit");
+        editor->setEditText("Canceled family draft");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();
+        family_cancel_safe=!dialog->isVisible()&&session.revision()==before_family_draft&&
+            session.document().objects.at(id).text->family==original_family.toStdString()&&
+            session.document().objects.at(id).text->family_driver->link==Ref{source_id,"","text.family"};
+    });
+    family_driver=visible_child<QToolButton>(window,"text-family-driver");family_driver->menu()->actions().back()->trigger();QApplication::processEvents();
+    check(family_apply_failed&&family_cancel_safe,
+        "Invalid Apply and Cancel keep the linked family literal, driver and Session revision intact");
+    bool family_unlink_applied=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-family-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-family-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-family-driver");
+        if(!editor||!unlink)return;
+        editor->setEditText("Chosen family");unlink->click();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        family_unlink_applied=!dialog->isVisible()&&session.revision()==before_family_draft+1&&
+            session.document().objects.at(id).text->family=="Chosen family"&&
+            !session.document().objects.at(id).text->family_driver;
+    });
+    family_driver=visible_child<QToolButton>(window,"text-family-driver");family_driver->menu()->actions().back()->trigger();QApplication::processEvents();
+    check(family_unlink_applied&&visible_child<QComboBox>(window,"text-family")->isEnabled(),
+        "Family unlink and selected font commit together in one Session revision");
+    changed_family_source=*session.document().objects.at(source_id).text;changed_family_source.family="Later Family source";
+    session.apply({UpdateText{source_id,changed_family_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->family_driver&&evaluate_text_family(session.document(),id)=="Chosen family",
+        "Inspector family unlink freezes the chosen family after later source changes");
+    auto weight_source=*session.document().objects.at(source_id).text;
     auto* weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
     check(visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&weight_driver->menu()->actions().size()==2,
         "Text Weight Inspector exposes a literal control and a link/unlink menu");

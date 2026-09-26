@@ -53,6 +53,10 @@ struct TextContentDriver {
     Ref link;
     bool operator==(const TextContentDriver&) const = default;
 };
+struct TextFamilyDriver {
+    Ref link;
+    bool operator==(const TextFamilyDriver&) const = default;
+};
 
 struct Scalar {
     double literal = 0;
@@ -100,6 +104,7 @@ struct TextSource {
     unsigned version=1;
     std::string content="Text",family="Yu Gothic",locale="ja-JP";
     std::optional<TextContentDriver> content_driver;
+    std::optional<TextFamilyDriver> family_driver;
     std::string layout="auto",direction="horizontal",alignment="start";
     unsigned weight=400;
     std::optional<TextWeightDriver> weight_driver;
@@ -345,6 +350,8 @@ struct LinkTextWeight { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkTextWeight { Ref target; };
 struct LinkTextContent { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkTextContent { Ref target; };
+struct LinkTextFamily { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkTextFamily { Ref target; };
 struct CreateNamedColor { NamedColor color; };
 struct RenameNamedColor { Id color; std::string name; };
 struct DeleteNamedColor { Id color; };
@@ -398,7 +405,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     ReorderOperations,EnableOperation,OperationOptions,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
-    LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,
+    LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
     SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,
@@ -529,9 +536,17 @@ struct TextContentProperty {
     std::optional<TextContentDriver> driver;
     std::string evaluated;
 };
+struct TextFamilyProperty {
+    std::string literal;
+    std::optional<TextFamilyDriver> driver;
+    std::string evaluated;
+};
 TextContentProperty text_content_property(const Document&,const Ref&);
 std::string evaluate_text_content(const Document&,const Id& object);
 std::map<Ref,std::string> evaluate_text_contents(const Document&);
+TextFamilyProperty text_family_property(const Document&,const Ref&);
+std::string evaluate_text_family(const Document&,const Id& object);
+std::map<Ref,std::string> evaluate_text_families(const Document&);
 std::string property_origin(const Document& document, const Ref& ref);
 // Returns contour topology/IDs. All resolved coordinates, including generated
 // points, come from evaluate(); this is never another authored geometry store.

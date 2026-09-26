@@ -200,9 +200,9 @@ try:
                 entry=next(item for item in entries if item['ref']==ref)
                 result=core('get',ref=ref)['result']
                 kind='string' if field in readonly_fields[:3] else 'enum'
-                authored=dict(literal=value,driver=None) if field=='text.content' else dict(literal=value)
+                authored=dict(literal=value,driver=None) if field in ('text.content','text.family') else dict(literal=value)
                 assert result==entry and result['type']==kind and result['authored']==authored
-                assert result['evaluated']==value and result['link']==(field=='text.content') and result['expression'] is False
+                assert result['evaluated']==value and result['link']==(field in ('text.content','text.family')) and result['expression'] is False
                 if kind=='enum':
                     choices={'text.layout':['auto','frame'],'text.direction':['horizontal','vertical'],
                         'text.alignment':['start','center','end']}[field]
@@ -250,6 +250,25 @@ try:
         peer_source['content']='Later peer text'
         rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
         assert core('get',ref=title_content)['result']['evaluated']=='Revised peer text'
+        title_family=dict(object='title',point='',field='text.family')
+        peer_family=dict(object='typed-peer',point='',field='text.family')
+        rev=apply([dict(type='link_text_family',target=title_family,source=peer_family,replace_driver=False)],rev)
+        linked_family=core('get',ref=title_family)['result']
+        assert linked_family['authored']==dict(literal=text_source['family'],driver=dict(link=peer_family))
+        assert linked_family['evaluated']=='Different Test Family' and linked_family['link'] is True and linked_family['expression'] is False
+        peer_source['family']='Revised Test Family'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        assert core('get',ref=title_family)['result']['evaluated']=='Revised Test Family'
+        linked_doc=core('inspect')['result'];title_obj=next(item for item in linked_doc['objects'] if item['id']=='title')
+        assert title_obj['text']['family']==text_source['family'] and title_obj['text']['family_driver']==dict(link=peer_family)
+        blocked_family_source=dict(title_obj['text'],family='Blocked family')
+        blocked=core('apply',expected_revision=rev,commands=[dict(type='update_text',object='title',source=blocked_family_source)])
+        assert not blocked['ok'] and blocked['error']['code']=='DRIVEN_PROPERTY' and blocked['revision']==rev
+        rev=apply([dict(type='unlink_text_family',target=title_family)],rev)
+        assert core('get',ref=title_family)['result']['authored']==dict(literal='Revised Test Family',driver=None)
+        peer_source['family']='Later Test Family'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        assert core('get',ref=title_family)['result']['evaluated']=='Revised Test Family'
         rev=apply([dict(type='delete_objects',objects=['typed-peer'])],rev)
         layout=core('text_layout',object='title')['result'];assert layout['glyph_count']>0 and layout['used_fonts']
         assert core('export_plan',composition=comp['id'],artboard=first['id'])['result']['text_policy']=='outlines'

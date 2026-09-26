@@ -266,12 +266,21 @@ TextContentDriver read_text_content_driver(const j::value& value) {
 j::object text_content_driver_json(const TextContentDriver& driver) {
     return {{"link",ref_json(driver.link)}};
 }
-TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true) {
+TextFamilyDriver read_text_family_driver(const j::value& value) {
+    const auto& driver=value.as_object();
+    if(driver.contains("link")){keys(driver,{"link"});return TextFamilyDriver{read_ref(driver.at("link"))};}
+    throw Error("INVALID_TEXT_FAMILY_DRIVER","Text family driver requires one link");
+}
+j::object text_family_driver_json(const TextFamilyDriver& driver) {
+    return {{"link",ref_json(driver.link)}};
+}
+TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true) {
     const auto& o=v.as_object();
     if(!allow_italic_driver&&o.contains("italic_driver"))throw Error("UNSUPPORTED_TEXT_ITALIC_DRIVER","Text italic drivers require native 0.15");
     if(!allow_weight_driver&&o.contains("weight_driver"))throw Error("UNSUPPORTED_TEXT_WEIGHT_DRIVER","Text weight drivers require native 0.16");
     if(!allow_content_driver&&o.contains("content_driver"))throw Error("UNSUPPORTED_TEXT_CONTENT_DRIVER","Text content drivers require native 0.17");
-    keys(o,{"id","version","content","content_driver","family","locale","layout","direction","alignment","weight","italic","italic_driver","weight_driver","parameters"});
+    if(!allow_family_driver&&o.contains("family_driver"))throw Error("UNSUPPORTED_TEXT_FAMILY_DRIVER","Text family drivers require native 0.18");
+    keys(o,{"id","version","content","content_driver","family","family_driver","locale","layout","direction","alignment","weight","italic","italic_driver","weight_driver","parameters"});
     TextSource s;s.id=text(o.at("id"));s.version=j::value_to<unsigned>(o.at("version"));
     s.content=text(o.at("content"));s.family=text(o.at("family"));s.locale=text(o.at("locale"));
     s.layout=text(o.at("layout"));s.direction=text(o.at("direction"));s.alignment=text(o.at("alignment"));
@@ -279,6 +288,7 @@ TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_ita
     if(const auto* driver=o.if_contains("italic_driver"))s.italic_driver=read_text_italic_driver(*driver);
     if(const auto* driver=o.if_contains("weight_driver"))s.weight_driver=read_text_weight_driver(*driver);
     if(const auto* driver=o.if_contains("content_driver"))s.content_driver=read_text_content_driver(*driver);
+    if(const auto* driver=o.if_contains("family_driver"))s.family_driver=read_text_family_driver(*driver);
     for(const auto& p:o.at("parameters").as_object())s.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
     return s;
 }
@@ -319,6 +329,7 @@ j::value text_json(const TextSource& s) {
     if(s.italic_driver)result["italic_driver"]=text_italic_driver_json(*s.italic_driver);
     if(s.weight_driver)result["weight_driver"]=text_weight_driver_json(*s.weight_driver);
     if(s.content_driver)result["content_driver"]=text_content_driver_json(*s.content_driver);
+    if(s.family_driver)result["family_driver"]=text_family_driver_json(*s.family_driver);
     return result;
 }
 j::object text_italic_property_json(const Document& d,const Ref& ref,const TextItalicProperty& value) {
@@ -334,6 +345,12 @@ j::object text_weight_property_json(const Document& d,const Ref& ref,const TextW
 }
 j::object text_content_property_json(const Document& d,const Ref& ref,const TextContentProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=text_content_driver_json(*value.driver);
+    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","string"},{"origin","authored"},
+        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
+        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+}
+j::object text_family_property_json(const Document& d,const Ref& ref,const TextFamilyProperty& value) {
+    j::value driver=nullptr;if(value.driver)driver=text_family_driver_json(*value.driver);
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","string"},{"origin","authored"},
         {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
         {"evaluated",value.evaluated},{"link",true},{"expression",false}};
@@ -617,6 +634,13 @@ Command read_command(const j::value& v) {
     if(type=="unlink_text_content") {
         keys(o,{"type","target"});return UnlinkTextContent{read_ref(o.at("target"))};
     }
+    if(type=="link_text_family") {
+        keys(o,{"type","target","source","replace_driver"});
+        return LinkTextFamily{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="unlink_text_family") {
+        keys(o,{"type","target"});return UnlinkTextFamily{read_ref(o.at("target"))};
+    }
     if(type=="add_artboard") {
         keys(o,{"type","composition","artboard","index"});
         return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true),j::value_to<std::size_t>(o.at("index"))};
@@ -830,10 +854,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,17> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17"};
+        constexpr std::array<std::string_view,18> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.17 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.18 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -916,7 +940,7 @@ Document decode(std::string_view input) {
 
                 if(obj.kind==Kind::text) {
                     if(o.contains("source")||o.contains("point_edit")||o.contains("contours"))throw Error("INVALID_OBJECT","Text has incompatible geometry fields");
-                    obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17);
+                    obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17,minor>=18);
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
                     obj.source=read_primitive(o.at("source"),minor>=8,minor>=10);
@@ -1198,6 +1222,7 @@ std::string request(Session& session,std::string_view input) {
                     throw Error("UNKNOWN_TEXT_PROPERTY","Unsupported Text source property: "+r.field);
             }
             if(r.field=="text.content")result=text_content_property_json(session.document(),r,text_content_property(session.document(),r));
+            else if(r.field=="text.family")result=text_family_property_json(session.document(),r,text_family_property(session.document(),r));
             else if(is_text_readonly_field(r.field))result=text_readonly_property_json(session.document(),r,text_readonly_property(session.document(),r));
             else if(r.field=="text.italic")result=text_italic_property_json(session.document(),r,text_italic_property(session.document(),r));
             else if(r.field=="text.weight")result=text_weight_property_json(session.document(),r,text_weight_property(session.document(),r));
@@ -1220,12 +1245,19 @@ std::string request(Session& session,std::string_view input) {
             const auto italic_values=evaluate_text_italics(session.document());
             const auto weight_values=evaluate_text_weights(session.document());
             const auto content_values=evaluate_text_contents(session.document());
+            const auto family_values=evaluate_text_families(session.document());
             for(const auto& ref:properties(session.document())) {
                 if(is_text_readonly_field(ref.field)) {
                     if(ref.field=="text.content") {
                         const auto& source=*session.document().objects.at(ref.object).text;
                         list.push_back(text_content_property_json(session.document(),ref,
                             {source.content,source.content_driver,content_values.at(ref)}));
+                        continue;
+                    }
+                    if(ref.field=="text.family") {
+                        const auto& source=*session.document().objects.at(ref.object).text;
+                        list.push_back(text_family_property_json(session.document(),ref,
+                            {source.family,source.family_driver,family_values.at(ref)}));
                         continue;
                     }
                     list.push_back(text_readonly_property_json(session.document(),ref,text_readonly_property(session.document(),ref)));
