@@ -212,7 +212,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.15','current writer uses native 0.15')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.16','current writer uses native 0.16')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -224,7 +224,7 @@ new=replies[0]['result'];remove_migrated_anchor_defaults(new);new['version']='0.
 check(new==old,'0.8 migration preserves linked count, angular correction, all paints and text')
 # Catch the documented field vocabulary falling behind real numeric properties.
 # This checks that specific schema boundary; the native codec remains the validator.
-schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.15.schema.json').read_text())
+schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.16.schema.json').read_text())
 field_rules=schema['$defs']['ref']['properties']['field']['anyOf']
 for property_ in replies[1]['result']:
     if property_['type']!='number': continue
@@ -320,4 +320,52 @@ with tempfile.TemporaryDirectory() as tmp:
     native['version']='0.11';remove_migrated_asset_defaults(native);check('UNKNOWN_FIELD' in run('--validate',native).stderr,'old format rejects Offset line-join field')
     next(o for o in native['objects'] if o['id']=='offset-box')['stack'][-1].pop('line_join')
     check('UNSUPPORTED_OPERATOR' in run('--validate',native).stderr,'old format rejects Offset type even without its new field')
+
+# The JSON-lines process shares the typed Text weight commands and projections.
+with tempfile.TemporaryDirectory() as tmp:
+    path=Path(tmp)/'text-weight.nect';path.write_text(json.dumps(sample),encoding='utf-8')
+    composition_id=sample['compositions'][0]['id']
+    def text_source(source_id,content,weight):
+        return dict(id=source_id,version=1,content=content,family='Yu Gothic',locale='ja-JP',layout='auto',
+            direction='horizontal',alignment='start',weight=weight,italic=False,
+            parameters={name:dict(literal=value) for name,value in dict(origin_x=0,origin_y=0,font_size=48,
+                frame_width=400,frame_height=200,tracking=0,line_spacing=0).items()})
+    source_a=text_source('weight-a-source','Weight A',700);source_b=text_source('weight-b-source','Weight B',400)
+    ref_a=dict(object='weight-a',point='',field='text.weight');ref_b=dict(object='weight-b',point='',field='text.weight')
+    requests=[
+        dict(op='apply',expected_revision=0,commands=[dict(type='create_text',composition=composition_id,parent='',id='weight-a',name='Weight A',source=source_a),
+            dict(type='create_text',composition=composition_id,parent='',id='weight-b',name='Weight B',source=source_b)]),
+        dict(op='resolve_name',name='Weight A',point='',field='text.weight'),dict(op='properties'),
+        dict(op='apply',expected_revision=1,commands=[dict(type='link_text_weight',target=ref_b,source=ref_a,replace_driver=False)]),
+        dict(op='get',ref=ref_b),dict(op='apply',expected_revision=2,commands=[dict(type='update_text',object='weight-a',source=dict(source_a,weight=300))]),
+        dict(op='get',ref=ref_b),dict(op='apply',expected_revision=3,commands=[dict(type='update_text',object='weight-b',source=dict(source_b,weight=450))]),
+        dict(op='inspect'),dict(op='text_layout',object='weight-b'),
+        dict(op='apply',expected_revision=3,commands=[dict(type='unlink_text_weight',target=ref_b)]),
+        dict(op='undo',expected_revision=4),dict(op='inspect'),dict(op='get',ref=ref_b)]
+    proc=subprocess.run([exe,'--serve',str(path)],input='\n'.join(map(json.dumps,requests))+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=20)
+    replies=[json.loads(line) for line in proc.stdout.splitlines()]
+    check(len(replies)==len(requests),'Text weight process returns one response for every request')
+    check(all(replies[i]['ok'] for i in (0,1,2,3,4,5,6,8,9,10,11,12,13)),
+        'Text weight API create/discovery/link/update/layout/unlink/Undo succeeds')
+    check(replies[1]['result']==ref_a,'JSON-lines resolve_name returns the stable Text weight Ref')
+    metadata=next(value for value in replies[2]['result'] if value['ref']==ref_b)
+    check(metadata['type']=='integer' and metadata['unit']=='unitless' and metadata['range']==dict(min=1,max=999) and
+        metadata['authored']==dict(literal=400,driver=None),'Text weight properties report the authored integer contract')
+    check(replies[4]['result']['evaluated']==700 and replies[4]['result']['authored']==dict(literal=400,driver=dict(link=ref_a)) and
+        replies[6]['result']['evaluated']==300,'JSON-lines get preserves the literal while the stable source changes')
+    check(not replies[7]['ok'] and replies[7]['error']['code']=='DRIVEN_PROPERTY' and replies[7]['revision']==3,
+        'A JSON-lines driven literal edit fails without advancing revision')
+    source_objects={obj['id']:obj for obj in replies[8]['result']['objects']}
+    check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
+        'Rejected process command preserves the authored source and link')
+    check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
+    check(replies[12]['result']['version']=='0.16' and replies[12]['result']==replies[8]['result'],
+        'Undo restores the pre-unlink native state exactly')
+    check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
+        'Undo restores the stable driver and its evaluated integer through a fresh request')
+    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.16 Text weight document validates in a fresh process')
+    old_weight=json.loads(json.dumps(replies[12]['result']));old_weight['version']='0.15'
+    check(run('--validate',old_weight).returncode==2 and 'UNSUPPORTED_TEXT_WEIGHT_DRIVER' in run('--validate',old_weight).stderr,
+        'Native 0.15 rejects the new Text weight driver instead of dropping it')
 print(f'PASS {checks} process and native migration checks')

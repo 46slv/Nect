@@ -77,16 +77,16 @@ int main(){try{
     check(!evaluate_text_italic(bool_session.document(),"target")&&std::holds_alternative<Expression>(*bool_session.document().objects.at("target").text->italic_driver),
         "Boolean false expression remains authored as an expression");
     bool_apply({SetTextItalicExpression{italic_b,inverted,true}});
-    const auto native15=encode(bool_session.document());
-    check(native15.find("\"version\":\"0.15\"")!=std::string::npos&&native15.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
-        encode(decode(native15))==native15,"Native 0.15 roundtrip preserves Text italic expression exactly");
-    auto invalid_driver=native15;const auto driver_at=invalid_driver.find("\"italic_driver\":{\"expression\":");
+    const auto native16=encode(bool_session.document());
+    check(native16.find("\"version\":\"0.16\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
+        encode(decode(native16))==native16,"Native 0.16 roundtrip preserves Text italic expression exactly");
+    auto invalid_driver=native16;const auto driver_at=invalid_driver.find("\"italic_driver\":{\"expression\":");
     check(driver_at!=std::string::npos,"Native Text italic driver is serialized as the expression alternative");
     invalid_driver.replace(driver_at,std::string("\"italic_driver\":{\"expression\":").size(),"\"italic_driver\":{\"other\":");
     rejects("INVALID_TEXT_ITALIC_DRIVER",[&]{decode(invalid_driver);});
-    auto old_with_driver=native15;const auto current_version=old_with_driver.find("\"version\":\"0.15\"");
-    check(current_version!=std::string::npos,"Native bool driver fixture identifies version 0.15");
-    old_with_driver.replace(current_version,std::string("\"version\":\"0.15\"").size(),"\"version\":\"0.14\"");
+    auto old_with_driver=native16;const auto current_version=old_with_driver.find("\"version\":\"0.16\"");
+    check(current_version!=std::string::npos,"Native bool driver fixture identifies version 0.16");
+    old_with_driver.replace(current_version,std::string("\"version\":\"0.16\"").size(),"\"version\":\"0.14\"");
     rejects("UNSUPPORTED_TEXT_ITALIC_DRIVER",[&]{decode(old_with_driver);});
     const auto before_delete=encode(bool_session.document());const auto before_delete_revision=bool_session.revision();
     rejects("MISSING_REFERENCE",[&]{bool_apply({DeleteObjects{{"title"}}});});
@@ -97,10 +97,118 @@ int main(){try{
     auto legacy=empty_document("legacy-doc","legacy-comp","legacy-frame");
     auto legacy_text=default_text("legacy-text","Legacy");legacy_text.italic=true;
     Session legacy_session(legacy);legacy_session.apply({CreateText{"legacy-comp","","legacy-object","Legacy",legacy_text}},legacy_session.revision());
-    auto native14=encode(legacy_session.document());const auto version_at=native14.find("\"version\":\"0.15\"");
-    check(version_at!=std::string::npos,"Native writer emits 0.15");native14.replace(version_at,std::string("\"version\":\"0.15\"").size(),"\"version\":\"0.14\"");
+    auto native14=encode(legacy_session.document());const auto version_at=native14.find("\"version\":\"0.16\"");
+    check(version_at!=std::string::npos,"Native writer emits 0.16");native14.replace(version_at,std::string("\"version\":\"0.16\"").size(),"\"version\":\"0.14\"");
     const auto old_text=decode(native14);check(old_text.objects.at("legacy-object").text->italic&&!old_text.objects.at("legacy-object").text->italic_driver,
         "Native 0.14 Text decodes with its literal italic value");
+    auto weight_document=empty_document("weight-doc","weight-comp","weight-frame");Session weight_session(weight_document);
+    auto weight_apply=[&](std::vector<Command> commands){weight_session.apply(commands,weight_session.revision());};
+    auto weight_a=default_text("weight-a-source","Weight A");weight_a.weight=700;
+    auto weight_b=default_text("weight-b-source","Weight B");weight_b.weight=400;
+    Point weight_path_point;weight_path_point.id="weight-path-point";
+    weight_apply({CreateText{"weight-comp","","weight-a","Weight A",weight_a},
+        CreateText{"weight-comp","","weight-b","Weight B",weight_b},
+        CreatePath{"weight-comp","","weight-path","Weight Path",{{"weight-path-contour",false,{weight_path_point}}}}});
+    const Ref weight_a_ref{"weight-a","","text.weight"},weight_b_ref{"weight-b","","text.weight"};
+    check(resolve_name(weight_session.document(),"Weight A","","text.weight")==weight_a_ref,
+        "Name resolution discovers the stable typed Text weight Ref");
+    const auto weight_discovered=properties(weight_session.document());
+    check(std::find(weight_discovered.begin(),weight_discovered.end(),weight_a_ref)!=weight_discovered.end(),
+        "Property discovery includes integer Text weight");
+    weight_apply({LinkTextWeight{weight_b_ref,weight_a_ref,false}});
+    auto linked_weight_property=text_weight_property(weight_session.document(),weight_b_ref);
+    check(linked_weight_property.literal==400&&linked_weight_property.evaluated==700&&
+        linked_weight_property.driver==TextWeightDriver{weight_a_ref},
+        "Same-type weight link evaluates through its stable Ref and preserves the target literal");
+    const auto weight_link_bytes=encode(weight_session.document());
+    check(weight_link_bytes.find("\"version\":\"0.16\"")!=std::string::npos&&
+        weight_link_bytes.find("\"weight_driver\":{\"link\"")!=std::string::npos&&
+        encode(decode(weight_link_bytes))==weight_link_bytes,
+        "Native 0.16 retains the optional Text weight Ref link exactly");
+    const auto weight_get=request(weight_session,R"({"op":"get","ref":{"object":"weight-b","point":"","field":"text.weight"}})");
+    const auto weight_properties=request(weight_session,R"({"op":"properties"})");
+    check(weight_get.find("\"type\":\"integer\"")!=std::string::npos&&weight_get.find("\"unit\":\"unitless\"")!=std::string::npos&&
+        weight_get.find("\"min\":1")!=std::string::npos&&weight_get.find("\"max\":999")!=std::string::npos&&
+        weight_get.find("\"literal\":400")!=std::string::npos&&weight_get.find("\"evaluated\":700")!=std::string::npos&&
+        weight_properties.find("\"field\":\"text.weight\"")!=std::string::npos,
+        "JSON get and properties report integer range, authored literal, driver and evaluated weight");
+    const auto weight_revision=weight_session.revision();
+    const auto weight_unchanged=[&](const std::string& bytes,std::uint64_t revision,const char* message) {
+        check(weight_session.revision()==revision&&encode(weight_session.document())==bytes,message);
+    };
+    rejects("DRIVEN_PROPERTY",[&]{weight_apply({LinkTextWeight{weight_b_ref,weight_a_ref,false}});});
+    weight_unchanged(weight_link_bytes,weight_revision,"Replacing an existing weight driver without replace_driver is atomic");
+    rejects("MISSING_REFERENCE",[&]{weight_apply({LinkTextWeight{weight_b_ref,{"missing-weight","","text.weight"},true}});});
+    weight_unchanged(weight_link_bytes,weight_revision,"Missing weight source rejection preserves authored bytes and revision");
+    rejects("TYPE_MISMATCH",[&]{weight_apply({LinkTextWeight{weight_b_ref,{"weight-path","","text.weight"},true}});});
+    weight_unchanged(weight_link_bytes,weight_revision,"Wrong-type weight source rejection preserves authored bytes and revision");
+    rejects("DEPENDENCY_CYCLE",[&]{weight_apply({LinkTextWeight{weight_a_ref,weight_b_ref,false}});});
+    weight_unchanged(weight_link_bytes,weight_revision,"A cyclic weight link rejects atomically");
+    rejects("MISSING_REFERENCE",[&]{weight_apply({LinkProperties{{weight_b_ref},weight_a_ref,false}});});
+    rejects("MISSING_REFERENCE",[&]{weight_apply({SetExpression{{weight_b_ref},{"300",1}}});});
+    weight_unchanged(weight_link_bytes,weight_revision,"Generic Scalar links and expressions cannot claim Text weight");
+    auto driven_weight_edit=*weight_session.document().objects.at("weight-b").text;driven_weight_edit.weight=450;
+    rejects("DRIVEN_PROPERTY",[&]{weight_apply({UpdateText{"weight-b",driven_weight_edit}});});
+    weight_unchanged(weight_link_bytes,weight_revision,"A driven weight literal edit rejects without changing revision or authored bytes");
+    rejects("MISSING_REFERENCE",[&]{weight_apply({DeleteObjects{{"weight-a"}}});});
+    weight_unchanged(weight_link_bytes,weight_revision,"Deleting a referenced weight source rejects atomically");
+    rejects("REVISION_CONFLICT",[&]{weight_session.apply({UnlinkTextWeight{weight_b_ref}},weight_revision-1);});
+    weight_unchanged(weight_link_bytes,weight_revision,"A stale weight command leaves the link unchanged");
+    auto source_weight_edit=*weight_session.document().objects.at("weight-a").text;source_weight_edit.weight=300;
+    weight_apply({UpdateText{"weight-a",source_weight_edit},Rename{"weight-a","Renamed A"},
+        ReorderObjects{"weight-comp","",{"weight-path","weight-b","weight-a"}}});
+    check(evaluate_text_weight(weight_session.document(),"weight-b")==300&&
+        text_weight_property(weight_session.document(),weight_b_ref).literal==400&&
+        weight_session.document().objects.at("weight-b").text->weight_driver->link==weight_a_ref,
+        "Weight follows stable object identity after rename/reorder while the target literal remains authored");
+    const auto linked_reopen=decode(encode(weight_session.document()));
+    check(linked_reopen.objects.at("weight-b").text->weight_driver->link==weight_a_ref&&
+        evaluate_text_weight(linked_reopen,"weight-b")==300,
+        "Native encode/decode retains the exact Text weight Ref and evaluated value");
+    weight_apply({UnlinkTextWeight{weight_b_ref}});
+    check(weight_session.document().objects.at("weight-b").text->weight==300&&
+        !weight_session.document().objects.at("weight-b").text->weight_driver,
+        "Unlink freezes the evaluated integer into the authored literal");
+    weight_session.undo(weight_session.revision());
+    check(weight_session.document().objects.at("weight-b").text->weight==400&&
+        weight_session.document().objects.at("weight-b").text->weight_driver->link==weight_a_ref&&
+        evaluate_text_weight(weight_session.document(),"weight-b")==300,
+        "One Undo restores the weight link and its evaluation");
+    weight_session.redo(weight_session.revision());
+    source_weight_edit=*weight_session.document().objects.at("weight-a").text;source_weight_edit.weight=500;
+    weight_apply({UpdateText{"weight-a",source_weight_edit}});
+    check(evaluate_text_weight(weight_session.document(),"weight-b")==300,
+        "A weight target stays frozen after unlink while its former source changes");
+    const auto weight_before_bad=encode(weight_session.document());const auto weight_before_bad_revision=weight_session.revision();
+    source_weight_edit=*weight_session.document().objects.at("weight-a").text;source_weight_edit.weight=1000;
+    rejects("OUT_OF_RANGE",[&]{weight_apply({UpdateText{"weight-a",source_weight_edit}});});
+    weight_unchanged(weight_before_bad,weight_before_bad_revision,"Out-of-range authored Text weight is rejected atomically");
+    auto malformed_weight=weight_link_bytes;const auto weight_link_at=malformed_weight.find("\"weight_driver\":{\"link\":");
+    check(weight_link_at!=std::string::npos,"Native Text weight link has the strict link alternative");
+    malformed_weight.replace(weight_link_at,std::string("\"weight_driver\":{\"link\":").size(),"\"weight_driver\":{\"other\":");
+    rejects("INVALID_TEXT_WEIGHT_DRIVER",[&]{decode(malformed_weight);});
+    auto wrong_weight_ref=weight_link_bytes;const auto weight_ref_at=wrong_weight_ref.find("\"weight_driver\":{\"link\":");
+    const auto weight_field_at=wrong_weight_ref.find("text.weight",weight_ref_at);
+    check(weight_ref_at!=std::string::npos&&weight_field_at!=std::string::npos,"Native weight Ref field is explicitly present");
+    wrong_weight_ref.replace(weight_field_at,std::string("text.weight").size(),"text.italic");
+    rejects("TYPE_MISMATCH",[&]{decode(wrong_weight_ref);});
+    auto missing_weight_source=weight_link_bytes;const auto weight_object_at=missing_weight_source.find("weight-a",weight_ref_at);
+    check(weight_object_at!=std::string::npos,"Native weight Ref source ID is explicitly present");
+    missing_weight_source.replace(weight_object_at,std::string("weight-a").size(),"missing");
+    rejects("MISSING_REFERENCE",[&]{decode(missing_weight_source);});
+    auto cyclic_weight=weight_link_bytes;const auto target_link_object=cyclic_weight.find("weight-a",weight_ref_at);
+    check(target_link_object!=std::string::npos,"Native weight Ref target ID is explicitly present");
+    cyclic_weight.replace(target_link_object,std::string("weight-a").size(),"weight-b");
+    rejects("DEPENDENCY_CYCLE",[&]{decode(cyclic_weight);});
+    auto old_weight_driver=weight_link_bytes;const auto weight_version_at=old_weight_driver.find("\"version\":\"0.16\"");
+    check(weight_version_at!=std::string::npos,"Native weight fixture identifies version 0.16");
+    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.16\"").size(),"\"version\":\"0.15\"");
+    rejects("UNSUPPORTED_TEXT_WEIGHT_DRIVER",[&]{decode(old_weight_driver);});
+    const auto legacy_weight=decode([&]{auto value=encode(weight_session.document());const auto at=value.find("\"version\":\"0.16\"");
+        value.replace(at,std::string("\"version\":\"0.16\"").size(),"\"version\":\"0.15\"");return value;}());
+    check(legacy_weight.objects.at("weight-a").text->weight==500&&!legacy_weight.objects.at("weight-a").text->weight_driver&&
+        legacy_weight.objects.at("weight-b").text->weight==300&&!legacy_weight.objects.at("weight-b").text->weight_driver,
+        "Native 0.15 Text migrates authored weights as literals");
 #ifdef _WIN32
     auto repeat=default_operation("repeat","nect.shape.repeater");repeat.parameters.at("copies").literal=3;
     apply({AddOperation{"title",repeat,1}});

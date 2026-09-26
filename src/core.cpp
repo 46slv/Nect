@@ -115,6 +115,13 @@ const TextSource& text_italic_source(const Document& document,const Ref& ref) {
     require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text italic Ref must identify a Text object");
     return *object->second.text;
 }
+const TextSource& text_weight_source(const Document& document,const Ref& ref) {
+    require(ref.point.empty()&&ref.field=="text.weight","TYPE_MISMATCH","Only Text weight accepts an integer property Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text weight Ref must identify a Text object");
+    return *object->second.text;
+}
 class TextItalicEvaluator {
     const Document& document_;
     std::map<Id,bool> values_;
@@ -144,6 +151,33 @@ public:
         std::map<Ref,bool> result;
         for(const auto& [id,object]:document_.objects)if(object.kind==Kind::text&&object.text)
             result.emplace(Ref{id,"","text.italic"},visit(id,0));
+        return result;
+    }
+};
+class TextWeightEvaluator {
+    const Document& document_;
+    std::map<Id,unsigned> values_;
+    std::set<Id> active_;
+    unsigned visit(const Id& id,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Text weight dependency depth limit 128");
+        if(const auto found=values_.find(id);found!=values_.end())return found->second;
+        require(active_.insert(id).second,"DEPENDENCY_CYCLE","Text weight dependency cycle");
+        const auto& source=text_weight_source(document_,{id,"","text.weight"});
+        require(source.weight>=1&&source.weight<=999,"OUT_OF_RANGE","Font weight must be 1..999");
+        auto value=source.weight;
+        if(source.weight_driver) {
+            (void)text_weight_source(document_,source.weight_driver->link);
+            value=visit(source.weight_driver->link.object,depth+1);
+        }
+        active_.erase(id);values_.emplace(id,value);return value;
+    }
+public:
+    explicit TextWeightEvaluator(const Document& document):document_(document){}
+    unsigned value(const Id& id){return visit(id,0);}
+    std::map<Ref,unsigned> all() {
+        std::map<Ref,unsigned> result;
+        for(const auto& [id,object]:document_.objects)if(object.kind==Kind::text&&object.text)
+            result.emplace(Ref{id,"","text.weight"},visit(id,0));
         return result;
     }
 };
@@ -298,6 +332,7 @@ auto& lookup_property(D& d,const Ref& r) {
 }
 std::string unit(const Ref& r) {
     if(r.point.empty()&&r.field=="text.italic")return "boolean";
+    if(r.point.empty()&&r.field=="text.weight")return "unitless";
     if(r.field=="generator.points")return "scalar";
     if(r.field=="generator.rotation")return "degree";
     if(r.field.starts_with("color."))return "scalar";
@@ -523,7 +558,7 @@ std::vector<Ref> properties(const Document& document) {
         refs.push_back(ref);
     }
     for(const auto& [id,object]:document.objects)if(object.kind==Kind::text&&object.text)
-        refs.push_back({id,"","text.italic"});
+        {refs.push_back({id,"","text.italic"});refs.push_back({id,"","text.weight"});}
     return refs;
 }
 
@@ -537,6 +572,16 @@ bool evaluate_text_italic(const Document& document,const Id& object) {
 std::map<Ref,bool> evaluate_text_italics(const Document& document) {
     return TextItalicEvaluator(document).all();
 }
+TextWeightProperty text_weight_property(const Document& document,const Ref& ref) {
+    const auto& source=text_weight_source(document,ref);
+    return {source.weight,source.weight_driver,evaluate_text_weight(document,ref.object)};
+}
+unsigned evaluate_text_weight(const Document& document,const Id& object) {
+    return TextWeightEvaluator(document).value(object);
+}
+std::map<Ref,unsigned> evaluate_text_weights(const Document& document) {
+    return TextWeightEvaluator(document).all();
+}
 std::string property_unit(const Ref& r) { return unit(r); }
 
 Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std::string& f) {
@@ -548,6 +593,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     Ref r{matches.front(),p,f};
     if(p.empty()&&f=="text.italic") {
         (void)text_italic_property(d,r);
+        return r;
+    }
+    if(p.empty()&&f=="text.weight") {
+        (void)text_weight_property(d,r);
         return r;
     }
     if(d.named_colors.contains(r.object)&&r.point.empty()&&r.field=="color") {
@@ -929,6 +978,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     // Boolean Text Italic links and expressions are a separate typed lane from
     // Scalar evaluation. Validate every authored driver before geometry uses it.
     (void)evaluate_text_italics(d);
+    (void)evaluate_text_weights(d);
     (void)evaluate_transforms(d,values);
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
         const auto& source=scalar->binding->source;
@@ -1299,7 +1349,7 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
             require(object.kind==Kind::text&&object.text.has_value(),"UNSUPPORTED_BASELINE","Baseline alignment requires Text objects with a first-line metric: "+id);
             std::map<std::string,double> parameters;
             for(const auto& [name,value]:object.text->parameters){(void)value;parameters.emplace(name,scalar_values.at({id,"","text."+name}));}
-            auto text=*object.text;text.italic=evaluate_text_italic(document,id);
+            auto text=*object.text;text.italic=evaluate_text_italic(document,id);text.weight=evaluate_text_weight(document,id);
             const auto layout=evaluate_text(text,parameters);
             require(layout.first_line_baseline_y.has_value(),"UNSUPPORTED_BASELINE","Text has no horizontal first-line baseline metric: "+id);
             const auto& world=evaluated_transforms.at(id).world;
@@ -1546,6 +1596,7 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         if(object.source)object.source->id=plan.ids.at(object.source->id);
         if(object.text) {
             object.text->id=plan.ids.at(object.text->id);
+            if(object.text->weight_driver)object.text->weight_driver->link=remap(object.text->weight_driver->link);
             if(object.text->italic_driver) {
                 if(auto link=std::get_if<Ref>(&*object.text->italic_driver))*link=remap(*link);
                 else object.text->italic_driver=remap_text_italic_expression(std::get<Expression>(*object.text->italic_driver),remap);
@@ -1632,6 +1683,16 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             auto& source=*candidate.objects.at(c.target.object).text;
             (void)text_italic_source(candidate,c.target);
             source.italic=value;source.italic_driver.reset();
+        } else if constexpr(std::is_same_v<T,LinkTextWeight>) {
+            const auto& current=text_weight_source(candidate,c.target);
+            (void)text_weight_source(candidate,c.source);
+            require(!current.weight_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing a Text weight driver requires replace_driver=true");
+            candidate.objects.at(c.target.object).text->weight_driver=TextWeightDriver{c.source};
+        } else if constexpr(std::is_same_v<T,UnlinkTextWeight>) {
+            (void)text_weight_source(candidate,c.target);
+            const auto value=evaluate_text_weight(candidate,c.target.object);
+            auto& source=*candidate.objects.at(c.target.object).text;
+            source.weight=value;source.weight_driver.reset();
         } else if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
             require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
             const auto values=evaluate(candidate);scalar_targets(candidate,c.targets,values);
@@ -1835,6 +1896,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         } else if constexpr(std::is_same_v<T,CreateText>) {
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
             require(!c.source.italic_driver,"USE_TYPED_COMMAND","Create Text Italic links with link_text_italic or set_text_italic_expression");
+            require(!c.source.weight_driver,"USE_TYPED_COMMAND","Create Text weight links with link_text_weight");
             Object object;object.id=c.id;object.name=c.name;object.kind=Kind::text;object.text=c.source;
             siblings(candidate,c.composition,c.parent).push_back(c.id);candidate.objects.emplace(c.id,std::move(object));
             add_default_paint(candidate,c.id,"nect.paint.fill");
@@ -1848,6 +1910,11 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 require(next.italic==o.text->italic,"DRIVEN_PROPERTY","Unlink or replace the Text italic driver before changing its authored literal");
                 next.italic_driver=o.text->italic_driver;
             } else require(!next.italic_driver,"USE_TYPED_COMMAND","Create Text Italic links with link_text_italic or set_text_italic_expression");
+            if(o.text->weight_driver) {
+                require(!next.weight_driver||next.weight_driver==o.text->weight_driver,"DRIVEN_PROPERTY","UpdateText cannot replace or remove a Text weight driver");
+                require(next.weight==o.text->weight,"DRIVEN_PROPERTY","Unlink the Text weight driver before changing its authored literal");
+                next.weight_driver=o.text->weight_driver;
+            } else require(!next.weight_driver,"USE_TYPED_COMMAND","Create Text weight links with link_text_weight");
             o.text=std::move(next);
         } else if constexpr(std::is_same_v<T,CreatePrimitive>) {
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);

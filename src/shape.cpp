@@ -51,7 +51,7 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
     if(o.text) {
         std::map<std::string,double> parameters;
         for(const auto& [name,scalar]:o.text->parameters){(void)scalar;parameters.emplace(name,values.at({id,"","text."+name}));}
-        auto text=*o.text;text.italic=evaluate_text_italic(d,id);
+        auto text=*o.text;text.italic=evaluate_text_italic(d,id);text.weight=evaluate_text_weight(d,id);
         source=evaluate_text(text,parameters).contours;
     }
     EvaluatedShape shape;shape.paths.push_back({source,identity_matrix});

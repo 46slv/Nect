@@ -52,7 +52,7 @@ void semantics() {
     auto malformed=replace(native,"\"sha256\":\""+first->sha256(),"\"sha256\":\""+std::string(64,'0'));
     rejects("ASSET_METADATA_MISMATCH",[&]{decode(malformed);});
     malformed=replace(native,"\"interpretation_version\":1","\"interpretation_version\":2");rejects("ASSET_METADATA_MISMATCH",[&]{decode(malformed);});
-    malformed=replace(native,"\"version\":\"0.15\"","\"version\":\"0.12\"");rejects("UNKNOWN_FIELD",[&]{decode(malformed);});
+    malformed=replace(native,"\"version\":\"0.16\"","\"version\":\"0.12\"");rejects("UNKNOWN_FIELD",[&]{decode(malformed);});
     check(base64_decode(base64_encode(first->bytes()))==first->bytes(),"Canonical base64 preserves every byte");
     for(const auto* bad:{"","A","AA=A","AA==AAAA","AB==","AAB=","AA?A","AA\nA"})rejects("INVALID_ASSET_BYTES",[&]{base64_decode(bad);});
     Session limited(empty_document("limited","plane","frame"),{1024,128});rejects("HISTORY_LIMIT",[&]{limited.apply({AddRasterAsset{{"large","Large","embedded","",first}}},0);});check(limited.document().raster_assets.empty(),"History admission is atomic");

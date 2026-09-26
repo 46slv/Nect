@@ -42,9 +42,13 @@ struct Expression {
     bool operator==(const Expression&) const = default;
 };
 
-// Text Italic is the sole typed boolean dependency in this contract slice.
-// A driver is either a same-type stable Ref or the bounded boolean Expression.
+// Text Italic is a typed boolean dependency; its bounded expression subset is
+// intentionally separate from the same-type integer Text weight link below.
 using TextItalicDriver = std::variant<Ref,Expression>;
+struct TextWeightDriver {
+    Ref link;
+    bool operator==(const TextWeightDriver&) const = default;
+};
 
 struct Scalar {
     double literal = 0;
@@ -93,6 +97,7 @@ struct TextSource {
     std::string content="Text",family="Yu Gothic",locale="ja-JP";
     std::string layout="auto",direction="horizontal",alignment="start";
     unsigned weight=400;
+    std::optional<TextWeightDriver> weight_driver;
     bool italic=false;
     std::optional<TextItalicDriver> italic_driver;
     std::map<std::string,Scalar> parameters;
@@ -331,6 +336,8 @@ struct UpdateText { Id object; TextSource source; };
 struct LinkTextItalic { Ref target; Ref source; bool replace_driver=false; };
 struct SetTextItalicExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkTextItalic { Ref target; };
+struct LinkTextWeight { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkTextWeight { Ref target; };
 struct CreateNamedColor { NamedColor color; };
 struct RenameNamedColor { Id color; std::string name; };
 struct DeleteNamedColor { Id color; };
@@ -384,7 +391,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     ReorderOperations,EnableOperation,OperationOptions,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
-    LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,
+    LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
     SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,
@@ -488,9 +495,17 @@ struct TextItalicProperty {
     std::optional<TextItalicDriver> driver;
     bool evaluated=false;
 };
+struct TextWeightProperty {
+    unsigned literal=400;
+    std::optional<TextWeightDriver> driver;
+    unsigned evaluated=400;
+};
 TextItalicProperty text_italic_property(const Document&,const Ref&);
 bool evaluate_text_italic(const Document&,const Id& object);
 std::map<Ref,bool> evaluate_text_italics(const Document&);
+TextWeightProperty text_weight_property(const Document&,const Ref&);
+unsigned evaluate_text_weight(const Document&,const Id& object);
+std::map<Ref,unsigned> evaluate_text_weights(const Document&);
 std::string property_origin(const Document& document, const Ref& ref);
 // Returns contour topology/IDs. All resolved coordinates, including generated
 // points, come from evaluate(); this is never another authored geometry store.

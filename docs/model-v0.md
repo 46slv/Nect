@@ -972,3 +972,26 @@ The writer emits 0.15 and includes `italic_driver` only when authored. The
 strict shape is `schemas/native-v0.15.schema.json`; semantic reference and
 cycle checks belong to the core. Other boolean fields and non-Scalar types do
 not gain a generic link or expression contract in this version.
+
+## Native 0.16 — typed Text weight link
+
+`TextSource.weight` remains the authored integer literal in [1,999]. A Text
+source may also store one optional `weight_driver:{"link":Ref}`, where the
+source and target refs are stable Object IDs with empty point and field
+`text.weight`. Only Text weight may link to Text weight. The driver has no
+offset, arithmetic, expression or implicit conversion to a Scalar double.
+
+Evaluation follows the integer link without changing either authored literal.
+Text layout and render use the evaluated weight. `link_text_weight` requires an
+explicit replacement flag when another driver exists; `unlink_text_weight`
+freezes the current evaluated value into the literal. Rename and reorder do not
+retarget the link. Copying both Text objects remaps the copied link to the
+copied source. Missing, wrong-type, cyclic and out-of-range values reject the
+whole Session command batch, and a surviving dependent prevents source deletion
+until it is unlinked.
+
+The 0.16 reader accepts 0.1–0.15 Text as literal-only weight and rejects a
+`weight_driver` in those earlier versions. The writer emits 0.16 and omits the
+driver when absent. `schemas/native-v0.16.schema.json` constrains the wire
+shape; the core validates semantic references and cycles. Integer expressions,
+generic multi-target links and other integer fields remain unsupported.

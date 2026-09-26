@@ -73,6 +73,7 @@ TOOLS = [
                      'Text: text_defaults returns a source template; text_fonts lists installed families. '
                      'create_text {composition,parent,id,name,source}; update_text {object,source} preserves source ID and existing Scalars. '
                      'Text source includes content,family,locale,weight,italic,layout auto/frame,direction horizontal/vertical,alignment start/center/end. '
+                     'Text weight is an integer [1,999]; link_text_weight {target:Text weight Ref,source:Text weight Ref,replace_driver:bool} links one Text weight to another, and unlink_text_weight {target:Text weight Ref} freezes its evaluated value. It is not a Scalar or expression target. '
                      'Numeric text.* refs: origin_x,origin_y,font_size,frame_width,frame_height,tracking,line_spacing (0=font default). '
                      'text_layout {object} reports bounds, overflow, actual fonts and warnings. export_plan {composition,artboard} discloses outlined SVG text; native text stays editable. '
                      'Typed colors: color_properties or properties lists aggregate color refs and four ordinary numeric channels; get supports both types. '

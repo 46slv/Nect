@@ -1,4 +1,4 @@
-# Nect — autonomous Mission ownership / R02 next typed boundary
+# Nect — autonomous Mission ownership / R02 typed coverage audit
 
 ## Mission Brief
 
@@ -12,19 +12,19 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Select and freeze the next bounded R02/P03 typed dependency and save slice after the Text italic bool contract, preserving the same Session/native authority.
+**Goal:** Audit the remaining R02/P03 authored property types against literal, link, expression and GUI/API/native surfaces, then freeze the next highest-value bounded contract without adding a parallel property model.
 
-**Current phase:** R02-BOOL-01 passed implementation review, focused Release checks and independent desktop/native cold reopen on 2026-09-27; its exact result and residuals are in the [R02 boundary](docs/r02-property-boundary.md). The live [Completion Route](https://app.notion.com/p/3e3fd279a6f381b4ba9dd2d1bf066e0f) and [P03 worker contract](https://app.notion.com/p/3e3fd279a6f381ee8ab0ea5ea614c006) identify R02 as upstream for R04–R10. R03 interactive GUI Snap remains `LOCAL_WAIT` in the [R03 audit](docs/r03-acceptance-audit.md); R11-I retains its separate target-format DESIGN_GATE.
+**Current phase:** R02-BOOL-01 synchronized at `d6a9eac0faf714b6a4c7ad308f27606737073dcc`. R02-WEIGHT-01 has passed code review, Release focused CTest 7/7, strict native 0.16 schema validation and independent desktop/API cold reopen on 2026-09-27; its [result and residual](docs/r02-property-boundary.md) are ready for coherent commit/non-force sync and exact remote readback. Fresh Route/P03 read confirms a type-by-surface coverage table remains necessary. R03 interactive GUI Snap remains `LOCAL_WAIT`; R11-I retains its separate target-format DESIGN_GATE.
 
-**Proven:** Named aggregate Color discovery was synchronized at the prior checkpoint. R02-BOOL-01 adds typed Text italic refs, bool link/expression/unlink, native 0.15, older literal migration and GUI Inspector controls. Release focused CTest passed 11/11 serially; a second owned desktop Session reopened native 0.15 with exact authored equality, typed bool readback and unchanged SHA256 `efa0983d51321189bf4213723844530714a4d01ae3c4bef0b18a2b63d23b1d26`. Interactive GUI acceptance was not claimed. Existing Scalar multi-target commands remain separate. No Confirmed Requirement or R02/P03 line is fully accepted from these slices.
+**Proven:** Named aggregate Color discovery and Text italic bool dependency/native 0.15 are synchronized. R02-WEIGHT-01 adds same-type integer Text weight link/native 0.16; Release focused CTest passed 7/7, `Test-Json` schema validation returned True, and distinct owned desktop Sessions saved/reopened exact authored state with typed integer evaluated 300, literal 400 and unchanged SHA256 `e913079fbc1ce67091e04f88dd89893587cdd20caf25ed256d2134b0c14f32e3`. Interactive GUI acceptance was not claimed. Existing Scalar multi-target commands remain separate. No Confirmed Requirement or R02/P03 line is fully accepted from these slices.
 
-**Next task:** Fresh-read the current Route/P03 dependency and the R02 residual matrix, then choose the next smallest independently verifiable type or Save As boundary. Freeze its allowed source/target, identity, expression and native semantics with positive/negative oracles. Execute that bounded slice while preserving the outstanding GUI `LOCAL_WAIT` and R11-I DESIGN_GATE.
+**Next task:** First commit and non-force synchronize the verified R02-WEIGHT-01 checkpoint, then fresh-read the exact R02/P03 requirements and enumerate authored types against literal/link/expression/discovery/GUI/API/native, including what is deliberately unsupported. Decide whether another per-type lane or a shared typed dependency abstraction is the smallest safe implementation boundary; freeze positive/negative oracles for the next eligible slice.
 
-**Approach:** Treat native 0.15, stable `Ref` and Session commands as source truth. Separate discovery from authored links and evaluated expressions; do not infer Scalar behavior for other types. Verify atomic failure, stable IDs, Undo, native save/reopen and relevant GUI/API/MCP surfaces only for the chosen type. Freeze a packet before dispatching a fresh bounded Worker.
+**Approach:** Treat native 0.16, stable `Ref` and Session commands as source truth. Separate authored state, evaluated projection and UI drafts. Use the accepted P03 type-by-surface obligation to prioritize missing capabilities; do not infer that Text italic or weight covers all bool/integer properties. Preserve existing Scalar and Color contracts and explicit unsupported behavior.
 
-**Done for next:** The selected slice has an exact authority decision and positive/negative acceptance; if implemented, focused regression and native/API evidence pass, residual types stay explicit, and a coherent checkpoint is synchronized/read back. Do not close R03 GUI or R11-I from unrelated evidence.
+**Done for next:** R02-WEIGHT-01 is synchronized/read back; the remaining type-by-surface matrix has exact source pointers, dependency/identity/save gaps and a bounded next packet or a local design gate. Do not close R03 GUI, R11-I, P03 or Confirmed Requirements from partial type slices.
 
-**State:** Repository D:\Documents\Nect, branch codex/practical-alpha. R02-BOOL-01 baseline `30065403aaca9edb8245499e57fa29e8c69a7c03` matched local/tracking/fresh remote before implementation. At closure, capture the resulting local/tracking/fresh remote HEAD and clean tree in an external receipt; the commit cannot contain its own hash. No owned Nect desktop process remains. Scratch native and takeover receipts are ignored under build/.
+**State:** Repository D:\Documents\Nect, branch codex/practical-alpha. R02-WEIGHT-01 baseline `d6a9eac0faf714b6a4c7ad308f27606737073dcc` matched local/tracking/fresh remote and clean tree before edits. The verified candidate awaits commit/push; at closure capture resulting local/tracking/fresh remote HEAD and tree in an external receipt because the commit cannot contain its own hash. No owned Nect desktop process remains. Scratch native and takeover receipts are ignored under build/.
 
 **Authority:** Current user instruction, live [DEC-71](https://app.notion.com/p/3e6fd279a6f381219079f6b9a024fece), [Autonomous Mission Owner v0.2](https://app.notion.com/p/3e6fd279a6f381219f4dfdf20e562a0a), scoped live Requirements/Route and repo AGENTS.md. Reversible work and normal non-force branch sync are authorized; major native/save format redesign, Human/destructive/public boundaries remain protected.
 

@@ -136,5 +136,22 @@ void text_italic_drivers() {
         s.document().objects.at("expression").text->italic_driver==original.objects.at("expression").text->italic_driver,
         "Text italic duplication leaves original drivers unchanged");
 }
+void text_weight_drivers() {
+    Session s(empty_document("weight-doc","weight-comp","weight-frame"));
+    auto source=default_text("source-text","Source");source.weight=700;
+    auto target=default_text("target-text","Target");target.weight=400;
+    apply(s,{CreateText{"weight-comp","","source","Source",source},
+        CreateText{"weight-comp","","target","Target",target},
+        LinkTextWeight{{"target","","text.weight"},{"source","","text.weight"},false}});
+    const auto original=s.document();
+    apply(s,{DuplicateObjects{{"source","target"},"weightcopy"}});
+    const auto copied=s.document();const auto source_copy=copy_of(copied,"source"),target_copy=copy_of(copied,"target");
+    check(copied.objects.at(target_copy).text->weight_driver->link==Ref{source_copy,"","text.weight"}&&
+        evaluate_text_weight(copied,target_copy)==700&&copied.objects.at(target_copy).text->weight==400,
+        "Duplicated Text weight link remaps to the copied source and retains the copied literal");
+    check(s.document().objects.at("target").text->weight_driver==original.objects.at("target").text->weight_driver&&
+        evaluate_text_weight(s.document(),"target")==700,
+        "Text weight duplication leaves the original link unchanged");
 }
-int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}
+}
+int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

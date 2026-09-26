@@ -22,6 +22,7 @@ std::size_t extra(const Ref&);
 std::size_t extra(const Binding&);
 std::size_t extra(const Expression&);
 std::size_t extra(const TextItalicDriver&);
+std::size_t extra(const TextWeightDriver&);
 std::size_t extra(const Scalar&);
 std::size_t extra(const Point&);
 std::size_t extra(const Contour&);
@@ -68,10 +69,11 @@ std::size_t extra(const Ref& v){return total(extra(v.object),extra(v.point),extr
 std::size_t extra(const Binding& v){return total(extra(v.source),extra(v.mode));}
 std::size_t extra(const Expression& v){return extra(v.source);}
 std::size_t extra(const TextItalicDriver& v){return std::visit([](const auto& value){return extra(value);},v);}
+std::size_t extra(const TextWeightDriver& v){return extra(v.link);}
 std::size_t extra(const Scalar& v){return total(extra(v.binding),extra(v.expression));}
 std::size_t extra(const Point& v){return total(extra(v.id),extra(v.x),extra(v.y),extra(v.in_angle),extra(v.in_length),extra(v.out_angle),extra(v.out_length));}
 std::size_t extra(const Contour& v){return total(extra(v.id),extra(v.points));}
-std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content),extra(v.family),extra(v.locale),extra(v.layout),extra(v.direction),extra(v.alignment),extra(v.italic_driver),extra(v.parameters));}
+std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content),extra(v.family),extra(v.locale),extra(v.layout),extra(v.direction),extra(v.alignment),extra(v.weight_driver),extra(v.italic_driver),extra(v.parameters));}
 std::size_t extra(const Primitive& v){return total(extra(v.id),extra(v.type),extra(v.parameters));}
 std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides));}
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}

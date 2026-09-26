@@ -1783,10 +1783,48 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     connect(family->lineEdit(),&QLineEdit::editingFinished,this,[this,family,update,before=source.family]{
         const auto value=family->currentText().toStdString();if(value!=before)perform([&]{update([&](auto& s){s.family=value;});});});
     connect(family,QOverload<int>::of(&QComboBox::activated),this,[this,family,update]{perform([&]{update([&](auto& s){s.family=family->currentText().toStdString();});});});
+    const Ref weight_ref{id,"","text.weight"};const auto weight_state=text_weight_property(host.session.document(),weight_ref);
+    const auto weight_revision=host.session.revision();
+    auto* weight_row=new QWidget(box);auto* weight_layout=new QHBoxLayout(weight_row);weight_layout->setContentsMargins(0,0,0,0);
     auto* weight=new QSpinBox;weight->setObjectName("text-weight");weight->setRange(1,999);weight->setSingleStep(100);
-    weight->setValue(static_cast<int>(source.weight));weight->setKeyboardTracking(false);form->addRow("Weight",weight);
-    connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,before=source.weight]{
-        if(static_cast<unsigned>(weight->value())!=before)perform([&]{update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});});});
+    weight->setValue(static_cast<int>(weight_state.evaluated));weight->setKeyboardTracking(false);weight->setEnabled(!weight_state.driver);
+    if(weight_state.driver)weight->setToolTip("Unlink the driver before editing the authored weight.");
+    weight_layout->addWidget(weight);
+    auto* weight_driver_button=new QToolButton(weight_row);weight_driver_button->setObjectName("text-weight-driver");
+    weight_driver_button->setText(weight_state.driver?"Driver…":"Drive…");weight_driver_button->setPopupMode(QToolButton::InstantPopup);
+    auto* weight_menu=new QMenu(weight_driver_button);weight_driver_button->setMenu(weight_menu);weight_layout->addWidget(weight_driver_button);
+    auto* link_weight=weight_menu->addAction("Link to Text weight…");
+    auto* unlink_weight=weight_menu->addAction("Unlink weight");unlink_weight->setEnabled(weight_state.driver.has_value());
+    QStringList weight_source_labels;std::vector<Id> weight_source_ids;
+    for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
+        weight_source_ids.push_back(source_id);weight_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+    }
+    link_weight->setEnabled(!weight_source_ids.empty());
+    const bool replace_weight_driver=weight_state.driver.has_value();
+    connect(link_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision,replace_weight_driver,weight_source_ids,weight_source_labels]{
+        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text weight","Source Text",weight_source_labels,0,false,&accepted);
+        if(!accepted)return;
+        const auto index=weight_source_labels.indexOf(choice);if(index<0)return;
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({LinkTextWeight{{id,"","text.weight"},{weight_source_ids.at(static_cast<std::size_t>(index)),"","text.weight"},replace_weight_driver}},weight_revision);host.edited();});
+    });
+    connect(unlink_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision]{
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({UnlinkTextWeight{{id,"","text.weight"}}},weight_revision);host.edited();});
+    });
+    form->addRow("Weight",weight_row);
+    auto* weight_status=new QLabel(weight_row);weight_status->setObjectName("text-weight-state");
+    QString weight_driver_description="none";
+    if(weight_state.driver) {
+        const auto& link=weight_state.driver->link;const auto found=host.session.document().objects.find(link.object);
+        weight_driver_description="link to "+(found==host.session.document().objects.end()?qs(link.object):qs(found->second.name)+" ("+qs(link.object)+")");
+    }
+    weight_status->setText(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
+        .arg(weight_state.literal).arg(weight_driver_description).arg(weight_state.evaluated));
+    weight_status->setWordWrap(true);form->addRow("",weight_status);
+    connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,weight_state]{
+        if(weight_state.driver)return;
+        if(static_cast<unsigned>(weight->value())!=weight_state.literal)perform([&]{update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});});});
     const Ref italic_ref{id,"","text.italic"};const auto italic_state=text_italic_property(host.session.document(),italic_ref);
     const auto italic_revision=host.session.revision();
     auto* italic_row=new QWidget(box);auto* italic_layout=new QHBoxLayout(italic_row);italic_layout->setContentsMargins(0,0,0,0);
@@ -1856,7 +1894,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     for(const auto* parameter:{"origin_x","origin_y","font_size","frame_width","frame_height","tracking","line_spacing"})
         add_property(form,{id,"",std::string("text.")+parameter},parameter_label(parameter));
     std::map<std::string,double> parameters;for(const auto& [name,value]:source.parameters){(void)value;parameters[name]=inspector_values_.at({id,"","text."+name});}
-    auto evaluated_source=source;evaluated_source.italic=italic_state.evaluated;
+    auto evaluated_source=source;evaluated_source.italic=italic_state.evaluated;evaluated_source.weight=weight_state.evaluated;
     const auto result=evaluate_text(evaluated_source,parameters);
     QStringList lines;lines<<QString("%1 × %2 du · %3 glyphs").arg(display_value(result.width),display_value(result.height)).arg(result.glyph_count);
     if(result.overflow)lines<<"Text extends outside its frame. Increase the frame or reduce the type size.";
@@ -2193,7 +2231,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                     }
                     if(const auto& selected=host.session.document().objects.at(id);selected.text) {
                         std::map<std::string,double> parameters;for(const auto& [name,value]:selected.text->parameters){(void)value;parameters[name]=values.at({id,"","text."+name});}
-                        auto text=*selected.text;text.italic=evaluate_text_italic(host.session.document(),id);
+                        auto text=*selected.text;text.italic=evaluate_text_italic(host.session.document(),id);text.weight=evaluate_text_weight(host.session.document(),id);
                         const auto layout=evaluate_text(text,parameters);bounds=QRectF(layout.x,layout.y,layout.width,layout.height);
                     }
                     const auto span=std::max(1.0,bounds.width());
@@ -2569,7 +2607,7 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
         auto* dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setWindowTitle("Insert expression reference");dialog->resize(660,450);
         auto* content=new QVBoxLayout(dialog);auto* search=new QLineEdit;search->setPlaceholderText("Search properties");content->addWidget(search);auto* list=new QListWidget;content->addWidget(list);
         for(const auto& ref:properties(host.session.document())) {
-            if(ref.point.empty()&&ref.field=="text.italic")continue;
+            if(ref.point.empty()&&(ref.field=="text.italic"||ref.field=="text.weight"))continue;
             auto* item=new QListWidgetItem(property_label(host.session.document(),ref),list);item->setData(Qt::UserRole,expression_ref(ref));
         }
         connect(search,&QLineEdit::textChanged,dialog,[list](const QString& text){const auto terms=text.split(' ',Qt::SkipEmptyParts);for(int i=0;i<list->count();++i)list->item(i)->setHidden(!std::all_of(terms.begin(),terms.end(),[&](const auto& term){return list->item(i)->text().contains(term,Qt::CaseInsensitive);}));});
@@ -2706,7 +2744,7 @@ void Window::pick_source(std::vector<Ref> targets,bool relative) {
     auto* list=new QListWidget;layout->addWidget(list);
     const auto values=evaluate(host.session.document());
     for(const auto& ref:properties(host.session.document())) {
-        if(ref.point.empty()&&ref.field=="text.italic")continue;
+        if(ref.point.empty()&&(ref.field=="text.italic"||ref.field=="text.weight"))continue;
         if(std::find(targets.begin(),targets.end(),ref)!=targets.end())continue;
         const auto text=property_label(host.session.document(),ref)+" ["+qs(property_unit(ref))+", local]  = "+display_value(values.at(ref));
         auto* item=new QListWidgetItem(text,list);item->setData(Qt::UserRole,QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact));
@@ -2855,7 +2893,7 @@ void Window::add_operation(const std::string& type,bool radial) {
             center_y=values.at({object.id,{},"generator.center_y"});
         } else if(object.text) {
             std::map<std::string,double> parameters;for(const auto& [name,value]:object.text->parameters){(void)value;parameters[name]=values.at({object.id,"","text."+name});}
-            auto text=*object.text;text.italic=evaluate_text_italic(document,object.id);
+            auto text=*object.text;text.italic=evaluate_text_italic(document,object.id);text.weight=evaluate_text_weight(document,object.id);
             const auto layout=evaluate_text(text,parameters);center_x=layout.x+layout.width/2;center_y=layout.y+layout.height/2;
         } else {
             QRectF bounds;bool first=true;

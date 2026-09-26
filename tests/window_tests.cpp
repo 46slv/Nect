@@ -26,6 +26,9 @@
 #include <QTest>
 #include <QStatusBar>
 #include <QPlainTextEdit>
+#include <QInputDialog>
+#include <QMenu>
+#include <QSpinBox>
 #include <QTimer>
 #include <QToolButton>
 #include <QFile>
@@ -837,6 +840,35 @@ void text_authoring(Window& window) {
     QTest::keyClick(family->lineEdit(),Qt::Key_Return);QApplication::processEvents();
     check(session.document().objects.at(id).text->family==original_family.toStdString()&&session.revision()==font_revision+1,
         "An installed family entered with inline completion commits exactly once");
+    auto weight_source=default_text(new_id(),"Weight source");weight_source.weight=700;
+    const auto source_id=new_id(),source_name=std::string("Weight source");const auto composition=session.document().compositions.front().id;
+    session.apply({CreateText{composition,"",source_id,source_name,weight_source}},session.revision());window.host.edited();QApplication::processEvents();
+    auto* weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
+    check(visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&weight_driver->menu()->actions().size()==2,
+        "Text Weight Inspector exposes a literal control and a link/unlink menu");
+    bool chose_weight_source=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+        if(auto* combo=dialog->findChild<QComboBox*>()) {
+            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
+            dialog->accept();chose_weight_source=true;return;
+        }
+    }});
+    weight_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(chose_weight_source&&session.document().objects.at(id).text->weight_driver->link==Ref{source_id,"","text.weight"}&&
+        evaluate_text_weight(session.document(),id)==700&&visible_child<QSpinBox>(window,"text-weight")->value()==700&&
+        !visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&visible_child<QLabel>(window,"text-weight-state")->text().contains("Evaluated: 700"),
+        "Text Weight Inspector links through Session and displays the evaluated integer");
+    auto changed_weight_source=*session.document().objects.at(source_id).text;changed_weight_source.weight=300;
+    session.apply({UpdateText{source_id,changed_weight_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(visible_child<QSpinBox>(window,"text-weight")->value()==300&&
+        visible_child<QLabel>(window,"text-weight-state")->text().contains("Literal: 400"),
+        "Text Weight Inspector follows source edits while retaining the target literal");
+    weight_driver=visible_child<QToolButton>(window,"text-weight-driver");weight_driver->menu()->actions().back()->trigger();QApplication::processEvents();
+    changed_weight_source=*session.document().objects.at(source_id).text;changed_weight_source.weight=500;
+    session.apply({UpdateText{source_id,changed_weight_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->weight_driver&&session.document().objects.at(id).text->weight==300&&
+        evaluate_text_weight(session.document(),id)==300&&visible_child<QSpinBox>(window,"text-weight")->isEnabled(),
+        "Inspector unlink freezes the evaluated weight and restores its literal editor");
 }
 QPointF knob_point(double degrees) {
     const auto radians=degrees*std::acos(-1.0)/180.0;
