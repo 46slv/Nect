@@ -200,8 +200,9 @@ try:
                 entry=next(item for item in entries if item['ref']==ref)
                 result=core('get',ref=ref)['result']
                 kind='string' if field in readonly_fields[:3] else 'enum'
-                assert result==entry and result['type']==kind and result['authored']==dict(literal=value)
-                assert result['evaluated']==value and result['link'] is False and result['expression'] is False
+                authored=dict(literal=value,driver=None) if field=='text.content' else dict(literal=value)
+                assert result==entry and result['type']==kind and result['authored']==authored
+                assert result['evaluated']==value and result['link']==(field=='text.content') and result['expression'] is False
                 if kind=='enum':
                     choices={'text.layout':['auto','frame'],'text.direction':['horizontal','vertical'],
                         'text.alignment':['start','center','end']}[field]
@@ -231,6 +232,24 @@ try:
         text_source['content']='Edited through UpdateText'
         rev=apply([dict(type='update_text',object='title',source=text_source)],rev)
         assert core('get',ref=dict(object='title',point='',field='text.content'))['result']['evaluated']=='Edited through UpdateText'
+        title_content=dict(object='title',point='',field='text.content')
+        peer_content=dict(object='typed-peer',point='',field='text.content')
+        rev=apply([dict(type='link_text_content',target=title_content,source=peer_content,replace_driver=False)],rev)
+        linked=core('get',ref=title_content)['result']
+        assert linked['authored']==dict(literal='Edited through UpdateText',driver=dict(link=peer_content))
+        assert linked['evaluated']=='Peer text' and linked['link'] is True and linked['expression'] is False
+        peer_source['content']='Revised peer text'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        linked_doc=core('inspect')['result'];title_obj=next(item for item in linked_doc['objects'] if item['id']=='title')
+        assert title_obj['text']['content']=='Edited through UpdateText' and title_obj['text']['content_driver']==dict(link=peer_content)
+        assert core('get',ref=title_content)['result']['evaluated']=='Revised peer text'
+        blocked=core('apply',expected_revision=rev,commands=[dict(type='update_text',object='title',source=dict(text_source,content='Blocked literal edit'))])
+        assert not blocked['ok'] and blocked['error']['code']=='DRIVEN_PROPERTY' and blocked['revision']==rev
+        rev=apply([dict(type='unlink_text_content',target=title_content)],rev)
+        assert core('get',ref=title_content)['result']['authored']==dict(literal='Revised peer text',driver=None)
+        peer_source['content']='Later peer text'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        assert core('get',ref=title_content)['result']['evaluated']=='Revised peer text'
         rev=apply([dict(type='delete_objects',objects=['typed-peer'])],rev)
         layout=core('text_layout',object='title')['result'];assert layout['glyph_count']>0 and layout['used_fonts']
         assert core('export_plan',composition=comp['id'],artboard=first['id'])['result']['text_policy']=='outlines'

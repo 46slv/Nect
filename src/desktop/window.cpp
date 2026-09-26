@@ -1759,9 +1759,43 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const auto& source=*object.text;
     auto* box=new QGroupBox("Text source");auto* form=new QFormLayout(box);
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);
-    auto* preview=new QLabel(qs(source.content).left(160));preview->setWordWrap(true);preview->setTextFormat(Qt::PlainText);
+    auto* preview=new QLabel(qs(evaluate_text_content(host.session.document(),id)).left(160));preview->setWordWrap(true);preview->setTextFormat(Qt::PlainText);
     preview->setObjectName("text-preview");form->addRow(preview);
-    auto* edit=new QPushButton("Edit text…");edit->setObjectName("edit-text-content");form->addRow(edit);
+    const Ref content_ref{id,"","text.content"};const auto content_state=text_content_property(host.session.document(),content_ref);
+    const auto content_revision=host.session.revision();
+    auto* content_row=new QWidget(box);auto* content_layout=new QHBoxLayout(content_row);content_layout->setContentsMargins(0,0,0,0);
+    auto* edit=new QPushButton("Edit text…");edit->setObjectName("edit-text-content");content_layout->addWidget(edit);
+    auto* content_driver_button=new QToolButton(content_row);content_driver_button->setObjectName("text-content-driver");
+    content_driver_button->setText(content_state.driver?"Driver…":"Drive…");content_driver_button->setPopupMode(QToolButton::InstantPopup);
+    auto* content_menu=new QMenu(content_driver_button);content_driver_button->setMenu(content_menu);content_layout->addWidget(content_driver_button);
+    auto* link_content=content_menu->addAction("Link to Text content…");
+    auto* unlink_content=content_menu->addAction("Unlink content");unlink_content->setEnabled(content_state.driver.has_value());
+    QStringList content_source_labels;std::vector<Id> content_source_ids;
+    for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
+        content_source_ids.push_back(source_id);content_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+    }
+    link_content->setEnabled(!content_source_ids.empty());
+    const bool replace_content_driver=content_state.driver.has_value();
+    connect(link_content,&QAction::triggered,this,[this,id,frozen_session,content_revision,replace_content_driver,content_source_ids,content_source_labels]{
+        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text content","Source Text",content_source_labels,0,false,&accepted);
+        if(!accepted)return;
+        const auto index=content_source_labels.indexOf(choice);if(index<0)return;
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({LinkTextContent{{id,"","text.content"},{content_source_ids.at(static_cast<std::size_t>(index)),"","text.content"},replace_content_driver}},content_revision);host.edited();});
+    });
+    connect(unlink_content,&QAction::triggered,this,[this,id,frozen_session,content_revision]{
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({UnlinkTextContent{{id,"","text.content"}}},content_revision);host.edited();});
+    });
+    form->addRow("Content",content_row);
+    const auto content_driver_name=[this](const std::optional<TextContentDriver>& driver) {
+        if(!driver)return QString("none");
+        const auto found=host.session.document().objects.find(driver->link.object);
+        return QString("link to ")+(found==host.session.document().objects.end()?qs(driver->link.object):qs(found->second.name)+" ("+qs(driver->link.object)+")");
+    };
+    auto* content_status=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
+        .arg(qs(content_state.literal).left(80),content_driver_name(content_state.driver),qs(content_state.evaluated).left(80)));
+    content_status->setObjectName("text-content-state");content_status->setWordWrap(true);content_status->setTextFormat(Qt::PlainText);form->addRow("",content_status);
     connect(edit,&QPushButton::clicked,this,[this,id]{perform([&]{edit_text_content(id);});});
     auto update=[this,id,frozen_session](const std::function<void(TextSource&)>& change) {
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
@@ -1904,23 +1938,55 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* status=new QLabel(lines.join('\n'));status->setObjectName("text-layout-status");status->setWordWrap(true);status->setTextFormat(Qt::PlainText);form->addRow(status);
 }
 void Window::edit_text_content(const Id& id) {
-    const auto session=host.session_id;const auto source=*host.session.document().objects.at(id).text;
+    const auto session=host.session_id;auto source=*host.session.document().objects.at(id).text;
+    const auto displayed=evaluate_text_content(host.session.document(),id);
     QDialog dialog(this);dialog.setObjectName("text-editor-dialog");dialog.setWindowTitle("Edit text");dialog.resize(560,340);
-    auto* layout=new QVBoxLayout(&dialog);auto* editor=new QPlainTextEdit(qs(source.content));editor->setObjectName("text-content-editor");
+    auto* layout=new QVBoxLayout(&dialog);auto* editor=new QPlainTextEdit(qs(displayed));editor->setObjectName("text-content-editor");
     editor->setAccessibleName("Text content");layout->addWidget(editor);
     auto* message=new QLabel("Apply commits one undo step. Cancel discards only this draft.");message->setWordWrap(true);message->setTextFormat(Qt::PlainText);
     message->setObjectName("text-editor-status");layout->addWidget(message);
+    auto* unlink=new QPushButton("Unlink driver and edit");unlink->setObjectName("unlink-text-content-driver");
+    unlink->setVisible(source.content_driver.has_value());layout->addWidget(unlink);
+    bool unlink_requested=false;
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel);layout->addWidget(buttons);
     connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[&,id,session,source]{
+    connect(unlink,&QPushButton::clicked,&dialog,[&,id,session]{
+        try {
+            if(host.session_id!=session)throw Error("SESSION_CONFLICT","The document changed. Copy this draft before closing.");
+            const auto found=host.session.document().objects.find(id);
+            if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","The text was removed. Copy this draft before closing.");
+            const auto& current=*found->second.text;
+            if(!source.content_driver||current.content_driver!=source.content_driver||current.content!=source.content||
+               evaluate_text_content(host.session.document(),id)!=displayed)
+                throw Error("TEXT_EDIT_CONFLICT","Text content changed elsewhere. Copy this draft, cancel, and reopen the latest text.");
+            unlink_requested=true;
+            unlink->setEnabled(false);
+            message->setText("Driver unlink is staged. Apply commits the unlink and text edit together; Cancel discards both.");
+        } catch(const std::exception& e){message->setText(QString::fromUtf8(e.what()));}
+    });
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[&,id,session]{
         try {
             if(host.session_id!=session)throw Error("SESSION_CONFLICT","The document changed. Copy this draft before closing.");
             const auto found=host.session.document().objects.find(id);
             if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","The text was removed. Copy this draft before closing.");
             auto next=*found->second.text;
-            if(next.id!=source.id||next.content!=source.content)throw Error("TEXT_EDIT_CONFLICT","Text changed elsewhere. Copy this draft, cancel, and reopen the latest text.");
+            if(next.id!=source.id||next.content!=source.content||next.content_driver!=source.content_driver)
+                throw Error("TEXT_EDIT_CONFLICT","Text changed elsewhere. Copy this draft, cancel, and reopen the latest text.");
             const auto content=editor->toPlainText().toStdString();
-            if(content!=next.content){next.content=content;host.session.apply({UpdateText{id,std::move(next)}},host.session.revision());host.edited();}
+            if(next.content_driver&&!unlink_requested&&content!=displayed)
+                throw Error("DRIVEN_PROPERTY","Unlink the Text content driver before changing its authored literal.");
+            if(next.content_driver&&unlink_requested) {
+                if(evaluate_text_content(host.session.document(),id)!=displayed)
+                    throw Error("TEXT_EDIT_CONFLICT","Text content changed elsewhere. Copy this draft, cancel, and reopen the latest text.");
+                std::vector<Command> commands{UnlinkTextContent{{id,"","text.content"}}};
+                if(content!=displayed) {
+                    next.content=content;next.content_driver.reset();
+                    commands.push_back(UpdateText{id,std::move(next)});
+                }
+                host.session.apply(commands,host.session.revision());host.edited();
+            } else if(!next.content_driver&&content!=next.content) {
+                next.content=content;host.session.apply({UpdateText{id,std::move(next)}},host.session.revision());host.edited();
+            }
             dialog.accept();
         } catch(const std::exception& e){message->setText(QString::fromUtf8(e.what()));}
     });

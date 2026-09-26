@@ -212,7 +212,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.16','current writer uses native 0.16')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.17','current writer uses native 0.17')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -224,13 +224,22 @@ new=replies[0]['result'];remove_migrated_anchor_defaults(new);new['version']='0.
 check(new==old,'0.8 migration preserves linked count, angular correction, all paints and text')
 # Catch the documented field vocabulary falling behind real numeric properties.
 # This checks that specific schema boundary; the native codec remains the validator.
-schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.16.schema.json').read_text())
+schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.17.schema.json').read_text())
 field_rules=schema['$defs']['ref']['properties']['field']['anyOf']
 for property_ in replies[1]['result']:
     if property_['type']!='number': continue
     name=property_['ref']['field']
     check(any(name in rule.get('enum',[]) or ('pattern' in rule and re.fullmatch(rule['pattern'],name)) for rule in field_rules),
           'schema accepts emitted numeric field '+name)
+old_schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.16.schema.json').read_text())
+content_schema=schema['$defs']['text_source']['properties']['content_driver']
+content_driver=schema['$defs']['content_driver']
+content_ref=schema['$defs']['content_ref']
+check(schema['properties']['version']['const']=='0.17' and 'content_driver' not in old_schema['$defs']['text_source']['properties'] and
+      content_schema['$ref']=='#/$defs/content_driver' and content_driver['additionalProperties'] is False and
+      content_driver['required']==['link'] and content_ref['properties']['point']['const']=='' and
+      content_ref['properties']['field']['const']=='text.content',
+      'Native 0.17 schema adds only the closed same-type Text content Ref driver')
 # Native expressions remain authored and are forbidden in all earlier versions.
 expression_doc=json.loads(json.dumps(sample))
 target=next(o for o in expression_doc['objects'] if o['id']=='path-B')
@@ -360,12 +369,62 @@ with tempfile.TemporaryDirectory() as tmp:
     check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
         'Rejected process command preserves the authored source and link')
     check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
-    check(replies[12]['result']['version']=='0.16' and replies[12]['result']==replies[8]['result'],
+    check(replies[12]['result']['version']=='0.17' and replies[12]['result']==replies[8]['result'],
         'Undo restores the pre-unlink native state exactly')
     check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
         'Undo restores the stable driver and its evaluated integer through a fresh request')
-    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.16 Text weight document validates in a fresh process')
+    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.17 Text weight document validates in a fresh process')
     old_weight=json.loads(json.dumps(replies[12]['result']));old_weight['version']='0.15'
     check(run('--validate',old_weight).returncode==2 and 'UNSUPPORTED_TEXT_WEIGHT_DRIVER' in run('--validate',old_weight).stderr,
         'Native 0.15 rejects the new Text weight driver instead of dropping it')
+
+# The first string-valued Text source address uses its own link-only command and native field.
+with tempfile.TemporaryDirectory() as tmp:
+    path=Path(tmp)/'text-content.nect';path.write_text(json.dumps(sample),encoding='utf-8')
+    composition_id=sample['compositions'][0]['id']
+    def content_source(source_id,content):
+        return dict(id=source_id,version=1,content=content,family='Yu Gothic',locale='ja-JP',layout='auto',
+            direction='horizontal',alignment='start',weight=400,italic=False,
+            parameters={name:dict(literal=value) for name,value in dict(origin_x=0,origin_y=0,font_size=48,
+                frame_width=400,frame_height=200,tracking=0,line_spacing=0).items()})
+    source_a=content_source('content-a-source','Source A');source_b=content_source('content-b-source','Manual B')
+    ref_a=dict(object='content-a',point='',field='text.content');ref_b=dict(object='content-b',point='',field='text.content')
+    requests=[
+        dict(op='apply',expected_revision=0,commands=[dict(type='create_text',composition=composition_id,parent='',id='content-a',name='Content A',source=source_a),
+            dict(type='create_text',composition=composition_id,parent='',id='content-b',name='Content B',source=source_b)]),
+        dict(op='get',ref=ref_b),
+        dict(op='apply',expected_revision=1,commands=[dict(type='link_text_content',target=ref_b,source=ref_a,replace_driver=False)]),
+        dict(op='properties'),dict(op='apply',expected_revision=2,commands=[dict(type='update_text',object='content-a',source=dict(source_a,content='Revised A'))]),
+        dict(op='get',ref=ref_b),dict(op='apply',expected_revision=3,commands=[dict(type='update_text',object='content-b',source=dict(source_b,content='Blocked B'))]),
+        dict(op='inspect'),dict(op='apply',expected_revision=3,commands=[dict(type='unlink_text_content',target=ref_b)]),
+        dict(op='get',ref=ref_b),dict(op='undo',expected_revision=4),dict(op='get',ref=ref_b),dict(op='inspect')]
+    proc=subprocess.run([exe,'--serve',str(path)],input='\n'.join(map(json.dumps,requests))+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=20)
+    replies=[json.loads(line) for line in proc.stdout.splitlines()]
+    check(len(replies)==len(requests) and all(replies[i]['ok'] for i in (0,1,2,3,4,5,7,8,9,10,11,12)),
+        'Text content API create/discovery/link/update/unlink/Undo requests succeed')
+    check(replies[1]['result']['authored']==dict(literal='Manual B',driver=None) and replies[1]['result']['link'] is True,
+        'JSON-lines Text content exposes a typed string literal and link capability')
+    metadata=next(value for value in replies[3]['result'] if value['ref']==ref_b)
+    check(metadata['type']=='string' and metadata['authored']==dict(literal='Manual B',driver=dict(link=ref_a)) and
+        metadata['evaluated']=='Source A' and replies[5]['result']['evaluated']=='Revised A',
+        'JSON-lines properties and get retain the authored string as the stable source changes')
+    check(not replies[6]['ok'] and replies[6]['error']['code']=='DRIVEN_PROPERTY' and replies[6]['revision']==3,
+        'JSON-lines UpdateText cannot change a driven content literal')
+    source_objects={obj['id']:obj for obj in replies[7]['result']['objects']}
+    check(source_objects['content-b']['text']['content']=='Manual B' and
+        source_objects['content-b']['text']['content_driver']==dict(link=ref_a),
+        'Rejected process command preserves the literal and content driver')
+    check(replies[9]['result']['authored']==dict(literal='Revised A',driver=None) and
+        replies[11]['result']['evaluated']=='Revised A' and replies[11]['result']['authored']['driver']==dict(link=ref_a),
+        'Unlink freezes content and Undo restores its link and current evaluation')
+    native=replies[12]['result'];check(native['version']=='0.17' and run('--validate',native).returncode==0,
+        'Native 0.17 content link validates in a separate CLI process')
+    path.write_text(json.dumps(native,ensure_ascii=False),encoding='utf-8');before=path.read_bytes()
+    cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+json.dumps(dict(op='inspect'))+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=20)
+    cold_replies=[json.loads(line) for line in cold.stdout.splitlines()]
+    check(all(reply['ok'] for reply in cold_replies) and cold_replies[0]['result']['evaluated']=='Revised A' and
+        cold_replies[0]['result']['authored']['driver']==dict(link=ref_a) and path.read_bytes()==before,
+        'A separate JSON-lines cold open preserves content literal/link/evaluation without changing native bytes')
 print(f'PASS {checks} process and native migration checks')

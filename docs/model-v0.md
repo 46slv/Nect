@@ -995,3 +995,29 @@ The 0.16 reader accepts 0.1–0.15 Text as literal-only weight and rejects a
 driver when absent. `schemas/native-v0.16.schema.json` constrains the wire
 shape; the core validates semantic references and cycles. Integer expressions,
 generic multi-target links and other integer fields remain unsupported.
+
+## Native 0.17 — typed Text content link
+
+`TextSource.content` remains the authored UTF-8 literal (at most 32,768 bytes).
+A Text source may also store one optional `content_driver:{"link":Ref}`, where
+the source and target are stable Object IDs with empty point and field
+`text.content`. Only Text content may link to Text content. The driver has no
+offset, expression, interpolation or implicit Scalar conversion.
+
+Evaluation follows the stable link with a 128-edge depth bound, detects missing,
+wrong-type, self and cyclic references, and checks the evaluated UTF-8 content
+limit. Layout, Canvas, shape outlines, bounds, SVG and Inspector preview consume
+the evaluated string; inspection and native save retain the literal and driver.
+`link_text_content` requires `replace_driver:true` to replace a driver, while
+`unlink_text_content` freezes the current evaluated string into the literal.
+`UpdateText` may edit other fields while preserving a driver, but cannot change
+the driven literal. Rename and reorder do not retarget a link; duplication
+remaps links whose source is also copied. A surviving dependent prevents source
+deletion until it is unlinked. Failed commands preserve the Session and revision.
+
+The 0.17 reader accepts 0.1–0.16 Text as literal-only content and rejects a
+`content_driver` in those earlier versions. The writer emits 0.17 and omits the
+driver when absent. `schemas/native-v0.17.schema.json` constrains the wire
+shape; the core validates semantic references and cycles. Generic Scalar links,
+expressions, multi-target content edits and links for other Text strings or enums
+remain unsupported.

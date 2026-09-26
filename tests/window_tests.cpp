@@ -869,6 +869,66 @@ void text_authoring(Window& window) {
     check(!session.document().objects.at(id).text->weight_driver&&session.document().objects.at(id).text->weight==300&&
         evaluate_text_weight(session.document(),id)==300&&visible_child<QSpinBox>(window,"text-weight")->isEnabled(),
         "Inspector unlink freezes the evaluated weight and restores its literal editor");
+    auto content_source=*session.document().objects.at(source_id).text;content_source.content="Linked source content";
+    session.apply({UpdateText{source_id,content_source}},session.revision());window.host.edited();QApplication::processEvents();
+    auto* content_driver=visible_child<QToolButton>(window,"text-content-driver");bool chose_content_source=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+        if(auto* combo=dialog->findChild<QComboBox*>()) {
+            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
+            dialog->accept();chose_content_source=true;return;
+        }
+    }});
+    content_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(chose_content_source&&session.document().objects.at(id).text->content=="External edit"&&
+        session.document().objects.at(id).text->content_driver->link==Ref{source_id,"","text.content"}&&
+        evaluate_text_content(session.document(),id)=="Linked source content"&&
+        visible_child<QLabel>(window,"text-preview")->text()=="Linked source content",
+        "Text Content Inspector links through Session and previews the evaluated string while preserving its literal");
+    content_source=*session.document().objects.at(source_id).text;content_source.content="Revised linked source";
+    session.apply({UpdateText{source_id,content_source}},session.revision());window.host.edited();QApplication::processEvents();
+    bool canceled_unlink=false,blocked_draft=false,unlink_staged=false,committed_draft=false;
+    const auto before_content_edit=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");if(!editor)return;
+        editor->setPlainText("Canceled draft");
+        auto* unlink_button=dialog->findChild<QPushButton*>("unlink-text-content-driver");
+        if(!unlink_button||!unlink_button->isVisible())return;
+        unlink_button->click();
+        canceled_unlink=editor->toPlainText()=="Canceled draft"&&
+            session.document().objects.at(id).text->content_driver->link==Ref{source_id,"","text.content"}&&
+            session.document().objects.at(id).text->content=="External edit"&&session.revision()==before_content_edit;
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();
+    });
+    visible_child<QPushButton>(window,"edit-text-content")->click();QApplication::processEvents();
+    check(canceled_unlink&&session.revision()==before_content_edit&&session.document().objects.at(id).text->content_driver,
+        "Cancel discards a staged unlink and text draft without changing the Session");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");if(!editor)return;
+        editor->setPlainText("Draft across unlink");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        blocked_draft=dialog->isVisible()&&editor->toPlainText()=="Draft across unlink"&&
+            dialog->findChild<QLabel*>("text-editor-status")->text().contains("Unlink")&&session.revision()==before_content_edit;
+        auto* unlink_button=dialog->findChild<QPushButton*>("unlink-text-content-driver");
+        if(!unlink_button||!unlink_button->isVisible())return;
+        unlink_button->click();
+        unlink_staged=editor->toPlainText()=="Draft across unlink"&&
+            session.document().objects.at(id).text->content_driver->link==Ref{source_id,"","text.content"}&&
+            session.document().objects.at(id).text->content=="External edit"&&session.revision()==before_content_edit&&
+            dialog->findChild<QLabel*>("text-editor-status")->text().contains("staged");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        committed_draft=!dialog->isVisible()&&session.document().objects.at(id).text->content=="Draft across unlink"&&
+            !session.document().objects.at(id).text->content_driver&&session.revision()==before_content_edit+1;
+    });
+    visible_child<QPushButton>(window,"edit-text-content")->click();QApplication::processEvents();
+    check(blocked_draft&&unlink_staged&&committed_draft,
+        "The content editor stages unlink, then commits the freeze and text draft in one Session revision");
+    content_source=*session.document().objects.at(source_id).text;content_source.content="Later source content";
+    session.apply({UpdateText{source_id,content_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->content_driver&&
+        evaluate_text_content(session.document(),id)=="Draft across unlink",
+        "Inspector content unlink keeps the committed draft frozen after later source edits");
 }
 QPointF knob_point(double degrees) {
     const auto radians=degrees*std::acos(-1.0)/180.0;

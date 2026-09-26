@@ -122,6 +122,14 @@ const TextSource& text_weight_source(const Document& document,const Ref& ref) {
     require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text weight Ref must identify a Text object");
     return *object->second.text;
 }
+const TextSource& text_content_source(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_TEXT_REF","Text content properties require an empty point ID");
+    require(ref.field=="text.content","TYPE_MISMATCH","Only Text content accepts a string property Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text content Ref must identify a Text object");
+    return *object->second.text;
+}
 class TextItalicEvaluator {
     const Document& document_;
     std::map<Id,bool> values_;
@@ -178,6 +186,34 @@ public:
         std::map<Ref,unsigned> result;
         for(const auto& [id,object]:document_.objects)if(object.kind==Kind::text&&object.text)
             result.emplace(Ref{id,"","text.weight"},visit(id,0));
+        return result;
+    }
+};
+class TextContentEvaluator {
+    const Document& document_;
+    std::map<Id,std::string> values_;
+    std::set<Id> active_;
+    std::string visit(const Id& id,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Text content dependency depth limit 128");
+        if(const auto found=values_.find(id);found!=values_.end())return found->second;
+        require(active_.insert(id).second,"DEPENDENCY_CYCLE","Text content dependency cycle");
+        const auto& source=text_content_source(document_,{id,"","text.content"});
+        auto value=source.content;
+        if(source.content_driver) {
+            (void)text_content_source(document_,source.content_driver->link);
+            value=visit(source.content_driver->link.object,depth+1);
+        }
+        require(value.size()<=32768,"LIMIT","Evaluated Text content exceeds 32768 UTF-8 bytes");
+        text_utf8(value);
+        active_.erase(id);values_.emplace(id,value);return value;
+    }
+public:
+    explicit TextContentEvaluator(const Document& document):document_(document){}
+    std::string value(const Id& id){return visit(id,0);}
+    std::map<Ref,std::string> all() {
+        std::map<Ref,std::string> result;
+        for(const auto& [id,object]:document_.objects)if(object.kind==Kind::text&&object.text)
+            result.emplace(Ref{id,"","text.content"},visit(id,0));
         return result;
     }
 };
@@ -587,12 +623,23 @@ TextSource evaluated_text_source(const Document& document,const Id& object) {
     require(found->second.kind==Kind::text&&found->second.text.has_value(),"TYPE_MISMATCH",
         "Evaluated Text source requires a Text object: "+object);
     auto source=*found->second.text;
+    source.content=evaluate_text_content(document,object);
     source.italic=evaluate_text_italic(document,object);
     source.weight=evaluate_text_weight(document,object);
     return source;
 }
 std::map<Ref,unsigned> evaluate_text_weights(const Document& document) {
     return TextWeightEvaluator(document).all();
+}
+TextContentProperty text_content_property(const Document& document,const Ref& ref) {
+    const auto& source=text_content_source(document,ref);
+    return {source.content,source.content_driver,evaluate_text_content(document,ref.object)};
+}
+std::string evaluate_text_content(const Document& document,const Id& object) {
+    return TextContentEvaluator(document).value(object);
+}
+std::map<Ref,std::string> evaluate_text_contents(const Document& document) {
+    return TextContentEvaluator(document).all();
 }
 bool is_text_readonly_field(const std::string& field) {
     return field=="text.content"||field=="text.family"||field=="text.locale"||
@@ -1022,6 +1069,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     // Scalar evaluation. Validate every authored driver before geometry uses it.
     (void)evaluate_text_italics(d);
     (void)evaluate_text_weights(d);
+    (void)evaluate_text_contents(d);
     (void)evaluate_transforms(d,values);
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
         const auto& source=scalar->binding->source;
@@ -1639,6 +1687,7 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         if(object.source)object.source->id=plan.ids.at(object.source->id);
         if(object.text) {
             object.text->id=plan.ids.at(object.text->id);
+            if(object.text->content_driver)object.text->content_driver->link=remap(object.text->content_driver->link);
             if(object.text->weight_driver)object.text->weight_driver->link=remap(object.text->weight_driver->link);
             if(object.text->italic_driver) {
                 if(auto link=std::get_if<Ref>(&*object.text->italic_driver))*link=remap(*link);
@@ -1736,6 +1785,16 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             const auto value=evaluate_text_weight(candidate,c.target.object);
             auto& source=*candidate.objects.at(c.target.object).text;
             source.weight=value;source.weight_driver.reset();
+        } else if constexpr(std::is_same_v<T,LinkTextContent>) {
+            const auto& current=text_content_source(candidate,c.target);
+            (void)text_content_source(candidate,c.source);
+            require(!current.content_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing a Text content driver requires replace_driver=true");
+            candidate.objects.at(c.target.object).text->content_driver=TextContentDriver{c.source};
+        } else if constexpr(std::is_same_v<T,UnlinkTextContent>) {
+            (void)text_content_source(candidate,c.target);
+            const auto value=evaluate_text_content(candidate,c.target.object);
+            auto& source=*candidate.objects.at(c.target.object).text;
+            source.content=value;source.content_driver.reset();
         } else if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
             require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
             const auto values=evaluate(candidate);scalar_targets(candidate,c.targets,values);
@@ -1940,6 +1999,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
             require(!c.source.italic_driver,"USE_TYPED_COMMAND","Create Text Italic links with link_text_italic or set_text_italic_expression");
             require(!c.source.weight_driver,"USE_TYPED_COMMAND","Create Text weight links with link_text_weight");
+            require(!c.source.content_driver,"USE_TYPED_COMMAND","Create Text content links with link_text_content");
             Object object;object.id=c.id;object.name=c.name;object.kind=Kind::text;object.text=c.source;
             siblings(candidate,c.composition,c.parent).push_back(c.id);candidate.objects.emplace(c.id,std::move(object));
             add_default_paint(candidate,c.id,"nect.paint.fill");
@@ -1958,6 +2018,11 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 require(next.weight==o.text->weight,"DRIVEN_PROPERTY","Unlink the Text weight driver before changing its authored literal");
                 next.weight_driver=o.text->weight_driver;
             } else require(!next.weight_driver,"USE_TYPED_COMMAND","Create Text weight links with link_text_weight");
+            if(o.text->content_driver) {
+                require(!next.content_driver||next.content_driver==o.text->content_driver,"DRIVEN_PROPERTY","UpdateText cannot replace or remove a Text content driver");
+                require(next.content==o.text->content,"DRIVEN_PROPERTY","Unlink the Text content driver before changing its authored literal");
+                next.content_driver=o.text->content_driver;
+            } else require(!next.content_driver,"USE_TYPED_COMMAND","Create Text content links with link_text_content");
             o.text=std::move(next);
         } else if constexpr(std::is_same_v<T,CreatePrimitive>) {
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
