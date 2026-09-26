@@ -1894,7 +1894,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     for(const auto* parameter:{"origin_x","origin_y","font_size","frame_width","frame_height","tracking","line_spacing"})
         add_property(form,{id,"",std::string("text.")+parameter},parameter_label(parameter));
     std::map<std::string,double> parameters;for(const auto& [name,value]:source.parameters){(void)value;parameters[name]=inspector_values_.at({id,"","text."+name});}
-    auto evaluated_source=source;evaluated_source.italic=italic_state.evaluated;evaluated_source.weight=weight_state.evaluated;
+    auto evaluated_source=evaluated_text_source(host.session.document(),id);
     const auto result=evaluate_text(evaluated_source,parameters);
     QStringList lines;lines<<QString("%1 × %2 du · %3 glyphs").arg(display_value(result.width),display_value(result.height)).arg(result.glyph_count);
     if(result.overflow)lines<<"Text extends outside its frame. Increase the frame or reduce the type size.";
@@ -2231,7 +2231,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                     }
                     if(const auto& selected=host.session.document().objects.at(id);selected.text) {
                         std::map<std::string,double> parameters;for(const auto& [name,value]:selected.text->parameters){(void)value;parameters[name]=values.at({id,"","text."+name});}
-                        auto text=*selected.text;text.italic=evaluate_text_italic(host.session.document(),id);text.weight=evaluate_text_weight(host.session.document(),id);
+                        auto text=evaluated_text_source(host.session.document(),id);
                         const auto layout=evaluate_text(text,parameters);bounds=QRectF(layout.x,layout.y,layout.width,layout.height);
                     }
                     const auto span=std::max(1.0,bounds.width());
@@ -2894,7 +2894,7 @@ void Window::add_operation(const std::string& type,bool radial) {
             center_y=values.at({object.id,{},"generator.center_y"});
         } else if(object.text) {
             std::map<std::string,double> parameters;for(const auto& [name,value]:object.text->parameters){(void)value;parameters[name]=values.at({object.id,"","text."+name});}
-            auto text=*object.text;text.italic=evaluate_text_italic(document,object.id);text.weight=evaluate_text_weight(document,object.id);
+            auto text=evaluated_text_source(document,object.id);
             const auto layout=evaluate_text(text,parameters);center_x=layout.x+layout.width/2;center_y=layout.y+layout.height/2;
         } else {
             QRectF bounds;bool first=true;

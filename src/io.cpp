@@ -337,7 +337,7 @@ j::object text_layout_json(const Document& d,const Id& id) {
     if(!object->second.text)throw Error("NOT_TEXT",id);
     const auto values=evaluate(d);std::map<std::string,double> parameters;
     for(const auto& [name,value]:object->second.text->parameters){(void)value;parameters[name]=values.at({id,"","text."+name});}
-    auto text_source=*object->second.text;text_source.italic=evaluate_text_italic(d,id);text_source.weight=evaluate_text_weight(d,id);
+    auto text_source=evaluated_text_source(d,id);
     const auto layout=evaluate_text(text_source,parameters);
     return {{"object",id},{"weight",text_source.weight},{"x",layout.x},{"y",layout.y},{"width",layout.width},{"height",layout.height},
         {"overflow",layout.overflow},{"glyph_count",layout.glyph_count},{"warnings",ids_json(layout.warnings)},

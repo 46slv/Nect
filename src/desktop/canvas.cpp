@@ -188,7 +188,7 @@ void Canvas::refresh() {
                 if(object.text) {
                     std::map<std::string,double> parameters;
                     for(const auto& [name,scalar]:object.text->parameters){(void)scalar;parameters[name]=values_.at({id,"","text."+name});}
-                    auto text=*object.text;text.italic=evaluate_text_italic(document,id);text.weight=evaluate_text_weight(document,id);
+                    auto text=evaluated_text_source(document,id);
                     const auto layout=evaluate_text(text,parameters);
                     item.text_bounds=QRectF(layout.x,layout.y,std::max(1.0,layout.width),std::max(1.0,layout.height));
                     item.text_line_baselines_y=layout.line_baselines_y;

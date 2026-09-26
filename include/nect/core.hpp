@@ -420,6 +420,8 @@ struct TextLayout {
 // Pure projection of authored text and evaluated text.* parameters. Windows uses
 // DirectWrite shaping, including vertical glyph orientation; no font is embedded.
 TextLayout evaluate_text(const TextSource& source,const std::map<std::string,double>& parameters);
+// Pure projection of an authored Text source with its current evaluated typed values.
+TextSource evaluated_text_source(const Document& document,const Id& object);
 struct PathInstance {
     std::shared_ptr<const std::vector<EvaluatedContour>> contours;
     Affine transform=identity_matrix;

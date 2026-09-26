@@ -581,6 +581,16 @@ TextWeightProperty text_weight_property(const Document& document,const Ref& ref)
 unsigned evaluate_text_weight(const Document& document,const Id& object) {
     return TextWeightEvaluator(document).value(object);
 }
+TextSource evaluated_text_source(const Document& document,const Id& object) {
+    const auto found=document.objects.find(object);
+    require(found!=document.objects.end(),"MISSING_OBJECT",object);
+    require(found->second.kind==Kind::text&&found->second.text.has_value(),"TYPE_MISMATCH",
+        "Evaluated Text source requires a Text object: "+object);
+    auto source=*found->second.text;
+    source.italic=evaluate_text_italic(document,object);
+    source.weight=evaluate_text_weight(document,object);
+    return source;
+}
 std::map<Ref,unsigned> evaluate_text_weights(const Document& document) {
     return TextWeightEvaluator(document).all();
 }
@@ -1382,7 +1392,7 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
             require(object.kind==Kind::text&&object.text.has_value(),"UNSUPPORTED_BASELINE","Baseline alignment requires Text objects with a first-line metric: "+id);
             std::map<std::string,double> parameters;
             for(const auto& [name,value]:object.text->parameters){(void)value;parameters.emplace(name,scalar_values.at({id,"","text."+name}));}
-            auto text=*object.text;text.italic=evaluate_text_italic(document,id);text.weight=evaluate_text_weight(document,id);
+            auto text=evaluated_text_source(document,id);
             const auto layout=evaluate_text(text,parameters);
             require(layout.first_line_baseline_y.has_value(),"UNSUPPORTED_BASELINE","Text has no horizontal first-line baseline metric: "+id);
             const auto& world=evaluated_transforms.at(id).world;
