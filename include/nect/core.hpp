@@ -42,6 +42,10 @@ struct Expression {
     bool operator==(const Expression&) const = default;
 };
 
+// Text Italic is the sole typed boolean dependency in this contract slice.
+// A driver is either a same-type stable Ref or the bounded boolean Expression.
+using TextItalicDriver = std::variant<Ref,Expression>;
+
 struct Scalar {
     double literal = 0;
     std::optional<Binding> binding;
@@ -90,6 +94,7 @@ struct TextSource {
     std::string layout="auto",direction="horizontal",alignment="start";
     unsigned weight=400;
     bool italic=false;
+    std::optional<TextItalicDriver> italic_driver;
     std::map<std::string,Scalar> parameters;
     bool operator==(const TextSource&) const = default;
 };
@@ -323,6 +328,9 @@ struct DeleteRasterAsset { Id asset; };
 struct CreateImage { Id composition,parent,id; std::string name; ImageSource source; };
 struct CreateText { Id composition; Id parent; Id id; std::string name; TextSource source; };
 struct UpdateText { Id object; TextSource source; };
+struct LinkTextItalic { Ref target; Ref source; bool replace_driver=false; };
+struct SetTextItalicExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkTextItalic { Ref target; };
 struct CreateNamedColor { NamedColor color; };
 struct RenameNamedColor { Id color; std::string name; };
 struct DeleteNamedColor { Id color; };
@@ -376,6 +384,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     ReorderOperations,EnableOperation,OperationOptions,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
+    LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
     SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,
@@ -474,6 +483,14 @@ void add_default_stroke(Document&,const Id& object);
 
 std::vector<Ref> properties(const Document& document);
 Scalar property(const Document& document, const Ref& ref);
+struct TextItalicProperty {
+    bool literal=false;
+    std::optional<TextItalicDriver> driver;
+    bool evaluated=false;
+};
+TextItalicProperty text_italic_property(const Document&,const Ref&);
+bool evaluate_text_italic(const Document&,const Id& object);
+std::map<Ref,bool> evaluate_text_italics(const Document&);
 std::string property_origin(const Document& document, const Ref& ref);
 // Returns contour topology/IDs. All resolved coordinates, including generated
 // points, come from evaluate(); this is never another authored geometry store.

@@ -212,7 +212,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.14','current writer uses native 0.14')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.15','current writer uses native 0.15')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -224,7 +224,7 @@ new=replies[0]['result'];remove_migrated_anchor_defaults(new);new['version']='0.
 check(new==old,'0.8 migration preserves linked count, angular correction, all paints and text')
 # Catch the documented field vocabulary falling behind real numeric properties.
 # This checks that specific schema boundary; the native codec remains the validator.
-schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.14.schema.json').read_text())
+schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.15.schema.json').read_text())
 field_rules=schema['$defs']['ref']['properties']['field']['anyOf']
 for property_ in replies[1]['result']:
     if property_['type']!='number': continue

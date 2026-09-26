@@ -3,7 +3,7 @@
 #include <string_view>
 
 namespace nect {
-inline constexpr const char* native_version="0.14";
+inline constexpr const char* native_version="0.15";
 inline constexpr std::size_t native_size_limit=64*1024*1024;
 std::string base64_encode(const std::vector<unsigned char>&);
 std::vector<unsigned char> base64_decode(std::string_view);

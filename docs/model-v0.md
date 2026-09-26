@@ -945,3 +945,30 @@ existing IDs and geometry. The writer emits 0.14; the strict schema is
 SVG/PNG artwork export omits layout overlays. Canvas editing and visual
 acceptance are separate P02-B/C checkpoints; this section describes the
 authored model and codec.
+
+## Native 0.15 — typed Text italic driver
+
+`TextSource.italic` remains the authored boolean literal. A Text source may also
+store one optional `italic_driver`: `{ "link": Ref }` or
+`{ "expression": Expression }`. The only valid link source and target is the
+stable object Ref `{object, point:"", field:"text.italic"}`. An expression has
+version 1 and accepts `true`, `false`, `ref("object-id","","text.italic")`,
+or `!ref("object-id","","text.italic")`. These are boolean expressions;
+numeric Scalar links and expressions do not coerce to or from this property.
+
+Evaluation is pure and detects missing or non-Text references, self-reference,
+cycles and excessive depth. The evaluated value drives Text layout and render;
+the literal and driver remain authored. `link_text_italic`,
+`set_text_italic_expression` and `unlink_text_italic` are Session commands with
+the normal revision and Undo semantics. Unlink freezes the current evaluated
+value as the literal. Editing the literal while driven requires an explicit
+unlink, and replacing a driver requires `replace_driver:true`. Rename and
+reorder do not retarget a stable Ref; duplication remaps references within the
+duplicated set. A source cannot be deleted while a surviving driver refers to
+it. Invalid edits reject the entire command batch.
+
+The 0.15 reader accepts 0.1–0.14 Text without a driver and retains its literal.
+The writer emits 0.15 and includes `italic_driver` only when authored. The
+strict shape is `schemas/native-v0.15.schema.json`; semantic reference and
+cycle checks belong to the core. Other boolean fields and non-Scalar types do
+not gain a generic link or expression contract in this version.

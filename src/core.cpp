@@ -8,6 +8,7 @@
 #include <set>
 #include <numeric>
 #include <numbers>
+#include <string_view>
 #include <type_traits>
 
 namespace nect {
@@ -51,6 +52,108 @@ void identity(const Id& id) {
     require(!id.empty() && id.size()<=96,"INVALID_ID","ID must have 1..96 ASCII identifier characters");
     for(const unsigned char c : id)
         require((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-',"INVALID_ID",id);
+}
+struct ParsedTextItalicExpression {
+    bool is_literal=false;
+    bool literal=false;
+    bool negate=false;
+    Ref source;
+    std::size_t object_begin=0,object_end=0;
+};
+class TextItalicExpressionParser {
+    std::string_view source_;
+    std::size_t cursor_=0;
+    void whitespace(){while(cursor_<source_.size()&&(source_[cursor_]==' '||source_[cursor_]=='\t'||source_[cursor_]=='\n'||source_[cursor_]=='\r'))++cursor_;}
+    bool take(char c){whitespace();if(cursor_<source_.size()&&source_[cursor_]==c){++cursor_;return true;}return false;}
+    void expect(char c){require(take(c),"BOOLEAN_EXPRESSION_SYNTAX","Invalid Text italic expression delimiter");}
+    bool word(std::string_view expected) {
+        whitespace();if(source_.substr(cursor_,expected.size())!=expected)return false;
+        cursor_+=expected.size();return true;
+    }
+    std::string quoted(bool identifier,std::size_t* begin=nullptr,std::size_t* end=nullptr,bool allow_empty=false) {
+        expect('"');const auto start=cursor_;
+        while(cursor_<source_.size()&&source_[cursor_]!='"') {
+            const auto c=source_[cursor_++];
+            const bool valid=(c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'||(!identifier&&c=='.');
+            require(valid,"BOOLEAN_EXPRESSION_SYNTAX","Stable Ref arguments use unescaped ASCII identifiers");
+        }
+        require(cursor_<source_.size(),"BOOLEAN_EXPRESSION_SYNTAX","Unterminated Text italic Ref argument");
+        const auto finish=cursor_;++cursor_;
+        if(begin)*begin=start;if(end)*end=finish;
+        const auto length=finish-start;
+        require((identifier&&(length>0||allow_empty)&&length<=96)||(!identifier&&length<=512),"BOOLEAN_EXPRESSION_SYNTAX","Text italic Ref argument is out of range");
+        return std::string(source_.substr(start,length));
+    }
+public:
+    explicit TextItalicExpressionParser(std::string_view source):source_(source){}
+    ParsedTextItalicExpression parse() {
+        ParsedTextItalicExpression result;whitespace();
+        if(word("true")){result.is_literal=true;result.literal=true;}
+        else if(word("false")){result.is_literal=true;result.literal=false;}
+        else {
+            result.negate=take('!');
+            require(word("ref"),"BOOLEAN_EXPRESSION_SYNTAX","Expected true, false or a Text italic ref");
+            expect('(');
+            result.source.object=quoted(true,&result.object_begin,&result.object_end);
+            expect(',');result.source.point=quoted(true,nullptr,nullptr,true);
+            expect(',');result.source.field=quoted(false);expect(')');
+            require(result.source.point.empty()&&result.source.field=="text.italic","BOOLEAN_EXPRESSION_TYPE","Text italic expressions may reference only Text italic");
+        }
+        whitespace();require(cursor_==source_.size(),"BOOLEAN_EXPRESSION_SYNTAX","Unexpected trailing Text italic expression text");
+        return result;
+    }
+};
+ParsedTextItalicExpression parse_text_italic_expression(const Expression& expression) {
+    require(expression.version==1,"UNSUPPORTED_EXPRESSION_VERSION","Only expression version 1 is supported for Text italic");
+    require(!expression.source.empty()&&expression.source.size()<=4096,"EXPRESSION_LIMIT","Text italic expression source must contain 1..4096 bytes");
+    return TextItalicExpressionParser(expression.source).parse();
+}
+const TextSource& text_italic_source(const Document& document,const Ref& ref) {
+    require(ref.point.empty()&&ref.field=="text.italic","TYPE_MISMATCH","Only Text italic accepts a boolean property Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text italic Ref must identify a Text object");
+    return *object->second.text;
+}
+class TextItalicEvaluator {
+    const Document& document_;
+    std::map<Id,bool> values_;
+    std::set<Id> active_;
+    bool visit(const Id& id,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Text italic dependency depth limit 128");
+        if(const auto found=values_.find(id);found!=values_.end())return found->second;
+        require(active_.insert(id).second,"DEPENDENCY_CYCLE","Text italic dependency cycle");
+        const auto& source=text_italic_source(document_,{id,"","text.italic"});
+        bool value=source.italic;
+        if(source.italic_driver) {
+            if(const auto link=std::get_if<Ref>(&*source.italic_driver)) {
+                (void)text_italic_source(document_,*link);value=visit(link->object,depth+1);
+            }
+            else {
+                const auto parsed=parse_text_italic_expression(std::get<Expression>(*source.italic_driver));
+                if(parsed.is_literal)value=parsed.literal;
+                else {(void)text_italic_source(document_,parsed.source);value=visit(parsed.source.object,depth+1);if(parsed.negate)value=!value;}
+            }
+        }
+        active_.erase(id);values_.emplace(id,value);return value;
+    }
+public:
+    explicit TextItalicEvaluator(const Document& document):document_(document){}
+    bool value(const Id& id){return visit(id,0);}
+    std::map<Ref,bool> all() {
+        std::map<Ref,bool> result;
+        for(const auto& [id,object]:document_.objects)if(object.kind==Kind::text&&object.text)
+            result.emplace(Ref{id,"","text.italic"},visit(id,0));
+        return result;
+    }
+};
+Expression remap_text_italic_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
+    const auto parsed=parse_text_italic_expression(expression);
+    if(parsed.is_literal)return expression;
+    const auto target=remap(parsed.source);if(target==parsed.source)return expression;
+    require(target.point.empty()&&target.field=="text.italic","TYPE_MISMATCH","Duplicated Text italic Ref changed type");
+    auto result=expression;result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
+    (void)parse_text_italic_expression(result);return result;
 }
 const std::array<std::string,6> point_fields{"x","y","in.angle","in.length","out.angle","out.length"};
 bool polystar(const Primitive& source){return source.type=="nect.shape.polygon"||source.type=="nect.shape.star";}
@@ -194,6 +297,7 @@ auto& lookup_property(D& d,const Ref& r) {
     throw Error("MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
 }
 std::string unit(const Ref& r) {
+    if(r.point.empty()&&r.field=="text.italic")return "boolean";
     if(r.field=="generator.points")return "scalar";
     if(r.field=="generator.rotation")return "degree";
     if(r.field.starts_with("color."))return "scalar";
@@ -411,8 +515,6 @@ std::vector<Ref> conversion_blockers(const Document& d,const Id& object) {
     return blockers;
 }
 
-std::string property_unit(const Ref& r) { return unit(r); }
-
 std::vector<Ref> properties(const Document& document) {
     std::vector<Ref> refs;
     for (const auto& [ref, value] : evaluate(document)) {
@@ -420,8 +522,22 @@ std::vector<Ref> properties(const Document& document) {
         if(ref.point.empty()&&ref.field.starts_with("stroke."))continue;
         refs.push_back(ref);
     }
+    for(const auto& [id,object]:document.objects)if(object.kind==Kind::text&&object.text)
+        refs.push_back({id,"","text.italic"});
     return refs;
 }
+
+TextItalicProperty text_italic_property(const Document& document,const Ref& ref) {
+    const auto& source=text_italic_source(document,ref);
+    return {source.italic,source.italic_driver,evaluate_text_italic(document,ref.object)};
+}
+bool evaluate_text_italic(const Document& document,const Id& object) {
+    return TextItalicEvaluator(document).value(object);
+}
+std::map<Ref,bool> evaluate_text_italics(const Document& document) {
+    return TextItalicEvaluator(document).all();
+}
+std::string property_unit(const Ref& r) { return unit(r); }
 
 Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std::string& f) {
     std::vector<Id> matches;
@@ -430,6 +546,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     require(!matches.empty(),"MISSING_NAME","No matching object: "+name);
     require(matches.size()==1,"AMBIGUOUS_NAME","Name must resolve to exactly one object: "+name);
     Ref r{matches.front(),p,f};
+    if(p.empty()&&f=="text.italic") {
+        (void)text_italic_property(d,r);
+        return r;
+    }
     if(d.named_colors.contains(r.object)&&r.point.empty()&&r.field=="color") {
         (void)color_channels(d,r);
         return r;
@@ -806,6 +926,9 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     }
 
     auto values=evaluate(d);
+    // Boolean Text Italic links and expressions are a separate typed lane from
+    // Scalar evaluation. Validate every authored driver before geometry uses it.
+    (void)evaluate_text_italics(d);
     (void)evaluate_transforms(d,values);
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
         const auto& source=scalar->binding->source;
@@ -1176,7 +1299,8 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
             require(object.kind==Kind::text&&object.text.has_value(),"UNSUPPORTED_BASELINE","Baseline alignment requires Text objects with a first-line metric: "+id);
             std::map<std::string,double> parameters;
             for(const auto& [name,value]:object.text->parameters){(void)value;parameters.emplace(name,scalar_values.at({id,"","text."+name}));}
-            const auto layout=evaluate_text(*object.text,parameters);
+            auto text=*object.text;text.italic=evaluate_text_italic(document,id);
+            const auto layout=evaluate_text(text,parameters);
             require(layout.first_line_baseline_y.has_value(),"UNSUPPORTED_BASELINE","Text has no horizontal first-line baseline metric: "+id);
             const auto& world=evaluated_transforms.at(id).world;
             require(world[1]==0&&world[2]==0,"UNSUPPORTED_BASELINE","Rotated or non-axis-aligned Text has no supported baseline: "+id);
@@ -1420,7 +1544,13 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
             if(plan.objects.contains(mask.source))mask.source=plan.ids.at(mask.source);
         }
         if(object.source)object.source->id=plan.ids.at(object.source->id);
-        if(object.text)object.text->id=plan.ids.at(object.text->id);
+        if(object.text) {
+            object.text->id=plan.ids.at(object.text->id);
+            if(object.text->italic_driver) {
+                if(auto link=std::get_if<Ref>(&*object.text->italic_driver))*link=remap(*link);
+                else object.text->italic_driver=remap_text_italic_expression(std::get<Expression>(*object.text->italic_driver),remap);
+            }
+        }
         if(object.point_edit) {
             auto& edit=*object.point_edit;edit.id=plan.ids.at(edit.id);
             auto overrides=std::move(edit.overrides);edit.overrides.clear();
@@ -1487,6 +1617,21 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 require(!scalar.binding||c.replace_binding,"DRIVEN_PROPERTY","Replacing an existing Binding requires replace_binding=true");
                 scalar.binding.reset();scalar.expression=c.expression;
             }
+        } else if constexpr(std::is_same_v<T,LinkTextItalic>) {
+            const auto& current=text_italic_source(candidate,c.target);
+            (void)text_italic_source(candidate,c.source);
+            require(!current.italic_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing a Text italic driver requires replace_driver=true");
+            candidate.objects.at(c.target.object).text->italic_driver=TextItalicDriver{c.source};
+        } else if constexpr(std::is_same_v<T,SetTextItalicExpression>) {
+            const auto& current=text_italic_source(candidate,c.target);
+            (void)parse_text_italic_expression(c.expression);
+            require(!current.italic_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing a Text italic driver requires replace_driver=true");
+            candidate.objects.at(c.target.object).text->italic_driver=TextItalicDriver{c.expression};
+        } else if constexpr(std::is_same_v<T,UnlinkTextItalic>) {
+            const auto value=evaluate_text_italic(candidate,c.target.object);
+            auto& source=*candidate.objects.at(c.target.object).text;
+            (void)text_italic_source(candidate,c.target);
+            source.italic=value;source.italic_driver.reset();
         } else if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
             require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
             const auto values=evaluate(candidate);scalar_targets(candidate,c.targets,values);
@@ -1689,13 +1834,21 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             it->points=std::move(reordered);
         } else if constexpr(std::is_same_v<T,CreateText>) {
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
+            require(!c.source.italic_driver,"USE_TYPED_COMMAND","Create Text Italic links with link_text_italic or set_text_italic_expression");
             Object object;object.id=c.id;object.name=c.name;object.kind=Kind::text;object.text=c.source;
             siblings(candidate,c.composition,c.parent).push_back(c.id);candidate.objects.emplace(c.id,std::move(object));
             add_default_paint(candidate,c.id,"nect.paint.fill");
         } else if constexpr(std::is_same_v<T,UpdateText>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);auto& o=candidate.objects.at(c.object);
             require(o.kind==Kind::text&&o.text.has_value(),"INVALID_TEXT","Select an editable Text object");
-            require(c.source.id==o.text->id,"ID_MISMATCH","Text edits must retain the source identity");o.text=c.source;
+            require(c.source.id==o.text->id,"ID_MISMATCH","Text edits must retain the source identity");
+            auto next=c.source;
+            if(o.text->italic_driver) {
+                require(!next.italic_driver||next.italic_driver==o.text->italic_driver,"DRIVEN_PROPERTY","UpdateText cannot replace or remove a Text italic driver");
+                require(next.italic==o.text->italic,"DRIVEN_PROPERTY","Unlink or replace the Text italic driver before changing its authored literal");
+                next.italic_driver=o.text->italic_driver;
+            } else require(!next.italic_driver,"USE_TYPED_COMMAND","Create Text Italic links with link_text_italic or set_text_italic_expression");
+            o.text=std::move(next);
         } else if constexpr(std::is_same_v<T,CreatePrimitive>) {
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
             Object object;object.id=c.id;object.name=c.name;object.source=c.source;

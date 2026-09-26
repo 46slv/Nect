@@ -111,5 +111,30 @@ void nested_selection_and_roles() {
     const auto& paint=s.document().objects.at(p).stack.front();const auto& gradient=*paint.gradient;
     check(expression_dependencies(*property(s.document(),{p,"","composite.opacity"}).expression).front()==gradient_ref(p,paint.id,gradient.id,"stop."+gradient.stops.back().id+".offset"),"Gradient stop reference remaps each nested stable ID");
 }
+void text_italic_drivers() {
+    Session s(empty_document("bool-doc","bool-comp","bool-frame"));
+    auto source=default_text("source-text","Source");source.italic=true;
+    auto linked=default_text("linked-text","Linked");
+    auto expression=default_text("expression-text","Expression");
+    apply(s,{CreateText{"bool-comp","","source","Source",source},
+        CreateText{"bool-comp","","linked","Linked",linked},
+        CreateText{"bool-comp","","expression","Expression",expression},
+        LinkTextItalic{{"linked","","text.italic"},{"source","","text.italic"},false},
+        SetTextItalicExpression{{"expression","","text.italic"},{"!ref(\"source\",\"\",\"text.italic\")",1},false}});
+    const auto original=s.document();
+    apply(s,{DuplicateObjects{{"source","linked","expression"},"boolcopy"}});
+    const auto copied=s.document();
+    const auto source_copy=copy_of(copied,"source");
+    const auto linked_copy=copy_of(copied,"linked");
+    const auto expression_copy=copy_of(copied,"expression");
+    check(std::get<Ref>(*copied.objects.at(linked_copy).text->italic_driver)==Ref{source_copy,"","text.italic"}&&
+        evaluate_text_italic(copied,linked_copy),"Duplicated Text italic link targets its copied source");
+    const auto& copied_driver=std::get<Expression>(*copied.objects.at(expression_copy).text->italic_driver);
+    check(copied_driver.source=="!ref(\""+source_copy+"\",\"\",\"text.italic\")"&&
+        !evaluate_text_italic(copied,expression_copy),"Duplicated Text italic expression remaps stable Ref and preserves authored form");
+    check(s.document().objects.at("linked").text->italic_driver==original.objects.at("linked").text->italic_driver&&
+        s.document().objects.at("expression").text->italic_driver==original.objects.at("expression").text->italic_driver,
+        "Text italic duplication leaves original drivers unchanged");
 }
-int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}
+}
+int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

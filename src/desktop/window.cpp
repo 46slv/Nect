@@ -1441,25 +1441,36 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
     for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
     const auto scroll=context==inspector_context_?inspector_scroll_->verticalScrollBar()->value():0;
+    const auto selected_text=host.session.document().objects.find(canvas->selected_object);
+    const bool text_form=!artboard_editing_&&canvas->selections().size()<=1&&
+        selected_text!=host.session.document().objects.end()&&selected_text->second.text.has_value();
     inspector_context_=context;
     // Qt may scroll to a disappearing focused field while the new form lays out.
     // Restore the previous viewport only for the same editing context.
-    QTimer::singleShot(0,this,[this,context,scroll]{if(inspector_context_==context)inspector_scroll_->verticalScrollBar()->setValue(scroll);});
+    const auto restore_scroll=[this,context,scroll,text_form]{QTimer::singleShot(0,this,[this,context,scroll,text_form]{
+        if(inspector_context_!=context)return;
+        if(auto* current_layout=inspector_->layout()) {
+            current_layout->activate();
+            inspector_->setMinimumHeight(text_form?current_layout->minimumSize().height():0);
+            inspector_->updateGeometry();
+        }
+        inspector_scroll_->verticalScrollBar()->setValue(scroll);
+    });};
     // Avoid deleting a focused field synchronously from its editingFinished signal.
     if(auto* old=inspector_->layout()) {
         while(auto* child=old->takeAt(0)) { if(child->widget()) {child->widget()->hide();child->widget()->deleteLater();}delete child; }
         delete old;
     }
     auto* layout=new QVBoxLayout(inspector_);
-    if(artboard_editing_) {edit_artboard(layout);return;}
+    if(artboard_editing_) {edit_artboard(layout);restore_scroll();return;}
     const auto& d=host.session.document();
-    if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a shape, Curve or Text.\nSelect a point to edit its handles."));layout->addStretch();return;}
+    if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a shape, Curve or Text.\nSelect a point to edit its handles."));layout->addStretch();restore_scroll();return;}
     const auto& o=d.objects.at(canvas->selected_object);
     // A complete Window refresh has just evaluated this same committed Session
     // for Canvas. Reuse those numbers; standalone selection/draft refreshes and
     // an active preview still read committed values through the core evaluator.
     inspector_values_=use_canvas_values&&!host.session.gesture_active()?canvas->evaluated_values():evaluate(d);
-    if(canvas->selections().size()>1){add_multi_properties(layout);return;}
+    if(canvas->selections().size()>1){add_multi_properties(layout);restore_scroll();return;}
     if(canvas->selections().size()==1&&canvas->selections().front().point.empty())
         add_alignment_controls(layout,canvas->selections());
     auto* name=new QLineEdit(qs(o.name));name->setAccessibleName("Object name");layout->addWidget(name);
@@ -1546,7 +1557,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     if(!o.compositing.mask)add_compositing_properties(layout,o);
     if(o.kind==Kind::path||o.kind==Kind::text)add_stack(layout,o);
     auto* hint=new QLabel("Right-click a value to copy, paste or unlink.\n↗ picks a property source; += / -= adjusts once.");
-    hint->setWordWrap(true);hint->setStyleSheet("color: #929aa6; font-size: 11px;");layout->addWidget(hint);layout->addStretch();
+    hint->setWordWrap(true);hint->setStyleSheet("color: #929aa6; font-size: 11px;");layout->addWidget(hint);layout->addStretch();restore_scroll();
 }
 void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object) {
     auto* box=new QGroupBox("Compositing");auto* form=new QFormLayout(box);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);
@@ -1776,8 +1787,58 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     weight->setValue(static_cast<int>(source.weight));weight->setKeyboardTracking(false);form->addRow("Weight",weight);
     connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,before=source.weight]{
         if(static_cast<unsigned>(weight->value())!=before)perform([&]{update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});});});
-    auto* italic=new QCheckBox("Italic");italic->setObjectName("text-italic");italic->setChecked(source.italic);form->addRow(italic);
-    connect(italic,&QCheckBox::toggled,this,[this,update](bool value){perform([&]{update([&](auto& s){s.italic=value;});});});
+    const Ref italic_ref{id,"","text.italic"};const auto italic_state=text_italic_property(host.session.document(),italic_ref);
+    const auto italic_revision=host.session.revision();
+    auto* italic_row=new QWidget(box);auto* italic_layout=new QHBoxLayout(italic_row);italic_layout->setContentsMargins(0,0,0,0);
+    auto* italic=new QCheckBox("Italic");italic->setObjectName("text-italic");italic->setChecked(italic_state.evaluated);
+    italic->setEnabled(!italic_state.driver);if(italic_state.driver)italic->setToolTip("Unlink or replace the driver before editing the literal.");
+    italic_layout->addWidget(italic);
+    auto* italic_driver_button=new QToolButton(italic_row);italic_driver_button->setObjectName("text-italic-driver");
+    italic_driver_button->setText(italic_state.driver?"Driver…":"Drive…");italic_driver_button->setPopupMode(QToolButton::InstantPopup);
+    auto* italic_menu=new QMenu(italic_driver_button);italic_driver_button->setMenu(italic_menu);italic_layout->addWidget(italic_driver_button);italic_layout->addStretch();
+    auto* link_italic=italic_menu->addAction("Link to Text italic…");
+    auto* expression_italic=italic_menu->addAction("Set expression…");
+    auto* unlink_italic=italic_menu->addAction("Unlink italic");unlink_italic->setEnabled(italic_state.driver.has_value());
+    QStringList italic_source_labels;std::vector<Id> italic_source_ids;
+    for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
+        italic_source_ids.push_back(source_id);italic_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+    }
+    link_italic->setEnabled(!italic_source_ids.empty());
+    const bool replace_italic_driver=italic_state.driver.has_value();
+    connect(link_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision,replace_italic_driver,italic_source_ids,italic_source_labels]{
+        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text italic","Source Text",italic_source_labels,0,false,&accepted);
+        if(!accepted)return;
+        const auto index=italic_source_labels.indexOf(choice);if(index<0)return;
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({LinkTextItalic{{id,"","text.italic"},{italic_source_ids.at(static_cast<std::size_t>(index)),"","text.italic"},replace_italic_driver}},italic_revision);host.edited();});
+    });
+    const auto initial_italic_expression=italic_state.driver&&std::holds_alternative<Expression>(*italic_state.driver)?
+        qs(std::get<Expression>(*italic_state.driver).source):QStringLiteral("false");
+    connect(expression_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision,replace_italic_driver,initial_italic_expression]{
+        bool accepted=false;const auto expression=QInputDialog::getText(this,"Text italic expression","Expression",
+            QLineEdit::Normal,initial_italic_expression,&accepted);if(!accepted)return;
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({SetTextItalicExpression{{id,"","text.italic"},{expression.toStdString(),1},replace_italic_driver}},italic_revision);host.edited();});
+    });
+    connect(unlink_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision]{
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({UnlinkTextItalic{{id,"","text.italic"}}},italic_revision);host.edited();});
+    });
+    form->addRow("Italic",italic_row);
+    auto* italic_status=new QLabel(italic_row);italic_status->setObjectName("text-italic-state");
+    const auto driver_description=[&] {
+        if(!italic_state.driver)return QStringLiteral("none");
+        if(const auto* link=std::get_if<Ref>(&*italic_state.driver)) {
+            const auto found=host.session.document().objects.find(link->object);
+            return QStringLiteral("link to ")+(found==host.session.document().objects.end()?qs(link->object):qs(found->second.name)+" ("+qs(link->object)+")");
+        }
+        return QStringLiteral("expression ")+qs(std::get<Expression>(*italic_state.driver).source);
+    }();
+    italic_status->setText(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
+        .arg(italic_state.literal?"true":"false",driver_description,italic_state.evaluated?"true":"false"));
+    italic_status->setWordWrap(true);form->addRow("",italic_status);
+    connect(italic,&QCheckBox::toggled,this,[this,update,italic_state](bool value){if(italic_state.driver)return;
+        perform([&]{update([&](auto& s){s.italic=value;});});});
     auto choices=[&](const QString& name,const QString& label,const QStringList& labels,const std::vector<std::string>& values,
                      const std::string& selected,std::string TextSource::*member) {
         auto* combo=new QComboBox;combo->setObjectName(name);combo->addItems(labels);
@@ -1795,7 +1856,8 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     for(const auto* parameter:{"origin_x","origin_y","font_size","frame_width","frame_height","tracking","line_spacing"})
         add_property(form,{id,"",std::string("text.")+parameter},parameter_label(parameter));
     std::map<std::string,double> parameters;for(const auto& [name,value]:source.parameters){(void)value;parameters[name]=inspector_values_.at({id,"","text."+name});}
-    const auto result=evaluate_text(source,parameters);
+    auto evaluated_source=source;evaluated_source.italic=italic_state.evaluated;
+    const auto result=evaluate_text(evaluated_source,parameters);
     QStringList lines;lines<<QString("%1 × %2 du · %3 glyphs").arg(display_value(result.width),display_value(result.height)).arg(result.glyph_count);
     if(result.overflow)lines<<"Text extends outside its frame. Increase the frame or reduce the type size.";
     for(const auto& warning:result.warnings)lines<<qs(warning);
@@ -2131,7 +2193,8 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                     }
                     if(const auto& selected=host.session.document().objects.at(id);selected.text) {
                         std::map<std::string,double> parameters;for(const auto& [name,value]:selected.text->parameters){(void)value;parameters[name]=values.at({id,"","text."+name});}
-                        const auto layout=evaluate_text(*selected.text,parameters);bounds=QRectF(layout.x,layout.y,layout.width,layout.height);
+                        auto text=*selected.text;text.italic=evaluate_text_italic(host.session.document(),id);
+                        const auto layout=evaluate_text(text,parameters);bounds=QRectF(layout.x,layout.y,layout.width,layout.height);
                     }
                     const auto span=std::max(1.0,bounds.width());
                     created.start_x.literal=index==2?bounds.center().x():bounds.left();created.start_y.literal=bounds.center().y();
@@ -2505,7 +2568,10 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
     connect(insert,&QPushButton::clicked,this,[this,editor] {
         auto* dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setWindowTitle("Insert expression reference");dialog->resize(660,450);
         auto* content=new QVBoxLayout(dialog);auto* search=new QLineEdit;search->setPlaceholderText("Search properties");content->addWidget(search);auto* list=new QListWidget;content->addWidget(list);
-        for(const auto& ref:properties(host.session.document())) {auto* item=new QListWidgetItem(property_label(host.session.document(),ref),list);item->setData(Qt::UserRole,expression_ref(ref));}
+        for(const auto& ref:properties(host.session.document())) {
+            if(ref.point.empty()&&ref.field=="text.italic")continue;
+            auto* item=new QListWidgetItem(property_label(host.session.document(),ref),list);item->setData(Qt::UserRole,expression_ref(ref));
+        }
         connect(search,&QLineEdit::textChanged,dialog,[list](const QString& text){const auto terms=text.split(' ',Qt::SkipEmptyParts);for(int i=0;i<list->count();++i)list->item(i)->setHidden(!std::all_of(terms.begin(),terms.end(),[&](const auto& term){return list->item(i)->text().contains(term,Qt::CaseInsensitive);}));});
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);content->addWidget(buttons);
         const QPointer<ExpressionInput> safe_editor(editor);
@@ -2640,6 +2706,7 @@ void Window::pick_source(std::vector<Ref> targets,bool relative) {
     auto* list=new QListWidget;layout->addWidget(list);
     const auto values=evaluate(host.session.document());
     for(const auto& ref:properties(host.session.document())) {
+        if(ref.point.empty()&&ref.field=="text.italic")continue;
         if(std::find(targets.begin(),targets.end(),ref)!=targets.end())continue;
         const auto text=property_label(host.session.document(),ref)+" ["+qs(property_unit(ref))+", local]  = "+display_value(values.at(ref));
         auto* item=new QListWidgetItem(text,list);item->setData(Qt::UserRole,QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact));
@@ -2788,7 +2855,8 @@ void Window::add_operation(const std::string& type,bool radial) {
             center_y=values.at({object.id,{},"generator.center_y"});
         } else if(object.text) {
             std::map<std::string,double> parameters;for(const auto& [name,value]:object.text->parameters){(void)value;parameters[name]=values.at({object.id,"","text."+name});}
-            const auto layout=evaluate_text(*object.text,parameters);center_x=layout.x+layout.width/2;center_y=layout.y+layout.height/2;
+            auto text=*object.text;text.italic=evaluate_text_italic(document,object.id);
+            const auto layout=evaluate_text(text,parameters);center_x=layout.x+layout.width/2;center_y=layout.y+layout.height/2;
         } else {
             QRectF bounds;bool first=true;
             for(const auto& contour:path_contours(object,&values))for(const auto& point:contour.points) {

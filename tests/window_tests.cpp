@@ -803,8 +803,6 @@ void text_authoring(Window& window) {
     const Ref font_size{id,"","text.font_size"};auto* size=field<QLineEdit>(window,font_size);reveal(window,size);size->setFocus();
     const auto scroll=window.findChild<QScrollArea*>("inspector-scroll")->verticalScrollBar()->value();const auto focused_before=size->hasFocus();
     size->selectAll();QTest::keyClicks(size,"52");QTest::keyClick(size,Qt::Key_Return);QApplication::processEvents();
-    if(!field<QLineEdit>(window,font_size)->hasFocus()||window.findChild<QScrollArea*>("inspector-scroll")->verticalScrollBar()->value()!=scroll)
-        std::cerr<<"TEXT SCROLL "<<focused_before<<" "<<field<QLineEdit>(window,font_size)->hasFocus()<<" "<<scroll<<" "<<window.findChild<QScrollArea*>("inspector-scroll")->verticalScrollBar()->value()<<'\n';
     check(field<QLineEdit>(window,font_size)->hasFocus()&&window.findChild<QScrollArea*>("inspector-scroll")->verticalScrollBar()->value()==scroll,
         "Numeric Return preserves focus and Inspector scroll position after rebuilding text controls");
     named_action(window,"add-stroke")->trigger();QApplication::processEvents();check(session.document().objects.at(id).stack.size()==2,"Text supports the common editable paint stack");

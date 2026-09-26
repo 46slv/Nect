@@ -161,7 +161,8 @@ std::optional<Bounds> object_bounds(const Document& document,const Id& id,const 
         if(object.text) {
             std::map<std::string,double> parameters;
             for(const auto& [name,scalar]:object.text->parameters){(void)scalar;parameters.emplace(name,values.at({child,"","text."+name}));}
-            const auto layout=evaluate_text(*object.text,parameters);
+            auto text=*object.text;text.italic=evaluate_text_italic(document,child);
+            const auto layout=evaluate_text(text,parameters);
             text_bounds=Bounds{layout.x,layout.y,layout.x+layout.width,layout.y+layout.height};
         }
         const auto path=[&](const PathInstance& instance,const Affine& parent) {

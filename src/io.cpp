@@ -240,12 +240,28 @@ Contour read_contour(const j::value& v,bool allow_expression=true) {
     return out;
 }
 
-TextSource read_text(const j::value& v,bool allow_expression=true) {
-    const auto& o=v.as_object();keys(o,{"id","version","content","family","locale","layout","direction","alignment","weight","italic","parameters"});
+TextItalicDriver read_text_italic_driver(const j::value& value) {
+    const auto& driver=value.as_object();
+    if(driver.contains("link")) {keys(driver,{"link"});return TextItalicDriver{read_ref(driver.at("link"))};}
+    if(driver.contains("expression")) {keys(driver,{"expression"});return TextItalicDriver{read_expression(driver.at("expression"))};}
+    throw Error("INVALID_TEXT_ITALIC_DRIVER","Text italic driver requires exactly one link or expression");
+}
+j::object text_italic_driver_json(const TextItalicDriver& driver) {
+    if(const auto* link=std::get_if<Ref>(&driver))return {{"link",ref_json(*link)}};
+    return {{"expression",expression_json(std::get<Expression>(driver))}};
+}
+TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true) {
+    const auto& o=v.as_object();
+    if(allow_italic_driver)keys(o,{"id","version","content","family","locale","layout","direction","alignment","weight","italic","italic_driver","parameters"});
+    else {
+        if(o.contains("italic_driver"))throw Error("UNSUPPORTED_TEXT_ITALIC_DRIVER","Text italic drivers require native 0.15");
+        keys(o,{"id","version","content","family","locale","layout","direction","alignment","weight","italic","parameters"});
+    }
     TextSource s;s.id=text(o.at("id"));s.version=j::value_to<unsigned>(o.at("version"));
     s.content=text(o.at("content"));s.family=text(o.at("family"));s.locale=text(o.at("locale"));
     s.layout=text(o.at("layout"));s.direction=text(o.at("direction"));s.alignment=text(o.at("alignment"));
     s.weight=j::value_to<unsigned>(o.at("weight"));s.italic=o.at("italic").as_bool();
+    if(const auto* driver=o.if_contains("italic_driver"))s.italic_driver=read_text_italic_driver(*driver);
     for(const auto& p:o.at("parameters").as_object())s.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
     return s;
 }
@@ -281,8 +297,15 @@ j::object color_property_json(const Document& d,const Ref& ref,const std::map<Re
 }
 j::value text_json(const TextSource& s) {
     j::object parameters;for(const auto& [name,value]:s.parameters)parameters[name]=scalar_json(value);
-    return j::object{{"id",s.id},{"version",s.version},{"content",s.content},{"family",s.family},{"locale",s.locale},
+    j::object result{{"id",s.id},{"version",s.version},{"content",s.content},{"family",s.family},{"locale",s.locale},
         {"layout",s.layout},{"direction",s.direction},{"alignment",s.alignment},{"weight",s.weight},{"italic",s.italic},{"parameters",parameters}};
+    if(s.italic_driver)result["italic_driver"]=text_italic_driver_json(*s.italic_driver);
+    return result;
+}
+j::object text_italic_property_json(const Document& d,const Ref& ref,const TextItalicProperty& value) {
+    j::value driver=nullptr;if(value.driver)driver=text_italic_driver_json(*value.driver);
+    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},{"unit","boolean"},{"space","local"},
+        {"origin","authored"},{"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},{"evaluated",value.evaluated}};
 }
 j::object text_layout_json(const Document& d,const Id& id) {
     const auto object=d.objects.find(id);
@@ -290,7 +313,8 @@ j::object text_layout_json(const Document& d,const Id& id) {
     if(!object->second.text)throw Error("NOT_TEXT",id);
     const auto values=evaluate(d);std::map<std::string,double> parameters;
     for(const auto& [name,value]:object->second.text->parameters){(void)value;parameters[name]=values.at({id,"","text."+name});}
-    const auto layout=evaluate_text(*object->second.text,parameters);
+    auto text_source=*object->second.text;text_source.italic=evaluate_text_italic(d,id);
+    const auto layout=evaluate_text(text_source,parameters);
     return {{"object",id},{"x",layout.x},{"y",layout.y},{"width",layout.width},{"height",layout.height},
         {"overflow",layout.overflow},{"glyph_count",layout.glyph_count},{"warnings",ids_json(layout.warnings)},
         {"used_fonts",ids_json(layout.used_fonts)},{"svg_text","outlined"},{"font_embedded",false}};
@@ -527,6 +551,17 @@ Command read_command(const j::value& v) {
     if(type=="update_text") {
         keys(o,{"type","object","source"});return UpdateText{text(o.at("object")),read_text(o.at("source"))};
     }
+    if(type=="link_text_italic") {
+        keys(o,{"type","target","source","replace_driver"});
+        return LinkTextItalic{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="set_text_italic_expression") {
+        keys(o,{"type","target","expression","replace_driver"});
+        return SetTextItalicExpression{read_ref(o.at("target")),read_expression(o.at("expression")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="unlink_text_italic") {
+        keys(o,{"type","target"});return UnlinkTextItalic{read_ref(o.at("target"))};
+    }
     if(type=="add_artboard") {
         keys(o,{"type","composition","artboard","index"});
         return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true),j::value_to<std::size_t>(o.at("index"))};
@@ -740,10 +775,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,14> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14"};
+        constexpr std::array<std::string_view,15> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.14 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.15 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -826,7 +861,7 @@ Document decode(std::string_view input) {
 
                 if(obj.kind==Kind::text) {
                     if(o.contains("source")||o.contains("point_edit")||o.contains("contours"))throw Error("INVALID_OBJECT","Text has incompatible geometry fields");
-                    obj.text=read_text(o.at("text"),minor>=10);
+                    obj.text=read_text(o.at("text"),minor>=10,minor>=15);
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
                     obj.source=read_primitive(o.at("source"),minor>=8,minor>=10);
@@ -1099,7 +1134,8 @@ std::string request(Session& session,std::string_view input) {
         if(op=="get") {
             keys(o,{"op","ref"});
             auto r=read_ref(o.at("ref"));
-            if(r.point.empty()&&(r.field=="color"||r.field.ends_with(".color")))result=color_property_json(session.document(),r,evaluate(session.document()));
+            if(r.point.empty()&&r.field=="text.italic")result=text_italic_property_json(session.document(),r,text_italic_property(session.document(),r));
+            else if(r.point.empty()&&(r.field=="color"||r.field.ends_with(".color")))result=color_property_json(session.document(),r,evaluate(session.document()));
             else {
             const auto origin=property_origin(session.document(),r);
             result=j::object{
@@ -1115,7 +1151,13 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op"});
             j::array list;
             const auto values=evaluate(session.document());
+            const auto italic_values=evaluate_text_italics(session.document());
             for(const auto& ref:properties(session.document())) {
+                if(ref.point.empty()&&ref.field=="text.italic") {
+                    const auto& source=*session.document().objects.at(ref.object).text;
+                    list.push_back(text_italic_property_json(session.document(),ref,{source.italic,source.italic_driver,italic_values.at(ref)}));
+                    continue;
+                }
                 const auto origin=property_origin(session.document(),ref);
                 list.push_back({{"ref",ref_json(ref)},
                     {"name",property_name(session.document(),ref)},
