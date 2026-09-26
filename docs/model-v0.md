@@ -1047,3 +1047,26 @@ versions. `schemas/native-v0.18.schema.json` constrains the closed wire shape;
 the core verifies existence, same-field/type, cycles, UTF-8 and byte limits.
 Generic Scalar commands, expressions, offsets, name rebinding and links for
 other strings or enums remain unsupported.
+
+## Native 0.19 — typed Text direction link
+
+`TextSource.direction` keeps its authored `horizontal` or `vertical` literal.
+It may also carry an optional `direction_driver:{"link":Ref}` to another Text
+object's `text.direction` field. Source and target use stable object IDs and an
+empty point ID. Evaluation follows the link without changing either literal,
+with the existing 128-edge depth, missing-source and cycle checks. The shared
+evaluated Text projection supplies direction to layout, Canvas, shape, bounds,
+SVG and Inspector measurement; native inspection retains authored values.
+
+`link_text_direction` uses the Session's revision and Undo path and requires
+`replace_driver:true` to replace an existing driver. `unlink_text_direction`
+freezes the evaluated choice into the target literal. `UpdateText` can change
+unrelated fields while preserving a direction link, but cannot directly edit
+its driven literal. Rename and reorder preserve the source ID, duplication
+remaps copied links, and deleting a still-referenced source is rejected.
+
+The 0.19 writer omits `direction_driver` for literal-only Text. Earlier native
+versions retain their literal direction on read and reject this field if it is
+present. `schemas/native-v0.19.schema.json` constrains the closed wire shape;
+the core checks semantic references and the `horizontal`/`vertical` domain.
+Other Text enums, enum expressions and generic typed batch links remain open.

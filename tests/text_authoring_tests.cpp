@@ -80,15 +80,15 @@ int main(){try{
         "Boolean false expression remains authored as an expression");
     bool_apply({SetTextItalicExpression{italic_b,inverted,true}});
     const auto native16=encode(bool_session.document());
-    check(native16.find("\"version\":\"0.18\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
-        encode(decode(native16))==native16,"Native 0.18 roundtrip preserves Text italic expression exactly");
+    check(native16.find("\"version\":\"0.19\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
+        encode(decode(native16))==native16,"Native 0.19 roundtrip preserves Text italic expression exactly");
     auto invalid_driver=native16;const auto driver_at=invalid_driver.find("\"italic_driver\":{\"expression\":");
     check(driver_at!=std::string::npos,"Native Text italic driver is serialized as the expression alternative");
     invalid_driver.replace(driver_at,std::string("\"italic_driver\":{\"expression\":").size(),"\"italic_driver\":{\"other\":");
     rejects("INVALID_TEXT_ITALIC_DRIVER",[&]{decode(invalid_driver);});
-    auto old_with_driver=native16;const auto current_version=old_with_driver.find("\"version\":\"0.18\"");
-    check(current_version!=std::string::npos,"Native bool driver fixture identifies version 0.18");
-    old_with_driver.replace(current_version,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.14\"");
+    auto old_with_driver=native16;const auto current_version=old_with_driver.find("\"version\":\"0.19\"");
+    check(current_version!=std::string::npos,"Native bool driver fixture identifies version 0.19");
+    old_with_driver.replace(current_version,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.14\"");
     rejects("UNSUPPORTED_TEXT_ITALIC_DRIVER",[&]{decode(old_with_driver);});
     const auto before_delete=encode(bool_session.document());const auto before_delete_revision=bool_session.revision();
     rejects("MISSING_REFERENCE",[&]{bool_apply({DeleteObjects{{"title"}}});});
@@ -99,8 +99,8 @@ int main(){try{
     auto legacy=empty_document("legacy-doc","legacy-comp","legacy-frame");
     auto legacy_text=default_text("legacy-text","Legacy");legacy_text.italic=true;
     Session legacy_session(legacy);legacy_session.apply({CreateText{"legacy-comp","","legacy-object","Legacy",legacy_text}},legacy_session.revision());
-    auto native14=encode(legacy_session.document());const auto version_at=native14.find("\"version\":\"0.18\"");
-    check(version_at!=std::string::npos,"Native writer emits 0.18");native14.replace(version_at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.14\"");
+    auto native14=encode(legacy_session.document());const auto version_at=native14.find("\"version\":\"0.19\"");
+    check(version_at!=std::string::npos,"Native writer emits 0.19");native14.replace(version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.14\"");
     const auto old_text=decode(native14);check(old_text.objects.at("legacy-object").text->italic&&!old_text.objects.at("legacy-object").text->italic_driver,
         "Native 0.14 Text decodes with its literal italic value");
     auto weight_document=empty_document("weight-doc","weight-comp","weight-frame");Session weight_session(weight_document);
@@ -148,13 +148,13 @@ int main(){try{
         const auto query=std::string("{\"op\":\"get\",\"ref\":{\"object\":\"weight-a\",\"point\":\"\",\"field\":\"")+readonly_fields[i]+"\"}}";
         const auto get=request(weight_session,query);
         const auto type=i<3?"string":"enum";
-        const auto link=i<=1?"true":"false";
+        const auto link=(i<=1||i==4)?"true":"false";
         check(get.find("\"type\":\""+std::string(type)+"\"")!=std::string::npos&&
             get.find("\"literal\":\""+values_a[i]+"\"")!=std::string::npos&&
             get.find("\"evaluated\":\""+values_a[i]+"\"")!=std::string::npos&&
             get.find("\"link\":"+std::string(link))!=std::string::npos&&get.find("\"expression\":false")!=std::string::npos&&
-            (i>1||get.find("\"driver\":null")!=std::string::npos),
-            "JSON-lines get returns the Text literal, type, and scoped string-link capability");
+            (i<=1||i==4?get.find("\"driver\":null")!=std::string::npos:true),
+            "JSON-lines get returns the Text literal, type, and scoped link capability");
         check(readonly_properties.find("\"object\":\"weight-a\",\"point\":\"\",\"field\":\""+readonly_fields[i]+"\"")!=std::string::npos,
             "JSON-lines properties lists each typed Text source ref");
     }
@@ -166,7 +166,7 @@ int main(){try{
     check(resolved_text.find("\"field\":\"text.content\"")!=std::string::npos&&
         weight_session.revision()==readonly_revision&&encode(weight_session.document())==readonly_bytes,
         "Text get/properties/resolve_name reads leave native bytes and Session revision unchanged");
-    check(encode(decode(readonly_bytes))==readonly_bytes,"Native 0.18 roundtrip preserves Text source values exactly");
+    check(encode(decode(readonly_bytes))==readonly_bytes,"Native 0.19 roundtrip preserves Text source values exactly");
     rejects("MISSING_NAME",[&]{resolve_name(weight_session.document(),"Missing Text","","text.content");});
     auto duplicate_names=weight_session.document();duplicate_names.objects.at("weight-b").name="Weight A";
     rejects("AMBIGUOUS_NAME",[&]{resolve_name(duplicate_names,"Weight A","","text.content");});
@@ -190,10 +190,10 @@ int main(){try{
         linked_weight_property.driver==TextWeightDriver{weight_a_ref},
         "Same-type weight link evaluates through its stable Ref and preserves the target literal");
     const auto weight_link_bytes=encode(weight_session.document());
-    check(weight_link_bytes.find("\"version\":\"0.18\"")!=std::string::npos&&
+    check(weight_link_bytes.find("\"version\":\"0.19\"")!=std::string::npos&&
         weight_link_bytes.find("\"weight_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(weight_link_bytes))==weight_link_bytes,
-        "Native 0.18 retains the optional Text weight Ref link exactly");
+        "Native 0.19 retains the optional Text weight Ref link exactly");
     const auto weight_get=request(weight_session,R"({"op":"get","ref":{"object":"weight-b","point":"","field":"text.weight"}})");
     const auto weight_properties=request(weight_session,R"({"op":"properties"})");
     check(weight_get.find("\"type\":\"integer\"")!=std::string::npos&&weight_get.find("\"unit\":\"unitless\"")!=std::string::npos&&
@@ -269,12 +269,12 @@ int main(){try{
     check(target_link_object!=std::string::npos,"Native weight Ref target ID is explicitly present");
     cyclic_weight.replace(target_link_object,std::string("weight-a").size(),"weight-b");
     rejects("DEPENDENCY_CYCLE",[&]{decode(cyclic_weight);});
-    auto old_weight_driver=weight_link_bytes;const auto weight_version_at=old_weight_driver.find("\"version\":\"0.18\"");
-    check(weight_version_at!=std::string::npos,"Native weight fixture identifies version 0.18");
-    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.15\"");
+    auto old_weight_driver=weight_link_bytes;const auto weight_version_at=old_weight_driver.find("\"version\":\"0.19\"");
+    check(weight_version_at!=std::string::npos,"Native weight fixture identifies version 0.19");
+    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.15\"");
     rejects("UNSUPPORTED_TEXT_WEIGHT_DRIVER",[&]{decode(old_weight_driver);});
-    const auto legacy_weight=decode([&]{auto value=encode(weight_session.document());const auto at=value.find("\"version\":\"0.18\"");
-        value.replace(at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.15\"");return value;}());
+    const auto legacy_weight=decode([&]{auto value=encode(weight_session.document());const auto at=value.find("\"version\":\"0.19\"");
+        value.replace(at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.15\"");return value;}());
     check(legacy_weight.objects.at("weight-a").text->weight==500&&!legacy_weight.objects.at("weight-a").text->weight_driver&&
         legacy_weight.objects.at("weight-b").text->weight==300&&!legacy_weight.objects.at("weight-b").text->weight_driver,
         "Native 0.15 Text migrates authored weights as literals");
@@ -288,9 +288,9 @@ int main(){try{
         CreatePath{"content-comp","","content-path","Content Path",{{"content-path-contour",false,{content_path_point}}}}});
     const Ref content_a_ref{"content-a","","text.content"},content_b_ref{"content-b","","text.content"};
     const auto literal_bytes=encode(content_session.document());
-    check(literal_bytes.find("\"version\":\"0.18\"")!=std::string::npos&&
+    check(literal_bytes.find("\"version\":\"0.19\"")!=std::string::npos&&
         literal_bytes.find("content_driver")==std::string::npos&&encode(decode(literal_bytes))==literal_bytes,
-        "Native 0.18 omits absent Text drivers and preserves literal-only Text");
+        "Native 0.19 omits absent Text drivers and preserves literal-only Text");
     const auto content_properties=properties(content_session.document());
     check(std::find(content_properties.begin(),content_properties.end(),content_a_ref)!=content_properties.end()&&
         resolve_name(content_session.document(),"Content B","","text.content")==content_b_ref,
@@ -359,7 +359,7 @@ int main(){try{
     const auto copied_link_bytes=encode(content_session.document());
     check(copied_link_bytes.find("\"content_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(copied_link_bytes))==copied_link_bytes,
-        "Native 0.18 roundtrip retains the exact Text content driver");
+        "Native 0.19 roundtrip retains the exact Text content driver");
     const auto linked_copy_reopen=decode(copied_link_bytes);
     check(linked_copy_reopen.objects.at(copy_b).text->content_driver->link==Ref{copy_a,"","text.content"}&&
         evaluate_text_content(linked_copy_reopen,copy_b)=="Copied source",
@@ -398,12 +398,12 @@ int main(){try{
     else {const auto original_source_at=missing_content_source.find("content-a",content_driver_at);check(original_source_at!=std::string::npos,"Native content source ID is explicit");
         missing_content_source.replace(original_source_at,std::string("content-a").size(),"missing");}
     rejects("MISSING_REFERENCE",[&]{decode(missing_content_source);});
-    auto old_content_driver=copied_link_bytes;const auto content_version_at=old_content_driver.find("\"version\":\"0.18\"");
-    check(content_version_at!=std::string::npos,"Native content fixture identifies version 0.18");
-    old_content_driver.replace(content_version_at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.16\"");
+    auto old_content_driver=copied_link_bytes;const auto content_version_at=old_content_driver.find("\"version\":\"0.19\"");
+    check(content_version_at!=std::string::npos,"Native content fixture identifies version 0.19");
+    old_content_driver.replace(content_version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.16\"");
     rejects("UNSUPPORTED_TEXT_CONTENT_DRIVER",[&]{decode(old_content_driver);});
-    auto legacy_content=literal_bytes;const auto legacy_version_at=legacy_content.find("\"version\":\"0.18\"");
-    legacy_content.replace(legacy_version_at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.16\"");
+    auto legacy_content=literal_bytes;const auto legacy_version_at=legacy_content.find("\"version\":\"0.19\"");
+    legacy_content.replace(legacy_version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.16\"");
     const auto migrated_content=decode(legacy_content);
     check(migrated_content.objects.at("content-b").text->content=="Manual B"&&
         !migrated_content.objects.at("content-b").text->content_driver,
@@ -422,9 +422,9 @@ int main(){try{
         CreatePath{"family-comp","","family-path","Family Path",{{"family-path-contour",false,{family_path_point}}}}});
     const Ref family_a_ref{"family-a","","text.family"},family_b_ref{"family-b","","text.family"},family_c_ref{"family-c","","text.family"};
     const auto family_literal_bytes=encode(family_session.document());
-    check(family_literal_bytes.find("\"version\":\"0.18\"")!=std::string::npos&&
+    check(family_literal_bytes.find("\"version\":\"0.19\"")!=std::string::npos&&
         family_literal_bytes.find("family_driver")==std::string::npos&&encode(decode(family_literal_bytes))==family_literal_bytes,
-        "Native 0.18 omits an absent Text family driver and preserves literal-only family values");
+        "Native 0.19 omits an absent Text family driver and preserves literal-only family values");
     const auto family_refs=properties(family_session.document());
     check(resolve_name(family_session.document(),"Family B","","text.family")==family_b_ref&&
         std::find(family_refs.begin(),family_refs.end(),family_b_ref)!=family_refs.end(),
@@ -496,7 +496,7 @@ int main(){try{
     const auto copied_family_bytes=encode(family_session.document());
     check(copied_family_bytes.find("\"family_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(copied_family_bytes))==copied_family_bytes,
-        "Native 0.18 codec roundtrip retains the strict Text family driver");
+        "Native 0.19 codec roundtrip retains the strict Text family driver");
     const auto reopened_family=decode(copied_family_bytes);
     check(reopened_family.objects.at(copied_family_target).text->family_driver->link==Ref{copied_family_source,"","text.family"}&&
         evaluate_text_family(reopened_family,copied_family_target)=="Revised source family",
@@ -536,11 +536,11 @@ int main(){try{
     check(copied_source_id!=std::string::npos,"Copied Native family driver identifies its copied source ID");
     missing_family_source.replace(copied_source_id,copied_family_source.size(),"missing-family");
     rejects("MISSING_REFERENCE",[&]{decode(missing_family_source);});
-    auto old_family_driver=copied_family_bytes;const auto family_version_at=old_family_driver.find("\"version\":\"0.18\"");
-    old_family_driver.replace(family_version_at,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.17\"");
+    auto old_family_driver=copied_family_bytes;const auto family_version_at=old_family_driver.find("\"version\":\"0.19\"");
+    old_family_driver.replace(family_version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.17\"");
     rejects("UNSUPPORTED_TEXT_FAMILY_DRIVER",[&]{decode(old_family_driver);});
-    auto legacy_family=family_literal_bytes;const auto legacy_family_version=legacy_family.find("\"version\":\"0.18\"");
-    legacy_family.replace(legacy_family_version,std::string("\"version\":\"0.18\"").size(),"\"version\":\"0.17\"");
+    auto legacy_family=family_literal_bytes;const auto legacy_family_version=legacy_family.find("\"version\":\"0.19\"");
+    legacy_family.replace(legacy_family_version,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.17\"");
     const auto migrated_family=decode(legacy_family);
     check(migrated_family.objects.at("family-b").text->family=="Manual B"&&
         !migrated_family.objects.at("family-b").text->family_driver,
@@ -562,6 +562,172 @@ int main(){try{
         {"family-depth-129","","text.family"},false}},family_depth_revision);});
     check(family_depth_session.revision()==family_depth_revision&&encode(family_depth_session.document())==family_depth_bytes,
         "Text family dependency depth overflow rejects atomically");
+    Session direction_session(empty_document("direction-doc","direction-comp","direction-frame"));
+    auto direction_apply=[&](std::vector<Command> commands){direction_session.apply(commands,direction_session.revision());};
+    auto direction_a=default_text("direction-a-source","Direction A");
+    auto direction_b=default_text("direction-b-source","Direction B");direction_b.direction="vertical";
+    auto direction_c=default_text("direction-c-source","Direction C");
+    Point direction_path_point;direction_path_point.id="direction-path-point";
+    direction_apply({CreateText{"direction-comp","","direction-a","Direction A",direction_a},
+        CreateText{"direction-comp","","direction-b","Direction B",direction_b},
+        CreateText{"direction-comp","","direction-c","Direction C",direction_c},
+        CreatePath{"direction-comp","","direction-path","Direction Path",{{"direction-path-contour",false,{direction_path_point}}}}});
+    const Ref direction_a_ref{"direction-a","","text.direction"},direction_b_ref{"direction-b","","text.direction"},
+        direction_c_ref{"direction-c","","text.direction"};
+    const auto direction_literal_bytes=encode(direction_session.document());
+    check(direction_literal_bytes.find("\"version\":\"0.19\"")!=std::string::npos&&
+        direction_literal_bytes.find("direction_driver")==std::string::npos&&encode(decode(direction_literal_bytes))==direction_literal_bytes,
+        "Native 0.19 omits an absent Text direction driver and preserves the literal enum");
+    const auto direction_refs=properties(direction_session.document());
+    check(resolve_name(direction_session.document(),"Direction B","","text.direction")==direction_b_ref&&
+        std::find(direction_refs.begin(),direction_refs.end(),direction_b_ref)!=direction_refs.end(),
+        "Text direction discovery and name resolution retain the stable object Ref");
+    const auto direction_get=request(direction_session,R"({"op":"get","ref":{"object":"direction-b","point":"","field":"text.direction"}})");
+    check(direction_get.find("\"type\":\"enum\"")!=std::string::npos&&
+        direction_get.find("\"choices\":[\"horizontal\",\"vertical\"]")!=std::string::npos&&
+        direction_get.find("\"authored\":{\"literal\":\"vertical\",\"driver\":null}")!=std::string::npos&&
+        direction_get.find("\"link\":true")!=std::string::npos&&direction_get.find("\"expression\":false")!=std::string::npos,
+        "Text direction get exposes the authored enum and link-only capability");
+    const auto direction_revision=direction_session.revision();
+    rejects("MISSING_REFERENCE",[&]{direction_apply({LinkProperties{{direction_b_ref},direction_a_ref,false}});});
+    rejects("MISSING_REFERENCE",[&]{direction_apply({SetExpression{{direction_b_ref},{"1",1},false}});});
+    auto smuggled_direction=default_text("smuggled-direction-source","Smuggled");smuggled_direction.direction_driver=TextDirectionDriver{direction_a_ref};
+    rejects("USE_TYPED_COMMAND",[&]{direction_apply({CreateText{"direction-comp","","smuggled-direction","Smuggled",smuggled_direction}});});
+    rejects("MISSING_REFERENCE",[&]{direction_apply({LinkTextDirection{direction_b_ref,{"missing-direction","","text.direction"},false}});});
+    rejects("INVALID_TEXT_REF",[&]{direction_apply({LinkTextDirection{direction_b_ref,{"direction-a","p1","text.direction"},false}});});
+    rejects("TYPE_MISMATCH",[&]{direction_apply({LinkTextDirection{direction_b_ref,{"direction-a","","text.family"},false}});});
+    rejects("TYPE_MISMATCH",[&]{direction_apply({LinkTextDirection{direction_b_ref,{"direction-path","","text.direction"},false}});});
+    rejects("DEPENDENCY_CYCLE",[&]{direction_apply({LinkTextDirection{direction_b_ref,direction_b_ref,false}});});
+    check(direction_session.revision()==direction_revision&&encode(direction_session.document())==direction_literal_bytes,
+        "Unsupported, malformed and self Text direction links reject without authored changes");
+    direction_apply({LinkTextDirection{direction_b_ref,direction_a_ref,false}});
+    check(direction_session.history().states.back().label.find("Link Text direction")!=std::string::npos,
+        "Text direction link has a readable History label");
+    auto linked_direction=text_direction_property(direction_session.document(),direction_b_ref);
+    check(linked_direction.literal=="vertical"&&linked_direction.evaluated=="horizontal"&&
+        linked_direction.driver==TextDirectionDriver{direction_a_ref}&&evaluated_text_source(direction_session.document(),"direction-b").direction=="horizontal",
+        "Same-type direction links preserve the literal and feed the shared Text projection");
+    const auto direction_ref_history_bytes=[](const Id& source_id) {
+        Session measured(empty_document("direction-history-doc","direction-history-comp","direction-history-frame"));
+        const auto source_text=default_text("direction-history-source-text","Source");
+        const auto target_text=default_text("direction-history-target-source","Target");
+        measured.apply({CreateText{"direction-history-comp","",source_id,"Source",source_text},
+            CreateText{"direction-history-comp","","direction-history-target","Target",target_text}},0);
+        measured.apply({LinkTextDirection{{"direction-history-target","","text.direction"},
+            {source_id,"","text.direction"},false}},1);
+        return measured.history().states.back().estimated_bytes;
+    };
+    check(direction_ref_history_bytes("s")+
+        60<direction_ref_history_bytes(std::string(96,'r')),
+        "History estimates include allocated Text direction Ref storage");
+    const auto linked_direction_get=request(direction_session,R"({"op":"get","ref":{"object":"direction-b","point":"","field":"text.direction"}})");
+    check(linked_direction_get.find("\"driver\":{\"link\":{\"object\":\"direction-a\",\"point\":\"\",\"field\":\"text.direction\"}}")!=std::string::npos&&
+        linked_direction_get.find("\"literal\":\"vertical\"")!=std::string::npos&&linked_direction_get.find("\"evaluated\":\"horizontal\"")!=std::string::npos,
+        "Linked Text direction get reports its exact source Ref and evaluated enum");
+    const auto linked_direction_bytes=encode(direction_session.document());const auto linked_direction_revision=direction_session.revision();
+    rejects("DRIVEN_PROPERTY",[&]{direction_apply({LinkTextDirection{direction_b_ref,direction_c_ref,false}});});
+    rejects("DRIVEN_PROPERTY",[&]{auto edit=*direction_session.document().objects.at("direction-b").text;edit.direction="horizontal";
+        direction_apply({UpdateText{"direction-b",edit}});});
+    rejects("REVISION_CONFLICT",[&]{direction_session.apply({UnlinkTextDirection{direction_b_ref}},linked_direction_revision-1);});
+    check(direction_session.revision()==linked_direction_revision&&encode(direction_session.document())==linked_direction_bytes,
+        "Rejected driver replacement, literal edit and stale unlink preserve direction bytes and revision");
+    auto unrelated_direction_edit=*direction_session.document().objects.at("direction-b").text;unrelated_direction_edit.content="Unrelated edit";
+    direction_apply({UpdateText{"direction-b",unrelated_direction_edit}});
+    check(direction_session.document().objects.at("direction-b").text->direction=="vertical"&&
+        direction_session.document().objects.at("direction-b").text->direction_driver->link==direction_a_ref,
+        "UpdateText preserves the direction driver while editing another Text field");
+    const auto direction_revision_before_source_change=direction_session.revision();
+    direction_a=*direction_session.document().objects.at("direction-a").text;direction_a.direction="vertical";
+    direction_apply({UpdateText{"direction-a",direction_a},Rename{"direction-a","Renamed Direction A"},
+        ReorderObjects{"direction-comp","",{"direction-b","direction-a","direction-c","direction-path"}}});
+    check(evaluate_text_direction(direction_session.document(),"direction-b")=="vertical"&&
+        evaluated_text_source(direction_session.document(),"direction-b").direction=="vertical"&&
+        direction_session.document().objects.at("direction-b").text->direction_driver->link==direction_a_ref,
+        "Direction evaluation follows source edits, rename and reorder through the stable Ref");
+    const auto direction_dependent_bytes=encode(direction_session.document());const auto direction_dependent_revision=direction_session.revision();
+    rejects("MISSING_REFERENCE",[&]{direction_apply({DeleteObjects{{"direction-a"}}});});
+    check(direction_session.revision()==direction_dependent_revision&&encode(direction_session.document())==direction_dependent_bytes,
+        "Deleting a Text direction source with a surviving dependent is atomic");
+    direction_apply({LinkTextDirection{direction_b_ref,direction_c_ref,true},LinkTextDirection{direction_b_ref,direction_a_ref,true}});
+    check(direction_session.document().objects.at("direction-b").text->direction_driver->link==direction_a_ref,
+        "Explicit Text direction driver replacement remains atomic");
+    const DuplicateObjects copy_direction{{"direction-a","direction-b"},"direction-copy"};
+    const auto direction_copies=duplicated_roots(direction_session.document(),copy_direction);direction_apply({copy_direction});
+    const auto copied_direction_target=*std::find_if(direction_copies.begin(),direction_copies.end(),[&](const auto& id){
+        return direction_session.document().objects.at(id).text->direction_driver.has_value();});
+    const auto copied_direction_source=*std::find_if(direction_copies.begin(),direction_copies.end(),[&](const auto& id){return id!=copied_direction_target;});
+    check(direction_session.document().objects.at(copied_direction_target).text->direction_driver->link==Ref{copied_direction_source,"","text.direction"}&&
+        direction_session.document().objects.at("direction-b").text->direction_driver->link==direction_a_ref,
+        "Duplicating both linked Text objects remaps the copied direction Ref and retains the original");
+    const auto copied_direction_bytes=encode(direction_session.document());
+    check(copied_direction_bytes.find("\"direction_driver\":{\"link\"")!=std::string::npos&&
+        encode(decode(copied_direction_bytes))==copied_direction_bytes,
+        "Native 0.19 codec roundtrip retains the closed Text direction link");
+    auto reopened_direction=decode(copied_direction_bytes);
+    check(reopened_direction.objects.at(copied_direction_target).text->direction_driver->link==Ref{copied_direction_source,"","text.direction"}&&
+        evaluate_text_direction(reopened_direction,copied_direction_target)=="vertical",
+        "Cold codec reopen preserves Text direction identity and evaluation");
+    direction_apply({UnlinkTextDirection{direction_b_ref}});
+    check(direction_session.history().states.back().label.find("Unlink Text direction")!=std::string::npos,
+        "Text direction unlink has a readable History label");
+    check(direction_session.document().objects.at("direction-b").text->direction=="vertical"&&
+        !direction_session.document().objects.at("direction-b").text->direction_driver,
+        "Unlink freezes the evaluated Text direction into its authored literal");
+    direction_session.undo(direction_session.revision());
+    check(direction_session.document().objects.at("direction-b").text->direction_driver->link==direction_a_ref&&
+        evaluate_text_direction(direction_session.document(),"direction-b")=="vertical",
+        "Undo restores the Text direction link and evaluated choice");
+    direction_session.redo(direction_session.revision());
+    direction_a=*direction_session.document().objects.at("direction-a").text;direction_a.direction="horizontal";
+    direction_apply({UpdateText{"direction-a",direction_a}});
+    check(direction_session.document().objects.at("direction-b").text->direction=="vertical"&&
+        evaluate_text_direction(direction_session.document(),"direction-b")=="vertical",
+        "Unlinked Text direction stays frozen after the former source changes");
+    const auto frozen_direction_bytes=encode(direction_session.document());const auto frozen_direction_revision=direction_session.revision();
+    auto invalid_direction=*direction_session.document().objects.at("direction-a").text;invalid_direction.direction="diagonal";
+    rejects("UNSUPPORTED_TEXT_DIRECTION",[&]{direction_apply({UpdateText{"direction-a",invalid_direction}});});
+    check(direction_session.revision()==frozen_direction_revision&&encode(direction_session.document())==frozen_direction_bytes,
+        "Unsupported Text direction literals reject without changing revision or native bytes");
+    const auto copied_direction_target_at=copied_direction_bytes.find("\"id\":\""+copied_direction_target+"\"");
+    check(copied_direction_target_at!=std::string::npos,"Copied Native direction target is explicit");
+    auto malformed_direction=copied_direction_bytes;const auto direction_driver_at=malformed_direction.find("\"direction_driver\":{\"link\":",copied_direction_target_at);
+    check(direction_driver_at!=std::string::npos,"Native Text direction driver is serialized as a link alternative");
+    malformed_direction.replace(direction_driver_at,std::string("\"direction_driver\":{\"link\":").size(),"\"direction_driver\":{\"other\":");
+    rejects("INVALID_TEXT_DIRECTION_DRIVER",[&]{decode(malformed_direction);});
+    auto wrong_direction_ref=copied_direction_bytes;const auto direction_ref_at=wrong_direction_ref.find("text.direction",direction_driver_at);
+    check(direction_ref_at!=std::string::npos,"Native Text direction Ref declares its exact field");
+    wrong_direction_ref.replace(direction_ref_at,std::string("text.direction").size(),"text.family");
+    rejects("TYPE_MISMATCH",[&]{decode(wrong_direction_ref);});
+    auto missing_direction_source=copied_direction_bytes;const auto copied_direction_source_at=missing_direction_source.find(copied_direction_source,direction_driver_at);
+    check(copied_direction_source_at!=std::string::npos,"Copied Native direction link identifies its source ID");
+    missing_direction_source.replace(copied_direction_source_at,copied_direction_source.size(),"missing-direction");
+    rejects("MISSING_REFERENCE",[&]{decode(missing_direction_source);});
+    auto old_direction_driver=copied_direction_bytes;const auto direction_version_at=old_direction_driver.find("\"version\":\"0.19\"");
+    old_direction_driver.replace(direction_version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.18\"");
+    rejects("UNSUPPORTED_TEXT_DIRECTION_DRIVER",[&]{decode(old_direction_driver);});
+    auto legacy_direction=direction_literal_bytes;const auto legacy_direction_version=legacy_direction.find("\"version\":\"0.19\"");
+    legacy_direction.replace(legacy_direction_version,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.18\"");
+    const auto migrated_direction=decode(legacy_direction);
+    check(migrated_direction.objects.at("direction-b").text->direction=="vertical"&&
+        !migrated_direction.objects.at("direction-b").text->direction_driver,
+        "Native 0.18 migrates Text direction as its authored literal");
+    Session direction_depth_session(empty_document("direction-depth-doc","direction-depth-comp","direction-depth-frame"));
+    std::vector<Command> direction_depth_creates;for(int i=0;i<130;++i) {
+        auto text=default_text("direction-depth-source-"+std::to_string(i),"Depth "+std::to_string(i));
+        direction_depth_creates.push_back(CreateText{"direction-depth-comp","","direction-depth-"+std::to_string(i),
+            "Direction depth "+std::to_string(i),std::move(text)});
+    }
+    direction_depth_session.apply(direction_depth_creates,direction_depth_session.revision());
+    for(int i=0;i<128;++i)direction_depth_session.apply({LinkTextDirection{{"direction-depth-"+std::to_string(i),"","text.direction"},
+        {"direction-depth-"+std::to_string(i+1),"","text.direction"},false}},direction_depth_session.revision());
+    check(evaluate_text_direction(direction_depth_session.document(),"direction-depth-0")=="horizontal",
+        "Text direction evaluator accepts the documented 128-link dependency depth");
+    const auto direction_depth_revision=direction_depth_session.revision();const auto direction_depth_bytes=encode(direction_depth_session.document());
+    rejects("DEPENDENCY_DEPTH",[&]{direction_depth_session.apply({LinkTextDirection{{"direction-depth-128","","text.direction"},
+        {"direction-depth-129","","text.direction"},false}},direction_depth_revision);});
+    check(direction_depth_session.revision()==direction_depth_revision&&encode(direction_depth_session.document())==direction_depth_bytes,
+        "Text direction dependency depth overflow rejects atomically");
+    check(direction_revision_before_source_change<direction_session.revision(),"Text direction source edits and unlink remain undoable revisions");
     Session depth_session(empty_document("depth-doc","depth-comp","depth-frame"));
     std::vector<Command> depth_creates;for(int i=0;i<130;++i) {
         auto text=default_text("depth-source-"+std::to_string(i),"Depth "+std::to_string(i));

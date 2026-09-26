@@ -212,7 +212,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.18','current writer uses native 0.18')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.19','current writer uses native 0.19')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -249,6 +249,15 @@ check(current_schema['properties']['version']['const']=='0.18' and
       family_driver['required']==['link'] and family_ref['properties']['point']['const']=='' and
       family_ref['properties']['field']['const']=='text.family',
       'Native 0.18 adds only the closed same-type Text family Ref driver')
+direction_schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.19.schema.json').read_text())
+direction_field=direction_schema['$defs']['text_source']['properties']['direction_driver']
+direction_driver=direction_schema['$defs']['direction_driver'];direction_ref=direction_schema['$defs']['direction_ref']
+check(direction_schema['properties']['version']['const']=='0.19' and
+      'direction_driver' not in current_schema['$defs']['text_source']['properties'] and
+      direction_field['$ref']=='#/$defs/direction_driver' and direction_driver['additionalProperties'] is False and
+      direction_driver['required']==['link'] and direction_ref['properties']['point']['const']=='' and
+      direction_ref['properties']['field']['const']=='text.direction',
+      'Native 0.19 schema adds only the closed same-type Text direction Ref driver')
 # Native expressions remain authored and are forbidden in all earlier versions.
 expression_doc=json.loads(json.dumps(sample))
 target=next(o for o in expression_doc['objects'] if o['id']=='path-B')
@@ -378,11 +387,11 @@ with tempfile.TemporaryDirectory() as tmp:
     check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
         'Rejected process command preserves the authored source and link')
     check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
-    check(replies[12]['result']['version']=='0.18' and replies[12]['result']==replies[8]['result'],
+    check(replies[12]['result']['version']=='0.19' and replies[12]['result']==replies[8]['result'],
         'Undo restores the pre-unlink native state exactly')
     check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
         'Undo restores the stable driver and its evaluated integer through a fresh request')
-    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.18 Text weight document validates in a fresh process')
+    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.19 Text weight document validates in a fresh process')
     old_weight=json.loads(json.dumps(replies[12]['result']));old_weight['version']='0.15'
     check(run('--validate',old_weight).returncode==2 and 'UNSUPPORTED_TEXT_WEIGHT_DRIVER' in run('--validate',old_weight).stderr,
         'Native 0.15 rejects the new Text weight driver instead of dropping it')
@@ -452,10 +461,10 @@ with tempfile.TemporaryDirectory() as tmp:
         linked_layout['glyph_count']>0 and linked_layout['used_fonts'] and
         all(linked_layout[field]==frozen_layout[field] for field in layout_fields),
         'Text layout consumes the linked family, and unlink freezes identical geometry, warnings and used fonts')
-    native=replies[12]['result'];check(native['version']=='0.18' and run('--validate',native).returncode==0,
-        'Native 0.18 content link validates in a separate CLI process')
-    family_native=replies[22]['result'];check(family_native['version']=='0.18' and run('--validate',family_native).returncode==0,
-        'Native 0.18 family link validates in a separate CLI process')
+    native=replies[12]['result'];check(native['version']=='0.19' and run('--validate',native).returncode==0,
+        'Native 0.19 content link validates in a separate CLI process')
+    family_native=replies[22]['result'];check(family_native['version']=='0.19' and run('--validate',family_native).returncode==0,
+        'Native 0.19 family link validates in a separate CLI process')
     path.write_text(json.dumps(family_native,ensure_ascii=False),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
         json.dumps(dict(op='get',ref=family_ref_b))+'\n'+json.dumps(dict(op='inspect'))+'\n',
@@ -466,4 +475,86 @@ with tempfile.TemporaryDirectory() as tmp:
         cold_replies[1]['result']['evaluated']=='Revised source family' and
         cold_replies[1]['result']['authored']['driver']==dict(link=family_ref_a) and path.read_bytes()==before,
         'A separate JSON-lines cold open preserves both Text links and evaluated values without changing native bytes')
+
+# Text writing direction is a closed enum with its own same-field link and projection.
+with tempfile.TemporaryDirectory() as tmp:
+    path=Path(tmp)/'text-direction.nect';path.write_text(json.dumps(sample),encoding='utf-8')
+    composition_id=sample['compositions'][0]['id']
+    def direction_source(source_id,direction):
+        return dict(id=source_id,version=1,content='Nect Direction',family='Yu Gothic',locale='ja-JP',layout='auto',
+            direction=direction,alignment='start',weight=400,italic=False,
+            parameters={name:dict(literal=value) for name,value in dict(origin_x=0,origin_y=0,font_size=48,
+                frame_width=400,frame_height=200,tracking=0,line_spacing=0).items()})
+    source_a=direction_source('direction-a-source','horizontal');source_b=direction_source('direction-b-source','vertical')
+    ref_a=dict(object='direction-a',point='',field='text.direction');ref_b=dict(object='direction-b',point='',field='text.direction')
+    steps=[
+        ('create',dict(op='apply',expected_revision=0,commands=[dict(type='create_text',composition=composition_id,parent='',id='direction-a',name='Direction A',source=source_a),
+            dict(type='create_text',composition=composition_id,parent='',id='direction-b',name='Direction B',source=source_b)])),
+        ('resolve',dict(op='resolve_name',name='Direction B',point='',field='text.direction')),
+        ('literal',dict(op='get',ref=ref_b)),
+        ('properties_literal',dict(op='properties')),
+        ('link',dict(op='apply',expected_revision=1,commands=[dict(type='link_text_direction',target=ref_b,source=ref_a,replace_driver=False)])),
+        ('properties_linked',dict(op='properties')),
+        ('horizontal_linked',dict(op='get',ref=ref_b)),
+        ('horizontal_layout',dict(op='text_layout',object='direction-b')),
+        ('horizontal_source_layout',dict(op='text_layout',object='direction-a')),
+        ('source_update',dict(op='apply',expected_revision=2,commands=[dict(type='update_text',object='direction-a',source=dict(source_a,direction='vertical'))])),
+        ('vertical_linked',dict(op='get',ref=ref_b)),
+        ('vertical_layout',dict(op='text_layout',object='direction-b')),
+        ('rejected_driven_edit',dict(op='apply',expected_revision=3,commands=[dict(type='update_text',object='direction-b',source=dict(source_b,direction='horizontal'))])),
+        ('inspect_after_rejection',dict(op='inspect')),
+        ('unlink',dict(op='apply',expected_revision=3,commands=[dict(type='unlink_text_direction',target=ref_b)])),
+        ('frozen',dict(op='get',ref=ref_b)),
+        ('frozen_layout',dict(op='text_layout',object='direction-b')),
+        ('undo',dict(op='undo',expected_revision=4)),
+        ('restored_link',dict(op='get',ref=ref_b)),
+        ('source_edit',dict(op='apply',expected_revision=5,commands=[dict(type='update_text',object='direction-a',source=dict(source_a,direction='horizontal'))])),
+        ('linked_horizontal',dict(op='get',ref=ref_b)),
+        ('native',dict(op='inspect'))]
+    requests=[request for _,request in steps]
+    proc=subprocess.run([exe,'--serve',str(path)],input='\n'.join(map(json.dumps,requests))+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=20)
+    replies=[json.loads(line) for line in proc.stdout.splitlines()]
+    check(len(replies)==len(requests), 'JSON-lines returns one response per Text direction request')
+    reply={name:replies[index] for index,(name,_) in enumerate(steps)}
+    check(all(reply[name]['ok'] for name,_ in steps if name!='rejected_driven_edit'),
+        'Text direction API create/discovery/link/update/layout/unlink/Undo requests succeed')
+    check(reply['resolve']['result']==ref_b,'JSON-lines resolve_name returns the stable Text direction Ref')
+    check(reply['literal']['result']['type']=='enum' and reply['literal']['result']['choices']==['horizontal','vertical'] and
+        reply['literal']['result']['authored']==dict(literal='vertical',driver=None) and reply['literal']['result']['link'] is True,
+        'JSON-lines Text direction read exposes its exact enum domain and authored literal')
+    literal_metadata=next(value for value in reply['properties_literal']['result'] if value['ref']==ref_b)
+    linked_metadata=next(value for value in reply['properties_linked']['result'] if value['ref']==ref_b)
+    check(literal_metadata['authored']==dict(literal='vertical',driver=None) and literal_metadata['evaluated']=='vertical' and
+        linked_metadata['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and linked_metadata['evaluated']=='horizontal' and
+        linked_metadata['type']=='enum' and linked_metadata['choices']==['horizontal','vertical'],
+        'JSON-lines properties expose the literal before linking and preserve it while following its same-type source')
+    check(reply['horizontal_linked']['result']['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
+        reply['horizontal_linked']['result']['evaluated']=='horizontal' and reply['vertical_linked']['result']['evaluated']=='vertical',
+        'JSON-lines get follows the source direction while preserving the target literal')
+    layout_fields=('x','y','width','height','overflow','glyph_count','warnings','used_fonts')
+    horizontal_layout=reply['horizontal_layout']['result'];source_layout=reply['horizontal_source_layout']['result']
+    vertical_linked_layout=reply['vertical_layout']['result'];vertical_frozen_layout=reply['frozen_layout']['result']
+    check(all(horizontal_layout[field]==source_layout[field] for field in layout_fields) and
+        all(vertical_linked_layout[field]==vertical_frozen_layout[field] for field in layout_fields),
+        'Text layout consumes the evaluated direction and unlink freezes identical geometry, warnings and used fonts')
+    check(not reply['rejected_driven_edit']['ok'] and reply['rejected_driven_edit']['error']['code']=='DRIVEN_PROPERTY' and
+        reply['rejected_driven_edit']['revision']==3 and
+        next(obj for obj in reply['inspect_after_rejection']['result']['objects'] if obj['id']=='direction-b')['text']['direction_driver']==dict(link=ref_a),
+        'A driven Text direction literal edit rejects without changing revision or the authored Ref')
+    check(reply['frozen']['result']['authored']==dict(literal='vertical',driver=None) and
+        reply['restored_link']['result']['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
+        reply['restored_link']['result']['evaluated']=='vertical' and reply['linked_horizontal']['result']['evaluated']=='horizontal',
+        'Unlink freezes Text direction, Undo restores its link, and later source edits still propagate')
+    native=reply['native']['result'];check(native['version']=='0.19' and run('--validate',native).returncode==0,
+        'Native 0.19 Text direction link validates in a separate CLI process')
+    path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
+    cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
+        json.dumps(dict(op='get',ref=ref_a))+'\n'+json.dumps(dict(op='inspect'))+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=20)
+    cold_replies=[json.loads(line) for line in cold.stdout.splitlines()]
+    cold_target=cold_replies[0]['result'];cold_source=cold_replies[1]['result']
+    check(all(reply['ok'] for reply in cold_replies) and cold_target['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
+        cold_target['evaluated']=='horizontal' and cold_source['evaluated']=='horizontal' and path.read_bytes()==before,
+        'A separate JSON-lines cold open preserves direction literals, Ref and evaluation without changing native bytes')
 print(f'PASS {checks} process and native migration checks')

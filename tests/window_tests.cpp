@@ -797,8 +797,24 @@ void text_authoring(Window& window) {
     });
     visible_child<QPushButton>(window,"edit-text-content")->click();QApplication::processEvents();
     check(conflict&&session.document().objects.at(id).text->content=="External edit","Concurrent API content edit rejects overwrite and preserves the draft for copying");
-    visible_child<QComboBox>(window,"text-direction")->setCurrentIndex(1);QApplication::processEvents();
-    check(session.document().objects.at(id).text->direction=="vertical","Writing mode changes through shared Session");
+    const auto direction_draft_revision=session.revision();bool direction_draft_staged=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-direction-editor");if(!editor){dialog->reject();return;}
+        editor->setCurrentIndex(1);direction_draft_staged=session.revision()==direction_draft_revision&&
+            session.document().objects.at(id).text->direction=="horizontal";dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(direction_draft_staged&&session.revision()==direction_draft_revision&&session.document().objects.at(id).text->direction=="horizontal",
+        "Text direction selector stages a draft and Cancel leaves Session bytes and revision unchanged");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-direction-editor");if(!editor){dialog->reject();return;}
+        editor->setCurrentIndex(1);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(session.document().objects.at(id).text->direction=="vertical"&&session.revision()==direction_draft_revision+1,
+        "Applying the Text direction draft commits one shared Session revision");
     visible_child<QComboBox>(window,"text-layout")->setCurrentIndex(1);QApplication::processEvents();
     check(session.document().objects.at(id).text->layout=="frame","Frame text retains content and source identity");
     check(visible_child<QLabel>(window,"text-layout-status")->text().contains("SVG exports glyph outlines"),"Inspector discloses export text projection");
@@ -843,6 +859,60 @@ void text_authoring(Window& window) {
     auto family_source_text=default_text(new_id(),"Weight source");family_source_text.weight=700;family_source_text.family="Linked Family A";
     const auto source_id=new_id(),source_name=std::string("Weight source");const auto composition=session.document().compositions.front().id;
     session.apply({CreateText{composition,"",source_id,source_name,family_source_text}},session.revision());window.host.edited();QApplication::processEvents();
+    auto* direction_driver_button=visible_child<QToolButton>(window,"text-direction-driver");bool chose_direction_source=false;
+    check(!visible_child<QComboBox>(window,"text-direction")->isEnabled()&&direction_driver_button->menu()->actions().size()==3,
+        "Text direction Inspector exposes a staged enum display and explicit edit/link/unlink menu");
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+        if(auto* combo=dialog->findChild<QComboBox*>()) {
+            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
+            dialog->accept();chose_direction_source=true;return;
+        }
+    }});
+    direction_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(chose_direction_source&&session.document().objects.at(id).text->direction=="vertical"&&
+        session.document().objects.at(id).text->direction_driver->link==Ref{source_id,"","text.direction"}&&
+        evaluate_text_direction(session.document(),id)=="horizontal"&&
+        visible_child<QLabel>(window,"text-direction-state")->text().contains("Literal: vertical")&&
+        visible_child<QLabel>(window,"text-direction-state")->text().contains("Evaluated: horizontal"),
+        "Text Direction Inspector links the same field and reports literal, source and evaluated enum");
+    auto changed_direction_source=*session.document().objects.at(source_id).text;changed_direction_source.direction="vertical";
+    session.apply({UpdateText{source_id,changed_direction_source}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto linked_direction_revision=session.revision();bool direction_cancel_safe=false,direction_apply_failed=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-direction-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-direction-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(0);
+        direction_cancel_safe=session.revision()==linked_direction_revision&&
+            session.document().objects.at(id).text->direction_driver->link==Ref{source_id,"","text.direction"};dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(direction_cancel_safe&&session.revision()==linked_direction_revision&&
+        session.document().objects.at(id).text->direction_driver->link==Ref{source_id,"","text.direction"},
+        "Cancel discards both a direction draft and its staged unlink");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-direction-editor");auto* status=dialog->findChild<QLabel*>("text-direction-editor-status");
+        editor->setCurrentIndex(0);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        direction_apply_failed=dialog->isVisible()&&session.revision()==linked_direction_revision&&
+            session.document().objects.at(id).text->direction_driver.has_value()&&status->text().contains("unlink option");dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(direction_apply_failed,"Failed driven direction Apply retains the driver and Session revision");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-direction-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-direction-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(0);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->direction_driver&&session.document().objects.at(id).text->direction=="horizontal"&&
+        session.revision()==linked_direction_revision+1,"Direction unlink and edit commit as one atomic Session revision");
+    changed_direction_source=*session.document().objects.at(source_id).text;changed_direction_source.direction="horizontal";
+    session.apply({UpdateText{source_id,changed_direction_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document().objects.at(id).text->direction=="horizontal"&&!session.document().objects.at(id).text->direction_driver,
+        "Unlinked direction remains frozen when its former source changes");
     auto* family_driver=visible_child<QToolButton>(window,"text-family-driver");bool chose_family_source=false;
     check(visible_child<QComboBox>(window,"text-family")->isEnabled()&&family_driver->menu()->actions().size()==2,
         "Text family Inspector exposes a literal control and link/edit menu");

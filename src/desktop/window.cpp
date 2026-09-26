@@ -1981,7 +1981,75 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             perform([&]{update([&](auto& s){s.*member=values.at(static_cast<std::size_t>(index));});});});
     };
     choices("text-layout","Sizing",{"Auto size","Fixed frame"},{"auto","frame"},source.layout,&TextSource::layout);
-    choices("text-direction","Writing",{"Horizontal","Vertical"},{"horizontal","vertical"},source.direction,&TextSource::direction);
+    const Ref direction_ref{id,"","text.direction"};const auto direction_state=text_direction_property(host.session.document(),direction_ref);
+    const auto direction_revision=host.session.revision();
+    auto* direction_row=new QWidget(box);auto* direction_layout=new QHBoxLayout(direction_row);direction_layout->setContentsMargins(0,0,0,0);
+    auto* direction=new QComboBox;direction->setObjectName("text-direction");direction->addItems({"Horizontal","Vertical"});
+    direction->setCurrentIndex(direction_state.evaluated=="vertical"?1:0);direction->setEnabled(false);
+    direction->setToolTip("Use Edit writing direction to stage and apply a change.");direction_layout->addWidget(direction);
+    auto* direction_driver_button=new QToolButton(direction_row);direction_driver_button->setObjectName("text-direction-driver");
+    direction_driver_button->setText(direction_state.driver?"Driver…":"Drive…");direction_driver_button->setPopupMode(QToolButton::InstantPopup);
+    auto* direction_menu=new QMenu(direction_driver_button);direction_driver_button->setMenu(direction_menu);direction_layout->addWidget(direction_driver_button);
+    auto* edit_direction=direction_menu->addAction("Edit writing direction…");
+    auto* link_direction=direction_menu->addAction("Link to Text direction…");
+    auto* unlink_direction=direction_menu->addAction("Unlink direction");unlink_direction->setEnabled(direction_state.driver.has_value());
+    connect(edit_direction,&QAction::triggered,this,[this,id,frozen_session,direction_revision,direction_ref,direction_state]{
+        QDialog dialog(this);dialog.setObjectName("text-direction-dialog");dialog.setWindowTitle("Edit writing direction");
+        auto* box_layout=new QVBoxLayout(&dialog);
+        auto* editor=new QComboBox(&dialog);editor->setObjectName("text-direction-editor");editor->addItems({"Horizontal","Vertical"});
+        editor->setCurrentIndex(direction_state.evaluated=="vertical"?1:0);editor->setEnabled(!direction_state.driver);box_layout->addWidget(editor);
+        auto* unlink=new QCheckBox("Unlink the driver and edit this writing direction",&dialog);
+        unlink->setObjectName("unlink-text-direction-driver");unlink->setVisible(direction_state.driver.has_value());box_layout->addWidget(unlink);
+        auto* status=new QLabel("Apply commits the direction change. Cancel keeps the current direction.",&dialog);
+        status->setObjectName("text-direction-editor-status");status->setWordWrap(true);box_layout->addWidget(status);
+        connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
+        connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,direction_revision,direction_ref,direction_state,editor,unlink,status]{
+            try {
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=direction_revision)throw Error("STALE_CONTEXT","Text changed while the direction editor was open; reopen it");
+                if(direction_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a direction edit");
+                const auto found=host.session.document().objects.find(id);
+                if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
+                const auto value=editor->currentIndex()==1?std::string("vertical"):std::string("horizontal");
+                std::vector<Command> commands;
+                if(direction_state.driver)commands.push_back(UnlinkTextDirection{direction_ref});
+                if(value!=(direction_state.driver?direction_state.evaluated:direction_state.literal)) {
+                    auto next=*found->second.text;next.direction=value;next.direction_driver.reset();
+                    commands.push_back(UpdateText{id,std::move(next)});
+                }
+                if(!commands.empty()){host.session.apply(commands,direction_revision);host.edited();}
+                dialog.accept();
+            } catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+        });
+        dialog.exec();
+    });
+    QStringList direction_source_labels;std::vector<Id> direction_source_ids;
+    for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
+        direction_source_ids.push_back(source_id);direction_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+    }
+    link_direction->setEnabled(!direction_source_ids.empty());const bool replace_direction_driver=direction_state.driver.has_value();
+    connect(link_direction,&QAction::triggered,this,[this,id,frozen_session,direction_revision,replace_direction_driver,direction_source_ids,direction_source_labels]{
+        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text direction","Source Text",direction_source_labels,0,false,&accepted);
+        if(!accepted)return;
+        const auto index=direction_source_labels.indexOf(choice);if(index<0)return;
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({LinkTextDirection{{id,"","text.direction"},{direction_source_ids.at(static_cast<std::size_t>(index)),"","text.direction"},replace_direction_driver}},direction_revision);host.edited();});
+    });
+    connect(unlink_direction,&QAction::triggered,this,[this,frozen_session,direction_revision,direction_ref]{
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({UnlinkTextDirection{direction_ref}},direction_revision);host.edited();});
+    });
+    direction_layout->addStretch();form->addRow("Writing",direction_row);
+    const auto direction_driver_name=[this](const std::optional<TextDirectionDriver>& driver) {
+        if(!driver)return QString("none");
+        const auto found=host.session.document().objects.find(driver->link.object);
+        return QString("link to ")+(found==host.session.document().objects.end()?qs(driver->link.object):qs(found->second.name)+" ("+qs(driver->link.object)+")");
+    };
+    auto* direction_status=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
+        .arg(qs(direction_state.literal),direction_driver_name(direction_state.driver),qs(direction_state.evaluated)));
+    direction_status->setObjectName("text-direction-state");direction_status->setWordWrap(true);direction_status->setTextFormat(Qt::PlainText);form->addRow("",direction_status);
     choices("text-alignment","Alignment",{"Start","Center","End"},{"start","center","end"},source.alignment,&TextSource::alignment);
     auto* locale=new QLineEdit(qs(source.locale));locale->setObjectName("text-locale");form->addRow("Language tag",locale);
     connect(locale,&QLineEdit::editingFinished,this,[this,locale,update]{if(locale->isModified()){
