@@ -10,9 +10,11 @@
 #include <QTemporaryDir>
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <initializer_list>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 using namespace nect;
 using namespace nect::desktop;
@@ -74,6 +76,17 @@ void check_contours(const QJsonObject& value,const QJsonArray& expected,const ch
         value.value("contour_closed").toString()=="implicit-last-to-first",
         "Contour rule, corner coordinate space and implicit closure are declared");
 }
+QJsonObject expected_line(const char* direction,std::array<int,2> start,std::array<int,2> end,int length) {
+    QJsonArray start_point;start_point.append(start[0]);start_point.append(start[1]);
+    QJsonArray end_point;end_point.append(end[0]);end_point.append(end[1]);
+    return {{"direction",direction},{"start",start_point},{"end",end_point},{"length_pixels",length}};
+}
+void check_lines(const QJsonObject& value,const QJsonArray& expected,const char* message) {
+    check(value.value("line_candidates").toArray()==expected,message);
+    check(value.value("line_rule").toString()=="exact-one-pixel-wide-4-direction-min3"&&
+        value.value("line_coordinate_space").toString()=="artboard-output-pixel-centers",
+        "Line candidates declare the thinness rule and output pixel-center coordinates");
+}
 QJsonObject pixel_request(std::uint64_t revision,int threshold) {
     QImage image(8,6,QImage::Format_ARGB32_Premultiplied);image.fill(qRgba(0,0,0,0));
     for(int y=1;y<3;++y)for(int x=1;x<3;++x)image.setPixel(x,y,qRgba(40,90,130,255));
@@ -125,6 +138,166 @@ void independent_pixel_oracle() {
     exact_components.setPixel(200,0,qRgba(0,0,0,255));
     try {analyze_region_pixels(exact_components,1,1.0,0);throw std::runtime_error("Expected component limit refusal");}
     catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT","The 10,001st component refuses without a partial result");}
+}
+QImage line_candidate_cap_image(bool extra_spur) {
+    const auto height=extra_spur?401:399;
+    QImage image(300,height,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);
+    for(int spine=0;spine<50;++spine) {
+        const auto x=1+spine*6;
+        for(int y=0;y<399;++y)image.setPixel(x,y,qRgba(0,0,0,255));
+        for(int stripe=0;stripe<200;++stripe) {
+            const auto y=stripe*2;
+            for(int arm=1;arm<=4;++arm)image.setPixel(x+arm,y,qRgba(0,0,0,255));
+        }
+    }
+    if(extra_spur) {
+        image.setPixel(1,399,qRgba(0,0,0,255));
+        for(int x=1;x<=5;++x)image.setPixel(x,400,qRgba(0,0,0,255));
+    }
+    return image;
+}
+std::uint64_t independent_boundary_edges(const QImage& image) {
+    std::uint64_t result=0;
+    for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+        if(qAlpha(image.pixel(x,y))<1)continue;
+        if(x==0||qAlpha(image.pixel(x-1,y))<1)++result;
+        if(x+1==image.width()||qAlpha(image.pixel(x+1,y))<1)++result;
+        if(y==0||qAlpha(image.pixel(x,y-1))<1)++result;
+        if(y+1==image.height()||qAlpha(image.pixel(x,y+1))<1)++result;
+    }
+    return result;
+}
+void line_candidate_limit_oracle(const QString& temp_directory) {
+    auto exact=line_candidate_cap_image(false);
+    const auto foreground=50u*(399u+200u*4u);
+    const auto expected_edge_runs=50u*399u;
+    const auto expected_boundary_edges=50u*(800u+200u*8u);
+    std::uint64_t observed_foreground=0,observed_edge_runs=0;
+    for(int y=0;y<exact.height();++y) {
+        bool in_run=false;
+        for(int x=0;x<exact.width();++x) {
+            const bool on=qAlpha(exact.pixel(x,y))>=1;
+            if(on)++observed_foreground;
+            if(on&&!in_run)++observed_edge_runs;
+            in_run=on;
+        }
+    }
+    check(static_cast<std::uint64_t>(exact.width())*exact.height()==119'700&&foreground==observed_foreground&&
+        expected_edge_runs==19'950&&independent_boundary_edges(exact)==expected_boundary_edges&&
+        observed_edge_runs==expected_edge_runs&&expected_boundary_edges==120'000&&
+        50<10'000&&expected_edge_runs<100'000&&expected_boundary_edges<200'000,
+        "The independently counted exact-cap construction stays under every earlier analysis limit");
+    const auto exact_result=analyze_region_pixels(exact,128,1.0,21);
+    check(exact_result.value("regions").toArray().size()==50&&
+        exact_result.value("edge_runs").toArray().size()==static_cast<int>(expected_edge_runs)&&
+        exact_result.value("line_candidates").toArray().size()==10'000,
+        "Exactly 10,000 candidates are accepted below all pixel, component, edge-run and boundary-edge caps");
+
+    QTemporaryDir temp(temp_directory+"/line-cap-XXXXXX");
+    check(temp.isValid(),"A temporary line-cap Canvas fixture directory is available");
+    auto populate_canvas_host=[&](Host& host,bool extra_spur,const QString& id) {
+        const auto document_id=id.toStdString();
+        const auto composition_id=document_id+"-composition";
+        const auto artboard_id=document_id+"-artboard";
+        auto document=empty_document(document_id+"-document",composition_id,artboard_id);
+        auto& artboard=document.compositions.front().artboards.front();
+        artboard.width=300;artboard.height=extra_spur?401:399;
+        host.session=Session(std::move(document));
+        const auto input=temp.path()+"/"+id+".png";
+        check(line_candidate_cap_image(extra_spur).save(input,"PNG"),"Line-cap raster fixture is written");
+        host.import_image(input,"embedded",composition_id,"",document_id+"-asset",document_id+"-image",document_id,0,0,0);
+    };
+    Host accepted_host(temp.path()+"/line-cap-exact-recovery");
+    populate_canvas_host(accepted_host,false,"line-cap-exact");
+    const auto accepted_native=temp.path()+"/line-cap-exact.nect";accepted_host.save(accepted_native);
+    const auto accepted_native_before=bytes(accepted_native);
+    const auto accepted_document_before=encode(accepted_host.session.document());
+    const auto accepted_history_before=accepted_host.session.history();
+    const auto accepted_revision=accepted_host.session.revision();
+    const QJsonObject accepted_fields{{"expected_revision",static_cast<qint64>(accepted_revision)},
+        {"composition","line-cap-exact-composition"},{"artboard","line-cap-exact-artboard"},
+        {"scale",1.0},{"threshold",128}};
+    const auto accepted_api=api(accepted_host,accepted_fields);
+    const auto accepted_api_result=accepted_api.value("result").toObject();
+    check(accepted_api.value("ok").toBool()&&accepted_api_result.value("line_candidates").toArray().size()==10'000&&
+        accepted_api_result.value("regions").toArray().size()==50&&
+        accepted_api_result.value("edge_runs").toArray().size()==static_cast<int>(expected_edge_runs),
+        "The live Canvas API returns the exact 10,000-candidate boundary");
+    check(accepted_host.session.revision()==accepted_revision&&accepted_host.session.history()==accepted_history_before&&
+        encode(accepted_host.session.document())==accepted_document_before&&bytes(accepted_native)==accepted_native_before,
+        "Successful line-candidate Canvas analysis leaves Document, revision, History and native bytes unchanged");
+
+    auto over=line_candidate_cap_image(true);
+    try {analyze_region_pixels(over,128,1.0,22);throw std::runtime_error("Expected 10,001-candidate pixel refusal");}
+    catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT","The 10,001st pixel candidate refuses with ANALYSIS_LIMIT");}
+    Host over_host(temp.path()+"/line-cap-over-recovery");
+    populate_canvas_host(over_host,true,"line-cap-over");
+    const auto over_native=temp.path()+"/line-cap-over.nect";over_host.save(over_native);
+    const auto over_native_before=bytes(over_native);
+    const auto over_document_before=encode(over_host.session.document());
+    const auto over_history_before=over_host.session.history();
+    const auto over_revision=over_host.session.revision();
+    const QJsonObject over_fields{{"expected_revision",static_cast<qint64>(over_revision)},
+        {"composition","line-cap-over-composition"},{"artboard","line-cap-over-artboard"},
+        {"scale",1.0},{"threshold",128}};
+    const auto over_api=api(over_host,over_fields);
+    const auto over_error=over_api.value("error").toObject();
+    check(over_error.value("code").toString()=="ANALYSIS_LIMIT"&&!over_api.contains("result")&&
+        over_error.value("message").toString().contains("10,000 line candidates"),
+        "The live Canvas API refuses the 10,001st candidate without a partial result");
+    check(over_host.session.revision()==over_revision&&over_host.session.history()==over_history_before&&
+        encode(over_host.session.document())==over_document_before&&bytes(over_native)==over_native_before,
+        "Line-candidate cap refusal leaves Document, revision, History and native bytes unchanged");
+}
+void independent_line_oracle() {
+    QImage horizontal(8,3,QImage::Format_ARGB32_Premultiplied);horizontal.fill(Qt::transparent);
+    for(int x=1;x<=5;++x)horizontal.setPixel(x,1,qRgba(0,0,0,255));
+    check_lines(analyze_region_pixels(horizontal,128,1.0,30),
+        QJsonArray{expected_line("horizontal",{1,1},{5,1},5)},
+        "A five-pixel one-row stroke returns one inclusive center-coordinate candidate");
+
+    QImage stripe(8,4,QImage::Format_ARGB32_Premultiplied);stripe.fill(Qt::transparent);
+    for(int y=1;y<=2;++y)for(int x=1;x<=5;++x)stripe.setPixel(x,y,qRgba(0,0,0,255));
+    check_lines(analyze_region_pixels(stripe,128,1.0,31),QJsonArray{},
+        "A two-pixel-wide stripe has no exact one-pixel line candidate");
+    QImage solid(5,5,QImage::Format_ARGB32_Premultiplied);solid.fill(Qt::transparent);
+    for(int y=1;y<=3;++y)for(int x=1;x<=3;++x)solid.setPixel(x,y,qRgba(0,0,0,255));
+    check_lines(analyze_region_pixels(solid,128,1.0,32),QJsonArray{},
+        "A solid 3x3 rectangle has no exact one-pixel line candidate");
+
+    QImage down(3,3,QImage::Format_ARGB32_Premultiplied);down.fill(Qt::transparent);
+    down.setPixel(0,0,qRgba(0,0,0,255));down.setPixel(1,1,qRgba(0,0,0,255));down.setPixel(2,2,qRgba(0,0,0,255));
+    const auto down_result=analyze_region_pixels(down,128,1.0,33);
+    check(down_result.value("regions").toArray().size()==3,"A diagonal line still contains three separate 4-connected regions");
+    check_lines(down_result,QJsonArray{expected_line("down_diagonal",{0,0},{2,2},3)},
+        "Three diagonal pixels form one descending candidate with center indexes");
+    down.setPixel(2,2,qRgba(0,0,0,127));
+    check_lines(analyze_region_pixels(down,128,1.0,34),QJsonArray{},
+        "Alpha 127 is excluded from a candidate at threshold 128");
+    check_lines(analyze_region_pixels(down,127,1.0,34),
+        QJsonArray{expected_line("down_diagonal",{0,0},{2,2},3)},
+        "A threshold-equal alpha byte participates in a candidate at threshold 127");
+
+    QImage branch(5,3,QImage::Format_ARGB32_Premultiplied);branch.fill(Qt::transparent);
+    for(int x=0;x<5;++x)branch.setPixel(x,1,qRgba(0,0,0,255));
+    branch.setPixel(2,0,qRgba(0,0,0,255));
+    check_lines(analyze_region_pixels(branch,128,1.0,35),QJsonArray{},
+        "A perpendicular branch disqualifies the junction and no candidate bridges it");
+    QImage short_line(2,1,QImage::Format_ARGB32_Premultiplied);short_line.fill(qRgba(0,0,0,255));
+    check_lines(analyze_region_pixels(short_line,128,1.0,36),QJsonArray{},
+        "A two-pixel foreground run is omitted");
+
+    QImage ordered(12,8,QImage::Format_ARGB32_Premultiplied);ordered.fill(Qt::transparent);
+    for(int x=0;x<=2;++x)ordered.setPixel(x,0,qRgba(0,0,0,255));
+    for(int x=8;x<=10;++x)ordered.setPixel(x,0,qRgba(0,0,0,255));
+    for(int y=0;y<=2;++y)ordered.setPixel(5,y,qRgba(0,0,0,255));
+    for(int offset=0;offset<=2;++offset)ordered.setPixel(offset,3+offset,qRgba(0,0,0,255));
+    for(int offset=0;offset<=2;++offset)ordered.setPixel(9+offset,5-offset,qRgba(0,0,0,255));
+    check_lines(analyze_region_pixels(ordered,128,1.0,37),QJsonArray{
+        expected_line("horizontal",{0,0},{2,0},3),expected_line("horizontal",{8,0},{10,0},3),
+        expected_line("vertical",{5,0},{5,2},3),expected_line("down_diagonal",{0,3},{2,5},3),
+        expected_line("up_diagonal",{9,5},{11,3},3)},
+        "All four orientations use direction order, y/x start order and inclusive image-border centers");
 }
 void independent_edge_oracle() {
     QImage rectangle_image(6,5,QImage::Format_ARGB32_Premultiplied);rectangle_image.fill(Qt::transparent);
@@ -250,7 +423,7 @@ void live_canvas_api() {
     auto document=empty_document("region-document","region-composition","region-artboard");
     auto& composition=document.compositions.front();
     composition.artboards.front().width=8;composition.artboards.front().height=6;
-    for(auto object:std::vector<Object>{rectangle("region-first",1,1,2,2),rectangle("region-second",5,2,3,3),
+    for(auto object:std::vector<Object>{rectangle("region-horizontal",3,0,5,1),rectangle("region-first",1,1,2,2),rectangle("region-second",5,2,3,3),
             rectangle("region-diagonal",3,3,1,1),rectangle("region-low-alpha",0,5,1,1,127)}) {
         composition.roots.push_back(object.id);document.objects.emplace(object.id,std::move(object));
     }
@@ -268,29 +441,35 @@ void live_canvas_api() {
         "Live desktop API returns a successful read at the source revision");
     const auto result=response.value("result").toObject();
     const auto regions=result.value("regions").toArray();
-    check(regions.size()==3,"Canvas output excludes the alpha-127 region at threshold 128");
-    check_region(regions[0].toObject(),4,1,1,2,2,"Canvas rendering and API match the first independent block");
-    check_region(regions[1].toObject(),9,5,2,3,3,"Canvas rendering and API match the second independent block");
-    check_region(regions[2].toObject(),1,3,3,1,1,"Canvas API preserves diagonal-only separation");
-    check_edges(result,expected_runs({{1,1,2},{2,1,2},{2,5,3},{3,3,1},{3,5,1},{3,7,1},{4,5,3}}),13,
+    check(regions.size()==4,"Canvas output excludes the alpha-127 region at threshold 128");
+    check_region(regions[0].toObject(),5,3,0,5,1,"Canvas rendering and API match the thin border stroke");
+    check_region(regions[1].toObject(),4,1,1,2,2,"Canvas rendering and API match the first independent block");
+    check_region(regions[2].toObject(),9,5,2,3,3,"Canvas rendering and API match the second independent block");
+    check_region(regions[3].toObject(),1,3,3,1,1,"Canvas API preserves diagonal-only separation");
+    check_edges(result,expected_runs({{0,3,5},{1,1,2},{2,1,2},{2,5,3},{3,3,1},{3,5,1},{3,7,1},{4,5,3}}),18,
         "Live Canvas edge runs match the independent row-major pixel oracle");
     check_contours(result,QJsonArray{
-        expected_contour(0,{{1,1},{3,1},{3,3},{1,3}}),
-        expected_contour(1,{{5,2},{8,2},{8,5},{5,5}}),
-        expected_contour(2,{{3,3},{4,3},{4,4},{3,4}})},
+        expected_contour(0,{{3,0},{8,0},{8,1},{3,1}}),
+        expected_contour(1,{{1,1},{3,1},{3,3},{1,3}}),
+        expected_contour(2,{{5,2},{8,2},{8,5},{5,5}}),
+        expected_contour(3,{{3,3},{4,3},{4,4},{3,4}})},
         "Live Canvas contours preserve component indexes and use pixel-corner coordinates");
+    check_lines(result,QJsonArray{expected_line("horizontal",{3,0},{7,0},5)},
+        "Live Canvas API returns the exact one-pixel border stroke at pixel centers");
     check(result.value("width").toInt()==8&&result.value("height").toInt()==6&&
         result.value("source_revision").toInt()==static_cast<int>(revision),"Live result reports the rendered dimensions and source revision");
     auto lower_fields=fields;lower_fields["threshold"]=127;
     const auto lower=api(host,lower_fields);
     const auto lower_regions=lower.value("result").toObject().value("regions").toArray();
-    check(lower.value("ok").toBool()&&lower_regions.size()==4,"Canvas API includes alpha exactly at threshold 127");
-    check_region(lower_regions[3].toObject(),1,0,5,1,1,"Canvas low-alpha component has exact area and bounds");
-    check_edges(lower.value("result").toObject(),expected_runs({{1,1,2},{2,1,2},{2,5,3},
-        {3,3,1},{3,5,1},{3,7,1},{4,5,3},{5,0,1}}),14,
+    check(lower.value("ok").toBool()&&lower_regions.size()==5,"Canvas API includes alpha exactly at threshold 127");
+    check_region(lower_regions[4].toObject(),1,0,5,1,1,"Canvas low-alpha component has exact area and bounds");
+    check_edges(lower.value("result").toObject(),expected_runs({{0,3,5},{1,1,2},{2,1,2},{2,5,3},
+        {3,3,1},{3,5,1},{3,7,1},{4,5,3},{5,0,1}}),19,
         "Canvas API includes the threshold-equal pixel in its edge map");
-    check(lower.value("result").toObject().value("outer_contours").toArray().size()==4,
+    check(lower.value("result").toObject().value("outer_contours").toArray().size()==5,
         "Canvas API returns the fourth threshold-equal component contour");
+    check_lines(lower.value("result").toObject(),QJsonArray{expected_line("horizontal",{3,0},{7,0},5)},
+        "The threshold-equal isolated pixel does not alter the live Canvas line candidate");
     check(host.session.revision()==revision&&host.session.history()==original_history&&
         encode(host.session.document())==original_document&&bytes(native)==native_before,
         "Analysis leaves Session revision, history, authored document and native bytes unchanged");
@@ -382,9 +561,12 @@ int main(int argc,char** argv) {
     QApplication app(argc,argv);
     try {
         independent_pixel_oracle();
+        independent_line_oracle();
         independent_edge_oracle();
         independent_contour_oracle();
         live_canvas_api();
-        std::cout<<"PASS region, edge-map and contour pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
+        QTemporaryDir line_cap_temp;check(line_cap_temp.isValid(),"Line-cap test directory is available");
+        line_candidate_limit_oracle(line_cap_temp.path());
+        std::cout<<"PASS region, edge-map, contour and thin-line pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

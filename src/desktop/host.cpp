@@ -356,6 +356,7 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
     constexpr std::uint64_t max_pixels=4'000'000;
     constexpr std::size_t max_regions=10'000;
     constexpr std::size_t max_edge_runs=100'000;
+    constexpr std::size_t max_line_candidates=10'000;
     constexpr std::uint64_t max_boundary_edges=200'000;
     const auto width=static_cast<std::uint64_t>(image.width());
     const auto height=static_cast<std::uint64_t>(image.height());
@@ -532,6 +533,45 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         outer_contours.append(QJsonObject{{"region_index",static_cast<int>(contour.region)},
             {"closed",true},{"vertices",vertices}});
     }
+
+    // Derive exact one-pixel runs only after the existing region, edge-run,
+    // and contour limits have been checked, preserving their error precedence.
+    std::vector<std::uint8_t> foreground(static_cast<std::size_t>(pixel_count));
+    for(std::uint32_t index=0;index<static_cast<std::uint32_t>(pixel_count);++index)
+        foreground[index]=alpha_at(index)>=threshold?1:0;
+    const auto foreground_at_pixel=[&](int x,int y) {
+        return x>=0&&y>=0&&x<image.width()&&y<image.height()&&
+            foreground[static_cast<std::size_t>(y)*static_cast<std::size_t>(image.width())+static_cast<std::size_t>(x)]!=0;
+    };
+    struct LineDirection {int dx;int dy;const char* name;};
+    constexpr std::array<LineDirection,4> line_directions{{
+        {1,0,"horizontal"},{0,1,"vertical"},{1,1,"down_diagonal"},{1,-1,"up_diagonal"}}};
+    const auto line_eligible=[&](int x,int y,std::size_t direction) {
+        if(!foreground_at_pixel(x,y))return false;
+        if(direction==0)return !foreground_at_pixel(x,y-1)&&!foreground_at_pixel(x,y+1);
+        if(direction==1)return !foreground_at_pixel(x-1,y)&&!foreground_at_pixel(x+1,y);
+        return !foreground_at_pixel(x-1,y)&&!foreground_at_pixel(x+1,y)&&
+            !foreground_at_pixel(x,y-1)&&!foreground_at_pixel(x,y+1);
+    };
+    QJsonArray line_candidates;
+    for(std::size_t direction=0;direction<line_directions.size();++direction) {
+        const auto [dx,dy,name]=line_directions[direction];
+        for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+            if(!line_eligible(x,y,direction)||line_eligible(x-dx,y-dy,direction))continue;
+            auto end_x=x,end_y=y;
+            int length=1;
+            while(line_eligible(end_x+dx,end_y+dy,direction)) {
+                end_x+=dx;end_y+=dy;++length;
+            }
+            if(length<3)continue;
+            if(static_cast<std::size_t>(line_candidates.size())>=max_line_candidates)
+                throw Error("ANALYSIS_LIMIT","Region analysis is limited to 10,000 line candidates");
+            QJsonArray start_point;start_point.append(x);start_point.append(y);
+            QJsonArray end_point;end_point.append(end_x);end_point.append(end_y);
+            line_candidates.append(QJsonObject{{"direction",name},{"start",start_point},
+                {"end",end_point},{"length_pixels",length}});
+        }
+    }
     return {{"regions",regions},{"edge_runs",edge_runs},{"edge_pixel_count",static_cast<qint64>(edge_pixel_count)},
         {"edge_rule","foreground-4-neighbor"},{"threshold",threshold},{"connectivity",4},{"scale",scale},
         {"width",image.width()},{"height",image.height()},{"color_space","sRGB"},
@@ -540,7 +580,9 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         {"source_revision",static_cast<qint64>(source_revision)},
         {"outer_contours",outer_contours},{"contour_rule","foreground-right-clockwise-outer"},
         {"contour_coordinate_space","artboard-output-pixel-corners"},
-        {"contour_closed","implicit-last-to-first"}};
+        {"contour_closed","implicit-last-to-first"},{"line_candidates",line_candidates},
+        {"line_rule","exact-one-pixel-wide-4-direction-min3"},
+        {"line_coordinate_space","artboard-output-pixel-centers"}};
 }
 
 QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected) {

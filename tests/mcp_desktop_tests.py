@@ -624,10 +624,11 @@ try:
         assert core('redo',expected_revision=rev)['ok'];rev+=1
         assert core('inspect')['result']==after_offset
         # Local image lifecycle uses the same Session through formal MCP.
-        def png(rgb):
+        def png(rgb,width=2,height=2):
             def chunk(kind, data):
                 return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)
-            return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',2,2,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\0'+bytes(rgb)*2)*2))+chunk(b'IEND',b'')
+            rows=(b'\0'+bytes(rgb)*width)*height
+            return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(rows))+chunk(b'IEND',b'')
         image_path=temp/'linked.png';original_image=png((220,80,30));image_path.write_bytes(original_image)
         def image(action,**kwargs):
             return tool('nect_image',dict(identity,op='asset',asset='mcp-image-asset',action=action,expected_revision=rev,**kwargs))
@@ -702,10 +703,15 @@ try:
         spacing_rev=apply([dict(type='distribute_objects',objects=['align-2','align-0','align-1'],axis='x')],alignment_rev+1)
         assert core('get',ref=dict(object='align-1',point='',field='transform.tx'))['result']['evaluated']==30
         assert core('undo',expected_revision=spacing_rev)['ok'] and core('inspect')['result']==alignment_before
+        line_image_path=temp/'line-candidate.png';line_image_path.write_bytes(png((220,80,30),width=5,height=1))
+        line_image=tool('nect_image',dict(identity,op='import_image',expected_revision=spacing_rev+1,path=str(line_image_path),
+            mode='embedded',composition=comp['id'],parent='',asset='mcp-line-asset',id='mcp-line-image',
+            name='One-pixel line fixture',x=100,y=100))
+        assert line_image['ok'],line_image
         svg_input=temp/'original-vector.svg'
         svg_input.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30"><g fill="#c04020"><path d="M2 2h30v20h-30zM10 10A5 5 0 0 1 20 10"/><circle cx="20" cy="15" r="4"/></g></svg>',encoding='utf-8')
         vector_before=core('inspect')['result']
-        vector=tool('nect_import_svg',dict(identity,op='import_svg',expected_revision=spacing_rev+1,path=str(svg_input),composition=comp['id'],prefix='mcp-vector',name='Vector',x=10,y=20))
+        vector=tool('nect_import_svg',dict(identity,op='import_svg',expected_revision=line_image['revision'],path=str(svg_input),composition=comp['id'],prefix='mcp-vector',name='Vector',x=10,y=20))
         assert vector['ok'] and vector['result']['paths']==2 and vector['result']['root']=='mcp-vector'
         vector_analysis_request=dict(identity,op='analyze_regions',expected_revision=vector['revision'],
             composition=comp['id'],artboard=comp['artboards'][0]['id'],scale=1,threshold=128)
@@ -725,6 +731,11 @@ try:
         assert vector_edges and direct_vector_analysis['result']['edge_pixel_count']>0, 'Filled SVG artwork yields analyzed edge pixels'
         assert direct_vector_analysis['result']['edge_rule']=='foreground-4-neighbor'
         assert sum(run['width'] for run in vector_edges)==direct_vector_analysis['result']['edge_pixel_count']
+        vector_lines=direct_vector_analysis['result']['line_candidates']
+        assert vector_lines and any(candidate['direction']=='horizontal' and candidate['length_pixels']==5
+                                    for candidate in vector_lines), 'A five-pixel raster stroke yields a nonempty horizontal candidate'
+        assert direct_vector_analysis['result']['line_rule']=='exact-one-pixel-wide-4-direction-min3'
+        assert direct_vector_analysis['result']['line_coordinate_space']=='artboard-output-pixel-centers'
         assert any(o['id']=='mcp-vector' and o['kind']=='group' for o in core('inspect')['result']['objects'])
         vector_document=core('inspect')['result']
         ungroup_revision=apply([dict(type='ungroup',composition=comp['id'],parent='',group='mcp-vector')],vector['revision'])
