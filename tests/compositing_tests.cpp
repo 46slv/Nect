@@ -239,6 +239,10 @@ void mask_with_and_put_inside() {
     auto singular=document;matrix(singular.objects.at("group"),{0,0,0,1,0,0});Session collapsed(singular);atomic(collapsed,"SINGULAR_TRANSFORM",{PutInside{"comp","","group",{"a","b"}}});
     auto coupled=document;matrix(coupled.objects.at("group"),identity_matrix);coupled.objects.at("group").transform[4].binding=Binding{{"a","","transform.tx"},1,0,"copy_local_value"};Session dependent(coupled);
     atomic(dependent,"TRANSFORM_PRESERVATION",{PutInside{"comp","","group",{"a","b"}}});
+    auto property_coupled=document;
+    property_coupled.objects.at("source").contours[0].points[0].x.binding=Binding{{"a","","transform.tx"},1,0,"copy_local_value"};
+    Session property_dependent(property_coupled);
+    atomic(property_dependent,"PUT_INSIDE_DEPENDENCY",{PutInside{"comp","","group",{"a","b"}}});
 
     auto appearance_refusal=[&](auto change,const char* reason) {
         auto unsafe=document;change(unsafe.objects.at("group"));Session blocked(unsafe);
@@ -366,9 +370,39 @@ void move_out_folder() {
     rejects("REVISION_CONFLICT",[&]{stale.apply({MoveOut{"comp","","folder",{"a"},"before"}},stale_revision+1);});
     check(stale.document()==stale_doc&&stale.revision()==stale_revision&&stale.history()==stale_history,"Stale Move Out retains document, revision and history");
 }
+void adjacent_folder_transfer() {
+    auto document=move_out_fixture();
+    document.objects.emplace("d",rectangle("d",280,25));
+    Object next;next.id="next-folder";next.name="Next";next.kind=Kind::group;next.children={"d"};
+    document.objects.emplace(next.id,next);
+    auto& roots=document.compositions[0].roots;
+    roots.insert(std::find(roots.begin(),roots.end(),"y"),"next-folder");
+    Session session(document);
+    const auto before_world=transforms(document);
+    const auto before_order=drawable_order(document,scene(document));
+    const auto response=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"move_out","composition":"comp","parent":"","group":"folder","members":["b","c"],"placement":"after"},{"type":"put_inside","composition":"comp","parent":"","group":"next-folder","members":["b","c"]}]})");
+    check(response.find("\"changed\":true")!=std::string::npos,"JSON-lines composes both existing structural commands in one Session edit");
+    const auto& after=session.document();
+    check(after.compositions[0].roots==document.compositions[0].roots&&
+        after.objects.at("folder").children==std::vector<Id>{"a"}&&
+        after.objects.at("next-folder").children==std::vector<Id>{"b","c","d"},"Adjacent Folder transfer preserves parent slots and child order");
+    const auto after_world=transforms(after);
+    for(const auto& [id,old]:before_world)same_matrix(old.world,after_world.at(id).world);
+    check(drawable_order(after,scene(after))==before_order,"Adjacent Folder transfer preserves drawable order");
+    check(after.collections==document.collections&&after.objects.at("source").contours==document.objects.at("source").contours,
+        "Adjacent Folder transfer retains Collection membership and external source refs");
+    check(decode(encode(after))==after,"Adjacent Folder transfer survives native roundtrip");
+    const auto moved=after;session.undo(session.revision());check(session.document()==document,"Adjacent Folder transfer has one exact Undo");
+    session.redo(session.revision());check(session.document()==moved,"Adjacent Folder transfer has one exact Redo");
+
+    auto unsafe=document;unsafe.objects.at("next-folder").visible=false;Session rejected(unsafe);
+    atomic(rejected,"PUT_INSIDE_APPEARANCE",{MoveOut{"comp","","folder",{"c"},"after"},PutInside{"comp","","next-folder",{"c"}}});
+    auto driven=document;driven.objects.at("a").transform[4].expression=Expression{"1"};Session blocked(driven);
+    atomic(blocked,"DRIVEN_PROPERTY",{MoveOut{"comp","","folder",{"a","b","c"},"after"},PutInside{"comp","","next-folder",{"a","b","c"}}});
+}
 
 }
 int main() {
-    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

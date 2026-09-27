@@ -1952,7 +1952,7 @@ void put_inside(Document& document,const PutInside& command) {
     const auto basis=before.at(command.group).world;
     list.erase(start,start+static_cast<std::ptrdiff_t>(command.members.size()));
     auto& children=document.objects.at(command.group).children;children.insert(children.begin(),command.members.begin(),command.members.end());
-    std::optional<Affine> inverse;
+    std::optional<Affine> inverse;std::set<Ref> changed_affines;
     for(const auto& id:command.members) {
         if(document.objects.at(id).transform_parent)continue;
         const auto& old=before.at(id);const auto unchanged=compose(basis,old.local);
@@ -1960,10 +1960,13 @@ void put_inside(Document& document,const PutInside& command) {
         if(matches)continue;
         if(!inverse)inverse=inverse_affine(basis);
         set_affine(document,id,compose(*inverse,old.world),values);
+        for(const auto& field:affine_fields)changed_affines.insert({id,"",field});
     }
-    const auto after=evaluate_transforms(document,evaluate(document));
-    for(const auto& id:command.members)for(std::size_t i=0;i<6;++i)
-        require(transform_equal(before.at(id).world[i],after.at(id).world[i]),"TRANSFORM_PRESERVATION","Put Inside could not preserve moved world transforms through dependent bindings");
+    const auto after_values=evaluate(document);const auto after=evaluate_transforms(document,after_values);
+    for(const auto& [id,old]:before)for(std::size_t i=0;i<6;++i)
+        require(transform_equal(old.world[i],after.at(id).world[i]),"TRANSFORM_PRESERVATION","Put Inside could not preserve world transforms through dependent bindings");
+    for(const auto& [ref,value]:values)if(!changed_affines.contains(ref))
+        require(transform_equal(value,after_values.at(ref)),"PUT_INSIDE_DEPENDENCY","Put Inside changed a dependent property value");
 }
 void ungroup(Document& document,const Ungroup& command) {
     require(document.objects.contains(command.group)&&document.objects.at(command.group).kind==Kind::group,"INVALID_GROUP","Ungroup requires a Group");

@@ -129,6 +129,7 @@ private:
     void sort_selection_by_name_paint_order();
     void put_selection_inside();
     void move_selection_out();
+    void move_selection_to_next_folder();
     void selection_menu(const QPoint& global);
     void choose_transform_parent();
     void edit_text_content(const Id& object);

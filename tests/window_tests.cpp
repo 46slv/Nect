@@ -197,6 +197,57 @@ void move_out_action(Window& window) {
     check(window.canvas->drill_scope()=="move-out-outer","Selection-menu extraction also follows the new parent scope");
     session.undo(session.revision());window.host.edited();check(session.document()==before,"Selection-menu Move Out has one exact Undo");
 }
+void adjacent_folder_transfer_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    for(const auto* id:{"transfer-a","transfer-b"}) {
+        Point point;point.id=std::string(id)+"-point";point.x.literal=40;point.y.literal=50;
+        setup.push_back(CreatePath{composition,"",id,id,{{std::string(id)+"-contour",false,{point}}}});
+    }
+    setup.push_back(GroupContiguous{composition,"",{"transfer-a","transfer-b"},"transfer-source","Folder"});
+    setup.push_back(CreateFolder{composition,"","transfer-next","Folder"});
+    setup.push_back(Set{{"transfer-source","","transform.tx"},70});
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+    const auto before=session.document();const auto before_world=evaluate_transforms(before,evaluate(before));
+    const auto before_render=Canvas::render_artboard(before,composition,window.canvas->active_artboard(),1,false);
+    auto* action=named_action(window,"move-to-next-folder");
+    window.canvas->set_selection("transfer-a");QApplication::processEvents();const auto revision=session.revision();action->trigger();
+    check(session.revision()==revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Non-suffix Folder selection refuses without authored delta");
+    window.canvas->set_selection("transfer-b","transfer-b-point");QApplication::processEvents();action->trigger();
+    check(session.revision()==revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Point selection refuses adjacent Folder transfer");
+    window.canvas->set_selection("transfer-b");QApplication::processEvents();action->trigger();QApplication::processEvents();
+    check(session.revision()==revision+1&&session.document().objects.at("transfer-source").children==std::vector<Id>{"transfer-a"}&&
+        session.document().objects.at("transfer-next").children==std::vector<Id>{"transfer-b"},
+        "Desktop action moves a suffix to its next sibling Folder in one Session edit");
+    check(window.canvas->drill_scope()=="transfer-next"&&window.canvas->selected_object=="transfer-b",
+        "Canvas selection follows the moved object into its destination Folder");
+    auto* tree=window.findChild<QTreeWidget*>();QTreeWidgetItem* selected_item=nullptr;
+    QTreeWidgetItemIterator item(tree);while(*item){if((*item)->data(0,Qt::UserRole)=="transfer-b"&&(*item)->data(0,Qt::UserRole+1).toString().isEmpty())selected_item=*item;++item;}
+    check(selected_item&&selected_item->isSelected()&&tree->currentItem()==selected_item,
+        "Structure tree selects the moved object in its destination Folder");
+    const auto after_world=evaluate_transforms(session.document(),evaluate(session.document()));
+    for(const auto& [id,transform]:before_world)for(std::size_t i=0;i<6;++i)
+        check(std::abs(transform.world[i]-after_world.at(id).world[i])<1e-8,"Desktop Folder transfer preserves every world transform");
+    check(Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false)==before_render,
+        "Adjacent Folder transfer leaves rendered pixels unchanged");
+    check(decode(encode(session.document()))==session.document(),"Desktop Folder transfer survives native roundtrip");
+    const auto moved=session.document();session.undo(session.revision());window.host.edited();
+    check(session.document()==before,"Desktop Folder transfer has one exact Undo");
+    session.redo(session.revision());window.host.edited();check(session.document()==moved,"Desktop Folder transfer has one exact Redo");
+    session.undo(session.revision());window.host.edited();window.canvas->set_selection("transfer-b");QApplication::processEvents();
+    bool context_enabled=false;
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* candidate:menu->actions())if(candidate->objectName()=="move-to-next-folder-context") {
+                context_enabled=candidate->isEnabled();menu->setActiveAction(candidate);QTest::keyClick(menu,Qt::Key_Return);return;
+            }
+    });
+    const auto point=window.canvas->rect().center();QContextMenuEvent context(QContextMenuEvent::Mouse,point,window.canvas->mapToGlobal(point));
+    QApplication::sendEvent(window.canvas,&context);QApplication::processEvents();
+    check(context_enabled&&session.document()==moved,"Selection menu reaches the same adjacent Folder transfer");
+}
 void batch_rename_action(Window& window) {
     auto& session=window.host.session;const auto composition=window.canvas->active_composition();
     std::vector<Command> setup;
@@ -2059,7 +2110,8 @@ int main(int argc,char** argv) {
         folders.hide();Window batch_rename(temp.path()+"/batch-rename");batch_rename.show();QApplication::processEvents();batch_rename_action(batch_rename);
         batch_rename.hide();Window sort_paint_order(temp.path()+"/sort-paint-order");sort_paint_order.show();QApplication::processEvents();sort_paint_order_action(sort_paint_order);
         sort_paint_order.hide();Window move_out(temp.path()+"/move-out");move_out.show();QApplication::processEvents();move_out_action(move_out);
-        move_out.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
+        move_out.hide();Window transfer(temp.path()+"/folder-transfer");transfer.show();QApplication::processEvents();adjacent_folder_transfer_action(transfer);
+        transfer.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
         stacking.hide();Window layout_setup(temp.path()+"/layout-setup");layout_setup.show();QApplication::processEvents();
         layout_setup_previews_commit_and_recovers(layout_setup);layout_setup.hide();
         Window layout_refs(temp.path()+"/layout-references");layout_refs.show();QApplication::processEvents();
