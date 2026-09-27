@@ -1408,6 +1408,96 @@ void text_authoring(Window& window) {
     session.apply({UpdateText{source_id,changed_layout_source}},session.revision());window.host.edited();QApplication::processEvents();
     check(session.document().objects.at(id).text->layout=="frame"&&!session.document().objects.at(id).text->layout_driver,
         "Unlinked Text sizing remains frozen when its former source changes");
+    auto* alignment_driver_button=visible_child<QToolButton>(window,"text-alignment-driver");
+    check(!visible_child<QComboBox>(window,"text-alignment")->isEnabled()&&alignment_driver_button->menu()->actions().size()==3,
+        "Text alignment Inspector exposes a staged enum control and explicit edit/link/unlink menu");
+    const auto alignment_draft_revision=session.revision();bool alignment_cancel_safe=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");if(!editor){dialog->reject();return;}
+        editor->setCurrentIndex(1);alignment_cancel_safe=session.revision()==alignment_draft_revision&&
+            session.document().objects.at(id).text->alignment=="start";dialog->reject();
+    });
+    alignment_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(alignment_cancel_safe&&session.revision()==alignment_draft_revision&&session.document().objects.at(id).text->alignment=="start",
+        "Text alignment Cancel discards the staged choice without changing authored state or revision");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        dialog->findChild<QComboBox*>("text-alignment-editor")->setCurrentIndex(1);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    alignment_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(session.document().objects.at(id).text->alignment=="center"&&session.revision()==alignment_draft_revision+1,
+        "Applying a staged Text alignment choice commits one Session revision");
+    bool chose_alignment_source=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+        if(auto* combo=dialog->findChild<QComboBox*>()) {
+            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
+            dialog->accept();chose_alignment_source=true;return;
+        }
+    }});
+    alignment_driver_button=visible_child<QToolButton>(window,"text-alignment-driver");alignment_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(chose_alignment_source&&session.document().objects.at(id).text->alignment=="center"&&
+        session.document().objects.at(id).text->alignment_driver->link==Ref{source_id,"","text.alignment"}&&
+        evaluate_text_alignment(session.document(),id)=="start"&&
+        visible_child<QLabel>(window,"text-alignment-state")->text().contains("Literal: center")&&
+        visible_child<QLabel>(window,"text-alignment-state")->text().contains("Evaluated: start"),
+        "Text alignment Inspector links the same field and reports literal, source and evaluated choices");
+    auto changed_alignment_source=*session.document().objects.at(source_id).text;changed_alignment_source.alignment="center";
+    session.apply({UpdateText{source_id,changed_alignment_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(evaluate_text_alignment(session.document(),id)=="center"&&
+        visible_child<QComboBox>(window,"text-alignment")->currentText()=="Center",
+        "Text alignment Inspector follows its linked source edit");
+    const auto linked_alignment_revision=session.revision();bool alignment_cancel_with_driver=false,alignment_apply_failed=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-alignment-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(2);
+        alignment_cancel_with_driver=session.revision()==linked_alignment_revision&&
+            session.document().objects.at(id).text->alignment_driver->link==Ref{source_id,"","text.alignment"};dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-alignment-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(alignment_cancel_with_driver&&session.revision()==linked_alignment_revision&&
+        session.document().objects.at(id).text->alignment_driver->link==Ref{source_id,"","text.alignment"},
+        "Cancel discards staged Text alignment unlink and edit");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");auto* status=dialog->findChild<QLabel*>("text-alignment-editor-status");
+        editor->setCurrentIndex(0);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        alignment_apply_failed=dialog->isVisible()&&session.revision()==linked_alignment_revision&&
+            session.document().objects.at(id).text->alignment_driver.has_value()&&status->text().contains("unlink option");dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-alignment-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(alignment_apply_failed,"Failed driven Text alignment Apply retains its driver and Session revision");
+    bool alignment_stale_preserved=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-alignment-driver");
+        auto* status=dialog->findChild<QLabel*>("text-alignment-editor-status");if(!editor||!unlink||!status)return;
+        unlink->setChecked(true);editor->setCurrentIndex(2);
+        auto next=*session.document().objects.at(source_id).text;next.alignment="end";
+        session.apply({UpdateText{source_id,next}},session.revision());window.host.edited();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        alignment_stale_preserved=dialog->isVisible()&&session.document().objects.at(id).text->alignment_driver.has_value()&&
+            session.revision()==linked_alignment_revision+1&&status->text().contains("changed while the alignment editor was open");dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-alignment-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(alignment_stale_preserved,"Stale Text alignment Apply leaves the committed driver and evaluation untouched");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-alignment-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(2);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    visible_child<QToolButton>(window,"text-alignment-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->alignment_driver&&session.document().objects.at(id).text->alignment=="end"&&
+        session.revision()==linked_alignment_revision+2,"Text alignment unlink and edit commit as one atomic Session revision");
+    changed_alignment_source=*session.document().objects.at(source_id).text;changed_alignment_source.alignment="center";
+    session.apply({UpdateText{source_id,changed_alignment_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document().objects.at(id).text->alignment=="end"&&!session.document().objects.at(id).text->alignment_driver,
+        "Unlinked Text alignment stays frozen when its former source changes");
     auto* family_driver=visible_child<QToolButton>(window,"text-family-driver");bool chose_family_source=false;
     check(visible_child<QComboBox>(window,"text-family")->isEnabled()&&family_driver->menu()->actions().size()==2,
         "Text family Inspector exposes a literal control and link/edit menu");

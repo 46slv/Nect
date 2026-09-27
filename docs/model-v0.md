@@ -1094,3 +1094,25 @@ versions retain their layout literals but reject a present 0.20 driver field.
 `schemas/native-v0.20.schema.json` constrains the closed wire shape; the core
 checks semantic references and the `auto`/`frame` domain. Other enum links,
 enum expressions and generic typed batch links remain open.
+
+## Native 0.21 — typed Text alignment link
+
+`TextSource.alignment` retains its authored `start`, `center` or `end` literal
+and may store one optional `alignment_driver:{"link":Ref}` to another Text
+object's same `text.alignment` field. The pure evaluated Text projection uses
+the source's current alignment while preserving the target's authored literal,
+frame dimensions, locale and other properties. Fixed-frame text exposes the
+alignment change in its layout; the source's frame is never copied.
+
+`link_text_alignment` and `unlink_text_alignment` follow the Session revision,
+validation and Undo path. Replacing a link is explicit, unlink freezes the
+current evaluated alignment, and `UpdateText` preserves a driver on unrelated
+edits while rejecting an implicit driven-literal change. Stable IDs survive
+rename and reorder. Missing sources, wrong Text fields, self-links, cycles and
+dependency chains beyond 128 reject atomically.
+
+The 0.21 writer omits `alignment_driver` when no link exists. Native 0.20 and
+earlier files retain their alignment literal and reject a present 0.21 driver.
+`schemas/native-v0.21.schema.json` constrains the closed same-field Ref shape;
+the core checks source existence and the closed `start`/`center`/`end` domain.
+Enum expressions and generic typed batches remain separate work.

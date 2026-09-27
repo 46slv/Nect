@@ -2127,7 +2127,77 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* direction_status=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(qs(direction_state.literal),direction_driver_name(direction_state.driver),qs(direction_state.evaluated)));
     direction_status->setObjectName("text-direction-state");direction_status->setWordWrap(true);direction_status->setTextFormat(Qt::PlainText);form->addRow("",direction_status);
-    choices("text-alignment","Alignment",{"Start","Center","End"},{"start","center","end"},source.alignment,&TextSource::alignment);
+    const Ref alignment_ref{id,"","text.alignment"};const auto alignment_state=text_alignment_property(host.session.document(),alignment_ref);
+    const auto alignment_revision=host.session.revision();
+    auto* alignment_row=new QWidget(box);auto* alignment_row_layout=new QHBoxLayout(alignment_row);alignment_row_layout->setContentsMargins(0,0,0,0);
+    auto* text_alignment=new QComboBox;text_alignment->setObjectName("text-alignment");text_alignment->addItems({"Start","Center","End"});
+    text_alignment->setCurrentIndex(alignment_state.evaluated=="center"?1:alignment_state.evaluated=="end"?2:0);text_alignment->setEnabled(false);
+    text_alignment->setToolTip("Use Edit alignment to stage and apply a change.");alignment_row_layout->addWidget(text_alignment);
+    auto* alignment_driver_button=new QToolButton(alignment_row);alignment_driver_button->setObjectName("text-alignment-driver");
+    alignment_driver_button->setText(alignment_state.driver?"Driver…":"Drive…");alignment_driver_button->setPopupMode(QToolButton::InstantPopup);
+    auto* alignment_menu=new QMenu(alignment_driver_button);alignment_driver_button->setMenu(alignment_menu);alignment_row_layout->addWidget(alignment_driver_button);
+    auto* edit_alignment=alignment_menu->addAction("Edit alignment…");
+    auto* link_alignment=alignment_menu->addAction("Link to Text alignment…");
+    auto* unlink_alignment=alignment_menu->addAction("Unlink alignment");unlink_alignment->setEnabled(alignment_state.driver.has_value());
+    connect(edit_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_revision,alignment_ref,alignment_state]{
+        QDialog dialog(this);dialog.setObjectName("text-alignment-dialog");dialog.setWindowTitle("Edit Text alignment");
+        auto* box_layout=new QVBoxLayout(&dialog);
+        auto* editor=new QComboBox(&dialog);editor->setObjectName("text-alignment-editor");editor->addItems({"Start","Center","End"});
+        editor->setCurrentIndex(alignment_state.evaluated=="center"?1:alignment_state.evaluated=="end"?2:0);
+        editor->setEnabled(!alignment_state.driver);box_layout->addWidget(editor);
+        auto* unlink=new QCheckBox("Unlink the driver and edit this alignment",&dialog);
+        unlink->setObjectName("unlink-text-alignment-driver");unlink->setVisible(alignment_state.driver.has_value());box_layout->addWidget(unlink);
+        auto* status=new QLabel("Apply commits the alignment. Cancel keeps the current alignment.",&dialog);
+        status->setObjectName("text-alignment-editor-status");status->setWordWrap(true);box_layout->addWidget(status);
+        connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
+        connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,alignment_revision,alignment_ref,alignment_state,editor,unlink,status]{
+            try {
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=alignment_revision)throw Error("STALE_CONTEXT","Text changed while the alignment editor was open; reopen it");
+                if(alignment_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying an alignment edit");
+                const auto found=host.session.document().objects.find(id);
+                if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
+                const std::array<std::string,3> values{"start","center","end"};
+                const auto value=values.at(static_cast<std::size_t>(editor->currentIndex()));
+                std::vector<Command> commands;
+                if(alignment_state.driver)commands.push_back(UnlinkTextAlignment{alignment_ref});
+                if(value!=(alignment_state.driver?alignment_state.evaluated:alignment_state.literal)) {
+                    auto next=*found->second.text;next.alignment=value;next.alignment_driver.reset();
+                    commands.push_back(UpdateText{id,std::move(next)});
+                }
+                if(!commands.empty()){host.session.apply(commands,alignment_revision);host.edited();}
+                dialog.accept();
+            } catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+        });
+        dialog.exec();
+    });
+    QStringList alignment_source_labels;std::vector<Id> alignment_source_ids;
+    for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
+        alignment_source_ids.push_back(source_id);alignment_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+    }
+    link_alignment->setEnabled(!alignment_source_ids.empty());const bool replace_alignment_driver=alignment_state.driver.has_value();
+    connect(link_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_revision,replace_alignment_driver,alignment_source_ids,alignment_source_labels]{
+        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text alignment","Source Text",alignment_source_labels,0,false,&accepted);
+        if(!accepted)return;
+        const auto index=alignment_source_labels.indexOf(choice);if(index<0)return;
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({LinkTextAlignment{{id,"","text.alignment"},{alignment_source_ids.at(static_cast<std::size_t>(index)),"","text.alignment"},replace_alignment_driver}},alignment_revision);host.edited();});
+    });
+    connect(unlink_alignment,&QAction::triggered,this,[this,frozen_session,alignment_revision,alignment_ref]{
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({UnlinkTextAlignment{alignment_ref}},alignment_revision);host.edited();});
+    });
+    alignment_row_layout->addStretch();form->addRow("Alignment",alignment_row);
+    const auto alignment_driver_name=[this](const std::optional<TextAlignmentDriver>& driver) {
+        if(!driver)return QString("none");
+        const auto found=host.session.document().objects.find(driver->link.object);
+        return QString("link to ")+(found==host.session.document().objects.end()?qs(driver->link.object):qs(found->second.name)+" ("+qs(driver->link.object)+")");
+    };
+    auto* alignment_status=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
+        .arg(qs(alignment_state.literal),alignment_driver_name(alignment_state.driver),qs(alignment_state.evaluated)));
+    alignment_status->setObjectName("text-alignment-state");alignment_status->setWordWrap(true);alignment_status->setTextFormat(Qt::PlainText);form->addRow("",alignment_status);
     auto* locale=new QLineEdit(qs(source.locale));locale->setObjectName("text-locale");form->addRow("Language tag",locale);
     connect(locale,&QLineEdit::editingFinished,this,[this,locale,update]{if(locale->isModified()){
         locale->setModified(false);perform([&]{update([&](auto& s){s.locale=locale->text().toStdString();});});}});

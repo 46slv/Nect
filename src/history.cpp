@@ -25,6 +25,7 @@ std::size_t extra(const TextItalicDriver&);
 std::size_t extra(const TextWeightDriver&);
 std::size_t extra(const TextDirectionDriver&);
 std::size_t extra(const TextLayoutDriver&);
+std::size_t extra(const TextAlignmentDriver&);
 std::size_t extra(const TextContentDriver&);
 std::size_t extra(const TextFamilyDriver&);
 std::size_t extra(const Scalar&);
@@ -76,12 +77,13 @@ std::size_t extra(const TextItalicDriver& v){return std::visit([](const auto& va
 std::size_t extra(const TextWeightDriver& v){return extra(v.link);}
 std::size_t extra(const TextDirectionDriver& v){return extra(v.link);}
 std::size_t extra(const TextLayoutDriver& v){return extra(v.link);}
+std::size_t extra(const TextAlignmentDriver& v){return extra(v.link);}
 std::size_t extra(const TextContentDriver& v){return extra(v.link);}
 std::size_t extra(const TextFamilyDriver& v){return extra(v.link);}
 std::size_t extra(const Scalar& v){return total(extra(v.binding),extra(v.expression));}
 std::size_t extra(const Point& v){return total(extra(v.id),extra(v.x),extra(v.y),extra(v.in_angle),extra(v.in_length),extra(v.out_angle),extra(v.out_length));}
 std::size_t extra(const Contour& v){return total(extra(v.id),extra(v.points));}
-std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content),extra(v.family),extra(v.locale),extra(v.layout),extra(v.direction),extra(v.alignment),extra(v.content_driver),extra(v.family_driver),extra(v.direction_driver),extra(v.layout_driver),extra(v.weight_driver),extra(v.italic_driver),extra(v.parameters));}
+std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content),extra(v.family),extra(v.locale),extra(v.layout),extra(v.direction),extra(v.alignment),extra(v.content_driver),extra(v.family_driver),extra(v.direction_driver),extra(v.layout_driver),extra(v.alignment_driver),extra(v.weight_driver),extra(v.italic_driver),extra(v.parameters));}
 std::size_t extra(const Primitive& v){return total(extra(v.id),extra(v.type),extra(v.parameters));}
 std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides));}
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
@@ -161,6 +163,8 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,UnlinkTextDirection>)return "Unlink Text direction: "+property_label(c.target);
         else if constexpr(std::is_same_v<T,LinkTextLayout>)return "Link Text layout: "+property_label(c.target);
         else if constexpr(std::is_same_v<T,UnlinkTextLayout>)return "Unlink Text layout: "+property_label(c.target);
+        else if constexpr(std::is_same_v<T,LinkTextAlignment>)return "Link Text alignment: "+property_label(c.target);
+        else if constexpr(std::is_same_v<T,UnlinkTextAlignment>)return "Unlink Text alignment: "+property_label(c.target);
         else if constexpr(std::is_same_v<T,Rename>)return "Rename: "+c.name;
         else if constexpr(std::is_same_v<T,RenameNamedColor>)return "Rename color: "+c.name;
         else if constexpr(std::is_same_v<T,CreateNamedColor>)return "Add named color: "+c.color.name;

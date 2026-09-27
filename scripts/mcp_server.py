@@ -79,6 +79,7 @@ TOOLS = [
                      'Text family uses link_text_family {target:Text family Ref,source:Text family Ref,replace_driver:bool} and unlink_text_family {target:Text family Ref}; unlink freezes the evaluated font family, and update_text cannot change the driven literal. '
                      'Text direction uses link_text_direction {target:Text direction Ref,source:Text direction Ref,replace_driver:bool} and unlink_text_direction {target:Text direction Ref}; its closed domain is horizontal/vertical. '
                      'Text layout uses link_text_layout {target:Text layout Ref,source:Text layout Ref,replace_driver:bool} and unlink_text_layout {target:Text layout Ref}; its closed domain is auto/frame. The target keeps its own frame_width/frame_height Scalars when the evaluated layout is frame. '
+                     'Text alignment uses link_text_alignment {target:Text alignment Ref,source:Text alignment Ref,replace_driver:bool} and unlink_text_alignment {target:Text alignment Ref}; its closed domain is start/center/end, and unlink freezes the evaluated choice. '
                      'Numeric text.* refs: origin_x,origin_y,font_size,frame_width,frame_height,tracking,line_spacing (0=font default). '
                      'text_layout {object} reports bounds, overflow, actual fonts and warnings. export_plan {composition,artboard} discloses outlined SVG text; native text stays editable. '
                      'Typed colors: color_properties or properties lists aggregate color refs and four ordinary numeric channels; get supports both types. '
