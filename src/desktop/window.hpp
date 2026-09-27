@@ -58,6 +58,7 @@ private:
     QAction* utility_snap_action_=nullptr;
     QAction* undo_;
     QAction* redo_;
+    QAction* batch_rename_action_=nullptr;
     bool refreshing_=false;
     std::optional<std::pair<QString,std::uint64_t>> canvas_notification_;
     bool matrix_expanded_=false;
@@ -119,8 +120,10 @@ private:
     void add_transform_properties(QVBoxLayout* layout,const Object& object);
     void add_compositing_properties(QVBoxLayout* layout,const Object& object);
     std::vector<Id> selected_siblings(Id& parent,std::size_t minimum=2) const;
+    void update_batch_rename_action();
     void stack_selection(int direction,bool to_edge);
     void mask_selection(bool top);
+    void batch_rename_selection();
     void put_selection_inside();
     void move_selection_out();
     void selection_menu(const QPoint& global);

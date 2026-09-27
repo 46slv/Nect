@@ -197,6 +197,160 @@ void move_out_action(Window& window) {
     check(window.canvas->drill_scope()=="move-out-outer","Selection-menu extraction also follows the new parent scope");
     session.undo(session.revision());window.host.edited();check(session.document()==before,"Selection-menu Move Out has one exact Undo");
 }
+void batch_rename_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    auto add_rectangle=[&](const std::string& id,const std::string& name,double x) {
+        Contour contour;contour.id=id+"-contour";contour.closed=true;
+        for(const auto& xy:std::vector<Vec2>{{x,80},{x+35,80},{x+35,115},{x,115}}) {
+            Point point;point.id=id+"-point-"+std::to_string(contour.points.size());
+            point.x.literal=xy.x;point.y.literal=xy.y;contour.points.push_back(point);
+        }
+        setup.push_back(CreatePath{composition,"",id,name,{contour}});
+    };
+    add_rectangle("batch-before","Before",30);
+    add_rectangle("batch-a","Batch A",90);
+    add_rectangle("batch-b","Batch B",150);
+    add_rectangle("batch-c","Batch C",210);
+    add_rectangle("batch-after","After",270);
+    add_rectangle("cross-left","Cross left",330);
+    add_rectangle("cross-inner","Cross inner",390);
+    setup.push_back(GroupContiguous{composition,"",{"cross-left","cross-inner"},"cross-folder","Nested"});
+    setup.push_back(Link{{"batch-c","batch-c-point-0","x"},{{"batch-a","batch-a-point-0","x"},2,3,"copy_local_value"}});
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+
+    auto* action=named_action(window,"batch-rename-selection");
+    check(action->text()=="Batch rename selected…","Edit menu exposes the bounded Batch rename action");
+    window.canvas->set_selections({{"batch-c",""},{"batch-a",""},{"batch-b",""}});QApplication::processEvents();
+    check(action->isEnabled(),"Batch rename is enabled only for a valid sibling selection");
+    auto* selection_menu_action=static_cast<QAction*>(nullptr);bool menu_action_enabled=false;
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* candidate:menu->actions())if(candidate->objectName()=="batch-rename-selection-context") {
+                selection_menu_action=candidate;menu_action_enabled=candidate->isEnabled();menu->close();return;
+            }
+    });
+    const auto menu_point=window.canvas->rect().center();
+    QContextMenuEvent menu_event(QContextMenuEvent::Mouse,menu_point,window.canvas->mapToGlobal(menu_point));
+    QApplication::sendEvent(window.canvas,&menu_event);QApplication::processEvents();
+    check(selection_menu_action&&menu_action_enabled,"Selection menu offers Batch rename for the same valid sibling selection");
+
+    const auto before=session.document();const auto before_revision=session.revision();
+    const auto before_values=evaluate(before);const auto before_image=Canvas::render_artboard(before,composition,window.canvas->active_artboard(),1,false);
+    auto* base_action=named_action(window,"batch-rename-selection");
+    bool cancel_preview_ok=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("batch-rename-dialog");
+        auto* base=dialog?dialog->findChild<QLineEdit*>("batch-rename-base"):nullptr;
+        std::vector<QLineEdit*> names;
+        for(int i=0;i<3;++i)names.push_back(dialog?dialog->findChild<QLineEdit*>(QString("batch-rename-name-%1").arg(i)):nullptr);
+        cancel_preview_ok=dialog&&dialog->isVisible()&&base&&base->text()=="Batch A"&&
+            std::all_of(names.begin(),names.end(),[](const auto* item){return item!=nullptr;});
+        if(cancel_preview_ok) {
+            cancel_preview_ok=names[0]->text()=="Batch A 1"&&names[1]->text()=="Batch A 2"&&names[2]->text()=="Batch A 3"&&
+                dialog->findChild<QLabel*>("batch-rename-id-0")->text()=="batch-a"&&
+                dialog->findChild<QLabel*>("batch-rename-id-1")->text()=="batch-b"&&
+                dialog->findChild<QLabel*>("batch-rename-id-2")->text()=="batch-c"&&
+                dialog->findChild<QLabel*>("batch-rename-old-0")->text()=="Batch A"&&
+                dialog->findChild<QLabel*>("batch-rename-old-1")->text()=="Batch B"&&
+                dialog->findChild<QLabel*>("batch-rename-old-2")->text()=="Batch C";
+        }
+        if(auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr)
+            buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    base_action->trigger();QApplication::processEvents();
+    check(cancel_preview_ok&&session.revision()==before_revision&&session.document()==before,
+        "Batch rename previews IDs/names in structural order and Cancel leaves the Document untouched");
+
+    bool applied_preview_ok=false;bool empty_refusal_ok=false;bool apply_clicked=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("batch-rename-dialog");
+        auto* base=dialog?dialog->findChild<QLineEdit*>("batch-rename-base"):nullptr;
+        std::vector<QLineEdit*> names;
+        for(int i=0;i<3;++i)names.push_back(dialog?dialog->findChild<QLineEdit*>(QString("batch-rename-name-%1").arg(i)):nullptr);
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!base||!buttons||std::any_of(names.begin(),names.end(),[](auto* item){return item==nullptr;}))return;
+        base->setText("First pass");QApplication::processEvents();
+        applied_preview_ok=names[0]->text()=="First pass 1"&&names[1]->text()=="First pass 2"&&names[2]->text()=="First pass 3";
+        auto replace=[&](QLineEdit* input,const char* text) {
+            input->setFocus();QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);QApplication::processEvents();
+        };
+        replace(names[1],"Duplicate");replace(names[2],"Duplicate");
+        base->setText("Final");QApplication::processEvents();
+        applied_preview_ok=applied_preview_ok&&names[0]->text()=="Final 1"&&names[1]->text()=="Duplicate"&&names[2]->text()=="Duplicate";
+        names[0]->setFocus();QTest::keyClick(names[0],Qt::Key_A,Qt::ControlModifier);QTest::keyClick(names[0],Qt::Key_Backspace);
+        buttons->button(QDialogButtonBox::Ok)->click();QApplication::processEvents();
+        auto* error=dialog->findChild<QLabel*>("batch-rename-error");
+        empty_refusal_ok=dialog->isVisible()&&error&&error->text().contains("non-empty")&&
+            session.revision()==before_revision&&session.document()==before;
+        replace(names[0],"Final 1");
+        applied_preview_ok=applied_preview_ok&&names[1]->text()=="Duplicate"&&names[2]->text()=="Duplicate";
+        buttons->button(QDialogButtonBox::Ok)->click();QApplication::processEvents();apply_clicked=true;
+    });
+    base_action->trigger();QApplication::processEvents();
+    check(apply_clicked&&applied_preview_ok&&empty_refusal_ok,
+        "Base edits update only untouched proposals, duplicate names are allowed, and empty names keep the dialog open without mutation");
+    auto expected=before;
+    expected.objects.at("batch-a").name="Final 1";
+    expected.objects.at("batch-b").name="Duplicate";
+    expected.objects.at("batch-c").name="Duplicate";
+    check(session.revision()==before_revision+1&&session.document()==expected,
+        "Batch Apply commits exactly three Rename commands through one Session revision and preserves stable IDs/references/order");
+    check(evaluate(session.document())==before_values&&
+        Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false)==before_image,
+        "Batch rename preserves evaluated property values and rendered appearance");
+    check(decode(encode(session.document()))==session.document(),"Batch-renamed source round-trips through native serialization");
+    check(window.canvas->selected_objects()==std::vector<Id>{"batch-c","batch-a","batch-b"},
+        "Batch rename retains the user's stable object selection");
+    const auto after=session.document();
+    QTemporaryDir saved_dir;check(saved_dir.isValid(),"Batch rename creates a disposable native save directory");
+    const auto saved_path=saved_dir.path()+"/batch-renamed.nect";
+    window.host.save(saved_path);
+    Host reopened(saved_dir.path()+"/cold-recovery");reopened.open(saved_path);
+    check(reopened.session.document()==after,"Batch rename saves and cold-reopens exact native names and stable references");
+    session.undo(session.revision());window.host.edited();
+    check(session.document()==before,"Batch rename is one exact Undo for all names");
+    session.redo(session.revision());window.host.edited();
+    check(session.document()==after,"Batch rename Redo restores the exact renamed state");
+
+    Document stale_document;std::uint64_t stale_revision=0;bool stale_dialog_seen=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("batch-rename-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog&&buttons) {
+            session.apply({Rename{"batch-after","External update"}},session.revision());window.host.edited();
+            stale_document=session.document();stale_revision=session.revision();stale_dialog_seen=true;
+            buttons->button(QDialogButtonBox::Ok)->click();
+        }
+    });
+    base_action->trigger();QApplication::processEvents();
+    check(stale_dialog_seen&&session.revision()==stale_revision&&session.document()==stale_document&&
+        window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT"),
+        "A revision-stale batch dialog refuses without partially renaming its targets");
+
+    window.canvas->set_selection("batch-a");QApplication::processEvents();
+    check(!base_action->isEnabled(),"Batch rename is not offered for fewer than two selected siblings");
+    window.canvas->set_selections({{"batch-a","batch-a-point-0"},{"batch-b","batch-b-point-0"}});QApplication::processEvents();
+    check(!base_action->isEnabled(),"Batch rename is not offered for point selections");
+    window.canvas->set_selections({{"batch-a",""},{"cross-left",""}});QApplication::processEvents();
+    check(!base_action->isEnabled(),"Batch rename is not offered for selected objects under different parents");
+
+    window.canvas->set_selections({{"batch-a",""},{"batch-b",""}});QApplication::processEvents();
+    bool session_stale_seen=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("batch-rename-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog&&buttons) {
+            session_stale_seen=true;
+            window.host.create_document();
+            buttons->button(QDialogButtonBox::Ok)->click();
+        }
+    });
+    base_action->trigger();QApplication::processEvents();
+    check(session_stale_seen&&session.revision()==0&&session.document().objects.empty()&&
+        window.statusBar()->currentMessage().startsWith("SESSION_CONFLICT"),
+        "A session-replaced batch dialog refuses without changing the new Document");
+}
 void history_action(Window& window,const char* text) {
     for(auto* action:window.findChildren<QAction*>())if(action->text()==QString::fromLatin1(text)) {
         check(action->isEnabled(),"History action is enabled");action->trigger();QApplication::processEvents();return;
@@ -1525,7 +1679,8 @@ int main(int argc,char** argv) {
         layout_session.undo(layout_session.revision());layout.host.edited();
         check(layout.canvas->evaluated_values()==evaluate(layout_session.document()),"External Undo refreshes projection after Canvas notification scope ends");
         layout.hide();Window folders(temp.path()+"/folders");folders.show();QApplication::processEvents();folder_action(folders);
-        folders.hide();Window move_out(temp.path()+"/move-out");move_out.show();QApplication::processEvents();move_out_action(move_out);
+        folders.hide();Window batch_rename(temp.path()+"/batch-rename");batch_rename.show();QApplication::processEvents();batch_rename_action(batch_rename);
+        batch_rename.hide();Window move_out(temp.path()+"/move-out");move_out.show();QApplication::processEvents();move_out_action(move_out);
         move_out.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
         stacking.hide();Window layout_setup(temp.path()+"/layout-setup");layout_setup.show();QApplication::processEvents();
         layout_setup_previews_commit_and_recovers(layout_setup);layout_setup.hide();

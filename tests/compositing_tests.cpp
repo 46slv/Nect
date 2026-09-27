@@ -115,6 +115,35 @@ void create_empty_folder() {
     Session planes(separate);atomic(planes,"INVALID_PARENT",{CreateFolder{"comp","foreign-parent","foreign-child","Foreign parent"}});
 }
 
+void batch_rename_api() {
+    auto document=fixture();
+    document.collections={{"collection","Stable members",{"a","b","source"}}};
+    document.objects.at("source").contours[0].points[0].x.binding=
+        Binding{{"a","","transform.tx"},2,3,"copy_local_value"};
+    Session session(document);
+    const auto before=session.document();const auto before_values=evaluate(before);const auto before_scene=scene(before);
+    const auto response=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"rename","object":"a","name":"Renamed A"},{"type":"rename","object":"b","name":"Renamed B"},{"type":"rename","object":"source","name":"Renamed source"}]})");
+    check(response.find("\"changed\":true")!=std::string::npos,"JSON-lines accepts an ordered three-command Rename batch through Session.apply");
+    auto expected=before;expected.objects.at("a").name="Renamed A";expected.objects.at("b").name="Renamed B";expected.objects.at("source").name="Renamed source";
+    check(session.revision()==1&&session.document()==expected,"API Rename batch changes only the three stable object names in one revision");
+    check(session.document().collections==before.collections&&evaluate(session.document())==before_values&&
+        drawable_order(before,before_scene)==drawable_order(session.document(),scene(session.document())),
+        "API Rename batch preserves Collection members, driven values and paint order");
+    check(decode(encode(session.document()))==session.document(),"API Rename batch preserves native source and stable references exactly");
+    const auto applied=session.document();session.undo(session.revision());check(session.document()==before,"API Rename batch has one exact Undo boundary");
+    session.redo(session.revision());check(session.document()==applied,"API Rename batch Redo restores every proposed name");
+
+    const auto stable=session.document();const auto stable_revision=session.revision();const auto stable_history=session.history();
+    const auto missing=request(session,R"({"op":"apply","expected_revision":3,"commands":[{"type":"rename","object":"a","name":"Changed"},{"type":"rename","object":"missing","name":"Missing"},{"type":"rename","object":"source","name":"Also changed"}]})");
+    check(missing.find("\"code\":\"MISSING_OBJECT\"")!=std::string::npos&&session.document()==stable&&
+        session.revision()==stable_revision&&session.history()==stable_history,
+        "A missing middle API Rename target rejects the whole batch without partial state or history");
+    const auto stale=request(session,R"({"op":"apply","expected_revision":1,"commands":[{"type":"rename","object":"a","name":"Stale"},{"type":"rename","object":"b","name":"Stale"}]})");
+    check(stale.find("\"code\":\"REVISION_CONFLICT\"")!=std::string::npos&&session.document()==stable&&
+        session.revision()==stable_revision&&session.history()==stable_history,
+        "A stale API Rename batch refuses atomically");
+}
+
 void scene_contract() {
     Session session(fixture());auto evaluated=scene(session.document());check(!evaluated.requires_compositing&&evaluated.roots.size()==3,"Neutral scene retains direct rendering");
     apply(session,{GroupContiguous{"comp","",{"a","b"},"group","Group"}});
@@ -319,6 +348,6 @@ void move_out_folder() {
 
 }
 int main() {
-    try{create_empty_folder();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{create_empty_folder();batch_rename_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

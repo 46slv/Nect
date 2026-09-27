@@ -17,6 +17,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGroupBox>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QJsonDocument>
@@ -498,6 +499,9 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     });
     action(edit,"Select all in editing context",{},[this]{canvas->select_all_in_context();})->setObjectName("select-all-context");
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
+    batch_rename_action_=action(edit,"Batch rename selected…",{},[this]{batch_rename_selection();});
+    batch_rename_action_->setObjectName("batch-rename-selection");
+    batch_rename_action_->setEnabled(false);
     action(edit,"Create Folder",{},[this]{create_folder();})->setObjectName("create-folder");
     action(edit,"Ungroup selected Groups",QKeySequence("Ctrl+Shift+G"),[this]{ungroup_selection();})->setObjectName("ungroup-objects");
     action(edit,"Move selected out of Folder",{},[this]{move_selection_out();})->setObjectName("move-out-of-folder");
@@ -690,7 +694,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         else canvas_notification_.reset();
         host.edited();
     };
-    canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();};
+    canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();update_batch_rename_action();};
     canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
     canvas->view_state_changed=[this]{sync_utility_view_state();};
     canvas->zoom_changed=[this](double zoom){
@@ -3280,6 +3284,11 @@ std::vector<Id> Window::selected_siblings(Id& parent,std::size_t minimum) const 
     search(find_composition(d,canvas->active_composition()).roots,{});
     if(result.empty())throw Error("INVALID_SELECTION","Select sibling objects in the same Composition");return result;
 }
+void Window::update_batch_rename_action() {
+    if(!batch_rename_action_)return;
+    try{Id parent;(void)selected_siblings(parent,2);batch_rename_action_->setEnabled(true);}
+    catch(const Error&){batch_rename_action_->setEnabled(false);}
+}
 void Window::stack_selection(int direction,bool to_edge) {
     Id parent;const auto selected=selected_siblings(parent,1);const std::set<Id> chosen(selected.begin(),selected.end());
     const auto& d=host.session.document();const auto& comp=find_composition(d,canvas->active_composition());
@@ -3333,6 +3342,102 @@ void Window::move_selection_out() {
     canvas->set_selections(std::move(selection));host.edited();
     statusBar()->showMessage("Moved selected objects out of Folder; Undo restores the original structure",6000);
 }
+void Window::batch_rename_selection() {
+    Id parent;
+    const auto ids=selected_siblings(parent,2);
+    const auto frozen_session=host.session_id;
+    const auto frozen_revision=host.session.revision();
+    const auto selection=canvas->selections();
+    const auto& document=host.session.document();
+
+    QDialog dialog(this);
+    dialog.setObjectName("batch-rename-dialog");
+    dialog.setWindowTitle("Batch rename selected objects");
+    dialog.resize(680,380);
+    auto* layout=new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel("Review stable IDs and proposed names. Changes are applied together.",&dialog));
+    auto* base_row=new QHBoxLayout;
+    base_row->addWidget(new QLabel("Base name",&dialog));
+    auto* base=new QLineEdit(qs(document.objects.at(ids.front()).name),&dialog);
+    base->setObjectName("batch-rename-base");
+    base_row->addWidget(base);
+    layout->addLayout(base_row);
+
+    auto* preview=new QWidget(&dialog);
+    auto* grid=new QGridLayout(preview);
+    grid->addWidget(new QLabel("Stable ID",&dialog),0,0);
+    grid->addWidget(new QLabel("Current name",&dialog),0,1);
+    grid->addWidget(new QLabel("Proposed name",&dialog),0,2);
+    std::vector<QLineEdit*> proposed;
+    std::vector<bool> edited(ids.size(),false);
+    proposed.reserve(ids.size());
+    auto generated_name=[&](std::size_t index) {
+        const auto prefix=base->text().trimmed();
+        return prefix.isEmpty()?QString::number(index+1):prefix+QString(" %1").arg(index+1);
+    };
+    for(std::size_t i=0;i<ids.size();++i) {
+        const auto row=static_cast<int>(i+1);
+        auto* id_label=new QLabel(qs(ids[i]),&dialog);
+        id_label->setObjectName(QString("batch-rename-id-%1").arg(i));
+        id_label->setTextFormat(Qt::PlainText);
+        id_label->setTextInteractionFlags(Qt::TextSelectableByMouse|Qt::TextSelectableByKeyboard);
+        grid->addWidget(id_label,row,0);
+        auto* old_name=new QLabel(qs(document.objects.at(ids[i]).name),&dialog);
+        old_name->setObjectName(QString("batch-rename-old-%1").arg(i));
+        old_name->setTextFormat(Qt::PlainText);
+        grid->addWidget(old_name,row,1);
+        auto* name=new QLineEdit(generated_name(i),&dialog);
+        name->setObjectName(QString("batch-rename-name-%1").arg(i));
+        proposed.push_back(name);
+        grid->addWidget(name,row,2);
+        connect(name,&QLineEdit::textEdited,&dialog,[&edited,i](const QString&){edited[i]=true;});
+    }
+    grid->setColumnStretch(0,1);grid->setColumnStretch(1,1);grid->setColumnStretch(2,2);
+    auto* preview_scroll=new QScrollArea(&dialog);
+    preview_scroll->setWidgetResizable(true);
+    preview_scroll->setWidget(preview);
+    layout->addWidget(preview_scroll,1);
+    auto* error=new QLabel(&dialog);
+    error->setObjectName("batch-rename-error");
+    error->setTextFormat(Qt::PlainText);
+    error->setWordWrap(true);
+    layout->addWidget(error);
+    auto update_generated=[&] {
+        for(std::size_t i=0;i<proposed.size();++i)
+            if(!edited[i])proposed[i]->setText(generated_name(i));
+    };
+    connect(base,&QLineEdit::textChanged,&dialog,[&](const QString&){update_generated();});
+
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText("Apply");
+    layout->addWidget(buttons);
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,[&] {
+        if(std::any_of(proposed.begin(),proposed.end(),[](const auto* name){return name->text().trimmed().isEmpty();})) {
+            error->setText("Every proposed name must be non-empty.");
+            return;
+        }
+        dialog.accept();
+    });
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+
+    if(host.session_id!=frozen_session)
+        throw Error("SESSION_CONFLICT","The document changed while batch rename was open; reopen the dialog");
+    if(host.session.revision()!=frozen_revision)
+        throw Error("REVISION_CONFLICT","The document changed while batch rename was open; reopen the dialog");
+
+    std::vector<Command> commands;
+    commands.reserve(ids.size());
+    for(std::size_t i=0;i<ids.size();++i) {
+        const auto name=proposed[i]->text().toStdString();
+        if(name.empty())throw Error("INVALID_NAME","Every proposed name must be non-empty");
+        commands.push_back(Rename{ids[i],name});
+    }
+    canvas->cancel_interaction();
+    host.session.apply(commands,frozen_revision);
+    host.edited();
+    canvas->set_selections(selection);
+}
 void Window::selection_menu(const QPoint& global) {
     const auto menu_session=host.session_id;const auto menu_revision=host.session.revision();
     QMenu menu;auto* duplicate=menu.addAction("Duplicate objects in place");duplicate->setEnabled(!canvas->selected_objects().empty()&&canvas->selected_point.empty());
@@ -3344,6 +3449,8 @@ void Window::selection_menu(const QPoint& global) {
         stack_actions.emplace(stacking->addAction(label),std::pair{direction,edge});
     try{Id parent;(void)selected_siblings(parent,1);}catch(const Error&){stacking->setEnabled(false);}
     auto* group=menu.addAction("Group selected siblings");
+    auto* batch_rename=menu.addAction("Batch rename selected…");batch_rename->setObjectName("batch-rename-selection-context");
+    try{Id parent;(void)selected_siblings(parent,2);}catch(const Error&){batch_rename->setEnabled(false);}
     auto* ungroup=menu.addAction("Ungroup selected Groups");
     auto* move_out=menu.addAction("Move selected out of Folder");move_out->setObjectName("move-out-of-folder-context");
     try {
@@ -3365,7 +3472,7 @@ void Window::selection_menu(const QPoint& global) {
         top->setEnabled((d.objects.at(members.back()).kind==Kind::path||d.objects.at(members.back()).kind==Kind::text));bottom->setEnabled((d.objects.at(members.front()).kind==Kind::path||d.objects.at(members.front()).kind==Kind::text));inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
     } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
     auto* chosen=menu.exec(global);if(!chosen)return;
-    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==transform)transform_selection();else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==move_out)move_selection_out();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();});
+    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==transform)transform_selection();else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==move_out)move_selection_out();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();else if(chosen==batch_rename)batch_rename_selection();});
 }
 void Window::duplicate_selection() {
     if(canvas->selected_objects().empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select objects or Groups to duplicate");
