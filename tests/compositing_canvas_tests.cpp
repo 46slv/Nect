@@ -70,6 +70,59 @@ void group_opacity_is_applied_once() {
     f.color(220,170,QColor(255,128,128),"Overlapping opaque children receive Group opacity only once");
     f.no_error();
 }
+void group_posterize_uses_independent_postcomposite_pixel_oracle() {
+    auto d=document(false);
+    add(d,rectangle("red",100,100,180,180,QColor(255,0,0,128)));
+    add(d,rectangle("blue",180,120,180,180,QColor(0,0,255,128)));
+    group(d,"group",{"red","blue"});
+    const auto original=Canvas::render_artboard(d,"composition","artboard",1,true);
+    const auto transparent_original=Canvas::render_artboard(d,"composition","artboard",1,false);
+    const auto baseline_overlap=original.pixelColor(220,180);
+    const auto baseline_red=original.pixelColor(140,180);
+    const auto baseline_blue=original.pixelColor(300,180);
+    check(std::abs(baseline_overlap.red()-127)<=3&&std::abs(baseline_overlap.green()-63)<=3&&std::abs(baseline_overlap.blue()-191)<=3,
+        "No-effect overlap is the independently expected red-over-blue source-over pixel");
+    const auto straight_baseline=transparent_original.pixelColor(220,180);
+    check(std::abs(straight_baseline.red()-85)<=3&&straight_baseline.green()==0&&std::abs(straight_baseline.blue()-170)<=3&&
+        straight_baseline.alpha()==192,
+        "Transparent baseline independently retains the purple straight overlap and exact three-quarter alpha");
+    check(baseline_red==QColor(255,127,127)&&baseline_blue==QColor(127,127,255),
+        "Single-child transparent colors composite over the separate white export background");
+
+    Session session(d);session.apply({AddOperation{"group",default_operation("posterize","nect.group.posterize"),0}},0);
+    const auto actual=Canvas::render_artboard(session.document(),"composition","artboard",1,true);
+    const auto overlap=actual.pixelColor(220,180);
+    const auto transparent_actual=Canvas::render_artboard(session.document(),"composition","artboard",1,false).pixelColor(220,180);
+    // Independent arithmetic: source-over gives A=192, premultiplied RGB=(64,0,128).
+    // At L=2, straight R=64/192 quantizes to 0 and B=128/192 quantizes to 1;
+    // over white, the preserved 63/255 transparency yields (63,63,255).
+    check(std::abs(overlap.red()-63)<=3&&std::abs(overlap.green()-63)<=3&&std::abs(overlap.blue()-255)<=3,
+        "Group Posterize quantizes the completed overlap and preserves its 75% alpha");
+    check(transparent_actual.red()==0&&transparent_actual.green()==0&&transparent_actual.blue()==255&&transparent_actual.alpha()==192,
+        "Posterized transparent overlap is opaque blue RGB at the original alpha byte");
+    const auto red=actual.pixelColor(140,180),blue=actual.pixelColor(300,180);
+    check(red==QColor(255,127,127)&&blue==QColor(127,127,255),
+        "Single-child red and blue interiors remain unchanged at two levels");
+    check(overlap!=baseline_overlap,
+        "Negative oracle: child-local Posterize would retain the baseline purple overlap");
+
+    session.apply({EnableOperation{"group","posterize",false}},session.revision());
+    const auto bypass=Canvas::render_artboard(session.document(),"composition","artboard",1,true);
+    check(bypass==original,"Bypass returns the original overlap and all rendered pixels exactly");
+    session.apply({EnableOperation{"group","posterize",true}},session.revision());
+    session.apply({Set{operation_ref("group","posterize","levels"),3}},session.revision());
+    const auto three_levels=Canvas::render_artboard(session.document(),"composition","artboard",1,true);
+    check(three_levels.pixelColor(220,180)!=overlap,"Changing levels through Session changes the derived overlap only");
+    check(three_levels.pixelColor(140,180)==red&&three_levels.pixelColor(300,180)==blue,
+        "Changing levels leaves nonoverlapping child interiors unchanged");
+    const auto before_remove=session.document();const auto before_remove_revision=session.revision();
+    session.apply({RemoveOperation{"group","posterize"}},session.revision());
+    check(session.revision()==before_remove_revision+1&&Canvas::render_artboard(session.document(),"composition","artboard",1,true)==original,
+        "Removing Group Posterize is one edit and restores the exact original pixel result");
+    session.undo(session.revision());
+    check(session.document()==before_remove&&Canvas::render_artboard(session.document(),"composition","artboard",1,true)==three_levels,
+        "Undo restores the exact authored Group stack and pixel result");
+}
 void pass_through_and_isolation_have_distinct_backdrops() {
     auto d=document();add(d,rectangle("blue",80,80,300,260,Qt::blue));add(d,rectangle("red",100,100,200,180,Qt::red));
     d.objects.at("red").compositing.blend="multiply";group(d,"group",{"red"});Fixture f(d);
@@ -249,7 +302,7 @@ int main(int argc,char** argv) {
     if(qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))qputenv("QT_QPA_PLATFORM","offscreen");
     QApplication application(argc,argv);
     try {
-        group_opacity_is_applied_once();pass_through_and_isolation_have_distinct_backdrops();blend_alpha_and_transparent_root();
+        group_opacity_is_applied_once();group_posterize_uses_independent_postcomposite_pixel_oracle();pass_through_and_isolation_have_distinct_backdrops();blend_alpha_and_transparent_root();
         all_supported_blends_match_independent_channel_formulas();
         open_mask_hole_and_fill_rule();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
         mask_outline_is_separate_from_inherited_selection();cropped_unmasked_scope_preserves_stroke_gradient_and_repeater();

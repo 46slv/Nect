@@ -1192,3 +1192,29 @@ Native save/reopen preserves the exact attachment values and editable source.
 Multi-line/frame, vertical, RTL/bidi, multi-contour traversal, deform mode,
 variable font/features, clipping/repeat overflow policies and Group/part
 consumers remain separate work.
+
+## Native 0.25 — Group postchildren Posterize
+
+A Group may own an ordered operation stack containing `nect.group.posterize`
+behavior v1. Each instance has a stable ID, enabled flag and ordinary Scalar
+parameter `levels`, an integer from 2 through 16 with default 2. Its input is
+the premultiplied 8-bit sRGB RGBA image after the Group's children have each
+evaluated their own operations and composited in child order. For nonzero-alpha
+pixels, Posterize unpremultiplies each sRGB channel, computes
+`floor(channel * (levels - 1) + 0.5) / (levels - 1)`, and premultiplies by the
+unchanged alpha. Zero-alpha pixels become transparent black. Enabled instances
+run in stack order; disabled instances preserve the input. The Group mask,
+opacity and blend are applied after its pixel operations. Groups reject
+Path-local Fill, Stroke, Offset and Repeater operations; Path, Text and Image
+reject Group Posterize.
+
+The 0.25 writer stores the Group stack using the existing operation IDs,
+parameter Scalars, property refs, revision and Undo machinery. Native 0.1–0.24
+documents migrate with an empty Group stack, and 0.24 documents reject a
+smuggled Group `stack` field. `schemas/native-v0.25.schema.json` strictly
+describes the Group-only wire shape; core validation enforces the integer range
+and target domain. Canvas and PNG evaluate the actual postchildren pixels. SVG
+export refuses an enabled Group Posterize and its API export plan lists the
+unsupported effect; a bypassed instance allows ordinary SVG projection. This
+operator uses only the existing 8-bit sRGB pixel path and makes no HDR,
+linear-light or exact vector-export claim.

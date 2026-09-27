@@ -18,6 +18,8 @@ ShapeOperation default_operation(Id id,const std::string& type) {
             {"start_opacity",{1,{}}},{"end_opacity",{1,{}}}};
     } else if(type=="nect.shape.offset") {
         op.parameters={{"amount",{10,{}}},{"miter_limit",{4,{}}}};
+    } else if(type=="nect.group.posterize") {
+        op.parameters={{"levels",{2,{}}}};
     } else throw Error("UNSUPPORTED_OPERATOR",type);
     return op;
 }

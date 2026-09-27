@@ -40,7 +40,7 @@ void edit_property(Window& window,const Ref& ref,const char* value) {
     QLineEdit* input=nullptr;
     for(auto* candidate:window.findChildren<QLineEdit*>())
         if(candidate->isVisible()&&candidate->property("nect-reference").toByteArray()==key){input=candidate;break;}
-    check(input,"Offset Amount is edited through the normal Properties control");
+    check(input,"The selected effect parameter is edited through the normal Properties control");
     input->setFocus();input->selectAll();QTest::keyClicks(input,value);QTest::keyClick(input,Qt::Key_Return);events();
 }
 QJsonObject api(const std::string& response) {
@@ -224,6 +224,81 @@ int main(int argc,char** argv) {
         check(status->text().contains("Group")&&status->text().contains(QString::fromStdString(group_id))&&status->text().contains("nect.shape.offset")&&
             status->text().contains("INVALID_DOMAIN"),"Group refusal displays target, operator and actual error");
 
+        search->clear();events();
+        const auto posterize_items=catalog->findItems("Group Posterize",Qt::MatchExactly);
+        check(posterize_items.size()==1,"Group Posterize is a selectable built-in Effects entry");
+        catalog->setCurrentItem(posterize_items.front());events();
+        check(named<QPushButton>(window,"effects-apply")->text().contains("Group Posterize")&&
+            named<QLabel>(window,"effects-status")->text().contains("Ready · nect.group.posterize v1"),
+            "Group selection resolves the Posterize catalog entry against its exact target");
+
+        window.canvas->set_selection(ui_object);events();
+        const auto posterize_refusal_doc=encode(session.document());const auto posterize_refusal_rev=session.revision();
+        const auto posterize_refusal_history=session.history();click(window,"effects-apply");
+        check(encode(session.document())==posterize_refusal_doc&&session.revision()==posterize_refusal_rev&&
+            session.history()==posterize_refusal_history&&named<QLabel>(window,"effects-status")->text().contains("nect.group.posterize")&&
+            named<QLabel>(window,"effects-status")->text().contains("INVALID_DOMAIN"),
+            "Group Posterize refuses a non-Group target visibly and without mutation");
+        window.canvas->set_selection(group_id);events();
+        const auto panel_before_revision=session.revision();
+        click(window,"effects-apply");
+        const auto& panel_stack=session.document().objects.at(group_id).stack;
+        check(session.revision()==panel_before_revision+1&&panel_stack.size()==1&&panel_stack.front().type=="nect.group.posterize"&&
+            panel_stack.front().version==1&&panel_stack.front().enabled&&panel_stack.front().parameters.at("levels").literal==2,
+            "Effects Apply authors the default Group Posterize v1 in the selected Group through Session");
+        const ShapeOperation panel_posterize_authored=panel_stack.front();
+        const auto panel_posterize_id=panel_posterize_authored.id;
+        auto* panel_card=named<QGroupBox>(window,"effects-operation-"+QString::fromStdString(panel_posterize_id));
+        check(panel_card->title().contains("Group Posterize"),"Group Posterize instance has a stable Effects card");
+        click(window,"effects-edit-properties-"+QString::fromStdString(panel_posterize_id));
+        check(named<QGroupBox>(window,"stack-operation-"+QString::fromStdString(panel_posterize_id))->isVisible(),
+            "Group Posterize card opens the normal Group Properties stack");
+        const Ref panel_levels=operation_ref(group_id,panel_posterize_id,"levels");
+        const auto posterize_definitions=api(request(session,R"({"op":"operator_types"})"));
+        check(posterize_definitions.value("ok").toBool(),"Posterize definition uses the existing API operator registry");
+        QJsonObject posterize_definition;
+        for(const auto value:posterize_definitions.value("result").toArray())
+            if(value.toObject().value("type").toString()=="nect.group.posterize")posterize_definition=value.toObject();
+        check(!posterize_definition.isEmpty()&&posterize_definition.value("version").toInt()==1,
+            "API exposes Group Posterize behavior v1");
+        auto api_posterize=posterize_definition.value("template").toObject();api_posterize.insert("id","api-posterize");
+        const auto api_group_index=static_cast<int>(session.document().objects.at(group_id).stack.size());
+        const auto api_group_revision=session.revision();
+        const QJsonObject posterize_command{{"type","add_operation"},{"object",QString::fromStdString(group_id)},
+            {"index",api_group_index},{"operation",api_posterize}};
+        const auto posterize_applied=api(request(session,QJsonDocument(QJsonObject{{"op","apply"},
+            {"expected_revision",static_cast<qint64>(api_group_revision)},{"commands",QJsonArray{posterize_command}}})
+            .toJson(QJsonDocument::Compact).toStdString()));
+        check(posterize_applied.value("ok").toBool()&&session.revision()==api_group_revision+1,
+            "API AddOperation authors Group Posterize on the same Session path");
+        window.host.edited();events();
+        const auto& api_posterize_operation=session.document().objects.at(group_id).stack.back();
+        check(api_posterize_operation.id=="api-posterize"&&api_posterize_operation.type=="nect.group.posterize"&&
+            api_posterize_operation.version==panel_posterize_authored.version&&api_posterize_operation.enabled==panel_posterize_authored.enabled&&
+            api_posterize_operation.parameters==panel_posterize_authored.parameters,
+            "Panel and API create equivalent Group Posterize authored semantics");
+        const auto api_levels_ref=operation_ref(group_id,"api-posterize","levels");
+        check(evaluate(session.document()).at(panel_levels)==evaluate(session.document()).at(api_levels_ref),
+            "Panel-authored and API-authored levels evaluate identically");
+        edit_property(window,panel_levels,"4");
+        check(evaluate(session.document()).at(panel_levels)==4,
+            "Group Posterize Levels uses the normal Properties command");
+        const auto api_up_revision=session.revision();click(window,"operation-up-api-posterize");
+        check(session.revision()==api_up_revision+1&&session.document().objects.at(group_id).stack.front().id=="api-posterize",
+            "Group Posterize uses the ordinary stable-ID stack reorder control");
+        auto* posterize_enabled=named<QCheckBox>(window,"operation-enabled-"+QString::fromStdString(panel_posterize_id));
+        const auto posterize_bypass_revision=session.revision();posterize_enabled->setChecked(false);events();
+        const auto after_bypass=std::find_if(session.document().objects.at(group_id).stack.begin(),
+            session.document().objects.at(group_id).stack.end(),[&](const auto& op){return op.id==panel_posterize_id;});
+        check(session.revision()==posterize_bypass_revision+1&&after_bypass!=session.document().objects.at(group_id).stack.end()&&
+            !after_bypass->enabled,
+            "Group Posterize bypass uses the ordinary authored stack control");
+        const auto posterize_remove_revision=session.revision();click(window,"operation-remove-"+QString::fromStdString(panel_posterize_id));
+        check(session.revision()==posterize_remove_revision+1&&std::none_of(session.document().objects.at(group_id).stack.begin(),
+            session.document().objects.at(group_id).stack.end(),[&](const auto& op){return op.id==panel_posterize_id;}),
+            "Group Posterize uses the ordinary stable-ID remove control");
+
+        catalog->setCurrentRow(0);events();
         trigger(window,"add-curve");const auto open_path=window.canvas->selected_object;
         const auto open_document=encode(session.document());const auto open_revision=session.revision();const auto open_history=session.history();
         click(window,"effects-apply");

@@ -515,16 +515,14 @@ auto& lookup_property(D& d,const Ref& r) {
         for(std::size_t i=0;i<tf.size();++i) if(r.field=="transform."+tf[i]) return o.transform[i];
         if(r.field=="transform.anchor_x")return o.anchor[0];
         if(r.field=="transform.anchor_y")return o.anchor[1];
-        if(o.kind!=Kind::group) {
-            if(r.field.starts_with("op.")||r.field.starts_with("stroke.")) {
-                const auto address=r.field.starts_with("op.")?operation_address(r.field):
-                    std::pair{o.legacy_stroke,r.field.substr(7)};
-                require(!address.first.empty(),"MISSING_REFERENCE",r.field);
-                auto& op=operation(o,address.first);
-                if(address.second.starts_with("gradient."))return gradient_property(op,address.second);
-                require(op.parameters.contains(address.second),"MISSING_REFERENCE",r.field);
-                return op.parameters.at(address.second);
-            }
+        if(r.field.starts_with("op.")||r.field.starts_with("stroke.")) {
+            const auto address=r.field.starts_with("op.")?operation_address(r.field):
+                std::pair{o.legacy_stroke,r.field.substr(7)};
+            require(!address.first.empty(),"MISSING_REFERENCE",r.field);
+            auto& op=operation(o,address.first);
+            if(address.second.starts_with("gradient."))return gradient_property(op,address.second);
+            require(op.parameters.contains(address.second),"MISSING_REFERENCE",r.field);
+            return op.parameters.at(address.second);
         }
     } else if(o.kind==Kind::path) {
         if(o.source&&generated_point(o,r.point)&&o.point_edit) {
@@ -592,6 +590,7 @@ void value_range(const Ref& r,double v) {
         if(name=="amount")require(std::abs(v)<=1e6,"OUT_OF_RANGE","Offset amount magnitude limit 1000000");
         if(name=="miter_limit")require(v>=1&&v<=1000,"OUT_OF_RANGE","Miter limit must be in [1,1000]");
         if(name=="copies")require(v>=0&&v<=1000&&std::floor(v)==v,"OUT_OF_RANGE","Copies must be an integer from 0 to 1000");
+        if(name=="levels")require(v>=2&&v<=16&&std::floor(v)==v,"OUT_OF_RANGE","Posterize levels must be an integer from 2 to 16");
         if(name=="scale_x"||name=="scale_y")require(v>0&&v<=100,"OUT_OF_RANGE","Repeater scale must be positive and <=100");
         if(name=="offset")require(std::abs(v)<=1000,"OUT_OF_RANGE","Repeater offset magnitude limit 1000");
     }
@@ -613,7 +612,6 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
         index.emplace(Ref{id,"","transform.anchor_y"},&object.anchor[1]);
         index.emplace(Ref{id,"","composite.opacity"},&object.compositing.opacity);
 
-        if (object.kind == Kind::group) continue;
         if(object.image) {
             index.emplace(Ref{id,"","image.width"},&object.image->width);
             index.emplace(Ref{id,"","image.height"},&object.image->height);
@@ -1319,7 +1317,18 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         } else if(o.kind==Kind::group) {
             require(o.contours.empty(),"INVALID_OBJECT","Group cannot own path geometry");
             require(!o.source&&!o.point_edit&&!o.text,"INVALID_OBJECT","Group cannot own a geometry source");
-            require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Group shape stacks are not supported yet");
+            require(o.legacy_stroke.empty(),"INVALID_DOMAIN","Groups do not own legacy Stroke addresses");
+            require(o.stack.size()<=128,"LIMIT","Group operation stack limit 128");
+            for(const auto& op:o.stack) {
+                add(op.id);
+                require(op.type=="nect.group.posterize","INVALID_DOMAIN","Groups support only nect.group.posterize postchildren operations");
+                require(op.version==1,"UNSUPPORTED_OPERATOR_VERSION",op.type);
+                const auto expected=default_operation(op.id,op.type);
+                require(op.parameters.size()==expected.parameters.size(),"INVALID_OPERATOR_PARAMETERS",op.type);
+                for(const auto& [name,value]:op.parameters){(void)value;require(expected.parameters.contains(name),"INVALID_OPERATOR_PARAMETERS",op.type);}
+                require(op.composite=="below"&&op.fill_rule=="nonzero"&&op.line_join=="miter"&&op.line_cap=="butt"&&!op.gradient,
+                    "INVALID_OPERATOR_OPTIONS","Group Posterize has no shape compositing, fill, stroke or gradient options");
+            }
         } else {
             require(o.children.empty(),"INVALID_OBJECT","Path cannot own children");
             if(o.kind==Kind::text) {
@@ -1337,6 +1346,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             } else require(!o.text,"INVALID_OBJECT","Path cannot own text source");
             require(o.stack.size()<=128,"LIMIT","Shape stack limit 128");
             for(const auto& op:o.stack) {
+                require(op.type!="nect.group.posterize","INVALID_DOMAIN","nect.group.posterize requires a Group target");
                 add(op.id);const bool styled_stroke=op.type=="nect.paint.stroke"&&op.version==2;
                 require(op.version==1||styled_stroke,"UNSUPPORTED_OPERATOR_VERSION",op.type);
                 auto expected=default_operation(op.id,op.type);
@@ -1511,7 +1521,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             for(const auto& stop:g.stops)require(offsets.insert(values.at(gradient_ref(id,op.id,g.id,"stop."+stop.id+".offset"))).second,
                 "GRADIENT_STOPS","Coincident gradient stop offsets are not yet supported");
         }
-        bool check_shape=o.stack.size()>1||std::any_of(o.stack.begin(),o.stack.end(),[](const auto& op){return op.enabled&&(op.type=="nect.shape.repeater"||op.type=="nect.shape.offset");});
+        bool check_shape=(o.kind==Kind::path||o.kind==Kind::text)&&(o.stack.size()>1||
+            std::any_of(o.stack.begin(),o.stack.end(),[](const auto& op){return op.enabled&&(op.type=="nect.shape.repeater"||op.type=="nect.shape.offset");}));
 #ifdef _WIN32
         check_shape=check_shape||o.kind==Kind::text;
 #else
@@ -2670,7 +2681,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         } else if constexpr(std::is_same_v<T,AddOperation>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);
-            require(o.kind==Kind::path||o.kind==Kind::text,"INVALID_DOMAIN","Shape stack requires a Path or Text source");
+            require(o.kind==Kind::path||o.kind==Kind::text||(o.kind==Kind::group&&c.operation.type=="nect.group.posterize"),
+                "INVALID_DOMAIN","Shape operations require a Path or Text; Group postchildren operations require nect.group.posterize");
             require(c.index<=o.stack.size(),"INVALID_ORDER","Operation insertion index out of range");
             o.stack.insert(o.stack.begin()+c.index,c.operation);
         } else if constexpr(std::is_same_v<T,RemoveOperation>) {

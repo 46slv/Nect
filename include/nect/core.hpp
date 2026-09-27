@@ -183,7 +183,7 @@ struct Gradient {
 };
 struct ShapeOperation {
     Id id;
-    std::string type; // nect.paint.fill / nect.paint.stroke / nect.shape.repeater / nect.shape.offset
+    std::string type; // nect.paint.*, nect.shape.*, nect.group.posterize
     unsigned version=1;
     bool enabled=true;
     std::map<std::string,Scalar> parameters;
@@ -569,6 +569,7 @@ struct EvaluatedSceneNode {
     std::string blend="normal";
     bool isolated=false,visible=true; // isolated is the resolved aggregate requirement
     std::optional<EvaluatedMask> mask;
+    std::vector<unsigned> posterize_levels; // ordered Group postchildren pixel operations
     std::vector<EvaluatedSceneNode> children;
 };
 struct EvaluatedImage { Raster payload; double width=0,height=0; };

@@ -1014,10 +1014,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,24> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24"};
+        constexpr std::array<std::string_view,25> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.24 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.25 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1079,8 +1079,12 @@ Document decode(std::string_view input) {
                     if(o.contains(field))throw Error("INVALID_IMAGE","Image has incompatible vector fields");
                 obj.image=read_image(o.at("image"));
             } else if(obj.kind==Kind::group) {
-                if(o.contains("contours")||o.contains("stroke")||o.contains("fill")||o.contains("source")||o.contains("point_edit")||o.contains("stack")||o.contains("legacy_stroke"))
+                if(o.contains("contours")||o.contains("stroke")||o.contains("fill")||o.contains("source")||o.contains("point_edit")||o.contains("legacy_stroke"))
                     throw Error("INVALID_OBJECT","Group has path-only fields");
+                if(minor>=25) {
+                    if(!o.contains("stack"))throw Error("INVALID_OBJECT","Native 0.25 Group requires an operation stack");
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry));
+                } else if(o.contains("stack"))throw Error("INVALID_OBJECT","Group operation stacks require native 0.25");
                 obj.children=ids(o.at("children"));
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
@@ -1172,6 +1176,8 @@ std::string encode(const Document& d) {
         if(o.image)out["image"]=image_json(*o.image);
         else if(o.kind==Kind::group) {
             out["children"]=ids_json(o.children);
+            j::array stack;for(const auto& op:o.stack)stack.push_back(operation_json(op));
+            out["stack"]=stack;
         } else {
             j::array contours;
             for(const auto& c:o.contours) {
@@ -1208,13 +1214,21 @@ std::string encode(const Document& d) {
 
 std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     validate(d);
-    const auto values=evaluate(d);
-    const auto transforms=evaluate_transforms(d,values);
-    const bool external_parenting=std::any_of(d.objects.begin(),d.objects.end(),[](const auto& entry){return entry.second.transform_parent.has_value();});
-
     auto comp=std::find_if(d.compositions.begin(),d.compositions.end(),
         [&](const auto& c){return c.id==comp_id;});
     if(comp==d.compositions.end()) throw Error("MISSING_COMPOSITION",comp_id);
+
+    std::function<void(const Id&)> reject_unsupported=[&](const Id& id) {
+        const auto& object=d.objects.at(id);
+        for(const auto& operation:object.stack)if(operation.enabled&&operation.type=="nect.group.posterize")
+            throw Error("UNSUPPORTED_SVG_EFFECT","SVG export cannot represent enabled Group Posterize instance "+operation.id+" on Group "+id);
+        for(const auto& child:object.children)reject_unsupported(child);
+    };
+    for(const auto& id:comp->roots)reject_unsupported(id);
+
+    const auto values=evaluate(d);
+    const auto transforms=evaluate_transforms(d,values);
+    const bool external_parenting=std::any_of(d.objects.begin(),d.objects.end(),[](const auto& entry){return entry.second.transform_parent.has_value();});
 
     const auto resolved=evaluate_artboard(*comp,art_id);const auto* art=&resolved;
 
@@ -1532,11 +1546,16 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op","composition","artboard"});const auto cid=text(o.at("composition"));
             const auto& d=session.document();const auto comp=std::find_if(d.compositions.begin(),d.compositions.end(),[&](const auto& c){return c.id==cid;});
             if(comp==d.compositions.end())throw Error("MISSING_COMPOSITION",cid);
-            const auto board=evaluate_artboard(*comp,text(o.at("artboard")));j::array texts;
+            const auto board=evaluate_artboard(*comp,text(o.at("artboard")));j::array texts,unsupported_effects;
             std::function<void(const Id&)> walk=[&](const Id& id){const auto& object=d.objects.at(id);
-                if(object.text)texts.push_back(text_layout_json(d,id));for(const auto& child:object.children)walk(child);};
+                if(object.text)texts.push_back(text_layout_json(d,id));
+                for(const auto& operation:object.stack)if(object.kind==Kind::group&&operation.enabled&&operation.type=="nect.group.posterize")
+                    unsupported_effects.push_back(j::object{{"object",id},{"operation",operation.id},{"type",operation.type},
+                        {"derivative","svg"},{"reason","SVG export cannot represent enabled Group Posterize without baking"}});
+                for(const auto& child:object.children)walk(child);};
             for(const auto& id:comp->roots)walk(id);
             result=j::object{{"format","svg"},{"artboard",artboard_json(board)},{"text",texts},
+                {"svg_export_supported",unsupported_effects.empty()},{"unsupported_effects",unsupported_effects},
                 {"property_policy","evaluated_values"},{"expressions_preserved",false},
                 {"shape_policy","evaluated vector contours; live operators preserved only in native"},
                 {"image_policy","accepted snapshot projected to oriented sRGB PNG in SVG; original bytes and links preserved in native"},
@@ -1554,9 +1573,14 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op","composition"});const auto values=evaluate(session.document());
             const auto scene=evaluate_scene(session.document(),text(o.at("composition")),values,evaluate_transforms(session.document(),values));
             std::function<j::value(const EvaluatedSceneNode&)> node_json=[&](const EvaluatedSceneNode& node) {
-                j::array children,world;for(const auto value:node.world)world.push_back(value);for(const auto& child:node.children)children.push_back(node_json(child));
+                j::array children,world,effects;for(const auto value:node.world)world.push_back(value);for(const auto& child:node.children)children.push_back(node_json(child));
+                const auto& object=session.document().objects.at(node.id);
+                for(const auto& operation:object.stack)if(operation.type=="nect.group.posterize")effects.push_back(j::object{
+                    {"id",operation.id},{"type",operation.type},{"version",operation.version},{"enabled",operation.enabled},
+                    {"levels",values.at(operation_ref(node.id,operation.id,"levels"))}});
                 j::value mask=nullptr;if(node.mask)mask=j::object{{"source",node.mask->source},{"fill_rule",node.mask->fill_rule},{"space","composition"},{"path_instances",node.mask->paths.size()}};
-                return j::object{{"object",node.id},{"world",world},{"visible",node.visible},{"opacity",node.opacity},{"blend",node.blend},{"isolated",node.isolated},{"mask",mask},{"children",children}};
+                return j::object{{"object",node.id},{"world",world},{"visible",node.visible},{"opacity",node.opacity},{"blend",node.blend},
+                    {"isolated",node.isolated},{"mask",mask},{"postchildren_effects",effects},{"children",children}};
             };
             j::array roots;for(const auto& node:scene.roots)roots.push_back(node_json(node));
             result=j::object{{"roots",roots},{"requires_compositing",scene.requires_compositing},{"backdrop","transparent"}};
@@ -1577,7 +1601,7 @@ std::string request(Session& session,std::string_view input) {
             result=std::move(definitions);
         } else if(op=="operator_types") {
             keys(o,{"op"});j::array definitions;
-            for(const auto* type:{"nect.paint.fill","nect.paint.stroke","nect.shape.repeater","nect.shape.offset"}) {
+            for(const auto* type:{"nect.paint.fill","nect.paint.stroke","nect.shape.repeater","nect.shape.offset","nect.group.posterize"}) {
                 auto defaults=default_operation("new-operation",type);
                 j::array parameters;for(const auto& [name,scalar]:defaults.parameters)
                     parameters.push_back({{"name",name},{"unit",property_unit(operation_ref("object",defaults.id,name))},{"default",scalar.literal}});
@@ -1599,6 +1623,16 @@ std::string request(Session& session,std::string_view input) {
                     definition["unsupported"]=j::array{"open paths","self-intersections","touching/intersecting contour boundaries"};
                     definition["curve_flattening_tolerance_du"]=0.1;
                     definition["zero_amount"]="exact input; no geometry conversion";
+                }
+                if(defaults.type=="nect.group.posterize") {
+                    definition["input"]="postchildren_premultiplied_srgb_rgba";
+                    definition["output"]="premultiplied_srgb_rgba";
+                    definition["scope"]="group";
+                    definition["domain"]="Group postchildren premultiplied sRGB RGBA pixels";
+                    definition["placement"]="after children composite in Group order; before Group mask, opacity and blend";
+                    definition["quantization"]="unpremultiply RGB; floor(channel*(levels-1)+0.5)/(levels-1); premultiply unchanged alpha";
+                    definition["levels_range"]=j::array{2,16};definition["integer_parameter"]="levels";
+                    definition["transparent_zero"]="transparent black";
                 }
                 definitions.push_back(std::move(definition));
             }

@@ -23,7 +23,10 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
                 resolved.paths.push_back({path.contours,compose(transforms.at(mask.source).world,path.transform)});
             result.mask=std::move(resolved);
         }
-        result.isolated=composite.isolated||result.opacity!=1||result.blend!="normal"||result.mask.has_value();
+        if(object.kind==Kind::group)for(const auto& operation:object.stack)
+            if(operation.type=="nect.group.posterize"&&operation.enabled)
+                result.posterize_levels.push_back(static_cast<unsigned>(values.at(operation_ref(id,operation.id,"levels"))));
+        result.isolated=composite.isolated||result.opacity!=1||result.blend!="normal"||result.mask.has_value()||!result.posterize_levels.empty();
         scene.requires_compositing=scene.requires_compositing||result.isolated;
         if(object.kind==Kind::group)for(const auto& child:object.children)result.children.push_back(node(child,depth+1));
         else if(object.image)scene.images.emplace(id,EvaluatedImage{document.raster_assets.at(object.image->asset).payload,values.at({id,"","image.width"}),values.at({id,"","image.height"})});

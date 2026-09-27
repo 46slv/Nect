@@ -71,6 +71,21 @@ QPainter::CompositionMode blend_mode(const std::string& blend) {
         {"difference",QPainter::CompositionMode_Difference},{"exclusion",QPainter::CompositionMode_Exclusion}};
     const auto found=modes.find(blend);if(found==modes.end())throw Error("UNSUPPORTED_BLEND",blend);return found->second;
 }
+void posterize_premultiplied_srgb(QImage& image,unsigned levels) {
+    if(image.format()!=QImage::Format_ARGB32_Premultiplied)throw Error("RENDER_FORMAT","Group Posterize requires premultiplied 8-bit sRGB pixels");
+    for(int y=0;y<image.height();++y) {
+        auto* pixels=reinterpret_cast<QRgb*>(image.scanLine(y));
+        for(int x=0;x<image.width();++x) {
+            const auto pixel=pixels[x];const int alpha=qAlpha(pixel);
+            if(alpha==0){pixels[x]=qRgba(0,0,0,0);continue;}
+            const auto channel=[&](int premultiplied) {
+                const auto level=std::floor((static_cast<double>(premultiplied)/alpha)*(levels-1)+0.5);
+                return qBound(0,qRound(level*alpha/(levels-1)),alpha);
+            };
+            pixels[x]=qRgba(channel(qRed(pixel)),channel(qGreen(pixel)),channel(qBlue(pixel)),alpha);
+        }
+    }
+}
 } // namespace
 
 Canvas::Canvas(Session& session, QWidget* parent) : QWidget(parent), session_(session) {
@@ -794,13 +809,15 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                     const auto region=pixel_region(node,parent);if(region.isEmpty())return;
                     const auto bytes=byte_size(region);auto image=surface(region);
                     {
-                        QPainter layer(&image);layer.setRenderHint(QPainter::Antialiasing);content(layer,node,depth+1,region);
+                        {QPainter layer(&image);layer.setRenderHint(QPainter::Antialiasing);content(layer,node,depth+1,region);}
+                        for(const auto levels:node.posterize_levels)posterize_premultiplied_srgb(image,levels);
                         if(node.mask) {
                             auto coverage=surface(region);const auto offset=origin(region);
                             {QPainter mask(&coverage);mask.setRenderHint(QPainter::Antialiasing);mask.setWorldTransform(transform*QTransform::fromTranslate(-offset.x(),-offset.y()));
                              mask.setPen(Qt::NoPen);mask.setBrush(Qt::white);mask.drawPath(mask_paths_.at(node.id));}
-                            layer.resetTransform();layer.setCompositionMode(QPainter::CompositionMode_DestinationIn);
-                            layer.drawImage(QPointF(0,0),coverage);allocated-=bytes;
+                            {QPainter layer(&image);layer.setCompositionMode(QPainter::CompositionMode_DestinationIn);
+                             layer.drawImage(QPointF(0,0),coverage);}
+                            allocated-=bytes;
                         }
                     }
                     target.save();target.resetTransform();target.setOpacity(node.opacity);target.setCompositionMode(blend_mode(node.blend));

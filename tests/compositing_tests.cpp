@@ -184,6 +184,97 @@ void scene_contract() {
     check(!evaluated.roots[0].visible&&evaluated.shapes.contains("a"),"Hidden tree retains editable evaluated leaf geometry");
 }
 
+void group_posterize_native_api_and_refusals() {
+    auto d=empty_document("posterize-doc","comp","art");
+    Object child;child.id="child";child.name="Child";
+    Object group;group.id="group";group.name="Group";group.kind=Kind::group;group.children={"child"};
+    d.objects.emplace("child",std::move(child));d.objects.emplace("group",std::move(group));d.compositions[0].roots={"group"};
+    Session session(d);
+    const auto add_response=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"add_operation","object":"group","index":0,"operation":{"id":"posterize","type":"nect.group.posterize","version":1,"enabled":true,"parameters":{"levels":{"literal":2}},"composite":"below","fill_rule":"nonzero"}}]})");
+    check(add_response.find("\"changed\":true")!=std::string::npos&&session.revision()==1,
+        "JSON-lines API adds Group Posterize through the shared Session revision: "+add_response);
+    const Ref levels{"group","","op.posterize.levels"};
+    check(property(session.document(),levels).literal==2&&property_unit(levels)=="scalar","Group levels is an ordinary stable Scalar Ref");
+    const auto set_response=request(session,R"({"op":"apply","expected_revision":1,"commands":[{"type":"set","ref":{"object":"group","point":"","field":"op.posterize.levels"},"value":4}]})");
+    check(set_response.find("\"changed\":true")!=std::string::npos&&evaluate(session.document()).at(levels)==4&&session.revision()==2,
+        "API Set changes evaluated Group levels in one revision");
+    auto evaluated=scene(session.document());
+    check(evaluated.requires_compositing&&evaluated.roots[0].isolated&&evaluated.roots[0].posterize_levels==std::vector<unsigned>{4},
+        "Scene marks enabled Group Posterize as ordered postchildren isolation");
+    auto second=default_operation("posterize-second","nect.group.posterize");second.parameters.at("levels").literal=3;
+    session.apply({AddOperation{"group",second,1}},session.revision());
+    check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({4,3}),
+        "Multiple Group Posterize instances evaluate in authored stack order");
+    session.apply({ReorderOperations{"group",{"posterize-second","posterize"}}},session.revision());
+    check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({3,4}),
+        "ReorderOperations changes the ordered postchildren evaluation");
+    const auto native=encode(session.document());
+    check(native.find("\"version\":\"0.25\"")!=std::string::npos&&decode(native)==session.document()&&
+        decode(native).objects.at("group").stack[0].id=="posterize-second",
+        "Native 0.25 preserves Group operation IDs, levels and reordered stack");
+    check(request(session,R"({"op":"operator_types"})").find("nect.group.posterize")!=std::string::npos,
+        "API operator discovery advertises the Group pixel effect");
+    check(request(session,R"({"op":"operator_types"})").find("postchildren_premultiplied_srgb_rgba")!=std::string::npos,
+        "API operator discovery names the Group pixel input domain");
+    const auto composite_plan=request(session,R"({"op":"compositing_plan","composition":"comp"})");
+    check(composite_plan.find("postchildren_effects")!=std::string::npos&&composite_plan.find("posterize-second")!=std::string::npos,
+        "API compositing plan exposes ordered Group effects and stable IDs");
+    const auto plan=request(session,R"({"op":"export_plan","composition":"comp","artboard":"art"})");
+    check(plan.find("\"svg_export_supported\":false")!=std::string::npos&&plan.find("enabled Group Posterize")!=std::string::npos,
+        "SVG export plan discloses the unsupported enabled Group derivative");
+    rejects("UNSUPPORTED_SVG_EFFECT",[&]{(void)export_svg(session.document(),"comp","art");});
+
+    auto legacy_bytes=encode(d);
+    const auto old_version=legacy_bytes.find("\"version\":\"0.25\"");
+    check(old_version!=std::string::npos,"Native fixture writer uses 0.25 before migration downgrade");
+    legacy_bytes.replace(old_version,std::string("\"version\":\"0.25\"").size(),"\"version\":\"0.24\"");
+    const auto group_id=legacy_bytes.find("\"id\":\"group\"");
+    check(group_id!=std::string::npos,"Native fixture contains the target Group object");
+    const auto object_start=legacy_bytes.rfind('{',group_id);
+    check(object_start!=std::string::npos,"Native fixture Group object has an opening brace");
+    std::size_t object_end=std::string::npos;
+    bool in_string=false,escaped=false;
+    int depth=0;
+    for(std::size_t i=object_start;i<legacy_bytes.size();++i) {
+        const char c=legacy_bytes[i];
+        if(in_string) {
+            if(escaped)escaped=false;
+            else if(c=='\\')escaped=true;
+            else if(c=='\"')in_string=false;
+        } else if(c=='\"')in_string=true;
+        else if(c=='{')++depth;
+        else if(c=='}'&&--depth==0) {object_end=i;break;}
+    }
+    check(object_end!=std::string::npos,"Native fixture Group object has a closing brace");
+    const auto group_stack=legacy_bytes.find("\"stack\":[]",group_id);
+    check(group_stack!=std::string::npos&&group_stack<object_end,"Native fixture Group stack is empty");
+    const auto stack_end=group_stack+std::string("\"stack\":[]").size();
+    std::size_t erase_start=group_stack,erase_end=stack_end;
+    if(erase_end<object_end&&legacy_bytes[erase_end]==',')++erase_end;
+    else if(erase_start>object_start&&legacy_bytes[erase_start-1]==',')--erase_start;
+    else throw std::runtime_error("Could not remove Group stack member from legacy fixture");
+    legacy_bytes.erase(erase_start,erase_end-erase_start);
+    check(decode(legacy_bytes).objects.at("group").stack.empty(),"Native 0.24 Group migrates to an empty effect stack");
+    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.25\"");
+    smuggled.replace(old_writer,std::string("\"version\":\"0.25\"").size(),"\"version\":\"0.24\"");
+    rejects("INVALID_OBJECT",[&]{(void)decode(smuggled);});
+
+    session.apply({EnableOperation{"group","posterize",false},EnableOperation{"group","posterize-second",false}},session.revision());
+    check(!scene(session.document()).roots[0].isolated&&export_svg(session.document(),"comp","art").find("<svg")!=std::string::npos,
+        "Bypassed Group Posterize passes through and permits ordinary SVG projection");
+    const auto before=session.document();const auto revision=session.revision();const auto history=session.history();
+    rejects("REVISION_CONFLICT",[&]{session.apply({Set{levels,3}},revision-1);});
+    check(session.document()==before&&session.revision()==revision&&session.history()==history,"Stale Group level edit is atomic");
+    atomic(session,"OUT_OF_RANGE",{Set{levels,1}});atomic(session,"OUT_OF_RANGE",{Set{levels,2.5}});atomic(session,"OUT_OF_RANGE",{Set{levels,17}});
+    atomic(session,"INVALID_DOMAIN",{AddOperation{"group",default_operation("group-fill","nect.paint.fill"),1}});
+    atomic(session,"INVALID_DOMAIN",{AddOperation{"child",default_operation("child-posterize","nect.group.posterize"),0}});
+    atomic(session,"DUPLICATE_ID",{AddOperation{"group",default_operation("group","nect.group.posterize"),1}});
+    auto unknown=d;auto unknown_operation=default_operation("unknown","nect.group.posterize");unknown_operation.type="nect.group.unknown";unknown.objects.at("group").stack.push_back(unknown_operation);
+    rejects("INVALID_DOMAIN",[&]{validate(unknown);});
+    auto unsupported_version=d;auto bad_version=default_operation("unsupported","nect.group.posterize");bad_version.version=2;unsupported_version.objects.at("group").stack.push_back(bad_version);
+    rejects("UNSUPPORTED_OPERATOR_VERSION",[&]{validate(unsupported_version);});
+}
+
 void mask_geometry_and_validation() {
     auto document=fixture();auto& source=document.objects.at("source");source.visible=false;source.compositing.opacity.literal=0;
     source.stack[0].parameters.at("a").literal=0;source.contours.front().closed=false;
@@ -511,6 +602,6 @@ void previewed_folder_api() {
 
 }
 int main() {
-    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

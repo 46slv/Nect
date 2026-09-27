@@ -161,7 +161,7 @@ void typed_source_save_as(const QString& directory) {
     check(host.file_path==native_path(destination)&&!host.dirty()&&
           host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
           host.persistence()["native_error"].isNull()&&bytes(destination)==committed_bytes&&
-          bytes(destination).contains("\"version\":\"0.24\""),
+          bytes(destination).contains("\"version\":\"0.25\""),
           "Valid Save As binds the committed revision only after exact destination readback");
     const auto saved=load_native(destination).document;
     const auto saved_layout=text_layout_property(saved,target_layout);

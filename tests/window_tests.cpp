@@ -2019,7 +2019,7 @@ void text_path_authoring(Window& window) {
     Host cold_reopen(native_dir.path()+"/recovery");cold_reopen.open(native_path);
     check(cold_reopen.session.document()==session.document()&&
         cold_reopen.session.document().objects.at("ui-text").text->path_attachment->contour=="ui-contour",
-        "Native 0.24 cold reopen preserves exact editable Text and stable Contour attachment IDs");
+        "Native 0.25 cold reopen preserves exact editable Text and stable Contour attachment IDs");
     const auto attached_document=session.document();const auto detach_revision=session.revision();
     visible_child<QPushButton>(window,"text-path-detach")->click();QApplication::processEvents();
     check(session.revision()==detach_revision+1&&!session.document().objects.at("ui-text").text->path_attachment&&
