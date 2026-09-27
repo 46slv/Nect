@@ -345,7 +345,7 @@ Release targets `nect`, `nect_desktop`, Text Authoring, History, Window, Assets 
 
 **Local result (2026-09-28):** `operation.enabled` now has a stable typed `bool` read surface for Path, Text and Group operations. It reports the existing authored literal and evaluated choice, with `link:false/expression:false`; `enable_operation`, the Inspector checkbox, Undo, native 0.26 and render consumers remain unchanged. A core test verifies typed discovery, name resolution, wrong refs, generic Scalar refusal, Fill bypass and Undo. The existing Group contract was rebuilt and verifies disabled Posterize bypass plus SVG availability. Release build passed for `nect`, `nect_desktop`, Shape stack and Compositing tests; focused Shape stack, Compositing, process and desktop MCP contracts passed **4/4**. An independent JSON-lines session read Path Stroke and Group Posterize booleans, toggled both atomically, rejected stale and generic Scalar edits with unchanged native state, and cold reopened both typed results in another process with unchanged SHA-256 `b5586c0196242a1a106a0322f43331ead8c82999f39d166be5b6baaa25e445dc`. CLI validation and `Test-Json` passed against the unchanged 0.26 schema. The offscreen/CLI checks do not establish hands-on GUI acceptance or a boolean dependency policy.
 
-## R02 type-by-surface audit at native 0.27 (2026-09-28)
+## R02 type-by-surface audit snapshot at native 0.27 (2026-09-28)
 
 The live Completion Route R02/P03 and Confirmed REQ-3/4/42/199 require an inventory of authored parameter types, dependency and draft behavior, and native/API/GUI parity. The current core `properties`/`get`/`resolve_name`, Session commands, Inspector and native writer support these bounded families:
 
@@ -359,6 +359,8 @@ The live Completion Route R02/P03 and Confirmed REQ-3/4/42/199 require an invent
 | Structural IDs, resource refs and order | Document tree, mask source, image asset and operators through dedicated commands | No generic typed property link | Identity, deletion, migration and Save As source-preservation need their own design and positive/negative codec oracles. |
 
 This is an implementation audit, not R02/P03 or Requirement acceptance. The owned native document remains the source; `inspect` and derivative export do not constitute a second writable property store. R03/R04/R05 hands-on GUI rows remain `LOCAL_WAIT` until an owned controllable window path exists.
+
+**Current reconciliation at native 0.29:** The later `R02-OBJECT-VISIBLE-LINK-01`, `R02-OPERATION-ENABLED-LINK-01` and `R02-GRADIENT-ENABLED-LINK-01` packets added bounded same-field boolean dependencies. The snapshot's literal-only entries for those three fields are historical. `composite.isolated`, optional `mask.enabled` and optional `point_edit.enabled` remain typed authored reads without drivers; their identity and effective-consumer policies require separate packets. R02/P03 and the Confirmed Requirements remain open.
 
 ## R02-OBJECT-VISIBLE-READ-01 — authored visibility discovery (frozen 2026-09-28)
 
