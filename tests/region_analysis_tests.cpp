@@ -77,6 +77,24 @@ void check_erosion(const QJsonObject& value,const QJsonArray& expected,int area,
     for(const auto& run:runs)run_area+=run.toObject().value("width").toInt();
     check(run_area==erosion.value("area").toInt(),"Erosion run widths sum to the mask area");
 }
+void check_mask_boolean(const QJsonObject& value,const QJsonArray& expected,int area,const char* message) {
+    const auto difference=value.value("mask_boolean").toObject();
+    const QJsonArray operands{
+        QJsonObject{{"role","left"},{"mask","morphology"},{"operation","dilate"}},
+        QJsonObject{{"role","right"},{"mask","erosion"},{"operation","erode"}}};
+    check(difference.value("operation").toString()=="difference"&&
+        difference.value("operands").toArray()==operands&&
+        difference.value("coordinate_space").toString()=="artboard-output-pixels"&&
+        difference.value("width").toInt()==value.value("width").toInt()&&
+        difference.value("height").toInt()==value.value("height").toInt()&&
+        difference.value("source_revision").toInt()==value.value("source_revision").toInt(),message);
+    const auto runs=difference.value("runs").toArray();
+    check(runs==expected&&difference.value("area").toInt()==area,message);
+    std::uint64_t run_area=0;
+    for(const auto& run:runs)run_area+=static_cast<std::uint64_t>(run.toObject().value("width").toInt());
+    check(run_area==static_cast<std::uint64_t>(difference.value("area").toInt()),
+        "Mask Boolean run widths sum to the difference area");
+}
 void check_edges(const QJsonObject& value,const QJsonArray& expected,int pixel_count,const char* message) {
     const auto runs=value.value("edge_runs").toArray();
     check(runs==expected,message);
@@ -250,6 +268,38 @@ void independent_erosion_oracle() {
     check_erosion(analyze_region_pixels(full_column,128,1.0,40),{},0,
         "A full one-pixel-wide column erodes to empty at the image border");
 }
+void independent_mask_boolean_oracle() {
+    QImage full_five(5,5,QImage::Format_ARGB32_Premultiplied);full_five.fill(qRgba(0,0,0,255));
+    check_mask_boolean(analyze_region_pixels(full_five,128,1.0,51),
+        expected_runs({{0,0,5},{1,0,1},{1,4,1},{2,0,1},{2,4,1},
+            {3,0,1},{3,4,1},{4,0,5}}),16,
+        "The full 5x5 D5 mask minus its central 3x3 D6 mask is the independently counted 16-pixel ring");
+
+    QImage full_three(3,3,QImage::Format_ARGB32_Premultiplied);full_three.fill(qRgba(0,0,0,255));
+    check_mask_boolean(analyze_region_pixels(full_three,128,1.0,52),
+        expected_runs({{0,0,3},{1,0,1},{1,2,1},{2,0,3}}),8,
+        "A full 3x3 source leaves the eight-pixel boundary after D6 erosion");
+
+    QImage empty(3,3,QImage::Format_ARGB32_Premultiplied);empty.fill(Qt::transparent);
+    check_mask_boolean(analyze_region_pixels(empty,128,1.0,53),{},0,
+        "A zero-alpha source has an empty Boolean difference");
+
+    QImage isolated(5,5,QImage::Format_ARGB32_Premultiplied);isolated.fill(Qt::transparent);
+    isolated.setPixel(2,2,qRgba(0,0,0,255));
+    check_mask_boolean(analyze_region_pixels(isolated,128,1.0,54),
+        expected_runs({{1,2,1},{2,1,3},{3,2,1}}),5,
+        "An isolated opaque pixel leaves D5's five-pixel cross when D6 is empty");
+
+    auto threshold_hole=full_five;threshold_hole.setPixel(2,2,qRgba(0,0,0,127));
+    check_mask_boolean(analyze_region_pixels(threshold_hole,128,1.0,55),
+        expected_runs({{0,0,5},{1,0,1},{1,2,1},{1,4,1},{2,0,5},
+            {3,0,1},{3,2,1},{3,4,1},{4,0,5}}),21,
+        "An alpha-127 hole leaves three pixels on each adjacent row at threshold 128");
+    check_mask_boolean(analyze_region_pixels(threshold_hole,127,1.0,55),
+        expected_runs({{0,0,5},{1,0,1},{1,4,1},{2,0,1},{2,4,1},
+            {3,0,1},{3,4,1},{4,0,5}}),16,
+        "At threshold 127 the same center joins D6 and leaves the independently counted 16-pixel ring");
+}
 QImage line_candidate_cap_image(bool extra_spur) {
     const auto height=extra_spur?401:399;
     QImage image(300,height,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);
@@ -305,6 +355,20 @@ QImage erosion_cap_image() {
     QImage image(273,401,QImage::Format_ARGB32_Premultiplied);image.fill(qRgba(0,0,0,255));
     for(int row=0;row<100;++row)for(int column=0;column<67;++column)
         image.setPixel(2+column*4,2+row*4,qRgba(0,0,0,0));
+    return image;
+}
+QImage mask_boolean_cap_image(int island_count) {
+    constexpr int columns=100;
+    constexpr int spacing=9;
+    const auto rows=(island_count+columns-1)/columns;
+    QImage image(columns*spacing,rows*spacing,QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    for(int index=0;index<island_count;++index) {
+        const auto origin_x=2+(index%columns)*spacing;
+        const auto origin_y=2+(index/columns)*spacing;
+        for(int y=origin_y;y<origin_y+5;++y)for(int x=origin_x;x<origin_x+5;++x)
+            image.setPixel(x,y,qRgba(0,0,0,255));
+    }
     return image;
 }
 std::uint64_t independent_region_count(const QImage& image,int threshold) {
@@ -389,6 +453,39 @@ std::uint64_t independent_cross_run_count(const QImage& image,int threshold,bool
         }
     }
     return runs;
+}
+std::uint64_t independent_cross_area(const QImage& image,int threshold,bool erosion) {
+    const auto foreground=[&](int x,int y) {
+        return x>=0&&y>=0&&x<image.width()&&y<image.height()&&qAlpha(image.pixel(x,y))>=threshold;
+    };
+    std::uint64_t area=0;
+    for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+        const auto result=erosion?
+            foreground(x,y)&&foreground(x-1,y)&&foreground(x+1,y)&&foreground(x,y-1)&&foreground(x,y+1):
+            foreground(x,y)||foreground(x-1,y)||foreground(x+1,y)||foreground(x,y-1)||foreground(x,y+1);
+        if(result)++area;
+    }
+    return area;
+}
+std::array<std::uint64_t,2> independent_mask_boolean_metrics(const QImage& image,int threshold) {
+    const auto foreground=[&](int x,int y) {
+        return x>=0&&y>=0&&x<image.width()&&y<image.height()&&qAlpha(image.pixel(x,y))>=threshold;
+    };
+    std::uint64_t runs=0,area=0;
+    for(int y=0;y<image.height();++y) {
+        bool in_run=false;
+        for(int x=0;x<image.width();++x) {
+            const auto dilated=foreground(x,y)||foreground(x-1,y)||foreground(x+1,y)||
+                foreground(x,y-1)||foreground(x,y+1);
+            const auto eroded=foreground(x,y)&&foreground(x-1,y)&&foreground(x+1,y)&&
+                foreground(x,y-1)&&foreground(x,y+1);
+            const auto difference=dilated&&!eroded;
+            if(difference)++area;
+            if(difference&&!in_run)++runs;
+            in_run=difference;
+        }
+    }
+    return {runs,area};
 }
 void morphology_run_cap_oracle(const QString& temp_directory) {
     const auto exact=morphology_cap_image(false);
@@ -502,6 +599,80 @@ void erosion_run_cap_oracle(const QString& temp_directory) {
     check(host.session.revision()==revision&&host.session.history()==history_before&&
         encode(host.session.document())==document_before&&bytes(native)==native_before,
         "Erosion cap refusal leaves Canvas Document, revision, History and native bytes unchanged");
+}
+void mask_boolean_run_cap_oracle(const QString& temp_directory) {
+    const auto verify_fixture_caps=[](const QImage& source,std::uint64_t islands) {
+        check(static_cast<std::uint64_t>(source.width())*static_cast<std::uint64_t>(source.height())<4'000'000&&
+            independent_region_count(source,128)==islands&&independent_region_count(source,128)<10'000,
+            "The mask Boolean cap fixture stays below D1's pixel and component caps");
+        check(independent_edge_run_count(source,128)==islands*8&&islands*8<100'000,
+            "The mask Boolean cap fixture stays below D2's edge-run cap");
+        check(independent_boundary_edges(source)==islands*20&&islands*20<200'000,
+            "The mask Boolean cap fixture stays below D3's directed boundary-edge cap");
+        check(independent_line_candidate_count(source,128)==0,
+            "The mask Boolean cap fixture stays below D4's line-candidate cap");
+        check(independent_cross_run_count(source,128,false)==islands*7&&islands*7<20'000,
+            "The mask Boolean cap fixture stays below D5's morphology-run cap");
+        check(independent_cross_area(source,128,false)==islands*45,
+            "Each isolated opaque 5x5 square dilates to 45 pixels under the cross kernel");
+        check(independent_cross_run_count(source,128,true)==islands*3&&islands*3<20'000,
+            "The mask Boolean cap fixture stays below D6's erosion-run cap");
+        check(independent_cross_area(source,128,true)==islands*9,
+            "Each isolated opaque 5x5 square erodes to its 9-pixel center square");
+        const auto metrics=independent_mask_boolean_metrics(source,128);
+        check(metrics[0]==islands*10&&metrics[1]==islands*36,
+            "An independent source-pixel scan derives ten difference runs and 36 pixels per isolated square");
+    };
+
+    constexpr std::uint64_t exact_islands=2'000;
+    const auto exact=mask_boolean_cap_image(static_cast<int>(exact_islands));
+    verify_fixture_caps(exact,exact_islands);
+    const auto exact_result=analyze_region_pixels(exact,128,1.0,42);
+    const auto exact_boolean=exact_result.value("mask_boolean").toObject();
+    const auto exact_runs=exact_boolean.value("runs").toArray();
+    std::uint64_t exact_run_area=0;
+    for(const auto& run:exact_runs)
+        exact_run_area+=static_cast<std::uint64_t>(run.toObject().value("width").toInt());
+    check(exact_boolean.value("operation").toString()=="difference"&&exact_runs.size()==20'000&&
+        exact_boolean.value("area").toInt()==static_cast<int>(exact_islands*36)&&
+        exact_run_area==exact_islands*36,
+        "The pixel helper accepts exactly 20,000 maximal Boolean runs with no lost area");
+
+    constexpr std::uint64_t over_islands=2'001;
+    const auto over=mask_boolean_cap_image(static_cast<int>(over_islands));
+    verify_fixture_caps(over,over_islands);
+    try {analyze_region_pixels(over,128,1.0,43);throw std::runtime_error("Expected mask Boolean run limit refusal");}
+    catch(const Error& error) {
+        check(error.code=="ANALYSIS_LIMIT"&&QString::fromStdString(error.what()).contains("20,000 mask Boolean runs"),
+            "The pixel helper refuses the 20,001st Boolean run");
+    }
+
+    QTemporaryDir temp(temp_directory+"/mask-boolean-cap-XXXXXX");
+    check(temp.isValid(),"A temporary mask Boolean cap Canvas directory is available");
+    auto document=empty_document("mask-boolean-cap-document","mask-boolean-cap-composition","mask-boolean-cap-artboard");
+    auto& artboard=document.compositions.front().artboards.front();
+    artboard.width=over.width();artboard.height=over.height();
+    Host host(temp.path()+"/recovery");host.session=Session(std::move(document));
+    const auto input=temp.path()+"/mask-boolean-over.png";
+    check(over.save(input,"PNG"),"The 20,010-run mask Boolean Canvas fixture is written");
+    host.import_image(input,"embedded","mask-boolean-cap-composition","","mask-boolean-cap-asset",
+        "mask-boolean-cap-image","Mask Boolean cap",0,0,0);
+    const auto native=temp.path()+"/mask-boolean-cap.nect";host.save(native);
+    const auto native_before=bytes(native);
+    const auto document_before=encode(host.session.document());
+    const auto history_before=host.session.history();
+    const auto revision=host.session.revision();
+    const QJsonObject fields{{"expected_revision",static_cast<qint64>(revision)},
+        {"composition","mask-boolean-cap-composition"},{"artboard","mask-boolean-cap-artboard"},
+        {"scale",1.0},{"threshold",128}};
+    const auto response=api(host,fields);
+    const auto error=response.value("error").toObject();
+    check(error.value("code").toString()=="ANALYSIS_LIMIT"&&!response.contains("result")&&
+        error.value("message").toString().contains("20,000 mask Boolean runs"),
+        "The real Canvas/API refuses Boolean run 20,001 without a partial result");
+    check(host.session.revision()==revision&&host.session.history()==history_before&&
+        encode(host.session.document())==document_before&&bytes(native)==native_before,
+        "Boolean cap refusal leaves Canvas Document, revision, History and native bytes unchanged");
 }
 void line_candidate_limit_oracle(const QString& temp_directory) {
     auto exact=line_candidate_cap_image(false);
@@ -927,6 +1098,9 @@ void live_erosion_canvas_api() {
         "The real Canvas/API erosion matches the hand-computed four isolated pixels around a transparent center");
     check_morphology(result,expected_runs({{0,0,5},{1,0,5},{2,0,5},{3,0,5},{4,0,5}}),25,
         "The paired real Canvas D5 dilation still reads the same original hole input");
+    check_mask_boolean(result,expected_runs({{0,0,5},{1,0,1},{1,2,1},{1,4,1},{2,0,5},
+        {3,0,1},{3,2,1},{3,4,1},{4,0,5}}),21,
+        "The real Canvas/API Boolean difference matches the hand-computed thresholded-hole pixels");
     check(host.session.revision()==revision&&host.session.history()==history_before&&
         encode(host.session.document())==document_before&&bytes(native)==native_before,
         "Live erosion and paired dilation leave revision, History, Document and native bytes unchanged");
@@ -939,6 +1113,7 @@ int main(int argc,char** argv) {
         independent_pixel_oracle();
         independent_morphology_oracle();
         independent_erosion_oracle();
+        independent_mask_boolean_oracle();
         independent_line_oracle();
         independent_edge_oracle();
         independent_contour_oracle();
@@ -950,6 +1125,8 @@ int main(int argc,char** argv) {
         morphology_run_cap_oracle(morphology_cap_temp.path());
         QTemporaryDir erosion_cap_temp;check(erosion_cap_temp.isValid(),"Erosion-cap test directory is available");
         erosion_run_cap_oracle(erosion_cap_temp.path());
-        std::cout<<"PASS region, edge-map, contour, thin-line, dilation and erosion pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
+        QTemporaryDir mask_boolean_cap_temp;check(mask_boolean_cap_temp.isValid(),"Mask Boolean-cap test directory is available");
+        mask_boolean_run_cap_oracle(mask_boolean_cap_temp.path());
+        std::cout<<"PASS region, edge-map, contour, thin-line, dilation, erosion and mask Boolean pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

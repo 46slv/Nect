@@ -737,6 +737,23 @@ try:
         assert vector_erosion['border']=='outside-background'
         assert vector_erosion['coordinate_space']=='artboard-output-pixels'
         assert vector_erosion['runs'] and vector_erosion['area']==sum(run['width'] for run in vector_erosion['runs'])
+        vector_boolean=direct_vector_analysis['result']['mask_boolean']
+        assert vector_boolean['operation']=='difference'
+        assert vector_boolean['operands']==[
+            dict(role='left',mask='morphology',operation='dilate'),
+            dict(role='right',mask='erosion',operation='erode')]
+        assert vector_boolean['coordinate_space']=='artboard-output-pixels'
+        assert vector_boolean['width']==direct_vector_analysis['result']['width']
+        assert vector_boolean['height']==direct_vector_analysis['result']['height']
+        assert vector_boolean['source_revision']==vector['revision']
+        assert vector_boolean['runs'] and vector_boolean['area']==sum(run['width'] for run in vector_boolean['runs'])
+        previous=None
+        for run in vector_boolean['runs']:
+            assert run['width']>0 and 0<=run['y']<vector_boolean['height']
+            assert 0<=run['x'] and run['x']+run['width']<=vector_boolean['width']
+            if previous is not None:
+                assert run['y']>previous['y'] or (run['y']==previous['y'] and previous['x']+previous['width']<run['x'])
+            previous=run
         assert core('inspect')['result']==vector_document_before_analysis
         assert tool('nect_session')['revision']==vector['revision']
         assert direct_vector_analysis['result']['regions'], 'Filled SVG artwork yields at least one analyzed region'

@@ -619,6 +619,43 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
     const QJsonObject erosion{{"operation","erode"},{"kernel","cross-4-radius-1"},
         {"border","outside-background"},{"coordinate_space","artboard-output-pixels"},
         {"area",static_cast<qint64>(erosion_area)},{"runs",erosion_runs}};
+    QJsonArray mask_boolean_runs;
+    std::uint64_t mask_boolean_area=0;
+    const auto append_mask_boolean_run=[&](int y,int start,int end) {
+        if(static_cast<std::size_t>(mask_boolean_runs.size())>=max_morphology_runs)
+            throw Error("ANALYSIS_LIMIT","Region analysis is limited to 20,000 mask Boolean runs");
+        const auto run_width=end-start;
+        mask_boolean_area+=static_cast<std::uint64_t>(run_width);
+        mask_boolean_runs.append(QJsonObject{{"y",y},{"x",start},{"width",run_width}});
+    };
+    std::size_t erosion_index=0;
+    for(const auto& morphology_value:morphology_runs) {
+        const auto morphology_run=morphology_value.toObject();
+        const auto y=morphology_run.value("y").toInt();
+        const auto start=morphology_run.value("x").toInt();
+        const auto end=start+morphology_run.value("width").toInt();
+        auto cursor=start;
+        while(erosion_index<static_cast<std::size_t>(erosion_runs.size())) {
+            const auto erosion_run=erosion_runs.at(static_cast<int>(erosion_index)).toObject();
+            const auto erosion_y=erosion_run.value("y").toInt();
+            const auto erosion_start=erosion_run.value("x").toInt();
+            const auto erosion_end=erosion_start+erosion_run.value("width").toInt();
+            if(erosion_y<y||(erosion_y==y&&erosion_end<=start)) {++erosion_index;continue;}
+            if(erosion_y>y||erosion_start>=end)break;
+            if(erosion_start>cursor)append_mask_boolean_run(y,cursor,std::min(erosion_start,end));
+            cursor=std::max(cursor,erosion_end);
+            ++erosion_index;
+            if(cursor>=end)break;
+        }
+        if(cursor<end)append_mask_boolean_run(y,cursor,end);
+    }
+    const QJsonObject mask_boolean{{"operation","difference"},
+        {"operands",QJsonArray{
+            QJsonObject{{"role","left"},{"mask","morphology"},{"operation","dilate"}},
+            QJsonObject{{"role","right"},{"mask","erosion"},{"operation","erode"}}}},
+        {"coordinate_space","artboard-output-pixels"},{"width",image.width()},{"height",image.height()},
+        {"source_revision",static_cast<qint64>(source_revision)},
+        {"area",static_cast<qint64>(mask_boolean_area)},{"runs",mask_boolean_runs}};
     return {{"regions",regions},{"edge_runs",edge_runs},{"edge_pixel_count",static_cast<qint64>(edge_pixel_count)},
         {"edge_rule","foreground-4-neighbor"},{"threshold",threshold},{"connectivity",4},{"scale",scale},
         {"width",image.width()},{"height",image.height()},{"color_space","sRGB"},
@@ -629,7 +666,8 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         {"contour_coordinate_space","artboard-output-pixel-corners"},
         {"contour_closed","implicit-last-to-first"},{"line_candidates",line_candidates},
         {"line_rule","exact-one-pixel-wide-4-direction-min3"},
-        {"line_coordinate_space","artboard-output-pixel-centers"},{"morphology",morphology},{"erosion",erosion}};
+        {"line_coordinate_space","artboard-output-pixel-centers"},{"morphology",morphology},{"erosion",erosion},
+        {"mask_boolean",mask_boolean}};
 }
 
 QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected) {
