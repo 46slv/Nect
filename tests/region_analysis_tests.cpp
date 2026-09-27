@@ -53,6 +53,10 @@ QJsonArray expected_runs(std::initializer_list<std::array<int,3>> spans) {
     for(const auto& span:spans)result.append(QJsonObject{{"y",span[0]},{"x",span[1]},{"width",span[2]}});
     return result;
 }
+QJsonObject expected_color_component(int index,std::array<int,3> rgb,int area,int x,int y,int width,int height,QJsonArray runs) {
+    return {{"component_index",index},{"rgb",QJsonArray{rgb[0],rgb[1],rgb[2]}},{"area",area},
+        {"bounds",QJsonObject{{"x",x},{"y",y},{"width",width},{"height",height}}},{"runs",runs}};
+}
 void check_morphology(const QJsonObject& value,const QJsonArray& expected,int area,const char* message) {
     const auto morphology=value.value("morphology").toObject();
     check(morphology.value("operation").toString()=="dilate"&&
@@ -236,7 +240,7 @@ void independent_color_group_oracle() {
     QImage over_runs(101,200,QImage::Format_ARGB32_Premultiplied);
     for(int y=0;y<over_runs.height();++y)for(int x=0;x<over_runs.width();++x)
         over_runs.setPixel(x,y,(x+y)%2==0?qRgba(255,0,0,255):qRgba(0,0,255,255));
-    try {analyze_region_pixels(over_runs,1,1.0,63,true);throw std::runtime_error("Expected color-run limit refusal");}
+    try {analyze_region_pixels(over_runs,1,1.0,63,true,true);throw std::runtime_error("Expected color-run limit refusal");}
     catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT"&&
         QString::fromStdString(error.what()).contains("20,000 output color runs"),
         "An independently counted 101x200 checkerboard refuses its 20,001st color run");}
@@ -244,10 +248,78 @@ void independent_color_group_oracle() {
     QImage over_groups(257,1,QImage::Format_ARGB32_Premultiplied);
     for(int x=0;x<256;++x)over_groups.setPixel(x,0,qRgba(x,0,0,255));
     over_groups.setPixel(256,0,qRgba(0,1,0,255));
-    try {analyze_region_pixels(over_groups,1,1.0,64,true);throw std::runtime_error("Expected color-group limit refusal");}
+    try {analyze_region_pixels(over_groups,1,1.0,64,true,true);throw std::runtime_error("Expected color-group limit refusal");}
     catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT"&&
         QString::fromStdString(error.what()).contains("256 distinct output RGB keys"),
         "A 257-key one-row image refuses without returning partial groups");}
+
+    try {analyze_region_pixels(image,128,1.0,61,false,true);throw std::runtime_error("Expected color-component opt-in refusal");}
+    catch(const Error& error) {check(error.code=="INVALID_REQUEST",
+        "Color components require the exact color-group opt-in");}
+
+    const auto without_components=analyze_region_pixels(image,128,1.0,61,true,false);
+    check(without_components==grouped&&!without_components.contains("color_components"),
+        "Omitted or false color-components preserves the complete D8 color-group response");
+    const auto with_components=analyze_region_pixels(image,128,1.0,61,true,true);
+    const auto components=with_components.value("color_components").toArray();
+    check(components==QJsonArray{
+        expected_color_component(0,{0,0,255},2,2,0,1,2,expected_runs({{0,2,1},{1,2,1}})),
+        expected_color_component(1,{255,0,0},2,0,0,2,1,expected_runs({{0,0,2}})),
+        expected_color_component(2,{255,0,0},1,3,2,1,1,expected_runs({{2,3,1}}))},
+        "Exact color components sort by RGB then first row-major pixel with lossless area, bounds and runs");
+
+    QImage diagonal(2,2,QImage::Format_ARGB32_Premultiplied);diagonal.fill(Qt::transparent);
+    diagonal.setPixel(0,0,qRgba(30,60,90,255));diagonal.setPixel(1,1,qRgba(30,60,90,255));
+    const auto diagonal_components=analyze_region_pixels(diagonal,128,1.0,65,true,true).value("color_components").toArray();
+    check(diagonal_components==QJsonArray{
+        expected_color_component(0,{30,60,90},1,0,0,1,1,expected_runs({{0,0,1}})),
+        expected_color_component(1,{30,60,90},1,1,1,1,1,expected_runs({{1,1,1}}))},
+        "Same-color diagonal contact remains two separate 4-connected components");
+
+    QImage bridge(3,2,QImage::Format_ARGB32_Premultiplied);bridge.fill(Qt::transparent);
+    const std::array<std::array<int,2>,5> bridge_pixels{{{0,0},{2,0},{0,1},{1,1},{2,1}}};
+    for(const auto& xy:bridge_pixels)
+        bridge.setPixel(xy[0],xy[1],qRgba(30,60,90,255));
+    const auto bridge_components=analyze_region_pixels(bridge,128,1.0,66,true,true).value("color_components").toArray();
+    check(bridge_components==QJsonArray{expected_color_component(0,{30,60,90},5,0,0,3,2,
+        expected_runs({{0,0,1},{0,2,1},{1,0,3}}))},
+        "A bridging run unions both overlapping predecessor runs into one component");
+
+    QImage empty_components(3,2,QImage::Format_ARGB32_Premultiplied);empty_components.fill(Qt::transparent);
+    check(analyze_region_pixels(empty_components,128,1.0,67,true,true).value("color_components").toArray().isEmpty(),
+        "Empty foreground returns an empty color-component array");
+
+    QImage exact_color_components(100,100,QImage::Format_ARGB32_Premultiplied);
+    for(int y=0;y<exact_color_components.height();++y)for(int x=0;x<exact_color_components.width();++x)
+        exact_color_components.setPixel(x,y,(x+y)%2==0?qRgba(255,0,0,255):qRgba(0,0,255,255));
+    const auto exact_component_result=analyze_region_pixels(exact_color_components,1,1.0,68,true,true);
+    const auto exact_component_groups=exact_component_result.value("color_groups").toArray();
+    const auto exact_component_array=exact_component_result.value("color_components").toArray();
+    check(exact_component_result.value("regions").toArray().size()==1&&exact_component_groups.size()==2&&
+        exact_component_groups[0].toObject().value("runs").toArray().size()+
+            exact_component_groups[1].toObject().value("runs").toArray().size()==10'000&&
+        exact_component_array.size()==10'000,
+        "The 100x100 two-color checkerboard accepts exactly 10,000 D9 components and D8 runs");
+    check(exact_component_array[0].toObject().value("component_index").toInt()==0&&
+        exact_component_array[0].toObject().value("rgb").toArray()==QJsonArray{0,0,255}&&
+        exact_component_array[0].toObject().value("runs").toArray()==expected_runs({{0,1,1}})&&
+        exact_component_array[4'999].toObject().value("component_index").toInt()==4'999&&
+        exact_component_array[4'999].toObject().value("runs").toArray()==expected_runs({{99,98,1}})&&
+        exact_component_array[5'000].toObject().value("component_index").toInt()==5'000&&
+        exact_component_array[5'000].toObject().value("rgb").toArray()==QJsonArray{255,0,0}&&
+        exact_component_array[5'000].toObject().value("runs").toArray()==expected_runs({{0,0,1}})&&
+        exact_component_array[9'999].toObject().value("component_index").toInt()==9'999&&
+        exact_component_array[9'999].toObject().value("runs").toArray()==expected_runs({{99,99,1}}),
+        "The exact-limit component array has stable result-local indexes and RGB/row-major ordering");
+
+    QImage over_color_components(101,100,QImage::Format_ARGB32_Premultiplied);
+    for(int y=0;y<over_color_components.height();++y)for(int x=0;x<over_color_components.width();++x)
+        over_color_components.setPixel(x,y,(x+y)%2==0?qRgba(255,0,0,255):qRgba(0,0,255,255));
+    check(101*100==10'100&&10'100<20'000,"The D9 over-limit fixture stays below D8's color-run cap");
+    try {analyze_region_pixels(over_color_components,1,1.0,69,true,true);throw std::runtime_error("Expected color-component limit refusal");}
+    catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT"&&
+        QString::fromStdString(error.what()).contains("10,000 components"),
+        "The 10,001st color component refuses without a partial result");}
 }
 void independent_morphology_oracle() {
     QImage center(5,5,QImage::Format_ARGB32_Premultiplied);center.fill(Qt::transparent);
@@ -1174,6 +1246,27 @@ void live_color_group_canvas_api() {
         {"area",3},{"bounds",QJsonObject{{"x",0},{"y",0},{"width",4},{"height",3}}},
         {"runs",expected_runs({{0,0,2},{2,3,1}})}},
         "Canvas/API red pixels match the independent straight-byte oracle");
+    auto component_fields=fields;component_fields["include_color_components"]=true;
+    const auto component_response=api(host,component_fields);
+    check(component_response.value("ok").toBool()&&component_response.value("revision").toInt()==static_cast<int>(revision),
+        "Live Canvas color components return at the source revision");
+    check(component_response.value("result").toObject().value("color_components").toArray()==QJsonArray{
+        expected_color_component(0,{0,0,255},2,2,0,1,2,expected_runs({{0,2,1},{1,2,1}})),
+        expected_color_component(1,{255,0,0},2,0,0,2,1,expected_runs({{0,0,2}})),
+        expected_color_component(2,{255,0,0},1,3,2,1,1,expected_runs({{2,3,1}}))},
+        "The embedded exact-color Canvas/API fixture returns the independent component oracle");
+    auto disabled_components=fields;disabled_components["include_color_components"]=false;
+    check(api(host,disabled_components)==response,
+        "The live API false color-components option preserves the complete D8 response");
+    auto missing_groups=fields;missing_groups.remove("include_color_groups");missing_groups["include_color_components"]=true;
+    check(api(host,missing_groups).value("error").toObject().value("code").toString()=="INVALID_REQUEST",
+        "The live API requires color groups when color components are requested");
+    auto disabled_groups=fields;disabled_groups["include_color_groups"]=false;disabled_groups["include_color_components"]=true;
+    check(api(host,disabled_groups).value("error").toObject().value("code").toString()=="INVALID_REQUEST",
+        "The live API rejects color components when color groups are false");
+    auto invalid_components=fields;invalid_components["include_color_components"]="true";
+    check(api(host,invalid_components).value("error").toObject().value("code").toString()=="INVALID_REQUEST",
+        "A non-Boolean color-component option is rejected as INVALID_REQUEST");
     auto lower_fields=fields;lower_fields["threshold"]=127;
     const auto lower=api(host,lower_fields).value("result").toObject().value("color_groups").toArray();
     check(lower.size()==2&&lower[1].toObject().value("area").toInt()==4&&
@@ -1209,6 +1302,40 @@ void live_color_group_canvas_api() {
     check(limit_host.session.revision()==limit_revision&&limit_host.session.history()==limit_history_before&&
         encode(limit_host.session.document())==limit_document_before&&bytes(limit_native)==limit_native_before,
         "Color-group limit refusal preserves revision, History, Document and native bytes");
+
+    auto component_limit_document=empty_document("color-component-limit-document","color-component-limit-composition",
+        "color-component-limit-artboard");
+    component_limit_document.compositions.front().artboards.front().width=101;
+    component_limit_document.compositions.front().artboards.front().height=100;
+    Host component_limit_host(temp.path()+"/color-component-limit-recovery");
+    component_limit_host.session=Session(std::move(component_limit_document));
+    QImage checkerboard(101,100,QImage::Format_ARGB32_Premultiplied);
+    for(int y=0;y<checkerboard.height();++y)for(int x=0;x<checkerboard.width();++x)
+        checkerboard.setPixel(x,y,(x+y)%2==0?qRgba(255,0,0,255):qRgba(0,0,255,255));
+    const auto checkerboard_path=temp.path()+"/101x100-color-components.png";
+    check(checkerboard.save(checkerboard_path,"PNG"),"Over-limit color-component Canvas fixture is written");
+    component_limit_host.import_image(checkerboard_path,"embedded","color-component-limit-composition","",
+        "color-component-limit-asset","color-component-limit-image","101x100 checkerboard",0,0,
+        component_limit_host.session.revision());
+    const auto component_limit_native=temp.path()+"/color-component-limit.nect";
+    component_limit_host.save(component_limit_native);
+    const auto component_limit_native_before=bytes(component_limit_native);
+    const auto component_limit_document_before=encode(component_limit_host.session.document());
+    const auto component_limit_history_before=component_limit_host.session.history();
+    const auto component_limit_revision=component_limit_host.session.revision();
+    const QJsonObject component_limit_fields{{"expected_revision",static_cast<qint64>(component_limit_revision)},
+        {"composition","color-component-limit-composition"},{"artboard","color-component-limit-artboard"},
+        {"scale",1.0},{"threshold",1},{"include_color_groups",true},{"include_color_components",true}};
+    const auto component_limit_response=api(component_limit_host,component_limit_fields);
+    check(component_limit_response.value("error").toObject().value("code").toString()=="ANALYSIS_LIMIT"&&
+        !component_limit_response.contains("result")&&
+        component_limit_response.value("error").toObject().value("message").toString().contains("10,000 components"),
+        "The real Canvas/API refuses the 10,001st color component without a partial result");
+    check(component_limit_host.session.revision()==component_limit_revision&&
+        component_limit_host.session.history()==component_limit_history_before&&
+        encode(component_limit_host.session.document())==component_limit_document_before&&
+        bytes(component_limit_native)==component_limit_native_before,
+        "Color-component limit refusal preserves revision, History, Document and native bytes");
 }
 void live_erosion_canvas_api() {
     QTemporaryDir temp;check(temp.isValid(),"Temporary erosion Canvas test directory is available");
@@ -1272,6 +1399,6 @@ int main(int argc,char** argv) {
         erosion_run_cap_oracle(erosion_cap_temp.path());
         QTemporaryDir mask_boolean_cap_temp;check(mask_boolean_cap_temp.isValid(),"Mask Boolean-cap test directory is available");
         mask_boolean_run_cap_oracle(mask_boolean_cap_temp.path());
-        std::cout<<"PASS region, color-group, edge-map, contour, thin-line, dilation, erosion and mask Boolean pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
+        std::cout<<"PASS region, color-group/component, edge-map, contour, thin-line, dilation, erosion and mask Boolean pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

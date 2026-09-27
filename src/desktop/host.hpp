@@ -33,7 +33,7 @@ public:
     void save(const QString& path);
     QJsonObject export_png(const QString& path,const Id& composition,const Id& artboard,double scale,bool white_background,std::uint64_t expected);
     QJsonObject analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected,
-        bool include_color_groups=false);
+        bool include_color_groups=false,bool include_color_components=false);
     void recover();
     void flush();
     QString recovery_directory() const { return recovery_directory_; }
@@ -77,5 +77,5 @@ private:
 // Pixel-domain implementation used by the desktop API and independent small
 // image fixtures. The live API always supplies Canvas::render_artboard output.
 QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale,std::uint64_t source_revision,
-    bool include_color_groups=false);
+    bool include_color_groups=false,bool include_color_components=false);
 }

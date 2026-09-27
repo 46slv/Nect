@@ -350,7 +350,9 @@ QJsonObject Host::export_png(const QString& path,const Id& composition,const Id&
 }
 
 QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale,std::uint64_t source_revision,
-    bool include_color_groups) {
+    bool include_color_groups,bool include_color_components) {
+    if(include_color_components&&!include_color_groups)
+        throw Error("INVALID_REQUEST","include_color_components requires include_color_groups to be true");
     if(threshold<1||threshold>255)throw Error("INVALID_THRESHOLD","Alpha threshold must be an integer from 1 through 255");
     if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","Analysis scale must be greater than zero and at most 16");
     if(image.isNull()||image.width()<1||image.height()<1)throw Error("RENDER_ALLOCATION","Could not read rendered analysis pixels");
@@ -732,12 +734,109 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         result.insert("color_groups",color_groups);
         result.insert("color_key_domain","output-srgb-straight-rgb8");
         result.insert("color_alpha_rule","output-alpha-byte-ge-threshold");
+
+        if(include_color_components) {
+            constexpr std::size_t max_color_components=10'000;
+            QJsonArray color_components;
+            std::size_t component_count=0;
+            for(const auto& [rgb,value]:groups) {
+                const auto& runs=value.runs;
+                std::vector<std::size_t> parents(runs.size());
+                std::vector<std::size_t> ranks(runs.size(),0);
+                for(std::size_t index=0;index<parents.size();++index)parents[index]=index;
+                const auto find_root=[&](std::size_t index) {
+                    auto root=index;
+                    while(parents[root]!=root)root=parents[root];
+                    while(parents[index]!=index) {
+                        const auto next=parents[index];parents[index]=root;index=next;
+                    }
+                    return root;
+                };
+                const auto unite=[&](std::size_t left,std::size_t right) {
+                    auto left_root=find_root(left),right_root=find_root(right);
+                    if(left_root==right_root)return;
+                    if(ranks[left_root]<ranks[right_root])std::swap(left_root,right_root);
+                    parents[right_root]=left_root;
+                    if(ranks[left_root]==ranks[right_root])++ranks[left_root];
+                };
+
+                // D8 runs are row-major maximal spans. Only overlapping half-open
+                // intervals on immediately adjacent rows share 4-connectivity.
+                for(std::size_t row_begin=0;row_begin<runs.size();) {
+                    auto row_end=row_begin+1;
+                    while(row_end<runs.size()&&runs[row_end].y==runs[row_begin].y)++row_end;
+                    if(row_end<runs.size()&&runs[row_end].y==runs[row_begin].y+1) {
+                        auto next_end=row_end+1;
+                        while(next_end<runs.size()&&runs[next_end].y==runs[row_end].y)++next_end;
+                        auto previous=row_begin,current=row_end;
+                        while(previous<row_end&&current<next_end) {
+                            const auto previous_end=runs[previous].x+runs[previous].width;
+                            const auto current_end=runs[current].x+runs[current].width;
+                            if(previous_end<=runs[current].x) {++previous;continue;}
+                            if(current_end<=runs[previous].x) {++current;continue;}
+                            unite(previous,current);
+                            if(previous_end<=current_end)++previous;
+                            if(current_end<=previous_end)++current;
+                        }
+                    }
+                    row_begin=row_end;
+                }
+
+                struct ComponentOutput {
+                    std::uint64_t area=0;
+                    int min_x=0,min_y=0,max_x=0,max_y=0;
+                    std::vector<ColorRun> runs;
+                    bool has_bounds=false;
+                };
+                std::map<std::size_t,std::size_t> component_by_root;
+                std::vector<ComponentOutput> components;
+                for(std::size_t run_index=0;run_index<runs.size();++run_index) {
+                    const auto root=find_root(run_index);
+                    auto found=component_by_root.find(root);
+                    if(found==component_by_root.end()) {
+                        if(component_count>=max_color_components)
+                            throw Error("ANALYSIS_LIMIT","Color component analysis is limited to 10,000 components");
+                        found=component_by_root.emplace(root,components.size()).first;
+                        components.emplace_back();
+                        ++component_count;
+                    }
+                    auto& component=components[found->second];
+                    const auto& run=runs[run_index];
+                    const auto max_x=run.x+run.width-1;
+                    component.area+=static_cast<std::uint64_t>(run.width);
+                    if(!component.has_bounds) {
+                        component.min_x=run.x;component.max_x=max_x;
+                        component.min_y=run.y;component.max_y=run.y;component.has_bounds=true;
+                    } else {
+                        component.min_x=std::min(component.min_x,run.x);
+                        component.max_x=std::max(component.max_x,max_x);
+                        component.min_y=std::min(component.min_y,run.y);
+                        component.max_y=std::max(component.max_y,run.y);
+                    }
+                    component.runs.push_back(run);
+                }
+                for(const auto& component:components) {
+                    QJsonArray component_runs;
+                    for(const auto& run:component.runs)
+                        component_runs.append(QJsonObject{{"y",run.y},{"x",run.x},{"width",run.width}});
+                    color_components.append(QJsonObject{{"component_index",static_cast<int>(color_components.size())},
+                        {"rgb",QJsonArray{rgb[0],rgb[1],rgb[2]}},
+                        {"area",static_cast<qint64>(component.area)},
+                        {"bounds",QJsonObject{{"x",component.min_x},{"y",component.min_y},
+                            {"width",component.max_x-component.min_x+1},{"height",component.max_y-component.min_y+1}}},
+                        {"runs",component_runs}});
+                }
+            }
+            result.insert("color_components",color_components);
+        }
     }
     return result;
 }
 
 QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected,
-    bool include_color_groups) {
+    bool include_color_groups,bool include_color_components) {
+    if(include_color_components&&!include_color_groups)
+        throw Error("INVALID_REQUEST","include_color_components requires include_color_groups to be true");
     if(expected!=session.revision())throw Error("REVISION_CONFLICT","Refresh revision before analyzing regions");
     if(session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before analyzing regions");
     if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","Analysis scale must be greater than zero and at most 16");
@@ -755,7 +854,7 @@ QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,doubl
     if(pixel_width*pixel_height>4'000'000)
         throw Error("ANALYSIS_LIMIT","Region analysis is limited to 4,000,000 output pixels");
     const auto image=Canvas::render_artboard(session.document(),composition,artboard,scale,false);
-    return analyze_region_pixels(image,threshold,scale,expected,include_color_groups);
+    return analyze_region_pixels(image,threshold,scale,expected,include_color_groups,include_color_components);
 }
 
 QByteArray Host::dispatch(const QByteArray& input) {
@@ -765,7 +864,7 @@ QByteArray Host::dispatch(const QByteArray& input) {
         auto outer=QJsonDocument::fromJson(input).object();
         const auto operation=string(outer,"op");
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
-            (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","include_color_groups"}:
+            (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","include_color_groups","include_color_components"}:
             (operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
              operation=="core"?QStringList{"op","session_id","document_id","request"}:
              operation=="import_svg"?QStringList{"op","session_id","document_id","expected_revision","path","composition","prefix","name","x","y"}:
@@ -812,8 +911,17 @@ QByteArray Host::dispatch(const QByteArray& input) {
                             throw Error("INVALID_REQUEST","include_color_groups must be a Boolean");
                         include_color_groups=outer.value("include_color_groups").toBool();
                     }
+                    bool include_color_components=false;
+                    if(outer.contains("include_color_components")) {
+                        if(!outer.value("include_color_components").isBool())
+                            throw Error("INVALID_REQUEST","include_color_components must be a Boolean");
+                        include_color_components=outer.value("include_color_components").toBool();
+                    }
+                    if(include_color_components&&!include_color_groups)
+                        throw Error("INVALID_REQUEST","include_color_components requires include_color_groups to be true");
                     response={{"ok",true},{"result",analyze_regions(string(outer,"composition").toStdString(),
-                        string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),static_cast<int>(threshold),session.revision(),include_color_groups)}};
+                        string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),static_cast<int>(threshold),session.revision(),
+                        include_color_groups,include_color_components)}};
                 } else if(op=="import_svg") {
                     if(!outer.value("x").isDouble()||!outer.value("y").isDouble())throw Error("INVALID_REQUEST","Numeric x/y required");
                     response={{"ok",true},{"result",import_svg(string(outer,"path"),string(outer,"composition").toStdString(),string(outer,"prefix").toStdString(),

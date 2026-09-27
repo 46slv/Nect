@@ -89,6 +89,15 @@ def make_png(rgb, width=2, height=2):
     return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b'')
 
 
+def make_rgba_png(rows):
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+    height = len(rows)
+    width = len(rows[0])
+    raw = b''.join(b'\0' + b''.join(bytes(pixel) for pixel in row) for row in rows)
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
+
+
 try:
     with tempfile.TemporaryDirectory(prefix='nect-mcp-') as directory:
         temp = Path(directory)
@@ -105,7 +114,9 @@ try:
         assert {t['name'] for t in listed_tools} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png', 'nect_analyze_regions', 'nect_import_svg'}
         analyze_schema = next(t for t in listed_tools if t['name'] == 'nect_analyze_regions')['inputSchema']
         assert analyze_schema['properties']['include_color_groups'] == {'type': 'boolean'}
+        assert analyze_schema['properties']['include_color_components'] == {'type': 'boolean'}
         assert 'include_color_groups' not in analyze_schema['required']
+        assert 'include_color_components' not in analyze_schema['required']
         live = tool('nect_session')
         identity = {key: live[key] for key in ('session_id', 'document_id')}
         comp = core('inspect')['result']['compositions'][0]
@@ -141,7 +152,65 @@ try:
         assert direct_color_groups['result']['color_groups'] == [dict(rgb=[12, 34, 56], area=6,
             bounds=dict(x=0, y=0, width=3, height=2),
             runs=[dict(y=0, x=0, width=3), dict(y=1, x=0, width=3)])]
-        color_undo = core('undo', expected_revision=color_fixture['revision'])
+        color_document_before_analysis = core('inspect')['result']
+        color_history_before_analysis = core('history')['result']
+        component_request = dict(color_groups_request, include_color_components=True)
+        direct_color_components = desktop_api_call(endpoint, component_request)
+        mcp_color_components = tool('nect_analyze_regions', component_request)
+        assert direct_color_components == mcp_color_components and direct_color_components['ok']
+        assert direct_color_components['result']['color_components'] == [dict(component_index=0, rgb=[12, 34, 56],
+            area=6, bounds=dict(x=0, y=0, width=3, height=2),
+            runs=[dict(y=0, x=0, width=3), dict(y=1, x=0, width=3)])]
+        components_false_request = dict(color_groups_request, include_color_components=False)
+        assert desktop_api_call(endpoint, components_false_request) == direct_color_groups == \
+            tool('nect_analyze_regions', components_false_request)
+        invalid_component_requests = [
+            dict(identity, op='analyze_regions', expected_revision=color_fixture['revision'],
+                composition=comp['id'], artboard=comp['artboards'][0]['id'], scale=1, threshold=128,
+                include_color_components=True),
+            dict(color_groups_request, include_color_groups=False, include_color_components=True),
+        ]
+        for invalid_component_request in invalid_component_requests:
+            direct_invalid_components = desktop_api_call(endpoint, invalid_component_request)
+            mcp_invalid_components = tool('nect_analyze_regions', invalid_component_request)
+            assert direct_invalid_components == mcp_invalid_components
+            assert not direct_invalid_components['ok'] and direct_invalid_components['error']['code'] == 'INVALID_REQUEST'
+        invalid_component_type = dict(color_groups_request, include_color_components='true')
+        direct_invalid_type = desktop_api_call(endpoint, invalid_component_type)
+        mcp_invalid_type = rpc('tools/call', dict(name='nect_analyze_regions', arguments=invalid_component_type))
+        assert not direct_invalid_type['ok'] and direct_invalid_type['error']['code'] == 'INVALID_REQUEST'
+        assert mcp_invalid_type['error']['code'] == -32602 and \
+            mcp_invalid_type['error']['message'] == 'Invalid argument: include_color_components'
+        assert core('inspect')['result'] == color_document_before_analysis
+        assert core('history')['result'] == color_history_before_analysis
+        assert tool('nect_session')['revision'] == color_fixture['revision']
+
+        checker_rows = [[(255, 0, 0, 255) if (x + y) % 2 == 0 else (0, 0, 255, 255)
+                         for x in range(101)] for y in range(100)]
+        checker_path = temp / 'mcp-color-component-limit.png'
+        checker_path.write_bytes(make_rgba_png(checker_rows))
+        checker_fixture = tool('nect_image', dict(identity, op='import_image', expected_revision=color_fixture['revision'],
+            path=str(checker_path), mode='embedded', composition=comp['id'], parent='',
+            asset='mcp-color-component-limit-asset', id='mcp-color-component-limit-image',
+            name='Color component cap fixture', x=0, y=0))
+        assert checker_fixture['ok'], checker_fixture
+        checker_document_before_analysis = core('inspect')['result']
+        checker_history_before_analysis = core('history')['result']
+        checker_component_request = dict(identity, op='analyze_regions', expected_revision=checker_fixture['revision'],
+            composition=comp['id'], artboard=comp['artboards'][0]['id'], scale=1, threshold=1,
+            include_color_groups=True, include_color_components=True)
+        direct_component_limit = desktop_api_call(endpoint, checker_component_request)
+        mcp_component_limit = tool('nect_analyze_regions', checker_component_request)
+        assert direct_component_limit == mcp_component_limit
+        assert not direct_component_limit['ok'] and direct_component_limit['error']['code'] == 'ANALYSIS_LIMIT'
+        assert '10,000 components' in direct_component_limit['error']['message']
+        assert 'result' not in direct_component_limit
+        assert core('inspect')['result'] == checker_document_before_analysis
+        assert core('history')['result'] == checker_history_before_analysis
+        assert tool('nect_session')['revision'] == checker_fixture['revision']
+        checker_undo = core('undo', expected_revision=checker_fixture['revision'])
+        assert checker_undo['ok'] and core('inspect')['result'] == color_document_before_analysis
+        color_undo = core('undo', expected_revision=checker_undo['revision'])
         assert color_undo['ok'] and core('inspect')['result'] == initial_document
         rng = random.Random(7821)
         commands = []
