@@ -1854,8 +1854,58 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     for(const auto* mode:{"normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion"})blend->addItem(QString::fromLatin1(mode),QString::fromLatin1(mode));
     blend->setCurrentIndex(blend->findData(qs(object.compositing.blend)));form->addRow("Blend",blend);
     connect(blend,&QComboBox::currentIndexChanged,this,[this,blend,id,apply](int){perform([&]{const auto& current=host.session.document().objects.at(id).compositing;apply(SetCompositing{id,blend->currentData().toString().toStdString(),current.isolated});});});
-    auto* isolate=new QCheckBox("Isolate from backdrop");isolate->setObjectName("object-isolated");isolate->setChecked(object.compositing.isolated);form->addRow(isolate);
-    connect(isolate,&QCheckBox::toggled,this,[this,isolate,id,apply](bool value){bool ok=false;perform([&]{apply(SetCompositing{id,host.session.document().objects.at(id).compositing.blend,value});ok=true;});if(!ok){QSignalBlocker b(isolate);isolate->setChecked(!value);}});
+    const Ref isolation_ref{id,"","composite.isolated"};const auto isolation_state=composite_isolation_state(host.session.document(),isolation_ref);
+    auto* isolation_row=new QWidget(box);auto* isolation_layout=new QHBoxLayout(isolation_row);isolation_layout->setContentsMargins(0,0,0,0);
+    auto* isolate=new QCheckBox("Isolate from backdrop",isolation_row);isolate->setObjectName("object-isolated");
+    isolate->setChecked(isolation_state.literal);isolate->setEnabled(!isolation_state.driver);isolation_layout->addWidget(isolate);
+    auto* isolation_driver=new QToolButton(isolation_row);isolation_driver->setObjectName("object-isolated-driver");
+    isolation_driver->setText(isolation_state.driver?"Driver…":"Link…");isolation_driver->setPopupMode(QToolButton::InstantPopup);
+    auto* isolation_menu=new QMenu(isolation_driver);isolation_driver->setMenu(isolation_menu);isolation_layout->addWidget(isolation_driver);form->addRow(isolation_row);
+    const auto isolation_revision=host.session.revision();
+    const auto link_isolation=isolation_menu->addAction(isolation_state.driver?"Replace isolation link…":"Link isolation…");
+    const auto unlink_isolation=isolation_menu->addAction("Unlink and freeze evaluated isolation");
+    unlink_isolation->setEnabled(isolation_state.driver.has_value());
+    const auto& composition=find_composition(host.session.document(),canvas->active_composition());
+    std::vector<Id> isolation_sources;QStringList isolation_source_labels;
+    std::function<void(const Id&)> append_isolation_source=[&](const Id& source_id) {
+        const auto& source=host.session.document().objects.at(source_id);
+        if(source_id!=id) {isolation_sources.push_back(source_id);isolation_source_labels<<qs(source.name)+" — "+qs(source_id);}
+        for(const auto& child:source.children)append_isolation_source(child);
+    };
+    for(const auto& root:composition.roots)append_isolation_source(root);
+    link_isolation->setEnabled(!isolation_sources.empty());
+    connect(link_isolation,&QAction::triggered,this,[this,id,session,isolation_revision,isolation_sources,
+        isolation_source_labels,replace=isolation_state.driver.has_value(),apply] {
+        bool accepted=false;const auto choice=QInputDialog::getItem(this,
+            replace?"Replace Composite isolation link":"Link Composite isolation",
+            "Source Object",isolation_source_labels,0,false,&accepted);
+        if(!accepted)return;const auto index=isolation_source_labels.indexOf(choice);if(index<0)return;
+        perform([&]{
+            if(host.session_id!=session)throw Error("SESSION_CONFLICT","Composite isolation belongs to another document");
+            if(host.session.revision()!=isolation_revision)throw Error("REVISION_CONFLICT","Composite isolation changed while the source chooser was open");
+            apply(LinkCompositeIsolated{{id,"","composite.isolated"},
+                {isolation_sources.at(static_cast<std::size_t>(index)),"","composite.isolated"},replace});
+        });
+    });
+    connect(unlink_isolation,&QAction::triggered,this,[this,id,session,isolation_revision,apply] {perform([&]{
+        if(host.session_id!=session)throw Error("SESSION_CONFLICT","Composite isolation belongs to another document");
+        if(host.session.revision()!=isolation_revision)throw Error("REVISION_CONFLICT","Composite isolation changed before unlinking");
+        apply(UnlinkCompositeIsolated{{id,"","composite.isolated"}});
+    });});
+    connect(isolate,&QCheckBox::toggled,this,[this,isolate,id,apply](bool value){bool ok=false;perform([&]{
+        apply(SetCompositing{id,host.session.document().objects.at(id).compositing.blend,value});ok=true;
+    });if(!ok){QSignalBlocker blocker(isolate);isolate->setChecked(!value);}});
+    auto* isolation_status=new QLabel(box);isolation_status->setObjectName("object-isolated-status");isolation_status->setWordWrap(true);
+    const auto flag=[](bool value){return value?QString("true"):QString("false");};
+    auto isolation_details=QString("Authored literal: %1 · Evaluated authored isolation: %2")
+        .arg(flag(isolation_state.literal),flag(isolation_state.evaluated));
+    if(isolation_state.driver) {
+        const auto source=host.session.document().objects.find(isolation_state.driver->object);
+        const auto name=source==host.session.document().objects.end()?qs(isolation_state.driver->object):
+            qs(source->second.name)+" ("+qs(isolation_state.driver->object)+")";
+        isolation_details+=" · Linked to "+name;
+    }
+    isolation_status->setText(isolation_details);form->addRow("Isolation state",isolation_status);
     auto* scope=new QLabel("Opacity, masks and blending apply to the composed result. Neutral Groups pass through.");scope->setWordWrap(true);scope->setStyleSheet("color:#9ea7b4;");form->addRow(scope);
     if(!object.compositing.mask)return;
     const auto mask=*object.compositing.mask;
@@ -4200,7 +4250,8 @@ void Window::move_selection_to_folder() {
             const auto& between=document.objects.at(siblings[k]);
             if(between.kind!=Kind::group||!between.children.empty()||!evaluate_object_visibility(document,between.id)||
                between.compositing.opacity.literal!=1||between.compositing.opacity.binding||between.compositing.opacity.expression||
-               between.compositing.blend!="normal"||between.compositing.isolated||between.compositing.mask||!between.stack.empty()) {
+               between.compositing.blend!="normal"||evaluate_composite_isolation(document,{between.id,"","composite.isolated"})||
+               between.compositing.mask||!between.stack.empty()) {
                 clear=false;break;
             }
         }

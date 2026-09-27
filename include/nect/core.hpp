@@ -227,6 +227,7 @@ struct Compositing {
     Scalar opacity{1};
     std::string blend="normal";
     bool isolated=false;
+    std::optional<Ref> isolated_driver;
     std::optional<GeometryMask> mask;
     bool operator==(const Compositing&) const = default;
 };
@@ -439,6 +440,8 @@ struct SetExpression { std::vector<Ref> targets; Expression expression; bool rep
 struct SetVisibility { Id object; bool visible; };
 struct LinkObjectVisibility { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkObjectVisibility { Ref target; };
+struct LinkCompositeIsolated { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkCompositeIsolated { Ref target; };
 struct SetCompositing { Id object; std::string blend; bool isolated; };
 struct SetMask { Id object; std::optional<GeometryMask> mask; };
 struct MaskObjects { Id composition,parent; std::vector<Id> members; Id id,mask_id; std::string name; bool top=true; };
@@ -480,7 +483,8 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
-    SetVisibility,LinkObjectVisibility,UnlinkObjectVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
+    SetVisibility,LinkObjectVisibility,UnlinkObjectVisibility,LinkCompositeIsolated,UnlinkCompositeIsolated,
+    SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
     AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects>;
 
 using Affine=std::array<double,6>;
@@ -653,6 +657,14 @@ ObjectVisibilityProperty object_visibility_state(const Document&,const Ref&);
 bool evaluate_object_visibility(const Document&,const Id& object);
 std::map<Id,bool> evaluate_object_visibilities(const Document&);
 bool composite_isolated_property(const Document&,const Ref&);
+struct CompositeIsolationProperty {
+    bool literal=false;
+    std::optional<Ref> driver;
+    bool evaluated=false;
+};
+CompositeIsolationProperty composite_isolation_state(const Document&,const Ref&);
+bool evaluate_composite_isolation(const Document&,const Ref&);
+std::map<Id,bool> evaluate_composite_isolations(const Document&);
 bool geometry_mask_enabled_property(const Document&,const Ref&);
 bool point_edit_enabled_property(const Document&,const Ref&);
 struct GuidePositionProperty {

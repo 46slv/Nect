@@ -8,6 +8,7 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
     const auto plane=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==composition;});
     if(plane==document.compositions.end())throw Error("MISSING_COMPOSITION",composition);
     const auto visibility=evaluate_object_visibilities(document);
+    const auto authored_isolation=evaluate_composite_isolations(document);
     const auto fill_rules=evaluate_fill_rules(document);
     const auto operation_enabled=evaluate_operation_enableds(document);
     const auto gradient_enabled=evaluate_gradient_enableds(document);
@@ -30,7 +31,7 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
         if(object.kind==Kind::group)for(const auto& operation:object.stack)
             if(operation.type=="nect.group.posterize"&&operation_enabled.at(operation_ref(id,operation.id,"enabled")))
                 result.posterize_levels.push_back(static_cast<unsigned>(values.at(operation_ref(id,operation.id,"levels"))));
-        result.isolated=composite.isolated||result.opacity!=1||result.blend!="normal"||result.mask.has_value()||!result.posterize_levels.empty();
+        result.isolated=authored_isolation.at(id)||result.opacity!=1||result.blend!="normal"||result.mask.has_value()||!result.posterize_levels.empty();
         scene.requires_compositing=scene.requires_compositing||result.isolated;
         if(object.kind==Kind::group)for(const auto& child:object.children)result.children.push_back(node(child,depth+1));
         else if(object.image)scene.images.emplace(id,EvaluatedImage{document.raster_assets.at(object.image->asset).payload,values.at({id,"","image.width"}),values.at({id,"","image.height"})});

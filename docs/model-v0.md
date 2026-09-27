@@ -1237,3 +1237,31 @@ driver wire shape, while Session validation checks that its source is an
 existing Fill rule on a Path or Text object. Offset and mask fill rules remain
 literal. This slice does not add expression evaluation to the Fill enum or
 generalize links to every typed property.
+
+## Native 0.30 — linked compositing isolation
+
+`Compositing.isolated` remains the authored boolean literal. An optional
+`isolated_driver: {link: Ref}` addresses only `Ref{Object ID,"","composite.isolated"}`
+in the same Composition. Dedicated `link_composite_isolated` and
+`unlink_composite_isolated` Session commands preserve the target literal while
+linked; replacement requires `replace_driver:true`, and unlink freezes the
+current evaluated authored value. `get` and `properties` expose the literal,
+stable driver and evaluated authored value separately. `SetCompositing` may
+change blend while preserving a driver and its unchanged literal, but changing
+the driven literal requires unlinking first.
+
+Scene isolation remains an aggregate: evaluated authored isolation OR any
+non-neutral opacity, blend, enabled mask or enabled Group postchildren effect.
+A false linked value never cancels another isolation requirement. Canvas and
+compositing/export projections consume that effective scene value. Put Inside,
+Ungroup and Move Out use evaluated authored isolation when requiring a neutral
+Group. Duplicate operations remap the driver when both objects are copied;
+removing a referenced source is rejected unless the dependent is removed or
+unlinked in the same atomic batch.
+
+The 0.30 writer omits `isolated_driver` when absent. Native 0.1–0.29 retain
+literal-only isolation; older versions carrying this field are rejected.
+`schemas/native-v0.30.schema.json` constrains the optional closed same-field Ref,
+while Session validation enforces source existence, Composition identity,
+self/cycle and 128-edge depth. This adds no boolean expressions or cross-field
+coercion.

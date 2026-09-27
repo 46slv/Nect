@@ -1236,6 +1236,66 @@ public:
         return result;
     }
 };
+const Compositing& composite_isolation_source(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_OBJECT_REF","Composite isolation requires an empty point ID");
+    require(ref.field=="composite.isolated","TYPE_MISMATCH","Only composite.isolated accepts this Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    return object->second.compositing;
+}
+struct CompositeIsolationEvaluation { bool value=false; unsigned remaining_edges=0; };
+class CompositeIsolationEvaluator {
+    const Document& document_;
+    std::map<Id,Id> compositions_;
+    std::map<Id,CompositeIsolationEvaluation> values_;
+    std::set<Id> active_;
+
+    CompositeIsolationEvaluation visit(const Id& id,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Composite isolation dependency depth limit 128");
+        if(const auto found=values_.find(id);found!=values_.end()) {
+            require(depth+found->second.remaining_edges<=128,"DEPENDENCY_DEPTH","Composite isolation dependency depth limit 128");
+            return found->second;
+        }
+        require(active_.insert(id).second,"DEPENDENCY_CYCLE","Composite isolation dependency cycle");
+        const auto& compositing=composite_isolation_source(document_,{id,"","composite.isolated"});
+        CompositeIsolationEvaluation result{compositing.isolated,0};
+        if(compositing.isolated_driver) {
+            const auto& source=composite_isolation_source(document_,*compositing.isolated_driver);
+            (void)source;
+            require(*compositing.isolated_driver!=Ref{id,"","composite.isolated"},
+                "DEPENDENCY_CYCLE","Composite isolation cannot link to itself");
+            const auto target_owner=compositions_.find(id),source_owner=compositions_.find(compositing.isolated_driver->object);
+            require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                "ORPHAN_OBJECT","Composite isolation links require objects owned by a Composition");
+            require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                "Composite isolation links must stay in one Composition");
+            const auto upstream=visit(compositing.isolated_driver->object,depth+1);
+            result={upstream.value,upstream.remaining_edges+1};
+        }
+        require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Composite isolation dependency depth limit 128");
+        active_.erase(id);values_.emplace(id,result);return result;
+    }
+public:
+    explicit CompositeIsolationEvaluator(const Document& document):document_(document) {
+        std::set<Id> active;
+        std::function<void(const Id&,const Id&,unsigned)> own=[&](const Id& id,const Id& composition,unsigned depth) {
+            require(depth<=128,"HIERARCHY_DEPTH","Hierarchy depth limit 128");
+            require(document_.objects.contains(id),"MISSING_OBJECT",id);
+            require(active.insert(id).second,"INVALID_HIERARCHY","Repeated owner or cycle: "+id);
+            require(compositions_.emplace(id,composition).second,"INVALID_HIERARCHY","Repeated object owner: "+id);
+            for(const auto& child:document_.objects.at(id).children)own(child,composition,depth+1);
+            active.erase(id);
+        };
+        for(const auto& composition:document_.compositions)
+            for(const auto& root:composition.roots)own(root,composition.id,0);
+    }
+    bool value(const Ref& ref) { (void)composite_isolation_source(document_,ref);return visit(ref.object,0).value; }
+    std::map<Id,bool> all() {
+        std::map<Id,bool> result;
+        for(const auto& [id,object]:document_.objects) { (void)object;result.emplace(id,visit(id,0).value); }
+        return result;
+    }
+};
 }
 ObjectVisibilityProperty object_visibility_state(const Document& document,const Ref& ref) {
     const auto& object=visibility_source(document,ref);
@@ -1249,11 +1309,17 @@ std::map<Id,bool> evaluate_object_visibilities(const Document& document) {
     return ObjectVisibilityEvaluator(document).all();
 }
 bool composite_isolated_property(const Document& document,const Ref& ref) {
-    require(ref.point.empty(),"INVALID_OBJECT_REF","Composite isolation requires an empty point ID");
-    require(ref.field=="composite.isolated","TYPE_MISMATCH","Only composite.isolated accepts this Ref");
-    const auto object=document.objects.find(ref.object);
-    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
-    return object->second.compositing.isolated;
+    return composite_isolation_source(document,ref).isolated;
+}
+CompositeIsolationProperty composite_isolation_state(const Document& document,const Ref& ref) {
+    const auto& compositing=composite_isolation_source(document,ref);
+    return {compositing.isolated,compositing.isolated_driver,CompositeIsolationEvaluator(document).value(ref)};
+}
+bool evaluate_composite_isolation(const Document& document,const Ref& ref) {
+    return CompositeIsolationEvaluator(document).value(ref);
+}
+std::map<Id,bool> evaluate_composite_isolations(const Document& document) {
+    return CompositeIsolationEvaluator(document).all();
 }
 bool geometry_mask_enabled_property(const Document& document,const Ref& ref) {
     require(ref.point.empty(),"INVALID_OBJECT_REF","Geometry mask enabled requires an empty point ID");
@@ -1819,6 +1885,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     for(const auto& [id,object]:d.objects)if(object.compositing.mask)
         require(compositions.at(id)==compositions.at(object.compositing.mask->source),"CROSS_COMPOSITION","Geometry mask source must belong to the same Composition");
     (void)evaluate_object_visibilities(d);
+    (void)evaluate_composite_isolations(d);
     for(const auto& [id,object]:d.objects)if(object.text&&object.text->path_attachment) {
         const auto& attachment=*object.text->path_attachment;
         identity(attachment.path);identity(attachment.contour);
@@ -2395,7 +2462,8 @@ void put_inside(Document& document,const PutInside& command) {
     require(destination.compositing.opacity.literal==1,"PUT_INSIDE_APPEARANCE","Put Inside destination Group has non-neutral opacity");
     require(!driven(destination.compositing.opacity),"PUT_INSIDE_APPEARANCE","Put Inside destination Group opacity is driven");
     require(destination.compositing.blend=="normal","PUT_INSIDE_APPEARANCE","Put Inside destination Group uses a non-normal blend mode");
-    require(!destination.compositing.isolated,"PUT_INSIDE_APPEARANCE","Put Inside destination Group is isolated");
+    require(!evaluate_composite_isolation(document,{command.group,"","composite.isolated"}),
+        "PUT_INSIDE_APPEARANCE","Put Inside destination Group is isolated");
     require(!destination.compositing.mask,"PUT_INSIDE_APPEARANCE","Put Inside destination Group has a mask");
     require(destination.stack.empty(),"PUT_INSIDE_APPEARANCE","Put Inside destination Group has effects");
     const auto values=evaluate(document);const auto before=evaluate_transforms(document,values);
@@ -2427,7 +2495,8 @@ void ungroup(Document& document,const Ungroup& command) {
     require(document.objects.contains(command.group)&&document.objects.at(command.group).kind==Kind::group,"INVALID_GROUP","Ungroup requires a Group");
     const auto group=document.objects.at(command.group);auto& list=siblings(document,command.composition,command.parent);
     const auto at=std::find(list.begin(),list.end(),command.group);require(at!=list.end(),"INVALID_GROUP","Group must belong to the specified parent");
-    require(evaluate_object_visibility(document,command.group)&&group.compositing.blend=="normal"&&!group.compositing.isolated&&!group.compositing.mask&&
+    require(evaluate_object_visibility(document,command.group)&&group.compositing.blend=="normal"&&
+        !evaluate_composite_isolation(document,{command.group,"","composite.isolated"})&&!group.compositing.mask&&
         group.compositing.opacity.literal==1&&!driven(group.compositing.opacity)&&group.stack.empty(),"UNGROUP_APPEARANCE","Ungroup requires a visible neutral Group without opacity, blend, isolation, mask or effects");
     require(!group.transform_parent&&std::none_of(group.transform.begin(),group.transform.end(),[](const Scalar& v){return driven(v);}),"UNGROUP_DYNAMIC","Ungroup requires static Group transforms following structure");
     const auto values=evaluate(document);const auto before=evaluate_transforms(document,values);std::set<Ref> changed_matrices;
@@ -2455,7 +2524,8 @@ void move_out(Document& document,const MoveOut& command) {
     auto& siblings_list=siblings(document,command.composition,command.parent);
     const auto group_at=std::find(siblings_list.begin(),siblings_list.end(),command.group);
     require(group_at!=siblings_list.end(),"INVALID_GROUP","Folder must belong to the specified parent and Composition");
-    require(evaluate_object_visibility(document,command.group)&&group.compositing.blend=="normal"&&!group.compositing.isolated&&!group.compositing.mask&&
+    require(evaluate_object_visibility(document,command.group)&&group.compositing.blend=="normal"&&
+        !evaluate_composite_isolation(document,{command.group,"","composite.isolated"})&&!group.compositing.mask&&
         group.compositing.opacity.literal==1&&!driven(group.compositing.opacity)&&group.stack.empty(),
         "UNGROUP_APPEARANCE","Move Out requires a visible neutral Folder without opacity, blend, isolation, mask or effects");
     require(!group.transform_parent&&std::none_of(group.transform.begin(),group.transform.end(),[](const Scalar& v){return driven(v);}),
@@ -2578,6 +2648,7 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         for(auto& child:object.children)child=plan.ids.at(child);
         if(object.transform_parent&&plan.objects.contains(*object.transform_parent))object.transform_parent=plan.ids.at(*object.transform_parent);
         if(object.visibility_driver)object.visibility_driver=remap(*object.visibility_driver);
+        if(object.compositing.isolated_driver)object.compositing.isolated_driver=remap(*object.compositing.isolated_driver);
         if(object.compositing.mask) {
             auto& mask=*object.compositing.mask;mask.id=plan.ids.at(mask.id);
             if(plan.objects.contains(mask.source))mask.source=plan.ids.at(mask.source);
@@ -2644,6 +2715,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
     std::set<Ref> visibility_targets;
     std::set<Ref> operation_enabled_targets;
     std::set<Ref> gradient_enabled_targets;
+    std::set<Ref> composite_isolation_targets;
     for(const auto& command:commands)std::visit([&](const auto& value) {
         using T=std::decay_t<decltype(value)>;
         if constexpr(std::is_same_v<T,LinkFillRule>||std::is_same_v<T,UnlinkFillRule>)
@@ -2654,6 +2726,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(operation_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","An operation enabled target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkGradientEnabled>||std::is_same_v<T,UnlinkGradientEnabled>)
             require(gradient_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A Gradient enabled target may be linked or unlinked only once per batch");
+        else if constexpr(std::is_same_v<T,LinkCompositeIsolated>||std::is_same_v<T,UnlinkCompositeIsolated>)
+            require(composite_isolation_targets.insert(value.target).second,"DUPLICATE_TARGET","A Composite isolation target may be linked or unlinked only once per batch");
     },command);
 
     auto candidate=document;
@@ -2667,7 +2741,11 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 require(!object.visibility_driver,"DRIVEN_PROPERTY","Unlink Object visibility before changing its authored literal");
                 object.visible=c.visible;
             }
-            else if constexpr(std::is_same_v<T,SetCompositing>){object.compositing.blend=c.blend;object.compositing.isolated=c.isolated;}
+            else if constexpr(std::is_same_v<T,SetCompositing>){
+                require(!object.compositing.isolated_driver||c.isolated==object.compositing.isolated,
+                    "DRIVEN_PROPERTY","Unlink Composite isolation before changing its authored literal");
+                object.compositing.blend=c.blend;object.compositing.isolated=c.isolated;
+            }
             else object.compositing.mask=c.mask;
         } else if constexpr(std::is_same_v<T,LinkObjectVisibility>) {
             const auto& target=visibility_source(candidate,c.target);
@@ -2708,6 +2786,19 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             const auto frozen=evaluate_object_visibility(candidate,c.target.object);
             auto& object=candidate.objects.at(c.target.object);
             object.visible=frozen;object.visibility_driver.reset();
+        } else if constexpr(std::is_same_v<T,LinkCompositeIsolated>) {
+            const auto& target=composite_isolation_source(candidate,c.target);
+            (void)composite_isolation_source(candidate,c.source);
+            require(c.target!=c.source,"DEPENDENCY_CYCLE","Composite isolation cannot link to itself");
+            require(!target.isolated_driver||c.replace_driver,
+                "DRIVEN_PROPERTY","Replacing a Composite isolation driver requires replace_driver=true");
+            candidate.objects.at(c.target.object).compositing.isolated_driver=c.source;
+        } else if constexpr(std::is_same_v<T,UnlinkCompositeIsolated>) {
+            const auto& target=composite_isolation_source(candidate,c.target);
+            require(target.isolated_driver.has_value(),"PROPERTY_NOT_LINKED","Composite isolation has no driver to unlink");
+            const auto frozen=evaluate_composite_isolation(candidate,c.target);
+            auto& compositing=candidate.objects.at(c.target.object).compositing;
+            compositing.isolated=frozen;compositing.isolated_driver.reset();
         } else if constexpr(std::is_same_v<T,MaskObjects>) {
             require(c.members.size()>=2&&c.members.size()<=1000,"INVALID_GROUP","Mask With requires 2..1000 ordered contiguous siblings");
             const auto source=c.top?c.members.back():c.members.front();

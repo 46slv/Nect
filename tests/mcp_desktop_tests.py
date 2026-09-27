@@ -439,7 +439,7 @@ try:
         frozen_after=core('get',ref=target_gradient_ref)['result']
         assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.29' and core('get',ref=target_gradient_ref)['result']==frozen
+        assert mcp_native['version']=='0.30' and core('get',ref=target_gradient_ref)['result']==frozen
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -901,6 +901,32 @@ try:
         assert isolation['result']==desktop_api_call(endpoint,dict(identity,op='core',
             request=dict(op='get',ref=isolation_ref)))['result']
         assert any(item['ref']==isolation_ref for item in core('properties')['result'])
+        # Formal MCP exposes the same authored/evaluated contract and commands as the direct API.
+        rev=apply([dict(type='set_compositing',object='mcp-mask',blend='normal',isolated=True)],rev)
+        rev=apply([dict(type='link_composite_isolated',target=isolation_ref,
+            source=dict(object='mcp-mask',point='',field='composite.isolated'),replace_driver=False)],rev)
+        linked_isolation=core('get',ref=isolation_ref)
+        assert linked_isolation['ok'] and linked_isolation['result']['authored']==dict(literal=False,driver=dict(link=dict(
+            object='mcp-mask',point='',field='composite.isolated')))
+        assert linked_isolation['result']['evaluated'] is True and linked_isolation['result']['link'] is True
+        assert linked_isolation['result']==desktop_api_call(endpoint,dict(identity,op='core',
+            request=dict(op='get',ref=isolation_ref)))['result']
+        assert any(item['ref']==isolation_ref and item['authored']==linked_isolation['result']['authored']
+            and item['evaluated'] is True for item in core('properties')['result'])
+        rev=apply([dict(type='set_compositing',object='mcp-masked-group',blend='multiply',isolated=False)],rev)
+        assert core('get',ref=isolation_ref)['result']['authored']['literal'] is False
+        assert core('get',ref=isolation_ref)['result']['evaluated'] is True
+        rev=apply([dict(type='set_compositing',object='mcp-masked-group',blend='screen',isolated=False)],rev)
+        refused=core('apply',expected_revision=rev,commands=[dict(type='set_compositing',
+            object='mcp-masked-group',blend='screen',isolated=True)])
+        assert not refused['ok'] and refused['error']['code']=='DRIVEN_PROPERTY' and refused['revision']==rev
+        rev=apply([dict(type='unlink_composite_isolated',target=isolation_ref)],rev)
+        frozen_isolation=core('get',ref=isolation_ref)['result']
+        assert frozen_isolation['authored']==dict(literal=True,driver=None) and frozen_isolation['evaluated'] is True
+        rev=apply([dict(type='set_compositing',object='mcp-mask',blend='normal',isolated=False),
+            dict(type='set_compositing',object='mcp-masked-group',blend='screen',isolated=False)],rev)
+        restored_isolation=core('get',ref=isolation_ref)['result']
+        assert restored_isolation['authored']==dict(literal=False,driver=None) and restored_isolation['evaluated'] is False
         mask_enabled_ref=dict(object='mcp-masked-group',point='',field='mask.enabled')
         mask_enabled=core('get',ref=mask_enabled_ref)
         assert mask_enabled['ok'] and mask_enabled['result']['type']=='bool'
@@ -1184,7 +1210,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.29'
+        assert native_save_as['version']=='0.30'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']

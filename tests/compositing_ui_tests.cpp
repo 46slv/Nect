@@ -83,5 +83,53 @@ void visibility_inspector(){
     check(!object_visibility_state(session.document(),{"target","","object.visible"}).evaluated,
         "Unlinked Inspector value remains frozen when its former source changes");
 }
+void isolation_inspector(){
+    QTemporaryDir tmp;Window w(tmp.path());w.host.session=Session(empty_document("isolation-doc","isolation-comp","isolation-board"));
+    auto& session=w.host.session;
+    session.apply({CreatePrimitive{"isolation-comp","","source","Isolation Source",default_primitive("source-primitive","nect.shape.rectangle")},
+        CreatePrimitive{"isolation-comp","","target","Isolation Target",default_primitive("target-primitive","nect.shape.rectangle")},
+        SetCompositing{"source","normal",true}},session.revision());
+    w.host.edited();w.show();QApplication::processEvents();w.canvas->set_selection("target");QApplication::processEvents();
+    const Ref target{"target","","composite.isolated"},source{"source","","composite.isolated"};
+    auto* isolation=widget<QCheckBox>(w,"object-isolated");
+    check(!isolation->isChecked()&&isolation->isEnabled(),"Isolation Inspector starts from the authored literal");
+    auto* driver=widget<QToolButton>(w,"object-isolated-driver");bool picked=false;QTimer chooser;chooser.setInterval(0);
+    QObject::connect(&chooser,&QTimer::timeout,&w,[&]{
+        for(auto* top:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(top)) {
+            if(auto* combo=dialog->findChild<QComboBox*>();combo&&combo->count()) {
+                for(int i=0;i<combo->count();++i)if(combo->itemText(i).contains("source")){combo->setCurrentIndex(i);picked=true;break;}
+            }
+            dialog->accept();chooser.stop();return;
+        }
+    });
+    chooser.start();driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    auto state=composite_isolation_state(session.document(),target);
+    check(picked&&state.literal==false&&state.driver==source&&state.evaluated,
+        "Inspector links a stable isolation source and retains the false authored literal");
+    check(!widget<QCheckBox>(w,"object-isolated")->isEnabled()&&
+        widget<QLabel>(w,"object-isolated-status")->text().contains("Evaluated authored isolation: true")&&
+        widget<QLabel>(w,"object-isolated-status")->text().contains("Isolation Source"),
+        "Driven Inspector disables literal editing and shows source and evaluated authored value");
+    session.apply({SetCompositing{"target","multiply",false}},session.revision());w.host.edited();
+    state=composite_isolation_state(session.document(),target);
+    check(state.literal==false&&state.driver==source&&state.evaluated&&
+        session.document().objects.at("target").compositing.blend=="multiply",
+        "Inspector blend edit preserves the isolation driver and authored literal");
+    session.apply({SetCompositing{"source","normal",false}},session.revision());w.host.edited();
+    state=composite_isolation_state(session.document(),target);
+    check(!state.evaluated&&widget<QLabel>(w,"object-isolated-status")->text().contains("Evaluated authored isolation: false"),
+        "Inspector follows a source edit without changing the target literal");
+    driver=widget<QToolButton>(w,"object-isolated-driver");
+    check(driver->menu()->actions().size()==2&&driver->menu()->actions()[1]->isEnabled(),
+        "Inspector offers explicit unlink for a driven isolation value");
+    driver->menu()->actions()[1]->trigger();QApplication::processEvents();
+    state=composite_isolation_state(session.document(),target);
+    check(!state.literal&&!state.driver&&!widget<QCheckBox>(w,"object-isolated")->isChecked()&&
+        widget<QCheckBox>(w,"object-isolated")->isEnabled(),
+        "Inspector unlink freezes evaluated isolation and re-enables its literal toggle");
+    session.apply({SetCompositing{"source","normal",true}},session.revision());w.host.edited();
+    check(!composite_isolation_state(session.document(),target).evaluated,
+        "Unlinked Inspector value stays frozen when its former source changes");
 }
-int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();visibility_inspector();std::cout<<"Compositing UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+}
+int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();visibility_inspector();isolation_inspector();std::cout<<"Compositing UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
