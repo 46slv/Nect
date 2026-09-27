@@ -65,6 +65,18 @@ void check_morphology(const QJsonObject& value,const QJsonArray& expected,int ar
     for(const auto& run:runs)run_area+=run.toObject().value("width").toInt();
     check(run_area==morphology.value("area").toInt(),"Morphology run widths sum to the mask area");
 }
+void check_erosion(const QJsonObject& value,const QJsonArray& expected,int area,const char* message) {
+    const auto erosion=value.value("erosion").toObject();
+    check(erosion.value("operation").toString()=="erode"&&
+        erosion.value("kernel").toString()=="cross-4-radius-1"&&
+        erosion.value("border").toString()=="outside-background"&&
+        erosion.value("coordinate_space").toString()=="artboard-output-pixels",message);
+    const auto runs=erosion.value("runs").toArray();
+    check(runs==expected&&erosion.value("area").toInt()==area,message);
+    int run_area=0;
+    for(const auto& run:runs)run_area+=run.toObject().value("width").toInt();
+    check(run_area==erosion.value("area").toInt(),"Erosion run widths sum to the mask area");
+}
 void check_edges(const QJsonObject& value,const QJsonArray& expected,int pixel_count,const char* message) {
     const auto runs=value.value("edge_runs").toArray();
     check(runs==expected,message);
@@ -191,6 +203,53 @@ void independent_morphology_oracle() {
         expected_runs({{0,0,5},{1,0,5},{2,0,5},{3,0,5},{4,0,5}}),25,
         "Cross dilation fills a one-pixel hole without extending beyond the image");
 }
+void independent_erosion_oracle() {
+    QImage full_three(3,3,QImage::Format_ARGB32_Premultiplied);full_three.fill(qRgba(0,0,0,255));
+    check_erosion(analyze_region_pixels(full_three,128,1.0,32),expected_runs({{1,1,1}}),1,
+        "A full 3x3 image erodes to its single center pixel");
+
+    QImage full_five(5,5,QImage::Format_ARGB32_Premultiplied);full_five.fill(qRgba(0,0,0,255));
+    check_erosion(analyze_region_pixels(full_five,128,1.0,33),
+        expected_runs({{1,1,3},{2,1,3},{3,1,3}}),9,
+        "A full 5x5 image erodes to the central 3x3 square");
+
+    auto hole=full_five;hole.setPixel(2,2,qRgba(0,0,0,0));
+    const auto hole_result=analyze_region_pixels(hole,128,1.0,34);
+    check_erosion(hole_result,expected_runs({{1,1,1},{1,3,1},{3,1,1},{3,3,1}}),4,
+        "A transparent center in a full 5x5 image leaves four isolated eroded pixels");
+    check_morphology(hole_result,expected_runs({{0,0,5},{1,0,5},{2,0,5},{3,0,5},{4,0,5}}),25,
+        "D5 still dilates the original holed input to full output independently of D6");
+
+    auto threshold_hole=full_five;threshold_hole.setPixel(2,2,qRgba(0,0,0,127));
+    const auto threshold_high=analyze_region_pixels(threshold_hole,128,1.0,35);
+    check_erosion(threshold_high,expected_runs({{1,1,1},{1,3,1},{3,1,1},{3,3,1}}),4,
+        "An alpha-127 center remains an erosion hole at threshold 128");
+    check_morphology(threshold_high,expected_runs({{0,0,5},{1,0,5},{2,0,5},{3,0,5},{4,0,5}}),25,
+        "D5 includes the alpha-127 hole in its dilation at threshold 128");
+    check_erosion(analyze_region_pixels(threshold_hole,127,1.0,35),
+        expected_runs({{1,1,3},{2,1,3},{3,1,3}}),9,
+        "An alpha-127 center becomes foreground for erosion at threshold 127");
+
+    QImage empty(5,5,QImage::Format_ARGB32_Premultiplied);empty.fill(Qt::transparent);
+    check_erosion(analyze_region_pixels(empty,128,1.0,36),{},0,
+        "Zero input erodes to an empty result");
+    auto isolated=empty;isolated.setPixel(2,2,qRgba(0,0,0,255));
+    check_erosion(analyze_region_pixels(isolated,128,1.0,37),{},0,
+        "An isolated source pixel erodes to empty");
+
+    QImage horizontal(5,1,QImage::Format_ARGB32_Premultiplied);horizontal.fill(qRgba(0,0,0,255));
+    check_erosion(analyze_region_pixels(horizontal,128,1.0,38),{},0,
+        "A one-pixel horizontal stroke erodes to empty");
+    QImage diagonal(5,5,QImage::Format_ARGB32_Premultiplied);diagonal.fill(Qt::transparent);
+    for(int coordinate=0;coordinate<5;++coordinate)
+        diagonal.setPixel(coordinate,coordinate,qRgba(0,0,0,255));
+    check_erosion(analyze_region_pixels(diagonal,128,1.0,39),{},0,
+        "A one-pixel diagonal stroke erodes to empty");
+
+    QImage full_column(1,5,QImage::Format_ARGB32_Premultiplied);full_column.fill(qRgba(0,0,0,255));
+    check_erosion(analyze_region_pixels(full_column,128,1.0,40),{},0,
+        "A full one-pixel-wide column erodes to empty at the image border");
+}
 QImage line_candidate_cap_image(bool extra_spur) {
     const auto height=extra_spur?401:399;
     QImage image(300,height,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);
@@ -241,6 +300,95 @@ QImage morphology_cap_image(bool over_limit) {
     image.setPixel(0,0,qRgba(0,0,0,255));
     if(over_limit)image.setPixel(404,272,qRgba(0,0,0,255));
     return image;
+}
+QImage erosion_cap_image() {
+    QImage image(273,401,QImage::Format_ARGB32_Premultiplied);image.fill(qRgba(0,0,0,255));
+    for(int row=0;row<100;++row)for(int column=0;column<67;++column)
+        image.setPixel(2+column*4,2+row*4,qRgba(0,0,0,0));
+    return image;
+}
+std::uint64_t independent_region_count(const QImage& image,int threshold) {
+    const auto width=image.width(),height=image.height();
+    std::vector<bool> visited(static_cast<std::size_t>(width)*static_cast<std::size_t>(height));
+    std::vector<std::size_t> queue;
+    std::uint64_t regions=0;
+    const auto foreground=[&](int x,int y) {
+        return x>=0&&y>=0&&x<width&&y<height&&qAlpha(image.pixel(x,y))>=threshold;
+    };
+    for(int y=0;y<height;++y)for(int x=0;x<width;++x) {
+        const auto seed=static_cast<std::size_t>(y)*static_cast<std::size_t>(width)+static_cast<std::size_t>(x);
+        if(visited[seed]||!foreground(x,y))continue;
+        ++regions;queue.clear();queue.push_back(seed);visited[seed]=true;
+        for(std::size_t cursor=0;cursor<queue.size();++cursor) {
+            const auto index=queue[cursor];
+            const auto current_x=static_cast<int>(index%static_cast<std::size_t>(width));
+            const auto current_y=static_cast<int>(index/static_cast<std::size_t>(width));
+            for(const auto delta:std::array<std::array<int,2>,4>{{{{-1,0}},{{1,0}},{{0,-1}},{{0,1}}}}) {
+                const auto next_x=current_x+delta[0],next_y=current_y+delta[1];
+                if(!foreground(next_x,next_y))continue;
+                const auto next=static_cast<std::size_t>(next_y)*static_cast<std::size_t>(width)+static_cast<std::size_t>(next_x);
+                if(visited[next])continue;
+                visited[next]=true;queue.push_back(next);
+            }
+        }
+    }
+    return regions;
+}
+std::uint64_t independent_edge_run_count(const QImage& image,int threshold) {
+    const auto foreground=[&](int x,int y) {
+        return x>=0&&y>=0&&x<image.width()&&y<image.height()&&qAlpha(image.pixel(x,y))>=threshold;
+    };
+    std::uint64_t runs=0;
+    for(int y=0;y<image.height();++y) {
+        bool in_run=false;
+        for(int x=0;x<image.width();++x) {
+            const auto edge=foreground(x,y)&&(!foreground(x-1,y)||!foreground(x+1,y)||
+                !foreground(x,y-1)||!foreground(x,y+1));
+            if(edge&&!in_run)++runs;
+            in_run=edge;
+        }
+    }
+    return runs;
+}
+std::uint64_t independent_line_candidate_count(const QImage& image,int threshold) {
+    constexpr std::array<std::array<int,2>,4> directions{{{{1,0}},{{0,1}},{{1,1}},{{1,-1}}}};
+    const auto foreground=[&](int x,int y) {
+        return x>=0&&y>=0&&x<image.width()&&y<image.height()&&qAlpha(image.pixel(x,y))>=threshold;
+    };
+    const auto eligible=[&](int x,int y,std::size_t direction) {
+        if(!foreground(x,y))return false;
+        if(direction==0)return !foreground(x,y-1)&&!foreground(x,y+1);
+        if(direction==1)return !foreground(x-1,y)&&!foreground(x+1,y);
+        return !foreground(x-1,y)&&!foreground(x+1,y)&&!foreground(x,y-1)&&!foreground(x,y+1);
+    };
+    std::uint64_t candidates=0;
+    for(std::size_t direction=0;direction<directions.size();++direction) {
+        const auto [dx,dy]=directions[direction];
+        for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+            if(!eligible(x,y,direction)||eligible(x-dx,y-dy,direction))continue;
+            int end_x=x,end_y=y,length=1;
+            while(eligible(end_x+dx,end_y+dy,direction)) {end_x+=dx;end_y+=dy;++length;}
+            if(length>=3)++candidates;
+        }
+    }
+    return candidates;
+}
+std::uint64_t independent_cross_run_count(const QImage& image,int threshold,bool erosion) {
+    const auto foreground=[&](int x,int y) {
+        return x>=0&&y>=0&&x<image.width()&&y<image.height()&&qAlpha(image.pixel(x,y))>=threshold;
+    };
+    std::uint64_t runs=0;
+    for(int y=0;y<image.height();++y) {
+        bool in_run=false;
+        for(int x=0;x<image.width();++x) {
+            const auto result=erosion?
+                foreground(x,y)&&foreground(x-1,y)&&foreground(x+1,y)&&foreground(x,y-1)&&foreground(x,y+1):
+                foreground(x,y)||foreground(x-1,y)||foreground(x+1,y)||foreground(x,y-1)||foreground(x,y+1);
+            if(result&&!in_run)++runs;
+            in_run=result;
+        }
+    }
+    return runs;
 }
 void morphology_run_cap_oracle(const QString& temp_directory) {
     const auto exact=morphology_cap_image(false);
@@ -300,6 +448,60 @@ void morphology_run_cap_oracle(const QString& temp_directory) {
     check(over_host.session.revision()==over_revision&&over_host.session.history()==over_history_before&&
         encode(over_host.session.document())==over_document_before&&bytes(over_native)==over_native_before,
         "Morphology cap refusal leaves Canvas Document, revision, History and native bytes unchanged");
+}
+void erosion_run_cap_oracle(const QString& temp_directory) {
+    const auto source=erosion_cap_image();
+    constexpr std::uint64_t transparent_holes=6'700;
+    constexpr std::uint64_t exact_erosion_runs=20'399;
+    std::uint64_t observed_holes=0;
+    for(int y=0;y<source.height();++y)for(int x=0;x<source.width();++x)
+        if(qAlpha(source.pixel(x,y))<128)++observed_holes;
+    check(observed_holes==transparent_holes&&
+        static_cast<std::uint64_t>(source.width())*static_cast<std::uint64_t>(source.height())<4'000'000,
+        "The 6,700-hole fixture fits the output-pixel bound");
+    check(independent_region_count(source,128)==1,"The 6,700-hole fixture has one source region");
+    check(independent_edge_run_count(source,128)==27'500,"The fixture has 27,500 edge runs, below D2's cap");
+    check(independent_boundary_edges(source)==28'148,"The fixture has 28,148 boundary edges, below D3's cap");
+    check(independent_line_candidate_count(source,128)==0,"The fixture has no D4 line candidates");
+    check(independent_cross_run_count(source,128,false)==static_cast<std::uint64_t>(source.height()),
+        "D5 dilation fills every isolated hole into 401 output runs");
+    check(independent_cross_run_count(source,128,true)==exact_erosion_runs,
+        "The independent scan yields 20,399 erosion runs above D6's cap");
+
+    try {analyze_region_pixels(source,128,1.0,41);throw std::runtime_error("Expected erosion run limit refusal");}
+    catch(const Error& error) {
+        check(error.code=="ANALYSIS_LIMIT"&&QString::fromStdString(error.what()).contains("20,000 erosion runs"),
+            "The pixel helper refuses the 20,001st erosion run");
+    }
+
+    QTemporaryDir temp(temp_directory+"/erosion-cap-XXXXXX");
+    check(temp.isValid(),"A temporary erosion-cap Canvas fixture directory is available");
+    const auto document_id=std::string("erosion-cap-document");
+    const auto composition_id=std::string("erosion-cap-composition");
+    const auto artboard_id=std::string("erosion-cap-artboard");
+    auto document=empty_document(document_id,composition_id,artboard_id);
+    auto& artboard=document.compositions.front().artboards.front();
+    artboard.width=source.width();artboard.height=source.height();
+    Host host(temp.path()+"/erosion-cap-recovery");host.session=Session(std::move(document));
+    const auto input=temp.path()+"/erosion-cap.png";
+    check(source.save(input,"PNG"),"The erosion-cap raster fixture is written");
+    host.import_image(input,"embedded",composition_id,"","erosion-cap-asset","erosion-cap-image","Erosion cap",0,0,0);
+    const auto native=temp.path()+"/erosion-cap.nect";host.save(native);
+    const auto native_before=bytes(native);
+    const auto document_before=encode(host.session.document());
+    const auto history_before=host.session.history();
+    const auto revision=host.session.revision();
+    const QJsonObject fields{{"expected_revision",static_cast<qint64>(revision)},
+        {"composition",QString::fromStdString(composition_id)},{"artboard",QString::fromStdString(artboard_id)},
+        {"scale",1.0},{"threshold",128}};
+    const auto response=api(host,fields);
+    const auto error=response.value("error").toObject();
+    check(error.value("code").toString()=="ANALYSIS_LIMIT"&&!response.contains("result")&&
+        error.value("message").toString().contains("20,000 erosion runs"),
+        "The real Canvas API refuses erosion run 20,001 without returning a partial result");
+    check(host.session.revision()==revision&&host.session.history()==history_before&&
+        encode(host.session.document())==document_before&&bytes(native)==native_before,
+        "Erosion cap refusal leaves Canvas Document, revision, History and native bytes unchanged");
 }
 void line_candidate_limit_oracle(const QString& temp_directory) {
     auto exact=line_candidate_cap_image(false);
@@ -694,6 +896,41 @@ void live_canvas_api() {
         encode(serpent_host.session.document())==serpent_document_before&&bytes(serpent_native)==serpent_native_before,
         "Boundary-edge limit refusal leaves Session revision, history, Document and native bytes unchanged");
 }
+void live_erosion_canvas_api() {
+    QTemporaryDir temp;check(temp.isValid(),"Temporary erosion Canvas test directory is available");
+    auto document=empty_document("erosion-live-document","erosion-live-composition","erosion-live-artboard");
+    auto& artboard=document.compositions.front().artboards.front();
+    artboard.width=5;artboard.height=5;
+    Host host(temp.path()+"/recovery");host.session=Session(std::move(document));
+    QImage source(5,5,QImage::Format_ARGB32_Premultiplied);source.fill(qRgba(0,0,0,255));
+    source.setPixel(2,2,qRgba(0,0,0,0));
+    const auto input=temp.path()+"/erosion-hole.png";
+    check(source.save(input,"PNG"),"The hand-computed transparent-hole Canvas fixture is written");
+    host.import_image(input,"embedded","erosion-live-composition","","erosion-live-asset",
+        "erosion-live-image","Erosion live fixture",0,0,0);
+    const auto native=temp.path()+"/erosion-live.nect";host.save(native);
+    const auto native_before=bytes(native);
+    const auto document_before=encode(host.session.document());
+    const auto history_before=host.session.history();
+    const auto revision=host.session.revision();
+    const QJsonObject fields{{"expected_revision",static_cast<qint64>(revision)},
+        {"composition","erosion-live-composition"},{"artboard","erosion-live-artboard"},
+        {"scale",1.0},{"threshold",128}};
+    const auto response=api(host,fields);
+    check(response.value("ok").toBool()&&response.value("revision").toInt()==static_cast<int>(revision),
+        "The real Canvas analyzer succeeds at its exact source revision");
+    const auto result=response.value("result").toObject();
+    check(result.value("width").toInt()==5&&result.value("height").toInt()==5&&
+        result.value("source_revision").toInt()==static_cast<int>(revision),
+        "The erosion result uses the rendered 5x5 Canvas dimensions and revision");
+    check_erosion(result,expected_runs({{1,1,1},{1,3,1},{3,1,1},{3,3,1}}),4,
+        "The real Canvas/API erosion matches the hand-computed four isolated pixels around a transparent center");
+    check_morphology(result,expected_runs({{0,0,5},{1,0,5},{2,0,5},{3,0,5},{4,0,5}}),25,
+        "The paired real Canvas D5 dilation still reads the same original hole input");
+    check(host.session.revision()==revision&&host.session.history()==history_before&&
+        encode(host.session.document())==document_before&&bytes(native)==native_before,
+        "Live erosion and paired dilation leave revision, History, Document and native bytes unchanged");
+}
 }
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");
@@ -701,14 +938,18 @@ int main(int argc,char** argv) {
     try {
         independent_pixel_oracle();
         independent_morphology_oracle();
+        independent_erosion_oracle();
         independent_line_oracle();
         independent_edge_oracle();
         independent_contour_oracle();
         live_canvas_api();
+        live_erosion_canvas_api();
         QTemporaryDir line_cap_temp;check(line_cap_temp.isValid(),"Line-cap test directory is available");
         line_candidate_limit_oracle(line_cap_temp.path());
         QTemporaryDir morphology_cap_temp;check(morphology_cap_temp.isValid(),"Morphology-cap test directory is available");
         morphology_run_cap_oracle(morphology_cap_temp.path());
-        std::cout<<"PASS region, edge-map, contour, thin-line and morphology pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
+        QTemporaryDir erosion_cap_temp;check(erosion_cap_temp.isValid(),"Erosion-cap test directory is available");
+        erosion_run_cap_oracle(erosion_cap_temp.path());
+        std::cout<<"PASS region, edge-map, contour, thin-line, dilation and erosion pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

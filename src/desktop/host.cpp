@@ -596,6 +596,29 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
     const QJsonObject morphology{{"operation","dilate"},{"kernel","cross-4-radius-1"},
         {"border","outside-background-clipped"},{"coordinate_space","artboard-output-pixels"},
         {"area",static_cast<qint64>(morphology_area)},{"runs",morphology_runs}};
+    QJsonArray erosion_runs;
+    std::uint64_t erosion_area=0;
+    const auto append_erosion_run=[&](int y,int start,int end) {
+        if(static_cast<std::size_t>(erosion_runs.size())>=max_morphology_runs)
+            throw Error("ANALYSIS_LIMIT","Region analysis is limited to 20,000 erosion runs");
+        const auto run_width=end-start;
+        erosion_area+=static_cast<std::uint64_t>(run_width);
+        erosion_runs.append(QJsonObject{{"y",y},{"x",start},{"width",run_width}});
+    };
+    for(int y=0;y<image.height();++y) {
+        bool in_run=false;
+        int run_start=0;
+        for(int x=0;x<image.width();++x) {
+            const auto eroded=foreground_at_pixel(x,y)&&foreground_at_pixel(x-1,y)&&
+                foreground_at_pixel(x+1,y)&&foreground_at_pixel(x,y-1)&&foreground_at_pixel(x,y+1);
+            if(eroded&&!in_run) {run_start=x;in_run=true;}
+            else if(!eroded&&in_run) {append_erosion_run(y,run_start,x);in_run=false;}
+        }
+        if(in_run)append_erosion_run(y,run_start,image.width());
+    }
+    const QJsonObject erosion{{"operation","erode"},{"kernel","cross-4-radius-1"},
+        {"border","outside-background"},{"coordinate_space","artboard-output-pixels"},
+        {"area",static_cast<qint64>(erosion_area)},{"runs",erosion_runs}};
     return {{"regions",regions},{"edge_runs",edge_runs},{"edge_pixel_count",static_cast<qint64>(edge_pixel_count)},
         {"edge_rule","foreground-4-neighbor"},{"threshold",threshold},{"connectivity",4},{"scale",scale},
         {"width",image.width()},{"height",image.height()},{"color_space","sRGB"},
@@ -606,7 +629,7 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         {"contour_coordinate_space","artboard-output-pixel-corners"},
         {"contour_closed","implicit-last-to-first"},{"line_candidates",line_candidates},
         {"line_rule","exact-one-pixel-wide-4-direction-min3"},
-        {"line_coordinate_space","artboard-output-pixel-centers"},{"morphology",morphology}};
+        {"line_coordinate_space","artboard-output-pixel-centers"},{"morphology",morphology},{"erosion",erosion}};
 }
 
 QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected) {

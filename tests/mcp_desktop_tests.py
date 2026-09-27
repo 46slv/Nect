@@ -112,6 +112,8 @@ try:
         assert direct_regions['result']['contour_closed'] == 'implicit-last-to-first'
         assert direct_regions['result']['morphology'] == dict(operation='dilate', kernel='cross-4-radius-1',
             border='outside-background-clipped', coordinate_space='artboard-output-pixels', area=0, runs=[])
+        assert direct_regions['result']['erosion'] == dict(operation='erode', kernel='cross-4-radius-1',
+            border='outside-background', coordinate_space='artboard-output-pixels', area=0, runs=[])
         rng = random.Random(7821)
         commands = []
         for i in range(24):
@@ -729,6 +731,12 @@ try:
         assert vector_morphology['border']=='outside-background-clipped'
         assert vector_morphology['coordinate_space']=='artboard-output-pixels'
         assert vector_morphology['runs'] and vector_morphology['area']==sum(run['width'] for run in vector_morphology['runs'])
+        vector_erosion=direct_vector_analysis['result']['erosion']
+        assert vector_erosion['operation']=='erode'
+        assert vector_erosion['kernel']=='cross-4-radius-1'
+        assert vector_erosion['border']=='outside-background'
+        assert vector_erosion['coordinate_space']=='artboard-output-pixels'
+        assert vector_erosion['runs'] and vector_erosion['area']==sum(run['width'] for run in vector_erosion['runs'])
         assert core('inspect')['result']==vector_document_before_analysis
         assert tool('nect_session')['revision']==vector['revision']
         assert direct_vector_analysis['result']['regions'], 'Filled SVG artwork yields at least one analyzed region'
