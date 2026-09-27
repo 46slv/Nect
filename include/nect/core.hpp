@@ -248,6 +248,8 @@ struct Object {
     // Replaces inherited structural transforms; ownership/order stay structural.
     std::optional<Id> transform_parent;
     bool visible=true;
+    // Optional same-field link. The literal above remains authored state.
+    std::optional<Ref> visibility_driver;
     Compositing compositing;
     std::optional<ImageSource> image;
     bool operator==(const Object&) const = default;
@@ -428,6 +430,8 @@ struct LinkProperties { std::vector<Ref> targets; Ref source; bool relative=fals
 struct UnlinkProperties { std::vector<Ref> targets; };
 struct SetExpression { std::vector<Ref> targets; Expression expression; bool replace_binding=false; };
 struct SetVisibility { Id object; bool visible; };
+struct LinkObjectVisibility { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkObjectVisibility { Ref target; };
 struct SetCompositing { Id object; std::string blend; bool isolated; };
 struct SetMask { Id object; std::optional<GeometryMask> mask; };
 struct MaskObjects { Id composition,parent; std::vector<Id> members; Id id,mask_id; std::string name; bool top=true; };
@@ -469,7 +473,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
-    SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
+    SetVisibility,LinkObjectVisibility,UnlinkObjectVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
     AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects>;
 
 using Affine=std::array<double,6>;
@@ -613,6 +617,14 @@ std::string evaluate_fill_rule(const Document&,const Ref&);
 std::map<Ref,std::string> evaluate_fill_rules(const Document&);
 bool operation_enabled_property(const Document&,const Ref&);
 bool object_visibility_property(const Document&,const Ref&);
+struct ObjectVisibilityProperty {
+    bool literal=true;
+    std::optional<Ref> driver;
+    bool evaluated=true;
+};
+ObjectVisibilityProperty object_visibility_state(const Document&,const Ref&);
+bool evaluate_object_visibility(const Document&,const Id& object);
+std::map<Id,bool> evaluate_object_visibilities(const Document&);
 bool composite_isolated_property(const Document&,const Ref&);
 struct GuidePositionProperty {
     double literal=0;

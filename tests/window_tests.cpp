@@ -354,6 +354,21 @@ void explicit_folder_transfer_action(Window& window) {
         decode(encode(session.document()))==session.document(),"Explicit transfer preserves pixels and native state");
     const auto moved=session.document();session.undo(session.revision());window.host.edited();check(session.document()==before,"Explicit transfer is one exact Undo");
     session.redo(session.revision());window.host.edited();check(session.document()==moved,"Explicit transfer is one exact Redo");
+    session.apply({SetVisibility{"barrier",false},
+        LinkObjectVisibility{{"empty-gap","","object.visible"},{"barrier","","object.visible"},false}},session.revision());
+    window.host.edited();window.canvas->set_selection("chosen-b");QApplication::processEvents();
+    bool hidden_gap_offered=false,after_hidden_gap_offered=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+        auto* combo=dialog->findChild<QComboBox*>();
+        if(combo)for(int i=0;i<combo->count();++i) {
+            hidden_gap_offered|=combo->itemText(i).contains("empty-gap");
+            after_hidden_gap_offered|=combo->itemText(i).contains("destination-folder");
+        }
+        dialog->reject();return;
+    }});
+    const auto linked_hidden=session.document();const auto linked_revision=session.revision();action->trigger();QApplication::processEvents();
+    check(hidden_gap_offered&&!after_hidden_gap_offered&&session.document()==linked_hidden&&session.revision()==linked_revision,
+        "A linked-hidden intermediate Folder blocks Desktop transfer eligibility by evaluated own visibility");
     Point blocked_point;blocked_point.id="blocked-child-point";blocked_point.x.literal=260;blocked_point.y.literal=90;
     session.apply({CreatePath{composition,"blocked-folder","blocked-child","Blocked child",{{"blocked-child-contour",false,{blocked_point}}}}},session.revision());
     window.host.edited();window.canvas->set_selection("blocked-child");QApplication::processEvents();
@@ -2073,7 +2088,7 @@ void text_path_authoring(Window& window) {
     Host cold_reopen(native_dir.path()+"/recovery");cold_reopen.open(native_path);
     check(cold_reopen.session.document()==session.document()&&
         cold_reopen.session.document().objects.at("ui-text").text->path_attachment->contour=="ui-contour",
-        "Native 0.26 cold reopen preserves exact editable Text and stable Contour attachment IDs");
+        "Native 0.27 cold reopen preserves exact editable Text and stable Contour attachment IDs");
     const auto attached_document=session.document();const auto detach_revision=session.revision();
     visible_child<QPushButton>(window,"text-path-detach")->click();QApplication::processEvents();
     check(session.revision()==detach_revision+1&&!session.document().objects.at("ui-text").text->path_attachment&&

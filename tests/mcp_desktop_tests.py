@@ -764,10 +764,21 @@ try:
         masked=core('inspect')['result']
         assert next(o for o in masked['objects'] if o['id']=='mcp-mask')['visible'] is False
         visibility_ref=dict(object='mcp-mask',point='',field='object.visible')
+        rev=apply([dict(type='link_object_visibility',target=visibility_ref,
+                        source=dict(object='linked-star',point='',field='object.visible'),replace_driver=False)],rev)
+        linked_visibility=core('get',ref=visibility_ref)['result']
+        assert linked_visibility['authored']==dict(literal=False,driver=dict(link=dict(
+            object='linked-star',point='',field='object.visible'))) and linked_visibility['evaluated'] is True
+        refused=core('apply',expected_revision=rev,commands=[dict(type='set_visibility',object='mcp-mask',visible=True)])
+        assert not refused['ok'] and refused['error']['code']=='DRIVEN_PROPERTY' and refused['revision']==rev
+        rev=apply([dict(type='unlink_object_visibility',target=visibility_ref)],rev)
+        frozen_visibility=core('get',ref=visibility_ref)['result']
+        assert frozen_visibility['authored']==dict(literal=True,driver=None) and frozen_visibility['evaluated'] is True
+        rev=apply([dict(type='set_visibility',object='mcp-mask',visible=False)],rev)
         visibility=core('get',ref=visibility_ref)
         assert visibility['ok'] and visibility['result']['type']=='bool'
         assert visibility['result']['authored']==dict(literal=False,driver=None)
-        assert visibility['result']['evaluated'] is False and visibility['result']['link'] is False
+        assert visibility['result']['evaluated'] is False and visibility['result']['link'] is True
         direct_visibility=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=visibility_ref)))
         assert visibility['result']==direct_visibility['result'],(visibility,direct_visibility)
         assert any(item['ref']==visibility_ref for item in core('properties')['result'])
@@ -1043,7 +1054,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.26'
+        assert native_save_as['version']=='0.27'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']

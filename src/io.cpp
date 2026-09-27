@@ -478,11 +478,12 @@ j::object operation_enabled_property_json(const Document& d,const Ref& ref,bool 
         {"authored",j::object{{"literal",enabled},{"driver",nullptr}}},
         {"evaluated",enabled},{"link",false},{"expression",false}};
 }
-j::object object_visibility_property_json(const Document& d,const Ref& ref,bool visible) {
+j::object object_visibility_property_json(const Document& d,const Ref& ref,const ObjectVisibilityProperty& value) {
+    j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
         {"unit","boolean"},{"space","local"},{"origin","authored"},
-        {"authored",j::object{{"literal",visible},{"driver",nullptr}}},
-        {"evaluated",visible},{"link",false},{"expression",false}};
+        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
+        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
 }
 j::object composite_isolated_property_json(const Document& d,const Ref& ref,bool isolated) {
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
@@ -822,6 +823,13 @@ Command read_command(const j::value& v) {
     if(type=="unlink_text_alignment") {
         keys(o,{"type","target"});return UnlinkTextAlignment{read_ref(o.at("target"))};
     }
+    if(type=="link_object_visibility") {
+        keys(o,{"type","target","source","replace_driver"});
+        return LinkObjectVisibility{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="unlink_object_visibility") {
+        keys(o,{"type","target"});return UnlinkObjectVisibility{read_ref(o.at("target"))};
+    }
     if(type=="link_fill_rule") {
         keys(o,{"type","target","source","replace_driver"});
         return LinkFillRule{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
@@ -1057,10 +1065,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,26> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26"};
+        constexpr std::array<std::string_view,27> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.26 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.27 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1090,6 +1098,7 @@ Document decode(std::string_view input) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
             else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
+            else if(minor>=27)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image","visibility_driver"});
             else if(minor>=13)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image"});
             else if(minor>=11)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke"});
             else if(minor>=9)keys(o,{"id","name","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke"});
@@ -1100,6 +1109,9 @@ Document decode(std::string_view input) {
             obj.id=text(o.at("id"));
             obj.name=text(o.at("name"));
             if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"));}
+            if(minor>=27)if(const auto* driver=o.if_contains("visibility_driver")) {
+                const auto& fields=driver->as_object();keys(fields,{"link"});obj.visibility_driver=read_ref(fields.at("link"));
+            }
 
             auto kind=text(o.at("kind"));
             if(kind!="group"&&kind!="path"&&!((minor>=6)&&kind=="text")&&!((minor>=13)&&kind=="image")) throw Error("UNSUPPORTED_OBJECT",kind);
@@ -1215,6 +1227,7 @@ std::string encode(const Document& d) {
 
         j::object out{
             {"id",id},{"name",o.name},{"visible",o.visible},{"compositing",compositing_json(o.compositing)},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":o.kind==Kind::image?"image":"path"},{"transform",tf},{"anchor",anchor},{"transform_parent",o.transform_parent?j::value(*o.transform_parent):j::value(nullptr)}};
+        if(o.visibility_driver)out["visibility_driver"]=j::object{{"link",ref_json(*o.visibility_driver)}};
 
         if(o.image)out["image"]=image_json(*o.image);
         else if(o.kind==Kind::group) {
@@ -1339,9 +1352,10 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     };
     // Neutral legacy scenes keep their original local-transform projection.
     // Appearance scopes use world-space clip wrappers, never inverse matrices.
+    const auto visibility=evaluate_object_visibilities(d);
     bool modern=false;
     std::function<void(const Id&)> detect=[&](const Id& id){const auto& object=d.objects.at(id);const auto& c=object.compositing;
-        modern=modern||object.image.has_value()||!object.visible||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||c.isolated||(c.mask&&c.mask->enabled);
+        modern=modern||object.image.has_value()||!visibility.at(id)||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||c.isolated||(c.mask&&c.mask->enabled);
         for(const auto& child:object.children)detect(child);};
     for(const auto& id:comp->roots)detect(id);
     if(modern) {
@@ -1443,7 +1457,7 @@ std::string request(Session& session,std::string_view input) {
                 guide_property_name(session.document(),r),r,guide_position_property(session.document(),r));
             else if(r.field.starts_with("artboard."))result=artboard_size_property_json(session.document(),r,artboard_size_property(session.document(),r));
             else if(r.field=="object.visible")result=object_visibility_property_json(
-                session.document(),r,object_visibility_property(session.document(),r));
+                session.document(),r,object_visibility_state(session.document(),r));
             else if(r.field=="composite.isolated")result=composite_isolated_property_json(
                 session.document(),r,composite_isolated_property(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.ends_with(".enabled"))result=operation_enabled_property_json(
@@ -1502,7 +1516,7 @@ std::string request(Session& session,std::string_view input) {
                 }
                 if(ref.field=="object.visible") {
                     list.push_back(object_visibility_property_json(session.document(),ref,
-                        object_visibility_property(session.document(),ref)));
+                        object_visibility_state(session.document(),ref)));
                     continue;
                 }
                 if(ref.field=="composite.isolated") {

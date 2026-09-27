@@ -58,6 +58,36 @@ check(run('--validate', future).returncode == 2, 'future schema rejected')
 unknown = dict(sample, secret_extension={})
 check('UNKNOWN_FIELD' in run('--validate', unknown).stderr, 'unknown field rejected')
 
+native_026 = json.loads(json.dumps(sample));native_026['version'] = '0.26'
+check(run('--validate', native_026).returncode == 0, 'native 0.26 literal-only document remains readable')
+old_driver = json.loads(json.dumps(sample));old_driver['version'] = '0.26'
+next(obj for obj in old_driver['objects'] if obj['id'] == 'path-A')['visibility_driver'] = dict(
+    link=dict(object='path-B', point='', field='object.visible'))
+check('UNKNOWN_FIELD' in run('--validate', old_driver).stderr,
+      'native 0.26 refuses the v0.27 visibility driver field')
+
+malformed_driver = json.loads(json.dumps(sample))
+next(obj for obj in malformed_driver['objects'] if obj['id'] == 'path-A')['visibility_driver'] = dict(
+    link=dict(object='path-B', point='', field='object.visible'), unexpected=True)
+check('UNKNOWN_FIELD' in run('--validate', malformed_driver).stderr,
+      'native 0.27 rejects unknown visibility driver wrapper fields')
+malformed_visibility_ref = json.loads(json.dumps(sample))
+next(obj for obj in malformed_visibility_ref['objects'] if obj['id'] == 'path-A')['visibility_driver'] = dict(
+    link=dict(object='path-B', point='', field='composite.opacity'))
+check('TYPE_MISMATCH' in run('--validate', malformed_visibility_ref).stderr,
+      'native 0.27 rejects a visibility driver Ref with the wrong field')
+
+visibility_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.27.schema.json').read_text(encoding='utf-8'))
+visibility_driver = visibility_schema['$defs']['visibility_driver']
+visibility_ref = visibility_schema['$defs']['visibility_ref']
+check(visibility_schema['properties']['version']['const'] == '0.27' and
+      visibility_driver['additionalProperties'] is False and visibility_driver['required'] == ['link'] and
+      visibility_driver['properties']['link']['$ref'] == '#/$defs/visibility_ref' and
+      visibility_ref['additionalProperties'] is False and visibility_ref['required'] == ['object', 'point', 'field'] and
+      visibility_ref['properties']['point']['const'] == '' and visibility_ref['properties']['field']['const'] == 'object.visible' and
+      all('visibility_driver' in visibility_schema['$defs'][kind]['properties'] for kind in ('group','path','text_object','image_object')),
+      'native 0.27 schema describes the closed same-field visibility Ref on every Object kind')
+
 wrong_color = dict(sample, color_space='cmyk')
 check('UNSUPPORTED_COLOR_OR_UNIT' in run('--validate', wrong_color).stderr, 'CMYK not pretended supported')
 
@@ -100,6 +130,36 @@ with tempfile.TemporaryDirectory() as tmp:
     check(run('--validate', saved).returncode==0, 'edited document reloads in fresh process')
     check('M 180 150' in run('--svg', saved).stdout, 'fresh process export uses persisted edit')
 
+with tempfile.TemporaryDirectory() as tmp:
+    source = Path(tmp) / 'visibility.nect.json'
+    source.write_text(json.dumps(sample), encoding='utf-8')
+    target = dict(object='path-A',point='',field='object.visible')
+    driver = dict(object='path-B',point='',field='object.visible')
+    requests = [
+        dict(op='apply',expected_revision=0,commands=[dict(type='link_object_visibility',target=target,source=driver,replace_driver=False)]),
+        dict(op='get',ref=target),
+        dict(op='apply',expected_revision=1,commands=[dict(type='set_visibility',object='path-B',visible=False)]),
+        dict(op='get',ref=target),
+        dict(op='apply',expected_revision=2,commands=[dict(type='set_visibility',object='path-A',visible=True)]),
+        dict(op='apply',expected_revision=2,commands=[dict(type='unlink_object_visibility',target=target)]),
+        dict(op='apply',expected_revision=3,commands=[dict(type='set_visibility',object='path-B',visible=True)]),
+        dict(op='get',ref=target),
+    ]
+    process = subprocess.run([exe,'--serve',str(source)],input='\n'.join(map(json.dumps,requests))+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=10)
+    replies = [json.loads(line) for line in process.stdout.splitlines()]
+    check(process.returncode == 0 and len(replies) == len(requests) and replies[0]['ok'],
+          'Object visibility JSON-lines process accepts the dedicated link command')
+    check(replies[1]['result']['authored'] == dict(literal=True,driver=dict(link=driver)) and
+          replies[1]['result']['evaluated'] is True and replies[1]['result']['link'] is True,
+          'JSON-lines get separates authored Object visibility from its link')
+    check(replies[2]['ok'] and replies[3]['result']['evaluated'] is False and
+          replies[4]['error']['code'] == 'DRIVEN_PROPERTY' and replies[4]['revision'] == 2,
+          'JSON-lines source edits propagate while direct edits of the driven target fail atomically')
+    check(replies[5]['ok'] and replies[6]['ok'] and
+          replies[7]['result']['authored'] == dict(literal=False,driver=None) and replies[7]['result']['evaluated'] is False,
+          'JSON-lines unlink freezes evaluated visibility after the former source changes')
+
 guide_document = json.loads(json.dumps(sample))
 guide_composition = guide_document['compositions'][0]
 guide_composition['guides'] = []
@@ -138,7 +198,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(not replies[4]['ok'] and replies[4]['error']['code'] == 'TYPE_MISMATCH' and replies[4]['revision'] == 2,
           'Generic Scalar set rejects Guide.position without advancing revision')
     linked_native = replies[5]['result']
-    check(linked_native['version'] == '0.26' and
+    check(linked_native['version'] == '0.27' and
           next(value for value in linked_native['compositions'][0]['guides'] if value['id'] == guide_target['object'])['position_driver'] == dict(link=guide_source),
           'Native 0.23 inspect preserves the optional Guide driver and authored target literal')
 
@@ -246,7 +306,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(authored.returncode == 0 and len(replies) == 2 and replies[0]['ok'] and replies[1]['ok'],
           'Group Posterize authors through the real JSON-lines process')
     group_native = replies[1]['result']
-    check(group_native['version'] == '0.26' and
+    check(group_native['version'] == '0.27' and
           next(obj for obj in group_native['objects'] if obj['id'] == 'ornament')['stack'] == [operation],
           'Current writer preserves Group Posterize identity, version, level, and order')
     cold_path = Path(tmp) / 'group-posterize.nect'
@@ -292,7 +352,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.26','current writer uses native 0.26')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.27','current writer uses native 0.27')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -478,7 +538,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
         'Rejected process command preserves the authored source and link')
     check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
-    check(replies[12]['result']['version']=='0.26' and replies[12]['result']==replies[8]['result'],
+    check(replies[12]['result']['version']=='0.27' and replies[12]['result']==replies[8]['result'],
         'Undo restores the pre-unlink native state exactly')
     check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
         'Undo restores the stable driver and its evaluated integer through a fresh request')
@@ -552,9 +612,9 @@ with tempfile.TemporaryDirectory() as tmp:
         linked_layout['glyph_count']>0 and linked_layout['used_fonts'] and
         all(linked_layout[field]==frozen_layout[field] for field in layout_fields),
         'Text layout consumes the linked family, and unlink freezes identical geometry, warnings and used fonts')
-    native=replies[12]['result'];check(native['version']=='0.26' and run('--validate',native).returncode==0,
+    native=replies[12]['result'];check(native['version']=='0.27' and run('--validate',native).returncode==0,
         'Native 0.23 content link validates in a separate CLI process')
-    family_native=replies[22]['result'];check(family_native['version']=='0.26' and run('--validate',family_native).returncode==0,
+    family_native=replies[22]['result'];check(family_native['version']=='0.27' and run('--validate',family_native).returncode==0,
         'Native 0.23 family link validates in a separate CLI process')
     path.write_text(json.dumps(family_native,ensure_ascii=False),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
@@ -637,7 +697,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='vertical' and reply['linked_horizontal']['result']['evaluated']=='horizontal',
         'Unlink freezes Text direction, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.26' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.27' and run('--validate',native).returncode==0,
         'Native 0.23 Text direction link validates in a separate CLI process')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
@@ -725,7 +785,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='frame',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='frame' and reply['linked_auto']['result']['evaluated']=='auto',
         'Unlink freezes Text layout, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.26' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.27' and run('--validate',native).returncode==0,
         'Native 0.23 Text layout link validates in a separate CLI process')
     target_native=next(obj for obj in native['objects'] if obj['id']=='layout-b')['text']
     check(target_native['layout']=='frame' and target_native['layout_driver']==dict(link=ref_a) and
@@ -810,7 +870,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='end',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='center',
         'A driven alignment edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.26' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.27' and run('--validate',native).returncode==0,
         'Native 0.23 Text alignment link validates in a separate CLI process')
     check(linked_metadata['alignment']=='end' and linked_metadata['alignment_driver']==dict(link=ref_a),
         'Native 0.23 retains alignment literal separately from its stable Ref')
@@ -904,7 +964,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored']['result']['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
         reply['restored']['result']['evaluated']=='ja-JP',
         'Driven Text locale edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.26' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.27' and run('--validate',native).returncode==0,
         'Native 0.23 Text locale link validates in a separate CLI process')
     linked_metadata=next(obj for obj in native['objects'] if obj['id']=='locale-b')['text']
     check(linked_metadata['locale']=='ja-JP' and linked_metadata['locale_driver']==dict(link=ref_a),
@@ -996,14 +1056,14 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored']['result']['authored']==dict(literal='nonzero',driver=dict(link=source_ref)) and
         reply['follows']['result']['evaluated']=='evenodd',
         'Fill unlink freezes the choice and Undo restores the live dependency')
-    native=reply['native']['result'];check(native['version']=='0.26' and run('--validate',native).returncode==0,
-        'Native 0.26 Fill driver validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.27' and run('--validate',native).returncode==0,
+        'Native 0.27 Fill driver validates in a separate CLI process')
     native_target=next(obj for obj in native['objects'] if obj['id']=='path-B')['stack'][-1]
     check(native_target['fill_rule']=='nonzero' and native_target['fill_rule_driver']==dict(link=source_ref),
         'Native Fill keeps the authored literal beside its stable driver')
     false_version=json.loads(json.dumps(native));false_version['version']='0.25'
     check('UNSUPPORTED_FILL_RULE_DRIVER' in run('--validate',false_version).stderr,
-        'Native 0.26 rejects a falsely versioned Fill driver')
+        'Native 0.27 rejects a falsely versioned Fill driver')
     malformed=json.loads(json.dumps(native));next(obj for obj in malformed['objects'] if obj['id']=='path-B')['stack'][-1]['fill_rule_driver']={'other':source_ref}
     check('INVALID_FILL_RULE_DRIVER' in run('--validate',malformed).stderr,
         'Malformed native Fill driver rejects instead of being dropped')

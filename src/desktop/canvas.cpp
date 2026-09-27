@@ -144,6 +144,7 @@ void Canvas::refresh() {
         } else { active_composition_.clear(); active_artboard_.clear(); }
         if(const auto* validated=session_.preview_values())values_=*validated;
         else values_=evaluate(document);
+        const auto visibility=evaluate_object_visibilities(document);
         transforms_ = evaluate_transforms(document,values_);
         geometry_.clear();
         geometry_index_.clear();mask_paths_.clear();scene_={};
@@ -187,8 +188,8 @@ void Canvas::refresh() {
                 item.id = id;
                 item.ancestors = std::move(ancestors);
                 item.world = world;
-                item.normal_visible=object.visible&&values_.at({id,"","composite.opacity"})>0;
-                for(const auto& ancestor:item.ancestors)item.normal_visible=item.normal_visible&&document.objects.at(ancestor).visible&&values_.at({ancestor,"","composite.opacity"})>0;
+                item.normal_visible=visibility.at(id)&&values_.at({id,"","composite.opacity"})>0;
+                for(const auto& ancestor:item.ancestors)item.normal_visible=item.normal_visible&&visibility.at(ancestor)&&values_.at({ancestor,"","composite.opacity"})>0;
                 auto value = [&](const Id& point_id, const char* field) {
                     return values_.at({id, point_id, field});
                 };

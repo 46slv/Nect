@@ -153,5 +153,23 @@ void text_weight_drivers() {
         evaluate_text_weight(s.document(),"target")==700,
         "Text weight duplication leaves the original link unchanged");
 }
+void object_visibility_driver_remapping() {
+    auto document=empty_document("visibility-doc","visibility-comp","visibility-frame");
+    Object source;source.id="source";source.name="Source";
+    Object target;target.id="target";target.name="Target";target.visibility_driver=Ref{"source","","object.visible"};
+    document.objects.emplace(source.id,source);document.objects.emplace(target.id,target);
+    document.compositions.front().roots={"source","target"};
+    Session session(document);apply(session,{DuplicateObjects{{"source","target"},"visibilitycopy"}});
+    const auto copied=session.document();const auto source_copy=copy_of(copied,"source"),target_copy=copy_of(copied,"target");
+    check(copied.objects.at(target_copy).visibility_driver==Ref{source_copy,"","object.visible"}&&
+        copied.objects.at(target_copy).visible&&evaluate_object_visibility(copied,target_copy),
+        "Duplicating a linked target and source remaps the driver to the copied source while retaining its literal");
+    check(copied.objects.at("target").visibility_driver==Ref{"source","","object.visible"},
+        "Visibility duplication leaves the original stable link unchanged");
+    Session external(document);apply(external,{DuplicateObjects{{"target"},"externalcopy"}});
+    const auto external_target=copy_of(external.document(),"target");
+    check(external.document().objects.at(external_target).visibility_driver==Ref{"source","","object.visible"},
+        "Duplicating only a visibility target keeps its external source Ref stable");
 }
-int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}
+}
+int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

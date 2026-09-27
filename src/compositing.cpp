@@ -7,6 +7,7 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
     const std::map<Id,EvaluatedTransform>& transforms) {
     const auto plane=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==composition;});
     if(plane==document.compositions.end())throw Error("MISSING_COMPOSITION",composition);
+    const auto visibility=evaluate_object_visibilities(document);
     EvaluatedScene scene;
     const auto shape=[&](const Id& id)->const EvaluatedShape& {
         if(const auto found=scene.shapes.find(id);found!=scene.shapes.end())return found->second;
@@ -16,7 +17,7 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
         if(depth>128)throw Error("HIERARCHY_DEPTH","Scene hierarchy depth limit 128");
         const auto& object=document.objects.at(id);const auto& composite=object.compositing;
         EvaluatedSceneNode result;result.id=id;result.world=transforms.at(id).world;
-        result.visible=object.visible;result.opacity=values.at({id,"","composite.opacity"});result.blend=composite.blend;
+        result.visible=visibility.at(id);result.opacity=values.at({id,"","composite.opacity"});result.blend=composite.blend;
         if(composite.mask&&composite.mask->enabled) {
             const auto& mask=*composite.mask;EvaluatedMask resolved;resolved.source=mask.source;resolved.fill_rule=mask.fill_rule;
             for(const auto& path:shape(mask.source).paths)

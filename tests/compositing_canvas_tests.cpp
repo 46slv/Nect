@@ -186,12 +186,23 @@ void open_mask_hole_and_fill_rule() {
     auto source=rectangle("source",100,100,220,220,Qt::black);
     source.contours[0].closed=false;
     auto inner=rectangle("inner",160,160,100,100,Qt::black);source.contours.push_back(inner.contours[0]);
-    source.visible=false;source.stack[0].parameters.at("a").literal=0;source.compositing.opacity.literal=0;add(d,std::move(source));
+    auto visibility_driver=rectangle("visibility-driver",500,20,1,1,Qt::black);visibility_driver.visible=false;add(d,std::move(visibility_driver));
+    source.visible=true;source.visibility_driver=Ref{"visibility-driver","","object.visible"};
+    source.stack[0].parameters.at("a").literal=0;source.compositing.opacity.literal=0;add(d,std::move(source));
     d.objects.at("target").compositing.mask=GeometryMask{"mask","source",1,true,"evenodd"};Fixture f(d);
+    check(object_visibility_state(f.session.document(),{"source","","object.visible"}).literal&&
+        !object_visibility_state(f.session.document(),{"source","","object.visible"}).evaluated,
+        "Mask source has authored true visibility linked to an evaluated false source");
     f.color(120,120,Qt::green,"An open mask contour closes for fill");f.color(210,210,Qt::white,"Even-odd mask preserves a same-winding hole");
     f.color(90,150,Qt::white,"Mask clears the full aggregate outside coverage");
     f.apply({SetMask{"target",GeometryMask{"mask","source",1,true,"nonzero"}}});
     f.color(210,210,Qt::green,"Nonzero rule fills same-winding nested contours");f.no_error();
+}
+void linked_visibility_controls_canvas_pixels() {
+    auto d=document(false);
+    auto hidden=rectangle("hidden-driver",20,20,20,20,Qt::blue);hidden.visible=false;add(d,std::move(hidden));
+    auto target=rectangle("linked-target",100,100,200,200,Qt::red);target.visibility_driver=Ref{"hidden-driver","","object.visible"};add(d,std::move(target));
+    Fixture f(d);f.color(180,180,QColor(250,250,250),"Canvas omits artwork whose visibility driver evaluates false");f.no_error();
 }
 void linked_fill_rule_projects_to_canvas_and_svg() {
     auto d=document();auto target=rectangle("target",80,80,300,280,Qt::green);
@@ -330,7 +341,7 @@ int main(int argc,char** argv) {
     try {
         group_opacity_is_applied_once();group_posterize_uses_independent_postcomposite_pixel_oracle();pass_through_and_isolation_have_distinct_backdrops();blend_alpha_and_transparent_root();
         all_supported_blends_match_independent_channel_formulas();
-        open_mask_hole_and_fill_rule();linked_fill_rule_projects_to_canvas_and_svg();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
+        open_mask_hole_and_fill_rule();linked_visibility_controls_canvas_pixels();linked_fill_rule_projects_to_canvas_and_svg();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
         mask_outline_is_separate_from_inherited_selection();cropped_unmasked_scope_preserves_stroke_gradient_and_repeater();
         cropped_mask_scope_preserves_world_alignment();render_limits_remain_visible();
         std::cout<<"PASS "<<checks<<" compositing Canvas pixel and interaction checks\n";return 0;

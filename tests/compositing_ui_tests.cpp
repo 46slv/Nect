@@ -2,12 +2,15 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QInputDialog>
+#include <QLabel>
 #include <QMenu>
 #include <QPushButton>
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QToolButton>
 #include <iostream>
 using namespace nect;
 using namespace nect::desktop;
@@ -41,5 +44,44 @@ void controls(){
     check(s.document().objects.at(bottom).children.front()=="background"&&s.document().compositions.front().roots.size()==1,
         "Put Inside targets the now neutral top selected Group and retains order");
 }
+void visibility_inspector(){
+    QTemporaryDir tmp;Window w(tmp.path());w.host.session=Session(empty_document("visibility-doc","visibility-comp","visibility-board"));
+    auto& session=w.host.session;
+    session.apply({CreatePrimitive{"visibility-comp","","source","Source",default_primitive("source-primitive","nect.shape.rectangle")},
+        CreatePrimitive{"visibility-comp","","target","Target",default_primitive("target-primitive","nect.shape.rectangle")}},session.revision());
+    w.host.edited();w.show();QApplication::processEvents();
+    session.apply({SetVisibility{"source",false}},session.revision());w.host.edited();w.canvas->set_selection("target");QApplication::processEvents();
+    auto* link_button=widget<QToolButton>(w,"object-visible-driver");
+    check(widget<QCheckBox>(w,"object-visible")->isChecked()&&widget<QCheckBox>(w,"object-visible")->isEnabled(),
+        "Visibility Inspector starts from the authored literal");
+    bool picked=false;QTimer chooser;chooser.setInterval(0);
+    QObject::connect(&chooser,&QTimer::timeout,&w,[&]{
+        for(auto* top:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(top)) {
+            if(auto* combo=dialog->findChild<QComboBox*>();combo&&combo->count()) {
+                for(int i=0;i<combo->count();++i)if(combo->itemText(i).contains("source")){combo->setCurrentIndex(i);picked=true;break;}
+            }
+            dialog->accept();chooser.stop();return;
+        }
+    });
+    chooser.start();
+    link_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    const auto linked=object_visibility_state(session.document(),{"target","","object.visible"});
+    check(picked&&linked.literal&&linked.driver==Ref{"source","","object.visible"}&&!linked.evaluated,
+        "Inspector Link action selects a stable source and preserves the authored checkbox value");
+    check(!widget<QCheckBox>(w,"object-visible")->isEnabled()&&
+        widget<QLabel>(w,"object-visible-status")->text().contains("Evaluated own visibility: false"),
+        "Driven Inspector disables direct editing and shows evaluated own visibility");
+    auto* unlink_button=widget<QToolButton>(w,"object-visible-driver");
+    check(unlink_button->menu()->actions().size()==2&&unlink_button->menu()->actions()[1]->isEnabled(),
+        "Inspector exposes unlink and freeze for a driven value");
+    unlink_button->menu()->actions()[1]->trigger();QApplication::processEvents();
+    const auto frozen=object_visibility_state(session.document(),{"target","","object.visible"});
+    check(!frozen.literal&&!frozen.driver&&widget<QCheckBox>(w,"object-visible")->isEnabled()&&
+        widget<QLabel>(w,"object-visible-status")->text().contains("Evaluated own visibility: false"),
+        "Inspector Unlink freezes the evaluated value and returns control to its checkbox");
+    session.apply({SetVisibility{"source",true}},session.revision());w.host.edited();
+    check(!object_visibility_state(session.document(),{"target","","object.visible"}).evaluated,
+        "Unlinked Inspector value remains frozen when its former source changes");
 }
-int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();std::cout<<"Compositing UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+}
+int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();visibility_inspector();std::cout<<"Compositing UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

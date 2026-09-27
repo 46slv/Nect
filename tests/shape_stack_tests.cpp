@@ -55,13 +55,13 @@ void fill_rule_link_contract() {
     rejects("INVALID_OPERATION_REF",[&]{session.apply({LinkFillRule{target,{"fill-source","point","op.source-fill.fill_rule"}}},session.revision());});
     rejects("TYPE_MISMATCH",[&]{session.apply({LinkFillRule{target,{"fill-source","","op.source-fill.composite"}}},session.revision());});
     const auto literal_bytes=encode(session.document());
-    check(literal_bytes.find("\"version\":\"0.26\"")!=std::string::npos&&
+    check(literal_bytes.find("\"version\":\"0.27\"")!=std::string::npos&&
         literal_bytes.find("fill_rule_driver")==std::string::npos&&encode(decode(literal_bytes))==literal_bytes,
-        "Native 0.26 omits an absent Fill rule driver and roundtrips literal state");
+        "Native 0.27 omits an absent Fill rule driver and roundtrips literal state");
     auto legacy_literal=literal_bytes;
-    const auto current_version=legacy_literal.find("\"version\":\"0.26\"");
-    check(current_version!=std::string::npos,"Native writer exposes 0.26 for the literal migration fixture");
-    legacy_literal.replace(current_version,std::string("\"version\":\"0.26\"").size(),"\"version\":\"0.25\"");
+    const auto current_version=legacy_literal.find("\"version\":\"0.27\"");
+    check(current_version!=std::string::npos,"Native writer exposes 0.27 for the literal migration fixture");
+    legacy_literal.replace(current_version,std::string("\"version\":\"0.27\"").size(),"\"version\":\"0.25\"");
     check(decode(legacy_literal)==session.document(),"Native 0.25 retains literal-only Fill rules");
 
     session.apply({LinkFillRule{target,source}},session.revision());
@@ -72,9 +72,9 @@ void fill_rule_link_contract() {
     check(target_shape_rule()=="evenodd",
         "Linked Fill shape evaluation uses the resolved enum");
     auto linked=encode(session.document());check(linked.find("\"fill_rule_driver\":{\"link\":")!=std::string::npos&&
-        encode(decode(linked))==linked,"Native 0.26 retains the closed stable Fill rule Ref exactly");
-    auto false_version=linked;const auto version= false_version.find("\"version\":\"0.26\"");
-    false_version.replace(version,std::string("\"version\":\"0.26\"").size(),"\"version\":\"0.25\"");
+        encode(decode(linked))==linked,"Native 0.27 retains the closed stable Fill rule Ref exactly");
+    auto false_version=linked;const auto version= false_version.find("\"version\":\"0.27\"");
+    false_version.replace(version,std::string("\"version\":\"0.27\"").size(),"\"version\":\"0.25\"");
     rejects("UNSUPPORTED_FILL_RULE_DRIVER",[&]{decode(false_version);});
     auto malformed=linked;const auto field=malformed.find("op.source-fill.fill_rule");
     check(field!=std::string::npos,"Native linked source Ref is present");

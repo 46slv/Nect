@@ -55,8 +55,9 @@ void object_visibility_read_contract() {
     check(initial.find("\"type\":\"bool\"")!=std::string::npos&&
         initial.find("\"literal\":true")!=std::string::npos&&
         initial.find("\"evaluated\":true")!=std::string::npos&&
-        initial.find("\"link\":false")!=std::string::npos,
-        "API get exposes authored visibility without promising a driver");
+        initial.find("\"driver\":null")!=std::string::npos&&
+        initial.find("\"link\":true")!=std::string::npos,
+        "API get exposes authored visibility and the stable-link capability");
     rejects("INVALID_OBJECT_REF",[&]{(void)object_visibility_property(session.document(),{"a","point","object.visible"});});
     rejects("TYPE_MISMATCH",[&]{(void)object_visibility_property(session.document(),{"a","","object.other"});});
     rejects("MISSING_REFERENCE",[&]{(void)object_visibility_property(session.document(),{"missing","","object.visible"});});
@@ -80,6 +81,99 @@ void object_visibility_read_contract() {
     apply(session,{Rename{"a","Renamed"}});
     check(resolve_name(session.document(),"Renamed","","object.visible")==ref,
         "Rename preserves the stable visibility Ref");
+}
+void object_visibility_link_contract() {
+    auto document=fixture();document.objects.at("source").visible=false;
+    Session session(document);const Ref target{"a","","object.visible"},source{"source","","object.visible"};
+    const auto link=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"link_object_visibility","target":{"object":"a","point":"","field":"object.visible"},"source":{"object":"source","point":"","field":"object.visible"},"replace_driver":false}]})");
+    check(link.find("\"changed\":true")!=std::string::npos&&session.revision()==1,
+        "JSON-lines links Object visibility through the shared Session command");
+    auto state=object_visibility_state(session.document(),target);
+    check(state.literal&&state.driver==source&&!state.evaluated,
+        "A stable same-field link preserves the target literal while evaluating the source value");
+    const auto get=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"object.visible"}})");
+    check(get.find("\"authored\":{\"literal\":true,\"driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}}}")!=std::string::npos&&
+        get.find("\"evaluated\":false")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos,
+        "API get reports literal, stable driver Ref and evaluated own value separately");
+    const auto linked_native=encode(session.document());
+    check(linked_native.find("\"version\":\"0.27\"")!=std::string::npos&&
+        linked_native.find("\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}}")!=std::string::npos&&
+        decode(linked_native)==session.document(),
+        "Native 0.27 roundtrip preserves the optional stable visibility driver");
+    atomic(session,"DRIVEN_PROPERTY",{SetVisibility{"a",true}});
+    atomic(session,"DRIVEN_PROPERTY",{LinkObjectVisibility{target,{"b","","object.visible"},false}});
+    atomic(session,"DUPLICATE_TARGET",{LinkObjectVisibility{target,source,false},UnlinkObjectVisibility{target}});
+    atomic(session,"DEPENDENCY_CYCLE",{LinkObjectVisibility{source,target,false}});
+
+    apply(session,{SetVisibility{"b",false},LinkObjectVisibility{target,{"b","","object.visible"},true}});
+    state=object_visibility_state(session.document(),target);
+    check(state.literal&&!state.evaluated&&state.driver==Ref{"b","","object.visible"},
+        "Explicit replacement changes only the driver and uses its evaluated boolean");
+    apply(session,{UnlinkObjectVisibility{target}});
+    state=object_visibility_state(session.document(),target);
+    check(!state.literal&&!state.evaluated&&!state.driver,
+        "Unlink freezes the current evaluated own value into the authored literal");
+    session.undo(session.revision());
+    state=object_visibility_state(session.document(),target);
+    check(state.driver==Ref{"b","","object.visible"}&&state.literal,
+        "Undo restores the exact driven state before unlink");
+    session.redo(session.revision());
+    apply(session,{SetVisibility{"b",true}});
+    check(!object_visibility_state(session.document(),target).evaluated,
+        "A frozen literal no longer follows the former source");
+
+    auto deletion_document=fixture();deletion_document.objects.at("source").visible=false;
+    deletion_document.objects.at("a").visibility_driver=source;
+    Session deletion(std::move(deletion_document));
+    atomic(deletion,"MISSING_REFERENCE",{DeleteObjects{{"source"}}});
+    apply(deletion,{UnlinkObjectVisibility{target},DeleteObjects{{"source"}}});
+    check(deletion.revision()==1&&!deletion.document().objects.contains("source")&&
+        !deletion.document().objects.at("a").visibility_driver&&
+        !object_visibility_state(deletion.document(),target).literal,
+        "Deleting a visibility source is atomic unless the target is first unlinked and frozen in the same batch");
+
+    auto old_literal=encode(document);const auto current_version=old_literal.find("\"version\":\"0.27\"");
+    check(current_version!=std::string::npos,"Native writer emits 0.27 for the 0.26 compatibility fixture");
+    old_literal.replace(current_version,std::string("\"version\":\"0.27\"").size(),"\"version\":\"0.26\"");
+    check(decode(old_literal)==document,"Native 0.26 literal-only documents remain readable unchanged");
+    auto false_version=linked_native;const auto linked_version=false_version.find("\"version\":\"0.27\"");
+    false_version.replace(linked_version,std::string("\"version\":\"0.27\"").size(),"\"version\":\"0.26\"");
+    rejects("UNKNOWN_FIELD",[&]{decode(false_version);});
+
+    auto cross_document=fixture();auto other=empty_document("other-doc","other-comp","other-art").compositions.front();
+    auto external=rectangle("external");cross_document.objects.emplace(external.id,external);other.roots.push_back(external.id);
+    cross_document.compositions.push_back(other);Session cross(cross_document);
+    atomic(cross,"CROSS_COMPOSITION",{LinkObjectVisibility{target,{"external","","object.visible"},false}});
+
+    auto deep=empty_document("depth-doc","depth-comp","depth-art");std::vector<Command> links;
+    for(int i=0;i<130;++i) {
+        Object object;object.id="visibility-"+std::to_string(i);object.name=object.id;
+        deep.objects.emplace(object.id,object);deep.compositions.front().roots.push_back(object.id);
+        if(i<129)links.push_back(LinkObjectVisibility{{object.id,"","object.visible"},{"visibility-"+std::to_string(i+1),"","object.visible"},false});
+    }
+    Session depth(std::move(deep));atomic(depth,"DEPENDENCY_DEPTH",std::move(links));
+}
+void object_visibility_consumer_parity() {
+    auto document=fixture();document.objects.at("source").visible=true;document.objects.at("b").visible=false;
+    Object group;group.id="group";group.name="Group";group.kind=Kind::group;group.children={"a"};
+    group.visibility_driver=Ref{"b","","object.visible"};document.objects.emplace(group.id,group);
+    document.objects.at("a").visibility_driver=Ref{"source","","object.visible"};
+    document.compositions.front().roots={"group","b","source"};
+    const auto evaluated=scene(document);
+    check(!evaluated.roots.front().visible&&evaluated.roots.front().children.front().visible&&
+        evaluate_object_visibility(document,"a"),
+        "Scene exposes each node's evaluated own visibility while preserving a true child beneath a hidden Group");
+    const auto nested_svg=export_svg(document,"comp","art");
+    check(nested_svg.find("<g id=\"group\"")==std::string::npos&&nested_svg.find("<g id=\"a\"")==std::string::npos,
+        "SVG suppresses a linked-hidden Group and its otherwise-visible descendants");
+
+    auto linked_hidden=fixture();linked_hidden.objects.at("source").visible=false;
+    linked_hidden.objects.at("a").visibility_driver=Ref{"source","","object.visible"};
+    check(linked_hidden.objects.at("a").visible&&!evaluate_object_visibility(linked_hidden,"a"),
+        "A linked false value is independent from the authored true literal");
+    const auto svg=export_svg(linked_hidden,"comp","art");
+    check(svg.find("<g id=\"a\"")==std::string::npos&&svg.find("<g id=\"b\"")!=std::string::npos,
+        "SVG switches to evaluated modern visibility when a true literal links to false");
 }
 std::map<Id,EvaluatedTransform> transforms(const Document& document){return evaluate_transforms(document,evaluate(document));}
 void same_matrix(const Affine& a,const Affine& b){for(std::size_t i=0;i<6;++i)near(a[i],b[i],"World placement preserved");}
@@ -281,9 +375,9 @@ void group_posterize_native_api_and_refusals() {
     check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({3,4}),
         "ReorderOperations changes the ordered postchildren evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.26\"")!=std::string::npos&&decode(native)==session.document()&&
+    check(native.find("\"version\":\"0.27\"")!=std::string::npos&&decode(native)==session.document()&&
         decode(native).objects.at("group").stack[0].id=="posterize-second",
-        "Native 0.26 preserves Group operation IDs, levels and reordered stack");
+        "Native 0.27 preserves Group operation IDs, levels and reordered stack");
     check(request(session,R"({"op":"operator_types"})").find("nect.group.posterize")!=std::string::npos,
         "API operator discovery advertises the Group pixel effect");
     check(request(session,R"({"op":"operator_types"})").find("postchildren_premultiplied_srgb_rgba")!=std::string::npos,
@@ -297,9 +391,9 @@ void group_posterize_native_api_and_refusals() {
     rejects("UNSUPPORTED_SVG_EFFECT",[&]{(void)export_svg(session.document(),"comp","art");});
 
     auto legacy_bytes=encode(d);
-    const auto old_version=legacy_bytes.find("\"version\":\"0.26\"");
-    check(old_version!=std::string::npos,"Native fixture writer uses 0.26 before migration downgrade");
-    legacy_bytes.replace(old_version,std::string("\"version\":\"0.26\"").size(),"\"version\":\"0.24\"");
+    const auto old_version=legacy_bytes.find("\"version\":\"0.27\"");
+    check(old_version!=std::string::npos,"Native fixture writer uses 0.27 before migration downgrade");
+    legacy_bytes.replace(old_version,std::string("\"version\":\"0.27\"").size(),"\"version\":\"0.24\"");
     const auto group_id=legacy_bytes.find("\"id\":\"group\"");
     check(group_id!=std::string::npos,"Native fixture contains the target Group object");
     const auto object_start=legacy_bytes.rfind('{',group_id);
@@ -327,8 +421,8 @@ void group_posterize_native_api_and_refusals() {
     else throw std::runtime_error("Could not remove Group stack member from legacy fixture");
     legacy_bytes.erase(erase_start,erase_end-erase_start);
     check(decode(legacy_bytes).objects.at("group").stack.empty(),"Native 0.24 Group migrates to an empty effect stack");
-    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.26\"");
-    smuggled.replace(old_writer,std::string("\"version\":\"0.26\"").size(),"\"version\":\"0.24\"");
+    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.27\"");
+    smuggled.replace(old_writer,std::string("\"version\":\"0.27\"").size(),"\"version\":\"0.24\"");
     rejects("INVALID_OBJECT",[&]{(void)decode(smuggled);});
 
     session.apply({EnableOperation{"group","posterize",false},EnableOperation{"group","posterize-second",false}},session.revision());
@@ -384,6 +478,9 @@ void mask_with_and_put_inside() {
         check(session.document().collections==document.collections,"Mask grouping preserves Collection membership");
         session.undo(session.revision());check(session.document()==document,"Mask With is one complete Undo including visibility");
     }
+    auto driven_source=fixture();driven_source.objects.at("b").visibility_driver=Ref{"a","","object.visible"};
+    Session refused_mask(driven_source);
+    atomic(refused_mask,"DRIVEN_PROPERTY",{MaskObjects{"comp","",{"a","b"},"group","mask","Masked",true}});
     auto document=fixture();Object group;group.id="group";group.name="Group";group.kind=Kind::group;group.children={"source"};matrix(group,{0,2,-3,0,200,30});
     document.objects.emplace(group.id,group);document.compositions[0].roots={"a","b","group"};matrix(document.objects.at("a"),{1,0,0,1,100,120});
     document.objects.at("a").compositing.opacity.literal=.5;document.objects.at("a").compositing.blend="multiply";
@@ -418,6 +515,11 @@ void mask_with_and_put_inside() {
     appearance_refusal([](Object& g){g.compositing.blend="multiply";},"non-normal blend mode");
     appearance_refusal([](Object& g){g.compositing.isolated=true;},"destination Group is isolated");
     appearance_refusal([](Object& g){g.compositing.mask=GeometryMask{"group-mask","source"};},"destination Group has a mask");
+    auto linked_hidden=document;linked_hidden.objects.at("source").visible=false;
+    linked_hidden.objects.at("group").visibility_driver=Ref{"source","","object.visible"};
+    Session linked_hidden_destination(linked_hidden);
+    atomic_reason(linked_hidden_destination,"PUT_INSIDE_APPEARANCE","destination Group is hidden",
+        {PutInside{"comp","","group",{"a","b"}}});
 
     auto api_document=document;api_document.objects.at("group").visible=false;Session api(api_document);
     const auto api_before=api.document();const auto api_history=api.history();
@@ -439,6 +541,9 @@ void neutral_ungroup() {
     check(session.document().collections[0].members==std::vector<Id>{"a"},"Only removed Group collection membership pruned");
     const auto ungrouped=session.document();session.undo(session.revision());check(session.document()==document,"Ungroup exact Undo");session.redo(session.revision());check(session.document()==ungrouped,"Ungroup exact Redo");
     for(int case_id=0;case_id<5;++case_id){auto d=document;auto& g=d.objects.at("group");if(case_id==0)g.visible=false;if(case_id==1)g.compositing.opacity.literal=.5;if(case_id==2)g.compositing.blend="multiply";if(case_id==3)g.compositing.isolated=true;if(case_id==4)g.compositing.mask=GeometryMask{"mask","source"};Session blocked(d);atomic(blocked,"UNGROUP_APPEARANCE",{Ungroup{"comp","","group"}});}
+    auto linked_hidden=document;linked_hidden.objects.at("source").visible=false;
+    linked_hidden.objects.at("group").visibility_driver=Ref{"source","","object.visible"};
+    Session linked_hidden_group(linked_hidden);atomic(linked_hidden_group,"UNGROUP_APPEARANCE",{Ungroup{"comp","","group"}});
     auto dynamic=document;dynamic.objects.at("group").transform[4].expression=Expression{"200"};Session driven_group(dynamic);atomic(driven_group,"UNGROUP_DYNAMIC",{Ungroup{"comp","","group"}});
     dynamic=document;dynamic.objects.at("group").transform_parent="source";Session followed(dynamic);atomic(followed,"UNGROUP_DYNAMIC",{Ungroup{"comp","","group"}});
     auto linked=document;linked.objects.at("source").contours[0].points[0].x.binding=Binding{{"group","","transform.tx"},1,0};Session referenced(linked);atomic(referenced,"MISSING_REFERENCE",{Ungroup{"comp","","group"}});
@@ -511,6 +616,9 @@ void move_out_folder() {
     reject_move(document,"MISSING_COMPOSITION",MoveOut{"missing","","folder",{"a"},"before"});
     auto hidden=document;hidden.objects.at("folder").visible=false;
     reject_move(hidden,"UNGROUP_APPEARANCE",MoveOut{"comp","","folder",{"a"},"before"});
+    auto linked_hidden=document;linked_hidden.objects.at("source").visible=false;
+    linked_hidden.objects.at("folder").visibility_driver=Ref{"source","","object.visible"};
+    reject_move(linked_hidden,"UNGROUP_APPEARANCE",MoveOut{"comp","","folder",{"a"},"before"});
     for(int case_id=0;case_id<5;++case_id) {
         auto unsafe=document;auto& folder=unsafe.objects.at("folder");
         if(case_id==0)folder.compositing.opacity.literal=.5;
@@ -674,6 +782,6 @@ void previewed_folder_api() {
 
 }
 int main() {
-    try{object_visibility_read_contract();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{object_visibility_read_contract();object_visibility_link_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }
