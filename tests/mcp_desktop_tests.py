@@ -1089,6 +1089,12 @@ try:
             mcp_fill['evaluated']=='evenodd' and mcp_fill['choices']==['nonzero','evenodd'] and mcp_fill['link'] is True and mcp_fill['expression'] is False, mcp_fill
         fill_metadata=next(item for item in core('properties')['result'] if item['ref']==fill_target)
         assert fill_metadata==mcp_fill
+        enabled_ref=dict(object='mcp-fill-target',point='',field='op.mcp-target-fill.enabled')
+        enabled_mcp=core('get',ref=enabled_ref)['result']
+        enabled_direct=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=enabled_ref)))
+        assert enabled_direct['ok'] and enabled_direct['result']==enabled_mcp and \
+            enabled_mcp['type']=='bool' and enabled_mcp['authored']==dict(literal=True,driver=None) and \
+            enabled_mcp['evaluated'] is True and enabled_mcp['link'] is False and enabled_mcp['expression'] is False
         fill_rev=apply([dict(type='operation_options',object='mcp-fill-source',operation='mcp-source-fill',
             composite='below',fill_rule='nonzero')],fill_rev)
         assert core('get',ref=fill_target)['result']['evaluated']=='nonzero'

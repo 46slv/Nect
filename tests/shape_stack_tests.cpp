@@ -1,4 +1,5 @@
 #include "nect/io.hpp"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 using namespace nect;
@@ -6,6 +7,30 @@ namespace {
 int checks=0;
 void check(bool ok,const char* reason){if(!ok)throw std::runtime_error(reason);++checks;}
 template<class F>void rejects(const char* code,F action){try{action();}catch(const Error& e){check(e.code==code,("Expected "+std::string(code)+", got "+e.code).c_str());return;}throw std::runtime_error("Expected rejection: "+std::string(code));}
+void operation_enabled_read_contract() {
+    Session session(empty_document("enabled-doc","enabled-comp","enabled-art"));
+    session.apply({CreatePrimitive{"enabled-comp","","enabled-path","Enabled Path",
+        default_primitive("enabled-shape","nect.shape.rectangle")}},0);
+    session.apply({AddOperation{"enabled-path",default_operation("enabled-fill","nect.paint.fill"),1}},session.revision());
+    const Ref ref=operation_ref("enabled-path","enabled-fill","enabled");
+    const auto refs=properties(session.document());
+    check(std::find(refs.begin(),refs.end(),ref)!=refs.end()&&
+        resolve_name(session.document(),"Enabled Path","",ref.field)==ref&&
+        operation_enabled_property(session.document(),ref),
+        "Operation enabled is discoverable by its stable typed Ref");
+    rejects("INVALID_OPERATION_REF",[&]{(void)operation_enabled_property(session.document(),
+        {"enabled-path","point",ref.field});});
+    rejects("MISSING_OPERATION",[&]{(void)operation_enabled_property(session.document(),
+        operation_ref("enabled-path","missing","enabled"));});
+    rejects("MISSING_REFERENCE",[&]{session.apply({Set{ref,0}},session.revision());});
+    session.apply({EnableOperation{"enabled-path","enabled-fill",false}},session.revision());
+    const auto shape=evaluate_shape(session.document(),"enabled-path",evaluate(session.document()));
+    check(!operation_enabled_property(session.document(),ref)&&
+        std::none_of(shape.paints.begin(),shape.paints.end(),[](const auto& paint){return paint.operation=="enabled-fill";}),
+        "Existing enable command changes the typed value and bypasses the Fill consumer");
+    session.undo(session.revision());
+    check(operation_enabled_property(session.document(),ref),"Undo restores the authored operation enabled choice");
+}
 void fill_rule_link_contract() {
     Session session(empty_document("fill-doc","fill-comp","fill-art"));
     session.apply({CreatePrimitive{"fill-comp","","fill-source","Source",default_primitive("source-shape","nect.shape.rectangle")},
@@ -99,6 +124,7 @@ void fill_rule_link_contract() {
 }
 }
 int main(){try{
+    operation_enabled_read_contract();
     Session s(empty_document("doc","comp","art"));
     s.apply({CreatePrimitive{"comp","","rect","Motif",{"source","nect.shape.rectangle",1,
         {{"center_x",{10,{}}},{"center_y",{10,{}}},{"width",{20,{}}},{"height",{10,{}}}}}}},0);

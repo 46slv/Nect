@@ -820,8 +820,11 @@ std::vector<Ref> properties(const Document& document) {
         {refs.push_back({id,"","text.italic"});refs.push_back({id,"","text.weight"});
             refs.push_back({id,"","text.content"});refs.push_back({id,"","text.family"});refs.push_back({id,"","text.locale"});
             refs.push_back({id,"","text.layout"});refs.push_back({id,"","text.direction"});refs.push_back({id,"","text.alignment"});}
-        if(object.kind==Kind::path||object.kind==Kind::text)for(const auto& operation:object.stack)
-            if(operation.type=="nect.paint.fill")refs.push_back(operation_ref(id,operation.id,"fill_rule"));
+        for(const auto& operation:object.stack) {
+            refs.push_back(operation_ref(id,operation.id,"enabled"));
+            if((object.kind==Kind::path||object.kind==Kind::text)&&operation.type=="nect.paint.fill")
+                refs.push_back(operation_ref(id,operation.id,"fill_rule"));
+        }
     }
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards) {
         refs.push_back({board.id,"","artboard.width"});
@@ -964,6 +967,20 @@ std::string evaluate_fill_rule(const Document& document,const Ref& ref) {
 std::map<Ref,std::string> evaluate_fill_rules(const Document& document) {
     return FillRuleEvaluator(document).all();
 }
+bool operation_enabled_property(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_OPERATION_REF","Operation enabled requires an empty point ID");
+    require(ref.field.starts_with("op."),"TYPE_MISMATCH","Operation enabled Ref must identify an operation");
+    const auto [operation_id,field]=operation_address(ref.field);
+    require(field=="enabled","TYPE_MISMATCH","Only operation enabled accepts this Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::path||object->second.kind==Kind::text||object->second.kind==Kind::group,
+        "INVALID_DOMAIN","Operation enabled requires a Path, Text or Group");
+    const auto found=std::find_if(object->second.stack.begin(),object->second.stack.end(),
+        [&](const auto& operation){return operation.id==operation_id;});
+    require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
+    return found->enabled;
+}
 bool is_text_readonly_field(const std::string& field) {
     return field=="text.content"||field=="text.family"||field=="text.locale"||
         field=="text.layout"||field=="text.direction"||field=="text.alignment";
@@ -1006,6 +1023,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     require(!matches.empty(),"MISSING_NAME","No matching object: "+name);
     require(matches.size()==1,"AMBIGUOUS_NAME","Name must resolve to exactly one object: "+name);
     Ref r{matches.front(),p,f};
+    if(f.starts_with("op.")&&f.ends_with(".enabled")) {
+        (void)operation_enabled_property(d,r);
+        return r;
+    }
     if(f.starts_with("op.")&&f.ends_with(".fill_rule")) {
         (void)fill_rule_property(d,r);
         return r;
