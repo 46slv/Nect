@@ -157,8 +157,9 @@ bool visible_characters(const DWRITE_GLYPH_RUN_DESCRIPTION* description) {
 class OutlineRenderer : public IDWriteTextRenderer1 {
 public:
     OutlineRenderer(IDWriteTextAnalyzer2* analyzer,IDWriteFontCollection* fonts,const std::wstring& requested,
-        const std::wstring& locale,std::vector<EvaluatedContour>& contours,TextLayout& result,bool vertical)
-        :analyzer_(analyzer),fonts_(fonts),requested_(requested),locale_(locale),contours_(contours),result_(result),vertical_(vertical){}
+        const std::wstring& locale,std::vector<EvaluatedContour>& contours,TextLayout& result,bool vertical,bool capture_glyphs)
+        :analyzer_(analyzer),fonts_(fonts),requested_(requested),locale_(locale),contours_(contours),result_(result),
+         vertical_(vertical),capture_glyphs_(capture_glyphs){}
     std::exception_ptr failure;
     std::vector<std::pair<UINT32,double>> column_run_origins;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** object) override {
@@ -185,6 +186,9 @@ public:
         try {
             if(!run||!run->fontFace)throw Error("TEXT_OUTLINE_INVALID","DirectWrite returned a glyph run without a font");
             if(run->glyphCount==0)return S_OK;
+            if(capture_glyphs_&&(vertical_||run->isSideways||orientation!=DWRITE_GLYPH_ORIENTATION_ANGLE_0_DEGREES||
+                (run->bidiLevel&1)!=0))
+                throw Error("TEXT_PATH_RUN_UNSUPPORTED","Text-on-Path supports horizontal left-to-right DirectWrite glyph runs only");
             if(result_.glyph_count+run->glyphCount>max_glyphs)throw Error("TEXT_GLYPH_LIMIT","Text layout exceeds 65536 glyphs");
             result_.glyph_count+=run->glyphCount;
             collect_font(run->fontFace);
@@ -218,6 +222,43 @@ public:
             DWRITE_MATRIX transform{};
             check_hr(analyzer_->GetGlyphOrientationTransform(orientation,run->isSideways,x,y,&transform),"Orient glyph run");
             const auto before=anchor_count_;
+            if(capture_glyphs_) {
+                std::vector<DWRITE_GLYPH_METRICS> nominal;
+                DWRITE_FONT_METRICS font_metrics{};
+                if(!run->glyphAdvances) {
+                    nominal.resize(run->glyphCount);
+                    check_hr(run->fontFace->GetDesignGlyphMetrics(run->glyphIndices,run->glyphCount,nominal.data(),FALSE),
+                        "Measure shaped glyph advances");
+                    run->fontFace->GetMetrics(&font_metrics);
+                    if(font_metrics.designUnitsPerEm==0)throw Error("TEXT_PATH_ADVANCE_INVALID","Font reports zero design units per em");
+                }
+                double pen_x=x;
+                for(UINT32 i=0;i<run->glyphCount;++i) {
+                    const double advance=run->glyphAdvances?run->glyphAdvances[i]:
+                        static_cast<double>(nominal[i].advanceWidth)*run->fontEmSize/font_metrics.designUnitsPerEm;
+                    if(!std::isfinite(advance)||advance<0)
+                        throw Error("TEXT_PATH_ADVANCE_INVALID","DirectWrite returned a non-finite or negative glyph advance");
+                    const auto offset=run->glyphOffsets?run->glyphOffsets[i]:DWRITE_GLYPH_OFFSET{};
+                    EvaluatedTextGlyph glyph;glyph.advance=advance;
+                    glyph.baseline={pen_x+offset.advanceOffset,y+offset.ascenderOffset};
+                    DWRITE_MATRIX glyph_transform{};
+                    check_hr(analyzer_->GetGlyphOrientationTransform(orientation,run->isSideways,
+                        static_cast<FLOAT>(pen_x),y,&glyph_transform),"Orient shaped glyph");
+                    ComPtr<OutlineSink> glyph_sink;glyph_sink.Attach(new OutlineSink(glyph.contours,anchor_count_,glyph_transform,
+                        static_cast<FLOAT>(pen_x),y));
+                    const auto glyph_hr=run->fontFace->GetGlyphRunOutline(run->fontEmSize,run->glyphIndices+i,
+                        run->glyphAdvances?run->glyphAdvances+i:nullptr,run->glyphOffsets?run->glyphOffsets+i:nullptr,
+                        1,run->isSideways,(run->bidiLevel&1)!=0,glyph_sink.Get());
+                    glyph_sink->Close();if(glyph_sink->failure)std::rethrow_exception(glyph_sink->failure);
+                    check_hr(glyph_hr,"Project shaped glyph outline");
+                    result_.glyphs.push_back(std::move(glyph));pen_x+=advance;
+                    if(!std::isfinite(pen_x))throw Error("TEXT_PATH_ADVANCE_INVALID","Shaped glyph advances exceed finite layout bounds");
+                }
+                if(before==anchor_count_&&run->glyphCount>0&&visible_characters(description))
+                    throw Error(color_font?"TEXT_COLOR_UNSUPPORTED":"TEXT_OUTLINE_UNSUPPORTED",
+                        "Visible text has no supported glyph outlines; no blank replacement was committed");
+                return S_OK;
+            }
             ComPtr<OutlineSink> sink;sink.Attach(new OutlineSink(contours_,anchor_count_,transform,x,y));
             const auto hr=run->fontFace->GetGlyphRunOutline(run->fontEmSize,run->glyphIndices,run->glyphAdvances,
                 run->glyphOffsets,run->glyphCount,run->isSideways,(run->bidiLevel&1)!=0,sink.Get());
@@ -241,6 +282,7 @@ private:
     IDWriteTextAnalyzer2* analyzer_;IDWriteFontCollection* fonts_;
     const std::wstring& requested_;const std::wstring& locale_;
     std::vector<EvaluatedContour>& contours_;TextLayout& result_;std::size_t anchor_count_=0;
+    bool capture_glyphs_;
     bool vertical_=false;
     void verify_color_base(const DWRITE_GLYPH_RUN& run,UINT32 index) {
         std::vector<EvaluatedContour> contours;std::size_t count=0;
@@ -307,6 +349,14 @@ TextLayout evaluate_text(const TextSource& source,const std::map<std::string,dou
 #else
     if(source.content.size()>32768)throw Error("LIMIT","Text content exceeds 32768 UTF-8 bytes");
     const auto text=utf16(source.content),family=utf16(source.family),locale=utf16(source.locale);
+    if(source.path_attachment) {
+        if(source.path_attachment->start_mode!="distance"&&source.path_attachment->start_mode!="normalized")
+            throw Error("TEXT_PATH_START_MODE","Text-on-Path start mode must be distance or normalized");
+        if(source.layout!="auto")throw Error("TEXT_PATH_LAYOUT_UNSUPPORTED","Text-on-Path requires automatic one-line layout");
+        if(source.direction!="horizontal")throw Error("TEXT_PATH_DIRECTION_UNSUPPORTED","Text-on-Path requires horizontal writing");
+        if(std::any_of(text.begin(),text.end(),[](wchar_t c){return c==L'\n'||c==L'\r'||c==L'\v'||c==L'\f'||c==0x2028||c==0x2029;}))
+            throw Error("TEXT_PATH_MULTILINE_UNSUPPORTED","Text-on-Path does not support hard line breaks");
+    }
     const auto font_size=parameter(parameters,"font_size"),tracking=parameter(parameters,"tracking"),spacing=parameter(parameters,"line_spacing");
     const auto origin_x=parameter(parameters,"origin_x"),origin_y=parameter(parameters,"origin_y");
     const auto frame_width=parameter(parameters,"frame_width"),frame_height=parameter(parameters,"frame_height");
@@ -398,7 +448,8 @@ TextLayout evaluate_text(const TextSource& source,const std::map<std::string,dou
     check_hr(factory->CreateTextAnalyzer(&base_analyzer),"Create glyph orientation analyzer");
     check_hr(base_analyzer.As(&analyzer),"Get glyph orientation analyzer");
     auto contours=std::make_shared<std::vector<EvaluatedContour>>();
-    ComPtr<OutlineRenderer> renderer;renderer.Attach(new OutlineRenderer(analyzer.Get(),fonts.Get(),family,locale,*contours,result,vertical));
+    ComPtr<OutlineRenderer> renderer;renderer.Attach(new OutlineRenderer(analyzer.Get(),fonts.Get(),family,locale,*contours,result,vertical,
+        source.path_attachment.has_value()));
     const auto hr=layout->Draw(nullptr,renderer.Get(),origin_x-(automatic?metrics.left:0),draw_origin_y);
     if(renderer->failure)std::rethrow_exception(renderer->failure);
     check_hr(hr,"Draw shaped text outlines");
@@ -429,7 +480,9 @@ TextLayout evaluate_text(const TextSource& source,const std::map<std::string,dou
         }
         if(!complete)result.column_baselines_x.clear();
     }
-    result.contours=std::move(contours);return result;
+    result.contours=std::move(contours);
+    if(source.path_attachment)result.x=result.y=result.width=result.height=0;
+    return result;
 #endif
 }
 } // namespace nect

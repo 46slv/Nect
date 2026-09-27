@@ -1411,6 +1411,21 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     require(owned.size()==d.objects.size(),"ORPHAN_OBJECT","Every object requires exactly one composition/tree owner");
     for(const auto& [id,object]:d.objects)if(object.compositing.mask)
         require(compositions.at(id)==compositions.at(object.compositing.mask->source),"CROSS_COMPOSITION","Geometry mask source must belong to the same Composition");
+    for(const auto& [id,object]:d.objects)if(object.text&&object.text->path_attachment) {
+        const auto& attachment=*object.text->path_attachment;
+        identity(attachment.path);identity(attachment.contour);
+        require(attachment.start_mode=="distance"||attachment.start_mode=="normalized","TEXT_PATH_START_MODE",
+            "Text-on-Path start mode must be distance or normalized");
+        finite(attachment.start);finite(attachment.spacing);
+        require(attachment.spacing>=0,"TEXT_PATH_SPACING","Text-on-Path spacing cannot be negative");
+        const auto path=d.objects.find(attachment.path);
+        require(path!=d.objects.end(),"MISSING_PATH_ATTACHMENT","Text-on-Path source Path no longer exists");
+        require(path->second.kind==Kind::path,"INVALID_PATH_ATTACHMENT","Text-on-Path source must be a Path object");
+        require(!path->second.source,"GENERATED_PATH_ATTACHMENT","Text-on-Path requires an authored Path contour; convert generated geometry first");
+        require(std::any_of(path->second.contours.begin(),path->second.contours.end(),[&](const Contour& contour){return contour.id==attachment.contour;}),
+            "MISSING_PATH_CONTOUR","Text-on-Path source contour ID no longer exists");
+        require(compositions.at(id)==compositions.at(attachment.path),"CROSS_COMPOSITION","Text and its Path source must share a Composition");
+    }
 
     for(const auto& c:d.collections) {
         add(c.id);
@@ -1446,7 +1461,29 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     (void)evaluate_text_directions(d);
     (void)evaluate_text_layouts(d);
     (void)evaluate_text_alignments(d);
-    (void)evaluate_transforms(d,values);
+    const auto transforms=evaluate_transforms(d,values);
+    for(const auto& [id,object]:d.objects)if(object.text&&object.text->path_attachment) {
+        const auto source=evaluated_text_source(d,id);
+        require(source.layout=="auto","TEXT_PATH_LAYOUT_UNSUPPORTED","Text-on-Path requires automatic one-line layout");
+        require(source.direction=="horizontal","TEXT_PATH_DIRECTION_UNSUPPORTED","Text-on-Path requires horizontal writing");
+        require(source.content.find_first_of("\r\n\v\f")==std::string::npos&&
+            source.content.find("\xe2\x80\xa8")==std::string::npos&&source.content.find("\xe2\x80\xa9")==std::string::npos,
+            "TEXT_PATH_MULTILINE_UNSUPPORTED","Text-on-Path does not support hard line breaks");
+        const auto& attachment=*object.text->path_attachment;
+        const auto sampler=build_path_sampler(d,attachment.path,attachment.contour,values);
+        (void)inverse_affine(transforms.at(id).world);
+        if(!sampler.closed) {
+            if(attachment.start_mode=="normalized")require(attachment.start>=0&&attachment.start<=1,
+                "TEXT_PATH_OVERFLOW","Normalized Text-on-Path start must be in [0,1] for an open contour");
+            else require(attachment.start>=0&&attachment.start<=sampler.length,
+                "TEXT_PATH_OVERFLOW","Text-on-Path start must be within the open contour");
+        }
+        auto parent=transforms.at(object.text->path_attachment->path).effective_parent;
+        for(unsigned depth=0;!parent.empty()&&depth<=128;++depth) {
+            require(parent!=id,"TEXT_PATH_TRANSFORM_CYCLE","A Text-on-Path source cannot inherit its consumer's transform");
+            const auto found=transforms.find(parent);if(found==transforms.end())break;parent=found->second.effective_parent;
+        }
+    }
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
         const auto& source=scalar->binding->source;
         if(!values.contains(source))throw Error("MISSING_REFERENCE",source.object+"/"+source.point+"/"+source.field);
@@ -1814,10 +1851,7 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         for(const auto& id:objects) {
             const auto& object=document.objects.at(id);
             require(object.kind==Kind::text&&object.text.has_value(),"UNSUPPORTED_BASELINE","Baseline alignment requires Text objects with a first-line metric: "+id);
-            std::map<std::string,double> parameters;
-            for(const auto& [name,value]:object.text->parameters){(void)value;parameters.emplace(name,scalar_values.at({id,"","text."+name}));}
-            auto text=evaluated_text_source(document,id);
-            const auto layout=evaluate_text(text,parameters);
+            const auto layout=evaluate_text_projection(document,id,scalar_values);
             require(layout.first_line_baseline_y.has_value(),"UNSUPPORTED_BASELINE","Text has no horizontal first-line baseline metric: "+id);
             const auto& world=evaluated_transforms.at(id).world;
             require(world[1]==0&&world[2]==0,"UNSUPPORTED_BASELINE","Rotated or non-axis-aligned Text has no supported baseline: "+id);
@@ -2134,6 +2168,10 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         if(object.source)object.source->id=plan.ids.at(object.source->id);
         if(object.text) {
             object.text->id=plan.ids.at(object.text->id);
+            if(object.text->path_attachment&&plan.objects.contains(object.text->path_attachment->path)) {
+                object.text->path_attachment->path=plan.ids.at(object.text->path_attachment->path);
+                object.text->path_attachment->contour=plan.ids.at(object.text->path_attachment->contour);
+            }
             if(object.text->content_driver)object.text->content_driver->link=remap(object.text->content_driver->link);
             if(object.text->family_driver)object.text->family_driver->link=remap(object.text->family_driver->link);
             if(object.text->locale_driver)object.text->locale_driver->link=remap(object.text->locale_driver->link);

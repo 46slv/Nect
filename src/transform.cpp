@@ -158,11 +158,8 @@ std::optional<Bounds> object_bounds(const Document& document,const Id& id,const 
         if(object.image){bounds.rectangle({0,0,values.at({child,"","image.width"}),values.at({child,"","image.height"})},to_target);return;}
         const auto shape=evaluate_shape(document,child,values);
         std::optional<Bounds> text_bounds;
-        if(object.text) {
-            std::map<std::string,double> parameters;
-            for(const auto& [name,scalar]:object.text->parameters){(void)scalar;parameters.emplace(name,values.at({child,"","text."+name}));}
-            auto text=evaluated_text_source(document,child);
-            const auto layout=evaluate_text(text,parameters);
+        if(object.text&&!object.text->path_attachment) {
+            const auto layout=evaluate_text_projection(document,child,values);
             text_bounds=Bounds{layout.x,layout.y,layout.x+layout.width,layout.y+layout.height};
         }
         const auto path=[&](const PathInstance& instance,const Affine& parent) {

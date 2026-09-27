@@ -74,6 +74,16 @@ struct TextAlignmentDriver {
     bool operator==(const TextAlignmentDriver&) const = default;
 };
 
+struct TextPathAttachment {
+    Id path;
+    Id contour;
+    std::string start_mode="distance";
+    double start=0;
+    double spacing=0;
+    bool reversed=false;
+    bool operator==(const TextPathAttachment&) const = default;
+};
+
 struct Scalar {
     double literal = 0;
     std::optional<Binding> binding;
@@ -125,6 +135,7 @@ struct TextSource {
     std::optional<TextDirectionDriver> direction_driver;
     std::optional<TextLayoutDriver> layout_driver;
     std::optional<TextAlignmentDriver> alignment_driver;
+    std::optional<TextPathAttachment> path_attachment;
     std::string layout="auto",direction="horizontal",alignment="start";
     unsigned weight=400;
     std::optional<TextWeightDriver> weight_driver;
@@ -450,6 +461,34 @@ inline constexpr Affine identity_matrix{1,0,0,1,0,0};
 struct Vec2 {double x=0,y=0;};
 struct CubicPoint {Vec2 anchor,incoming,outgoing;};
 struct EvaluatedContour {bool closed=false;std::vector<CubicPoint> points;};
+struct PathCubicSegment {
+    Vec2 p0,p1,p2,p3;
+    double start_distance=0,end_distance=0;
+};
+struct PathSampleSegment {
+    std::size_t cubic=0;
+    double t_start=0,t_end=1;
+    double start_distance=0,end_distance=0;
+};
+struct PathSampler {
+    Id path,contour;
+    bool closed=false;
+    double length=0;
+    std::vector<PathCubicSegment> cubics;
+    std::vector<PathSampleSegment> segments;
+};
+struct PathSample {
+    Vec2 position,tangent,normal;
+    double distance=0,length=0;
+    Id path,contour;
+};
+PathSampler build_path_sampler(const Document&,const Id& path,const Id& contour,const std::map<Ref,double>& values);
+PathSample sample_path(const PathSampler&,double distance,bool reversed=false);
+struct EvaluatedTextGlyph {
+    double advance=0;
+    Vec2 baseline;
+    std::vector<EvaluatedContour> contours;
+};
 struct TextLayout {
     std::shared_ptr<const std::vector<EvaluatedContour>> contours;
     double x=0,y=0,width=0,height=0;
@@ -463,11 +502,17 @@ struct TextLayout {
     std::vector<double> column_baselines_x;
     bool overflow=false;
     std::size_t glyph_count=0;
+    // Present only for attached Text. Each entry is one DirectWrite shaped glyph,
+    // including whitespace advances and an intact, baseline-relative outline.
+    std::vector<EvaluatedTextGlyph> glyphs;
     std::vector<std::string> warnings,used_fonts;
 };
 // Pure projection of authored text and evaluated text.* parameters. Windows uses
 // DirectWrite shaping, including vertical glyph orientation; no font is embedded.
 TextLayout evaluate_text(const TextSource& source,const std::map<std::string,double>& parameters);
+// Document-aware projection used by Canvas, bounds, SVG and API. Attached Text
+// requires its stable Path/Contour reference and is never returned as flat text.
+TextLayout evaluate_text_projection(const Document&,const Id&,const std::map<Ref,double>& values);
 // Pure projection of an authored Text source with its current evaluated typed values.
 TextSource evaluated_text_source(const Document& document,const Id& object);
 struct PathInstance {

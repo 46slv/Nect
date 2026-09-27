@@ -1,11 +1,37 @@
 #include "nect/io.hpp"
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
+#include <utility>
 using namespace nect;
 namespace {
 int checks=0;
 void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);++checks;}
+void near(double actual,double expected,double tolerance,const char* why) {
+    if(!std::isfinite(actual)||std::abs(actual-expected)>tolerance)
+        throw std::runtime_error(std::string(why)+" (actual="+std::to_string(actual)+", expected="+std::to_string(expected)+")");++checks;
+}
+std::string response_result_object(const std::string& response) {
+    const auto marker=response.find("\"result\":");if(marker==std::string::npos)return {};
+    const auto begin=response.find('{',marker+9);if(begin==std::string::npos)return {};
+    bool in_string=false,escaped=false;std::size_t depth=0;
+    for(std::size_t i=begin;i<response.size();++i) {
+        const auto c=response[i];
+        if(in_string) {
+            if(escaped)escaped=false;else if(c=='\\')escaped=true;else if(c=='\"')in_string=false;
+            continue;
+        }
+        if(c=='\"')in_string=true;
+        else if(c=='{')++depth;
+        else if(c=='}'&&--depth==0)return response.substr(begin,i-begin+1);
+    }
+    return {};
+}
 template<class F>void rejects(const char* code,F action){try{action();}catch(const Error& e){check(e.code==code,("Expected "+std::string(code)+", got "+e.code).c_str());return;}throw std::runtime_error("Expected rejection");}
 }
 int main(){try{
@@ -80,15 +106,15 @@ int main(){try{
         "Boolean false expression remains authored as an expression");
     bool_apply({SetTextItalicExpression{italic_b,inverted,true}});
     const auto native16=encode(bool_session.document());
-    check(native16.find("\"version\":\"0.23\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
-        encode(decode(native16))==native16,"Native 0.23 roundtrip preserves Text italic expression exactly");
+    check(native16.find("\"version\":\"0.24\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
+        encode(decode(native16))==native16,"Native 0.24 roundtrip preserves Text italic expression exactly");
     auto invalid_driver=native16;const auto driver_at=invalid_driver.find("\"italic_driver\":{\"expression\":");
     check(driver_at!=std::string::npos,"Native Text italic driver is serialized as the expression alternative");
     invalid_driver.replace(driver_at,std::string("\"italic_driver\":{\"expression\":").size(),"\"italic_driver\":{\"other\":");
     rejects("INVALID_TEXT_ITALIC_DRIVER",[&]{decode(invalid_driver);});
-    auto old_with_driver=native16;const auto current_version=old_with_driver.find("\"version\":\"0.23\"");
+    auto old_with_driver=native16;const auto current_version=old_with_driver.find("\"version\":\"0.24\"");
     check(current_version!=std::string::npos,"Native bool driver fixture identifies version 0.23");
-    old_with_driver.replace(current_version,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.14\"");
+    old_with_driver.replace(current_version,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.14\"");
     rejects("UNSUPPORTED_TEXT_ITALIC_DRIVER",[&]{decode(old_with_driver);});
     const auto before_delete=encode(bool_session.document());const auto before_delete_revision=bool_session.revision();
     rejects("MISSING_REFERENCE",[&]{bool_apply({DeleteObjects{{"title"}}});});
@@ -99,8 +125,8 @@ int main(){try{
     auto legacy=empty_document("legacy-doc","legacy-comp","legacy-frame");
     auto legacy_text=default_text("legacy-text","Legacy");legacy_text.italic=true;
     Session legacy_session(legacy);legacy_session.apply({CreateText{"legacy-comp","","legacy-object","Legacy",legacy_text}},legacy_session.revision());
-    auto native14=encode(legacy_session.document());const auto version_at=native14.find("\"version\":\"0.23\"");
-    check(version_at!=std::string::npos,"Native writer emits 0.23");native14.replace(version_at,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.14\"");
+    auto native14=encode(legacy_session.document());const auto version_at=native14.find("\"version\":\"0.24\"");
+    check(version_at!=std::string::npos,"Native writer emits 0.23");native14.replace(version_at,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.14\"");
     const auto old_text=decode(native14);check(old_text.objects.at("legacy-object").text->italic&&!old_text.objects.at("legacy-object").text->italic_driver,
         "Native 0.14 Text decodes with its literal italic value");
     auto weight_document=empty_document("weight-doc","weight-comp","weight-frame");Session weight_session(weight_document);
@@ -166,7 +192,7 @@ int main(){try{
     check(resolved_text.find("\"field\":\"text.content\"")!=std::string::npos&&
         weight_session.revision()==readonly_revision&&encode(weight_session.document())==readonly_bytes,
         "Text get/properties/resolve_name reads leave native bytes and Session revision unchanged");
-    check(encode(decode(readonly_bytes))==readonly_bytes,"Native 0.23 roundtrip preserves Text source values exactly");
+    check(encode(decode(readonly_bytes))==readonly_bytes,"Native 0.24 roundtrip preserves Text source values exactly");
     rejects("MISSING_NAME",[&]{resolve_name(weight_session.document(),"Missing Text","","text.content");});
     auto duplicate_names=weight_session.document();duplicate_names.objects.at("weight-b").name="Weight A";
     rejects("AMBIGUOUS_NAME",[&]{resolve_name(duplicate_names,"Weight A","","text.content");});
@@ -190,10 +216,10 @@ int main(){try{
         linked_weight_property.driver==TextWeightDriver{weight_a_ref},
         "Same-type weight link evaluates through its stable Ref and preserves the target literal");
     const auto weight_link_bytes=encode(weight_session.document());
-    check(weight_link_bytes.find("\"version\":\"0.23\"")!=std::string::npos&&
+    check(weight_link_bytes.find("\"version\":\"0.24\"")!=std::string::npos&&
         weight_link_bytes.find("\"weight_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(weight_link_bytes))==weight_link_bytes,
-        "Native 0.23 retains the optional Text weight Ref link exactly");
+        "Native 0.24 retains the optional Text weight Ref link exactly");
     const auto weight_get=request(weight_session,R"({"op":"get","ref":{"object":"weight-b","point":"","field":"text.weight"}})");
     const auto weight_properties=request(weight_session,R"({"op":"properties"})");
     check(weight_get.find("\"type\":\"integer\"")!=std::string::npos&&weight_get.find("\"unit\":\"unitless\"")!=std::string::npos&&
@@ -269,12 +295,12 @@ int main(){try{
     check(target_link_object!=std::string::npos,"Native weight Ref target ID is explicitly present");
     cyclic_weight.replace(target_link_object,std::string("weight-a").size(),"weight-b");
     rejects("DEPENDENCY_CYCLE",[&]{decode(cyclic_weight);});
-    auto old_weight_driver=weight_link_bytes;const auto weight_version_at=old_weight_driver.find("\"version\":\"0.23\"");
+    auto old_weight_driver=weight_link_bytes;const auto weight_version_at=old_weight_driver.find("\"version\":\"0.24\"");
     check(weight_version_at!=std::string::npos,"Native weight fixture identifies version 0.23");
-    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.15\"");
+    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.15\"");
     rejects("UNSUPPORTED_TEXT_WEIGHT_DRIVER",[&]{decode(old_weight_driver);});
-    const auto legacy_weight=decode([&]{auto value=encode(weight_session.document());const auto at=value.find("\"version\":\"0.23\"");
-        value.replace(at,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.15\"");return value;}());
+    const auto legacy_weight=decode([&]{auto value=encode(weight_session.document());const auto at=value.find("\"version\":\"0.24\"");
+        value.replace(at,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.15\"");return value;}());
     check(legacy_weight.objects.at("weight-a").text->weight==500&&!legacy_weight.objects.at("weight-a").text->weight_driver&&
         legacy_weight.objects.at("weight-b").text->weight==300&&!legacy_weight.objects.at("weight-b").text->weight_driver,
         "Native 0.15 Text migrates authored weights as literals");
@@ -288,9 +314,9 @@ int main(){try{
         CreatePath{"content-comp","","content-path","Content Path",{{"content-path-contour",false,{content_path_point}}}}});
     const Ref content_a_ref{"content-a","","text.content"},content_b_ref{"content-b","","text.content"};
     const auto literal_bytes=encode(content_session.document());
-    check(literal_bytes.find("\"version\":\"0.23\"")!=std::string::npos&&
+    check(literal_bytes.find("\"version\":\"0.24\"")!=std::string::npos&&
         literal_bytes.find("content_driver")==std::string::npos&&encode(decode(literal_bytes))==literal_bytes,
-        "Native 0.23 omits absent Text drivers and preserves literal-only Text");
+        "Native 0.24 omits absent Text drivers and preserves literal-only Text");
     const auto content_properties=properties(content_session.document());
     check(std::find(content_properties.begin(),content_properties.end(),content_a_ref)!=content_properties.end()&&
         resolve_name(content_session.document(),"Content B","","text.content")==content_b_ref,
@@ -359,7 +385,7 @@ int main(){try{
     const auto copied_link_bytes=encode(content_session.document());
     check(copied_link_bytes.find("\"content_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(copied_link_bytes))==copied_link_bytes,
-        "Native 0.23 roundtrip retains the exact Text content driver");
+        "Native 0.24 roundtrip retains the exact Text content driver");
     const auto linked_copy_reopen=decode(copied_link_bytes);
     check(linked_copy_reopen.objects.at(copy_b).text->content_driver->link==Ref{copy_a,"","text.content"}&&
         evaluate_text_content(linked_copy_reopen,copy_b)=="Copied source",
@@ -398,12 +424,12 @@ int main(){try{
     else {const auto original_source_at=missing_content_source.find("content-a",content_driver_at);check(original_source_at!=std::string::npos,"Native content source ID is explicit");
         missing_content_source.replace(original_source_at,std::string("content-a").size(),"missing");}
     rejects("MISSING_REFERENCE",[&]{decode(missing_content_source);});
-    auto old_content_driver=copied_link_bytes;const auto content_version_at=old_content_driver.find("\"version\":\"0.23\"");
+    auto old_content_driver=copied_link_bytes;const auto content_version_at=old_content_driver.find("\"version\":\"0.24\"");
     check(content_version_at!=std::string::npos,"Native content fixture identifies version 0.23");
-    old_content_driver.replace(content_version_at,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.16\"");
+    old_content_driver.replace(content_version_at,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.16\"");
     rejects("UNSUPPORTED_TEXT_CONTENT_DRIVER",[&]{decode(old_content_driver);});
-    auto legacy_content=literal_bytes;const auto legacy_version_at=legacy_content.find("\"version\":\"0.23\"");
-    legacy_content.replace(legacy_version_at,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.16\"");
+    auto legacy_content=literal_bytes;const auto legacy_version_at=legacy_content.find("\"version\":\"0.24\"");
+    legacy_content.replace(legacy_version_at,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.16\"");
     const auto migrated_content=decode(legacy_content);
     check(migrated_content.objects.at("content-b").text->content=="Manual B"&&
         !migrated_content.objects.at("content-b").text->content_driver,
@@ -422,9 +448,9 @@ int main(){try{
         CreatePath{"family-comp","","family-path","Family Path",{{"family-path-contour",false,{family_path_point}}}}});
     const Ref family_a_ref{"family-a","","text.family"},family_b_ref{"family-b","","text.family"},family_c_ref{"family-c","","text.family"};
     const auto family_literal_bytes=encode(family_session.document());
-    check(family_literal_bytes.find("\"version\":\"0.23\"")!=std::string::npos&&
+    check(family_literal_bytes.find("\"version\":\"0.24\"")!=std::string::npos&&
         family_literal_bytes.find("family_driver")==std::string::npos&&encode(decode(family_literal_bytes))==family_literal_bytes,
-        "Native 0.23 omits an absent Text family driver and preserves literal-only family values");
+        "Native 0.24 omits an absent Text family driver and preserves literal-only family values");
     const auto family_refs=properties(family_session.document());
     check(resolve_name(family_session.document(),"Family B","","text.family")==family_b_ref&&
         std::find(family_refs.begin(),family_refs.end(),family_b_ref)!=family_refs.end(),
@@ -496,7 +522,7 @@ int main(){try{
     const auto copied_family_bytes=encode(family_session.document());
     check(copied_family_bytes.find("\"family_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(copied_family_bytes))==copied_family_bytes,
-        "Native 0.23 codec roundtrip retains the strict Text family driver");
+        "Native 0.24 codec roundtrip retains the strict Text family driver");
     const auto reopened_family=decode(copied_family_bytes);
     check(reopened_family.objects.at(copied_family_target).text->family_driver->link==Ref{copied_family_source,"","text.family"}&&
         evaluate_text_family(reopened_family,copied_family_target)=="Revised source family",
@@ -536,11 +562,11 @@ int main(){try{
     check(copied_source_id!=std::string::npos,"Copied Native family driver identifies its copied source ID");
     missing_family_source.replace(copied_source_id,copied_family_source.size(),"missing-family");
     rejects("MISSING_REFERENCE",[&]{decode(missing_family_source);});
-    auto old_family_driver=copied_family_bytes;const auto family_version_at=old_family_driver.find("\"version\":\"0.23\"");
-    old_family_driver.replace(family_version_at,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.17\"");
+    auto old_family_driver=copied_family_bytes;const auto family_version_at=old_family_driver.find("\"version\":\"0.24\"");
+    old_family_driver.replace(family_version_at,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.17\"");
     rejects("UNSUPPORTED_TEXT_FAMILY_DRIVER",[&]{decode(old_family_driver);});
-    auto legacy_family=family_literal_bytes;const auto legacy_family_version=legacy_family.find("\"version\":\"0.23\"");
-    legacy_family.replace(legacy_family_version,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.17\"");
+    auto legacy_family=family_literal_bytes;const auto legacy_family_version=legacy_family.find("\"version\":\"0.24\"");
+    legacy_family.replace(legacy_family_version,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.17\"");
     const auto migrated_family=decode(legacy_family);
     check(migrated_family.objects.at("family-b").text->family=="Manual B"&&
         !migrated_family.objects.at("family-b").text->family_driver,
@@ -575,9 +601,9 @@ int main(){try{
     const Ref direction_a_ref{"direction-a","","text.direction"},direction_b_ref{"direction-b","","text.direction"},
         direction_c_ref{"direction-c","","text.direction"};
     const auto direction_literal_bytes=encode(direction_session.document());
-    check(direction_literal_bytes.find("\"version\":\"0.23\"")!=std::string::npos&&
+    check(direction_literal_bytes.find("\"version\":\"0.24\"")!=std::string::npos&&
         direction_literal_bytes.find("direction_driver")==std::string::npos&&encode(decode(direction_literal_bytes))==direction_literal_bytes,
-        "Native 0.23 omits an absent Text direction driver and preserves the literal enum");
+        "Native 0.24 omits an absent Text direction driver and preserves the literal enum");
     const auto direction_refs=properties(direction_session.document());
     check(resolve_name(direction_session.document(),"Direction B","","text.direction")==direction_b_ref&&
         std::find(direction_refs.begin(),direction_refs.end(),direction_b_ref)!=direction_refs.end(),
@@ -662,7 +688,7 @@ int main(){try{
     const auto copied_direction_bytes=encode(direction_session.document());
     check(copied_direction_bytes.find("\"direction_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(copied_direction_bytes))==copied_direction_bytes,
-        "Native 0.23 codec roundtrip retains the closed Text direction link");
+        "Native 0.24 codec roundtrip retains the closed Text direction link");
     auto reopened_direction=decode(copied_direction_bytes);
     check(reopened_direction.objects.at(copied_direction_target).text->direction_driver->link==Ref{copied_direction_source,"","text.direction"}&&
         evaluate_text_direction(reopened_direction,copied_direction_target)=="vertical",
@@ -702,11 +728,11 @@ int main(){try{
     check(copied_direction_source_at!=std::string::npos,"Copied Native direction link identifies its source ID");
     missing_direction_source.replace(copied_direction_source_at,copied_direction_source.size(),"missing-direction");
     rejects("MISSING_REFERENCE",[&]{decode(missing_direction_source);});
-    auto old_direction_driver=copied_direction_bytes;const auto direction_version_at=old_direction_driver.find("\"version\":\"0.23\"");
-    old_direction_driver.replace(direction_version_at,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.18\"");
+    auto old_direction_driver=copied_direction_bytes;const auto direction_version_at=old_direction_driver.find("\"version\":\"0.24\"");
+    old_direction_driver.replace(direction_version_at,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.18\"");
     rejects("UNSUPPORTED_TEXT_DIRECTION_DRIVER",[&]{decode(old_direction_driver);});
-    auto legacy_direction=direction_literal_bytes;const auto legacy_direction_version=legacy_direction.find("\"version\":\"0.23\"");
-    legacy_direction.replace(legacy_direction_version,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.18\"");
+    auto legacy_direction=direction_literal_bytes;const auto legacy_direction_version=legacy_direction.find("\"version\":\"0.24\"");
+    legacy_direction.replace(legacy_direction_version,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.18\"");
     const auto migrated_direction=decode(legacy_direction);
     check(migrated_direction.objects.at("direction-b").text->direction=="vertical"&&
         !migrated_direction.objects.at("direction-b").text->direction_driver,
@@ -746,9 +772,9 @@ int main(){try{
         CreateText{"layout-link-comp","","layout-c","Layout C",layout_alternate},
         CreatePrimitive{"layout-link-comp","","layout-path","Layout path",default_primitive("layout-path-source","nect.shape.circle")}});
     const auto layout_literal_bytes=encode(layout_session.document());
-    check(layout_literal_bytes.find("\"version\":\"0.23\"")!=std::string::npos&&
+    check(layout_literal_bytes.find("\"version\":\"0.24\"")!=std::string::npos&&
         layout_literal_bytes.find("\"layout_driver\"")==std::string::npos,
-        "Native 0.23 omits an absent Text layout driver and retains literal-only layout choices");
+        "Native 0.24 omits an absent Text layout driver and retains literal-only layout choices");
     const auto discovered_layout_properties=properties(layout_session.document());
     check(resolve_name(layout_session.document(),"Layout B","","text.layout")==layout_b_ref&&
         std::find(discovered_layout_properties.begin(),discovered_layout_properties.end(),layout_b_ref)!=discovered_layout_properties.end(),
@@ -832,7 +858,7 @@ int main(){try{
     const auto layout_link_bytes=encode(layout_session.document());
     check(layout_link_bytes.find("\"layout_driver\":{\"link\":")!=std::string::npos&&
         encode(decode(layout_link_bytes))==layout_link_bytes,
-        "Native 0.23 roundtrip preserves the strict Text layout driver");
+        "Native 0.24 roundtrip preserves the strict Text layout driver");
     const auto reopened_layout=decode(layout_link_bytes);
     check(reopened_layout.objects.at("layout-b").text->layout=="frame"&&
         reopened_layout.objects.at("layout-b").text->layout_driver->link==layout_a_ref&&
@@ -847,11 +873,11 @@ int main(){try{
     auto wrong_layout_ref=layout_link_bytes;const auto layout_field_at=wrong_layout_ref.find("text.layout",layout_driver_at);
     wrong_layout_ref.replace(layout_field_at,std::string("text.layout").size(),"text.direction");
     rejects("TYPE_MISMATCH",[&]{decode(wrong_layout_ref);});
-    auto old_layout_driver=layout_link_bytes;const auto old_layout_version=old_layout_driver.find("\"version\":\"0.23\"");
-    old_layout_driver.replace(old_layout_version,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.19\"");
+    auto old_layout_driver=layout_link_bytes;const auto old_layout_version=old_layout_driver.find("\"version\":\"0.24\"");
+    old_layout_driver.replace(old_layout_version,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.19\"");
     rejects("UNSUPPORTED_TEXT_LAYOUT_DRIVER",[&]{decode(old_layout_driver);});
-    auto legacy_layout=layout_literal_bytes;const auto legacy_layout_version=legacy_layout.find("\"version\":\"0.23\"");
-    legacy_layout.replace(legacy_layout_version,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.20\"");
+    auto legacy_layout=layout_literal_bytes;const auto legacy_layout_version=legacy_layout.find("\"version\":\"0.24\"");
+    legacy_layout.replace(legacy_layout_version,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.20\"");
     check(decode(legacy_layout).objects.at("layout-b").text->layout=="frame",
         "Native 0.19 migrates Text layout literals without creating a driver");
     layout_apply({LinkTextLayout{layout_b_ref,layout_c_ref,true}});
@@ -890,9 +916,9 @@ int main(){try{
         CreateText{"alignment-link-comp","","alignment-c","Alignment C",alignment_end_source},
         CreatePrimitive{"alignment-link-comp","","alignment-path","Alignment path",default_primitive("alignment-path-source","nect.shape.circle")}});
     const auto alignment_literal_bytes=encode(alignment_session.document());
-    check(alignment_literal_bytes.find("\"version\":\"0.23\"")!=std::string::npos&&
+    check(alignment_literal_bytes.find("\"version\":\"0.24\"")!=std::string::npos&&
         alignment_literal_bytes.find("\"alignment_driver\"")==std::string::npos,
-        "Native 0.23 omits an absent Text alignment driver and retains literal-only enum state");
+        "Native 0.24 omits an absent Text alignment driver and retains literal-only enum state");
     const auto alignment_discovered_properties=properties(alignment_session.document());
     check(resolve_name(alignment_session.document(),"Alignment B","","text.alignment")==alignment_b_ref&&
         std::find(alignment_discovered_properties.begin(),alignment_discovered_properties.end(),alignment_b_ref)!=alignment_discovered_properties.end(),
@@ -957,7 +983,7 @@ int main(){try{
     const auto alignment_link_bytes=encode(alignment_session.document());
     check(alignment_link_bytes.find("\"alignment_driver\":{\"link\":")!=std::string::npos&&
         encode(decode(alignment_link_bytes))==alignment_link_bytes,
-        "Native 0.23 codec roundtrip preserves the closed Text alignment driver exactly");
+        "Native 0.24 codec roundtrip preserves the closed Text alignment driver exactly");
     const auto reopened_alignment=decode(alignment_link_bytes);
     check(reopened_alignment.objects.at("alignment-b").text->alignment=="end"&&
         reopened_alignment.objects.at("alignment-b").text->alignment_driver->link==alignment_a_ref&&
@@ -971,11 +997,11 @@ int main(){try{
     auto wrong_alignment_ref=alignment_link_bytes;const auto alignment_field_at=wrong_alignment_ref.find("text.alignment",alignment_driver_at);
     wrong_alignment_ref.replace(alignment_field_at,std::string("text.alignment").size(),"text.layout");
     rejects("TYPE_MISMATCH",[&]{decode(wrong_alignment_ref);});
-    auto old_alignment_driver=alignment_link_bytes;const auto old_alignment_version=old_alignment_driver.find("\"version\":\"0.23\"");
-    old_alignment_driver.replace(old_alignment_version,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.20\"");
+    auto old_alignment_driver=alignment_link_bytes;const auto old_alignment_version=old_alignment_driver.find("\"version\":\"0.24\"");
+    old_alignment_driver.replace(old_alignment_version,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.20\"");
     rejects("UNSUPPORTED_TEXT_ALIGNMENT_DRIVER",[&]{decode(old_alignment_driver);});
-    auto legacy_alignment=alignment_literal_bytes;const auto legacy_alignment_version=legacy_alignment.find("\"version\":\"0.23\"");
-    legacy_alignment.replace(legacy_alignment_version,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.20\"");
+    auto legacy_alignment=alignment_literal_bytes;const auto legacy_alignment_version=legacy_alignment.find("\"version\":\"0.24\"");
+    legacy_alignment.replace(legacy_alignment_version,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.20\"");
     check(decode(legacy_alignment).objects.at("alignment-b").text->alignment=="end"&&
         !decode(legacy_alignment).objects.at("alignment-b").text->alignment_driver,
         "Native 0.23 alignment literals migrate without creating a driver");
@@ -1015,9 +1041,9 @@ int main(){try{
     const Ref locale_a_ref{"locale-a","","text.locale"},locale_b_ref{"locale-b","","text.locale"},
         locale_c_ref{"locale-c","","text.locale"};
     const auto locale_literal_bytes=encode(locale_session.document());
-    check(locale_literal_bytes.find("\"version\":\"0.23\"")!=std::string::npos&&
+    check(locale_literal_bytes.find("\"version\":\"0.24\"")!=std::string::npos&&
         locale_literal_bytes.find("\"locale_driver\"")==std::string::npos,
-        "Native 0.23 omits an absent Text locale driver and preserves literal-only Text");
+        "Native 0.24 omits an absent Text locale driver and preserves literal-only Text");
     const auto locale_properties=properties(locale_session.document());
     check(resolve_name(locale_session.document(),"Locale B","","text.locale")==locale_b_ref&&
         std::find(locale_properties.begin(),locale_properties.end(),locale_b_ref)!=locale_properties.end(),
@@ -1068,20 +1094,20 @@ int main(){try{
     const auto locale_link_bytes=encode(locale_session.document());
     check(locale_link_bytes.find("\"locale_driver\":{\"link\":")!=std::string::npos&&
         encode(decode(locale_link_bytes))==locale_link_bytes,
-        "Native 0.23 codec roundtrip preserves the closed Text locale driver exactly");
+        "Native 0.24 codec roundtrip preserves the closed Text locale driver exactly");
     const auto reopened_locale=decode(locale_link_bytes);
     check(reopened_locale.objects.at("locale-b").text->locale=="ja-JP"&&
         reopened_locale.objects.at("locale-b").text->locale_driver->link==locale_a_ref&&
         evaluate_text_locale(reopened_locale,"locale-b")=="ja-JP"&&
         same_locale_layout(locale_layout(reopened_locale,"locale-b"),locale_layout(reopened_locale,"locale-japanese-twin")),
         "Cold codec reopen retains authored locales, stable Ref and evaluated Arabic-capable layout state");
-    auto legacy_locale=locale_literal_bytes;const auto legacy_locale_version=legacy_locale.find("\"version\":\"0.23\"");
-    legacy_locale.replace(legacy_locale_version,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.21\"");
+    auto legacy_locale=locale_literal_bytes;const auto legacy_locale_version=legacy_locale.find("\"version\":\"0.24\"");
+    legacy_locale.replace(legacy_locale_version,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.21\"");
     check(decode(legacy_locale).objects.at("locale-b").text->locale=="ja-JP"&&
         !decode(legacy_locale).objects.at("locale-b").text->locale_driver,
         "Native 0.23 and earlier retain Text locale literals without creating a driver");
-    auto false_locale_version=locale_link_bytes;const auto false_locale_at=false_locale_version.find("\"version\":\"0.23\"");
-    false_locale_version.replace(false_locale_at,std::string("\"version\":\"0.23\"").size(),"\"version\":\"0.21\"");
+    auto false_locale_version=locale_link_bytes;const auto false_locale_at=false_locale_version.find("\"version\":\"0.24\"");
+    false_locale_version.replace(false_locale_at,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.21\"");
     rejects("UNSUPPORTED_TEXT_LOCALE_DRIVER",[&]{decode(false_locale_version);});
     auto malformed_locale=locale_link_bytes;const auto locale_driver_at=malformed_locale.find("\"locale_driver\":{\"link\":");
     check(locale_driver_at!=std::string::npos,"Native Text locale driver uses one link alternative");
@@ -1164,6 +1190,323 @@ int main(){try{
         {"depth-129","","text.content"},false}},depth_revision);});
     check(depth_session.revision()==depth_revision&&encode(depth_session.document())==depth_bytes,
         "Text content dependency depth overflow rejects atomically");
+
+    // The common sampler returns the evaluated cubic itself, not a polyline
+    // point/tangent, and keeps authored one-sided knot rules deterministic.
+    auto sampler_doc=empty_document("sampler-doc","sampler-comp","sampler-frame");Session sampler_session(sampler_doc);
+    Point line_a,line_b;line_a.id="line-a";line_b.id="line-b";line_b.x.literal=200;
+    sampler_session.apply({CreatePath{"sampler-comp","","line-path","Line",{{"line-contour",false,{line_a,line_b}}}}},0);
+    auto line_sampler=build_path_sampler(sampler_session.document(),"line-path","line-contour",evaluate(sampler_session.document()));
+    for(const auto [distance_value,expected_x]:std::array<std::pair<double,double>,3>{{{0,0},{50,50},{100,100}}}) {
+        const auto sample=sample_path(line_sampler,distance_value);
+        near(sample.position.x,expected_x,1e-10,"Straight path sample x matches exact distance oracle");
+        near(sample.position.y,0,1e-10,"Straight path sample y matches exact distance oracle");
+        near(sample.tangent.x,1,1e-10,"Straight path tangent is unit-forward");
+        near(sample.normal.y,1,1e-10,"Straight path normal is clockwise");
+        check(sample.path=="line-path"&&sample.contour=="line-contour","Sampler returns exact stable Path and Contour IDs");
+    }
+    const auto reversed_line=sample_path(line_sampler,0,true);
+    near(reversed_line.position.x,200,1e-10,"Reversed traversal starts at the far endpoint");
+    near(reversed_line.tangent.x,-1,1e-10,"Reversed traversal flips only the tangent direction");
+    rejects("PATH_SAMPLE_RANGE",[&]{(void)sample_path(line_sampler,201);});
+    sampler_session.apply({Set{{"line-path","line-b","x"},0},Set{{"line-path","line-b","y"},200}},sampler_session.revision());
+    const auto vertical_line=build_path_sampler(sampler_session.document(),"line-path","line-contour",evaluate(sampler_session.document()));
+    const auto vertical_sample=sample_path(vertical_line,50);
+    near(vertical_sample.position.x,0,1e-10,"Vertical point edit recomputes world-space sample x");
+    near(vertical_sample.position.y,50,1e-10,"Vertical point edit recomputes world-space sample y");
+    near(vertical_sample.tangent.y,1,1e-10,"Vertical point edit recomputes analytic tangent");
+    sampler_session.undo(sampler_session.revision());
+    check(evaluate(sampler_session.document()).at({"line-path","line-b","x"})==200&&
+        evaluate(sampler_session.document()).at({"line-path","line-b","y"})==0,"Path point edit has one exact Undo step");
+
+    auto rotated_doc=empty_document("rotated-doc","rotated-comp","rotated-frame");Session rotated(rotated_doc);
+    Point rotate_a,rotate_b;rotate_a.id="rotate-a";rotate_b.id="rotate-b";rotate_b.x.literal=200;
+    rotated.apply({CreatePath{"rotated-comp","","rotate-path","Rotated",{{"rotate-contour",false,{rotate_a,rotate_b}}}}},0);
+    rotated.apply({Set{{"rotate-path","","transform.a"},0},Set{{"rotate-path","","transform.b"},1},
+        Set{{"rotate-path","","transform.c"},-1},Set{{"rotate-path","","transform.d"},0}},rotated.revision());
+    const auto transformed_sample=sample_path(build_path_sampler(rotated.document(),"rotate-path","rotate-contour",evaluate(rotated.document())),50);
+    near(transformed_sample.position.x,0,1e-10,"Source 90-degree transform is applied before sampling");
+    near(transformed_sample.position.y,50,1e-10,"Source transform produces the exact vertical oracle");
+
+    auto knot_doc=empty_document("knot-doc","knot-comp","knot-frame");Session knots(knot_doc);
+    Point knot_a,knot_b,knot_c;knot_a.id="knot-a";knot_b.id="knot-b";knot_b.x.literal=100;
+    knot_c.id="knot-c";knot_c.x.literal=100;knot_c.y.literal=100;
+    knots.apply({CreatePath{"knot-comp","","knot-path","Knot",{{"knot-contour",false,{knot_a,knot_b,knot_c}}}}},0);
+    const auto knot_sampler=build_path_sampler(knots.document(),"knot-path","knot-contour",evaluate(knots.document()));
+    const auto at_knot=sample_path(knot_sampler,100),at_open_end=sample_path(knot_sampler,200);
+    near(at_knot.position.x,100,1e-10,"Interior knot samples authored anchor");
+    near(at_knot.position.y,0,1e-10,"Interior knot samples authored anchor y");
+    near(at_knot.tangent.x,0,1e-10,"Interior knot selects outgoing nonzero tangent x");
+    near(at_knot.tangent.y,1,1e-10,"Interior knot selects outgoing nonzero tangent");
+    near(at_open_end.tangent.y,1,1e-10,"Open endpoint selects incoming nonzero tangent");
+
+    auto long_doc=empty_document("long-knot-doc","long-knot-comp","long-knot-frame");Session long_path(long_doc);
+    Point long_a,long_b,long_c;long_a.id="long-a";long_b.id="long-b";long_b.x.literal=1e9;
+    long_c.id="long-c";long_c.x.literal=1e9;long_c.y.literal=1e9;
+    long_path.apply({CreatePath{"long-knot-comp","","long-knot-path","Long Knot",
+        {{"long-knot-contour",false,{long_a,long_b,long_c}}}}},0);
+    const auto long_sampler=build_path_sampler(long_path.document(),"long-knot-path","long-knot-contour",evaluate(long_path.document()));
+    const auto near_knot=sample_path(long_sampler,1e9+0.01);
+    near(near_knot.position.x,1e9,0.001,"Near-knot sample remains on the long path's second cubic");
+    near(near_knot.position.y,0.01,0.001,"Long-path knot snap does not erase a representable 0.01 du96 offset");
+    near(near_knot.tangent.y,1,1e-10,"Near-knot sample retains the analytic outgoing segment tangent");
+
+    // Compare curved distance inversion to an independent 200k-step oracle.
+    auto curve_doc=empty_document("curve-doc","curve-comp","curve-frame");Session curve_session(curve_doc);
+    Point curve_a,curve_b;curve_a.id="curve-a";curve_a.out_angle.literal=90;curve_a.out_length.literal=90;
+    curve_b.id="curve-b";curve_b.x.literal=200;curve_b.in_angle.literal=90;curve_b.in_length.literal=90;
+    curve_session.apply({CreatePath{"curve-comp","","curve-path","Curve",{{"curve-contour",false,{curve_a,curve_b}}}}},0);
+    const auto curve_values=evaluate(curve_session.document());
+    const auto curve_sampler=build_path_sampler(curve_session.document(),"curve-path","curve-contour",curve_values);
+    auto curve_point=[](double t){const auto u=1-t;return Vec2{600*u*t*t+200*t*t*t,270*u*u*t+270*u*t*t};};
+    constexpr std::size_t oracle_steps=200000;const auto target=curve_sampler.length*0.37;
+    auto previous=curve_point(0);double accumulated=0,oracle_t=0;Vec2 oracle{};
+    for(std::size_t i=1;i<=oracle_steps;++i) {
+        const auto t=static_cast<double>(i)/oracle_steps;const auto point=curve_point(t);
+        const auto segment=std::hypot(point.x-previous.x,point.y-previous.y);
+        if(accumulated+segment>=target) {
+            const auto ratio=(target-accumulated)/segment;
+            oracle={previous.x+(point.x-previous.x)*ratio,previous.y+(point.y-previous.y)*ratio};
+            oracle_t=(static_cast<double>(i-1)+ratio)/oracle_steps;break;
+        }
+        accumulated+=segment;previous=point;
+    }
+    const auto curved_sample=sample_path(curve_sampler,target);
+    check(std::hypot(curved_sample.position.x-oracle.x,curved_sample.position.y-oracle.y)<=0.1,
+        "Curved cubic arc-length inversion agrees with the independent high-resolution oracle within 0.1 du96");
+    const auto curved_tangent_norm=std::hypot(curved_sample.tangent.x,curved_sample.tangent.y);
+    near(curved_tangent_norm,1,1e-12,"Curved sample returns a normalized analytic derivative");
+    const auto oracle_dx=1200*(1-oracle_t)*oracle_t,oracle_dy=270*(1-2*oracle_t);
+    const auto oracle_tangent_norm=std::hypot(oracle_dx,oracle_dy);
+    near(curved_sample.tangent.x,oracle_dx/oracle_tangent_norm,1e-4,"Curved sample tangent agrees with the analytic cubic derivative oracle");
+    near(curved_sample.tangent.y,oracle_dy/oracle_tangent_norm,1e-4,"Curved sample tangent preserves the analytic cubic direction");
+
+    auto square_doc=empty_document("square-doc","square-comp","square-frame");Session square(square_doc);
+    Point sq0,sq1,sq2,sq3;sq0.id="sq0";sq1.id="sq1";sq1.x.literal=100;sq2.id="sq2";sq2.x.literal=100;sq2.y.literal=100;
+    sq3.id="sq3";sq3.y.literal=100;
+    square.apply({CreatePath{"square-comp","","square-path","Square",{{"square-contour",true,{sq0,sq1,sq2,sq3}}}}},0);
+    const auto square_sampler=build_path_sampler(square.document(),"square-path","square-contour",evaluate(square.document()));
+    const auto square_wrap=sample_path(square_sampler,450);
+    near(square_wrap.position.x,50,1e-10,"Closed contour wraps a finite distance across its seam");
+    near(square_wrap.position.y,0,1e-10,"Closed contour seam wrap preserves ordered geometry");
+
+    // Retained attachment lifecycle, strict migration and transactional guards.
+    auto attach_doc=empty_document("attach-doc","attach-comp","attach-frame");Session attached(attach_doc);
+    Point path_start,path_end;path_start.id="attach-p0";path_end.id="attach-p1";path_end.x.literal=320;
+    auto attached_source=default_text("attached-source","Path");attached_source.parameters.at("font_size").literal=24;
+    attached_source.path_attachment=TextPathAttachment{"attach-path","attach-contour","distance",0,0,false};
+    attached.apply({CreatePath{"attach-comp","","attach-path","Source Path",{{"attach-contour",false,{path_start,path_end}}}},
+        CreateText{"attach-comp","","attached-text","Attached Text",attached_source}},0);
+    const auto attached_native=encode(attached.document());
+    check(attached_native.find("\"version\":\"0.24\"")!=std::string::npos&&
+        attached_native.find("\"path_attachment\"")!=std::string::npos&&decode(attached_native)==attached.document(),
+        "Native 0.24 codec roundtrip retains exact editable Text, Path and Contour attachment data");
+    const auto native_path=std::filesystem::temp_directory_path()/
+        ("nect-text-path-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".nect");
+    struct TempNativeFile {std::filesystem::path path;~TempNativeFile(){std::error_code ignored;std::filesystem::remove(path,ignored);}} cleanup{native_path};
+    {
+        std::ofstream file(native_path,std::ios::binary|std::ios::trunc);
+        check(file.good(),"Create a temporary native Text-on-Path fixture");
+        file.write(attached_native.data(),static_cast<std::streamsize>(attached_native.size()));file.flush();
+        check(file.good(),"Persist exact native Text-on-Path bytes to a temporary file");
+    }
+    std::ifstream file(native_path,std::ios::binary);
+    check(file.good(),"Open native Text-on-Path fixture for cold file readback");
+    const std::string file_bytes((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
+    Session cold_file(decode(file_bytes));
+    check(file_bytes==attached_native&&cold_file.document()==attached.document()&&encode(cold_file.document())==attached_native,
+        "Native 0.24 file cold readback preserves exact editable Text, Path and Contour attachment bytes");
+    check(attached.document().objects.at("attached-text").text->id=="attached-source"&&
+        attached.document().objects.at("attached-text").text->content=="Path"&&
+        attached.document().objects.at("attached-text").contours.empty(),
+        "Attachment preserves Text identity/content and never authors glyph contours");
+
+    auto legacy_doc=empty_document("legacy23-doc","legacy23-comp","legacy23-frame");Session legacy23(legacy_doc);
+    auto legacy23_source=default_text("legacy23-source","Legacy 0.23 Text");
+    legacy23.apply({CreateText{"legacy23-comp","","legacy23-text","Legacy",legacy23_source}},0);
+    auto native23=encode(legacy23.document());const auto version24=native23.find("\"version\":\"0.24\"");
+    check(version24!=std::string::npos,"Native writer emits 0.24 before the explicit 0.23 migration fixture");
+    native23.replace(version24,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.23\"");
+    const auto migrated23=decode(native23);
+    check(migrated23.objects.at("legacy23-text").text->id=="legacy23-source"&&
+        migrated23.objects.at("legacy23-text").text->content=="Legacy 0.23 Text"&&
+        !migrated23.objects.at("legacy23-text").text->path_attachment,
+        "Native 0.23 readback migrates to detached Text without changing source ID or content");
+    auto illegal23=attached_native;const auto attached_version=illegal23.find("\"version\":\"0.24\"");
+    illegal23.replace(attached_version,std::string("\"version\":\"0.24\"").size(),"\"version\":\"0.23\"");
+    rejects("UNSUPPORTED_TEXT_PATH_ATTACHMENT",[&]{(void)decode(illegal23);});
+
+    const auto attached_history=attached.history();
+    auto assert_attachment_atomic=[&](const char* label) {
+        (void)label;check(attached.revision()==1&&encode(attached.document())==attached_native&&attached.history()==attached_history,
+            "Rejected Text-on-Path edit preserves document bytes, revision and Undo history");
+    };
+    rejects("MISSING_PATH_ATTACHMENT",[&]{attached.apply({DeleteObjects{{"attach-path"}}},attached.revision());});
+    assert_attachment_atomic("source deletion");
+    auto stale_source=*attached.document().objects.at("attached-text").text;stale_source.path_attachment->contour="stale-contour";
+    rejects("MISSING_PATH_CONTOUR",[&]{attached.apply({UpdateText{"attached-text",stale_source}},attached.revision());});
+    assert_attachment_atomic("stale contour");
+    auto invalid_source=*attached.document().objects.at("attached-text").text;
+    invalid_source.path_attachment->path="missing-path";
+    rejects("MISSING_PATH_ATTACHMENT",[&]{attached.apply({UpdateText{"attached-text",invalid_source}},attached.revision());});
+    assert_attachment_atomic("missing path");
+    invalid_source.path_attachment->path="attached-text";
+    rejects("INVALID_PATH_ATTACHMENT",[&]{attached.apply({UpdateText{"attached-text",invalid_source}},attached.revision());});
+    assert_attachment_atomic("wrong source kind");
+    Session generated_source(attached.document());
+    generated_source.apply({CreatePrimitive{"attach-comp","","generated-path","Generated",
+        default_primitive("generated-source","nect.shape.circle")}},generated_source.revision());
+    invalid_source=*generated_source.document().objects.at("attached-text").text;
+    invalid_source.path_attachment->path="generated-path";
+    rejects("GENERATED_PATH_ATTACHMENT",[&]{generated_source.apply({UpdateText{"attached-text",invalid_source}},generated_source.revision());});
+    check(generated_source.document().objects.at("attached-text").text->path_attachment->path=="attach-path",
+        "Generated Path rejection retains the authored source reference");
+    invalid_source=*attached.document().objects.at("attached-text").text;invalid_source.layout="frame";
+    rejects("TEXT_PATH_LAYOUT_UNSUPPORTED",[&]{attached.apply({UpdateText{"attached-text",invalid_source}},attached.revision());});
+    assert_attachment_atomic("frame layout");
+    invalid_source=*attached.document().objects.at("attached-text").text;invalid_source.direction="vertical";
+    rejects("TEXT_PATH_DIRECTION_UNSUPPORTED",[&]{attached.apply({UpdateText{"attached-text",invalid_source}},attached.revision());});
+    assert_attachment_atomic("vertical direction");
+    invalid_source=*attached.document().objects.at("attached-text").text;invalid_source.content="First\nSecond";
+    rejects("TEXT_PATH_MULTILINE_UNSUPPORTED",[&]{attached.apply({UpdateText{"attached-text",invalid_source}},attached.revision());});
+    assert_attachment_atomic("hard line break");
+#ifdef _WIN32
+    invalid_source=*attached.document().objects.at("attached-text").text;
+    invalid_source.content="\xd8\xb3\xd9\x84\xd8\xa7\xd9\x85"; // Arabic RTL shaping must not be replaced by LTR glyph placement.
+    rejects("TEXT_PATH_RUN_UNSUPPORTED",[&]{attached.apply({UpdateText{"attached-text",invalid_source}},attached.revision());});
+    assert_attachment_atomic("RTL shaped run");
+#endif
+    rejects("PATH_SAMPLE_ZERO_LENGTH",[&]{attached.apply({Set{{"attach-path","attach-p1","x"},0}},attached.revision());});
+    assert_attachment_atomic("zero-length source");
+    rejects("SINGULAR_TRANSFORM",[&]{attached.apply({Set{{"attached-text","","transform.a"},0}},attached.revision());});
+    assert_attachment_atomic("singular Text inverse");
+    rejects("REVISION_CONFLICT",[&]{attached.apply({Rename{"attached-text","Stale edit"}},attached.revision()-1);});
+    assert_attachment_atomic("stale revision");
+    invalid_source=*attached.document().objects.at("attached-text").text;invalid_source.path_attachment->contour="stale-contour";
+    rejects("MISSING_PATH_CONTOUR",[&]{attached.apply({Rename{"attach-path","Temporarily renamed"},
+        UpdateText{"attached-text",invalid_source}},attached.revision());});
+    assert_attachment_atomic("failed multi-command batch");
+    const auto cycle_revision=attached.revision();
+    rejects("TEXT_PATH_TRANSFORM_CYCLE",[&]{attached.apply({SetTransformParent{"attach-path",std::optional<Id>{"attached-text"},false}},cycle_revision);});
+    assert_attachment_atomic("transform cycle");
+#ifdef _WIN32
+    rejects("TEXT_PATH_OVERFLOW",[&]{attached.apply({Set{{"attach-path","attach-p1","x"},1}},attached.revision());});
+    assert_attachment_atomic("path edit overflow");
+#endif
+    Session delete_both(attached.document());delete_both.apply({DeleteObjects{{"attach-path","attached-text"}}},0);
+    check(delete_both.document().objects.empty(),"One atomic batch may delete a source Path and all dependent Text");
+
+    auto cross_doc=empty_document("cross-doc","cross-a","cross-frame-a");
+    auto other_composition=empty_document("other-doc","cross-b","cross-frame-b").compositions.front();
+    cross_doc.compositions.push_back(other_composition);Session cross_session(cross_doc);
+    Point cross_start,cross_end;cross_start.id="cross-p0";cross_end.id="cross-p1";cross_end.x.literal=320;
+    auto cross_text=default_text("cross-source","Cross composition");cross_text.path_attachment=TextPathAttachment{"cross-path","cross-contour","distance",0,0,false};
+    const auto cross_before=encode(cross_session.document());const auto cross_history=cross_session.history();
+    rejects("CROSS_COMPOSITION",[&]{cross_session.apply({
+        CreatePath{"cross-a","","cross-path","Cross Path",{{"cross-contour",false,{cross_start,cross_end}}}},
+        CreateText{"cross-b","","cross-text","Cross Text",cross_text}},cross_session.revision());});
+    check(cross_session.revision()==0&&encode(cross_session.document())==cross_before&&cross_session.history()==cross_history,
+        "Cross-Composition attachment rejection preserves document, revision and history");
+
+    Session both_copy_session(attached.document());const DuplicateObjects duplicate_both{{"attach-path","attached-text"},"both-copy"};
+    both_copy_session.apply({duplicate_both},both_copy_session.revision());
+    const Object* both_copy_text=nullptr;
+    for(const auto& [id,object]:both_copy_session.document().objects)if(id!="attached-text"&&object.text&&object.text->path_attachment)both_copy_text=&object;
+    check(both_copy_text&&both_copy_text->text->path_attachment->path!="attach-path"&&
+        both_copy_session.document().objects.contains(both_copy_text->text->path_attachment->path),
+        "Duplicating both Text and Path remaps the copied attachment to the copied Path");
+    const auto& copied_contours=both_copy_session.document().objects.at(both_copy_text->text->path_attachment->path).contours;
+    check(std::any_of(copied_contours.begin(),copied_contours.end(),[&](const Contour& c){return c.id==both_copy_text->text->path_attachment->contour;}),
+        "Duplicating both Text and Path remaps the exact authored Contour ID");
+    Session text_only_copy(attached.document());text_only_copy.apply({DuplicateObjects{{"attached-text"},"text-copy"}},0);
+    const auto text_copy=std::find_if(text_only_copy.document().objects.begin(),text_only_copy.document().objects.end(),
+        [](const auto& entry){return entry.first!="attached-text"&&entry.second.text.has_value();});
+    check(text_copy!=text_only_copy.document().objects.end()&&text_copy->second.text->path_attachment->path=="attach-path"&&
+        text_copy->second.text->path_attachment->contour=="attach-contour",
+        "Duplicating Text alone retains the original Path and Contour IDs");
+    Session path_only_copy(attached.document());path_only_copy.apply({DuplicateObjects{{"attach-path"},"path-copy"}},0);
+    check(path_only_copy.document().objects.at("attached-text").text->path_attachment->path=="attach-path",
+        "Duplicating the Path alone leaves the original Text attached to its original source");
+
+#ifdef _WIN32
+    auto attached_values=evaluate(attached.document());
+    auto attached_shape=evaluate_shape(attached.document(),"attached-text",attached_values);
+    check(attached_shape.paths.front().contours&&!attached_shape.paths.front().contours->empty(),
+        "Text-on-Path is a real shared Shape consumer");
+
+    auto mixed_doc=empty_document("mixed-path-doc","mixed-path-comp","mixed-path-frame");Session mixed_session(mixed_doc);
+    Point mixed_start,mixed_end;mixed_start.id="mixed-p0";mixed_end.id="mixed-p1";mixed_end.x.literal=10000;
+    auto mixed_source=default_text("mixed-source","AV \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e");mixed_source.family="Arial";mixed_source.locale="en-US";
+    mixed_source.parameters.at("font_size").literal=32;mixed_source.parameters.at("tracking").literal=1.25;
+    mixed_source.path_attachment=TextPathAttachment{"mixed-path","mixed-contour","distance",0,0,false};
+    mixed_session.apply({CreatePath{"mixed-path-comp","","mixed-path","Mixed Script Path",{{"mixed-contour",false,{mixed_start,mixed_end}}}},
+        CreateText{"mixed-path-comp","","mixed-text","Mixed Script",mixed_source}},0);
+    auto detached_mixed_source=mixed_source;detached_mixed_source.path_attachment.reset();
+    std::map<std::string,double> mixed_parameters;
+    for(const auto& [name,parameter]:mixed_source.parameters)mixed_parameters.emplace(name,parameter.literal);
+    const auto detached_mixed=evaluate_text(detached_mixed_source,mixed_parameters);
+    const auto shaped_mixed=evaluate_text(mixed_source,mixed_parameters);
+    const auto projected_mixed=evaluate_text_projection(mixed_session.document(),"mixed-text",evaluate(mixed_session.document()));
+    check(shaped_mixed.glyph_count==shaped_mixed.glyphs.size()&&shaped_mixed.glyph_count==detached_mixed.glyph_count&&
+        projected_mixed.contours->size()==detached_mixed.contours->size()&&shaped_mixed.used_fonts.size()>=2,
+        "Mixed Latin/Japanese fallback retains DirectWrite glyph runs on a straight path");
+    const auto baseline=shaped_mixed.glyphs.front().baseline;
+    for(std::size_t i=0;i<detached_mixed.contours->size();++i) {
+        const auto& detached_contour=detached_mixed.contours->at(i);const auto& attached_contour=projected_mixed.contours->at(i);
+        check(detached_contour.points.size()==attached_contour.points.size(),"Path projection retains each shaped glyph contour topology");
+        for(std::size_t p=0;p<detached_contour.points.size();++p)for(const auto pair:{
+                std::pair{detached_contour.points[p].anchor,attached_contour.points[p].anchor},
+                std::pair{detached_contour.points[p].incoming,attached_contour.points[p].incoming},
+                std::pair{detached_contour.points[p].outgoing,attached_contour.points[p].outgoing}}) {
+            near(pair.second.x,pair.first.x-baseline.x,0.05,"Straight-path projection preserves shaped glyph run x offsets and tracking");
+            near(pair.second.y,pair.first.y-baseline.y,0.05,"Straight-path projection preserves shaped glyph run baseline offsets");
+        }
+    }
+#endif
+    const auto before_path_edit=attached.document();const auto before_path_edit_bytes=encode(before_path_edit);
+    attached.apply({Set{{"attach-path","attach-p1","x"},0},Set{{"attach-path","attach-p1","y"},320}},attached.revision());
+    check(attached.revision()==2&&attached.document().objects.at("attached-text").text->content=="Path",
+        "Path point edits recompute projection without rewriting authored Text");
+    const auto vertical_path_edit=encode(attached.document());
+    attached.undo(attached.revision());
+    check(attached.revision()==3&&encode(attached.document())==before_path_edit_bytes,
+        "Text-on-Path source geometry edit has one exact Undo step");
+    attached.redo(attached.revision());
+    check(attached.revision()==4&&evaluate(attached.document()).at({"attach-path","attach-p1","y"})==320&&
+        encode(attached.document())==vertical_path_edit,
+        "Text-on-Path source geometry edit has one exact Redo step");
+
+    auto api_doc=empty_document("api-path-doc","api-path-comp","api-path-frame");Session api_session(api_doc);
+    Point api_a,api_b;api_a.id="api-p0";api_b.id="api-p1";api_b.x.literal=320;
+    api_session.apply({CreatePath{"api-path-comp","","api-path","API Path",{{"api-contour",false,{api_a,api_b}}}}},0);
+    auto api_source=response_result_object(request(api_session,R"({"op":"text_defaults"})"));
+    const auto source_id=api_source.find("\"id\":\"new-text-source\"");
+    check(source_id!=std::string::npos,"API defaults return the authored Text source shape");
+    api_source.replace(source_id+6,std::string("new-text-source").size(),"api-source");
+    const auto create_api_text=request(api_session,"{\"op\":\"apply\",\"expected_revision\":1,\"commands\":[{\"type\":\"create_text\",\"composition\":\"api-path-comp\",\"parent\":\"\",\"id\":\"api-text\",\"name\":\"API Text\",\"source\":"+api_source+"}]} ");
+    check(create_api_text.find("\"changed\":true")!=std::string::npos&&api_session.revision()==2,
+        "JSON-lines API creates the editable Text through the shared Session");
+    auto api_attached_source=api_source;const auto source_end=api_attached_source.rfind('}');
+    api_attached_source.insert(source_end,R"(,"path_attachment":{"path":"api-path","contour":"api-contour","start_mode":"distance","start":0,"spacing":0,"reversed":false})");
+    const auto api_attach_reply=request(api_session,"{\"op\":\"apply\",\"expected_revision\":2,\"commands\":[{\"type\":\"update_text\",\"object\":\"api-text\",\"source\":"+api_attached_source+"}]} ");
+    const auto attached_layout_reply=request(api_session,R"({"op":"text_layout","object":"api-text"})");
+#ifdef _WIN32
+    const bool api_attached_status=attached_layout_reply.find("\"attachment_status\":\"attached\"")!=std::string::npos;
+#else
+    const bool api_attached_status=attached_layout_reply.find("TEXT_PLATFORM_UNSUPPORTED")!=std::string::npos;
+#endif
+    check(api_attach_reply.find("\"changed\":true")!=std::string::npos&&api_session.revision()==3&&api_attached_status,
+        "JSON-lines API attaches by stable Path/Contour IDs and reads projected layout status");
+    const auto api_detach_reply=request(api_session,"{\"op\":\"apply\",\"expected_revision\":3,\"commands\":[{\"type\":\"update_text\",\"object\":\"api-text\",\"source\":"+api_source+"}]} ");
+#ifdef _WIN32
+    const bool api_detached_status=request(api_session,R"({"op":"text_layout","object":"api-text"})").find("\"attachment_status\":\"detached\"")!=std::string::npos;
+#else
+    const bool api_detached_status=request(api_session,R"({"op":"text_layout","object":"api-text"})").find("TEXT_PLATFORM_UNSUPPORTED")!=std::string::npos;
+#endif
+    check(api_detach_reply.find("\"changed\":true")!=std::string::npos&&api_session.revision()==4&&
+        api_detached_status&&
+        api_session.document().objects.at("api-text").text->content=="Text",
+        "JSON-lines API detaches in one Session edit and retains authored Text content");
 #ifdef _WIN32
     auto repeat=default_operation("repeat","nect.shape.repeater");repeat.parameters.at("copies").literal=3;
     apply({AddOperation{"title",repeat,1}});

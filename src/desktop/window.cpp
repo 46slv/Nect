@@ -691,6 +691,17 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         const bool projected=canvas_notification_&&canvas_notification_->first==host.session_id&&
             canvas_notification_->second==host.session.revision()&&!host.session.gesture_active();
         refresh(!projected);
+        const auto selected=canvas->selected_object;
+        const auto found=host.session.document().objects.find(selected);
+        if(found!=host.session.document().objects.end()&&found->second.text&&found->second.text->path_attachment) {
+            const auto session=host.session_id;
+            QTimer::singleShot(0,this,[this,session,selected]{
+                const auto current=host.session.document().objects.find(selected);
+                if(host.session_id==session&&canvas->selected_object==selected&&
+                   current!=host.session.document().objects.end()&&current->second.text&&current->second.text->path_attachment)
+                    rebuild_inspector(true);
+            });
+        }
     };
     host.status_changed=[this]{status_->setText(host.save_status+"   ·   r"+QString::number(host.session.revision()));};
     canvas->document_changed=[this]{
@@ -1835,6 +1846,60 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         if(next==*found->second.text)return;
         host.session.apply({UpdateText{id,std::move(next)}},host.session.revision());host.edited();
     };
+    auto* path_group=new QGroupBox("Text on Path",box);auto* path_form=new QFormLayout(path_group);
+    path_form->setRowWrapPolicy(QFormLayout::WrapLongRows);form->addRow(path_group);
+    auto* path_contour=new QComboBox(path_group);path_contour->setObjectName("text-path-contour");
+    path_contour->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);path_contour->setMinimumContentsLength(20);
+    path_contour->addItem("Choose an authored Path contour…",QString{});
+    const auto& path_composition=find_composition(host.session.document(),canvas->active_composition());
+    std::function<void(const Id&)> add_path_choices=[&](const Id& path_id) {
+        const auto& candidate=host.session.document().objects.at(path_id);
+        if(candidate.kind==Kind::path&&!candidate.source)for(const auto& contour:candidate.contours) {
+            const auto data=qs(path_id)+"\n"+qs(contour.id);
+            path_contour->addItem(qs(candidate.name)+" ["+qs(path_id)+"] · Contour "+qs(contour.id),data);
+            if(source.path_attachment&&source.path_attachment->path==path_id&&source.path_attachment->contour==contour.id)
+                path_contour->setCurrentIndex(path_contour->count()-1);
+        }
+        for(const auto& child:candidate.children)add_path_choices(child);
+    };
+    for(const auto& root:path_composition.roots)add_path_choices(root);
+    path_form->addRow("Source contour",path_contour);
+    auto* path_start_mode=new QComboBox(path_group);path_start_mode->setObjectName("text-path-start-mode");
+    path_start_mode->addItem("Distance (du96)","distance");path_start_mode->addItem("Normalized fraction","normalized");
+    if(source.path_attachment)path_start_mode->setCurrentIndex(source.path_attachment->start_mode=="normalized"?1:0);
+    path_form->addRow("Start mode",path_start_mode);
+    auto* path_start=new QLineEdit(path_group);path_start->setObjectName("text-path-start");
+    path_start->setText(QString::number(source.path_attachment?source.path_attachment->start:0,'g',17));
+    path_start->setPlaceholderText("Finite distance or fraction");path_form->addRow("Start",path_start);
+    auto* path_spacing=new QLineEdit(path_group);path_spacing->setObjectName("text-path-spacing");
+    path_spacing->setText(QString::number(source.path_attachment?source.path_attachment->spacing:0,'g',17));
+    path_spacing->setPlaceholderText("Nonnegative du96 gap");path_form->addRow("Extra spacing",path_spacing);
+    auto* path_reversed=new QCheckBox("Reverse contour traversal",path_group);path_reversed->setObjectName("text-path-reversed");
+    path_reversed->setChecked(source.path_attachment&&source.path_attachment->reversed);path_form->addRow(path_reversed);
+    auto* path_actions=new QWidget(path_group);auto* path_action_row=new QHBoxLayout(path_actions);path_action_row->setContentsMargins(0,0,0,0);
+    auto* path_apply=new QPushButton("Attach / update",path_actions);path_apply->setObjectName("text-path-apply");path_action_row->addWidget(path_apply);
+    auto* path_detach=new QPushButton("Detach",path_actions);path_detach->setObjectName("text-path-detach");
+    path_detach->setEnabled(source.path_attachment.has_value());path_action_row->addWidget(path_detach);path_action_row->addStretch();
+    path_form->addRow(path_actions);
+    auto* path_status=new QLabel(source.path_attachment?
+        "Attached by stable Path and Contour IDs. Text remains editable; projection uses the shared Canvas and SVG shape flow.":
+        "Detached. Choose a specific same-Composition authored Path contour to attach.",path_group);
+    path_status->setObjectName("text-path-status");path_status->setWordWrap(true);path_status->setTextFormat(Qt::PlainText);path_form->addRow(path_status);
+    auto refresh_path_inspector=[this,id,frozen_session]{QTimer::singleShot(0,this,[this,id,frozen_session]{
+        if(host.session_id==frozen_session&&canvas->selected_object==id)rebuild_inspector(true);
+    });};
+    connect(path_apply,&QPushButton::clicked,this,[this,path_contour,path_start_mode,path_start,path_spacing,path_reversed,update,refresh_path_inspector]{perform([&]{
+        const auto parts=path_contour->currentData().toString().split('\n');
+        if(parts.size()!=2||parts[0].isEmpty()||parts[1].isEmpty())throw Error("MISSING_PATH_ATTACHMENT","Choose an authored Path contour by ID");
+        bool start_ok=false,spacing_ok=false;
+        const auto start=path_start->text().trimmed().toDouble(&start_ok);
+        const auto spacing=path_spacing->text().trimmed().toDouble(&spacing_ok);
+        if(!start_ok||!std::isfinite(start))throw Error("TEXT_PATH_START_INVALID","Enter a finite Text-on-Path start value");
+        if(!spacing_ok||!std::isfinite(spacing)||spacing<0)throw Error("TEXT_PATH_SPACING","Enter finite nonnegative extra spacing");
+        update([&](TextSource& next){next.path_attachment=TextPathAttachment{parts[0].toStdString(),parts[1].toStdString(),
+            path_start_mode->currentData().toString().toStdString(),start,spacing,path_reversed->isChecked()};});
+    });});
+    connect(path_detach,&QPushButton::clicked,this,[this,update,refresh_path_inspector]{perform([&]{update([](TextSource& next){next.path_attachment.reset();});refresh_path_inspector();});});
     if(!font_families_) {
         font_families_=new QStringListModel(this);
         auto reload=[this]{QStringList names;for(const auto& name:text_fonts())names<<qs(name);font_families_->setStringList(names);};
@@ -2289,9 +2354,8 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     locale_status->setObjectName("text-locale-state");locale_status->setWordWrap(true);locale_status->setTextFormat(Qt::PlainText);form->addRow("",locale_status);
     for(const auto* parameter:{"origin_x","origin_y","font_size","frame_width","frame_height","tracking","line_spacing"})
         add_property(form,{id,"",std::string("text.")+parameter},parameter_label(parameter));
-    std::map<std::string,double> parameters;for(const auto& [name,value]:source.parameters){(void)value;parameters[name]=inspector_values_.at({id,"","text."+name});}
-    auto evaluated_source=evaluated_text_source(host.session.document(),id);
-    const auto result=evaluate_text(evaluated_source,parameters);
+    const auto current_values=evaluate(host.session.document());
+    const auto result=evaluate_text_projection(host.session.document(),id,current_values);
     QStringList lines;lines<<QString("%1 × %2 du · %3 glyphs").arg(display_value(result.width),display_value(result.height)).arg(result.glyph_count);
     if(result.overflow)lines<<"Text extends outside its frame. Increase the frame or reduce the type size.";
     for(const auto& warning:result.warnings)lines<<qs(warning);
@@ -2658,9 +2722,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                             QPointF(std::max(bounds.right(),position.x()),std::max(bounds.bottom(),position.y())));
                     }
                     if(const auto& selected=host.session.document().objects.at(id);selected.text) {
-                        std::map<std::string,double> parameters;for(const auto& [name,value]:selected.text->parameters){(void)value;parameters[name]=values.at({id,"","text."+name});}
-                        auto text=evaluated_text_source(host.session.document(),id);
-                        const auto layout=evaluate_text(text,parameters);bounds=QRectF(layout.x,layout.y,layout.width,layout.height);
+                        const auto layout=evaluate_text_projection(host.session.document(),id,values);bounds=QRectF(layout.x,layout.y,layout.width,layout.height);
                     }
                     const auto span=std::max(1.0,bounds.width());
                     created.start_x.literal=index==2?bounds.center().x():bounds.left();created.start_y.literal=bounds.center().y();
@@ -3322,9 +3384,7 @@ void Window::add_operation(const std::string& type,bool radial) {
             center_x=values.at({object.id,{},"generator.center_x"});
             center_y=values.at({object.id,{},"generator.center_y"});
         } else if(object.text) {
-            std::map<std::string,double> parameters;for(const auto& [name,value]:object.text->parameters){(void)value;parameters[name]=values.at({object.id,"","text."+name});}
-            auto text=evaluated_text_source(document,object.id);
-            const auto layout=evaluate_text(text,parameters);center_x=layout.x+layout.width/2;center_y=layout.y+layout.height/2;
+            const auto layout=evaluate_text_projection(document,object.id,values);center_x=layout.x+layout.width/2;center_y=layout.y+layout.height/2;
         } else {
             QRectF bounds;bool first=true;
             for(const auto& contour:path_contours(object,&values))for(const auto& point:contour.points) {

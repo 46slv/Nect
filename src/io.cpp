@@ -306,7 +306,16 @@ TextAlignmentDriver read_text_alignment_driver(const j::value& value) {
 j::object text_alignment_driver_json(const TextAlignmentDriver& driver) {
     return {{"link",ref_json(driver.link)}};
 }
-TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true,bool allow_locale_driver=true,bool allow_direction_driver=true,bool allow_layout_driver=true,bool allow_alignment_driver=true) {
+TextPathAttachment read_text_path_attachment(const j::value& value) {
+    const auto& attachment=value.as_object();keys(attachment,{"path","contour","start_mode","start","spacing","reversed"});
+    return {text(attachment.at("path")),text(attachment.at("contour")),text(attachment.at("start_mode")),
+        number(attachment.at("start")),number(attachment.at("spacing")),attachment.at("reversed").as_bool()};
+}
+j::object text_path_attachment_json(const TextPathAttachment& attachment) {
+    return {{"path",attachment.path},{"contour",attachment.contour},{"start_mode",attachment.start_mode},
+        {"start",attachment.start},{"spacing",attachment.spacing},{"reversed",attachment.reversed}};
+}
+TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true,bool allow_locale_driver=true,bool allow_direction_driver=true,bool allow_layout_driver=true,bool allow_alignment_driver=true,bool allow_path_attachment=true) {
     const auto& o=v.as_object();
     if(!allow_italic_driver&&o.contains("italic_driver"))throw Error("UNSUPPORTED_TEXT_ITALIC_DRIVER","Text italic drivers require native 0.15");
     if(!allow_weight_driver&&o.contains("weight_driver"))throw Error("UNSUPPORTED_TEXT_WEIGHT_DRIVER","Text weight drivers require native 0.16");
@@ -316,7 +325,8 @@ TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_ita
     if(!allow_direction_driver&&o.contains("direction_driver"))throw Error("UNSUPPORTED_TEXT_DIRECTION_DRIVER","Text direction drivers require native 0.19");
     if(!allow_layout_driver&&o.contains("layout_driver"))throw Error("UNSUPPORTED_TEXT_LAYOUT_DRIVER","Text layout drivers require native 0.20");
     if(!allow_alignment_driver&&o.contains("alignment_driver"))throw Error("UNSUPPORTED_TEXT_ALIGNMENT_DRIVER","Text alignment drivers require native 0.21");
-    keys(o,{"id","version","content","content_driver","family","family_driver","locale","locale_driver","layout","layout_driver","direction","direction_driver","alignment","alignment_driver","weight","italic","italic_driver","weight_driver","parameters"});
+    if(!allow_path_attachment&&o.contains("path_attachment"))throw Error("UNSUPPORTED_TEXT_PATH_ATTACHMENT","Text path attachments require native 0.24");
+    keys(o,{"id","version","content","content_driver","family","family_driver","locale","locale_driver","layout","layout_driver","direction","direction_driver","alignment","alignment_driver","weight","italic","italic_driver","weight_driver","parameters","path_attachment"});
     TextSource s;s.id=text(o.at("id"));s.version=j::value_to<unsigned>(o.at("version"));
     s.content=text(o.at("content"));s.family=text(o.at("family"));s.locale=text(o.at("locale"));
     s.layout=text(o.at("layout"));s.direction=text(o.at("direction"));s.alignment=text(o.at("alignment"));
@@ -329,6 +339,7 @@ TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_ita
     if(const auto* driver=o.if_contains("direction_driver"))s.direction_driver=read_text_direction_driver(*driver);
     if(const auto* driver=o.if_contains("layout_driver"))s.layout_driver=read_text_layout_driver(*driver);
     if(const auto* driver=o.if_contains("alignment_driver"))s.alignment_driver=read_text_alignment_driver(*driver);
+    if(const auto* attachment=o.if_contains("path_attachment"))s.path_attachment=read_text_path_attachment(*attachment);
     for(const auto& p:o.at("parameters").as_object())s.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
     return s;
 }
@@ -374,6 +385,7 @@ j::value text_json(const TextSource& s) {
     if(s.direction_driver)result["direction_driver"]=text_direction_driver_json(*s.direction_driver);
     if(s.layout_driver)result["layout_driver"]=text_layout_driver_json(*s.layout_driver);
     if(s.alignment_driver)result["alignment_driver"]=text_alignment_driver_json(*s.alignment_driver);
+    if(s.path_attachment)result["path_attachment"]=text_path_attachment_json(*s.path_attachment);
     return result;
 }
 j::object text_italic_property_json(const Document& d,const Ref& ref,const TextItalicProperty& value) {
@@ -459,13 +471,15 @@ j::object text_layout_json(const Document& d,const Id& id) {
     const auto object=d.objects.find(id);
     if(object==d.objects.end())throw Error("MISSING_OBJECT",id);
     if(!object->second.text)throw Error("NOT_TEXT",id);
-    const auto values=evaluate(d);std::map<std::string,double> parameters;
-    for(const auto& [name,value]:object->second.text->parameters){(void)value;parameters[name]=values.at({id,"","text."+name});}
+    const auto values=evaluate(d);
     auto text_source=evaluated_text_source(d,id);
-    const auto layout=evaluate_text(text_source,parameters);
+    const auto layout=evaluate_text_projection(d,id,values);
+    j::value attachment=nullptr;
+    if(text_source.path_attachment)attachment=text_path_attachment_json(*text_source.path_attachment);
     return {{"object",id},{"weight",text_source.weight},{"x",layout.x},{"y",layout.y},{"width",layout.width},{"height",layout.height},
         {"overflow",layout.overflow},{"glyph_count",layout.glyph_count},{"warnings",ids_json(layout.warnings)},
-        {"used_fonts",ids_json(layout.used_fonts)},{"svg_text","outlined"},{"font_embedded",false}};
+        {"used_fonts",ids_json(layout.used_fonts)},{"path_attachment",std::move(attachment)},
+        {"attachment_status",text_source.path_attachment?"attached":"detached"},{"svg_text","outlined"},{"font_embedded",false}};
 }
 
 Primitive read_primitive(const j::value& v,bool allow_polystar=true,bool allow_expression=true) {
@@ -1000,10 +1014,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,23> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23"};
+        constexpr std::array<std::string_view,24> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.23 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.24 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1086,7 +1100,7 @@ Document decode(std::string_view input) {
 
                 if(obj.kind==Kind::text) {
                     if(o.contains("source")||o.contains("point_edit")||o.contains("contours"))throw Error("INVALID_OBJECT","Text has incompatible geometry fields");
-                    obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17,minor>=18,minor>=22,minor>=19,minor>=20,minor>=21);
+                    obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17,minor>=18,minor>=22,minor>=19,minor>=20,minor>=21,minor>=24);
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
                     obj.source=read_primitive(o.at("source"),minor>=8,minor>=10);

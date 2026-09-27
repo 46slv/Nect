@@ -1979,6 +1979,52 @@ void text_authoring(Window& window) {
         evaluate_text_content(session.document(),id)=="Draft across unlink",
         "Inspector content unlink keeps the committed draft frozen after later source edits");
 }
+void text_path_authoring(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    Point start,end;start.id="ui-path-start";start.x.literal=40;start.y.literal=100;
+    end.id="ui-path-end";end.x.literal=520;end.y.literal=100;
+    auto source=default_text("ui-text-source","Canvas");source.parameters.at("font_size").literal=24;
+    session.apply({CreatePath{composition,"","ui-path","Guide Curve",{{"ui-contour",false,{start,end}}}},
+        CreateText{composition,"","ui-text","Path Label",source}},session.revision());
+    window.host.edited();window.canvas->set_selection("ui-text");QApplication::processEvents();
+    auto* contour=visible_child<QComboBox>(window,"text-path-contour");
+    const auto stable=contour->findData(QStringLiteral("ui-path\nui-contour"));
+    check(stable>=0&&contour->itemText(stable).contains("ui-path")&&contour->itemText(stable).contains("ui-contour"),
+        "Text on Path Inspector displays explicit stable Path and Contour IDs");
+    const auto before_refusal=session.document();const auto refusal_revision=session.revision();
+    contour->setCurrentIndex(0);visible_child<QPushButton>(window,"text-path-apply")->click();QApplication::processEvents();
+    check(session.revision()==refusal_revision&&session.document()==before_refusal&&
+        window.statusBar()->currentMessage().startsWith("MISSING_PATH_ATTACHMENT"),
+        "Inspector refuses attachment until a specific same-Composition Path/Contour is chosen");
+
+    const auto detached_pixels=Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false);
+    contour=visible_child<QComboBox>(window,"text-path-contour");contour->setCurrentIndex(stable);
+    const auto attach_revision=session.revision();visible_child<QPushButton>(window,"text-path-apply")->click();QApplication::processEvents();
+    QTest::qWait(25); // Let the deferred Text Inspector and Qt layout/show cycle settle.
+    check(session.revision()==attach_revision+1&&
+        session.document().objects.at("ui-text").text->path_attachment==TextPathAttachment{"ui-path","ui-contour","distance",0,0,false},
+        "Inspector attaches by stable IDs through one shared Session edit");
+    const auto attached_pixels=Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false);
+    const auto attached_svg=export_svg(session.document(),composition,window.canvas->active_artboard());
+    check(attached_pixels!=detached_pixels&&attached_svg.find("Text outlined for SVG")!=std::string::npos&&
+        attached_svg.find("<text") == std::string::npos,
+        "Canvas and SVG render the same real Text-on-Path shape while native retains editable Text");
+    QTemporaryDir native_dir;check(native_dir.isValid(),"Text-on-Path creates a disposable cold-reopen directory");
+    const auto native_path=native_dir.path()+"/text-path.nect";window.host.save(native_path);
+    QApplication::processEvents();QTest::qWait(25);
+    visible_child<QPushButton>(window,"text-path-detach");
+    Host cold_reopen(native_dir.path()+"/recovery");cold_reopen.open(native_path);
+    check(cold_reopen.session.document()==session.document()&&
+        cold_reopen.session.document().objects.at("ui-text").text->path_attachment->contour=="ui-contour",
+        "Native 0.24 cold reopen preserves exact editable Text and stable Contour attachment IDs");
+    const auto attached_document=session.document();const auto detach_revision=session.revision();
+    visible_child<QPushButton>(window,"text-path-detach")->click();QApplication::processEvents();
+    check(session.revision()==detach_revision+1&&!session.document().objects.at("ui-text").text->path_attachment&&
+        session.document().objects.at("ui-text").text->content=="Canvas",
+        "Inspector detaches in one Session edit and preserves authored Text");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==attached_document,"Inspector detach has one exact Undo step");
+}
 QPointF knob_point(double degrees) {
     const auto radians=degrees*std::acos(-1.0)/180.0;
     return {22.0+16.0*std::sin(radians),22.0-16.0*std::cos(radians)};
@@ -2239,7 +2285,8 @@ int main(int argc,char** argv) {
         w.hide();Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
         gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
         boards.hide();Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);
-        texts.hide();Window layout(temp.path()+"/layout");layout.show();QApplication::processEvents();
+        texts.hide();Window path_text(temp.path()+"/text-path");path_text.show();QApplication::processEvents();text_path_authoring(path_text);
+        path_text.hide();Window layout(temp.path()+"/layout");layout.show();QApplication::processEvents();
         auto& layout_session=layout.host.session;const auto layout_comp=layout_session.document().compositions.front().id;
         Point left,right;left.id="layout-left-point";left.x.literal=30;left.y.literal=40;right.id="layout-right-point";right.x.literal=160;right.y.literal=100;
         layout_session.apply({CreatePath{layout_comp,"","layout-left","Left",{{"layout-left-contour",false,{left}}}},CreatePath{layout_comp,"","layout-right","Right",{{"layout-right-contour",false,{right}}}}},0);

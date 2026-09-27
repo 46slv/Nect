@@ -186,11 +186,9 @@ void Canvas::refresh() {
                 }
                 const auto& shape = scene_.shapes.at(id);
                 if(object.text) {
-                    std::map<std::string,double> parameters;
-                    for(const auto& [name,scalar]:object.text->parameters){(void)scalar;parameters[name]=values_.at({id,"","text."+name});}
-                    auto text=evaluated_text_source(document,id);
-                    const auto layout=evaluate_text(text,parameters);
-                    item.text_bounds=QRectF(layout.x,layout.y,std::max(1.0,layout.width),std::max(1.0,layout.height));
+                    const auto layout=evaluate_text_projection(document,id,values_);
+                    if(!object.text->path_attachment)
+                        item.text_bounds=QRectF(layout.x,layout.y,std::max(1.0,layout.width),std::max(1.0,layout.height));
                     item.text_line_baselines_y=layout.line_baselines_y;
                     item.text_column_baselines_x=layout.column_baselines_x;
                     item.text_overflow=layout.overflow;

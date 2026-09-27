@@ -1142,3 +1142,53 @@ earlier files retain their locale literals and reject this driver field.
 the core applies the existing nonempty, 128-byte and UTF-8 checks without
 canonicalizing tags or changing platform shaping, warning or fallback behavior.
 BCP 47 policy, generic string links and locale expressions remain unsupported.
+
+## Native 0.24 — retained editable Text on Path
+
+`TextSource` may carry one optional `path_attachment` with the stable `path`
+Object ID, authored `contour` ID, `start_mode` (`distance` in du96 or
+`normalized` fraction), finite `start`, nonnegative finite `spacing`, and
+`reversed` flag. The source and Text must share a Composition. The attachment
+does not replace Text content or outlines with authored geometry. It retains
+the original Text source, object ID, properties and transform; detaching removes
+only this optional field.
+
+The first consumer accepts automatic horizontal one-line Text and DirectWrite
+left-to-right shaped runs. It keeps shaped glyph IDs, advances, per-glyph
+baseline offsets and monochrome outlines as ephemeral projection data. Glyph
+advance midpoints sample the selected contour; the intact glyph outline follows
+the forward tangent and is mapped through the Text world's inverse transform.
+Text alignment anchors the shaped span; whitespace advances participate even
+when they have no outline. Open contours reject a span outside `[0,L]`; closed
+contours wrap finite starts and reject spans longer than one lap. Unsupported
+vertical, frame, multiline, RTL/bidi, generated-contour and singular-inverse
+cases fail explicitly.
+
+The shared sampler evaluates authored Path point values and the Path world
+transform before any Shape stack, then adaptively subdivides cubic controls in
+Composition space with a 0.05 du96 arc-length error budget, maximum depth 20
+and 4096 leaves per contour. Samples invert arc length back to cubic parameter
+and return the cubic point and analytic one-sided tangent. Interior authored
+knots use the outgoing nonzero tangent; an open endpoint uses its incoming
+nonzero tangent. Reversed traversal reverses sample order and tangent while
+preserving authored point order and IDs. Canvas, geometric bounds, SVG and
+`text_layout` all consume the same projected shape; attached API layout bounds
+describe projected glyph geometry, not the detached Text rectangle.
+
+`CreateText` and `UpdateText` carry attachment changes through the same Session
+revision, validation, atomic commit and Undo path as other authored edits.
+Deleting a referenced Path, changing it so the attachment no longer evaluates,
+or creating a transform cycle rejects without changing the document or history.
+Deleting the Path and all dependent Text together is valid. Duplication remaps
+both Path and Contour IDs only when both are copied; Text-only copies retain the
+original Path/Contour reference. Rename and reorder never retarget the link.
+
+The 0.24 writer omits `path_attachment` for detached Text. Native 0.1–0.23
+documents migrate to detached Text without changing authored IDs, text or
+geometry; a 0.23 document containing `path_attachment` is rejected. The strict
+`schemas/native-v0.24.schema.json` describes the wire shape, while decode and
+Session validation check the actual Path, Contour, Composition and projection.
+Native save/reopen preserves the exact attachment values and editable source.
+Multi-line/frame, vertical, RTL/bidi, multi-contour traversal, deform mode,
+variable font/features, clipping/repeat overflow policies and Group/part
+consumers remain separate work.
