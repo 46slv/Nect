@@ -1265,3 +1265,33 @@ literal-only isolation; older versions carrying this field are rejected.
 while Session validation enforces source existence, Composition identity,
 self/cycle and 128-edge depth. This adds no boolean expressions or cross-field
 coercion.
+
+## Native 0.31 — instance-qualified geometry mask bypass link
+
+`GeometryMask.enabled` remains its authored boolean literal. An optional
+`enabled_driver: {link: Ref}` addresses only the exact installed
+`Ref{Object ID,"","mask.<GeometryMask ID>.enabled"}` in the same Composition.
+The legacy `Ref{Object ID,"","mask.enabled"}` remains a literal-only owner-slot
+read and is never a link endpoint. Dedicated `link_mask_enabled` and
+`unlink_mask_enabled` Session commands retain the target literal while linked;
+replacement requires `replace_driver:true`, and unlink freezes the evaluated
+bypass bit. `get` and `properties` expose literal, stable driver and evaluated
+value for the qualified Ref. Scalar commands reject both mask Ref forms.
+
+`SetMask` preserves an existing driver for same-ID source/fill-rule edits and
+rejects a driven literal edit or driver injection/replacement. Removing or
+replacing that mask instance requires unlinking its outgoing driver first;
+surviving links to a removed/replaced mask ID reject atomically. Duplicating
+both owners remaps the copied object and mask IDs in the driver Ref; duplicating
+only the target retains its external source. Rename, reorder and same-ID edits
+preserve identity. Evaluation reads only the source mask's authored/evaluated
+bypass value: object visibility, geometry-source visibility and parent effects
+do not alter it. Scene, Canvas and SVG use the evaluated bit while preserving
+the target mask and its geometry source.
+
+The 0.31 writer omits `enabled_driver` when absent. Native 0.1–0.30 retain
+literal-only mask enable; older versions carrying this field are rejected.
+`schemas/native-v0.31.schema.json` constrains the optional closed Ref wrapper,
+while Session validation enforces installed mask identity, same-Composition
+ownership, self/cycle and 128-edge depth. This adds no boolean expressions,
+cross-field coercion or generic property picker.

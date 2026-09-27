@@ -220,6 +220,7 @@ struct GeometryMask {
     unsigned version=1;
     bool enabled=true;
     std::string fill_rule="nonzero";
+    std::optional<Ref> enabled_driver;
     bool operator==(const GeometryMask&) const = default;
 };
 struct Compositing {
@@ -381,6 +382,8 @@ struct LinkOperationEnabled { Ref target; Ref source; bool replace_driver=false;
 struct UnlinkOperationEnabled { Ref target; };
 struct LinkGradientEnabled { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkGradientEnabled { Ref target; };
+struct LinkMaskEnabled { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkMaskEnabled { Ref target; };
 struct StrokeStyle { Id object,operation; std::string line_cap="butt",line_join="miter"; double miter_limit=4; };
 struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; std::optional<std::string> line_join; };
 struct LinkFillRule { Ref target; Ref source; bool replace_driver=false; };
@@ -484,6 +487,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
     SetVisibility,LinkObjectVisibility,UnlinkObjectVisibility,LinkCompositeIsolated,UnlinkCompositeIsolated,
+    LinkMaskEnabled,UnlinkMaskEnabled,
     SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
     AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects>;
 
@@ -666,6 +670,15 @@ CompositeIsolationProperty composite_isolation_state(const Document&,const Ref&)
 bool evaluate_composite_isolation(const Document&,const Ref&);
 std::map<Id,bool> evaluate_composite_isolations(const Document&);
 bool geometry_mask_enabled_property(const Document&,const Ref&);
+Ref geometry_mask_enabled_ref(const Id& object,const Id& mask);
+struct GeometryMaskEnabledProperty {
+    bool literal=true;
+    std::optional<Ref> driver;
+    bool evaluated=true;
+};
+GeometryMaskEnabledProperty geometry_mask_enabled_state(const Document&,const Ref&);
+bool evaluate_geometry_mask_enabled(const Document&,const Ref&);
+std::map<Ref,bool> evaluate_geometry_mask_enableds(const Document&);
 bool point_edit_enabled_property(const Document&,const Ref&);
 struct GuidePositionProperty {
     double literal=0;

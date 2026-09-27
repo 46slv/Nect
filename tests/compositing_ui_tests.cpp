@@ -131,5 +131,53 @@ void isolation_inspector(){
     check(!composite_isolation_state(session.document(),target).evaluated,
         "Unlinked Inspector value stays frozen when its former source changes");
 }
+void mask_enabled_inspector(){
+    QTemporaryDir tmp;Window w(tmp.path());w.host.session=Session(empty_document("mask-link-doc","mask-link-comp","mask-link-board"));
+    auto& session=w.host.session;
+    session.apply({CreatePrimitive{"mask-link-comp","","target","Mask Target",default_primitive("target-source","nect.shape.rectangle")},
+        CreatePrimitive{"mask-link-comp","","source","Mask Source",default_primitive("source-source","nect.shape.rectangle")},
+        CreatePrimitive{"mask-link-comp","","geometry","Mask Geometry",default_primitive("geometry-source","nect.shape.rectangle")},
+        SetMask{"target",GeometryMask{"target-mask","source",1,false,"evenodd"}},
+        SetMask{"source",GeometryMask{"source-mask","geometry",1,true,"nonzero"}}},session.revision());
+    w.host.edited();w.show();QApplication::processEvents();w.canvas->set_selection("target");QApplication::processEvents();
+    const auto target=geometry_mask_enabled_ref("target","target-mask");
+    const auto source=geometry_mask_enabled_ref("source","source-mask");
+    check(!geometry_mask_enabled_state(session.document(),target).literal&&
+        widget<QCheckBox>(w,"mask-enabled")->isEnabled(),
+        "Mask Inspector starts with its authored bypass literal editable");
+    auto* driver=widget<QToolButton>(w,"mask-enabled-driver");bool picked=false;QTimer chooser;chooser.setInterval(0);
+    QObject::connect(&chooser,&QTimer::timeout,&w,[&]{
+        for(auto* top:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(top)) {
+            if(auto* combo=dialog->findChild<QComboBox*>();combo&&combo->count()) {
+                for(int i=0;i<combo->count();++i)if(combo->itemText(i).contains("Mask Source")){combo->setCurrentIndex(i);picked=true;break;}
+            }
+            dialog->accept();chooser.stop();return;
+        }
+    });
+    chooser.start();driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    auto state=geometry_mask_enabled_state(session.document(),target);
+    check(picked&&!state.literal&&state.driver==source&&state.evaluated,
+        "Inspector links an exact mask instance while preserving the false literal");
+    check(!widget<QCheckBox>(w,"mask-enabled")->isEnabled()&&
+        widget<QLabel>(w,"mask-enabled-state")->text().contains("Evaluated enabled: true")&&
+        widget<QLabel>(w,"mask-enabled-state")->text().contains("source-mask"),
+        "Driven mask Inspector disables its checkbox and shows source and evaluated value");
+    auto source_mask=*session.document().objects.at("source").compositing.mask;source_mask.enabled=false;
+    session.apply({SetMask{"source",source_mask}},session.revision());w.host.edited();
+    check(!geometry_mask_enabled_state(session.document(),target).evaluated&&
+        widget<QLabel>(w,"mask-enabled-state")->text().contains("Evaluated enabled: false"),
+        "Inspector follows source bypass changes without altering the target literal");
+    driver=widget<QToolButton>(w,"mask-enabled-driver");
+    check(driver->menu()->actions().size()==2&&driver->menu()->actions()[1]->isEnabled(),
+        "Inspector offers explicit unlink for a driven mask value");
+    driver->menu()->actions()[1]->trigger();QApplication::processEvents();
+    state=geometry_mask_enabled_state(session.document(),target);
+    check(!state.literal&&!state.driver&&widget<QCheckBox>(w,"mask-enabled")->isEnabled(),
+        "Inspector unlink freezes evaluated false and re-enables the authored bypass checkbox");
+    source_mask=*session.document().objects.at("source").compositing.mask;source_mask.enabled=true;
+    session.apply({SetMask{"source",source_mask}},session.revision());w.host.edited();
+    check(!geometry_mask_enabled_state(session.document(),target).evaluated,
+        "Unlinked target remains frozen when its former source mask changes");
 }
-int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();visibility_inspector();isolation_inspector();std::cout<<"Compositing UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+}
+int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();visibility_inspector();isolation_inspector();mask_enabled_inspector();std::cout<<"Compositing UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

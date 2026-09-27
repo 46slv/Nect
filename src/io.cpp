@@ -140,20 +140,30 @@ ImageSource read_image(const j::value& value) {
     return {text(o.at("asset")),read_scalar(o.at("width")),read_scalar(o.at("height"))};
 }
 j::object image_json(const ImageSource& i){return {{"asset",i.asset},{"width",scalar_json(i.width)},{"height",scalar_json(i.height)}};}
-GeometryMask read_mask(const j::value& value) {
-    const auto& o=value.as_object();keys(o,{"id","source","version","enabled","fill_rule"});
-    return {text(o.at("id")),text(o.at("source")),j::value_to<unsigned>(o.at("version")),o.at("enabled").as_bool(),text(o.at("fill_rule"))};
+GeometryMask read_mask(const j::value& value,bool allow_enabled_driver=false) {
+    const auto& o=value.as_object();
+    if(!allow_enabled_driver&&o.contains("enabled_driver"))
+        throw Error("UNSUPPORTED_MASK_ENABLED_DRIVER","Geometry mask enabled drivers require native 0.31 and the dedicated link command");
+    if(allow_enabled_driver)keys(o,{"id","source","version","enabled","fill_rule","enabled_driver"});
+    else keys(o,{"id","source","version","enabled","fill_rule"});
+    GeometryMask result{text(o.at("id")),text(o.at("source")),j::value_to<unsigned>(o.at("version")),o.at("enabled").as_bool(),text(o.at("fill_rule"))};
+    if(const auto* driver=o.if_contains("enabled_driver")) {
+        const auto& wrapper=driver->as_object();keys(wrapper,{"link"});result.enabled_driver=read_ref(wrapper.at("link"));
+    }
+    return result;
 }
 j::value mask_json(const std::optional<GeometryMask>& mask) {
     if(!mask)return nullptr;
-    return j::object{{"id",mask->id},{"source",mask->source},{"version",mask->version},{"enabled",mask->enabled},{"fill_rule",mask->fill_rule}};
+    j::object result{{"id",mask->id},{"source",mask->source},{"version",mask->version},{"enabled",mask->enabled},{"fill_rule",mask->fill_rule}};
+    if(mask->enabled_driver)result["enabled_driver"]=j::object{{"link",ref_json(*mask->enabled_driver)}};
+    return result;
 }
-Compositing read_compositing(const j::value& value,bool allow_isolated_driver) {
+Compositing read_compositing(const j::value& value,bool allow_isolated_driver,bool allow_mask_enabled_driver=false) {
     const auto& o=value.as_object();
     if(allow_isolated_driver)keys(o,{"version","opacity","blend","isolated","mask","isolated_driver"});
     else keys(o,{"version","opacity","blend","isolated","mask"});
     Compositing c;c.version=j::value_to<unsigned>(o.at("version"));c.opacity=read_scalar(o.at("opacity"));
-    c.blend=text(o.at("blend"));c.isolated=o.at("isolated").as_bool();if(!o.at("mask").is_null())c.mask=read_mask(o.at("mask"));
+    c.blend=text(o.at("blend"));c.isolated=o.at("isolated").as_bool();if(!o.at("mask").is_null())c.mask=read_mask(o.at("mask"),allow_mask_enabled_driver);
     if(const auto* driver=o.if_contains("isolated_driver")) {
         const auto& wrapper=driver->as_object();keys(wrapper,{"link"});c.isolated_driver=read_ref(wrapper.at("link"));
     }
@@ -522,6 +532,13 @@ j::object geometry_mask_enabled_property_json(const Document& d,const Ref& ref,b
         {"unit","boolean"},{"space","local"},{"origin","authored"},
         {"authored",j::object{{"literal",enabled},{"driver",nullptr}}},
         {"evaluated",enabled},{"link",false},{"expression",false}};
+}
+j::object geometry_mask_enabled_state_json(const Document& d,const Ref& ref,const GeometryMaskEnabledProperty& value) {
+    j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
+    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
+        {"unit","boolean"},{"space","local"},{"origin","authored"},
+        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
+        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
 }
 j::object point_edit_enabled_property_json(const Document& d,const Ref& ref,bool enabled) {
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
@@ -911,6 +928,13 @@ Command read_command(const j::value& v) {
     if(type=="unlink_gradient_enabled") {
         keys(o,{"type","target"});return UnlinkGradientEnabled{read_ref(o.at("target"))};
     }
+    if(type=="link_mask_enabled") {
+        keys(o,{"type","target","source","replace_driver"});
+        return LinkMaskEnabled{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="unlink_mask_enabled") {
+        keys(o,{"type","target"});return UnlinkMaskEnabled{read_ref(o.at("target"))};
+    }
     if(type=="link_fill_rule") {
         keys(o,{"type","target","source","replace_driver"});
         return LinkFillRule{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
@@ -1146,10 +1170,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,30> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30"};
+        constexpr std::array<std::string_view,31> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.30 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.31 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1189,7 +1213,7 @@ Document decode(std::string_view input) {
             Object obj;
             obj.id=text(o.at("id"));
             obj.name=text(o.at("name"));
-            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"),minor>=30);}
+            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"),minor>=30,minor>=31);}
             if(minor>=27)if(const auto* driver=o.if_contains("visibility_driver")) {
                 const auto& fields=driver->as_object();keys(fields,{"link"});obj.visibility_driver=read_ref(fields.at("link"));
             }
@@ -1353,6 +1377,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     validate(d);
     const auto operation_enabled=evaluate_operation_enableds(d);
     const auto gradient_enabled=evaluate_gradient_enableds(d);
+    const auto mask_enabled=evaluate_geometry_mask_enableds(d);
     auto comp=std::find_if(d.compositions.begin(),d.compositions.end(),
         [&](const auto& c){return c.id==comp_id;});
     if(comp==d.compositions.end()) throw Error("MISSING_COMPOSITION",comp_id);
@@ -1439,7 +1464,8 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     const auto visibility=evaluate_object_visibilities(d);
     bool modern=false;
     std::function<void(const Id&)> detect=[&](const Id& id){const auto& object=d.objects.at(id);const auto& c=object.compositing;
-        modern=modern||object.image.has_value()||!visibility.at(id)||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||c.isolated||(c.mask&&c.mask->enabled);
+        modern=modern||object.image.has_value()||!visibility.at(id)||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||c.isolated||
+            (c.mask&&mask_enabled.at(geometry_mask_enabled_ref(id,c.mask->id)));
         for(const auto& child:object.children)detect(child);};
     for(const auto& id:comp->roots)detect(id);
     if(modern) {
@@ -1546,6 +1572,8 @@ std::string request(Session& session,std::string_view input) {
                 session.document(),r,composite_isolation_state(session.document(),r));
             else if(r.field=="mask.enabled")result=geometry_mask_enabled_property_json(
                 session.document(),r,geometry_mask_enabled_property(session.document(),r));
+            else if(r.field.starts_with("mask.")&&r.field.ends_with(".enabled"))result=geometry_mask_enabled_state_json(
+                session.document(),r,geometry_mask_enabled_state(session.document(),r));
             else if(r.field=="point_edit.enabled")result=point_edit_enabled_property_json(
                 session.document(),r,point_edit_enabled_property(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.find(".gradient.")!=std::string::npos&&r.field.ends_with(".enabled"))
@@ -1589,6 +1617,7 @@ std::string request(Session& session,std::string_view input) {
             const auto fill_rule_values=evaluate_fill_rules(session.document());
             const auto operation_enabled_values=evaluate_operation_enableds(session.document());
             const auto gradient_enabled_values=gradient_enabled_states(session.document());
+            const auto mask_enabled_values=evaluate_geometry_mask_enableds(session.document());
             std::map<Id,std::pair<std::string,GuidePositionProperty>> guide_values;
             for(const auto& composition:session.document().compositions) {
                 const auto positions=evaluate_guide_positions(session.document(),composition.id);
@@ -1619,6 +1648,13 @@ std::string request(Session& session,std::string_view input) {
                 if(ref.field=="mask.enabled") {
                     list.push_back(geometry_mask_enabled_property_json(session.document(),ref,
                         geometry_mask_enabled_property(session.document(),ref)));
+                    continue;
+                }
+                if(ref.field.starts_with("mask.")&&ref.field.ends_with(".enabled")) {
+                    list.push_back(geometry_mask_enabled_state_json(session.document(),ref,
+                        {session.document().objects.at(ref.object).compositing.mask->enabled,
+                            session.document().objects.at(ref.object).compositing.mask->enabled_driver,
+                            mask_enabled_values.at(ref)}));
                     continue;
                 }
                 if(ref.field=="point_edit.enabled") {
@@ -1987,8 +2023,17 @@ std::string request(Session& session,std::string_view input) {
             }
             for(const auto& [id,guide]:prior_guides){(void)guide;changed.insert(id);}
             for(const auto& [id,grid]:prior_grids){(void)grid;changed.insert(id);}
-            for(const auto& [id,object]:session.document().objects)
-                if(object.compositing.mask&&object.compositing.mask->enabled&&changed.contains(object.compositing.mask->source))changed.insert(id);
+            const auto prior_mask_enabled=evaluate_geometry_mask_enableds(prior);
+            const auto current_mask_enabled=evaluate_geometry_mask_enableds(after);
+            for(const auto& [ref,value]:current_mask_enabled)
+                if(!prior_mask_enabled.contains(ref)||prior_mask_enabled.at(ref)!=value)changed.insert(ref.object);
+            bool mask_consumers_changed=true;
+            while(mask_consumers_changed) {
+                mask_consumers_changed=false;
+                for(const auto& [id,object]:session.document().objects)
+                    if(object.compositing.mask&&current_mask_enabled.at(geometry_mask_enabled_ref(id,object.compositing.mask->id))&&
+                        changed.contains(object.compositing.mask->source)&&changed.insert(id).second)mask_consumers_changed=true;
+            }
             result.as_object()["changed_ids"]=ids_json(std::vector<Id>(changed.begin(),changed.end()));
             j::array created;for(const auto& [id,object]:after.objects){(void)object;if(!prior.objects.contains(id))created.push_back(j::value(id));}
             result.as_object()["created_ids"]=std::move(created);

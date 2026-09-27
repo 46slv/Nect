@@ -171,5 +171,31 @@ void object_visibility_driver_remapping() {
     check(external.document().objects.at(external_target).visibility_driver==Ref{"source","","object.visible"},
         "Duplicating only a visibility target keeps its external source Ref stable");
 }
+void geometry_mask_enabled_driver_remapping() {
+    auto document=fixture();
+    document.objects.at("path-A").compositing.mask=GeometryMask{"path-a-mask","path-B"};
+    document.objects.at("group").compositing.mask->enabled_driver=
+        geometry_mask_enabled_ref("path-A","path-a-mask");
+    Session internal(document);
+    apply(internal,{DuplicateObjects{{"group"},"maskcopy"}});
+    const auto copied=internal.document();const auto group=copy_of(copied,"group"),path=copy_of(copied,"path-A");
+    const auto& copied_mask=*copied.objects.at(group).compositing.mask;
+    const auto copied_source_ref=geometry_mask_enabled_ref(path,copied.objects.at(path).compositing.mask->id);
+    check(copied_mask.enabled_driver==copied_source_ref&&
+        evaluate_geometry_mask_enabled(copied,geometry_mask_enabled_ref(group,copied_mask.id))&&
+        copied.objects.at(path).compositing.mask->id!="path-a-mask",
+        "Copying both mask endpoint owners remaps the copied object and mask IDs in its driver Ref");
+
+    auto external=document;Object external_owner;external_owner.id="external-mask-owner";external_owner.name="External mask owner";
+    external.objects.emplace(external_owner.id,external_owner);external.compositions.front().roots.push_back(external_owner.id);
+    external.objects.at(external_owner.id).compositing.mask=GeometryMask{"external-mask","path-B"};
+    external.objects.at("group").compositing.mask->enabled_driver=
+        geometry_mask_enabled_ref(external_owner.id,"external-mask");
+    Session target_only(external);apply(target_only,{DuplicateObjects{{"group"},"externalcopy"}});
+    const auto external_group=copy_of(target_only.document(),"group");
+    check(target_only.document().objects.at(external_group).compositing.mask->enabled_driver==
+        geometry_mask_enabled_ref(external_owner.id,"external-mask"),
+        "Copying only the target retains its external mask source identity");
 }
-int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}
+}
+int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();geometry_mask_enabled_driver_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

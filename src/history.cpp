@@ -93,8 +93,8 @@ std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
 std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops));}
 std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.enabled_driver),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.fill_rule_driver),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
-std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule));}
-std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.mask));}
+std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule),extra(v.enabled_driver));}
+std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.isolated_driver),extra(v.mask));}
 std::size_t extra(const ImageSource& v){return total(extra(v.asset),extra(v.width),extra(v.height));}
 std::size_t extra(const RasterAsset& v){return total(extra(v.id),extra(v.name),extra(v.mode),extra(v.locator),v.payload?v.payload->bytes().size()+sizeof(RasterPayload)+allocation_overhead:0);}
 std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.compositing),extra(v.image));}

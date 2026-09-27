@@ -229,6 +229,39 @@ void linked_fill_rule_projects_to_canvas_and_svg() {
         "Updated source rule drives both target evaluation and SVG projection");
     f.no_error();
 }
+void linked_mask_enabled_projects_to_canvas_and_svg() {
+    auto d=document();add(d,rectangle("target",80,80,300,280,Qt::green));
+    auto mask_source=rectangle("mask-source",100,100,120,120,Qt::black);mask_source.visible=false;add(d,std::move(mask_source));
+    auto enabled_owner=rectangle("enabled-owner",420,20,40,40,Qt::black);enabled_owner.visible=false;
+    enabled_owner.compositing.mask=GeometryMask{"source-mask","driver-geometry",1,true,"nonzero"};add(d,std::move(enabled_owner));
+    auto driver_geometry=rectangle("driver-geometry",420,80,40,40,Qt::black);driver_geometry.visible=false;add(d,std::move(driver_geometry));
+    d.objects.at("target").compositing.mask=GeometryMask{"target-mask","mask-source",1,false,"nonzero"};
+    Fixture f(d);
+    const auto target_ref=geometry_mask_enabled_ref("target","target-mask");
+    const auto source_ref=geometry_mask_enabled_ref("enabled-owner","source-mask");
+    auto expected_enabled=d;expected_enabled.objects.at("target").compositing.mask->enabled=true;
+    f.apply({LinkMaskEnabled{target_ref,source_ref,false}});
+    const auto linked=geometry_mask_enabled_state(f.session.document(),target_ref);
+    check(!linked.literal&&linked.driver==source_ref&&linked.evaluated,
+        "A false authored target follows the true bypass value on a hidden source owner");
+    f.color(130,130,Qt::green,"Evaluated true mask link retains clipping inside source geometry");
+    f.color(250,250,Qt::white,"Evaluated true mask link clips outside source geometry");
+    check(export_svg(f.session.document(),"composition","artboard")==export_svg(expected_enabled,"composition","artboard"),
+        "SVG uses the evaluated linked bit like an authored enabled-mask twin");
+    auto source_mask=*f.session.document().objects.at("enabled-owner").compositing.mask;source_mask.enabled=false;
+    auto expected_bypassed=d;expected_bypassed.objects.at("enabled-owner").compositing.mask=source_mask;
+    f.apply({SetMask{"enabled-owner",source_mask}});expected_bypassed.objects.at("target").compositing.mask->enabled=false;
+    const auto bypassed=geometry_mask_enabled_state(f.session.document(),target_ref);
+    const auto values=evaluate(f.session.document());
+    const auto evaluated_scene=evaluate_scene(f.session.document(),"composition",values,evaluate_transforms(f.session.document(),values));
+    check(!bypassed.literal&&bypassed.driver==source_ref&&!bypassed.evaluated&&
+        !evaluated_scene.roots[1].mask,
+        "A false source bypasses target clipping without erasing its authored mask or driver");
+    f.color(250,250,Qt::green,"Evaluated false mask link bypasses clipping on Canvas");
+    check(export_svg(f.session.document(),"composition","artboard")==export_svg(expected_bypassed,"composition","artboard"),
+        "SVG uses the evaluated false bit while retaining target mask authored state");
+    f.no_error();
+}
 void repeated_mask_uses_external_world_transform() {
     auto d=document();add(d,rectangle("target",80,80,300,240,Qt::green));auto source=rectangle("source",100,100,40,80,Qt::black);
     source.visible=false;source.transform_parent="driver";
@@ -341,7 +374,8 @@ int main(int argc,char** argv) {
     try {
         group_opacity_is_applied_once();group_posterize_uses_independent_postcomposite_pixel_oracle();pass_through_and_isolation_have_distinct_backdrops();blend_alpha_and_transparent_root();
         all_supported_blends_match_independent_channel_formulas();
-        open_mask_hole_and_fill_rule();linked_visibility_controls_canvas_pixels();linked_fill_rule_projects_to_canvas_and_svg();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
+        open_mask_hole_and_fill_rule();linked_visibility_controls_canvas_pixels();linked_fill_rule_projects_to_canvas_and_svg();
+        linked_mask_enabled_projects_to_canvas_and_svg();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
         mask_outline_is_separate_from_inherited_selection();cropped_unmasked_scope_preserves_stroke_gradient_and_repeater();
         cropped_mask_scope_preserves_world_alignment();render_limits_remain_visible();
         std::cout<<"PASS "<<checks<<" compositing Canvas pixel and interaction checks\n";return 0;

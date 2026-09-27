@@ -96,10 +96,10 @@ void object_visibility_link_contract() {
         get.find("\"evaluated\":false")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos,
         "API get reports literal, stable driver Ref and evaluated own value separately");
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.30\"")!=std::string::npos&&
+    check(linked_native.find("\"version\":\"0.31\"")!=std::string::npos&&
         linked_native.find("\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}}")!=std::string::npos&&
         decode(linked_native)==session.document(),
-        "Native 0.30 roundtrip preserves the optional stable visibility driver");
+        "Native 0.31 roundtrip preserves the optional stable visibility driver");
     atomic(session,"DRIVEN_PROPERTY",{SetVisibility{"a",true}});
     atomic(session,"DRIVEN_PROPERTY",{LinkObjectVisibility{target,{"b","","object.visible"},false}});
     atomic(session,"DUPLICATE_TARGET",{LinkObjectVisibility{target,source,false},UnlinkObjectVisibility{target}});
@@ -132,12 +132,12 @@ void object_visibility_link_contract() {
         !object_visibility_state(deletion.document(),target).literal,
         "Deleting a visibility source is atomic unless the target is first unlinked and frozen in the same batch");
 
-    auto old_literal=encode(document);const auto current_version=old_literal.find("\"version\":\"0.30\"");
-    check(current_version!=std::string::npos,"Native writer emits 0.30 for the 0.27 compatibility fixture");
-    old_literal.replace(current_version,std::string("\"version\":\"0.30\"").size(),"\"version\":\"0.27\"");
+    auto old_literal=encode(document);const auto current_version=old_literal.find("\"version\":\"0.31\"");
+    check(current_version!=std::string::npos,"Native writer emits 0.31 for the 0.27 compatibility fixture");
+    old_literal.replace(current_version,std::string("\"version\":\"0.31\"").size(),"\"version\":\"0.27\"");
     check(decode(old_literal)==document,"Native 0.27 literal-only documents remain readable unchanged");
-    auto false_version=linked_native;const auto linked_version=false_version.find("\"version\":\"0.30\"");
-    false_version.replace(linked_version,std::string("\"version\":\"0.30\"").size(),"\"version\":\"0.26\"");
+    auto false_version=linked_native;const auto linked_version=false_version.find("\"version\":\"0.31\"");
+    false_version.replace(linked_version,std::string("\"version\":\"0.31\"").size(),"\"version\":\"0.26\"");
     rejects("UNKNOWN_FIELD",[&]{decode(false_version);});
 
     auto cross_document=fixture();auto other=empty_document("other-doc","other-comp","other-art").compositions.front();
@@ -192,7 +192,7 @@ void mask_enabled_read_contract() {
         "Undo restores mask clipping and the exact enabled literal");
     const auto saved=encode(session.document());
     check(geometry_mask_enabled_property(decode(saved),ref)&&decode(saved).objects.at("a").compositing.mask->id=="mask-a"&&encode(decode(saved))==saved,
-        "Native 0.30 roundtrip preserves mask enable and identity without byte drift");
+        "Native 0.31 roundtrip preserves mask enable and identity without byte drift");
     const auto all=request(session,R"({"op":"properties"})");
     check(all.find("\"field\":\"mask.enabled\"")!=std::string::npos,
         "Properties enumeration includes only the present optional mask field");
@@ -209,6 +209,139 @@ void mask_enabled_read_contract() {
     apply(session,{SetMask{"a",GeometryMask{"replacement-mask","source",1,true,"nonzero"}}});
     check(geometry_mask_enabled_property(session.document(),ref)&&session.document().objects.at("a").compositing.mask->id=="replacement-mask",
         "Owner-slot Ref becomes valid for a replacement mask without claiming persistent mask identity");
+}
+void mask_enabled_link_contract() {
+    auto document=fixture();
+    document.objects.at("a").compositing.mask=GeometryMask{"target-mask","source",1,false,"evenodd"};
+    document.objects.at("source").compositing.mask=GeometryMask{"source-mask","b",1,true,"nonzero"};
+    document.objects.at("b").compositing.mask=GeometryMask{"third-mask","a",1,true,"nonzero"};
+    Session session(document);
+    const auto target=geometry_mask_enabled_ref("a","target-mask");
+    const auto source=geometry_mask_enabled_ref("source","source-mask");
+    const auto refs=properties(session.document());
+    check(std::find(refs.begin(),refs.end(),target)!=refs.end()&&
+        resolve_name(session.document(),"a","",target.field)==target&&
+        property_unit(target)=="boolean",
+        "Qualified mask identity is discoverable separately from the owner-slot compatibility Ref");
+    const auto linked=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"link_mask_enabled","target":{"object":"a","point":"","field":"mask.target-mask.enabled"},"source":{"object":"source","point":"","field":"mask.source-mask.enabled"},"replace_driver":false}]})");
+    check(linked.find("\"changed\":true")!=std::string::npos&&session.revision()==1,
+        "JSON-lines links exact mask instances through the shared Session command");
+    auto state=geometry_mask_enabled_state(session.document(),target);
+    check(!state.literal&&state.driver==source&&state.evaluated&&
+        scene(session.document()).roots.front().mask.has_value(),
+        "A false authored target follows a true source mask and remains clipped");
+    const auto get=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"mask.target-mask.enabled"}})");
+    check(get.find("\"authored\":{\"literal\":false,\"driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"mask.source-mask.enabled\"}}}")!=std::string::npos&&
+        get.find("\"evaluated\":true")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos,
+        "Qualified API get separates target literal, stable source and evaluated bypass");
+    const auto legacy=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"mask.enabled"}})");
+    check(legacy.find("\"literal\":false")!=std::string::npos&&legacy.find("\"evaluated\":false")!=std::string::npos&&
+        legacy.find("\"link\":false")!=std::string::npos,
+        "Legacy owner-slot get remains the current literal even while the mask is driven");
+    const auto all=request(session,R"({"op":"properties"})");
+    check(all.find("\"field\":\"mask.target-mask.enabled\"")!=std::string::npos&&
+        all.find("\"field\":\"mask.enabled\"")!=std::string::npos,
+        "Properties expose both the compatibility read and exact qualified link address");
+    atomic(session,"MISSING_REFERENCE",{Set{target,1}});
+
+    apply(session,{SetVisibility{"source",false},SetVisibility{"b",false}});
+    check(evaluate_geometry_mask_enabled(session.document(),source)&&
+        scene(session.document()).roots.front().mask.has_value(),
+        "Mask bypass follows its authored source bit independently from source-object and geometry visibility");
+    auto source_mask=*session.document().objects.at("source").compositing.mask;source_mask.enabled=false;
+    apply(session,{SetMask{"source",source_mask}});
+    state=geometry_mask_enabled_state(session.document(),target);
+    check(!state.literal&&state.driver==source&&!state.evaluated&&
+        !scene(session.document()).roots.front().mask&&
+        session.document().objects.at("a").compositing.mask->source=="source",
+        "Source false bypasses clipping while preserving the target literal, mask instance and geometry source");
+    source_mask=*session.document().objects.at("source").compositing.mask;source_mask.enabled=true;
+    source_mask.fill_rule="evenodd";
+    apply(session,{SetMask{"source",source_mask}});
+    check(geometry_mask_enabled_state(session.document(),target).evaluated&&
+        session.document().objects.at("source").compositing.mask->fill_rule=="evenodd",
+        "Same-ID SetMask edits preserve the source mask and restore the linked clipping bit");
+    auto target_mask=*session.document().objects.at("a").compositing.mask;target_mask.source="b";target_mask.fill_rule="nonzero";
+    apply(session,{SetMask{"a",target_mask}});
+    check(geometry_mask_enabled_state(session.document(),target).driver==source,
+        "Same-ID target mask geometry edits preserve its explicit enabled driver");
+    atomic(session,"DRIVEN_PROPERTY",{SetMask{"a",GeometryMask{"target-mask","b",1,true,"nonzero"}}});
+    Session removed_target(session.document());apply(removed_target,{SetMask{"a",std::nullopt}});
+    check(!removed_target.document().objects.at("a").compositing.mask,
+        "Removing a driven target mask removes its own driver when no surviving dependent uses its ID");
+    Session replaced_target(session.document());apply(replaced_target,{SetMask{"a",GeometryMask{"replacement-mask","b",1,true,"nonzero"}}});
+    check(replaced_target.document().objects.at("a").compositing.mask->id=="replacement-mask"&&
+        !replaced_target.document().objects.at("a").compositing.mask->enabled_driver,
+        "A new target mask ID starts without the removed mask instance's driver");
+    atomic(session,"USE_TYPED_COMMAND",{SetMask{"b",GeometryMask{"injected-mask","a",1,true,"nonzero",source}}});
+    atomic(session,"DUPLICATE_TARGET",{LinkMaskEnabled{target,source,false},UnlinkMaskEnabled{target}});
+    rejects("REVISION_CONFLICT",[&]{session.apply({UnlinkMaskEnabled{target}},session.revision()+1);});
+
+    apply(session,{UnlinkMaskEnabled{target}});
+    state=geometry_mask_enabled_state(session.document(),target);
+    check(state.literal&&state.evaluated&&!state.driver,
+        "Unlink freezes the current evaluated bool into the retained target literal");
+    session.undo(session.revision());
+    check(geometry_mask_enabled_state(session.document(),target).driver==source&&
+        !geometry_mask_enabled_state(session.document(),target).literal,
+        "One Undo restores the exact authored mask link and prior literal");
+    apply(session,{LinkMaskEnabled{target,geometry_mask_enabled_ref("b","third-mask"),true}});
+    check(geometry_mask_enabled_state(session.document(),target).driver==geometry_mask_enabled_ref("b","third-mask"),
+        "Explicit replace_driver changes only the source Ref");
+
+    const auto linked_native=encode(session.document());
+    check(linked_native.find("\"version\":\"0.31\"")!=std::string::npos&&
+        linked_native.find("\"enabled_driver\":{\"link\":{\"object\":\"b\",\"point\":\"\",\"field\":\"mask.third-mask.enabled\"}}")!=std::string::npos&&
+        decode(linked_native)==session.document()&&encode(decode(linked_native))==linked_native,
+        "Native 0.31 retains the exact mask Ref and authored literal without byte drift");
+    auto old_literal=encode(document);const auto old_version=old_literal.find("\"version\":\"0.31\"");
+    old_literal.replace(old_version,std::string("\"version\":\"0.31\"").size(),"\"version\":\"0.30\"");
+    check(decode(old_literal)==document,"Native 0.30 remains readable with literal-only masks");
+    auto false_version=linked_native;const auto current_version=false_version.find("\"version\":\"0.31\"");
+    false_version.replace(current_version,std::string("\"version\":\"0.31\"").size(),"\"version\":\"0.30\"");
+    rejects("UNSUPPORTED_MASK_ENABLED_DRIVER",[&]{decode(false_version);});
+
+    auto missing_source=fixture();missing_source.objects.at("a").compositing.mask=GeometryMask{"one","source"};
+    missing_source.objects.at("source").compositing.mask=GeometryMask{"source-mask","b"};
+    Session missing(std::move(missing_source));const auto one=geometry_mask_enabled_ref("a","one");
+    atomic(missing,"INVALID_MASK_REF",{LinkMaskEnabled{one,{"a","point","mask.one.enabled"},false}});
+    atomic(missing,"INVALID_MASK_REF",{LinkMaskEnabled{one,{"a","","mask.enabled"},false}});
+    atomic(missing,"MISSING_REFERENCE",{LinkMaskEnabled{one,{"missing","","mask.remote.enabled"},false}});
+    atomic(missing,"MISSING_MASK",{LinkMaskEnabled{one,{"source","","mask.absent.enabled"},false}});
+    atomic(missing,"INVALID_MASK_REF",{LinkMaskEnabled{one,{"source","","mask.absent.enabled.extra"},false}});
+    atomic(missing,"DEPENDENCY_CYCLE",{LinkMaskEnabled{one,one,false}});
+    atomic(missing,"MISSING_REFERENCE",{LinkMaskEnabled{one,{"source","","mask.source-mask.enabled"},false},Set{one,0}});
+    auto removed=document;removed.objects.at("a").compositing.mask->enabled_driver=source;
+    Session remove_source(removed);
+    atomic(remove_source,"MISSING_MASK",{SetMask{"source",std::nullopt}});
+    atomic(remove_source,"MISSING_MASK",{SetMask{"source",GeometryMask{"new-source-mask","b"}}});
+    apply(remove_source,{UnlinkMaskEnabled{target},SetMask{"source",std::nullopt}});
+    check(!remove_source.document().objects.at("a").compositing.mask->enabled_driver&&
+        remove_source.document().objects.at("a").compositing.mask->enabled,
+        "A dependent can be explicitly frozen before source mask removal in one batch");
+
+    auto cross_document=fixture();cross_document.objects.at("a").compositing.mask=GeometryMask{"one","source"};
+    auto other=empty_document("other-doc","other-comp","other-art").compositions.front();
+    Object external=rectangle("external");external.compositing.mask=GeometryMask{"external-mask","external-geometry"};
+    Object geometry=rectangle("external-geometry");cross_document.objects.emplace(external.id,external);cross_document.objects.emplace(geometry.id,geometry);
+    other.roots={external.id,geometry.id};cross_document.compositions.push_back(other);Session cross(cross_document);
+    atomic(cross,"CROSS_COMPOSITION",{LinkMaskEnabled{geometry_mask_enabled_ref("a","one"),
+        geometry_mask_enabled_ref("external","external-mask"),false}});
+
+    auto cycle=document;cycle.objects.at("a").compositing.mask->enabled_driver=source;
+    cycle.objects.at("source").compositing.mask->enabled_driver=geometry_mask_enabled_ref("a","target-mask");
+    rejects("DEPENDENCY_CYCLE",[&]{Session invalid(cycle);});
+    auto deep=empty_document("mask-depth-doc","mask-depth-comp","mask-depth-art");
+    Object geometry_source=rectangle("mask-depth-geometry");deep.objects.emplace(geometry_source.id,geometry_source);deep.compositions.front().roots.push_back(geometry_source.id);
+    std::vector<Command> links;
+    for(int i=0;i<130;++i) {
+        const auto id="mask-node-"+std::to_string(i);Object object=rectangle(id);
+        const auto mask_id="mask-instance-"+std::to_string(i);object.compositing.mask=GeometryMask{mask_id,geometry_source.id};
+        deep.objects.emplace(id,object);deep.compositions.front().roots.push_back(id);
+        if(i<129)links.push_back(LinkMaskEnabled{geometry_mask_enabled_ref(id,mask_id),
+            geometry_mask_enabled_ref("mask-node-"+std::to_string(i+1),"mask-instance-"+std::to_string(i+1)),false});
+    }
+    Session depth(std::move(deep));atomic(depth,"DEPENDENCY_DEPTH",std::move(links));
 }
 void object_visibility_consumer_parity() {
     auto document=fixture();document.objects.at("source").visible=true;document.objects.at("b").visible=false;
@@ -459,10 +592,10 @@ void composite_isolation_link_contract() {
     check(svg.find("<g id=\"group-B\" opacity=\"1\" color-interpolation=\"sRGB\" style=\"isolation:isolate;")!=std::string::npos,
         "SVG uses the effective isolation of a linked false-literal Group");
     const auto initial_native=encode(session.document());
-    check(initial_native.find("\"version\":\"0.30\"")!=std::string::npos&&
+    check(initial_native.find("\"version\":\"0.31\"")!=std::string::npos&&
         initial_native.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}}")!=std::string::npos&&
         decode(initial_native)==session.document()&&encode(decode(initial_native))==initial_native,
-        "Native 0.30 roundtrip preserves the target literal and optional closed same-field driver");
+        "Native 0.31 roundtrip preserves the target literal and optional closed same-field driver");
     atomic(session,"DRIVEN_PROPERTY",{SetCompositing{"group-B","normal",true}});
     atomic(session,"DRIVEN_PROPERTY",{LinkCompositeIsolated{target,{"mask-source","","composite.isolated"},false}});
     atomic(session,"DUPLICATE_TARGET",{LinkCompositeIsolated{target,source,false},UnlinkCompositeIsolated{target}});
@@ -502,12 +635,12 @@ void composite_isolation_link_contract() {
 
     auto literal=document;literal.objects.at("group-B").compositing.isolated=false;
     const auto old_native=encode(literal);auto native_029=old_native;
-    auto version_at=native_029.find("\"version\":\"0.30\"");
-    check(version_at!=std::string::npos,"Native writer emits 0.30 before literal-only compatibility downgrade");
-    native_029.replace(version_at,std::string("\"version\":\"0.30\"").size(),"\"version\":\"0.29\"");
+    auto version_at=native_029.find("\"version\":\"0.31\"");
+    check(version_at!=std::string::npos,"Native writer emits 0.31 before literal-only compatibility downgrade");
+    native_029.replace(version_at,std::string("\"version\":\"0.31\"").size(),"\"version\":\"0.29\"");
     check(decode(native_029)==literal,"Native 0.29 remains readable with literal-only compositing isolation");
-    auto false_version=initial_native;version_at=false_version.find("\"version\":\"0.30\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.30\"").size(),"\"version\":\"0.29\"");
+    auto false_version=initial_native;version_at=false_version.find("\"version\":\"0.31\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.31\"").size(),"\"version\":\"0.29\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
     auto malformed=initial_native;
     const auto driver_at=malformed.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}} ");
@@ -620,9 +753,9 @@ void group_posterize_native_api_and_refusals() {
     check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({3,4}),
         "ReorderOperations changes the ordered postchildren evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.30\"")!=std::string::npos&&decode(native)==session.document()&&
+    check(native.find("\"version\":\"0.31\"")!=std::string::npos&&decode(native)==session.document()&&
         decode(native).objects.at("group").stack[0].id=="posterize-second",
-        "Native 0.30 preserves Group operation IDs, levels and reordered stack");
+        "Native 0.31 preserves Group operation IDs, levels and reordered stack");
     check(request(session,R"({"op":"operator_types"})").find("nect.group.posterize")!=std::string::npos,
         "API operator discovery advertises the Group pixel effect");
     check(request(session,R"({"op":"operator_types"})").find("postchildren_premultiplied_srgb_rgba")!=std::string::npos,
@@ -655,9 +788,9 @@ void group_posterize_native_api_and_refusals() {
     rejects("UNSUPPORTED_SVG_EFFECT",[&]{(void)export_svg(session.document(),"comp","art");});
 
     auto legacy_bytes=encode(d);
-    const auto old_version=legacy_bytes.find("\"version\":\"0.30\"");
-    check(old_version!=std::string::npos,"Native fixture writer uses 0.30 before migration downgrade");
-    legacy_bytes.replace(old_version,std::string("\"version\":\"0.30\"").size(),"\"version\":\"0.24\"");
+    const auto old_version=legacy_bytes.find("\"version\":\"0.31\"");
+    check(old_version!=std::string::npos,"Native fixture writer uses 0.31 before migration downgrade");
+    legacy_bytes.replace(old_version,std::string("\"version\":\"0.31\"").size(),"\"version\":\"0.24\"");
     const auto group_id=legacy_bytes.find("\"id\":\"group\"");
     check(group_id!=std::string::npos,"Native fixture contains the target Group object");
     const auto object_start=legacy_bytes.rfind('{',group_id);
@@ -685,8 +818,8 @@ void group_posterize_native_api_and_refusals() {
     else throw std::runtime_error("Could not remove Group stack member from legacy fixture");
     legacy_bytes.erase(erase_start,erase_end-erase_start);
     check(decode(legacy_bytes).objects.at("group").stack.empty(),"Native 0.24 Group migrates to an empty effect stack");
-    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.30\"");
-    smuggled.replace(old_writer,std::string("\"version\":\"0.30\"").size(),"\"version\":\"0.24\"");
+    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.31\"");
+    smuggled.replace(old_writer,std::string("\"version\":\"0.31\"").size(),"\"version\":\"0.24\"");
     rejects("INVALID_OBJECT",[&]{(void)decode(smuggled);});
 
     session.apply({EnableOperation{"group","posterize",false},EnableOperation{"group","posterize-second",false}},session.revision());
@@ -1046,6 +1179,6 @@ void previewed_folder_api() {
 
 }
 int main() {
-    try{object_visibility_read_contract();object_visibility_link_contract();mask_enabled_read_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();composite_isolation_link_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{object_visibility_read_contract();object_visibility_link_contract();mask_enabled_read_contract();mask_enabled_link_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();composite_isolation_link_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

@@ -201,6 +201,26 @@ const ShapeOperation& operation_enabled_source(const Document& document,const Re
     require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
     return *found;
 }
+std::pair<Id,std::string> geometry_mask_enabled_address(const std::string& field) {
+    constexpr std::string_view prefix="mask.";
+    constexpr std::string_view suffix=".enabled";
+    require(field.starts_with(prefix)&&field.ends_with(suffix)&&field.size()>prefix.size()+suffix.size(),
+        "INVALID_MASK_REF","Mask enabled Ref must name one mask instance");
+    const auto mask_length=field.size()-prefix.size()-suffix.size();
+    const auto mask_id=field.substr(prefix.size(),mask_length);
+    identity(mask_id);
+    return {mask_id,"enabled"};
+}
+const GeometryMask& geometry_mask_enabled_source(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_MASK_REF","Geometry mask enabled requires an empty point ID");
+    const auto [mask_id,field]=geometry_mask_enabled_address(ref.field);
+    require(field=="enabled","TYPE_MISMATCH","Only mask enabled accepts this Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.compositing.mask.has_value(),"MISSING_MASK","Object has no geometry mask: "+ref.object);
+    require(object->second.compositing.mask->id==mask_id,"MISSING_MASK","Geometry mask ID is no longer installed: "+mask_id);
+    return *object->second.compositing.mask;
+}
 template<class DocumentType>
 auto& gradient_enabled_source(DocumentType& document,const Ref& ref) {
     require(ref.point.empty(),"INVALID_GRADIENT_REF","Gradient enabled requires an empty point ID");
@@ -600,6 +620,60 @@ public:
         return result;
     }
 };
+struct GeometryMaskEnabledEvaluation { bool value=true; unsigned remaining_edges=0; };
+class GeometryMaskEnabledEvaluator {
+    const Document& document_;
+    std::map<Id,Id> compositions_;
+    std::map<Ref,GeometryMaskEnabledEvaluation> values_;
+    std::set<Ref> active_;
+
+    GeometryMaskEnabledEvaluation visit(const Ref& ref,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Geometry mask enabled dependency depth limit 128");
+        if(const auto found=values_.find(ref);found!=values_.end()) {
+            require(depth+found->second.remaining_edges<=128,"DEPENDENCY_DEPTH","Geometry mask enabled dependency depth limit 128");
+            return found->second;
+        }
+        require(active_.insert(ref).second,"DEPENDENCY_CYCLE","Geometry mask enabled dependency cycle");
+        const auto& mask=geometry_mask_enabled_source(document_,ref);
+        GeometryMaskEnabledEvaluation result{mask.enabled,0};
+        if(mask.enabled_driver) {
+            (void)geometry_mask_enabled_source(document_,*mask.enabled_driver);
+            require(*mask.enabled_driver!=ref,"DEPENDENCY_CYCLE","Geometry mask enabled cannot link to itself");
+            const auto target_owner=compositions_.find(ref.object),source_owner=compositions_.find(mask.enabled_driver->object);
+            require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                "ORPHAN_OBJECT","Geometry mask enabled links require objects owned by a Composition");
+            require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                "Geometry mask enabled links must stay in one Composition");
+            const auto upstream=visit(*mask.enabled_driver,depth+1);
+            result={upstream.value,upstream.remaining_edges+1};
+        }
+        require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Geometry mask enabled dependency depth limit 128");
+        active_.erase(ref);values_.emplace(ref,result);return result;
+    }
+public:
+    explicit GeometryMaskEnabledEvaluator(const Document& document):document_(document) {
+        std::set<Id> active;
+        std::function<void(const Id&,const Id&,unsigned)> own=[&](const Id& id,const Id& composition,unsigned depth) {
+            require(depth<=128,"HIERARCHY_DEPTH","Hierarchy depth limit 128");
+            require(document_.objects.contains(id),"MISSING_OBJECT",id);
+            require(active.insert(id).second,"INVALID_HIERARCHY","Repeated owner or cycle: "+id);
+            require(compositions_.emplace(id,composition).second,"INVALID_HIERARCHY","Repeated object owner: "+id);
+            for(const auto& child:document_.objects.at(id).children)own(child,composition,depth+1);
+            active.erase(id);
+        };
+        for(const auto& composition:document_.compositions)
+            for(const auto& root:composition.roots)own(root,composition.id,0);
+    }
+    bool value(const Ref& ref) { (void)geometry_mask_enabled_source(document_,ref);return visit(ref,0).value; }
+    std::map<Ref,bool> all() {
+        std::map<Ref,bool> result;
+        for(const auto& [id,object]:document_.objects)if(object.compositing.mask) {
+            const auto ref=geometry_mask_enabled_ref(id,object.compositing.mask->id);
+            result.emplace(ref,visit(ref,0).value);
+        }
+        return result;
+    }
+};
 Expression remap_text_italic_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
     const auto parsed=parse_text_italic_expression(expression);
     if(parsed.is_literal)return expression;
@@ -752,6 +826,9 @@ auto& lookup_property(D& d,const Ref& r) {
 std::string unit(const Ref& r) {
     if(r.point.empty()&&r.field=="text.italic")return "boolean";
     if(r.point.empty()&&r.field=="mask.enabled")return "boolean";
+    if(r.point.empty()&&r.field.starts_with("mask.")&&r.field.ends_with(".enabled")) {
+        (void)geometry_mask_enabled_address(r.field);return "boolean";
+    }
     if(r.point.empty()&&r.field=="point_edit.enabled")return "boolean";
     if(r.point.empty()&&r.field=="text.weight")return "unitless";
     if(r.field=="generator.points")return "scalar";
@@ -983,7 +1060,10 @@ std::vector<Ref> properties(const Document& document) {
     for(const auto& [id,object]:document.objects) {
         refs.push_back({id,"","object.visible"});
         refs.push_back({id,"","composite.isolated"});
-        if(object.compositing.mask)refs.push_back({id,"","mask.enabled"});
+        if(object.compositing.mask) {
+            refs.push_back({id,"","mask.enabled"});
+            refs.push_back(geometry_mask_enabled_ref(id,object.compositing.mask->id));
+        }
         if(object.kind==Kind::path&&object.source&&object.point_edit)
             refs.push_back({id,"","point_edit.enabled"});
         if(object.kind==Kind::text&&object.text)
@@ -1329,6 +1409,20 @@ bool geometry_mask_enabled_property(const Document& document,const Ref& ref) {
     require(object->second.compositing.mask.has_value(),"MISSING_MASK","Object has no geometry mask: "+ref.object);
     return object->second.compositing.mask->enabled;
 }
+Ref geometry_mask_enabled_ref(const Id& object,const Id& mask) {
+    identity(mask);
+    return {object,"","mask."+mask+".enabled"};
+}
+GeometryMaskEnabledProperty geometry_mask_enabled_state(const Document& document,const Ref& ref) {
+    const auto& mask=geometry_mask_enabled_source(document,ref);
+    return {mask.enabled,mask.enabled_driver,GeometryMaskEnabledEvaluator(document).value(ref)};
+}
+bool evaluate_geometry_mask_enabled(const Document& document,const Ref& ref) {
+    return GeometryMaskEnabledEvaluator(document).value(ref);
+}
+std::map<Ref,bool> evaluate_geometry_mask_enableds(const Document& document) {
+    return GeometryMaskEnabledEvaluator(document).all();
+}
 bool point_edit_enabled_property(const Document& document,const Ref& ref) {
     require(ref.point.empty(),"INVALID_POINT_EDIT_REF","Point Edit enabled requires an empty point ID");
     require(ref.field=="point_edit.enabled","TYPE_MISMATCH","Only point_edit.enabled accepts this Ref");
@@ -1391,6 +1485,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     }
     if(f=="mask.enabled") {
         (void)geometry_mask_enabled_property(d,r);
+        return r;
+    }
+    if(f.starts_with("mask.")&&f.ends_with(".enabled")) {
+        (void)geometry_mask_enabled_state(d,r);
         return r;
     }
     if(f=="point_edit.enabled") {
@@ -1886,6 +1984,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         require(compositions.at(id)==compositions.at(object.compositing.mask->source),"CROSS_COMPOSITION","Geometry mask source must belong to the same Composition");
     (void)evaluate_object_visibilities(d);
     (void)evaluate_composite_isolations(d);
+    (void)evaluate_geometry_mask_enableds(d);
     for(const auto& [id,object]:d.objects)if(object.text&&object.text->path_attachment) {
         const auto& attachment=*object.text->path_attachment;
         identity(attachment.path);identity(attachment.contour);
@@ -2634,6 +2733,9 @@ Ref duplicate_ref(const Document& original,const DuplicationPlan& plan,Ref ref) 
             tail="gradient."+plan.ids.at(gradient)+"."+tail;
         }
         ref.field="op."+plan.ids.at(op)+"."+tail;
+    } else if(ref.field.starts_with("mask.")&&ref.field.ends_with(".enabled")) {
+        const auto [mask_id,parameter]=geometry_mask_enabled_address(ref.field);
+        if(plan.ids.contains(mask_id))ref.field="mask."+plan.ids.at(mask_id)+"."+parameter;
     }
     return ref;
 }
@@ -2650,7 +2752,9 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         if(object.visibility_driver)object.visibility_driver=remap(*object.visibility_driver);
         if(object.compositing.isolated_driver)object.compositing.isolated_driver=remap(*object.compositing.isolated_driver);
         if(object.compositing.mask) {
-            auto& mask=*object.compositing.mask;mask.id=plan.ids.at(mask.id);
+            auto& mask=*object.compositing.mask;
+            if(mask.enabled_driver)mask.enabled_driver=remap(*mask.enabled_driver);
+            mask.id=plan.ids.at(mask.id);
             if(plan.objects.contains(mask.source))mask.source=plan.ids.at(mask.source);
         }
         if(object.source)object.source->id=plan.ids.at(object.source->id);
@@ -2709,12 +2813,82 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
     for(auto& comp:document.compositions)insert(comp.roots);
     for(const auto& [id,object]:original.objects){(void)object;if(!plan.objects.contains(id))insert(document.objects.at(id).children);}
 }
+void edit_structural_command(Document& candidate,const CreatePath& command) {
+    require(!candidate.objects.contains(command.id),"DUPLICATE_ID",command.id);
+    require(!command.contours.empty(),"INVALID_PATH","Create Path needs a contour");
+    Object object;object.id=command.id;object.name=command.name;object.contours=command.contours;
+    siblings(candidate,command.composition,command.parent).push_back(command.id);
+    candidate.objects.emplace(command.id,std::move(object));
+    add_default_stroke(candidate,command.id);
+}
+void edit_structural_command(Document& candidate,const AddPoint& command) {
+    contour(candidate,command.object,command.contour).points.push_back(command.point);
+}
+void edit_structural_command(Document& candidate,const RemovePoint& command) {
+    auto& points=contour(candidate,command.object,command.contour).points;
+    auto it=std::find_if(points.begin(),points.end(),[&](const auto& point){return point.id==command.point;});
+    require(it!=points.end(),"MISSING_REFERENCE",command.point);
+    require(points.size()>1,"INVALID_PATH","Delete the path to remove its last point");
+    points.erase(it);
+}
+void edit_structural_command(Document& candidate,const CloseContour& command) {
+    contour(candidate,command.object,command.contour).closed=command.closed;
+}
+void edit_structural_command(Document& candidate,const ReorderObjects& command) {
+    auto& list=siblings(candidate,command.composition,command.parent);
+    auto a=list,b=command.order;
+    std::sort(a.begin(),a.end());std::sort(b.begin(),b.end());
+    require(a==b,"INVALID_ORDER","Object reorder must be a sibling permutation");
+    list=command.order;
+}
+void edit_structural_command(Document& candidate,const DeleteObjects& command) {
+    require(!command.objects.empty(),"INVALID_BATCH","Select objects to delete");
+    std::set<Id> removed;
+    std::function<void(const Id&)> remove=[&](const Id& id) {
+        require(candidate.objects.contains(id),"MISSING_OBJECT",id);
+        if(!removed.insert(id).second)return;
+        for(const auto& child:candidate.objects.at(id).children)remove(child);
+    };
+    for(const auto& id:command.objects)remove(id);
+    auto prune=[&](std::vector<Id>& list){std::erase_if(list,[&](const Id& id){return removed.contains(id);});};
+    for(auto& comp:candidate.compositions)prune(comp.roots);
+    for(auto& [id,object]:candidate.objects){(void)id;prune(object.children);}
+    for(auto& collection:candidate.collections)prune(collection.members);
+    for(const auto& id:removed)candidate.objects.erase(id);
+    // Validation rejects surviving references to deleted properties; callers
+    // may explicitly unlink/freeze those targets in this same atomic batch.
+}
+void edit_structural_command(Document& candidate,const GroupContiguous& command) {
+    group_contiguous(candidate,command.composition,command.parent,command.members,command.id,command.name);
+}
+void edit_structural_command(Document& candidate,const CreateFolder& command) {
+    require(!candidate.objects.contains(command.id),"DUPLICATE_ID",command.id);
+    Object object;object.id=command.id;object.name=command.name;object.kind=Kind::group;
+    siblings(candidate,command.composition,command.parent).push_back(command.id);
+    candidate.objects.emplace(command.id,std::move(object));
+}
+void edit_mask_enabled(Document& candidate,const LinkMaskEnabled& command) {
+    const auto& target=geometry_mask_enabled_source(candidate,command.target);
+    (void)geometry_mask_enabled_source(candidate,command.source);
+    require(command.target!=command.source,"DEPENDENCY_CYCLE","Geometry mask enabled cannot link to itself");
+    require(!target.enabled_driver||command.replace_driver,"DRIVEN_PROPERTY",
+        "Replacing a Geometry mask enabled driver requires replace_driver=true");
+    auto& mask=*candidate.objects.at(command.target.object).compositing.mask;mask.enabled_driver=command.source;
+}
+void edit_mask_enabled(Document& candidate,const UnlinkMaskEnabled& command) {
+    const auto& target=geometry_mask_enabled_source(candidate,command.target);
+    require(target.enabled_driver.has_value(),"PROPERTY_NOT_LINKED","Geometry mask enabled has no driver to unlink");
+    const auto frozen=evaluate_geometry_mask_enabled(candidate,command.target);
+    auto& mask=*candidate.objects.at(command.target.object).compositing.mask;
+    mask.enabled=frozen;mask.enabled_driver.reset();
+}
 Document edited(const Document& document,const std::vector<Command>& commands,std::map<Ref,double>* evaluated=nullptr) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
     std::set<Ref> fill_rule_targets;
     std::set<Ref> visibility_targets;
     std::set<Ref> operation_enabled_targets;
     std::set<Ref> gradient_enabled_targets;
+    std::set<Ref> geometry_mask_enabled_targets;
     std::set<Ref> composite_isolation_targets;
     for(const auto& command:commands)std::visit([&](const auto& value) {
         using T=std::decay_t<decltype(value)>;
@@ -2726,6 +2900,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(operation_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","An operation enabled target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkGradientEnabled>||std::is_same_v<T,UnlinkGradientEnabled>)
             require(gradient_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A Gradient enabled target may be linked or unlinked only once per batch");
+        else if constexpr(std::is_same_v<T,LinkMaskEnabled>||std::is_same_v<T,UnlinkMaskEnabled>)
+            require(geometry_mask_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A geometry mask enabled target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkCompositeIsolated>||std::is_same_v<T,UnlinkCompositeIsolated>)
             require(composite_isolation_targets.insert(value.target).second,"DUPLICATE_TARGET","A Composite isolation target may be linked or unlinked only once per batch");
     },command);
@@ -2746,7 +2922,20 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     "DRIVEN_PROPERTY","Unlink Composite isolation before changing its authored literal");
                 object.compositing.blend=c.blend;object.compositing.isolated=c.isolated;
             }
-            else object.compositing.mask=c.mask;
+            else {
+                const auto& current=object.compositing.mask;
+                if(current&&c.mask&&current->id==c.mask->id) {
+                    require(!c.mask->enabled_driver||c.mask->enabled_driver==current->enabled_driver,
+                        "USE_TYPED_COMMAND","Create or replace Geometry mask enabled links with link_mask_enabled");
+                    require(c.mask->enabled==current->enabled||!current->enabled_driver,
+                        "DRIVEN_PROPERTY","Unlink the Geometry mask enabled driver before changing its authored literal");
+                    auto next=*c.mask;next.enabled_driver=current->enabled_driver;object.compositing.mask=std::move(next);
+                } else {
+                    require(!c.mask||!c.mask->enabled_driver,"USE_TYPED_COMMAND",
+                        "Create Geometry mask enabled links with link_mask_enabled");
+                    object.compositing.mask=c.mask;
+                }
+            }
         } else if constexpr(std::is_same_v<T,LinkObjectVisibility>) {
             const auto& target=visibility_source(candidate,c.target);
             (void)visibility_source(candidate,c.source);
@@ -2780,6 +2969,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             const auto frozen=evaluate_gradient_enabled(candidate,c.target);
             auto& gradient=gradient_enabled_source(candidate,c.target);
             gradient.enabled=frozen;gradient.enabled_driver.reset();
+        } else if constexpr(std::is_same_v<T,LinkMaskEnabled>||std::is_same_v<T,UnlinkMaskEnabled>) {
+            edit_mask_enabled(candidate,c);
         } else if constexpr(std::is_same_v<T,UnlinkObjectVisibility>) {
             const auto& target=visibility_source(candidate,c.target);
             require(target.visibility_driver.has_value(),"PROPERTY_NOT_LINKED","Object visibility has no driver to unlink");
@@ -3332,55 +3523,11 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 }
             }
             o.contours=std::move(contours);o.source.reset();o.point_edit.reset();
-        } else if constexpr(std::is_same_v<T,CreatePath>) {
-            require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
-            require(!c.contours.empty(),"INVALID_PATH","Create Path needs a contour");
-            Object object;
-            object.id=c.id; object.name=c.name; object.contours=c.contours;
-            siblings(candidate,c.composition,c.parent).push_back(c.id);
-            candidate.objects.emplace(c.id,std::move(object));
-            add_default_stroke(candidate,c.id);
-        } else if constexpr(std::is_same_v<T,AddPoint>) {
-            contour(candidate,c.object,c.contour).points.push_back(c.point);
-        } else if constexpr(std::is_same_v<T,RemovePoint>) {
-            auto& points=contour(candidate,c.object,c.contour).points;
-            auto it=std::find_if(points.begin(),points.end(),[&](const auto& p){return p.id==c.point;});
-            require(it!=points.end(),"MISSING_REFERENCE",c.point);
-            require(points.size()>1,"INVALID_PATH","Delete the path to remove its last point");
-            points.erase(it);
-        } else if constexpr(std::is_same_v<T,CloseContour>) {
-            contour(candidate,c.object,c.contour).closed=c.closed;
-        } else if constexpr(std::is_same_v<T,ReorderObjects>) {
-            auto& list=siblings(candidate,c.composition,c.parent);
-            auto a=list,b=c.order;
-            std::sort(a.begin(),a.end()); std::sort(b.begin(),b.end());
-            require(a==b,"INVALID_ORDER","Object reorder must be a sibling permutation");
-            list=c.order;
-        } else if constexpr(std::is_same_v<T,DeleteObjects>) {
-            require(!c.objects.empty(),"INVALID_BATCH","Select objects to delete");
-            std::set<Id> removed;
-            std::function<void(const Id&)> remove=[&](const Id& id) {
-                require(candidate.objects.contains(id),"MISSING_OBJECT",id);
-                if(!removed.insert(id).second) return;
-                for(const auto& child:candidate.objects.at(id).children) remove(child);
-            };
-            for(const auto& id:c.objects) remove(id);
-            auto prune=[&](std::vector<Id>& list) {
-                std::erase_if(list,[&](const Id& id){return removed.contains(id);});
-            };
-            for(auto& comp:candidate.compositions) prune(comp.roots);
-            for(auto& [id,object]:candidate.objects) { (void)id; prune(object.children); }
-            for(auto& collection:candidate.collections) prune(collection.members);
-            for(const auto& id:removed) candidate.objects.erase(id);
-            // Validation rejects surviving references to deleted properties; callers
-            // may explicitly unlink/freeze those targets in this same atomic batch.
-        } else if constexpr(std::is_same_v<T,GroupContiguous>) {
-            group_contiguous(candidate,c.composition,c.parent,c.members,c.id,c.name);
-        } else if constexpr(std::is_same_v<T,CreateFolder>) {
-            require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
-            Object object;object.id=c.id;object.name=c.name;object.kind=Kind::group;
-            siblings(candidate,c.composition,c.parent).push_back(c.id);
-            candidate.objects.emplace(c.id,std::move(object));
+        } else if constexpr(std::is_same_v<T,CreatePath>||std::is_same_v<T,AddPoint>||
+            std::is_same_v<T,RemovePoint>||std::is_same_v<T,CloseContour>||
+            std::is_same_v<T,ReorderObjects>||std::is_same_v<T,DeleteObjects>||
+            std::is_same_v<T,GroupContiguous>||std::is_same_v<T,CreateFolder>) {
+            edit_structural_command(candidate,c);
         }
     },command);
 

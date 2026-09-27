@@ -12,6 +12,7 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
     const auto fill_rules=evaluate_fill_rules(document);
     const auto operation_enabled=evaluate_operation_enableds(document);
     const auto gradient_enabled=evaluate_gradient_enableds(document);
+    const auto mask_enabled=evaluate_geometry_mask_enableds(document);
     EvaluatedScene scene;
     const auto shape=[&](const Id& id)->const EvaluatedShape& {
         if(const auto found=scene.shapes.find(id);found!=scene.shapes.end())return found->second;
@@ -22,7 +23,7 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
         const auto& object=document.objects.at(id);const auto& composite=object.compositing;
         EvaluatedSceneNode result;result.id=id;result.world=transforms.at(id).world;
         result.visible=visibility.at(id);result.opacity=values.at({id,"","composite.opacity"});result.blend=composite.blend;
-        if(composite.mask&&composite.mask->enabled) {
+        if(composite.mask&&mask_enabled.at(geometry_mask_enabled_ref(id,composite.mask->id))) {
             const auto& mask=*composite.mask;EvaluatedMask resolved;resolved.source=mask.source;resolved.fill_rule=mask.fill_rule;
             for(const auto& path:shape(mask.source).paths)
                 resolved.paths.push_back({path.contours,compose(transforms.at(mask.source).world,path.transform)});

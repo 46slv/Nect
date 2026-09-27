@@ -439,7 +439,7 @@ try:
         frozen_after=core('get',ref=target_gradient_ref)['result']
         assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.30' and core('get',ref=target_gradient_ref)['result']==frozen
+        assert mcp_native['version']=='0.31' and core('get',ref=target_gradient_ref)['result']==frozen
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -949,6 +949,34 @@ try:
         assert core('undo',expected_revision=rev)['ok'];rev+=1
         assert core('inspect')['result']==before_mask_disable
         assert core('get',ref=mask_enabled_ref)['result']['authored']==dict(literal=True,driver=None)
+        target_mask_enabled_ref=dict(object='mcp-masked-group',point='',field='mask.mcp-geometry-clip.enabled')
+        source_mask_enabled_ref=dict(object='mcp-mask',point='',field='mask.mcp-source-clip.enabled')
+        rev=apply([dict(type='set_mask',object='mcp-masked-group',mask=dict(disabled_mask,enabled=False)),
+                   dict(type='set_mask',object='mcp-mask',mask=dict(id='mcp-source-clip',source='linked-star',
+                       version=1,enabled=True,fill_rule='nonzero'))],rev)
+        rev=apply([dict(type='link_mask_enabled',target=target_mask_enabled_ref,
+                        source=source_mask_enabled_ref,replace_driver=False)],rev)
+        linked_mask_enabled=core('get',ref=target_mask_enabled_ref)['result']
+        assert linked_mask_enabled['authored']==dict(literal=False,driver=dict(link=source_mask_enabled_ref))
+        assert linked_mask_enabled['evaluated'] is True and linked_mask_enabled['link'] is True
+        assert linked_mask_enabled==desktop_api_call(endpoint,dict(identity,op='core',
+            request=dict(op='get',ref=target_mask_enabled_ref)))['result']
+        assert core('get',ref=mask_enabled_ref)['result']['authored']==dict(literal=False,driver=None)
+        assert next(item for item in core('properties')['result'] if item['ref']==target_mask_enabled_ref)==linked_mask_enabled
+        assert next(o for o in core('inspect')['result']['objects'] if o['id']=='mcp-masked-group')['compositing']['mask']['enabled_driver']==dict(link=source_mask_enabled_ref)
+        rev=apply([dict(type='set_mask',object='mcp-mask',mask=dict(id='mcp-source-clip',source='linked-star',
+            version=1,enabled=False,fill_rule='nonzero'))],rev)
+        bypassed_linked_mask=core('get',ref=target_mask_enabled_ref)['result']
+        bypassed_linked_plan=core('compositing_plan',composition=comp['id'])['result']
+        bypassed_linked_group=next(n for n in bypassed_linked_plan['roots'] if n['object']=='mcp-masked-group')
+        assert bypassed_linked_mask['authored']==dict(literal=False,driver=dict(link=source_mask_enabled_ref))
+        assert bypassed_linked_mask['evaluated'] is False and bypassed_linked_group['mask'] is None
+        rev=apply([dict(type='set_mask',object='mcp-mask',mask=dict(id='mcp-source-clip',source='linked-star',
+            version=1,enabled=True,fill_rule='nonzero'))],rev)
+        rev=apply([dict(type='unlink_mask_enabled',target=target_mask_enabled_ref)],rev)
+        frozen_mask_enabled=core('get',ref=target_mask_enabled_ref)['result']
+        assert frozen_mask_enabled['authored']==dict(literal=True,driver=None) and frozen_mask_enabled['evaluated'] is True
+        assert core('get',ref=mask_enabled_ref)['result']['authored']==dict(literal=True,driver=None)
         before_bad=core('inspect')['result']
         bad_mask_scalar=core('apply',expected_revision=rev,commands=[dict(type='set',ref=mask_enabled_ref,value=0)])
         assert not bad_mask_scalar['ok'] and bad_mask_scalar['revision']==rev
@@ -1210,7 +1238,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.30'
+        assert native_save_as['version']=='0.31'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']
