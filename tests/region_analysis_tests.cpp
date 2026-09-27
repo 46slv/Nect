@@ -57,6 +57,13 @@ QJsonObject expected_color_component(int index,std::array<int,3> rgb,int area,in
     return {{"component_index",index},{"rgb",QJsonArray{rgb[0],rgb[1],rgb[2]}},{"area",area},
         {"bounds",QJsonObject{{"x",x},{"y",y},{"width",width},{"height",height}}},{"runs",runs}};
 }
+QJsonObject expected_color_component_mask_intersection(int index,std::array<int,3> rgb,int width,int height,
+    std::uint64_t revision,int area,QJsonArray runs) {
+    return {{"operation","intersection"},{"component_index",static_cast<qint64>(index)},
+        {"rgb",QJsonArray{rgb[0],rgb[1],rgb[2]}},{"other_operand","mask_boolean"},
+        {"coordinate_space","artboard-output-pixels"},{"width",width},{"height",height},
+        {"source_revision",static_cast<qint64>(revision)},{"area",area},{"runs",runs}};
+}
 void check_morphology(const QJsonObject& value,const QJsonArray& expected,int area,const char* message) {
     const auto morphology=value.value("morphology").toObject();
     check(morphology.value("operation").toString()=="dilate"&&
@@ -248,7 +255,7 @@ void independent_color_group_oracle() {
     QImage over_groups(257,1,QImage::Format_ARGB32_Premultiplied);
     for(int x=0;x<256;++x)over_groups.setPixel(x,0,qRgba(x,0,0,255));
     over_groups.setPixel(256,0,qRgba(0,1,0,255));
-    try {analyze_region_pixels(over_groups,1,1.0,64,true,true);throw std::runtime_error("Expected color-group limit refusal");}
+    try {analyze_region_pixels(over_groups,1,1.0,64,true,true,10'000);throw std::runtime_error("Expected color-group limit refusal");}
     catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT"&&
         QString::fromStdString(error.what()).contains("256 distinct output RGB keys"),
         "A 257-key one-row image refuses without returning partial groups");}
@@ -320,6 +327,57 @@ void independent_color_group_oracle() {
     catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT"&&
         QString::fromStdString(error.what()).contains("10,000 components"),
         "The 10,001st color component refuses without a partial result");}
+}
+void independent_color_component_mask_intersection_oracle() {
+    QImage ring(5,5,QImage::Format_ARGB32_Premultiplied);ring.fill(qRgba(255,0,0,255));
+    ring.setPixel(2,2,qRgba(0,0,255,255));
+    const auto red=analyze_region_pixels(ring,128,1.0,70,true,true,1);
+    const auto ring_runs=expected_runs({{0,0,5},{1,0,1},{1,4,1},{2,0,1},{2,4,1},
+        {3,0,1},{3,4,1},{4,0,5}});
+    check(red.value("color_components").toArray()==QJsonArray{
+        expected_color_component(0,{0,0,255},1,2,2,1,1,expected_runs({{2,2,1}})),
+        expected_color_component(1,{255,0,0},24,0,0,5,5,expected_runs({{0,0,5},{1,0,5},{2,0,2},{2,3,2},{3,0,5},{4,0,5}}))},
+        "The independent 5x5 color components have blue index 0 and connected red index 1");
+    check_mask_boolean(red,ring_runs,16,"The D7 operand is the independently counted 5x5 outer ring");
+    check(red.value("color_component_mask_intersection").toObject()==
+        expected_color_component_mask_intersection(1,{255,0,0},5,5,70,16,ring_runs),
+        "Selecting red returns the exact intersection runs, metadata and area");
+    const auto blue=analyze_region_pixels(ring,128,1.0,70,true,true,0);
+    check(blue.value("color_component_mask_intersection").toObject()==
+        expected_color_component_mask_intersection(0,{0,0,255},5,5,70,0,{}),
+        "Selecting the blue center returns an empty intersection with exact metadata");
+    check(blue.value("color_component_mask_intersection").toObject().value("runs").toArray().isEmpty(),
+        "The empty component intersection has no runs");
+
+    QImage islands(9,3,QImage::Format_ARGB32_Premultiplied);islands.fill(Qt::transparent);
+    islands.setPixel(1,1,qRgba(255,0,0,255));islands.setPixel(4,1,qRgba(0,0,255,255));
+    islands.setPixel(7,1,qRgba(255,0,0,255));
+    const auto first_red=analyze_region_pixels(islands,128,1.0,71,true,true,1);
+    check(first_red.value("color_components").toArray().size()==3&&
+        first_red.value("color_components").toArray()[1].toObject().value("rgb").toArray()==QJsonArray{255,0,0}&&
+        first_red.value("color_components").toArray()[2].toObject().value("rgb").toArray()==QJsonArray{255,0,0},
+        "Two separated red islands keep distinct result-local component indexes");
+    check(first_red.value("color_component_mask_intersection").toObject()==
+        expected_color_component_mask_intersection(1,{255,0,0},9,3,71,1,expected_runs({{1,1,1}})),
+        "The selected red component does not pull in the other island with the same RGB key");
+
+    try {analyze_region_pixels(ring,128,1.0,72,true,false,0);throw std::runtime_error("Expected D9 opt-in refusal");}
+    catch(const Error& error) {check(error.code=="INVALID_REQUEST",
+        "Intersection requires both the D8 and D9 request flags");}
+    try {analyze_region_pixels(ring,128,1.0,72,false,true,0);throw std::runtime_error("Expected D8 opt-in refusal");}
+    catch(const Error& error) {check(error.code=="INVALID_REQUEST",
+        "Intersection cannot run when exact color groups are disabled");}
+    try {analyze_region_pixels(islands,128,1.0,72,true,true,3);throw std::runtime_error("Expected index range refusal");}
+    catch(const Error& error) {check(error.code=="INVALID_REQUEST",
+        "An index outside this request's component result is INVALID_REQUEST");}
+
+    QImage over_components(101,100,QImage::Format_ARGB32_Premultiplied);
+    for(int y=0;y<over_components.height();++y)for(int x=0;x<over_components.width();++x)
+        over_components.setPixel(x,y,(x+y)%2==0?qRgba(255,0,0,255):qRgba(0,0,255,255));
+    try {analyze_region_pixels(over_components,1,1.0,73,true,true,10'000);throw std::runtime_error("Expected D9 cap refusal");}
+    catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT"&&
+        QString::fromStdString(error.what()).contains("10,000 components"),
+        "The D9 component cap takes precedence over a valid intersection selector");}
 }
 void independent_morphology_oracle() {
     QImage center(5,5,QImage::Format_ARGB32_Premultiplied);center.fill(Qt::transparent);
@@ -1294,7 +1352,8 @@ void live_color_group_canvas_api() {
     const auto limit_revision=limit_host.session.revision();
     const QJsonObject limit_fields{{"expected_revision",static_cast<qint64>(limit_revision)},
         {"composition","color-limit-composition"},{"artboard","color-limit-artboard"},
-        {"scale",1.0},{"threshold",1},{"include_color_groups",true}};
+        {"scale",1.0},{"threshold",1},{"include_color_groups",true},
+        {"include_color_components",true},{"intersect_color_component_index",10'000}};
     const auto refusal=api(limit_host,limit_fields);
     check(refusal.value("error").toObject().value("code")=="ANALYSIS_LIMIT"&&!refusal.contains("result")&&
         refusal.value("error").toObject().value("message").toString().contains("256 distinct output RGB keys"),
@@ -1325,7 +1384,8 @@ void live_color_group_canvas_api() {
     const auto component_limit_revision=component_limit_host.session.revision();
     const QJsonObject component_limit_fields{{"expected_revision",static_cast<qint64>(component_limit_revision)},
         {"composition","color-component-limit-composition"},{"artboard","color-component-limit-artboard"},
-        {"scale",1.0},{"threshold",1},{"include_color_groups",true},{"include_color_components",true}};
+        {"scale",1.0},{"threshold",1},{"include_color_groups",true},{"include_color_components",true},
+        {"intersect_color_component_index",10'000}};
     const auto component_limit_response=api(component_limit_host,component_limit_fields);
     check(component_limit_response.value("error").toObject().value("code").toString()=="ANALYSIS_LIMIT"&&
         !component_limit_response.contains("result")&&
@@ -1336,6 +1396,76 @@ void live_color_group_canvas_api() {
         encode(component_limit_host.session.document())==component_limit_document_before&&
         bytes(component_limit_native)==component_limit_native_before,
         "Color-component limit refusal preserves revision, History, Document and native bytes");
+}
+void live_color_component_mask_intersection_canvas_api() {
+    QTemporaryDir temp;check(temp.isValid(),"Temporary component-mask Canvas directory is available");
+    auto document=empty_document("component-mask-document","component-mask-composition","component-mask-artboard");
+    auto& artboard=document.compositions.front().artboards.front();artboard.width=5;artboard.height=5;
+    Host host(temp.path()+"/component-mask-recovery");host.session=Session(std::move(document));
+    QImage source(5,5,QImage::Format_ARGB32_Premultiplied);source.fill(qRgba(255,0,0,255));
+    source.setPixel(2,2,qRgba(0,0,255,255));
+    const auto image_path=temp.path()+"/component-mask-red-blue.png";
+    check(source.save(image_path,"PNG"),"The embedded 5x5 red/blue Canvas fixture is written");
+    host.import_image(image_path,"embedded","component-mask-composition","","component-mask-asset",
+        "component-mask-image","Red with blue center",0,0,host.session.revision());
+    const auto native=temp.path()+"/component-mask.nect";host.save(native);
+    const auto native_before=bytes(native);
+    const auto document_before=encode(host.session.document());
+    const auto history_before=host.session.history();
+    const auto revision=host.session.revision();
+    const QJsonObject fields{{"expected_revision",static_cast<qint64>(revision)},
+        {"composition","component-mask-composition"},{"artboard","component-mask-artboard"},
+        {"scale",1.0},{"threshold",128},{"include_color_groups",true},{"include_color_components",true}};
+    const auto base=api(host,fields);
+    check(base.value("ok").toBool()&&base.value("revision").toInt()==static_cast<int>(revision),
+        "The real Canvas/API analysis reads the exact committed source revision");
+    const auto base_result=base.value("result").toObject();
+    const auto red_runs=expected_runs({{0,0,5},{1,0,5},{2,0,2},{2,3,2},{3,0,5},{4,0,5}});
+    check(base_result.value("color_components").toArray()==QJsonArray{
+        expected_color_component(0,{0,0,255},1,2,2,1,1,expected_runs({{2,2,1}})),
+        expected_color_component(1,{255,0,0},24,0,0,5,5,red_runs)},
+        "The real Canvas/API output preserves the independent blue and red component oracle");
+    const auto ring_runs=expected_runs({{0,0,5},{1,0,1},{1,4,1},{2,0,1},{2,4,1},
+        {3,0,1},{3,4,1},{4,0,5}});
+    check_mask_boolean(base_result,ring_runs,16,
+        "The real Canvas/API D7 mask is the exact hand-counted outer ring");
+
+    auto red_request=fields;red_request["intersect_color_component_index"]=1;
+    const auto red=api(host,red_request);
+    check(red.value("ok").toBool()&&red.value("revision").toInt()==static_cast<int>(revision)&&
+        red.value("result").toObject().value("color_component_mask_intersection").toObject()==
+            expected_color_component_mask_intersection(1,{255,0,0},5,5,revision,16,ring_runs),
+        "The live API returns exact intersection metadata and red ring runs");
+    auto blue_request=fields;blue_request["intersect_color_component_index"]=0;
+    const auto blue=api(host,blue_request);
+    check(blue.value("ok").toBool()&&blue.value("revision").toInt()==static_cast<int>(revision)&&
+        blue.value("result").toObject().value("color_component_mask_intersection").toObject()==
+            expected_color_component_mask_intersection(0,{0,0,255},5,5,revision,0,{}),
+        "The live API returns an empty intersection for the blue center");
+    check(!base_result.contains("color_component_mask_intersection"),
+        "Omitting the selector preserves the previous D9 result shape");
+
+    std::vector<QJsonObject> invalid_requests;
+    auto missing_both=fields;missing_both.remove("include_color_groups");missing_both.remove("include_color_components");
+    missing_both["intersect_color_component_index"]=0;invalid_requests.push_back(missing_both);
+    auto missing_components=fields;missing_components.remove("include_color_components");
+    missing_components["intersect_color_component_index"]=0;invalid_requests.push_back(missing_components);
+    auto disabled_components=fields;disabled_components["include_color_components"]=false;
+    disabled_components["intersect_color_component_index"]=0;invalid_requests.push_back(disabled_components);
+    auto disabled_groups=fields;disabled_groups["include_color_groups"]=false;
+    disabled_groups["intersect_color_component_index"]=0;invalid_requests.push_back(disabled_groups);
+    auto boolean_index=fields;boolean_index["intersect_color_component_index"]=true;invalid_requests.push_back(boolean_index);
+    auto fractional_index=fields;fractional_index["intersect_color_component_index"]=1.5;invalid_requests.push_back(fractional_index);
+    auto negative_index=fields;negative_index["intersect_color_component_index"]=-1;invalid_requests.push_back(negative_index);
+    auto out_of_range=fields;out_of_range["intersect_color_component_index"]=2;invalid_requests.push_back(out_of_range);
+    for(const auto& invalid:invalid_requests) {
+        const auto response=api(host,invalid);
+        check(response.value("error").toObject().value("code").toString()=="INVALID_REQUEST"&&
+            !response.contains("result"),"Invalid selector/options reject without a partial result");
+    }
+    check(host.session.revision()==revision&&host.session.history()==history_before&&
+        encode(host.session.document())==document_before&&bytes(native)==native_before,
+        "Successful, empty and rejected intersections preserve revision, History, Document and native bytes");
 }
 void live_erosion_canvas_api() {
     QTemporaryDir temp;check(temp.isValid(),"Temporary erosion Canvas test directory is available");
@@ -1382,6 +1512,7 @@ int main(int argc,char** argv) {
     try {
         independent_pixel_oracle();
         independent_color_group_oracle();
+        independent_color_component_mask_intersection_oracle();
         independent_morphology_oracle();
         independent_erosion_oracle();
         independent_mask_boolean_oracle();
@@ -1390,6 +1521,7 @@ int main(int argc,char** argv) {
         independent_contour_oracle();
         live_canvas_api();
         live_color_group_canvas_api();
+        live_color_component_mask_intersection_canvas_api();
         live_erosion_canvas_api();
         QTemporaryDir line_cap_temp;check(line_cap_temp.isValid(),"Line-cap test directory is available");
         line_candidate_limit_oracle(line_cap_temp.path());

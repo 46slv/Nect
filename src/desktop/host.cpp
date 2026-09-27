@@ -350,9 +350,12 @@ QJsonObject Host::export_png(const QString& path,const Id& composition,const Id&
 }
 
 QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale,std::uint64_t source_revision,
-    bool include_color_groups,bool include_color_components) {
+    bool include_color_groups,bool include_color_components,
+    std::optional<std::uint64_t> intersect_color_component_index) {
     if(include_color_components&&!include_color_groups)
         throw Error("INVALID_REQUEST","include_color_components requires include_color_groups to be true");
+    if(intersect_color_component_index&&(!include_color_groups||!include_color_components))
+        throw Error("INVALID_REQUEST","intersect_color_component_index requires include_color_groups and include_color_components to be true");
     if(threshold<1||threshold>255)throw Error("INVALID_THRESHOLD","Alpha threshold must be an integer from 1 through 255");
     if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","Analysis scale must be greater than zero and at most 16");
     if(image.isNull()||image.width()<1||image.height()<1)throw Error("RENDER_ALLOCATION","Could not read rendered analysis pixels");
@@ -828,15 +831,61 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
                 }
             }
             result.insert("color_components",color_components);
+
+            if(intersect_color_component_index) {
+                if(*intersect_color_component_index>=static_cast<std::uint64_t>(color_components.size()))
+                    throw Error("INVALID_REQUEST","intersect_color_component_index is outside this request's color_components result");
+                const auto selected=color_components.at(static_cast<int>(*intersect_color_component_index)).toObject();
+                const auto component_runs=selected.value("runs").toArray();
+                std::size_t component_run_index=0,mask_run_index=0;
+                std::uint64_t intersection_area=0;
+                QJsonArray intersection_runs;
+                while(component_run_index<static_cast<std::size_t>(component_runs.size())&&
+                      mask_run_index<static_cast<std::size_t>(mask_boolean_runs.size())) {
+                    const auto component_run=component_runs.at(static_cast<int>(component_run_index)).toObject();
+                    const auto mask_run=mask_boolean_runs.at(static_cast<int>(mask_run_index)).toObject();
+                    const auto component_y=component_run.value("y").toInt();
+                    const auto mask_y=mask_run.value("y").toInt();
+                    if(component_y<mask_y) {++component_run_index;continue;}
+                    if(mask_y<component_y) {++mask_run_index;continue;}
+
+                    const auto component_start=component_run.value("x").toInt();
+                    const auto component_end=component_start+component_run.value("width").toInt();
+                    const auto mask_start=mask_run.value("x").toInt();
+                    const auto mask_end=mask_start+mask_run.value("width").toInt();
+                    const auto start=std::max(component_start,mask_start);
+                    const auto end=std::min(component_end,mask_end);
+                    if(start<end) {
+                        const auto run_width=end-start;
+                        intersection_area+=static_cast<std::uint64_t>(run_width);
+                        intersection_runs.append(QJsonObject{{"y",component_y},{"x",start},{"width",run_width}});
+                    }
+                    if(component_end<=mask_end)++component_run_index;
+                    if(mask_end<=component_end)++mask_run_index;
+                }
+                result.insert("color_component_mask_intersection",QJsonObject{
+                    {"operation","intersection"},
+                    {"component_index",static_cast<qint64>(*intersect_color_component_index)},
+                    {"rgb",selected.value("rgb")},
+                    {"other_operand","mask_boolean"},
+                    {"coordinate_space","artboard-output-pixels"},
+                    {"width",image.width()},{"height",image.height()},
+                    {"source_revision",static_cast<qint64>(source_revision)},
+                    {"area",static_cast<qint64>(intersection_area)},
+                    {"runs",intersection_runs}});
+            }
         }
     }
     return result;
 }
 
 QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected,
-    bool include_color_groups,bool include_color_components) {
+    bool include_color_groups,bool include_color_components,
+    std::optional<std::uint64_t> intersect_color_component_index) {
     if(include_color_components&&!include_color_groups)
         throw Error("INVALID_REQUEST","include_color_components requires include_color_groups to be true");
+    if(intersect_color_component_index&&(!include_color_groups||!include_color_components))
+        throw Error("INVALID_REQUEST","intersect_color_component_index requires include_color_groups and include_color_components to be true");
     if(expected!=session.revision())throw Error("REVISION_CONFLICT","Refresh revision before analyzing regions");
     if(session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before analyzing regions");
     if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","Analysis scale must be greater than zero and at most 16");
@@ -854,7 +903,8 @@ QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,doubl
     if(pixel_width*pixel_height>4'000'000)
         throw Error("ANALYSIS_LIMIT","Region analysis is limited to 4,000,000 output pixels");
     const auto image=Canvas::render_artboard(session.document(),composition,artboard,scale,false);
-    return analyze_region_pixels(image,threshold,scale,expected,include_color_groups,include_color_components);
+    return analyze_region_pixels(image,threshold,scale,expected,include_color_groups,include_color_components,
+        intersect_color_component_index);
 }
 
 QByteArray Host::dispatch(const QByteArray& input) {
@@ -864,7 +914,7 @@ QByteArray Host::dispatch(const QByteArray& input) {
         auto outer=QJsonDocument::fromJson(input).object();
         const auto operation=string(outer,"op");
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
-            (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","include_color_groups","include_color_components"}:
+            (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","include_color_groups","include_color_components","intersect_color_component_index"}:
             (operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
              operation=="core"?QStringList{"op","session_id","document_id","request"}:
              operation=="import_svg"?QStringList{"op","session_id","document_id","expected_revision","path","composition","prefix","name","x","y"}:
@@ -917,11 +967,26 @@ QByteArray Host::dispatch(const QByteArray& input) {
                             throw Error("INVALID_REQUEST","include_color_components must be a Boolean");
                         include_color_components=outer.value("include_color_components").toBool();
                     }
+                    std::optional<std::uint64_t> intersect_color_component_index;
+                    if(outer.contains("intersect_color_component_index")) {
+                        const auto value=outer.value("intersect_color_component_index");
+                        if(!value.isDouble())
+                            throw Error("INVALID_REQUEST","intersect_color_component_index must be a nonnegative integer");
+                        const auto number=value.toDouble();
+                        if(!std::isfinite(number)||std::floor(number)!=number||number<0)
+                            throw Error("INVALID_REQUEST","intersect_color_component_index must be a nonnegative integer");
+                        // Preserve D8/D9 cap precedence for any integral selector: the sentinel
+                        // is still rejected against the bounded component array after D9 runs.
+                        intersect_color_component_index=number>=18446744073709551616.0?
+                            std::numeric_limits<std::uint64_t>::max():static_cast<std::uint64_t>(number);
+                    }
                     if(include_color_components&&!include_color_groups)
                         throw Error("INVALID_REQUEST","include_color_components requires include_color_groups to be true");
+                    if(intersect_color_component_index&&(!include_color_groups||!include_color_components))
+                        throw Error("INVALID_REQUEST","intersect_color_component_index requires include_color_groups and include_color_components to be true");
                     response={{"ok",true},{"result",analyze_regions(string(outer,"composition").toStdString(),
                         string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),static_cast<int>(threshold),session.revision(),
-                        include_color_groups,include_color_components)}};
+                        include_color_groups,include_color_components,intersect_color_component_index)}};
                 } else if(op=="import_svg") {
                     if(!outer.value("x").isDouble()||!outer.value("y").isDouble())throw Error("INVALID_REQUEST","Numeric x/y required");
                     response={{"ok",true},{"result",import_svg(string(outer,"path"),string(outer,"composition").toStdString(),string(outer,"prefix").toStdString(),

@@ -115,8 +115,10 @@ try:
         analyze_schema = next(t for t in listed_tools if t['name'] == 'nect_analyze_regions')['inputSchema']
         assert analyze_schema['properties']['include_color_groups'] == {'type': 'boolean'}
         assert analyze_schema['properties']['include_color_components'] == {'type': 'boolean'}
+        assert analyze_schema['properties']['intersect_color_component_index'] == {'type': 'integer', 'minimum': 0}
         assert 'include_color_groups' not in analyze_schema['required']
         assert 'include_color_components' not in analyze_schema['required']
+        assert 'intersect_color_component_index' not in analyze_schema['required']
         live = tool('nect_session')
         identity = {key: live[key] for key in ('session_id', 'document_id')}
         comp = core('inspect')['result']['compositions'][0]
@@ -161,6 +163,7 @@ try:
         assert direct_color_components['result']['color_components'] == [dict(component_index=0, rgb=[12, 34, 56],
             area=6, bounds=dict(x=0, y=0, width=3, height=2),
             runs=[dict(y=0, x=0, width=3), dict(y=1, x=0, width=3)])]
+        assert 'color_component_mask_intersection' not in direct_color_components['result']
         components_false_request = dict(color_groups_request, include_color_components=False)
         assert desktop_api_call(endpoint, components_false_request) == direct_color_groups == \
             tool('nect_analyze_regions', components_false_request)
@@ -185,11 +188,78 @@ try:
         assert core('history')['result'] == color_history_before_analysis
         assert tool('nect_session')['revision'] == color_fixture['revision']
 
+        mask_rows = [[(255, 0, 0, 255) for _ in range(5)] for _ in range(5)]
+        mask_rows[2][2] = (0, 0, 255, 255)
+        mask_fixture_path = temp / 'mcp-component-mask-intersection.png'
+        mask_fixture_path.write_bytes(make_rgba_png(mask_rows))
+        mask_fixture = tool('nect_image', dict(identity, op='import_image', expected_revision=color_fixture['revision'],
+            path=str(mask_fixture_path), mode='embedded', composition=comp['id'], parent='',
+            asset='mcp-component-mask-asset', id='mcp-component-mask-image',
+            name='Red with blue center', x=0, y=0))
+        assert mask_fixture['ok'], mask_fixture
+        mask_document_before_analysis = core('inspect')['result']
+        mask_history_before_analysis = core('history')['result']
+        mask_request = dict(identity, op='analyze_regions', expected_revision=mask_fixture['revision'],
+            composition=comp['id'], artboard=comp['artboards'][0]['id'], scale=1, threshold=128,
+            include_color_groups=True, include_color_components=True, intersect_color_component_index=1)
+        direct_mask_intersection = desktop_api_call(endpoint, mask_request)
+        mcp_mask_intersection = tool('nect_analyze_regions', mask_request)
+        assert direct_mask_intersection == mcp_mask_intersection and direct_mask_intersection['ok']
+        mask_result = direct_mask_intersection['result']
+        ring_runs = [dict(y=0, x=0, width=5), dict(y=1, x=0, width=1), dict(y=1, x=4, width=1),
+                     dict(y=2, x=0, width=1), dict(y=2, x=4, width=1), dict(y=3, x=0, width=1),
+                     dict(y=3, x=4, width=1), dict(y=4, x=0, width=5)]
+        assert mask_result['color_components'] == [
+            dict(component_index=0, rgb=[0, 0, 255], area=1, bounds=dict(x=2, y=2, width=1, height=1),
+                 runs=[dict(y=2, x=2, width=1)]),
+            dict(component_index=1, rgb=[255, 0, 0], area=24, bounds=dict(x=0, y=0, width=5, height=5),
+                 runs=[dict(y=0, x=0, width=5), dict(y=1, x=0, width=5), dict(y=2, x=0, width=2),
+                       dict(y=2, x=3, width=2), dict(y=3, x=0, width=5), dict(y=4, x=0, width=5)])]
+        assert mask_result['color_component_mask_intersection'] == dict(
+            operation='intersection', component_index=1, rgb=[255, 0, 0], other_operand='mask_boolean',
+            coordinate_space='artboard-output-pixels', width=mask_result['width'], height=mask_result['height'],
+            source_revision=mask_fixture['revision'], area=16, runs=ring_runs)
+        blue_mask_request = dict(mask_request, intersect_color_component_index=0)
+        direct_blue_intersection = desktop_api_call(endpoint, blue_mask_request)
+        assert direct_blue_intersection == tool('nect_analyze_regions', blue_mask_request)
+        assert direct_blue_intersection['result']['color_component_mask_intersection'] == dict(
+            operation='intersection', component_index=0, rgb=[0, 0, 255], other_operand='mask_boolean',
+            coordinate_space='artboard-output-pixels', width=mask_result['width'], height=mask_result['height'],
+            source_revision=mask_fixture['revision'], area=0, runs=[])
+
+        invalid_intersection_requests = [
+            dict(identity, op='analyze_regions', expected_revision=mask_fixture['revision'],
+                composition=comp['id'], artboard=comp['artboards'][0]['id'], scale=1, threshold=128,
+                intersect_color_component_index=0),
+            dict(mask_request, include_color_components=False),
+            dict(mask_request, include_color_groups=False),
+            dict(mask_request, intersect_color_component_index=2),
+        ]
+        for invalid_intersection_request in invalid_intersection_requests:
+            direct_invalid_intersection = desktop_api_call(endpoint, invalid_intersection_request)
+            mcp_invalid_intersection = tool('nect_analyze_regions', invalid_intersection_request)
+            assert direct_invalid_intersection == mcp_invalid_intersection
+            assert not direct_invalid_intersection['ok'] and \
+                direct_invalid_intersection['error']['code'] == 'INVALID_REQUEST' and \
+                'result' not in direct_invalid_intersection
+        for invalid_index in (True, 1.5, -1):
+            invalid_index_request = dict(mask_request, intersect_color_component_index=invalid_index)
+            direct_invalid_index = desktop_api_call(endpoint, invalid_index_request)
+            mcp_invalid_index = rpc('tools/call', dict(name='nect_analyze_regions', arguments=invalid_index_request))
+            assert not direct_invalid_index['ok'] and direct_invalid_index['error']['code'] == 'INVALID_REQUEST'
+            assert mcp_invalid_index['error']['code'] == -32602 and \
+                mcp_invalid_index['error']['message'] == 'Invalid argument: intersect_color_component_index'
+        assert core('inspect')['result'] == mask_document_before_analysis
+        assert core('history')['result'] == mask_history_before_analysis
+        assert tool('nect_session')['revision'] == mask_fixture['revision']
+        mask_undo = core('undo', expected_revision=mask_fixture['revision'])
+        assert mask_undo['ok'] and core('inspect')['result'] == color_document_before_analysis
+
         checker_rows = [[(255, 0, 0, 255) if (x + y) % 2 == 0 else (0, 0, 255, 255)
                          for x in range(101)] for y in range(100)]
         checker_path = temp / 'mcp-color-component-limit.png'
         checker_path.write_bytes(make_rgba_png(checker_rows))
-        checker_fixture = tool('nect_image', dict(identity, op='import_image', expected_revision=color_fixture['revision'],
+        checker_fixture = tool('nect_image', dict(identity, op='import_image', expected_revision=mask_undo['revision'],
             path=str(checker_path), mode='embedded', composition=comp['id'], parent='',
             asset='mcp-color-component-limit-asset', id='mcp-color-component-limit-image',
             name='Color component cap fixture', x=0, y=0))
@@ -198,7 +268,7 @@ try:
         checker_history_before_analysis = core('history')['result']
         checker_component_request = dict(identity, op='analyze_regions', expected_revision=checker_fixture['revision'],
             composition=comp['id'], artboard=comp['artboards'][0]['id'], scale=1, threshold=1,
-            include_color_groups=True, include_color_components=True)
+            include_color_groups=True, include_color_components=True, intersect_color_component_index=10000)
         direct_component_limit = desktop_api_call(endpoint, checker_component_request)
         mcp_component_limit = tool('nect_analyze_regions', checker_component_request)
         assert direct_component_limit == mcp_component_limit
