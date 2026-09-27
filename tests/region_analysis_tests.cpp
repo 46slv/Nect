@@ -53,6 +53,18 @@ QJsonArray expected_runs(std::initializer_list<std::array<int,3>> spans) {
     for(const auto& span:spans)result.append(QJsonObject{{"y",span[0]},{"x",span[1]},{"width",span[2]}});
     return result;
 }
+void check_morphology(const QJsonObject& value,const QJsonArray& expected,int area,const char* message) {
+    const auto morphology=value.value("morphology").toObject();
+    check(morphology.value("operation").toString()=="dilate"&&
+        morphology.value("kernel").toString()=="cross-4-radius-1"&&
+        morphology.value("border").toString()=="outside-background-clipped"&&
+        morphology.value("coordinate_space").toString()=="artboard-output-pixels",message);
+    const auto runs=morphology.value("runs").toArray();
+    check(runs==expected&&morphology.value("area").toInt()==area,message);
+    int run_area=0;
+    for(const auto& run:runs)run_area+=run.toObject().value("width").toInt();
+    check(run_area==morphology.value("area").toInt(),"Morphology run widths sum to the mask area");
+}
 void check_edges(const QJsonObject& value,const QJsonArray& expected,int pixel_count,const char* message) {
     const auto runs=value.value("edge_runs").toArray();
     check(runs==expected,message);
@@ -139,6 +151,46 @@ void independent_pixel_oracle() {
     try {analyze_region_pixels(exact_components,1,1.0,0);throw std::runtime_error("Expected component limit refusal");}
     catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT","The 10,001st component refuses without a partial result");}
 }
+void independent_morphology_oracle() {
+    QImage center(5,5,QImage::Format_ARGB32_Premultiplied);center.fill(Qt::transparent);
+    center.setPixel(2,2,qRgba(0,0,0,255));
+    const auto center_result=analyze_region_pixels(center,128,1.0,23);
+    check_morphology(center_result,expected_runs({{1,2,1},{2,1,3},{3,2,1}}),5,
+        "One interior source pixel dilates once with the cross kernel");
+
+    QImage corner(5,5,QImage::Format_ARGB32_Premultiplied);corner.fill(Qt::transparent);
+    corner.setPixel(0,0,qRgba(0,0,0,255));
+    check_morphology(analyze_region_pixels(corner,128,1.0,24),expected_runs({{0,0,2},{1,0,1}}),3,
+        "A top-left source pixel clips its cross dilation to the output rectangle");
+
+    QImage empty(3,3,QImage::Format_ARGB32_Premultiplied);empty.fill(Qt::transparent);
+    check_morphology(analyze_region_pixels(empty,128,1.0,25),{},0,
+        "Zero-alpha input returns an empty morphology mask");
+
+    QImage full(3,3,QImage::Format_ARGB32_Premultiplied);full.fill(qRgba(0,0,0,255));
+    check_morphology(analyze_region_pixels(full,128,1.0,26),expected_runs({{0,0,3},{1,0,3},{2,0,3}}),9,
+        "Full input remains full after clipped dilation");
+
+    QImage diagonal(4,4,QImage::Format_ARGB32_Premultiplied);diagonal.fill(Qt::transparent);
+    diagonal.setPixel(1,1,qRgba(0,0,0,255));diagonal.setPixel(2,2,qRgba(0,0,0,255));
+    check_morphology(analyze_region_pixels(diagonal,128,1.0,27),
+        expected_runs({{0,1,1},{1,0,3},{2,1,3},{3,2,1}}),8,
+        "Diagonal source pixels join through their one-step cross dilation");
+
+    QImage low_alpha(5,5,QImage::Format_ARGB32_Premultiplied);low_alpha.fill(Qt::transparent);
+    low_alpha.setPixel(2,2,qRgba(0,0,0,127));
+    check_morphology(analyze_region_pixels(low_alpha,128,1.0,28),{},0,
+        "An alpha-127 source is absent at threshold 128");
+    check_morphology(analyze_region_pixels(low_alpha,127,1.0,28),
+        expected_runs({{1,2,1},{2,1,3},{3,2,1}}),5,
+        "An alpha-127 source dilates when the threshold is 127");
+
+    QImage hole(5,5,QImage::Format_ARGB32_Premultiplied);hole.fill(qRgba(0,0,0,255));
+    hole.setPixel(2,2,qRgba(0,0,0,0));
+    check_morphology(analyze_region_pixels(hole,128,1.0,29),
+        expected_runs({{0,0,5},{1,0,5},{2,0,5},{3,0,5},{4,0,5}}),25,
+        "Cross dilation fills a one-pixel hole without extending beyond the image");
+}
 QImage line_candidate_cap_image(bool extra_spur) {
     const auto height=extra_spur?401:399;
     QImage image(300,height,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);
@@ -166,6 +218,88 @@ std::uint64_t independent_boundary_edges(const QImage& image) {
         if(y+1==image.height()||qAlpha(image.pixel(x,y+1))<1)++result;
     }
     return result;
+}
+bool independent_pixels_are_isolated(const QImage& image,int threshold) {
+    for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+        if(qAlpha(image.pixel(x,y))<threshold)continue;
+        for(int dy=-1;dy<=1;++dy)for(int dx=-1;dx<=1;++dx) {
+            if(dx==0&&dy==0)continue;
+            const auto nx=x+dx,ny=y+dy;
+            if(nx>=0&&ny>=0&&nx<image.width()&&ny<image.height()&&qAlpha(image.pixel(nx,ny))>=threshold)
+                return false;
+        }
+    }
+    return true;
+}
+QImage morphology_cap_image(bool over_limit) {
+    QImage image(409,277,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);
+    for(int index=0;index<6'666;++index) {
+        const auto x=4+(index%100)*4;
+        const auto y=4+(index/100)*4;
+        image.setPixel(x,y,qRgba(0,0,0,255));
+    }
+    image.setPixel(0,0,qRgba(0,0,0,255));
+    if(over_limit)image.setPixel(404,272,qRgba(0,0,0,255));
+    return image;
+}
+void morphology_run_cap_oracle(const QString& temp_directory) {
+    const auto exact=morphology_cap_image(false);
+    constexpr std::uint64_t source_count=6'667;
+    constexpr std::uint64_t exact_runs=20'000;
+    constexpr std::uint64_t exact_area=33'333;
+    check(static_cast<std::uint64_t>(exact.width())*static_cast<std::uint64_t>(exact.height())<4'000'000&&
+        independent_boundary_edges(exact)==source_count*4,
+        "The morphology cap source fixture fits the pixel and boundary-edge limits");
+    const auto exact_result=analyze_region_pixels(exact,128,1.0,31);
+    const auto exact_morphology=exact_result.value("morphology").toObject();
+    const auto exact_runs_array=exact_morphology.value("runs").toArray();
+    check(exact_result.value("regions").toArray().size()==static_cast<int>(source_count)&&
+        exact_result.value("edge_runs").toArray().size()==static_cast<int>(source_count)&&
+        exact_result.value("line_candidates").toArray().isEmpty()&&
+        exact_runs_array.size()==static_cast<int>(exact_runs)&&
+        exact_morphology.value("area").toInt()==static_cast<int>(exact_area),
+        "Exactly 20,000 morphology runs are accepted below every earlier analysis cap");
+
+    const auto over=morphology_cap_image(true);
+    constexpr std::uint64_t over_source_count=source_count+1;
+    check(over_source_count<10'000&&over_source_count<100'000&&
+        independent_boundary_edges(over)==over_source_count*4&&independent_boundary_edges(over)<200'000&&
+        independent_pixels_are_isolated(over,128)&&
+        static_cast<std::uint64_t>(over.width())*static_cast<std::uint64_t>(over.height())<4'000'000,
+        "The over-cap fixture keeps D1-D4 component, edge-run, boundary and line counts under their limits");
+
+    QTemporaryDir temp(temp_directory+"/morphology-cap-XXXXXX");
+    check(temp.isValid(),"A temporary morphology-cap Canvas fixture directory is available");
+    const auto populate_canvas_host=[&](Host& host,bool add_extra,const QString& id) {
+        const auto document_id=id.toStdString();
+        const auto composition_id=document_id+"-composition";
+        const auto artboard_id=document_id+"-artboard";
+        auto document=empty_document(document_id+"-document",composition_id,artboard_id);
+        auto& artboard=document.compositions.front().artboards.front();
+        artboard.width=409;artboard.height=277;
+        host.session=Session(std::move(document));
+        const auto input=temp.path()+"/"+id+".png";
+        check(morphology_cap_image(add_extra).save(input,"PNG"),"Morphology-cap raster fixture is written");
+        host.import_image(input,"embedded",composition_id,"",document_id+"-asset",document_id+"-image",document_id,0,0,0);
+    };
+    Host over_host(temp.path()+"/morphology-over-recovery");
+    populate_canvas_host(over_host,true,"morphology-cap-over");
+    const auto over_native=temp.path()+"/morphology-cap-over.nect";over_host.save(over_native);
+    const auto over_native_before=bytes(over_native);
+    const auto over_document_before=encode(over_host.session.document());
+    const auto over_history_before=over_host.session.history();
+    const auto over_revision=over_host.session.revision();
+    const QJsonObject over_fields{{"expected_revision",static_cast<qint64>(over_revision)},
+        {"composition","morphology-cap-over-composition"},{"artboard","morphology-cap-over-artboard"},
+        {"scale",1.0},{"threshold",128}};
+    const auto over_api=api(over_host,over_fields);
+    const auto over_error=over_api.value("error").toObject();
+    check(over_error.value("code").toString()=="ANALYSIS_LIMIT"&&!over_api.contains("result")&&
+        over_error.value("message").toString().contains("20,000 morphology runs"),
+        "The real Canvas API refuses the 20,001st run without returning a partial result");
+    check(over_host.session.revision()==over_revision&&over_host.session.history()==over_history_before&&
+        encode(over_host.session.document())==over_document_before&&bytes(over_native)==over_native_before,
+        "Morphology cap refusal leaves Canvas Document, revision, History and native bytes unchanged");
 }
 void line_candidate_limit_oracle(const QString& temp_directory) {
     auto exact=line_candidate_cap_image(false);
@@ -456,6 +590,8 @@ void live_canvas_api() {
         "Live Canvas contours preserve component indexes and use pixel-corner coordinates");
     check_lines(result,QJsonArray{expected_line("horizontal",{3,0},{7,0},5)},
         "Live Canvas API returns the exact one-pixel border stroke at pixel centers");
+    check_morphology(result,expected_runs({{0,1,7},{1,0,8},{2,0,8},{3,1,7},{4,3,5},{5,5,3}}),38,
+        "Live Canvas morphology matches the independently dilated thresholded artboard pixels");
     check(result.value("width").toInt()==8&&result.value("height").toInt()==6&&
         result.value("source_revision").toInt()==static_cast<int>(revision),"Live result reports the rendered dimensions and source revision");
     auto lower_fields=fields;lower_fields["threshold"]=127;
@@ -470,6 +606,9 @@ void live_canvas_api() {
         "Canvas API returns the fourth threshold-equal component contour");
     check_lines(lower.value("result").toObject(),QJsonArray{expected_line("horizontal",{3,0},{7,0},5)},
         "The threshold-equal isolated pixel does not alter the live Canvas line candidate");
+    check_morphology(lower.value("result").toObject(),expected_runs({{0,1,7},{1,0,8},{2,0,8},{3,1,7},
+        {4,0,1},{4,3,5},{5,0,2},{5,5,3}}),41,
+        "Live Canvas morphology includes the threshold-equal alpha-127 source and preserves row spans");
     check(host.session.revision()==revision&&host.session.history()==original_history&&
         encode(host.session.document())==original_document&&bytes(native)==native_before,
         "Analysis leaves Session revision, history, authored document and native bytes unchanged");
@@ -561,12 +700,15 @@ int main(int argc,char** argv) {
     QApplication app(argc,argv);
     try {
         independent_pixel_oracle();
+        independent_morphology_oracle();
         independent_line_oracle();
         independent_edge_oracle();
         independent_contour_oracle();
         live_canvas_api();
         QTemporaryDir line_cap_temp;check(line_cap_temp.isValid(),"Line-cap test directory is available");
         line_candidate_limit_oracle(line_cap_temp.path());
-        std::cout<<"PASS region, edge-map, contour and thin-line pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
+        QTemporaryDir morphology_cap_temp;check(morphology_cap_temp.isValid(),"Morphology-cap test directory is available");
+        morphology_run_cap_oracle(morphology_cap_temp.path());
+        std::cout<<"PASS region, edge-map, contour, thin-line and morphology pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

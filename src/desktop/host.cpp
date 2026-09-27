@@ -357,6 +357,7 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
     constexpr std::size_t max_regions=10'000;
     constexpr std::size_t max_edge_runs=100'000;
     constexpr std::size_t max_line_candidates=10'000;
+    constexpr std::size_t max_morphology_runs=20'000;
     constexpr std::uint64_t max_boundary_edges=200'000;
     const auto width=static_cast<std::uint64_t>(image.width());
     const auto height=static_cast<std::uint64_t>(image.height());
@@ -572,6 +573,29 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
                 {"end",end_point},{"length_pixels",length}});
         }
     }
+    QJsonArray morphology_runs;
+    std::uint64_t morphology_area=0;
+    const auto append_morphology_run=[&](int y,int start,int end) {
+        if(static_cast<std::size_t>(morphology_runs.size())>=max_morphology_runs)
+            throw Error("ANALYSIS_LIMIT","Region analysis is limited to 20,000 morphology runs");
+        const auto run_width=end-start;
+        morphology_area+=static_cast<std::uint64_t>(run_width);
+        morphology_runs.append(QJsonObject{{"y",y},{"x",start},{"width",run_width}});
+    };
+    for(int y=0;y<image.height();++y) {
+        bool in_run=false;
+        int run_start=0;
+        for(int x=0;x<image.width();++x) {
+            const auto dilated=foreground_at_pixel(x,y)||foreground_at_pixel(x-1,y)||
+                foreground_at_pixel(x+1,y)||foreground_at_pixel(x,y-1)||foreground_at_pixel(x,y+1);
+            if(dilated&&!in_run) {run_start=x;in_run=true;}
+            else if(!dilated&&in_run) {append_morphology_run(y,run_start,x);in_run=false;}
+        }
+        if(in_run)append_morphology_run(y,run_start,image.width());
+    }
+    const QJsonObject morphology{{"operation","dilate"},{"kernel","cross-4-radius-1"},
+        {"border","outside-background-clipped"},{"coordinate_space","artboard-output-pixels"},
+        {"area",static_cast<qint64>(morphology_area)},{"runs",morphology_runs}};
     return {{"regions",regions},{"edge_runs",edge_runs},{"edge_pixel_count",static_cast<qint64>(edge_pixel_count)},
         {"edge_rule","foreground-4-neighbor"},{"threshold",threshold},{"connectivity",4},{"scale",scale},
         {"width",image.width()},{"height",image.height()},{"color_space","sRGB"},
@@ -582,7 +606,7 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         {"contour_coordinate_space","artboard-output-pixel-corners"},
         {"contour_closed","implicit-last-to-first"},{"line_candidates",line_candidates},
         {"line_rule","exact-one-pixel-wide-4-direction-min3"},
-        {"line_coordinate_space","artboard-output-pixel-centers"}};
+        {"line_coordinate_space","artboard-output-pixel-centers"},{"morphology",morphology}};
 }
 
 QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected) {

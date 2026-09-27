@@ -110,6 +110,8 @@ try:
         assert direct_regions['result']['contour_rule'] == 'foreground-right-clockwise-outer'
         assert direct_regions['result']['contour_coordinate_space'] == 'artboard-output-pixel-corners'
         assert direct_regions['result']['contour_closed'] == 'implicit-last-to-first'
+        assert direct_regions['result']['morphology'] == dict(operation='dilate', kernel='cross-4-radius-1',
+            border='outside-background-clipped', coordinate_space='artboard-output-pixels', area=0, runs=[])
         rng = random.Random(7821)
         commands = []
         for i in range(24):
@@ -713,6 +715,7 @@ try:
         vector_before=core('inspect')['result']
         vector=tool('nect_import_svg',dict(identity,op='import_svg',expected_revision=line_image['revision'],path=str(svg_input),composition=comp['id'],prefix='mcp-vector',name='Vector',x=10,y=20))
         assert vector['ok'] and vector['result']['paths']==2 and vector['result']['root']=='mcp-vector'
+        vector_document_before_analysis=core('inspect')['result']
         vector_analysis_request=dict(identity,op='analyze_regions',expected_revision=vector['revision'],
             composition=comp['id'],artboard=comp['artboards'][0]['id'],scale=1,threshold=128)
         direct_vector_analysis=desktop_api_call(endpoint,vector_analysis_request)
@@ -720,6 +723,14 @@ try:
         assert direct_vector_analysis==mcp_vector_analysis and direct_vector_analysis['ok']
         assert direct_vector_analysis['revision']==vector['revision']
         assert direct_vector_analysis['result']['source_revision']==vector['revision']
+        vector_morphology=direct_vector_analysis['result']['morphology']
+        assert vector_morphology['operation']=='dilate'
+        assert vector_morphology['kernel']=='cross-4-radius-1'
+        assert vector_morphology['border']=='outside-background-clipped'
+        assert vector_morphology['coordinate_space']=='artboard-output-pixels'
+        assert vector_morphology['runs'] and vector_morphology['area']==sum(run['width'] for run in vector_morphology['runs'])
+        assert core('inspect')['result']==vector_document_before_analysis
+        assert tool('nect_session')['revision']==vector['revision']
         assert direct_vector_analysis['result']['regions'], 'Filled SVG artwork yields at least one analyzed region'
         vector_contours=direct_vector_analysis['result']['outer_contours']
         assert vector_contours, 'Filled SVG artwork yields at least one outer contour'
