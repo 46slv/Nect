@@ -351,6 +351,186 @@ void batch_rename_action(Window& window) {
         window.statusBar()->currentMessage().startsWith("SESSION_CONFLICT"),
         "A session-replaced batch dialog refuses without changing the new Document");
 }
+void sort_paint_order_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    auto add=[&](const std::string& id,const std::string& name,double x) {
+        Point point;point.id=id+"-point";point.x.literal=x;point.y.literal=120;
+        setup.push_back(CreatePath{composition,"",id,name,{{id+"-contour",false,{point}}}});
+    };
+    add("sort-u","Untouched before",30);
+    add("sort-c","Same",60);
+    add("sort-x","Untouched middle",90);
+    add("sort-b","alpha",120);
+    add("sort-a","same",150);
+    add("sort-v","Untouched after",180);
+    setup.push_back(Link{{"sort-v","sort-v-point","x"},{{"sort-a","sort-a-point","x"},2,3,"copy_local_value"}});
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+
+    auto* action=named_action(window,"sort-selected-name-paint-order");
+    check(action->text()=="Sort selected by name (paint order)…"&&!action->isEnabled(),
+        "Edit menu exposes the explicit paint-order sort and starts disabled");
+    window.canvas->set_selections({{"sort-a",""},{"sort-b",""},{"sort-c",""}});QApplication::processEvents();
+    check(action->isEnabled(),"Paint-order sort is enabled for whole sibling selections regardless of click order");
+
+    bool menu_found=false,menu_enabled=false;
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* candidate:menu->actions())if(candidate->objectName()=="sort-selected-name-paint-order-context") {
+                menu_found=true;menu_enabled=candidate->isEnabled();menu->close();return;
+            }
+    });
+    const auto menu_point=window.canvas->rect().center();
+    QContextMenuEvent menu_event(QContextMenuEvent::Mouse,menu_point,window.canvas->mapToGlobal(menu_point));
+    QApplication::sendEvent(window.canvas,&menu_event);QApplication::processEvents();
+    check(menu_found&&menu_enabled,"Selection menu offers the same paint-order sort for valid siblings");
+
+    const auto before=session.document();const auto before_revision=session.revision();
+    const auto before_values=evaluate(before);
+    bool cancel_preview_ok=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        const std::vector<std::string> old_ids{"sort-u","sort-c","sort-x","sort-b","sort-a","sort-v"};
+        const std::vector<std::string> old_names{"Untouched before","Same","Untouched middle","alpha","same","Untouched after"};
+        const std::vector<std::string> new_ids{"sort-u","sort-b","sort-x","sort-c","sort-a","sort-v"};
+        const std::vector<std::string> new_names{"Untouched before","alpha","Untouched middle","Same","same","Untouched after"};
+        cancel_preview_ok=dialog&&dialog->isVisible()&&buttons;
+        if(cancel_preview_ok) {
+            auto label_text=[&](const QString& name) {auto* label=dialog->findChild<QLabel*>(name);return label?label->text():QString();};
+            auto* heading=dialog->findChild<QLabel*>("sort-paint-order-heading");
+            cancel_preview_ok=heading&&heading->text().contains("actual draw / paint order");
+            for(std::size_t i=0;i<old_ids.size()&&cancel_preview_ok;++i) {
+                cancel_preview_ok=label_text(QString("sort-paint-order-before-id-%1").arg(i))==QString::fromStdString(old_ids[i])&&
+                    label_text(QString("sort-paint-order-before-name-%1").arg(i))==QString::fromStdString(old_names[i])&&
+                    label_text(QString("sort-paint-order-after-id-%1").arg(i))==QString::fromStdString(new_ids[i])&&
+                    label_text(QString("sort-paint-order-after-name-%1").arg(i))==QString::fromStdString(new_names[i]);
+            }
+            buttons->button(QDialogButtonBox::Cancel)->click();
+        }
+    });
+    action->trigger();QApplication::processEvents();
+    check(cancel_preview_ok&&session.revision()==before_revision&&session.document()==before,
+        "Preview lists every full sibling slot with before/after stable IDs and names, while Cancel is history-free");
+
+    bool context_applied=false,context_preview_ok=false,context_menu_enabled=false;
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* candidate:menu->actions())if(candidate->objectName()=="sort-selected-name-paint-order-context") {
+                context_menu_enabled=candidate->isEnabled();
+                QTimer::singleShot(0,&window,[&]{
+                    auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+                    auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+                    if(dialog) {
+                        auto label_text=[&](const char* name) {auto* label=dialog->findChild<QLabel*>(name);return label?label->text():QString();};
+                        context_preview_ok=buttons&&label_text("sort-paint-order-before-id-1")=="sort-c"&&
+                            label_text("sort-paint-order-after-id-1")=="sort-b"&&label_text("sort-paint-order-after-id-3")=="sort-c";
+                    }
+                    if(buttons) {buttons->button(QDialogButtonBox::Ok)->click();context_applied=true;}
+                });
+                menu->setActiveAction(candidate);QTest::keyClick(menu,Qt::Key_Return);return;
+            }
+    });
+    QContextMenuEvent sort_event(QContextMenuEvent::Mouse,menu_point,window.canvas->mapToGlobal(menu_point));
+    QApplication::sendEvent(window.canvas,&sort_event);QApplication::processEvents();
+    const std::vector<Id> expected_order{"sort-u","sort-b","sort-x","sort-c","sort-a","sort-v"};
+    auto expected=before;expected.compositions.front().roots=expected_order;
+    check(context_applied&&context_menu_enabled&&context_preview_ok&&session.revision()==before_revision+1&&session.document()==expected,
+        "Selection-menu Apply sorts only selected slots by case-insensitive name with stable equal-name order");
+    check(evaluate(session.document())==before_values&&session.document().objects==before.objects&&
+        window.canvas->selected_objects()==std::vector<Id>{"sort-a","sort-b","sort-c"},
+        "Paint-order sort preserves object data, references, evaluated values and the original selection");
+    check(decode(encode(session.document()))==session.document(),"Paint-order sort survives native serialization");
+    QTemporaryDir saved_dir;check(saved_dir.isValid(),"Paint-order sort creates a disposable native save directory");
+    const auto saved_path=saved_dir.path()+"/sorted-paint-order.nect";window.host.save(saved_path);
+    Host reopened(saved_dir.path()+"/cold-recovery");reopened.open(saved_path);
+    check(reopened.session.document()==session.document(),"Native save and independent reopen retain the full sorted sibling order");
+
+    const auto sorted=session.document();const auto sorted_revision=session.revision();
+    session.undo(sorted_revision);window.host.edited();
+    check(session.document()==before,"Paint-order sort is one exact Undo");
+    session.redo(session.revision());window.host.edited();
+    check(session.document()==sorted,"Paint-order Redo restores the exact sorted order");
+    const auto redone_revision=session.revision();
+    window.canvas->set_selections({{"sort-a",""},{"sort-b",""},{"sort-c",""}});QApplication::processEvents();
+    check(action->isEnabled(),"Sorted selection remains eligible after history navigation");
+
+    bool no_op_preview=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog) {
+            auto* before=dialog->findChild<QLabel*>("sort-paint-order-before-id-1");
+            auto* after=dialog->findChild<QLabel*>("sort-paint-order-after-id-1");
+            no_op_preview=buttons&&before&&after&&before->text()=="sort-b"&&after->text()=="sort-b";
+        }
+        if(buttons)buttons->button(QDialogButtonBox::Ok)->click();
+    });
+    action->trigger();QApplication::processEvents();
+    check(no_op_preview&&session.revision()==redone_revision&&session.document()==sorted&&
+        window.statusBar()->currentMessage().startsWith("No change"),
+        "Applying an already sorted selection reports no change without a revision or history entry");
+
+    Point nested_z,nested_a;nested_z.id="sort-nested-z-point";nested_z.x.literal=120;nested_z.y.literal=130;
+    nested_a.id="sort-nested-a-point";nested_a.x.literal=160;nested_a.y.literal=130;
+    session.apply({CreatePath{composition,"","sort-nested-z","zulu",{{"sort-nested-z-contour",false,{nested_z}}}},
+        CreatePath{composition,"","sort-nested-a","Beta",{{"sort-nested-a-contour",false,{nested_a}}}},
+        GroupContiguous{composition,"",{"sort-nested-z","sort-nested-a"},"sort-folder","Folder"}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    const auto before_nested=session.document();const auto nested_revision=session.revision();
+    window.canvas->set_selections({{"sort-nested-z",""},{"sort-nested-a",""}});QApplication::processEvents();
+    check(action->isEnabled(),"Paint-order sort accepts sibling children of a Folder");
+    bool nested_preview_ok=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog) {
+            auto* before=dialog->findChild<QLabel*>("sort-paint-order-before-id-0");
+            auto* after=dialog->findChild<QLabel*>("sort-paint-order-after-id-0");
+            nested_preview_ok=buttons&&before&&after&&before->text()=="sort-nested-z"&&after->text()=="sort-nested-a";
+        }
+        if(buttons)buttons->button(QDialogButtonBox::Ok)->click();
+    });
+    action->trigger();QApplication::processEvents();
+    auto expected_nested=before_nested;expected_nested.objects.at("sort-folder").children={"sort-nested-a","sort-nested-z"};
+    check(nested_preview_ok&&session.revision()==nested_revision+1&&session.document()==expected_nested&&
+        session.document().compositions.front().roots==before_nested.compositions.front().roots,
+        "Nested Folder sort changes only the selected child sibling order");
+
+    window.canvas->set_selection("sort-a");QApplication::processEvents();
+    check(!action->isEnabled(),"Paint-order sort is disabled for fewer than two selected siblings");
+    window.canvas->set_selections({{"sort-a","sort-a-point"},{"sort-b",""}});QApplication::processEvents();
+    check(!action->isEnabled(),"Paint-order sort is disabled for point selections");
+    window.canvas->set_selections({{"sort-a",""},{"sort-nested-a",""}});QApplication::processEvents();
+    check(!action->isEnabled(),"Paint-order sort is disabled for selections under different parents");
+
+    window.canvas->set_selections({{"sort-a",""},{"sort-b",""}});QApplication::processEvents();
+    Document stale_document;std::uint64_t stale_revision=0;bool stale_dialog_seen=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog&&buttons) {
+            session.apply({Rename{"sort-v","External update"}},session.revision());window.host.edited();
+            stale_document=session.document();stale_revision=session.revision();stale_dialog_seen=true;
+            buttons->button(QDialogButtonBox::Ok)->click();
+        }
+    });
+    action->trigger();QApplication::processEvents();
+    check(stale_dialog_seen&&session.revision()==stale_revision&&session.document()==stale_document&&
+        window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT"),
+        "A revision-stale paint-order preview refuses without changing the updated Document");
+
+    bool session_stale_seen=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog&&buttons) {session_stale_seen=true;window.host.create_document();buttons->button(QDialogButtonBox::Ok)->click();}
+    });
+    action->trigger();QApplication::processEvents();
+    check(session_stale_seen&&session.revision()==0&&session.document().objects.empty()&&
+        window.statusBar()->currentMessage().startsWith("SESSION_CONFLICT"),
+        "A Session-replaced paint-order preview refuses without mutating the new Document");
+}
 void history_action(Window& window,const char* text) {
     for(auto* action:window.findChildren<QAction*>())if(action->text()==QString::fromLatin1(text)) {
         check(action->isEnabled(),"History action is enabled");action->trigger();QApplication::processEvents();return;
@@ -1680,7 +1860,8 @@ int main(int argc,char** argv) {
         check(layout.canvas->evaluated_values()==evaluate(layout_session.document()),"External Undo refreshes projection after Canvas notification scope ends");
         layout.hide();Window folders(temp.path()+"/folders");folders.show();QApplication::processEvents();folder_action(folders);
         folders.hide();Window batch_rename(temp.path()+"/batch-rename");batch_rename.show();QApplication::processEvents();batch_rename_action(batch_rename);
-        batch_rename.hide();Window move_out(temp.path()+"/move-out");move_out.show();QApplication::processEvents();move_out_action(move_out);
+        batch_rename.hide();Window sort_paint_order(temp.path()+"/sort-paint-order");sort_paint_order.show();QApplication::processEvents();sort_paint_order_action(sort_paint_order);
+        sort_paint_order.hide();Window move_out(temp.path()+"/move-out");move_out.show();QApplication::processEvents();move_out_action(move_out);
         move_out.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
         stacking.hide();Window layout_setup(temp.path()+"/layout-setup");layout_setup.show();QApplication::processEvents();
         layout_setup_previews_commit_and_recovers(layout_setup);layout_setup.hide();

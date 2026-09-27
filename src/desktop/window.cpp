@@ -502,6 +502,9 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     batch_rename_action_=action(edit,"Batch rename selected…",{},[this]{batch_rename_selection();});
     batch_rename_action_->setObjectName("batch-rename-selection");
     batch_rename_action_->setEnabled(false);
+    sort_paint_order_action_=action(edit,"Sort selected by name (paint order)…",{},[this]{sort_selection_by_name_paint_order();});
+    sort_paint_order_action_->setObjectName("sort-selected-name-paint-order");
+    sort_paint_order_action_->setEnabled(false);
     action(edit,"Create Folder",{},[this]{create_folder();})->setObjectName("create-folder");
     action(edit,"Ungroup selected Groups",QKeySequence("Ctrl+Shift+G"),[this]{ungroup_selection();})->setObjectName("ungroup-objects");
     action(edit,"Move selected out of Folder",{},[this]{move_selection_out();})->setObjectName("move-out-of-folder");
@@ -694,7 +697,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         else canvas_notification_.reset();
         host.edited();
     };
-    canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();update_batch_rename_action();};
+    canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();update_batch_rename_action();update_sort_paint_order_action();};
     canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
     canvas->view_state_changed=[this]{sync_utility_view_state();};
     canvas->zoom_changed=[this](double zoom){
@@ -3289,6 +3292,11 @@ void Window::update_batch_rename_action() {
     try{Id parent;(void)selected_siblings(parent,2);batch_rename_action_->setEnabled(true);}
     catch(const Error&){batch_rename_action_->setEnabled(false);}
 }
+void Window::update_sort_paint_order_action() {
+    if(!sort_paint_order_action_)return;
+    try{Id parent;(void)selected_siblings(parent,2);sort_paint_order_action_->setEnabled(true);}
+    catch(const Error&){sort_paint_order_action_->setEnabled(false);}
+}
 void Window::stack_selection(int direction,bool to_edge) {
     Id parent;const auto selected=selected_siblings(parent,1);const std::set<Id> chosen(selected.begin(),selected.end());
     const auto& d=host.session.document();const auto& comp=find_composition(d,canvas->active_composition());
@@ -3438,6 +3446,86 @@ void Window::batch_rename_selection() {
     host.edited();
     canvas->set_selections(selection);
 }
+void Window::sort_selection_by_name_paint_order() {
+    Id parent;
+    const auto selected=selected_siblings(parent,2);
+    const auto frozen_session=host.session_id;
+    const auto frozen_revision=host.session.revision();
+    const auto selection=canvas->selections();
+    const auto& document=host.session.document();
+    const auto& composition=find_composition(document,canvas->active_composition());
+    const auto original=parent.empty()?composition.roots:document.objects.at(parent).children;
+    auto reordered=original;
+    auto sorted=selected;
+    std::stable_sort(sorted.begin(),sorted.end(),[&](const Id& left,const Id& right) {
+        return QString::compare(qs(document.objects.at(left).name),qs(document.objects.at(right).name),Qt::CaseInsensitive)<0;
+    });
+    std::set<Id> chosen(selected.begin(),selected.end());
+    auto next=sorted.begin();
+    for(auto& id:reordered)if(chosen.contains(id))id=*next++;
+
+    QDialog dialog(this);
+    dialog.setObjectName("sort-paint-order-dialog");
+    dialog.setWindowTitle("Sort Selected by Name (Paint Order)");
+    dialog.resize(900,480);
+    auto* layout=new QVBoxLayout(&dialog);
+    auto* heading=new QLabel("Review the full sibling paint order. Apply changes the actual draw / paint order.",&dialog);
+    heading->setObjectName("sort-paint-order-heading");
+    heading->setWordWrap(true);layout->addWidget(heading);
+
+    auto* preview=new QWidget(&dialog);
+    auto* grid=new QGridLayout(preview);
+    grid->addWidget(new QLabel("Slot",preview),0,0);
+    grid->addWidget(new QLabel("Before ID",preview),0,1);
+    grid->addWidget(new QLabel("Before name",preview),0,2);
+    grid->addWidget(new QLabel("After ID",preview),0,3);
+    grid->addWidget(new QLabel("After name",preview),0,4);
+    for(std::size_t i=0;i<original.size();++i) {
+        const auto row=static_cast<int>(i+1);
+        auto* slot=new QLabel(QString::number(i+1),preview);
+        slot->setObjectName(QString("sort-paint-order-slot-%1").arg(i));
+        auto* before_id=new QLabel(qs(original[i]),preview);
+        before_id->setObjectName(QString("sort-paint-order-before-id-%1").arg(i));
+        before_id->setTextFormat(Qt::PlainText);
+        before_id->setTextInteractionFlags(Qt::TextSelectableByMouse|Qt::TextSelectableByKeyboard);
+        auto* before_name=new QLabel(qs(document.objects.at(original[i]).name),preview);
+        before_name->setObjectName(QString("sort-paint-order-before-name-%1").arg(i));
+        before_name->setTextFormat(Qt::PlainText);
+        auto* after_id=new QLabel(qs(reordered[i]),preview);
+        after_id->setObjectName(QString("sort-paint-order-after-id-%1").arg(i));
+        after_id->setTextFormat(Qt::PlainText);
+        after_id->setTextInteractionFlags(Qt::TextSelectableByMouse|Qt::TextSelectableByKeyboard);
+        auto* after_name=new QLabel(qs(document.objects.at(reordered[i]).name),preview);
+        after_name->setObjectName(QString("sort-paint-order-after-name-%1").arg(i));
+        after_name->setTextFormat(Qt::PlainText);
+        grid->addWidget(slot,row,0);grid->addWidget(before_id,row,1);grid->addWidget(before_name,row,2);
+        grid->addWidget(after_id,row,3);grid->addWidget(after_name,row,4);
+    }
+    grid->setColumnStretch(1,1);grid->setColumnStretch(2,1);grid->setColumnStretch(3,1);grid->setColumnStretch(4,1);
+    auto* preview_scroll=new QScrollArea(&dialog);
+    preview_scroll->setObjectName("sort-paint-order-preview-scroll");
+    preview_scroll->setWidgetResizable(true);preview_scroll->setWidget(preview);layout->addWidget(preview_scroll,1);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText("Apply");layout->addWidget(buttons);
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+
+    if(host.session_id!=frozen_session)
+        throw Error("SESSION_CONFLICT","The paint-order preview belongs to another document; reopen it");
+    if(host.session.revision()!=frozen_revision)
+        throw Error("REVISION_CONFLICT","The document changed while the paint-order preview was open; reopen it");
+    if(reordered==original) {
+        canvas->set_selections(selection);
+        statusBar()->showMessage("No change: selected objects are already in case-insensitive name order",5000);
+        return;
+    }
+    canvas->cancel_interaction();
+    host.session.apply({ReorderObjects{composition.id,parent,std::move(reordered)}},frozen_revision);
+    host.edited();
+    canvas->set_selections(selection);
+    statusBar()->showMessage("Paint order changed; Undo restores the previous sibling order",5000);
+}
 void Window::selection_menu(const QPoint& global) {
     const auto menu_session=host.session_id;const auto menu_revision=host.session.revision();
     QMenu menu;auto* duplicate=menu.addAction("Duplicate objects in place");duplicate->setEnabled(!canvas->selected_objects().empty()&&canvas->selected_point.empty());
@@ -3451,6 +3539,8 @@ void Window::selection_menu(const QPoint& global) {
     auto* group=menu.addAction("Group selected siblings");
     auto* batch_rename=menu.addAction("Batch rename selected…");batch_rename->setObjectName("batch-rename-selection-context");
     try{Id parent;(void)selected_siblings(parent,2);}catch(const Error&){batch_rename->setEnabled(false);}
+    auto* sort_paint_order=menu.addAction("Sort selected by name (paint order)…");sort_paint_order->setObjectName("sort-selected-name-paint-order-context");
+    try{Id parent;(void)selected_siblings(parent,2);}catch(const Error&){sort_paint_order->setEnabled(false);}
     auto* ungroup=menu.addAction("Ungroup selected Groups");
     auto* move_out=menu.addAction("Move selected out of Folder");move_out->setObjectName("move-out-of-folder-context");
     try {
@@ -3472,7 +3562,7 @@ void Window::selection_menu(const QPoint& global) {
         top->setEnabled((d.objects.at(members.back()).kind==Kind::path||d.objects.at(members.back()).kind==Kind::text));bottom->setEnabled((d.objects.at(members.front()).kind==Kind::path||d.objects.at(members.front()).kind==Kind::text));inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
     } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
     auto* chosen=menu.exec(global);if(!chosen)return;
-    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==transform)transform_selection();else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==move_out)move_selection_out();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();else if(chosen==batch_rename)batch_rename_selection();});
+    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==transform)transform_selection();else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==move_out)move_selection_out();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();else if(chosen==batch_rename)batch_rename_selection();else if(chosen==sort_paint_order)sort_selection_by_name_paint_order();});
 }
 void Window::duplicate_selection() {
     if(canvas->selected_objects().empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select objects or Groups to duplicate");

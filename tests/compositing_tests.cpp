@@ -144,6 +144,27 @@ void batch_rename_api() {
         "A stale API Rename batch refuses atomically");
 }
 
+void sort_paint_order_api() {
+    auto document=fixture();
+    document.collections={{"collection","Stable members",{"a","b","source"}}};
+    document.objects.at("source").contours[0].points[0].x.binding=
+        Binding{{"a","","transform.tx"},2,3,"copy_local_value"};
+    Session session(document);
+    const auto before=session.document();const auto before_values=evaluate(before);
+    const auto response=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"reorder_objects","composition":"comp","parent":"","order":["b","a","source"]}]})");
+    check(response.find("\"changed\":true")!=std::string::npos,
+        "JSON-lines reaches shared ReorderObjects for a full paint-order permutation");
+    auto expected=before;expected.compositions.front().roots={"b","a","source"};
+    check(session.revision()==1&&session.document()==expected&&evaluate(session.document())==before_values&&
+        session.document().collections==before.collections,
+        "API paint-order sort changes only sibling order while stable references and Collection membership remain");
+    const auto stable=session.document();const auto revision=session.revision();const auto history=session.history();
+    const auto invalid=request(session,R"({"op":"apply","expected_revision":1,"commands":[{"type":"reorder_objects","composition":"comp","parent":"","order":["a","a","source"]}]})");
+    check(invalid.find("\"code\":\"INVALID_ORDER\"")!=std::string::npos&&
+        session.document()==stable&&session.revision()==revision&&session.history()==history,
+        "Invalid API paint order rejects atomically without Document, revision or history delta");
+}
+
 void scene_contract() {
     Session session(fixture());auto evaluated=scene(session.document());check(!evaluated.requires_compositing&&evaluated.roots.size()==3,"Neutral scene retains direct rendering");
     apply(session,{GroupContiguous{"comp","",{"a","b"},"group","Group"}});
@@ -348,6 +369,6 @@ void move_out_folder() {
 
 }
 int main() {
-    try{create_empty_folder();batch_rename_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }
