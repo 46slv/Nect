@@ -139,6 +139,29 @@ void folder_action(Window& window) {
         "Desktop Folder creation has one exact Undo boundary");
     session.redo(session.revision());window.host.edited();
     check(session.document()==created,"Desktop Folder creation has one exact Redo boundary");
+    auto find_parent=[&]() -> QTreeWidgetItem* {
+        QTreeWidgetItemIterator it(tree);
+        while(*it) {if((*it)->data(0,Qt::UserRole)=="folder-parent"&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty())return *it;++it;}
+        return nullptr;
+    };
+    const auto before_collapse=session.document();const auto collapse_revision=session.revision();
+    const auto before_collapse_native=encode(before_collapse);
+    const auto before_collapse_render=Canvas::render_artboard(before_collapse,composition,artboard,1,false);
+    parent_item=find_parent();check(parent_item!=nullptr,"Parent Folder row exists before collapse");
+    parent_item->setExpanded(false);QApplication::processEvents();
+    check(!parent_item->isExpanded()&&session.revision()==collapse_revision&&session.document()==before_collapse&&
+        encode(session.document())==before_collapse_native&&
+        Canvas::render_artboard(session.document(),composition,artboard,1,false)==before_collapse_render,
+        "Collapsing a Folder changes only Structure view state, not authored native or pixels");
+    session.apply({Rename{"folder-child","Renamed child"}},session.revision());window.host.edited();QApplication::processEvents();
+    parent_item=find_parent();check(parent_item&&!parent_item->isExpanded(),"Collapsed Folder remains collapsed across a tree rebuild");
+    check(Canvas::render_artboard(session.document(),composition,artboard,1,false)==before_collapse_render,
+        "Child rename under a collapsed Folder keeps rendered pixels unchanged");
+    const auto rename_revision=session.revision();const auto renamed_native=encode(session.document());
+    parent_item->setExpanded(true);QApplication::processEvents();
+    check(parent_item->isExpanded()&&session.revision()==rename_revision&&encode(session.document())==renamed_native&&
+        Canvas::render_artboard(session.document(),composition,artboard,1,false)==before_collapse_render,
+        "Expanding a Folder changes only Structure view state");
 }
 void move_out_action(Window& window) {
     auto& session=window.host.session;const auto composition=window.canvas->active_composition();

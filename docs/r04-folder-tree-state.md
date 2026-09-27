@@ -1,0 +1,9 @@
+# R04-FOLDER-TREE-STATE-Q01 — collapse and expand qualification
+
+Status: bounded mechanical qualification, 2026-09-27. Baseline clean synchronized `codex/practical-alpha@525b951f27777fa9d78ceb04277ab08e417cf912`. Authority: DEC-71, Confirmed [REQ-30](https://app.notion.com/p/3e0fd279a6f3818db9c0e0a1fc82a901) Folder tree collapse/expand and Confirmed [REQ-52](https://app.notion.com/p/3e0fd279a6f38151b544dda1a39adf25) rename/collapse appearance preservation. Folder remains the existing Group structural owner; this qualification adds no authored state or native schema.
+
+The offscreen Desktop interaction fixture creates a nested Folder, collapses its parent, renames a child to force a Structure tree rebuild, then expands the parent. Collapse and expand leave Session revision, Document, native bytes and rendered pixels unchanged. The collapsed state survives the rename rebuild; rename itself keeps rendered pixels unchanged. Release `window_interaction` passed **1/1** after the focused test addition. This verifies the mechanical tree behavior and authored/render separation only.
+
+**LOCAL_WAIT / hands-on tree row:** A visible, controllable owned Nect Windows window is needed to verify actual pointer/keyboard access, row feedback and comfort. The current host has no new supported app/window control evidence since the [R03 host inventory](r03-acceptance-audit.md) found no usable Computer Use target. Do not repeat that identical inventory without new host evidence. Resume this exact row when a supported owned Nect window control path or user hands-on result is available. The wait does not block independent R04 or Route work, and this offscreen Qt check is not a live GUI PASS.
+
+Residual: arbitrary/nonadjacent Folder movement and broader R04/REQ-30/52 acceptance remain open. Candidate REQ-46–59 stay Candidate.
