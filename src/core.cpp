@@ -146,6 +146,14 @@ const TextSource& text_direction_source(const Document& document,const Ref& ref)
     require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text direction Ref must identify a Text object");
     return *object->second.text;
 }
+const TextSource& text_layout_source(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_TEXT_REF","Text layout properties require an empty point ID");
+    require(ref.field=="text.layout","TYPE_MISMATCH","Only Text layout accepts an enum property Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text layout Ref must identify a Text object");
+    return *object->second.text;
+}
 class TextItalicEvaluator {
     const Document& document_;
     std::map<Id,bool> values_;
@@ -285,6 +293,33 @@ public:
         std::map<Ref,std::string> result;
         for(const auto& [id,object]:document_.objects)if(object.kind==Kind::text&&object.text)
             result.emplace(Ref{id,"","text.direction"},visit(id,0));
+        return result;
+    }
+};
+class TextLayoutEvaluator {
+    const Document& document_;
+    std::map<Id,std::string> values_;
+    std::set<Id> active_;
+    std::string visit(const Id& id,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Text layout dependency depth limit 128");
+        if(const auto found=values_.find(id);found!=values_.end())return found->second;
+        require(active_.insert(id).second,"DEPENDENCY_CYCLE","Text layout dependency cycle");
+        const auto& source=text_layout_source(document_,{id,"","text.layout"});
+        auto value=source.layout;
+        if(source.layout_driver) {
+            (void)text_layout_source(document_,source.layout_driver->link);
+            value=visit(source.layout_driver->link.object,depth+1);
+        }
+        require(value=="auto"||value=="frame","TEXT_LAYOUT_UNSUPPORTED","Text layout must be auto or frame");
+        active_.erase(id);values_.emplace(id,value);return value;
+    }
+public:
+    explicit TextLayoutEvaluator(const Document& document):document_(document){}
+    std::string value(const Id& id){return visit(id,0);}
+    std::map<Ref,std::string> all() {
+        std::map<Ref,std::string> result;
+        for(const auto& [id,object]:document_.objects)if(object.kind==Kind::text&&object.text)
+            result.emplace(Ref{id,"","text.layout"},visit(id,0));
         return result;
     }
 };
@@ -696,6 +731,7 @@ TextSource evaluated_text_source(const Document& document,const Id& object) {
     auto source=*found->second.text;
     source.content=evaluate_text_content(document,object);
     source.family=evaluate_text_family(document,object);
+    source.layout=evaluate_text_layout(document,object);
     source.direction=evaluate_text_direction(document,object);
     source.italic=evaluate_text_italic(document,object);
     source.weight=evaluate_text_weight(document,object);
@@ -733,6 +769,16 @@ std::string evaluate_text_direction(const Document& document,const Id& object) {
 }
 std::map<Ref,std::string> evaluate_text_directions(const Document& document) {
     return TextDirectionEvaluator(document).all();
+}
+TextLayoutProperty text_layout_property(const Document& document,const Ref& ref) {
+    const auto& source=text_layout_source(document,ref);
+    return {source.layout,source.layout_driver,evaluate_text_layout(document,ref.object)};
+}
+std::string evaluate_text_layout(const Document& document,const Id& object) {
+    return TextLayoutEvaluator(document).value(object);
+}
+std::map<Ref,std::string> evaluate_text_layouts(const Document& document) {
+    return TextLayoutEvaluator(document).all();
 }
 bool is_text_readonly_field(const std::string& field) {
     return field=="text.content"||field=="text.family"||field=="text.locale"||
@@ -1165,6 +1211,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     (void)evaluate_text_contents(d);
     (void)evaluate_text_families(d);
     (void)evaluate_text_directions(d);
+    (void)evaluate_text_layouts(d);
     (void)evaluate_transforms(d,values);
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
         const auto& source=scalar->binding->source;
@@ -1785,6 +1832,7 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
             if(object.text->content_driver)object.text->content_driver->link=remap(object.text->content_driver->link);
             if(object.text->family_driver)object.text->family_driver->link=remap(object.text->family_driver->link);
             if(object.text->direction_driver)object.text->direction_driver->link=remap(object.text->direction_driver->link);
+            if(object.text->layout_driver)object.text->layout_driver->link=remap(object.text->layout_driver->link);
             if(object.text->weight_driver)object.text->weight_driver->link=remap(object.text->weight_driver->link);
             if(object.text->italic_driver) {
                 if(auto link=std::get_if<Ref>(&*object.text->italic_driver))*link=remap(*link);
@@ -1912,6 +1960,16 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             const auto value=evaluate_text_direction(candidate,c.target.object);
             auto& source=*candidate.objects.at(c.target.object).text;
             source.direction=value;source.direction_driver.reset();
+        } else if constexpr(std::is_same_v<T,LinkTextLayout>) {
+            const auto& current=text_layout_source(candidate,c.target);
+            (void)text_layout_source(candidate,c.source);
+            require(!current.layout_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing a Text layout driver requires replace_driver=true");
+            candidate.objects.at(c.target.object).text->layout_driver=TextLayoutDriver{c.source};
+        } else if constexpr(std::is_same_v<T,UnlinkTextLayout>) {
+            (void)text_layout_source(candidate,c.target);
+            const auto value=evaluate_text_layout(candidate,c.target.object);
+            auto& source=*candidate.objects.at(c.target.object).text;
+            source.layout=value;source.layout_driver.reset();
         } else if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
             require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
             const auto values=evaluate(candidate);scalar_targets(candidate,c.targets,values);
@@ -2119,6 +2177,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(!c.source.content_driver,"USE_TYPED_COMMAND","Create Text content links with link_text_content");
             require(!c.source.family_driver,"USE_TYPED_COMMAND","Create Text family links with link_text_family");
             require(!c.source.direction_driver,"USE_TYPED_COMMAND","Create Text direction links with link_text_direction");
+            require(!c.source.layout_driver,"USE_TYPED_COMMAND","Create Text layout links with link_text_layout");
             Object object;object.id=c.id;object.name=c.name;object.kind=Kind::text;object.text=c.source;
             siblings(candidate,c.composition,c.parent).push_back(c.id);candidate.objects.emplace(c.id,std::move(object));
             add_default_paint(candidate,c.id,"nect.paint.fill");
@@ -2152,6 +2211,11 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 require(next.direction==o.text->direction,"DRIVEN_PROPERTY","Unlink the Text direction driver before changing its authored literal");
                 next.direction_driver=o.text->direction_driver;
             } else require(!next.direction_driver,"USE_TYPED_COMMAND","Create Text direction links with link_text_direction");
+            if(o.text->layout_driver) {
+                require(!next.layout_driver||next.layout_driver==o.text->layout_driver,"DRIVEN_PROPERTY","UpdateText cannot replace or remove a Text layout driver");
+                require(next.layout==o.text->layout,"DRIVEN_PROPERTY","Unlink the Text layout driver before changing its authored literal");
+                next.layout_driver=o.text->layout_driver;
+            } else require(!next.layout_driver,"USE_TYPED_COMMAND","Create Text layout links with link_text_layout");
             o.text=std::move(next);
         } else if constexpr(std::is_same_v<T,CreatePrimitive>) {
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);

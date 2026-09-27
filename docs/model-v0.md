@@ -1070,3 +1070,27 @@ versions retain their literal direction on read and reject this field if it is
 present. `schemas/native-v0.19.schema.json` constrains the closed wire shape;
 the core checks semantic references and the `horizontal`/`vertical` domain.
 Other Text enums, enum expressions and generic typed batch links remain open.
+
+## Native 0.20 — typed Text layout link
+
+`TextSource.layout` retains its authored `auto` or `frame` choice and may store
+one optional `layout_driver:{"link":Ref}` to another Text object's
+`text.layout` field. Stable object IDs and an empty point ID identify the same
+enum domain. The shared pure Text projection substitutes only the evaluated
+layout choice; the target's `text.frame_width` and `text.frame_height` Scalars
+remain its own authored values. Auto sizing ignores those dimensions, while
+fixed-frame sizing uses them for wrapping and overflow. A link does not copy
+the source's frame, font or content.
+
+`link_text_layout` and `unlink_text_layout` use Session revision, validation
+and Undo. Replacing a driver is explicit, unlink freezes the evaluated choice,
+and direct edits to a driven literal reject. Rename/reorder preserve stable
+references, duplication remaps copied endpoints, and a surviving dependent
+prevents source deletion. The 128-edge depth, missing-source and cycle checks
+apply to this enum lane.
+
+The 0.20 writer omits `layout_driver` for literal-only Text. Older native
+versions retain their layout literals but reject a present 0.20 driver field.
+`schemas/native-v0.20.schema.json` constrains the closed wire shape; the core
+checks semantic references and the `auto`/`frame` domain. Other enum links,
+enum expressions and generic typed batch links remain open.

@@ -80,15 +80,15 @@ int main(){try{
         "Boolean false expression remains authored as an expression");
     bool_apply({SetTextItalicExpression{italic_b,inverted,true}});
     const auto native16=encode(bool_session.document());
-    check(native16.find("\"version\":\"0.19\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
-        encode(decode(native16))==native16,"Native 0.19 roundtrip preserves Text italic expression exactly");
+    check(native16.find("\"version\":\"0.20\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
+        encode(decode(native16))==native16,"Native 0.20 roundtrip preserves Text italic expression exactly");
     auto invalid_driver=native16;const auto driver_at=invalid_driver.find("\"italic_driver\":{\"expression\":");
     check(driver_at!=std::string::npos,"Native Text italic driver is serialized as the expression alternative");
     invalid_driver.replace(driver_at,std::string("\"italic_driver\":{\"expression\":").size(),"\"italic_driver\":{\"other\":");
     rejects("INVALID_TEXT_ITALIC_DRIVER",[&]{decode(invalid_driver);});
-    auto old_with_driver=native16;const auto current_version=old_with_driver.find("\"version\":\"0.19\"");
-    check(current_version!=std::string::npos,"Native bool driver fixture identifies version 0.19");
-    old_with_driver.replace(current_version,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.14\"");
+    auto old_with_driver=native16;const auto current_version=old_with_driver.find("\"version\":\"0.20\"");
+    check(current_version!=std::string::npos,"Native bool driver fixture identifies version 0.20");
+    old_with_driver.replace(current_version,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.14\"");
     rejects("UNSUPPORTED_TEXT_ITALIC_DRIVER",[&]{decode(old_with_driver);});
     const auto before_delete=encode(bool_session.document());const auto before_delete_revision=bool_session.revision();
     rejects("MISSING_REFERENCE",[&]{bool_apply({DeleteObjects{{"title"}}});});
@@ -99,8 +99,8 @@ int main(){try{
     auto legacy=empty_document("legacy-doc","legacy-comp","legacy-frame");
     auto legacy_text=default_text("legacy-text","Legacy");legacy_text.italic=true;
     Session legacy_session(legacy);legacy_session.apply({CreateText{"legacy-comp","","legacy-object","Legacy",legacy_text}},legacy_session.revision());
-    auto native14=encode(legacy_session.document());const auto version_at=native14.find("\"version\":\"0.19\"");
-    check(version_at!=std::string::npos,"Native writer emits 0.19");native14.replace(version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.14\"");
+    auto native14=encode(legacy_session.document());const auto version_at=native14.find("\"version\":\"0.20\"");
+    check(version_at!=std::string::npos,"Native writer emits 0.20");native14.replace(version_at,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.14\"");
     const auto old_text=decode(native14);check(old_text.objects.at("legacy-object").text->italic&&!old_text.objects.at("legacy-object").text->italic_driver,
         "Native 0.14 Text decodes with its literal italic value");
     auto weight_document=empty_document("weight-doc","weight-comp","weight-frame");Session weight_session(weight_document);
@@ -127,7 +127,7 @@ int main(){try{
         const auto count=std::count_if(readonly_refs.begin(),readonly_refs.end(),[&](const Ref& ref) {
             return ref.object==object_id&&std::find(readonly_fields.begin(),readonly_fields.end(),ref.field)!=readonly_fields.end();
         });
-        check(count==readonly_fields.size(),"Each Text contributes exactly six read-only source refs");
+        check(count==readonly_fields.size(),"Each Text contributes exactly six typed source refs");
         for(std::size_t i=0;i<readonly_fields.size();++i) {
             const Ref ref{object_id,"",readonly_fields[i]};
             check(std::find(readonly_refs.begin(),readonly_refs.end(),ref)!=readonly_refs.end(),"Text source discovery returns the stable object Ref");
@@ -148,12 +148,12 @@ int main(){try{
         const auto query=std::string("{\"op\":\"get\",\"ref\":{\"object\":\"weight-a\",\"point\":\"\",\"field\":\"")+readonly_fields[i]+"\"}}";
         const auto get=request(weight_session,query);
         const auto type=i<3?"string":"enum";
-        const auto link=(i<=1||i==4)?"true":"false";
+        const auto link=(i<=1||i==3||i==4)?"true":"false";
         check(get.find("\"type\":\""+std::string(type)+"\"")!=std::string::npos&&
             get.find("\"literal\":\""+values_a[i]+"\"")!=std::string::npos&&
             get.find("\"evaluated\":\""+values_a[i]+"\"")!=std::string::npos&&
             get.find("\"link\":"+std::string(link))!=std::string::npos&&get.find("\"expression\":false")!=std::string::npos&&
-            (i<=1||i==4?get.find("\"driver\":null")!=std::string::npos:true),
+            (i<=1||i==3||i==4?get.find("\"driver\":null")!=std::string::npos:true),
             "JSON-lines get returns the Text literal, type, and scoped link capability");
         check(readonly_properties.find("\"object\":\"weight-a\",\"point\":\"\",\"field\":\""+readonly_fields[i]+"\"")!=std::string::npos,
             "JSON-lines properties lists each typed Text source ref");
@@ -166,7 +166,7 @@ int main(){try{
     check(resolved_text.find("\"field\":\"text.content\"")!=std::string::npos&&
         weight_session.revision()==readonly_revision&&encode(weight_session.document())==readonly_bytes,
         "Text get/properties/resolve_name reads leave native bytes and Session revision unchanged");
-    check(encode(decode(readonly_bytes))==readonly_bytes,"Native 0.19 roundtrip preserves Text source values exactly");
+    check(encode(decode(readonly_bytes))==readonly_bytes,"Native 0.20 roundtrip preserves Text source values exactly");
     rejects("MISSING_NAME",[&]{resolve_name(weight_session.document(),"Missing Text","","text.content");});
     auto duplicate_names=weight_session.document();duplicate_names.objects.at("weight-b").name="Weight A";
     rejects("AMBIGUOUS_NAME",[&]{resolve_name(duplicate_names,"Weight A","","text.content");});
@@ -190,10 +190,10 @@ int main(){try{
         linked_weight_property.driver==TextWeightDriver{weight_a_ref},
         "Same-type weight link evaluates through its stable Ref and preserves the target literal");
     const auto weight_link_bytes=encode(weight_session.document());
-    check(weight_link_bytes.find("\"version\":\"0.19\"")!=std::string::npos&&
+    check(weight_link_bytes.find("\"version\":\"0.20\"")!=std::string::npos&&
         weight_link_bytes.find("\"weight_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(weight_link_bytes))==weight_link_bytes,
-        "Native 0.19 retains the optional Text weight Ref link exactly");
+        "Native 0.20 retains the optional Text weight Ref link exactly");
     const auto weight_get=request(weight_session,R"({"op":"get","ref":{"object":"weight-b","point":"","field":"text.weight"}})");
     const auto weight_properties=request(weight_session,R"({"op":"properties"})");
     check(weight_get.find("\"type\":\"integer\"")!=std::string::npos&&weight_get.find("\"unit\":\"unitless\"")!=std::string::npos&&
@@ -269,12 +269,12 @@ int main(){try{
     check(target_link_object!=std::string::npos,"Native weight Ref target ID is explicitly present");
     cyclic_weight.replace(target_link_object,std::string("weight-a").size(),"weight-b");
     rejects("DEPENDENCY_CYCLE",[&]{decode(cyclic_weight);});
-    auto old_weight_driver=weight_link_bytes;const auto weight_version_at=old_weight_driver.find("\"version\":\"0.19\"");
-    check(weight_version_at!=std::string::npos,"Native weight fixture identifies version 0.19");
-    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.15\"");
+    auto old_weight_driver=weight_link_bytes;const auto weight_version_at=old_weight_driver.find("\"version\":\"0.20\"");
+    check(weight_version_at!=std::string::npos,"Native weight fixture identifies version 0.20");
+    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.15\"");
     rejects("UNSUPPORTED_TEXT_WEIGHT_DRIVER",[&]{decode(old_weight_driver);});
-    const auto legacy_weight=decode([&]{auto value=encode(weight_session.document());const auto at=value.find("\"version\":\"0.19\"");
-        value.replace(at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.15\"");return value;}());
+    const auto legacy_weight=decode([&]{auto value=encode(weight_session.document());const auto at=value.find("\"version\":\"0.20\"");
+        value.replace(at,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.15\"");return value;}());
     check(legacy_weight.objects.at("weight-a").text->weight==500&&!legacy_weight.objects.at("weight-a").text->weight_driver&&
         legacy_weight.objects.at("weight-b").text->weight==300&&!legacy_weight.objects.at("weight-b").text->weight_driver,
         "Native 0.15 Text migrates authored weights as literals");
@@ -288,9 +288,9 @@ int main(){try{
         CreatePath{"content-comp","","content-path","Content Path",{{"content-path-contour",false,{content_path_point}}}}});
     const Ref content_a_ref{"content-a","","text.content"},content_b_ref{"content-b","","text.content"};
     const auto literal_bytes=encode(content_session.document());
-    check(literal_bytes.find("\"version\":\"0.19\"")!=std::string::npos&&
+    check(literal_bytes.find("\"version\":\"0.20\"")!=std::string::npos&&
         literal_bytes.find("content_driver")==std::string::npos&&encode(decode(literal_bytes))==literal_bytes,
-        "Native 0.19 omits absent Text drivers and preserves literal-only Text");
+        "Native 0.20 omits absent Text drivers and preserves literal-only Text");
     const auto content_properties=properties(content_session.document());
     check(std::find(content_properties.begin(),content_properties.end(),content_a_ref)!=content_properties.end()&&
         resolve_name(content_session.document(),"Content B","","text.content")==content_b_ref,
@@ -359,7 +359,7 @@ int main(){try{
     const auto copied_link_bytes=encode(content_session.document());
     check(copied_link_bytes.find("\"content_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(copied_link_bytes))==copied_link_bytes,
-        "Native 0.19 roundtrip retains the exact Text content driver");
+        "Native 0.20 roundtrip retains the exact Text content driver");
     const auto linked_copy_reopen=decode(copied_link_bytes);
     check(linked_copy_reopen.objects.at(copy_b).text->content_driver->link==Ref{copy_a,"","text.content"}&&
         evaluate_text_content(linked_copy_reopen,copy_b)=="Copied source",
@@ -398,12 +398,12 @@ int main(){try{
     else {const auto original_source_at=missing_content_source.find("content-a",content_driver_at);check(original_source_at!=std::string::npos,"Native content source ID is explicit");
         missing_content_source.replace(original_source_at,std::string("content-a").size(),"missing");}
     rejects("MISSING_REFERENCE",[&]{decode(missing_content_source);});
-    auto old_content_driver=copied_link_bytes;const auto content_version_at=old_content_driver.find("\"version\":\"0.19\"");
-    check(content_version_at!=std::string::npos,"Native content fixture identifies version 0.19");
-    old_content_driver.replace(content_version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.16\"");
+    auto old_content_driver=copied_link_bytes;const auto content_version_at=old_content_driver.find("\"version\":\"0.20\"");
+    check(content_version_at!=std::string::npos,"Native content fixture identifies version 0.20");
+    old_content_driver.replace(content_version_at,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.16\"");
     rejects("UNSUPPORTED_TEXT_CONTENT_DRIVER",[&]{decode(old_content_driver);});
-    auto legacy_content=literal_bytes;const auto legacy_version_at=legacy_content.find("\"version\":\"0.19\"");
-    legacy_content.replace(legacy_version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.16\"");
+    auto legacy_content=literal_bytes;const auto legacy_version_at=legacy_content.find("\"version\":\"0.20\"");
+    legacy_content.replace(legacy_version_at,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.16\"");
     const auto migrated_content=decode(legacy_content);
     check(migrated_content.objects.at("content-b").text->content=="Manual B"&&
         !migrated_content.objects.at("content-b").text->content_driver,
@@ -422,9 +422,9 @@ int main(){try{
         CreatePath{"family-comp","","family-path","Family Path",{{"family-path-contour",false,{family_path_point}}}}});
     const Ref family_a_ref{"family-a","","text.family"},family_b_ref{"family-b","","text.family"},family_c_ref{"family-c","","text.family"};
     const auto family_literal_bytes=encode(family_session.document());
-    check(family_literal_bytes.find("\"version\":\"0.19\"")!=std::string::npos&&
+    check(family_literal_bytes.find("\"version\":\"0.20\"")!=std::string::npos&&
         family_literal_bytes.find("family_driver")==std::string::npos&&encode(decode(family_literal_bytes))==family_literal_bytes,
-        "Native 0.19 omits an absent Text family driver and preserves literal-only family values");
+        "Native 0.20 omits an absent Text family driver and preserves literal-only family values");
     const auto family_refs=properties(family_session.document());
     check(resolve_name(family_session.document(),"Family B","","text.family")==family_b_ref&&
         std::find(family_refs.begin(),family_refs.end(),family_b_ref)!=family_refs.end(),
@@ -496,7 +496,7 @@ int main(){try{
     const auto copied_family_bytes=encode(family_session.document());
     check(copied_family_bytes.find("\"family_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(copied_family_bytes))==copied_family_bytes,
-        "Native 0.19 codec roundtrip retains the strict Text family driver");
+        "Native 0.20 codec roundtrip retains the strict Text family driver");
     const auto reopened_family=decode(copied_family_bytes);
     check(reopened_family.objects.at(copied_family_target).text->family_driver->link==Ref{copied_family_source,"","text.family"}&&
         evaluate_text_family(reopened_family,copied_family_target)=="Revised source family",
@@ -536,11 +536,11 @@ int main(){try{
     check(copied_source_id!=std::string::npos,"Copied Native family driver identifies its copied source ID");
     missing_family_source.replace(copied_source_id,copied_family_source.size(),"missing-family");
     rejects("MISSING_REFERENCE",[&]{decode(missing_family_source);});
-    auto old_family_driver=copied_family_bytes;const auto family_version_at=old_family_driver.find("\"version\":\"0.19\"");
-    old_family_driver.replace(family_version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.17\"");
+    auto old_family_driver=copied_family_bytes;const auto family_version_at=old_family_driver.find("\"version\":\"0.20\"");
+    old_family_driver.replace(family_version_at,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.17\"");
     rejects("UNSUPPORTED_TEXT_FAMILY_DRIVER",[&]{decode(old_family_driver);});
-    auto legacy_family=family_literal_bytes;const auto legacy_family_version=legacy_family.find("\"version\":\"0.19\"");
-    legacy_family.replace(legacy_family_version,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.17\"");
+    auto legacy_family=family_literal_bytes;const auto legacy_family_version=legacy_family.find("\"version\":\"0.20\"");
+    legacy_family.replace(legacy_family_version,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.17\"");
     const auto migrated_family=decode(legacy_family);
     check(migrated_family.objects.at("family-b").text->family=="Manual B"&&
         !migrated_family.objects.at("family-b").text->family_driver,
@@ -575,9 +575,9 @@ int main(){try{
     const Ref direction_a_ref{"direction-a","","text.direction"},direction_b_ref{"direction-b","","text.direction"},
         direction_c_ref{"direction-c","","text.direction"};
     const auto direction_literal_bytes=encode(direction_session.document());
-    check(direction_literal_bytes.find("\"version\":\"0.19\"")!=std::string::npos&&
+    check(direction_literal_bytes.find("\"version\":\"0.20\"")!=std::string::npos&&
         direction_literal_bytes.find("direction_driver")==std::string::npos&&encode(decode(direction_literal_bytes))==direction_literal_bytes,
-        "Native 0.19 omits an absent Text direction driver and preserves the literal enum");
+        "Native 0.20 omits an absent Text direction driver and preserves the literal enum");
     const auto direction_refs=properties(direction_session.document());
     check(resolve_name(direction_session.document(),"Direction B","","text.direction")==direction_b_ref&&
         std::find(direction_refs.begin(),direction_refs.end(),direction_b_ref)!=direction_refs.end(),
@@ -662,7 +662,7 @@ int main(){try{
     const auto copied_direction_bytes=encode(direction_session.document());
     check(copied_direction_bytes.find("\"direction_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(copied_direction_bytes))==copied_direction_bytes,
-        "Native 0.19 codec roundtrip retains the closed Text direction link");
+        "Native 0.20 codec roundtrip retains the closed Text direction link");
     auto reopened_direction=decode(copied_direction_bytes);
     check(reopened_direction.objects.at(copied_direction_target).text->direction_driver->link==Ref{copied_direction_source,"","text.direction"}&&
         evaluate_text_direction(reopened_direction,copied_direction_target)=="vertical",
@@ -702,11 +702,11 @@ int main(){try{
     check(copied_direction_source_at!=std::string::npos,"Copied Native direction link identifies its source ID");
     missing_direction_source.replace(copied_direction_source_at,copied_direction_source.size(),"missing-direction");
     rejects("MISSING_REFERENCE",[&]{decode(missing_direction_source);});
-    auto old_direction_driver=copied_direction_bytes;const auto direction_version_at=old_direction_driver.find("\"version\":\"0.19\"");
-    old_direction_driver.replace(direction_version_at,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.18\"");
+    auto old_direction_driver=copied_direction_bytes;const auto direction_version_at=old_direction_driver.find("\"version\":\"0.20\"");
+    old_direction_driver.replace(direction_version_at,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.18\"");
     rejects("UNSUPPORTED_TEXT_DIRECTION_DRIVER",[&]{decode(old_direction_driver);});
-    auto legacy_direction=direction_literal_bytes;const auto legacy_direction_version=legacy_direction.find("\"version\":\"0.19\"");
-    legacy_direction.replace(legacy_direction_version,std::string("\"version\":\"0.19\"").size(),"\"version\":\"0.18\"");
+    auto legacy_direction=direction_literal_bytes;const auto legacy_direction_version=legacy_direction.find("\"version\":\"0.20\"");
+    legacy_direction.replace(legacy_direction_version,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.18\"");
     const auto migrated_direction=decode(legacy_direction);
     check(migrated_direction.objects.at("direction-b").text->direction=="vertical"&&
         !migrated_direction.objects.at("direction-b").text->direction_driver,
@@ -728,6 +728,164 @@ int main(){try{
     check(direction_depth_session.revision()==direction_depth_revision&&encode(direction_depth_session.document())==direction_depth_bytes,
         "Text direction dependency depth overflow rejects atomically");
     check(direction_revision_before_source_change<direction_session.revision(),"Text direction source edits and unlink remain undoable revisions");
+    Session layout_session(empty_document("layout-link-doc","layout-link-comp","layout-link-frame"));
+    auto layout_apply=[&](std::vector<Command> commands){layout_session.apply(commands,layout_session.revision());};
+    auto layout_source=default_text("layout-source-text","Source layout");layout_source.layout="auto";
+    auto layout_target=default_text("layout-target-text","Target words that wrap within a fixed frame");layout_target.layout="frame";
+    layout_target.parameters.at("font_size").literal=28;layout_target.parameters.at("frame_width").literal=96;
+    layout_target.parameters.at("frame_height").literal=48;
+    auto layout_auto_twin=layout_target;layout_auto_twin.id="layout-auto-twin-text";layout_auto_twin.layout="auto";
+    auto layout_frame_twin=layout_target;layout_frame_twin.id="layout-frame-twin-text";
+    auto layout_alternate=default_text("layout-alternate-text","Alternate layout");layout_alternate.layout="frame";
+    const Ref layout_a_ref{"layout-a","","text.layout"},layout_b_ref{"layout-b","","text.layout"},
+        layout_c_ref{"layout-c","","text.layout"};
+    layout_apply({CreateText{"layout-link-comp","","layout-a","Layout A",layout_source},
+        CreateText{"layout-link-comp","","layout-b","Layout B",layout_target},
+        CreateText{"layout-link-comp","","layout-auto-twin","Auto twin",layout_auto_twin},
+        CreateText{"layout-link-comp","","layout-frame-twin","Frame twin",layout_frame_twin},
+        CreateText{"layout-link-comp","","layout-c","Layout C",layout_alternate},
+        CreatePrimitive{"layout-link-comp","","layout-path","Layout path",default_primitive("layout-path-source","nect.shape.circle")}});
+    const auto layout_literal_bytes=encode(layout_session.document());
+    check(layout_literal_bytes.find("\"version\":\"0.20\"")!=std::string::npos&&
+        layout_literal_bytes.find("\"layout_driver\"")==std::string::npos,
+        "Native 0.20 omits an absent Text layout driver and retains literal-only layout choices");
+    const auto discovered_layout_properties=properties(layout_session.document());
+    check(resolve_name(layout_session.document(),"Layout B","","text.layout")==layout_b_ref&&
+        std::find(discovered_layout_properties.begin(),discovered_layout_properties.end(),layout_b_ref)!=discovered_layout_properties.end(),
+        "Text layout name resolution and property discovery retain the stable enum Ref");
+    const auto layout_get=request(layout_session,R"({"op":"get","ref":{"object":"layout-b","point":"","field":"text.layout"}})");
+    check(layout_get.find("\"type\":\"enum\"")!=std::string::npos&&
+        layout_get.find("\"choices\":[\"auto\",\"frame\"]")!=std::string::npos&&
+        layout_get.find("\"authored\":{\"literal\":\"frame\",\"driver\":null}")!=std::string::npos,
+        "Typed Text layout get exposes the closed enum and authored literal");
+    auto layout_metadata=request(layout_session,R"({"op":"properties"})");
+    check(layout_metadata.find("\"field\":\"text.layout\"")!=std::string::npos&&
+        layout_metadata.find("\"evaluated\":\"frame\"")!=std::string::npos,
+        "Text layout properties expose the evaluated choice");
+    auto measure_layout=[&](const Document& document,const Id& object) {
+        const auto values=evaluate(document);auto evaluated=evaluated_text_source(document,object);
+        std::map<std::string,double> parameters;
+        for(const auto& [name,scalar]:evaluated.parameters){(void)scalar;parameters[name]=values.at({object,"","text."+name});}
+        return evaluate_text(evaluated,parameters);
+    };
+    const auto same_layout=[](const TextLayout& a,const TextLayout& b) {
+        return a.x==b.x&&a.y==b.y&&a.width==b.width&&a.height==b.height&&a.overflow==b.overflow&&
+            a.glyph_count==b.glyph_count&&a.warnings==b.warnings&&a.used_fonts==b.used_fonts;
+    };
+    const auto layout_initial_frame=measure_layout(layout_session.document(),"layout-b");
+    const auto layout_history_before=layout_session.history().retained_bytes;
+    layout_apply({LinkTextLayout{layout_b_ref,layout_a_ref,false}});
+    check(layout_session.document().objects.at("layout-b").text->layout=="frame"&&
+        layout_session.document().objects.at("layout-b").text->parameters.at("frame_width").literal==96&&
+        layout_session.document().objects.at("layout-b").text->parameters.at("frame_height").literal==48&&
+        evaluate_text_layout(layout_session.document(),"layout-b")=="auto"&&
+        layout_session.document().objects.at("layout-b").text->layout_driver->link==layout_a_ref&&
+        same_layout(measure_layout(layout_session.document(),"layout-b"),measure_layout(layout_session.document(),"layout-auto-twin"))&&
+        !same_layout(layout_initial_frame,measure_layout(layout_session.document(),"layout-b")),
+        "Text layout link projects auto sizing while preserving the target literal and its own frame dimensions");
+    check(layout_session.history().retained_bytes>layout_history_before&&
+        layout_session.history().states.back().label.find("Link Text layout")!=std::string::npos,
+        "Text layout link is admitted to History with a readable label and retained state accounting");
+    auto layout_source_edit=*layout_session.document().objects.at("layout-a").text;layout_source_edit.layout="frame";
+    layout_apply({UpdateText{"layout-a",layout_source_edit}});
+    const auto layout_linked_frame=measure_layout(layout_session.document(),"layout-b");
+    check(evaluate_text_layout(layout_session.document(),"layout-b")=="frame"&&
+        same_layout(layout_linked_frame,measure_layout(layout_session.document(),"layout-frame-twin"))&&
+        layout_session.document().objects.at("layout-b").text->parameters.at("frame_width").literal==96&&
+        layout_session.document().objects.at("layout-b").text->parameters.at("frame_height").literal==48,
+        "Linked frame sizing wraps and overflows from the target's frame dimensions");
+    layout_apply({Rename{"layout-a","Renamed Layout A"},ReorderObjects{"layout-link-comp","",{"layout-b","layout-a","layout-auto-twin","layout-frame-twin","layout-c","layout-path"}}});
+    check(evaluate_text_layout(layout_session.document(),"layout-b")=="frame"&&
+        layout_session.document().objects.at("layout-b").text->layout_driver->link==layout_a_ref,
+        "Rename and reorder retain the same-field Text layout Ref");
+    const DuplicateObjects copy_layout{{"layout-a","layout-b"},"layout-copy"};
+    const auto layout_copies=duplicated_roots(layout_session.document(),copy_layout);layout_apply({copy_layout});
+    const auto copied_layout_target=*std::find_if(layout_copies.begin(),layout_copies.end(),[&](const auto& id){
+        return layout_session.document().objects.at(id).text->layout_driver.has_value();});
+    const auto copied_layout_source=*std::find_if(layout_copies.begin(),layout_copies.end(),[&](const auto& id){return id!=copied_layout_target;});
+    check(layout_session.document().objects.at(copied_layout_target).text->layout_driver->link==Ref{copied_layout_source,"","text.layout"}&&
+        layout_session.document().objects.at("layout-b").text->layout_driver->link==layout_a_ref,
+        "Duplicating both linked Text objects remaps the copied layout Ref and retains the original");
+    const auto layout_revision=layout_session.revision();const auto layout_bytes=encode(layout_session.document());
+    rejects("MISSING_REFERENCE",[&]{layout_apply({DeleteObjects{{"layout-a"}}});});
+    check(layout_session.revision()==layout_revision&&encode(layout_session.document())==layout_bytes,
+        "Deleting a Text layout source with a surviving dependent is atomic");
+    rejects("DRIVEN_PROPERTY",[&]{layout_apply({LinkTextLayout{layout_b_ref,layout_c_ref,false}});});
+    auto smuggled_layout=*layout_session.document().objects.at("layout-c").text;
+    smuggled_layout.id="layout-smuggled-text";smuggled_layout.layout_driver=TextLayoutDriver{layout_a_ref};
+    rejects("USE_TYPED_COMMAND",[&]{layout_apply({CreateText{"layout-link-comp","","layout-smuggled","Smuggled layout",smuggled_layout}});});
+    auto driven_layout_edit=*layout_session.document().objects.at("layout-b").text;driven_layout_edit.layout="auto";
+    rejects("DRIVEN_PROPERTY",[&]{layout_apply({UpdateText{"layout-b",driven_layout_edit}});});
+    rejects("MISSING_REFERENCE",[&]{layout_apply({LinkProperties{{layout_b_ref},layout_a_ref,false}});});
+    rejects("MISSING_REFERENCE",[&]{layout_apply({LinkTextLayout{layout_b_ref,{"missing-layout","","text.layout"},true}});});
+    rejects("INVALID_TEXT_REF",[&]{layout_apply({LinkTextLayout{layout_b_ref,{"layout-a","p1","text.layout"},true}});});
+    rejects("TYPE_MISMATCH",[&]{layout_apply({LinkTextLayout{layout_b_ref,{"layout-a","","text.direction"},true}});});
+    rejects("TYPE_MISMATCH",[&]{layout_apply({LinkTextLayout{layout_b_ref,{"layout-path","","text.layout"},true}});});
+    rejects("DEPENDENCY_CYCLE",[&]{layout_apply({LinkTextLayout{layout_a_ref,layout_b_ref,false}});});
+    rejects("DEPENDENCY_CYCLE",[&]{layout_apply({LinkTextLayout{layout_b_ref,layout_b_ref,true}});});
+    rejects("REVISION_CONFLICT",[&]{layout_session.apply({UnlinkTextLayout{layout_b_ref}},layout_revision-1);});
+    const auto layout_failure_revision=layout_session.revision();const auto layout_failure_bytes=encode(layout_session.document());
+    auto invalid_layout=*layout_session.document().objects.at("layout-a").text;invalid_layout.layout="unknown";
+    rejects("UNSUPPORTED_TEXT_LAYOUT",[&]{layout_apply({UpdateText{"layout-a",invalid_layout}});});
+    check(layout_session.revision()==layout_failure_revision&&encode(layout_session.document())==layout_failure_bytes,
+        "Invalid Text layout enums reject without changing the revision or native bytes");
+    const auto layout_link_bytes=encode(layout_session.document());
+    check(layout_link_bytes.find("\"layout_driver\":{\"link\":")!=std::string::npos&&
+        encode(decode(layout_link_bytes))==layout_link_bytes,
+        "Native 0.20 roundtrip preserves the strict Text layout driver");
+    const auto reopened_layout=decode(layout_link_bytes);
+    check(reopened_layout.objects.at("layout-b").text->layout=="frame"&&
+        reopened_layout.objects.at("layout-b").text->layout_driver->link==layout_a_ref&&
+        evaluate_text_layout(reopened_layout,"layout-b")=="frame"&&
+        reopened_layout.objects.at("layout-b").text->parameters.at("frame_width").literal==96&&
+        reopened_layout.objects.at("layout-b").text->parameters.at("frame_height").literal==48,
+        "Cold codec reopen retains Text layout literal, driver, evaluated choice and target frame dimensions");
+    auto malformed_layout=layout_link_bytes;const auto layout_driver_at=malformed_layout.find("\"layout_driver\":{\"link\":");
+    check(layout_driver_at!=std::string::npos,"Native Text layout driver uses one link alternative");
+    malformed_layout.replace(layout_driver_at,std::string("\"layout_driver\":{\"link\":").size(),"\"layout_driver\":{\"other\":");
+    rejects("INVALID_TEXT_LAYOUT_DRIVER",[&]{decode(malformed_layout);});
+    auto wrong_layout_ref=layout_link_bytes;const auto layout_field_at=wrong_layout_ref.find("text.layout",layout_driver_at);
+    wrong_layout_ref.replace(layout_field_at,std::string("text.layout").size(),"text.direction");
+    rejects("TYPE_MISMATCH",[&]{decode(wrong_layout_ref);});
+    auto old_layout_driver=layout_link_bytes;const auto old_layout_version=old_layout_driver.find("\"version\":\"0.20\"");
+    old_layout_driver.replace(old_layout_version,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.19\"");
+    rejects("UNSUPPORTED_TEXT_LAYOUT_DRIVER",[&]{decode(old_layout_driver);});
+    auto legacy_layout=layout_literal_bytes;const auto legacy_layout_version=legacy_layout.find("\"version\":\"0.20\"");
+    legacy_layout.replace(legacy_layout_version,std::string("\"version\":\"0.20\"").size(),"\"version\":\"0.19\"");
+    check(decode(legacy_layout).objects.at("layout-b").text->layout=="frame",
+        "Native 0.19 migrates Text layout literals without creating a driver");
+    layout_apply({LinkTextLayout{layout_b_ref,layout_c_ref,true}});
+    check(layout_session.document().objects.at("layout-b").text->layout_driver->link==layout_c_ref,
+        "Text layout driver replacement succeeds only through its explicit replacement flag");
+    layout_apply({UnlinkTextLayout{layout_b_ref}});
+    check(layout_session.document().objects.at("layout-b").text->layout=="frame"&&
+        !layout_session.document().objects.at("layout-b").text->layout_driver&&
+        layout_session.history().states.back().label.find("Unlink Text layout")!=std::string::npos,
+        "Unlink freezes the evaluated Text layout mode with a readable History label");
+    layout_session.undo(layout_session.revision());
+    check(layout_session.document().objects.at("layout-b").text->layout_driver->link==layout_c_ref&&
+        evaluate_text_layout(layout_session.document(),"layout-b")=="frame",
+        "Undo restores the Text layout link and its evaluated mode");
+    layout_session.redo(layout_session.revision());
+    auto layout_alternate_edit=*layout_session.document().objects.at("layout-c").text;layout_alternate_edit.layout="auto";
+    layout_apply({UpdateText{"layout-c",layout_alternate_edit}});
+    check(layout_session.document().objects.at("layout-b").text->layout=="frame"&&
+        evaluate_text_layout(layout_session.document(),"layout-b")=="frame",
+        "Unlinked Text layout stays frozen after the former source changes");
+    auto layout_depth_doc=empty_document("layout-depth-doc","layout-depth-comp","layout-depth-frame");
+    Session layout_depth_session(layout_depth_doc);std::vector<Command> layout_depth_creates;
+    for(int i=0;i<130;++i)layout_depth_creates.push_back(CreateText{"layout-depth-comp","","layout-depth-"+std::to_string(i),
+        "Layout depth "+std::to_string(i),default_text("layout-depth-source-"+std::to_string(i),"Depth "+std::to_string(i))});
+    layout_depth_session.apply(layout_depth_creates,layout_depth_session.revision());
+    for(int i=0;i<128;++i)layout_depth_session.apply({LinkTextLayout{{"layout-depth-"+std::to_string(i),"","text.layout"},
+        {"layout-depth-"+std::to_string(i+1),"","text.layout"},false}},layout_depth_session.revision());
+    check(evaluate_text_layout(layout_depth_session.document(),"layout-depth-0")=="auto",
+        "Text layout evaluator accepts the documented 128-link dependency depth");
+    const auto layout_depth_revision=layout_depth_session.revision();const auto layout_depth_bytes=encode(layout_depth_session.document());
+    rejects("DEPENDENCY_DEPTH",[&]{layout_depth_session.apply({LinkTextLayout{{"layout-depth-128","","text.layout"},
+        {"layout-depth-129","","text.layout"},false}},layout_depth_revision);});
+    check(layout_depth_session.revision()==layout_depth_revision&&encode(layout_depth_session.document())==layout_depth_bytes,
+        "Text layout dependency depth overflow rejects atomically");
     Session depth_session(empty_document("depth-doc","depth-comp","depth-frame"));
     std::vector<Command> depth_creates;for(int i=0;i<130;++i) {
         auto text=default_text("depth-source-"+std::to_string(i),"Depth "+std::to_string(i));

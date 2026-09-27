@@ -212,7 +212,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.19','current writer uses native 0.19')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.20','current writer uses native 0.20')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -249,15 +249,23 @@ check(current_schema['properties']['version']['const']=='0.18' and
       family_driver['required']==['link'] and family_ref['properties']['point']['const']=='' and
       family_ref['properties']['field']['const']=='text.family',
       'Native 0.18 adds only the closed same-type Text family Ref driver')
-direction_schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.19.schema.json').read_text())
+direction_schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.20.schema.json').read_text())
 direction_field=direction_schema['$defs']['text_source']['properties']['direction_driver']
 direction_driver=direction_schema['$defs']['direction_driver'];direction_ref=direction_schema['$defs']['direction_ref']
-check(direction_schema['properties']['version']['const']=='0.19' and
+check(direction_schema['properties']['version']['const']=='0.20' and
       'direction_driver' not in current_schema['$defs']['text_source']['properties'] and
       direction_field['$ref']=='#/$defs/direction_driver' and direction_driver['additionalProperties'] is False and
       direction_driver['required']==['link'] and direction_ref['properties']['point']['const']=='' and
       direction_ref['properties']['field']['const']=='text.direction',
-      'Native 0.19 schema adds only the closed same-type Text direction Ref driver')
+      'Native 0.20 schema retains the closed same-type Text direction Ref driver')
+previous_schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.19.schema.json').read_text())
+layout_field=direction_schema['$defs']['text_source']['properties']['layout_driver']
+layout_driver=direction_schema['$defs']['layout_driver'];layout_ref=direction_schema['$defs']['layout_ref']
+check('layout_driver' not in previous_schema['$defs']['text_source']['properties'] and
+      layout_field['$ref']=='#/$defs/layout_driver' and layout_driver['additionalProperties'] is False and
+      layout_driver['required']==['link'] and layout_ref['properties']['point']['const']=='' and
+      layout_ref['properties']['field']['const']=='text.layout',
+      'Native 0.20 adds only the closed same-type Text layout Ref driver')
 # Native expressions remain authored and are forbidden in all earlier versions.
 expression_doc=json.loads(json.dumps(sample))
 target=next(o for o in expression_doc['objects'] if o['id']=='path-B')
@@ -387,11 +395,11 @@ with tempfile.TemporaryDirectory() as tmp:
     check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
         'Rejected process command preserves the authored source and link')
     check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
-    check(replies[12]['result']['version']=='0.19' and replies[12]['result']==replies[8]['result'],
+    check(replies[12]['result']['version']=='0.20' and replies[12]['result']==replies[8]['result'],
         'Undo restores the pre-unlink native state exactly')
     check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
         'Undo restores the stable driver and its evaluated integer through a fresh request')
-    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.19 Text weight document validates in a fresh process')
+    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.20 Text weight document validates in a fresh process')
     old_weight=json.loads(json.dumps(replies[12]['result']));old_weight['version']='0.15'
     check(run('--validate',old_weight).returncode==2 and 'UNSUPPORTED_TEXT_WEIGHT_DRIVER' in run('--validate',old_weight).stderr,
         'Native 0.15 rejects the new Text weight driver instead of dropping it')
@@ -461,10 +469,10 @@ with tempfile.TemporaryDirectory() as tmp:
         linked_layout['glyph_count']>0 and linked_layout['used_fonts'] and
         all(linked_layout[field]==frozen_layout[field] for field in layout_fields),
         'Text layout consumes the linked family, and unlink freezes identical geometry, warnings and used fonts')
-    native=replies[12]['result'];check(native['version']=='0.19' and run('--validate',native).returncode==0,
-        'Native 0.19 content link validates in a separate CLI process')
-    family_native=replies[22]['result'];check(family_native['version']=='0.19' and run('--validate',family_native).returncode==0,
-        'Native 0.19 family link validates in a separate CLI process')
+    native=replies[12]['result'];check(native['version']=='0.20' and run('--validate',native).returncode==0,
+        'Native 0.20 content link validates in a separate CLI process')
+    family_native=replies[22]['result'];check(family_native['version']=='0.20' and run('--validate',family_native).returncode==0,
+        'Native 0.20 family link validates in a separate CLI process')
     path.write_text(json.dumps(family_native,ensure_ascii=False),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
         json.dumps(dict(op='get',ref=family_ref_b))+'\n'+json.dumps(dict(op='inspect'))+'\n',
@@ -546,8 +554,8 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='vertical' and reply['linked_horizontal']['result']['evaluated']=='horizontal',
         'Unlink freezes Text direction, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.19' and run('--validate',native).returncode==0,
-        'Native 0.19 Text direction link validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.20' and run('--validate',native).returncode==0,
+        'Native 0.20 Text direction link validates in a separate CLI process')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
         json.dumps(dict(op='get',ref=ref_a))+'\n'+json.dumps(dict(op='inspect'))+'\n',
@@ -557,4 +565,104 @@ with tempfile.TemporaryDirectory() as tmp:
     check(all(reply['ok'] for reply in cold_replies) and cold_target['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
         cold_target['evaluated']=='horizontal' and cold_source['evaluated']=='horizontal' and path.read_bytes()==before,
         'A separate JSON-lines cold open preserves direction literals, Ref and evaluation without changing native bytes')
+
+# Text sizing layout links keep the target's frame dimensions and cold-open as authored state.
+with tempfile.TemporaryDirectory() as tmp:
+    path=Path(tmp)/'text-layout.nect';path.write_text(json.dumps(sample),encoding='utf-8')
+    composition_id=sample['compositions'][0]['id']
+    def layout_text(source_id,content,layout,frame_width=96,frame_height=48):
+        return dict(id=source_id,version=1,content=content,family='Yu Gothic',locale='ja-JP',layout=layout,
+            direction='horizontal',alignment='start',weight=400,italic=False,
+            parameters={name:dict(literal=value) for name,value in dict(origin_x=0,origin_y=0,font_size=28,
+                frame_width=frame_width,frame_height=frame_height,tracking=0,line_spacing=0).items()})
+    source_a=layout_text('layout-a-source','Source sizing','auto')
+    source_b=layout_text('layout-b-source','Target words that wrap within a fixed frame','frame')
+    source_auto=layout_text('layout-auto-source','Target words that wrap within a fixed frame','auto')
+    source_frame=layout_text('layout-frame-source','Target words that wrap within a fixed frame','frame')
+    ref_a=dict(object='layout-a',point='',field='text.layout');ref_b=dict(object='layout-b',point='',field='text.layout')
+    steps=[
+        ('create',dict(op='apply',expected_revision=0,commands=[
+            dict(type='create_text',composition=composition_id,parent='',id='layout-a',name='Layout A',source=source_a),
+            dict(type='create_text',composition=composition_id,parent='',id='layout-b',name='Layout B',source=source_b),
+            dict(type='create_text',composition=composition_id,parent='',id='layout-auto-twin',name='Auto twin',source=source_auto),
+            dict(type='create_text',composition=composition_id,parent='',id='layout-frame-twin',name='Frame twin',source=source_frame)])),
+        ('resolve',dict(op='resolve_name',name='Layout B',point='',field='text.layout')),
+        ('literal',dict(op='get',ref=ref_b)),
+        ('properties_literal',dict(op='properties')),
+        ('link',dict(op='apply',expected_revision=1,commands=[dict(type='link_text_layout',target=ref_b,source=ref_a,replace_driver=False)])),
+        ('properties_linked',dict(op='properties')),
+        ('auto_linked',dict(op='get',ref=ref_b)),
+        ('auto_layout',dict(op='text_layout',object='layout-b')),
+        ('auto_twin_layout',dict(op='text_layout',object='layout-auto-twin')),
+        ('frame_update',dict(op='apply',expected_revision=2,commands=[dict(type='update_text',object='layout-a',source=dict(source_a,layout='frame'))])),
+        ('frame_linked',dict(op='get',ref=ref_b)),
+        ('frame_layout',dict(op='text_layout',object='layout-b')),
+        ('frame_twin_layout',dict(op='text_layout',object='layout-frame-twin')),
+        ('rejected_driven_edit',dict(op='apply',expected_revision=3,commands=[dict(type='update_text',object='layout-b',source=dict(source_b,layout='auto'))])),
+        ('inspect_after_rejection',dict(op='inspect')),
+        ('unlink',dict(op='apply',expected_revision=3,commands=[dict(type='unlink_text_layout',target=ref_b)])),
+        ('frozen',dict(op='get',ref=ref_b)),
+        ('undo',dict(op='undo',expected_revision=4)),
+        ('restored_link',dict(op='get',ref=ref_b)),
+        ('source_update',dict(op='apply',expected_revision=5,commands=[dict(type='update_text',object='layout-a',source=dict(source_a,layout='auto'))])),
+        ('linked_auto',dict(op='get',ref=ref_b)),
+        ('native',dict(op='inspect'))]
+    requests=[request for _,request in steps]
+    proc=subprocess.run([exe,'--serve',str(path)],input='\n'.join(map(json.dumps,requests))+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=20)
+    replies=[json.loads(line) for line in proc.stdout.splitlines()]
+    check(len(replies)==len(requests),'JSON-lines returns one response per Text layout request')
+    reply={name:replies[index] for index,(name,_) in enumerate(steps)}
+    check(all(reply[name]['ok'] for name,_ in steps if name!='rejected_driven_edit'),
+        'Text layout API create/discovery/link/update/unlink/Undo requests succeed')
+    check(reply['resolve']['result']==ref_b,'JSON-lines resolve_name returns the stable Text layout Ref')
+    check(reply['literal']['result']['type']=='enum' and reply['literal']['result']['choices']==['auto','frame'] and
+        reply['literal']['result']['authored']==dict(literal='frame',driver=None) and reply['literal']['result']['link'] is True,
+        'JSON-lines Text layout read exposes its exact enum domain and authored literal')
+    literal_metadata=next(value for value in reply['properties_literal']['result'] if value['ref']==ref_b)
+    linked_metadata=next(value for value in reply['properties_linked']['result'] if value['ref']==ref_b)
+    check(literal_metadata['authored']==dict(literal='frame',driver=None) and literal_metadata['evaluated']=='frame' and
+        linked_metadata['authored']==dict(literal='frame',driver=dict(link=ref_a)) and linked_metadata['evaluated']=='auto' and
+        linked_metadata['type']=='enum' and linked_metadata['choices']==['auto','frame'],
+        'JSON-lines properties preserve the Text layout literal while reporting its evaluated choice')
+    check(reply['auto_linked']['result']['authored']==dict(literal='frame',driver=dict(link=ref_a)) and
+        reply['auto_linked']['result']['evaluated']=='auto' and reply['frame_linked']['result']['evaluated']=='frame',
+        'JSON-lines get follows Text layout source edits while preserving the target literal')
+    layout_fields=('x','y','width','height','overflow','glyph_count','warnings','used_fonts')
+    check(all(reply['auto_layout']['result'][field]==reply['auto_twin_layout']['result'][field] for field in layout_fields) and
+        all(reply['frame_layout']['result'][field]==reply['frame_twin_layout']['result'][field] for field in layout_fields),
+        'Text layout uses the evaluated enum and the target-owned frame geometry')
+    width_ref=dict(object='layout-b',point='',field='text.frame_width')
+    height_ref=dict(object='layout-b',point='',field='text.frame_height')
+    check(not reply['rejected_driven_edit']['ok'] and reply['rejected_driven_edit']['error']['code']=='DRIVEN_PROPERTY' and
+        reply['rejected_driven_edit']['revision']==3 and
+        next(obj for obj in reply['inspect_after_rejection']['result']['objects'] if obj['id']=='layout-b')['text']['layout_driver']==dict(link=ref_a),
+        'A driven Text layout literal edit rejects without changing revision or the authored Ref')
+    check(reply['frozen']['result']['authored']==dict(literal='frame',driver=None) and
+        reply['restored_link']['result']['authored']==dict(literal='frame',driver=dict(link=ref_a)) and
+        reply['restored_link']['result']['evaluated']=='frame' and reply['linked_auto']['result']['evaluated']=='auto',
+        'Unlink freezes Text layout, Undo restores its link, and later source edits still propagate')
+    native=reply['native']['result'];check(native['version']=='0.20' and run('--validate',native).returncode==0,
+        'Native 0.20 Text layout link validates in a separate CLI process')
+    target_native=next(obj for obj in native['objects'] if obj['id']=='layout-b')['text']
+    check(target_native['layout']=='frame' and target_native['layout_driver']==dict(link=ref_a) and
+        target_native['parameters']['frame_width']['literal']==96 and target_native['parameters']['frame_height']['literal']==48,
+        'Native layout save retains the target literal, Ref and target-owned frame dimensions')
+    literal_native=json.loads(json.dumps(native));literal_native['version']='0.19'
+    for obj in literal_native['objects']:
+        if obj.get('kind')=='text':obj['text'].pop('layout_driver',None)
+    check(run('--validate',literal_native).returncode==0,'Native 0.19 Text layout literals migrate as literal-only state')
+    old_driver=json.loads(json.dumps(native));old_driver['version']='0.19'
+    check('UNSUPPORTED_TEXT_LAYOUT_DRIVER' in run('--validate',old_driver).stderr,
+        'Native 0.19 rejects a Text layout driver field')
+    path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
+    cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
+        json.dumps(dict(op='get',ref=width_ref))+'\n'+json.dumps(dict(op='get',ref=height_ref))+'\n'+json.dumps(dict(op='inspect'))+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=20)
+    cold_replies=[json.loads(line) for line in cold.stdout.splitlines()]
+    cold_target=cold_replies[0]['result'];cold_doc=cold_replies[3]['result']
+    check(all(value['ok'] for value in cold_replies) and cold_target['authored']==dict(literal='frame',driver=dict(link=ref_a)) and
+        cold_target['evaluated']=='auto' and cold_replies[1]['result']['evaluated']==96 and cold_replies[2]['result']['evaluated']==48 and
+        next(obj for obj in cold_doc['objects'] if obj['id']=='layout-b')['text']['layout_driver']==dict(link=ref_a) and path.read_bytes()==before,
+        'A separate JSON-lines cold open preserves layout, Ref and target frame dimensions without changing native bytes')
 print(f'PASS {checks} process and native migration checks')

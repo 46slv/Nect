@@ -1980,7 +1980,75 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(combo,&QComboBox::currentIndexChanged,this,[this,update,values,member](int index){
             perform([&]{update([&](auto& s){s.*member=values.at(static_cast<std::size_t>(index));});});});
     };
-    choices("text-layout","Sizing",{"Auto size","Fixed frame"},{"auto","frame"},source.layout,&TextSource::layout);
+    const Ref layout_ref{id,"","text.layout"};const auto layout_state=text_layout_property(host.session.document(),layout_ref);
+    const auto layout_revision=host.session.revision();
+    auto* layout_row=new QWidget(box);auto* layout_row_layout=new QHBoxLayout(layout_row);layout_row_layout->setContentsMargins(0,0,0,0);
+    auto* layout_choice=new QComboBox;layout_choice->setObjectName("text-layout");layout_choice->addItems({"Auto size","Fixed frame"});
+    layout_choice->setCurrentIndex(layout_state.evaluated=="frame"?1:0);layout_choice->setEnabled(false);
+    layout_choice->setToolTip("Use Edit sizing to stage and apply a change.");layout_row_layout->addWidget(layout_choice);
+    auto* layout_driver_button=new QToolButton(layout_row);layout_driver_button->setObjectName("text-layout-driver");
+    layout_driver_button->setText(layout_state.driver?"Driver…":"Drive…");layout_driver_button->setPopupMode(QToolButton::InstantPopup);
+    auto* layout_menu=new QMenu(layout_driver_button);layout_driver_button->setMenu(layout_menu);layout_row_layout->addWidget(layout_driver_button);
+    auto* edit_layout=layout_menu->addAction("Edit sizing…");
+    auto* link_layout=layout_menu->addAction("Link to Text sizing…");
+    auto* unlink_layout=layout_menu->addAction("Unlink sizing");unlink_layout->setEnabled(layout_state.driver.has_value());
+    connect(edit_layout,&QAction::triggered,this,[this,id,frozen_session,layout_revision,layout_ref,layout_state]{
+        QDialog dialog(this);dialog.setObjectName("text-layout-dialog");dialog.setWindowTitle("Edit Text sizing");
+        auto* box_layout=new QVBoxLayout(&dialog);
+        auto* editor=new QComboBox(&dialog);editor->setObjectName("text-layout-editor");editor->addItems({"Auto size","Fixed frame"});
+        editor->setCurrentIndex(layout_state.evaluated=="frame"?1:0);editor->setEnabled(!layout_state.driver);box_layout->addWidget(editor);
+        auto* unlink=new QCheckBox("Unlink the driver and edit this sizing mode",&dialog);
+        unlink->setObjectName("unlink-text-layout-driver");unlink->setVisible(layout_state.driver.has_value());box_layout->addWidget(unlink);
+        auto* status=new QLabel("Apply commits the sizing mode. Cancel keeps the current mode.",&dialog);
+        status->setObjectName("text-layout-editor-status");status->setWordWrap(true);box_layout->addWidget(status);
+        connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
+        connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,layout_revision,layout_ref,layout_state,editor,unlink,status]{
+            try {
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=layout_revision)throw Error("STALE_CONTEXT","Text changed while the sizing editor was open; reopen it");
+                if(layout_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a sizing edit");
+                const auto found=host.session.document().objects.find(id);
+                if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
+                const auto value=editor->currentIndex()==1?std::string("frame"):std::string("auto");
+                std::vector<Command> commands;
+                if(layout_state.driver)commands.push_back(UnlinkTextLayout{layout_ref});
+                if(value!=(layout_state.driver?layout_state.evaluated:layout_state.literal)) {
+                    auto next=*found->second.text;next.layout=value;next.layout_driver.reset();
+                    commands.push_back(UpdateText{id,std::move(next)});
+                }
+                if(!commands.empty()){host.session.apply(commands,layout_revision);host.edited();}
+                dialog.accept();
+            } catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+        });
+        dialog.exec();
+    });
+    QStringList layout_source_labels;std::vector<Id> layout_source_ids;
+    for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
+        layout_source_ids.push_back(source_id);layout_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+    }
+    link_layout->setEnabled(!layout_source_ids.empty());const bool replace_layout_driver=layout_state.driver.has_value();
+    connect(link_layout,&QAction::triggered,this,[this,id,frozen_session,layout_revision,replace_layout_driver,layout_source_ids,layout_source_labels]{
+        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text sizing","Source Text",layout_source_labels,0,false,&accepted);
+        if(!accepted)return;
+        const auto index=layout_source_labels.indexOf(choice);if(index<0)return;
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({LinkTextLayout{{id,"","text.layout"},{layout_source_ids.at(static_cast<std::size_t>(index)),"","text.layout"},replace_layout_driver}},layout_revision);host.edited();});
+    });
+    connect(unlink_layout,&QAction::triggered,this,[this,frozen_session,layout_revision,layout_ref]{
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({UnlinkTextLayout{layout_ref}},layout_revision);host.edited();});
+    });
+    layout_row_layout->addStretch();form->addRow("Sizing",layout_row);
+    const auto layout_driver_name=[this](const std::optional<TextLayoutDriver>& driver) {
+        if(!driver)return QString("none");
+        const auto found=host.session.document().objects.find(driver->link.object);
+        return QString("link to ")+(found==host.session.document().objects.end()?qs(driver->link.object):qs(found->second.name)+" ("+qs(driver->link.object)+")");
+    };
+    auto* layout_state_label=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
+        .arg(qs(layout_state.literal),layout_driver_name(layout_state.driver),qs(layout_state.evaluated)));
+    layout_state_label->setObjectName("text-layout-state");layout_state_label->setWordWrap(true);layout_state_label->setTextFormat(Qt::PlainText);form->addRow("",layout_state_label);
     const Ref direction_ref{id,"","text.direction"};const auto direction_state=text_direction_property(host.session.document(),direction_ref);
     const auto direction_revision=host.session.revision();
     auto* direction_row=new QWidget(box);auto* direction_layout=new QHBoxLayout(direction_row);direction_layout->setContentsMargins(0,0,0,0);

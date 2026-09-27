@@ -186,23 +186,23 @@ try:
         peer_source=core('text_defaults')['result'];peer_source.update(id='typed-peer-source',content='Peer text',family='Different Test Family',
             locale='fr-FR',layout='frame',direction='vertical',alignment='center')
         rev=apply([dict(type='create_text',composition=comp['id'],parent='',id='typed-peer',name='Second typed source',source=peer_source)],rev)
-        readonly_fields=['text.content','text.family','text.locale','text.layout','text.direction','text.alignment']
+        text_fields=['text.content','text.family','text.locale','text.layout','text.direction','text.alignment']
         text_values={
             'title':[text_source['content'],text_source['family'],text_source['locale'],text_source['layout'],text_source['direction'],text_source['alignment']],
             'typed-peer':[peer_source['content'],peer_source['family'],peer_source['locale'],peer_source['layout'],peer_source['direction'],peer_source['alignment']],
         }
         properties_before=core('properties')['result']
         for object_id,expected_values in text_values.items():
-            entries=[entry for entry in properties_before if entry['ref']['object']==object_id and entry['ref']['field'] in readonly_fields]
-            assert len(entries)==6 and {entry['ref']['field'] for entry in entries}==set(readonly_fields)
-            for field,value in zip(readonly_fields,expected_values):
+            entries=[entry for entry in properties_before if entry['ref']['object']==object_id and entry['ref']['field'] in text_fields]
+            assert len(entries)==6 and {entry['ref']['field'] for entry in entries}==set(text_fields)
+            for field,value in zip(text_fields,expected_values):
                 ref=dict(object=object_id,point='',field=field)
                 entry=next(item for item in entries if item['ref']==ref)
                 result=core('get',ref=ref)['result']
-                kind='string' if field in readonly_fields[:3] else 'enum'
-                authored=dict(literal=value,driver=None) if field in ('text.content','text.family','text.direction') else dict(literal=value)
+                kind='string' if field in text_fields[:3] else 'enum'
+                authored=dict(literal=value,driver=None) if field in ('text.content','text.family','text.direction','text.layout') else dict(literal=value)
                 assert result==entry and result['type']==kind and result['authored']==authored
-                assert result['evaluated']==value and result['link']==(field in ('text.content','text.family','text.direction')) and result['expression'] is False
+                assert result['evaluated']==value and result['link']==(field in ('text.content','text.family','text.direction','text.layout')) and result['expression'] is False
                 if kind=='enum':
                     choices={'text.layout':['auto','frame'],'text.direction':['horizontal','vertical'],
                         'text.alignment':['start','center','end']}[field]
@@ -294,6 +294,33 @@ try:
         assert core('get',ref=title_direction)['result']['evaluated']=='horizontal'
         rev=apply([dict(type='unlink_text_direction',target=title_direction)],rev)
         assert core('get',ref=title_direction)['result']['authored']==dict(literal='horizontal',driver=None)
+        title_layout=dict(object='title',point='',field='text.layout')
+        peer_layout=dict(object='typed-peer',point='',field='text.layout')
+        rev=apply([dict(type='link_text_layout',target=title_layout,source=peer_layout,replace_driver=False)],rev)
+        linked_layout=core('get',ref=title_layout)['result']
+        assert linked_layout['authored']==dict(literal='auto',driver=dict(link=peer_layout))
+        assert linked_layout['evaluated']=='frame' and linked_layout['choices']==['auto','frame']
+        title_obj=next(item for item in core('inspect')['result']['objects'] if item['id']=='title')
+        blocked_layout_source=dict(title_obj['text'],layout='frame')
+        blocked=core('apply',expected_revision=rev,commands=[dict(type='update_text',object='title',source=blocked_layout_source)])
+        assert not blocked['ok'] and blocked['error']['code']=='DRIVEN_PROPERTY' and blocked['revision']==rev
+        peer_source['layout']='auto'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        assert core('get',ref=title_layout)['result']['evaluated']=='auto'
+        peer_source['layout']='frame'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        assert core('get',ref=title_layout)['result']['evaluated']=='frame'
+        rev=apply([dict(type='unlink_text_layout',target=title_layout)],rev)
+        assert core('get',ref=title_layout)['result']['authored']==dict(literal='frame',driver=None)
+        undo=core('undo',expected_revision=rev);assert undo['ok'];rev=undo['revision']
+        assert core('get',ref=title_layout)['result']['authored']==dict(literal='auto',driver=dict(link=peer_layout))
+        peer_source['layout']='auto'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        assert core('get',ref=title_layout)['result']['evaluated']=='auto'
+        rev=apply([dict(type='unlink_text_layout',target=title_layout)],rev)
+        peer_source['layout']='frame'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        assert core('get',ref=title_layout)['result']['authored']==dict(literal='auto',driver=None)
         rev=apply([dict(type='delete_objects',objects=['typed-peer'])],rev)
         layout=core('text_layout',object='title')['result'];assert layout['glyph_count']>0 and layout['used_fonts']
         assert core('export_plan',composition=comp['id'],artboard=first['id'])['result']['text_policy']=='outlines'

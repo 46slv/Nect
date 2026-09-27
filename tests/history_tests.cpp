@@ -105,6 +105,32 @@ void authored_roundtrip() {
     }
     Session reopened(decode(encode(session.document())));check(reopened.history().states.size()==1&&state(reopened)==0,"Native reopen starts a new Session timeline without persisting history");
 }
+void typed_text_layout_history() {
+    Session session(empty_document("layout-history-doc","layout-history-comp","layout-history-frame"));
+    auto source=default_text("layout-history-source-text","Source");
+    auto target=default_text("layout-history-target-text","Target");target.layout="frame";
+    apply(session,{CreateText{"layout-history-comp","","layout-history-source","Source",source},
+        CreateText{"layout-history-comp","","layout-history-target","Target",target}});
+    const auto before=session.history().retained_bytes;
+    const Ref source_ref{"layout-history-source","","text.layout"},target_ref{"layout-history-target","","text.layout"};
+    apply(session,{LinkTextLayout{target_ref,source_ref,false}});
+    const auto linked=session.history();
+    check(linked.retained_bytes>before&&linked.states.back().estimated_bytes>0&&
+        linked.states.back().label.find("Link Text layout")!=std::string::npos,
+        "Typed Text layout link stores its driver delta in estimated History with a readable label");
+    apply(session,{UnlinkTextLayout{target_ref}});
+    check(session.history().states.back().label.find("Unlink Text layout")!=std::string::npos&&
+        !session.document().objects.at("layout-history-target").text->layout_driver,
+        "Typed Text layout unlink records a labeled History transition");
+    session.undo(session.revision());
+    check(session.document().objects.at("layout-history-target").text->layout_driver->link==source_ref&&
+        evaluate_text_layout(session.document(),"layout-history-target")=="auto",
+        "History Undo restores the typed Text layout driver and projection");
+    session.redo(session.revision());
+    check(!session.document().objects.at("layout-history-target").text->layout_driver&&
+        session.document().objects.at("layout-history-target").text->layout=="auto",
+        "History Redo restores the frozen Text layout literal");
+}
 void limits_and_gestures() {
     const auto document=demo_document();const Ref x{"path-A","point-A1","x"};
     Session limited(document,{3,64*1024*1024});
@@ -145,5 +171,5 @@ void limits_and_gestures() {
     rejects("INVALID_HISTORY_LIMITS",[&]{Session invalid(document,{0,1000});});
 }
 }
-int main(){try{long_history();authored_roundtrip();limits_and_gestures();std::cout<<"PASS "<<checks<<" history checks\n";return 0;}
+int main(){try{long_history();authored_roundtrip();typed_text_layout_history();limits_and_gestures();std::cout<<"PASS "<<checks<<" history checks\n";return 0;}
 catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

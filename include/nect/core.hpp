@@ -61,6 +61,10 @@ struct TextDirectionDriver {
     Ref link;
     bool operator==(const TextDirectionDriver&) const = default;
 };
+struct TextLayoutDriver {
+    Ref link;
+    bool operator==(const TextLayoutDriver&) const = default;
+};
 
 struct Scalar {
     double literal = 0;
@@ -110,6 +114,7 @@ struct TextSource {
     std::optional<TextContentDriver> content_driver;
     std::optional<TextFamilyDriver> family_driver;
     std::optional<TextDirectionDriver> direction_driver;
+    std::optional<TextLayoutDriver> layout_driver;
     std::string layout="auto",direction="horizontal",alignment="start";
     unsigned weight=400;
     std::optional<TextWeightDriver> weight_driver;
@@ -359,6 +364,8 @@ struct LinkTextFamily { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkTextFamily { Ref target; };
 struct LinkTextDirection { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkTextDirection { Ref target; };
+struct LinkTextLayout { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkTextLayout { Ref target; };
 struct CreateNamedColor { NamedColor color; };
 struct RenameNamedColor { Id color; std::string name; };
 struct DeleteNamedColor { Id color; };
@@ -412,7 +419,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     ReorderOperations,EnableOperation,OperationOptions,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
-    LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextDirection,UnlinkTextDirection,
+    LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
     SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,
@@ -553,6 +560,11 @@ struct TextDirectionProperty {
     std::optional<TextDirectionDriver> driver;
     std::string evaluated;
 };
+struct TextLayoutProperty {
+    std::string literal;
+    std::optional<TextLayoutDriver> driver;
+    std::string evaluated;
+};
 TextContentProperty text_content_property(const Document&,const Ref&);
 std::string evaluate_text_content(const Document&,const Id& object);
 std::map<Ref,std::string> evaluate_text_contents(const Document&);
@@ -562,6 +574,9 @@ std::map<Ref,std::string> evaluate_text_families(const Document&);
 TextDirectionProperty text_direction_property(const Document&,const Ref&);
 std::string evaluate_text_direction(const Document&,const Id& object);
 std::map<Ref,std::string> evaluate_text_directions(const Document&);
+TextLayoutProperty text_layout_property(const Document&,const Ref&);
+std::string evaluate_text_layout(const Document&,const Id& object);
+std::map<Ref,std::string> evaluate_text_layouts(const Document&);
 std::string property_origin(const Document& document, const Ref& ref);
 // Returns contour topology/IDs. All resolved coordinates, including generated
 // points, come from evaluate(); this is never another authored geometry store.

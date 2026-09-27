@@ -815,8 +815,15 @@ void text_authoring(Window& window) {
     visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
     check(session.document().objects.at(id).text->direction=="vertical"&&session.revision()==direction_draft_revision+1,
         "Applying the Text direction draft commits one shared Session revision");
-    visible_child<QComboBox>(window,"text-layout")->setCurrentIndex(1);QApplication::processEvents();
-    check(session.document().objects.at(id).text->layout=="frame","Frame text retains content and source identity");
+    const auto initial_layout_revision=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-dialog");if(!dialog)return;
+        dialog->findChild<QComboBox*>("text-layout-editor")->setCurrentIndex(1);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    visible_child<QToolButton>(window,"text-layout-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(session.document().objects.at(id).text->layout=="frame"&&session.revision()==initial_layout_revision+1,
+        "Applying a staged Text sizing choice commits one Session revision");
     check(visible_child<QLabel>(window,"text-layout-status")->text().contains("SVG exports glyph outlines"),"Inspector discloses export text projection");
     QApplication::setActiveWindow(&window);QApplication::processEvents();
     const Ref font_size{id,"","text.font_size"};auto* size=field<QLineEdit>(window,font_size);reveal(window,size);size->setFocus();
@@ -913,6 +920,60 @@ void text_authoring(Window& window) {
     session.apply({UpdateText{source_id,changed_direction_source}},session.revision());window.host.edited();QApplication::processEvents();
     check(session.document().objects.at(id).text->direction=="horizontal"&&!session.document().objects.at(id).text->direction_driver,
         "Unlinked direction remains frozen when its former source changes");
+    auto* layout_driver_button=visible_child<QToolButton>(window,"text-layout-driver");bool chose_layout_source=false;
+    check(!visible_child<QComboBox>(window,"text-layout")->isEnabled()&&layout_driver_button->menu()->actions().size()==3,
+        "Text sizing Inspector exposes a staged enum display and explicit edit/link/unlink menu");
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+        if(auto* combo=dialog->findChild<QComboBox*>()) {
+            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
+            dialog->accept();chose_layout_source=true;return;
+        }
+    }});
+    layout_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(chose_layout_source&&session.document().objects.at(id).text->layout=="frame"&&
+        session.document().objects.at(id).text->layout_driver->link==Ref{source_id,"","text.layout"}&&
+        evaluate_text_layout(session.document(),id)=="auto"&&
+        visible_child<QLabel>(window,"text-layout-state")->text().contains("Literal: frame")&&
+        visible_child<QLabel>(window,"text-layout-state")->text().contains("Evaluated: auto"),
+        "Text Sizing Inspector links the same field and reports literal, source and evaluated enum");
+    auto changed_layout_source=*session.document().objects.at(source_id).text;changed_layout_source.layout="frame";
+    session.apply({UpdateText{source_id,changed_layout_source}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto linked_layout_revision=session.revision();bool layout_cancel_safe=false,layout_apply_failed=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-layout-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-layout-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(0);
+        layout_cancel_safe=session.revision()==linked_layout_revision&&
+            session.document().objects.at(id).text->layout_driver->link==Ref{source_id,"","text.layout"};dialog->reject();
+    });
+    layout_driver_button=visible_child<QToolButton>(window,"text-layout-driver");layout_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(layout_cancel_safe&&session.revision()==linked_layout_revision&&
+        session.document().objects.at(id).text->layout_driver->link==Ref{source_id,"","text.layout"},
+        "Cancel discards both a sizing draft and its staged unlink");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-layout-editor");auto* status=dialog->findChild<QLabel*>("text-layout-editor-status");
+        editor->setCurrentIndex(0);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        layout_apply_failed=dialog->isVisible()&&session.revision()==linked_layout_revision&&
+            session.document().objects.at(id).text->layout_driver.has_value()&&status->text().contains("unlink option");dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-layout-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(layout_apply_failed,"Failed driven sizing Apply retains the driver and Session revision");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-layout-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-layout-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(1);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    visible_child<QToolButton>(window,"text-layout-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->layout_driver&&session.document().objects.at(id).text->layout=="frame"&&
+        session.revision()==linked_layout_revision+1,"Sizing unlink and edit commit as one atomic Session revision");
+    changed_layout_source=*session.document().objects.at(source_id).text;changed_layout_source.layout="auto";
+    session.apply({UpdateText{source_id,changed_layout_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document().objects.at(id).text->layout=="frame"&&!session.document().objects.at(id).text->layout_driver,
+        "Unlinked Text sizing remains frozen when its former source changes");
     auto* family_driver=visible_child<QToolButton>(window,"text-family-driver");bool chose_family_source=false;
     check(visible_child<QComboBox>(window,"text-family")->isEnabled()&&family_driver->menu()->actions().size()==2,
         "Text family Inspector exposes a literal control and link/edit menu");
