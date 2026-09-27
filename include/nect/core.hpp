@@ -537,6 +537,12 @@ void add_default_stroke(Document&,const Id& object);
 
 std::vector<Ref> properties(const Document& document);
 Scalar property(const Document& document, const Ref& ref);
+struct ArtboardSizeProperty {
+    double literal=0;
+    std::optional<Ref> driver;
+    double evaluated=0;
+};
+ArtboardSizeProperty artboard_size_property(const Document&,const Ref&);
 enum class TextPropertyKind { string, enumeration };
 struct TextPropertyValue {
     TextPropertyKind kind=TextPropertyKind::string;

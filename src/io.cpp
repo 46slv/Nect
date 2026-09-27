@@ -387,6 +387,13 @@ j::object text_weight_property_json(const Document& d,const Ref& ref,const TextW
         {"origin","authored"},{"range",j::object{{"min",1},{"max",999}}},
         {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},{"evaluated",value.evaluated}};
 }
+j::object artboard_size_property_json(const Document& d,const Ref& ref,const ArtboardSizeProperty& value) {
+    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","number"},{"unit","du"},
+        {"space","composition"},{"origin","authored"},
+        {"range",j::object{{"min_exclusive",0},{"max",1e7}}},
+        {"authored",j::object{{"literal",value.literal},{"driver",value.driver?j::value(ref_json(*value.driver)):j::value(nullptr)}}},
+        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+}
 j::object text_content_property_json(const Document& d,const Ref& ref,const TextContentProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=text_content_driver_json(*value.driver);
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","string"},{"origin","authored"},
@@ -1328,7 +1335,8 @@ std::string request(Session& session,std::string_view input) {
                 if(!object->second.text->parameters.contains(r.field.substr(5)))
                     throw Error("UNKNOWN_TEXT_PROPERTY","Unsupported Text source property: "+r.field);
             }
-            if(r.field=="text.content")result=text_content_property_json(session.document(),r,text_content_property(session.document(),r));
+            if(r.field.starts_with("artboard."))result=artboard_size_property_json(session.document(),r,artboard_size_property(session.document(),r));
+            else if(r.field=="text.content")result=text_content_property_json(session.document(),r,text_content_property(session.document(),r));
             else if(r.field=="text.family")result=text_family_property_json(session.document(),r,text_family_property(session.document(),r));
             else if(r.field=="text.locale")result=text_locale_property_json(session.document(),r,text_locale_property(session.document(),r));
             else if(r.field=="text.direction")result=text_direction_property_json(session.document(),r,text_direction_property(session.document(),r));
@@ -1362,6 +1370,10 @@ std::string request(Session& session,std::string_view input) {
             const auto layout_values=evaluate_text_layouts(session.document());
             const auto alignment_values=evaluate_text_alignments(session.document());
             for(const auto& ref:properties(session.document())) {
+                if(ref.field.starts_with("artboard.")) {
+                    list.push_back(artboard_size_property_json(session.document(),ref,artboard_size_property(session.document(),ref)));
+                    continue;
+                }
                 if(is_text_readonly_field(ref.field)) {
                     if(ref.field=="text.content") {
                         const auto& source=*session.document().objects.at(ref.object).text;

@@ -176,6 +176,15 @@ try:
         boards=core('artboards',composition=comp['id'])['result']
         assert boards[0]['authored']['id']==child['id'] and boards[0]['authored']['width']==160
         assert boards[0]['evaluated']['width']==700 and boards[0]['evaluated']['height']==240
+        width_ref=dict(object=child['id'],point='',field='artboard.width')
+        width=core('get',ref=width_ref)['result']
+        assert width['type']=='number' and width['unit']=='du' and width['authored']==dict(
+            literal=160,driver=dict(object=first['id'],point='',field='artboard.width'))
+        assert width['evaluated']==700 and width['link'] is True and width['expression'] is False
+        assert core('resolve_name',name='Alternate crop',point='',field='artboard.width')['result']==width_ref
+        assert any(entry['ref']==width_ref and entry['evaluated']==700 for entry in core('properties')['result'])
+        invalid=core('get',ref=dict(width_ref,point='not-empty'))
+        assert not invalid['ok'] and invalid['error']['code']=='INVALID_ARTBOARD_REF'
         crop_svg=core('export_svg',composition=comp['id'],artboard=child['id'])['result']
         assert ET.fromstring(crop_svg).attrib['viewBox']=='100 50 700 240'
         text_source=core('text_defaults')['result'];text_source.update(id='title-source',content='\u82b1\u306e\u5f62\nNect 2026',direction='vertical')

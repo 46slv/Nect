@@ -774,7 +774,25 @@ std::vector<Ref> properties(const Document& document) {
         {refs.push_back({id,"","text.italic"});refs.push_back({id,"","text.weight"});
             refs.push_back({id,"","text.content"});refs.push_back({id,"","text.family"});refs.push_back({id,"","text.locale"});
             refs.push_back({id,"","text.layout"});refs.push_back({id,"","text.direction"});refs.push_back({id,"","text.alignment"});}
+    for(const auto& composition:document.compositions)for(const auto& board:composition.artboards) {
+        refs.push_back({board.id,"","artboard.width"});
+        refs.push_back({board.id,"","artboard.height"});
+    }
     return refs;
+}
+
+ArtboardSizeProperty artboard_size_property(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_ARTBOARD_REF","Artboard dimensions require an empty point ID");
+    require(ref.field=="artboard.width"||ref.field=="artboard.height","UNKNOWN_ARTBOARD_PROPERTY",ref.field);
+    for(const auto& composition:document.compositions)for(const auto& board:composition.artboards)if(board.id==ref.object) {
+        const bool width=ref.field=="artboard.width";
+        std::optional<Ref> driver;
+        if(board.parent_size&&(width?board.parent_size->width:board.parent_size->height))
+            driver=Ref{board.parent_size->artboard,"",ref.field};
+        const auto evaluated=evaluate_artboard(composition,board.id);
+        return {width?board.width:board.height,std::move(driver),width?evaluated.width:evaluated.height};
+    }
+    throw Error("MISSING_ARTBOARD",ref.object);
 }
 
 TextItalicProperty text_italic_property(const Document& document,const Ref& ref) {
@@ -895,6 +913,13 @@ std::string property_unit(const Ref& r) { return unit(r); }
 
 Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std::string& f) {
     std::vector<Id> matches;
+    if(f.starts_with("artboard.")) {
+        for(const auto& composition:d.compositions)for(const auto& board:composition.artboards)
+            if(board.name==name)matches.push_back(board.id);
+        require(!matches.empty(),"MISSING_NAME","No matching Artboard: "+name);
+        require(matches.size()==1,"AMBIGUOUS_NAME","Artboard name must resolve uniquely: "+name);
+        Ref ref{matches.front(),p,f};(void)artboard_size_property(d,ref);return ref;
+    }
     for(const auto& [id,o]:d.objects) if(o.name==name) matches.push_back(id);
     for(const auto& [id,color]:d.named_colors)if(color.name==name)matches.push_back(id);
     require(!matches.empty(),"MISSING_NAME","No matching object: "+name);

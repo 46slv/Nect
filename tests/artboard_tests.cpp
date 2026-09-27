@@ -203,8 +203,39 @@ int main(){try{
     Artboard third{"third","Nested crop",1300,0,10,20};third.parent_size=ArtboardParent{"second",true,true};
     apply({AddArtboard{"comp",second,1},AddArtboard{"comp",third,2}});
     check(frame("second").width==960&&frame("second").height==240&&frame("third").width==960&&frame("third").height==240,"Parent size resolves each attribute through a chain");
-    auto first=frame("first");first.width=640;first.height=480;apply({UpdateArtboard{"comp",first}});
+    const Ref child_width{"second","","artboard.width"},child_height{"second","","artboard.height"};
+    const auto size=artboard_size_property(s.document(),child_width);
+    check(size.literal==320&&size.evaluated==960&&size.driver==Ref{"first","","artboard.width"},
+        "Typed Artboard width exposes its own literal and stable parent dependency");
+    check(artboard_size_property(s.document(),child_height).literal==240&&
+        !artboard_size_property(s.document(),child_height).driver,
+        "Unlinked height remains locally authored");
+    const auto discovered=properties(s.document());
+    check(resolve_name(s.document(),"Alternate crop","","artboard.width")==child_width&&
+        std::find(discovered.begin(),discovered.end(),child_width)!=discovered.end(),
+        "Typed Artboard dimensions are discoverable by stable Ref and name");
+    const auto typed=request(s,R"({"op":"get","ref":{"object":"second","point":"","field":"artboard.width"}})");
+    check(typed.find("\"type\":\"number\"")!=std::string::npos&&
+        typed.find("\"driver\":{")!=std::string::npos&&typed.find("\"artboard.width\"")!=std::string::npos,
+        "API typed Artboard read reports numeric type and parent dependency");
+    rejects("INVALID_ARTBOARD_REF",[&]{(void)artboard_size_property(s.document(),{"second","point","artboard.width"});});
+    rejects("UNKNOWN_ARTBOARD_PROPERTY",[&]{(void)artboard_size_property(s.document(),{"second","","artboard.x"});});
+    rejects("MISSING_ARTBOARD",[&]{(void)artboard_size_property(s.document(),{"missing","","artboard.width"});});
+    auto duplicate_names=s.document();duplicate_names.compositions.back().artboards.front().name="Alternate crop";
+    rejects("AMBIGUOUS_NAME",[&]{(void)resolve_name(duplicate_names,"Alternate crop","","artboard.width");});
+    const auto before_typed_rejection=encode(s.document());
+    const auto revision_before_typed_rejection=s.revision();
+    rejects("MISSING_REFERENCE",[&]{apply({Set{child_width,600}});});
+    rejects("MISSING_REFERENCE",[&]{apply({Link{child_width,{{"first","","artboard.width"},1,0,"copy_local_value"}}});});
+    check(encode(s.document())==before_typed_rejection&&s.revision()==revision_before_typed_rejection,
+        "Generic Scalar commands reject Artboard dimensions without mutation");
+    auto first=frame("first");first.name="Primary crop";first.width=640;first.height=480;apply({UpdateArtboard{"comp",first}});
     check(frame("second").width==640&&frame("second").height==240&&frame("third").width==640,"Editing parent propagates inherited dimensions only");
+    check(artboard_size_property(s.document(),child_width).literal==320&&artboard_size_property(s.document(),child_width).evaluated==640,
+        "Typed child width follows parent without replacing its authored literal");
+    check(resolve_name(s.document(),"Primary crop","","artboard.width")==Ref{"first","","artboard.width"}&&
+        artboard_size_property(s.document(),child_width).driver==Ref{"first","","artboard.width"},
+        "Artboard rename leaves the stable parent size Ref unchanged");
     second.width=300;second.parent_size->width=false;apply({UpdateArtboard{"comp",second}});
     check(frame("third").width==300,"Child width override propagates to its own children");
     second.parent_size->width=true;apply({UpdateArtboard{"comp",second}});
@@ -224,6 +255,8 @@ int main(){try{
     check(encode(s.document())==stored,"Failed deletion/order/cycle/cross-plane mutations are atomic");
     apply({DetachArtboardParent{"comp","second"},DeleteArtboard{"comp","first"}});
     check(!frame("second").parent_size&&frame("second").width==640&&frame("second").height==240&&frame("third").width==640,"Detach freezes effective size and permits deleting former parent");
+    check(!artboard_size_property(s.document(),child_width).driver&&artboard_size_property(s.document(),child_width).literal==640,
+        "Typed dependency readback reflects explicit Detach freeze");
     s.undo(s.revision());check(frame("second").parent_size&&frame("first").width==640,"Undo restores parent, bindings and page order together");
     auto moved=second;moved.x=700;moved.y=-80;apply({UpdateArtboard{"comp",moved}});
     check(frame("second").x==700&&frame("second").y==-80&&evaluate(s.document())==authored_values,"Explicit frame move changes crop without moving artwork");
