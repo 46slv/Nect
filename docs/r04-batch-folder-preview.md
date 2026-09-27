@@ -1,0 +1,17 @@
+# R04-BATCH-FOLDER-PREVIEW-01 — preview selected contiguous siblings as a Folder
+
+Status: Sol-frozen bounded implementation packet, 2026-09-27. Baseline clean synchronized `codex/practical-alpha@b0bba4d81b69b8261c2e0322577eab049e67e92e`. Authority: DEC-71, Confirmed [REQ-36](https://app.notion.com/p/3e0fd279a6f3815bbbaed3bddf04d3f5), Confirmed [REQ-52](https://app.notion.com/p/3e0fd279a6f38151b544dda1a39adf25), [P04-D](https://app.notion.com/p/3e3fd279a6f381ee8ab0ea5ea614c006). This adds a previewed Folder workflow to the existing `GroupContiguous` command; it does not redefine Ctrl+G or implement Collection membership.
+
+## Contract
+
+Expose “Create Folder from selected…” in Edit and the selection menu for at least two whole objects forming an ordered contiguous sibling block in the active Composition. Resolve IDs in sibling order even if the click order differs. The modal preview shows stable IDs, old names, old sibling order and the proposed Folder name/new structural slot, and states that flattened paint order is unchanged. Name is editable and must be nonempty. Preview/Cancel changes no authored state. Apply one existing `GroupContiguous` command at frozen Session/revision and select the new Folder. The Group/Folder model, native schema and JSON-lines `group_contiguous` command remain shared. Reject points, mixed parents, discontiguous selection, stale revision/Session and empty name without partial authored change.
+
+## Oracle and residual
+
+Given roots `[U,A,B,C,V]`, select B/A/C out of click order; preview `[U,Folder(A,B,C),V]` and child order `[A,B,C]`, with unchanged flattened paint order, pixels, world transforms, stable IDs, existing references and Collection membership. One Undo/Redo restores exact Document states; native encode/decode and independent reopen retain the Folder. JSON-lines `group_contiguous` produces the same structural result. A discontiguous selection and stale revision refuse atomically, and Cancel does not change revision/history. This is a bounded REQ-36/52 slice. Collection scope, arbitrary noncontiguous grouping with changed stacking, hands-on GUI acceptance and whole R04/REQ-36 completion remain open. Candidate REQ-46–59 stay Candidate.
+
+## Local result — 2026-09-27
+
+Sol reviewed the exact candidate. Edit and selection menu expose a preview with stable IDs, old sibling order, new Folder slot and children, editable Folder name and an explicit unchanged paint-order statement. Cancel and invalid name do not author state. Apply invokes one existing `GroupContiguous` Session command; old objects remain exact, and the new Folder is selected. Core/JSON-lines covers paint order, world transforms, stable reference, Collection membership, native encode/decode, one Undo/Redo, discontiguous atomic refusal and stale revision. Offscreen Desktop covers selection order independent of click order, Cancel, empty name, menu reachability, unchanged pixels/coordinates and one Undo/Redo. No live hands-on GUI acceptance is claimed.
+
+Release all-target build and serial CTest **41/41** passed; after the final context-menu oracle, affected `window_interaction` **1/1** passed. A separate `nect --serve` process applied the JSON-lines command to a native 0.23 fixture, and a second process cold reopened the exact result: ignored `build/manual-recipes/r04-batch-folder-cold.nect`, SHA-256 `d072a2e8bdef3fd0ec63cde5df5d793979b9a5294067e301a7dccc1b16732529`.

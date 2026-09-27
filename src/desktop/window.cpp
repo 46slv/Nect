@@ -506,6 +506,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     sort_paint_order_action_->setObjectName("sort-selected-name-paint-order");
     sort_paint_order_action_->setEnabled(false);
     action(edit,"Create Folder",{},[this]{create_folder();})->setObjectName("create-folder");
+    action(edit,"Create Folder from selected…",{},[this]{create_folder_from_selection();})->setObjectName("create-folder-from-selection");
     action(edit,"Ungroup selected Groups",QKeySequence("Ctrl+Shift+G"),[this]{ungroup_selection();})->setObjectName("ungroup-objects");
     action(edit,"Move selected out of Folder",{},[this]{move_selection_out();})->setObjectName("move-out-of-folder");
     action(edit,"Move selected to next Folder",{},[this]{move_selection_to_next_folder();})->setObjectName("move-to-next-folder");
@@ -3849,6 +3850,13 @@ void Window::selection_menu(const QPoint& global) {
         stack_actions.emplace(stacking->addAction(label),std::pair{direction,edge});
     try{Id parent;(void)selected_siblings(parent,1);}catch(const Error&){stacking->setEnabled(false);}
     auto* group=menu.addAction("Group selected siblings");
+    auto* folder_from_selection=menu.addAction("Create Folder from selected…");folder_from_selection->setObjectName("create-folder-from-selection-context");
+    try {
+        Id parent;const auto members=selected_siblings(parent,2);const auto& d=host.session.document();
+        const auto& comp=find_composition(d,canvas->active_composition());
+        const auto& siblings=parent.empty()?comp.roots:d.objects.at(parent).children;
+        folder_from_selection->setEnabled(std::search(siblings.begin(),siblings.end(),members.begin(),members.end())!=siblings.end());
+    } catch(const Error&) {folder_from_selection->setEnabled(false);}
     auto* batch_rename=menu.addAction("Batch rename selected…");batch_rename->setObjectName("batch-rename-selection-context");
     try{Id parent;(void)selected_siblings(parent,2);}catch(const Error&){batch_rename->setEnabled(false);}
     auto* sort_paint_order=menu.addAction("Sort selected by name (paint order)…");sort_paint_order->setObjectName("sort-selected-name-paint-order-context");
@@ -3902,7 +3910,7 @@ void Window::selection_menu(const QPoint& global) {
         top->setEnabled((d.objects.at(members.back()).kind==Kind::path||d.objects.at(members.back()).kind==Kind::text));bottom->setEnabled((d.objects.at(members.front()).kind==Kind::path||d.objects.at(members.front()).kind==Kind::text));inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
     } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
     auto* chosen=menu.exec(global);if(!chosen)return;
-    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==transform)transform_selection();else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==move_out)move_selection_out();else if(chosen==move_to_next)move_selection_to_next_folder();else if(chosen==move_to_previous)move_selection_to_previous_folder();else if(chosen==move_to_folder)move_selection_to_folder();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();else if(chosen==batch_rename)batch_rename_selection();else if(chosen==sort_paint_order)sort_selection_by_name_paint_order();});
+    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==transform)transform_selection();else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==move_out)move_selection_out();else if(chosen==move_to_next)move_selection_to_next_folder();else if(chosen==move_to_previous)move_selection_to_previous_folder();else if(chosen==move_to_folder)move_selection_to_folder();else if(chosen==folder_from_selection)create_folder_from_selection();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();else if(chosen==batch_rename)batch_rename_selection();else if(chosen==sort_paint_order)sort_selection_by_name_paint_order();});
 }
 void Window::duplicate_selection() {
     if(canvas->selected_objects().empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select objects or Groups to duplicate");
@@ -3930,6 +3938,49 @@ void Window::group_selection() {
     if(ordered.size()!=chosen.size())throw Error("INVALID_GROUP","Select sibling objects in the current group");
     const auto id=new_id();
     host.session.apply({GroupContiguous{comp.id,parent,ordered,id,"Group"}},host.session.revision());canvas->set_selection(id);host.edited();
+}
+void Window::create_folder_from_selection() {
+    Id parent;std::vector<Id> members;
+    try{members=selected_siblings(parent,2);}
+    catch(const Error&){throw Error("FOLDER_GROUP_SELECTION","Select at least two whole sibling objects");}
+    const auto composition=canvas->active_composition();
+    const auto document=host.session.document();
+    const auto& scope=find_composition(document,composition);
+    const auto& siblings=parent.empty()?scope.roots:document.objects.at(parent).children;
+    const auto start=std::search(siblings.begin(),siblings.end(),members.begin(),members.end());
+    if(start==siblings.end())throw Error("FOLDER_GROUP_SELECTION","Select one contiguous sibling block to preserve paint order");
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto id=new_id();
+    QDialog dialog(this);dialog.setObjectName("create-folder-from-selection-dialog");dialog.setWindowTitle("Create Folder from selected");dialog.resize(640,410);
+    auto* layout=new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel("The Folder replaces this sibling block. Stable IDs, pixels and flattened paint order stay the same.",&dialog));
+    auto* name=new QLineEdit("Folder",&dialog);name->setObjectName("create-folder-from-selection-name");layout->addWidget(name);
+    auto* preview=new QPlainTextEdit(&dialog);preview->setObjectName("create-folder-from-selection-preview");preview->setReadOnly(true);layout->addWidget(preview,1);
+    auto update_preview=[&] {
+        QStringList old_order,new_order;
+        for(const auto& sibling:siblings)old_order.push_back(qs(sibling)+" · "+qs(document.objects.at(sibling).name));
+        for(const auto& sibling:siblings) {
+            if(sibling==*start) {
+                new_order.push_back(qs(id)+" · "+name->text().trimmed()+" [Folder]");
+                for(const auto& member:members)new_order.push_back("  "+qs(member)+" · "+qs(document.objects.at(member).name));
+            } else if(std::find(members.begin(),members.end(),sibling)==members.end())new_order.push_back(qs(sibling)+" · "+qs(document.objects.at(sibling).name));
+        }
+        preview->setPlainText("Old sibling order:\n"+old_order.join("\n")+"\n\nProposed structure:\n"+new_order.join("\n")+
+            "\n\nFlattened paint order: unchanged");
+    };
+    update_preview();connect(name,&QLineEdit::textChanged,&dialog,[&](const QString&){update_preview();});
+    auto* error=new QLabel(&dialog);error->setObjectName("create-folder-from-selection-error");error->setTextFormat(Qt::PlainText);layout->addWidget(error);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);buttons->button(QDialogButtonBox::Ok)->setText("Create Folder");layout->addWidget(buttons);
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,[&] {
+        if(name->text().trimmed().isEmpty()){error->setText("Enter a Folder name.");return;}
+        dialog.accept();
+    });
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The Folder preview belongs to another document");
+    if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","The document changed while previewing the Folder");
+    canvas->cancel_interaction();host.session.apply({GroupContiguous{composition,parent,members,id,name->text().trimmed().toStdString()}},revision);
+    canvas->set_selection(id);host.edited();
+    statusBar()->showMessage("Created Folder from selected siblings in one edit; Undo restores their original structure",7000);
 }
 void Window::create_folder() {
     const auto id=new_id();

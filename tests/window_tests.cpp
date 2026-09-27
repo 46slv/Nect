@@ -363,6 +363,71 @@ void explicit_folder_transfer_action(Window& window) {
         window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_ORDER"),
         "A painted sibling barrier leaves no eligible Folder and refuses without an authored delta");
 }
+void batch_folder_preview_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    for(const auto* id:{"preview-u","preview-a","preview-b","preview-c","preview-v"}) {
+        Point point;point.id=std::string(id)+"-point";point.x.literal=60;point.y.literal=60;
+        setup.push_back(CreatePath{composition,"",id,id,{{std::string(id)+"-contour",false,{point}}}});
+    }
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+    auto* action=named_action(window,"create-folder-from-selection");
+    check(action->text()=="Create Folder from selected…","Edit menu exposes previewed batch Folder creation");
+    const auto before=session.document();const auto before_history=session.history();
+    const auto before_world=evaluate_transforms(before,evaluate(before));
+    const auto before_render=Canvas::render_artboard(before,composition,window.canvas->active_artboard(),1,false);
+    window.canvas->set_selections({{"preview-a",""},{"preview-c",""}});QApplication::processEvents();action->trigger();
+    check(session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_GROUP_SELECTION"),
+        "Discontiguous Folder preview selection refuses without authored delta");
+    window.canvas->set_selection("preview-b","preview-b-point");QApplication::processEvents();action->trigger();
+    check(session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_GROUP_SELECTION"),
+        "Point selection refuses Folder preview");
+    window.canvas->set_selections({{"preview-c",""},{"preview-a",""},{"preview-b",""}});QApplication::processEvents();
+    bool context_enabled=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+        for(auto* candidate:menu->actions())if(candidate->objectName()=="create-folder-from-selection-context") {
+            context_enabled=candidate->isEnabled();menu->close();return;
+        }
+    });
+    const auto point=window.canvas->rect().center();QContextMenuEvent context(QContextMenuEvent::Mouse,point,window.canvas->mapToGlobal(point));
+    QApplication::sendEvent(window.canvas,&context);QApplication::processEvents();
+    check(context_enabled,"Selection menu enables previewed Folder creation for contiguous siblings");
+    bool preview_order=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("create-folder-from-selection-dialog");
+        if(!dialog)return;
+        const auto text=dialog->findChild<QPlainTextEdit*>("create-folder-from-selection-preview")->toPlainText();
+        preview_order=text.indexOf("preview-a")<text.indexOf("preview-b")&&text.indexOf("preview-b")<text.indexOf("preview-c")&&
+            text.contains("Flattened paint order: unchanged");
+        dialog->reject();
+    });
+    action->trigger();QApplication::processEvents();
+    check(preview_order&&session.document()==before&&session.history()==before_history,
+        "Folder preview orders stable IDs by siblings and Cancel leaves Document and History unchanged");
+    bool empty_refused=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("create-folder-from-selection-dialog");
+        if(!dialog)return;
+        auto* name=dialog->findChild<QLineEdit*>("create-folder-from-selection-name");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();name->clear();buttons->button(QDialogButtonBox::Ok)->click();
+        empty_refused=dialog->isVisible()&&dialog->findChild<QLabel*>("create-folder-from-selection-error")->text().contains("name")&&session.document()==before;
+        name->setText("Artwork");buttons->button(QDialogButtonBox::Ok)->click();
+    });
+    const auto revision=session.revision();action->trigger();QApplication::processEvents();
+    check(empty_refused&&session.revision()==revision+1,"Empty Folder name is rejected before one atomic Apply");
+    const auto& result=session.document();const auto id=window.canvas->selected_object;
+    check(result.compositions[0].roots==std::vector<Id>{"preview-u",id,"preview-v"}&&
+        result.objects.at(id).children==std::vector<Id>{"preview-a","preview-b","preview-c"}&&
+        result.objects.at(id).name=="Artwork","Previewed Folder replaces the contiguous block in sibling order");
+    for(const auto* old_id:{"preview-u","preview-a","preview-b","preview-c","preview-v"})
+        check(result.objects.at(old_id)==before.objects.at(old_id),"Existing authored objects and IDs remain exact");
+    const auto after_world=evaluate_transforms(result,evaluate(result));
+    for(const auto& [old_id,transform]:before_world)for(std::size_t i=0;i<6;++i)
+        check(std::abs(transform.world[i]-after_world.at(old_id).world[i])<1e-8,"Batch Folder preserves world placement");
+    check(Canvas::render_artboard(result,composition,window.canvas->active_artboard(),1,false)==before_render,
+        "Batch Folder preserves rendered pixels");
+    check(decode(encode(result))==result,"Previewed Folder survives native roundtrip");
+    const auto grouped=result;session.undo(session.revision());window.host.edited();check(session.document()==before,"Previewed Folder has one exact Undo");
+    session.redo(session.revision());window.host.edited();check(session.document()==grouped,"Previewed Folder has one exact Redo");
+}
 void batch_rename_action(Window& window) {
     auto& session=window.host.session;const auto composition=window.canvas->active_composition();
     std::vector<Command> setup;
@@ -2227,7 +2292,8 @@ int main(int argc,char** argv) {
         sort_paint_order.hide();Window move_out(temp.path()+"/move-out");move_out.show();QApplication::processEvents();move_out_action(move_out);
         move_out.hide();Window transfer(temp.path()+"/folder-transfer");transfer.show();QApplication::processEvents();adjacent_folder_transfer_action(transfer);
         transfer.hide();Window chosen_transfer(temp.path()+"/chosen-transfer");chosen_transfer.show();QApplication::processEvents();explicit_folder_transfer_action(chosen_transfer);
-        chosen_transfer.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
+        chosen_transfer.hide();Window folder_preview(temp.path()+"/folder-preview");folder_preview.show();QApplication::processEvents();batch_folder_preview_action(folder_preview);
+        folder_preview.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
         stacking.hide();Window layout_setup(temp.path()+"/layout-setup");layout_setup.show();QApplication::processEvents();
         layout_setup_previews_commit_and_recovers(layout_setup);layout_setup.hide();
         Window layout_refs(temp.path()+"/layout-references");layout_refs.show();QApplication::processEvents();

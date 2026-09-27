@@ -484,9 +484,33 @@ void explicit_nonadjacent_folder_transfer() {
     check(stale.document()==stale_document&&stale.history()==stale_history&&stale.revision()==0,
         "Stale explicit transfer leaves Document, History and revision unchanged");
 }
+void previewed_folder_api() {
+    auto document=fixture();
+    document.collections={{"selected-set","Selected",{"a","b"}}};
+    document.objects.at("source").contours[0].points[0].x.binding=Binding{{"a","","transform.tx"},1,0,"copy_local_value"};
+    const auto before_order=drawable_order(document,scene(document));const auto before_world=transforms(document);
+    Session session(document);
+    const auto response=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"group_contiguous","composition":"comp","parent":"","members":["a","b"],"id":"preview-folder","name":"Artwork"}]})");
+    check(response.find("\"changed\":true")!=std::string::npos,"JSON-lines reaches the shared contiguous Folder command");
+    const auto grouped=session.document();
+    check(grouped.compositions[0].roots==std::vector<Id>{"preview-folder","source"}&&
+        grouped.objects.at("preview-folder").children==std::vector<Id>{"a","b"}&&
+        grouped.objects.at("preview-folder").name=="Artwork","Shared command creates the previewed structure");
+    check(drawable_order(grouped,scene(grouped))==before_order&&grouped.collections==document.collections&&
+        grouped.objects.at("source").contours[0].points[0].x.binding==document.objects.at("source").contours[0].points[0].x.binding,
+        "Batch Folder grouping retains paint order, Collection and stable property reference");
+    for(const auto& [id,old]:before_world)same_matrix(old.world,transforms(grouped).at(id).world);
+    check(decode(encode(grouped))==grouped,"Batch Folder survives native roundtrip");
+    session.undo(session.revision());check(session.document()==document,"Batch Folder has one exact Undo");
+    session.redo(session.revision());check(session.document()==grouped,"Batch Folder has one exact Redo");
+    Session rejected(document);atomic(rejected,"NONCONTIGUOUS_GROUP",{GroupContiguous{"comp","",{"a","source"},"bad-folder","Bad"}});
+    Session stale(document);const auto original=stale.document();const auto history=stale.history();
+    rejects("REVISION_CONFLICT",[&]{stale.apply({GroupContiguous{"comp","",{"a","b"},"stale-folder","Stale"}},1);});
+    check(stale.document()==original&&stale.history()==history&&stale.revision()==0,"Stale grouping leaves Document, History and revision unchanged");
+}
 
 }
 int main() {
-    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

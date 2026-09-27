@@ -132,6 +132,7 @@ private:
     void move_selection_to_next_folder();
     void move_selection_to_previous_folder();
     void move_selection_to_folder();
+    void create_folder_from_selection();
     void selection_menu(const QPoint& global);
     void choose_transform_parent();
     void edit_text_content(const Id& object);
