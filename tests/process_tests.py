@@ -161,6 +161,69 @@ with tempfile.TemporaryDirectory() as tmp:
           'JSON-lines unlink freezes evaluated visibility after the former source changes')
 
 with tempfile.TemporaryDirectory() as tmp:
+    source = Path(tmp) / 'point-edit-enabled.nect.json'
+    source.write_text(json.dumps(sample), encoding='utf-8')
+    enabled_ref = dict(object='process-circle', point='', field='point_edit.enabled')
+    generated_point = dict(object='process-circle', point='process-circle-source-east', field='x')
+    primitive = dict(id='process-circle-source', type='nect.shape.circle', version=1,
+        parameters=dict(center_x=dict(literal=50), center_y=dict(literal=40), radius=dict(literal=100)))
+    requests = [
+        dict(op='apply', expected_revision=0, commands=[dict(type='create_primitive', composition=sample['compositions'][0]['id'],
+            parent='', id='process-circle', name='Point Edit Circle', source=primitive)]),
+        dict(op='get', ref=enabled_ref),
+        dict(op='resolve_name', name='Point Edit Circle', point='', field='point_edit.enabled'),
+        dict(op='properties'),
+        dict(op='apply', expected_revision=1, commands=[dict(type='set', ref=generated_point, value=75)]),
+        dict(op='get', ref=enabled_ref),
+        dict(op='resolve_name', name='Point Edit Circle', point='', field='point_edit.enabled'),
+        dict(op='properties'),
+        dict(op='apply', expected_revision=2, commands=[dict(type='enable_point_edit', object='process-circle', enabled=False)]),
+        dict(op='get', ref=enabled_ref),
+        dict(op='get', ref=generated_point),
+        dict(op='inspect'),
+        dict(op='apply', expected_revision=3, commands=[dict(type='set', ref=enabled_ref, value=0)]),
+        dict(op='apply', expected_revision=3, commands=[dict(type='clear_point_edit', object='process-circle')]),
+        dict(op='get', ref=enabled_ref),
+        dict(op='properties'),
+    ]
+    process = subprocess.run([exe, '--serve', str(source)], input='\n'.join(map(json.dumps, requests))+'\n',
+        capture_output=True, text=True, encoding='utf-8', timeout=20)
+    replies = [json.loads(line) for line in process.stdout.splitlines()]
+    check(process.returncode == 0 and len(replies) == len(requests) and replies[0]['ok'],
+          'Procedural Path creation succeeds before Point Edit discovery')
+    check(replies[1]['error']['code'] == 'NO_POINT_EDIT' and replies[2]['error']['code'] == 'NO_POINT_EDIT' and
+          not any(value['ref'] == enabled_ref for value in replies[3]['result']),
+          'Undrafted Point Edit is absent from get, unique-name resolution and properties')
+    enabled_read = replies[5]['result']
+    discovered = next(value for value in replies[7]['result'] if value['ref'] == enabled_ref)
+    check(enabled_read['type'] == 'bool' and enabled_read['unit'] == 'boolean' and
+          enabled_read['space'] == 'local' and enabled_read['origin'] == 'authored' and
+          enabled_read['authored'] == dict(literal=True, driver=None) and enabled_read['evaluated'] is True and
+          enabled_read['link'] is False and enabled_read['expression'] is False and
+          replies[6]['result'] == enabled_ref and discovered == enabled_read,
+          'Point Edit get, properties and unique-name resolution expose the authored typed boolean')
+    check(replies[8]['ok'] and replies[9]['result']['authored'] == dict(literal=False, driver=None) and
+          replies[9]['result']['evaluated'] is False and replies[10]['result']['evaluated'] == 150,
+          'Disabling Point Edit reads false and restores generated geometry while retaining the override')
+    check(replies[12]['error']['code'] == 'MISSING_REFERENCE' and replies[12]['revision'] == 3 and
+          replies[13]['ok'] and replies[14]['error']['code'] == 'NO_POINT_EDIT' and
+          not any(value['ref'] == enabled_ref for value in replies[15]['result']),
+          'Generic Scalar edit cannot change the boolean, and clearing the instance removes discovery')
+    saved = replies[11]['result']
+    source.write_text(json.dumps(saved), encoding='utf-8')
+    before = source.read_bytes()
+    cold = subprocess.run([exe, '--serve', str(source)], input=json.dumps(dict(op='get', ref=enabled_ref))+'\n'+
+        json.dumps(dict(op='get', ref=generated_point))+'\n'+json.dumps(dict(op='inspect'))+'\n',
+        capture_output=True, text=True, encoding='utf-8', timeout=20)
+    cold_replies = [json.loads(line) for line in cold.stdout.splitlines()]
+    check(cold.returncode == 0 and len(cold_replies) == 3 and all(item['ok'] for item in cold_replies) and
+          cold_replies[0]['result']['authored'] == dict(literal=False, driver=None) and
+          cold_replies[1]['result']['evaluated'] == 150 and
+          next(obj for obj in cold_replies[2]['result']['objects'] if obj['id'] == 'process-circle')['point_edit']['id'] ==
+              'process-circle-source-point-edit' and source.read_bytes() == before,
+          'Distinct native 0.27 cold open retains Point Edit identity, bypass, generator fallback and exact bytes')
+
+with tempfile.TemporaryDirectory() as tmp:
     source = Path(tmp) / 'mask-enabled.nect.json'
     source.write_text(json.dumps(sample), encoding='utf-8')
     mask_ref = dict(object='path-A', point='', field='mask.enabled')

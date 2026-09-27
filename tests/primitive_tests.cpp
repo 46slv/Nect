@@ -21,6 +21,9 @@ int main() {
                 {{"center_x",{300,{}}},{"center_y",{200,{}}},{"width",{80,{}}},{"height",{120,{}}}}}}},0);
         const Ref east{"circle","circle-source-east","x"},west{"circle","circle-source-west","x"};
         const Ref radius{"circle","","generator.radius"},rx{"rect","rect-source-top-left","x"};
+        const Ref edit_enabled{"circle","","point_edit.enabled"};
+        rejects("NO_POINT_EDIT",[&]{(void)point_edit_enabled_property(s.document(),edit_enabled);});
+        rejects("NO_POINT_EDIT",[&]{(void)resolve_name(s.document(),"Circle","","point_edit.enabled");});
         auto values=evaluate(s.document());
         check(values.at(east)==150&&values.at(west)==50,"Circle uses hand-specified anchor coordinates");
         check(std::abs(values.at({"circle","circle-source-east","out.length"})-27.61423749153968)<1e-10,
@@ -39,11 +42,25 @@ int main() {
         s.apply({Set{east,180}},1);
         check(s.document().objects.at("circle").source.has_value()&&property_origin(s.document(),east)=="point_edit",
             "Direct edit retains generator and authors a downstream correction");
+        const auto discovered=properties(s.document());
+        check(point_edit_enabled_property(s.document(),edit_enabled)&&
+            std::find(discovered.begin(),discovered.end(),edit_enabled)!=discovered.end()&&
+            resolve_name(s.document(),"Circle","","point_edit.enabled")==edit_enabled,
+            "Authored Point Edit is discoverable and resolves by its unique owner name");
+        const auto enabled_read=request(s,R"({"op":"get","ref":{"object":"circle","point":"","field":"point_edit.enabled"}})");
+        check(enabled_read.find("\"type\":\"bool\"")!=std::string::npos&&
+            enabled_read.find("\"literal\":true")!=std::string::npos&&
+            enabled_read.find("\"driver\":null")!=std::string::npos&&
+            enabled_read.find("\"evaluated\":true")!=std::string::npos,
+            "Point Edit enabled typed read exposes the authored bypass choice");
+        rejects("MISSING_REFERENCE",[&]{s.apply({Set{edit_enabled,0}},2);});
+        rejects("INVALID_POINT_EDIT_REF",[&]{(void)point_edit_enabled_property(s.document(),Ref{"circle","circle-source-east","point_edit.enabled"});});
         s.apply({Set{radius,80},Link{rx,{east,1,20,"copy_local_value"}}},2);
         values=evaluate(s.document());
         check(values.at(east)==180&&values.at(west)==20&&values.at(rx)==200,"Radius changes preserve overrides and driven stable references");
         s.apply({EnablePointEdit{"circle",false}},3);
-        check(property_origin(s.document(),east)=="bypassed_point_edit","Disabled correction is retained and explicit");
+        check(property_origin(s.document(),east)=="bypassed_point_edit"&&
+            !point_edit_enabled_property(s.document(),edit_enabled),"Disabled correction is retained and explicit");
         s.apply({Set{radius,90}},4);
         check(evaluate(s.document()).at(east)==190&&evaluate(s.document()).at(rx)==210,"Bypass restores generated output and dependent evaluation");
         const auto bypassed=encode(s.document());
@@ -51,7 +68,8 @@ int main() {
         s.apply({EnablePointEdit{"circle",true},Rename{"circle","Renamed"},
             ReorderObjects{"comp","",{"rect","circle"}}},5);
         check(evaluate(s.document()).at(rx)==200,"Rename/reorder/bypass retain point identity");
-        s.undo(6);check(encode(s.document())==bypassed,"Undo restores source, correction bypass and hierarchy");s.redo(7);
+        s.undo(6);check(encode(s.document())==bypassed&&!point_edit_enabled_property(s.document(),edit_enabled),
+            "Undo restores source, typed correction bypass and hierarchy");s.redo(7);
         s.apply({Link{rx,{radius,1,0,"copy_local_value"}}},8);
         check(conversion_blockers(s.document(),"circle")==std::vector<Ref>{rx},"Conversion lists generator dependents");
         const auto blocked=encode(s.document());

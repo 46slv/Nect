@@ -591,6 +591,7 @@ auto& lookup_property(D& d,const Ref& r) {
 std::string unit(const Ref& r) {
     if(r.point.empty()&&r.field=="text.italic")return "boolean";
     if(r.point.empty()&&r.field=="mask.enabled")return "boolean";
+    if(r.point.empty()&&r.field=="point_edit.enabled")return "boolean";
     if(r.point.empty()&&r.field=="text.weight")return "unitless";
     if(r.field=="generator.points")return "scalar";
     if(r.field=="generator.rotation")return "degree";
@@ -820,6 +821,8 @@ std::vector<Ref> properties(const Document& document) {
         refs.push_back({id,"","object.visible"});
         refs.push_back({id,"","composite.isolated"});
         if(object.compositing.mask)refs.push_back({id,"","mask.enabled"});
+        if(object.kind==Kind::path&&object.source&&object.point_edit)
+            refs.push_back({id,"","point_edit.enabled"});
         if(object.kind==Kind::text&&object.text)
         {refs.push_back({id,"","text.italic"});refs.push_back({id,"","text.weight"});
             refs.push_back({id,"","text.content"});refs.push_back({id,"","text.family"});refs.push_back({id,"","text.locale"});
@@ -1080,6 +1083,16 @@ bool geometry_mask_enabled_property(const Document& document,const Ref& ref) {
     require(object->second.compositing.mask.has_value(),"MISSING_MASK","Object has no geometry mask: "+ref.object);
     return object->second.compositing.mask->enabled;
 }
+bool point_edit_enabled_property(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_POINT_EDIT_REF","Point Edit enabled requires an empty point ID");
+    require(ref.field=="point_edit.enabled","TYPE_MISMATCH","Only point_edit.enabled accepts this Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::path&&object->second.source.has_value(),
+        "TYPE_MISMATCH","Point Edit enabled Ref must identify a procedural Path");
+    require(object->second.point_edit.has_value(),"NO_POINT_EDIT","Primitive has no authored point corrections");
+    return object->second.point_edit->enabled;
+}
 bool is_text_readonly_field(const std::string& field) {
     return field=="text.content"||field=="text.family"||field=="text.locale"||
         field=="text.layout"||field=="text.direction"||field=="text.alignment";
@@ -1132,6 +1145,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     }
     if(f=="mask.enabled") {
         (void)geometry_mask_enabled_property(d,r);
+        return r;
+    }
+    if(f=="point_edit.enabled") {
+        (void)point_edit_enabled_property(d,r);
         return r;
     }
     if(f.starts_with("op.")&&f.ends_with(".enabled")) {

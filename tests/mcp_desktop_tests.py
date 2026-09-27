@@ -763,6 +763,30 @@ try:
                    dict(type='set',ref=dict(object='mcp-masked-group',point='',field='composite.opacity'),value=.65)],rev)
         masked=core('inspect')['result']
         assert next(o for o in masked['objects'] if o['id']=='mcp-mask')['visible'] is False
+        point_edit_ref=dict(object='mcp-mask',point='',field='point_edit.enabled')
+        absent_point_edit=core('get',ref=point_edit_ref)
+        assert not absent_point_edit['ok'] and absent_point_edit['error']['code']=='NO_POINT_EDIT'
+        assert not any(item['ref']==point_edit_ref for item in core('properties')['result'])
+        rev=apply([dict(type='set',ref=dict(object='mcp-mask',point='mcp-mask-source-east',field='x'),value=123)],rev)
+        point_edit=core('get',ref=point_edit_ref)
+        assert point_edit['ok'] and point_edit['result']['type']=='bool'
+        assert point_edit['result']['unit']=='boolean' and point_edit['result']['space']=='local'
+        assert point_edit['result']['origin']=='authored'
+        assert point_edit['result']['authored']==dict(literal=True,driver=None)
+        assert point_edit['result']['evaluated'] is True
+        assert point_edit['result']['link'] is False and point_edit['result']['expression'] is False
+        assert core('resolve_name',name='Hidden mask',point='',field='point_edit.enabled')['result']==point_edit_ref
+        assert any(item['ref']==point_edit_ref for item in core('properties')['result'])
+        assert point_edit['result']==desktop_api_call(endpoint,dict(identity,op='core',
+            request=dict(op='get',ref=point_edit_ref)))['result']
+        bad_point_edit=core('apply',expected_revision=rev,commands=[dict(type='set',ref=point_edit_ref,value=0)])
+        assert not bad_point_edit['ok'] and bad_point_edit['revision']==rev
+        rev=apply([dict(type='enable_point_edit',object='mcp-mask',enabled=False)],rev)
+        bypassed_point_edit=core('get',ref=point_edit_ref)
+        assert bypassed_point_edit['result']['authored']==dict(literal=False,driver=None)
+        assert bypassed_point_edit['result']['evaluated'] is False
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=point_edit_ref)['result']['authored']==dict(literal=True,driver=None)
         visibility_ref=dict(object='mcp-mask',point='',field='object.visible')
         rev=apply([dict(type='link_object_visibility',target=visibility_ref,
                         source=dict(object='linked-star',point='',field='object.visible'),replace_driver=False)],rev)
