@@ -816,6 +816,7 @@ std::vector<Ref> properties(const Document& document) {
         refs.push_back(ref);
     }
     for(const auto& [id,object]:document.objects) {
+        refs.push_back({id,"","object.visible"});
         if(object.kind==Kind::text&&object.text)
         {refs.push_back({id,"","text.italic"});refs.push_back({id,"","text.weight"});
             refs.push_back({id,"","text.content"});refs.push_back({id,"","text.family"});refs.push_back({id,"","text.locale"});
@@ -981,6 +982,13 @@ bool operation_enabled_property(const Document& document,const Ref& ref) {
     require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
     return found->enabled;
 }
+bool object_visibility_property(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_OBJECT_REF","Object visibility requires an empty point ID");
+    require(ref.field=="object.visible","TYPE_MISMATCH","Only object.visible accepts this Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    return object->second.visible;
+}
 bool is_text_readonly_field(const std::string& field) {
     return field=="text.content"||field=="text.family"||field=="text.locale"||
         field=="text.layout"||field=="text.direction"||field=="text.alignment";
@@ -1023,6 +1031,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     require(!matches.empty(),"MISSING_NAME","No matching object: "+name);
     require(matches.size()==1,"AMBIGUOUS_NAME","Name must resolve to exactly one object: "+name);
     Ref r{matches.front(),p,f};
+    if(f=="object.visible") {
+        (void)object_visibility_property(d,r);
+        return r;
+    }
     if(f.starts_with("op.")&&f.ends_with(".enabled")) {
         (void)operation_enabled_property(d,r);
         return r;

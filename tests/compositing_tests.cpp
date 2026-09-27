@@ -43,6 +43,44 @@ Document fixture() {
     for(const auto* id:{"a","b","source"}){document.objects.emplace(id,rectangle(id));document.compositions[0].roots.push_back(id);}return document;
 }
 EvaluatedScene scene(const Document& document){const auto values=evaluate(document);return evaluate_scene(document,"comp",values,evaluate_transforms(document,values));}
+void object_visibility_read_contract() {
+    Session session(fixture());
+    const Ref ref{"a","","object.visible"};
+    const auto refs=properties(session.document());
+    check(std::find(refs.begin(),refs.end(),ref)!=refs.end()&&
+        resolve_name(session.document(),"a","","object.visible")==ref&&
+        object_visibility_property(session.document(),ref),
+        "Object visibility is discoverable by stable ID and unique name");
+    const auto initial=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"object.visible"}})");
+    check(initial.find("\"type\":\"bool\"")!=std::string::npos&&
+        initial.find("\"literal\":true")!=std::string::npos&&
+        initial.find("\"evaluated\":true")!=std::string::npos&&
+        initial.find("\"link\":false")!=std::string::npos,
+        "API get exposes authored visibility without promising a driver");
+    rejects("INVALID_OBJECT_REF",[&]{(void)object_visibility_property(session.document(),{"a","point","object.visible"});});
+    rejects("TYPE_MISMATCH",[&]{(void)object_visibility_property(session.document(),{"a","","object.other"});});
+    rejects("MISSING_REFERENCE",[&]{(void)object_visibility_property(session.document(),{"missing","","object.visible"});});
+    atomic(session,"MISSING_REFERENCE",{SetVisibility{"a",false},Set{ref,0}});
+    rejects("REVISION_CONFLICT",[&]{session.apply({SetVisibility{"a",false}},session.revision()+1);});
+    check(session.revision()==0&&object_visibility_property(session.document(),ref),
+        "Stale visibility draft leaves the committed literal and revision unchanged");
+    apply(session,{SetVisibility{"a",false}});
+    check(!object_visibility_property(session.document(),ref)&&
+        !scene(session.document()).roots.front().visible,
+        "Shared SetVisibility changes the typed value and scene consumer");
+    const auto hidden=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"object.visible"}})");
+    check(hidden.find("\"literal\":false")!=std::string::npos&&
+        hidden.find("\"evaluated\":false")!=std::string::npos,
+        "API get reads the same hidden authored value");
+    const auto saved=encode(session.document());
+    check(object_visibility_property(decode(saved),ref)==false&&encode(decode(saved))==saved,
+        "Native roundtrip retains the authored visibility without migration");
+    session.undo(session.revision());
+    check(object_visibility_property(session.document(),ref),"Undo restores authored visibility");
+    apply(session,{Rename{"a","Renamed"}});
+    check(resolve_name(session.document(),"Renamed","","object.visible")==ref,
+        "Rename preserves the stable visibility Ref");
+}
 std::map<Id,EvaluatedTransform> transforms(const Document& document){return evaluate_transforms(document,evaluate(document));}
 void same_matrix(const Affine& a,const Affine& b){for(std::size_t i=0;i<6;++i)near(a[i],b[i],"World placement preserved");}
 std::vector<Id> drawable_order(const Document& document,const EvaluatedScene& evaluated) {
@@ -182,6 +220,9 @@ void scene_contract() {
     apply(session,{SetCompositing{"group","normal",true}});check(scene(session.document()).roots[0].isolated,"Explicit normal isolation remains meaningful");
     apply(session,{SetVisibility{"group",false}});evaluated=scene(session.document());
     check(!evaluated.roots[0].visible&&evaluated.shapes.contains("a"),"Hidden tree retains editable evaluated leaf geometry");
+    check(object_visibility_property(session.document(),{"a","","object.visible"})&&
+        !object_visibility_property(session.document(),{"group","","object.visible"}),
+        "Typed visibility reports each authored toggle, not effective ancestor visibility");
 }
 
 void group_posterize_native_api_and_refusals() {
@@ -602,6 +643,6 @@ void previewed_folder_api() {
 
 }
 int main() {
-    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{object_visibility_read_contract();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

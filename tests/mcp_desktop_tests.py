@@ -763,6 +763,14 @@ try:
                    dict(type='set',ref=dict(object='mcp-masked-group',point='',field='composite.opacity'),value=.65)],rev)
         masked=core('inspect')['result']
         assert next(o for o in masked['objects'] if o['id']=='mcp-mask')['visible'] is False
+        visibility_ref=dict(object='mcp-mask',point='',field='object.visible')
+        visibility=core('get',ref=visibility_ref)
+        assert visibility['ok'] and visibility['result']['type']=='bool'
+        assert visibility['result']['authored']==dict(literal=False,driver=None)
+        assert visibility['result']['evaluated'] is False and visibility['result']['link'] is False
+        direct_visibility=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=visibility_ref)))
+        assert visibility['result']==direct_visibility['result'],(visibility,direct_visibility)
+        assert any(item['ref']==visibility_ref for item in core('properties')['result'])
         mask_ref=dict(object='mcp-mask',point='',field='generator.radius')
         changed=core('apply',expected_revision=rev,commands=[dict(type='set',ref=mask_ref,value=75)])
         assert changed['ok'] and {'mcp-mask','mcp-masked-group'}.issubset(changed['result']['changed_ids']);rev=changed['revision']

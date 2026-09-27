@@ -612,6 +612,7 @@ FillRuleProperty fill_rule_property(const Document&,const Ref&);
 std::string evaluate_fill_rule(const Document&,const Ref&);
 std::map<Ref,std::string> evaluate_fill_rules(const Document&);
 bool operation_enabled_property(const Document&,const Ref&);
+bool object_visibility_property(const Document&,const Ref&);
 struct GuidePositionProperty {
     double literal=0;
     std::optional<Ref> driver;
