@@ -1706,6 +1706,14 @@ void put_inside(Document& document,const PutInside& command) {
     auto block=command.members;block.push_back(command.group);
     const auto start=std::search(list.begin(),list.end(),block.begin(),block.end());
     require(start!=list.end(),"NONCONTIGUOUS_GROUP","Moved siblings must immediately precede the destination Group in order");
+    const auto& destination=document.objects.at(command.group);
+    require(destination.visible,"PUT_INSIDE_APPEARANCE","Put Inside destination Group is hidden");
+    require(destination.compositing.opacity.literal==1,"PUT_INSIDE_APPEARANCE","Put Inside destination Group has non-neutral opacity");
+    require(!driven(destination.compositing.opacity),"PUT_INSIDE_APPEARANCE","Put Inside destination Group opacity is driven");
+    require(destination.compositing.blend=="normal","PUT_INSIDE_APPEARANCE","Put Inside destination Group uses a non-normal blend mode");
+    require(!destination.compositing.isolated,"PUT_INSIDE_APPEARANCE","Put Inside destination Group is isolated");
+    require(!destination.compositing.mask,"PUT_INSIDE_APPEARANCE","Put Inside destination Group has a mask");
+    require(destination.stack.empty(),"PUT_INSIDE_APPEARANCE","Put Inside destination Group has effects");
     const auto values=evaluate(document);const auto before=evaluate_transforms(document,values);
     const auto basis=before.at(command.group).world;
     list.erase(start,start+static_cast<std::ptrdiff_t>(command.members.size()));

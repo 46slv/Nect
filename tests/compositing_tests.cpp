@@ -19,6 +19,17 @@ void atomic(Session& session,const char* code,std::vector<Command> commands) {
     rejects(code,[&]{apply(session,std::move(commands));});
     check(session.document()==before&&session.revision()==rev&&session.history()==history,"Rejected composite command is atomic");
 }
+void atomic_reason(Session& session,const char* code,const char* reason,std::vector<Command> commands) {
+    const auto before=session.document();const auto rev=session.revision();const auto history=session.history();
+    try{apply(session,std::move(commands));}
+    catch(const Error& error) {
+        check(error.code==code,"Expected "+std::string(code)+", got "+error.code+": "+error.what());
+        check(std::string(error.what()).find(reason)!=std::string::npos,"Appearance refusal names boundary: "+std::string(error.what()));
+        check(session.document()==before&&session.revision()==rev&&session.history()==history,"Appearance refusal retains document, revision and history");
+        return;
+    }
+    throw std::runtime_error("Expected rejection: "+std::string(code));
+}
 Object rectangle(Id id,double x=0,double y=0) {
     Object object;object.id=id;object.name=id;Contour contour;contour.id=id+"-contour";contour.closed=true;
     for(const auto& xy:std::vector<Vec2>{{x,y},{x+40,y},{x+40,y+30},{x,y+30}}) {
@@ -162,17 +173,43 @@ void mask_with_and_put_inside() {
     }
     auto document=fixture();Object group;group.id="group";group.name="Group";group.kind=Kind::group;group.children={"source"};matrix(group,{0,2,-3,0,200,30});
     document.objects.emplace(group.id,group);document.compositions[0].roots={"a","b","group"};matrix(document.objects.at("a"),{1,0,0,1,100,120});
+    document.objects.at("a").compositing.opacity.literal=.5;document.objects.at("a").compositing.blend="multiply";
     document.objects.at("b").transform_parent="a";matrix(document.objects.at("b"),{1,0,0,1,15,20});
-    Session session(document);const auto before=transforms(document);apply(session,{PutInside{"comp","","group",{"a","b"}}});const auto after=transforms(session.document());
+    Session session(document);const auto before=transforms(document);const auto source_appearance=document.objects.at("a").compositing;
+    apply(session,{PutInside{"comp","","group",{"a","b"}}});const auto after=transforms(session.document());
     check(session.document().objects.at("group").children==std::vector<Id>{"a","b","source"},"Put Inside inserts moved roots before existing children");
     for(const auto* id:{"a","b","source"})same_matrix(before.at(id).world,after.at(id).world);
+    check(session.document().objects.at("a").compositing==source_appearance,"Neutral destination allows and retains source sibling compositing");
     check(session.document().objects.at("b").transform==document.objects.at("b").transform&&session.document().objects.at("b").transform_parent==Id{"a"},"Explicit Transform Parent and local Scalars stay unchanged");
     const auto moved=session.document();session.undo(session.revision());check(session.document()==document,"Put Inside Undo restores Structure and canonical affine values");session.redo(session.revision());check(session.document()==moved,"Put Inside Redo restores exact state");
     Session invalid(document);atomic(invalid,"NONCONTIGUOUS_GROUP",{PutInside{"comp","","group",{"a"}}});
+    auto hidden_invalid=document;hidden_invalid.objects.at("group").visible=false;Session hidden_selection(hidden_invalid);
+    atomic(hidden_selection,"NONCONTIGUOUS_GROUP",{PutInside{"comp","","group",{"a"}}});
     auto driven=document;driven.objects.at("a").transform[0].expression=Expression{"1"};Session linked(driven);atomic(linked,"DRIVEN_PROPERTY",{PutInside{"comp","","group",{"a","b"}}});
     auto singular=document;matrix(singular.objects.at("group"),{0,0,0,1,0,0});Session collapsed(singular);atomic(collapsed,"SINGULAR_TRANSFORM",{PutInside{"comp","","group",{"a","b"}}});
     auto coupled=document;matrix(coupled.objects.at("group"),identity_matrix);coupled.objects.at("group").transform[4].binding=Binding{{"a","","transform.tx"},1,0,"copy_local_value"};Session dependent(coupled);
     atomic(dependent,"TRANSFORM_PRESERVATION",{PutInside{"comp","","group",{"a","b"}}});
+
+    auto appearance_refusal=[&](auto change,const char* reason) {
+        auto unsafe=document;change(unsafe.objects.at("group"));Session blocked(unsafe);
+        atomic_reason(blocked,"PUT_INSIDE_APPEARANCE",reason,{PutInside{"comp","","group",{"a","b"}}});
+    };
+    appearance_refusal([](Object& g){g.visible=false;},"destination Group is hidden");
+    appearance_refusal([](Object& g){g.compositing.opacity.literal=.5;},"non-neutral opacity");
+    appearance_refusal([](Object& g){g.compositing.opacity.expression=Expression{"1"};},"opacity is driven");
+    appearance_refusal([](Object& g){g.compositing.opacity.binding=Binding{{"source","","composite.opacity"},1,0,"copy_local_value"};},"opacity is driven");
+    appearance_refusal([](Object& g){g.compositing.blend="multiply";},"non-normal blend mode");
+    appearance_refusal([](Object& g){g.compositing.isolated=true;},"destination Group is isolated");
+    appearance_refusal([](Object& g){g.compositing.mask=GeometryMask{"group-mask","source"};},"destination Group has a mask");
+
+    auto api_document=document;api_document.objects.at("group").visible=false;Session api(api_document);
+    const auto api_before=api.document();const auto api_history=api.history();
+    const auto response=request(api,R"({"op":"apply","expected_revision":0,"commands":[{"type":"put_inside","composition":"comp","parent":"","group":"group","members":["a","b"]}]})");
+    check(response.find("\"code\":\"PUT_INSIDE_APPEARANCE\"")!=std::string::npos&&
+        response.find("Put Inside destination Group is hidden")!=std::string::npos,
+        "JSON-lines Put Inside reports the same scoped appearance refusal and reason");
+    check(api.document()==api_before&&api.revision()==0&&api.history()==api_history,
+        "JSON-lines appearance refusal retains document, revision and history");
 }
 void neutral_ungroup() {
     auto document=fixture();Object group;group.id="group";group.name="Group";group.kind=Kind::group;group.children={"a","b"};matrix(group,{0,2,-3,0,200,30});
