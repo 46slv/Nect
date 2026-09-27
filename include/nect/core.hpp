@@ -315,6 +315,7 @@ struct Unlink { Ref target; };
 struct Rename { Id object; std::string name; };
 struct ReorderPoints { Id object; Id contour; std::vector<Id> order; };
 struct GroupContiguous { Id composition; Id parent; std::vector<Id> members; Id id; std::string name; };
+struct CreateFolder { Id composition; Id parent; Id id; std::string name; };
 struct CreatePath { Id composition; Id parent; Id id; std::string name; std::vector<Contour> contours; };
 struct AddPoint { Id object; Id contour; Point point; };
 struct RemovePoint { Id object; Id contour; Id point; };
@@ -414,7 +415,7 @@ struct AlignObjects {
 };
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
-    CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
+    CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,OperationOptions,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,SetArtboardLayout,CreateText,UpdateText,

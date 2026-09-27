@@ -769,6 +769,10 @@ Command read_command(const j::value& v) {
         return CreatePath{text(o.at("composition")),text(o.at("parent")),text(o.at("id")),
             text(o.at("name")),std::move(contours)};
     }
+    if(type=="create_folder") {
+        keys(o,{"type","composition","parent","id","name"});
+        return CreateFolder{text(o.at("composition")),text(o.at("parent")),text(o.at("id")),text(o.at("name"))};
+    }
     if(type=="add_point") {
         keys(o,{"type","object","contour","point"});
         return AddPoint{text(o.at("object")),text(o.at("contour")),read_point(o.at("point"))};

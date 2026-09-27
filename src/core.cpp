@@ -2328,6 +2328,11 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             // may explicitly unlink/freeze those targets in this same atomic batch.
         } else if constexpr(std::is_same_v<T,GroupContiguous>) {
             group_contiguous(candidate,c.composition,c.parent,c.members,c.id,c.name);
+        } else if constexpr(std::is_same_v<T,CreateFolder>) {
+            require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
+            Object object;object.id=c.id;object.name=c.name;object.kind=Kind::group;
+            siblings(candidate,c.composition,c.parent).push_back(c.id);
+            candidate.objects.emplace(c.id,std::move(object));
         }
     },command);
 

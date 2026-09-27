@@ -97,6 +97,48 @@ void stacking_authoring(Window& w) {
 
     check(named_action(w,"stack-forward")->shortcut()==QKeySequence("Ctrl+]")&&named_action(w,"stack-back")->shortcut()==QKeySequence("Ctrl+Shift+["),"Stacking keyboard accelerators exposed");
 }
+void folder_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    const auto artboard=window.canvas->active_artboard();
+    Point p0,p1,p2,p3;p0.id="folder-p0";p0.x.literal=80;p0.y.literal=80;
+    p1.id="folder-p1";p1.x.literal=200;p1.y.literal=80;
+    p2.id="folder-p2";p2.x.literal=200;p2.y.literal=180;
+    p3.id="folder-p3";p3.x.literal=80;p3.y.literal=180;
+    Contour contour{"folder-contour",true,{p0,p1,p2,p3}};
+    session.apply({CreatePath{composition,"","folder-child","Child",{contour}},
+        GroupContiguous{composition,"",{"folder-child"},"folder-parent","Parent"}},session.revision());
+    window.host.edited();window.canvas->set_selection("folder-child");QApplication::processEvents();
+    check(window.canvas->drill_scope()=="folder-parent","Selecting a child enters its current Folder drill scope");
+    auto* tree=window.findChild<QTreeWidget*>();check(tree!=nullptr,"Folder action keeps the Structure tree available");
+    QTreeWidgetItem* parent_item=nullptr;
+    for(int i=0;i<tree->topLevelItemCount();++i)if(tree->topLevelItem(i)->data(0,Qt::UserRole)=="folder-parent")parent_item=tree->topLevelItem(i);
+    check(parent_item!=nullptr,"Nested Folder parent appears in the Structure tree");
+    parent_item->setExpanded(false);
+    check(!parent_item->isExpanded(),"Folder action starts with its parent row collapsed");
+    const auto before_render=Canvas::render_artboard(session.document(),composition,artboard,1,false);
+    const auto revision=session.revision();named_action(window,"create-folder")->trigger();QApplication::processEvents();
+    const auto folder=window.canvas->selected_object;
+    check(session.revision()==revision+1&&folder.size()>0&&folder!="folder-parent"&&folder!="folder-child",
+        "Create Folder uses one shared Session command and selects its stable new ID");
+    check(session.document().objects.at("folder-parent").children==std::vector<Id>{"folder-child",folder},
+        "Create Folder appends inside the current Canvas drill scope");
+    check(session.document().objects.at(folder).kind==Kind::group&&session.document().objects.at(folder).name=="Folder"&&
+        session.document().objects.at(folder).children.empty(),"Desktop action creates an empty Group named Folder");
+    QTreeWidgetItem* folder_item=nullptr;
+    QTreeWidgetItemIterator iterator(tree);while(*iterator){if((*iterator)->data(0,Qt::UserRole)==QString::fromStdString(folder))folder_item=*iterator;++iterator;}
+    check(folder_item&&folder_item->isSelected()&&tree->currentItem()==folder_item,
+        "New Folder is selected in the tree while its Canvas selection is active");
+    parent_item=nullptr;
+    for(int i=0;i<tree->topLevelItemCount();++i)if(tree->topLevelItem(i)->data(0,Qt::UserRole)=="folder-parent")parent_item=tree->topLevelItem(i);
+    check(parent_item&&parent_item->isExpanded(),"Tree reveals the newly selected Folder inside its parent");
+    const auto after_render=Canvas::render_artboard(session.document(),composition,artboard,1,false);
+    check(before_render==after_render,"Creating an empty Folder leaves the rendered frame pixel-identical");
+    const auto created=session.document();session.undo(session.revision());window.host.edited();
+    check(session.document().objects.at("folder-parent").children==std::vector<Id>{"folder-child"}&&!session.document().objects.contains(folder),
+        "Desktop Folder creation has one exact Undo boundary");
+    session.redo(session.revision());window.host.edited();
+    check(session.document()==created,"Desktop Folder creation has one exact Redo boundary");
+}
 void history_action(Window& window,const char* text) {
     for(auto* action:window.findChildren<QAction*>())if(action->text()==QString::fromLatin1(text)) {
         check(action->isEnabled(),"History action is enabled");action->trigger();QApplication::processEvents();return;
@@ -1424,7 +1466,8 @@ int main(int argc,char** argv) {
         check(reentered&&layout.canvas->evaluated_values().at({"layout-right","layout-right-point","x"})==777,"Reentrant revision change forces normal full projection");
         layout_session.undo(layout_session.revision());layout.host.edited();
         check(layout.canvas->evaluated_values()==evaluate(layout_session.document()),"External Undo refreshes projection after Canvas notification scope ends");
-        layout.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
+        layout.hide();Window folders(temp.path()+"/folders");folders.show();QApplication::processEvents();folder_action(folders);
+        folders.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
         stacking.hide();Window layout_setup(temp.path()+"/layout-setup");layout_setup.show();QApplication::processEvents();
         layout_setup_previews_commit_and_recovers(layout_setup);layout_setup.hide();
         Window layout_refs(temp.path()+"/layout-references");layout_refs.show();QApplication::processEvents();

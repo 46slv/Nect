@@ -133,6 +133,7 @@ private:
     void add_gradient(QFormLayout* layout,const Object& object,const ShapeOperation& operation);
     void group_selection();
     void ungroup_selection();
+    void create_folder();
     void duplicate_selection();
     void rebuild_artboards();
     void sync_utility_view_state();

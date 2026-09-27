@@ -498,6 +498,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     });
     action(edit,"Select all in editing context",{},[this]{canvas->select_all_in_context();})->setObjectName("select-all-context");
     action(edit,"Group selected siblings",QKeySequence("Ctrl+G"),[this]{group_selection();});
+    action(edit,"Create Folder",{},[this]{create_folder();})->setObjectName("create-folder");
     action(edit,"Ungroup selected Groups",QKeySequence("Ctrl+Shift+G"),[this]{ungroup_selection();})->setObjectName("ungroup-objects");
     action(edit,"Duplicate objects in place",QKeySequence("Ctrl+D"),[this]{duplicate_selection();})->setObjectName("duplicate-objects");
     action(edit,"Rotate / scale selection…",QKeySequence("Ctrl+Shift+T"),[this]{transform_selection();})->setObjectName("transform-selection");
@@ -3347,6 +3348,15 @@ void Window::group_selection() {
     if(ordered.size()!=chosen.size())throw Error("INVALID_GROUP","Select sibling objects in the current group");
     const auto id=new_id();
     host.session.apply({GroupContiguous{comp.id,parent,ordered,id,"Group"}},host.session.revision());canvas->set_selection(id);host.edited();
+}
+void Window::create_folder() {
+    const auto id=new_id();
+    const auto composition=canvas->active_composition();
+    const auto parent=canvas->drill_scope();
+    canvas->cancel_interaction();
+    host.session.apply({CreateFolder{composition,parent,id,"Folder"}},host.session.revision());
+    canvas->set_selection(id);host.edited();
+    canvas->setFocus();
 }
 void Window::closeEvent(QCloseEvent* event) {
     cancel_whip();

@@ -1,6 +1,7 @@
-#include "nect/core.hpp"
+#include "nect/io.hpp"
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <iostream>
 
 using namespace nect;
@@ -33,6 +34,75 @@ Document fixture() {
 EvaluatedScene scene(const Document& document){const auto values=evaluate(document);return evaluate_scene(document,"comp",values,evaluate_transforms(document,values));}
 std::map<Id,EvaluatedTransform> transforms(const Document& document){return evaluate_transforms(document,evaluate(document));}
 void same_matrix(const Affine& a,const Affine& b){for(std::size_t i=0;i<6;++i)near(a[i],b[i],"World placement preserved");}
+std::vector<Id> drawable_order(const Document& document,const EvaluatedScene& evaluated) {
+    std::vector<Id> result;
+    std::function<void(const EvaluatedSceneNode&)> append=[&](const EvaluatedSceneNode& node) {
+        if(document.objects.at(node.id).kind==Kind::group)for(const auto& child:node.children)append(child);
+        else result.push_back(node.id);
+    };
+    for(const auto& root:evaluated.roots)append(root);
+    return result;
+}
+
+void create_empty_folder() {
+    auto document=fixture();document.compositions.front().roots={"source","a","b"};
+    document.collections={{"collection","Stable members",{"a","b"}}};
+    document.objects.at("b").transform[4].binding=Binding{{"a","","transform.tx"},1,0,"copy_local_value"};
+    Session session(document);const auto before=session.document();const auto before_values=evaluate(before);
+    const auto before_transforms=transforms(before);const auto before_scene=scene(before);
+    const auto response=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"create_folder","composition":"comp","parent":"","id":"folder","name":"Folder"}]})");
+    check(response.find("\"changed\":true")!=std::string::npos,"JSON-lines API accepts Create Folder through the shared Session");
+    const auto& composition=session.document().compositions.front();
+    check(composition.roots==std::vector<Id>{"source","a","b","folder"},"Create Folder appends after existing roots");
+    const auto& folder=session.document().objects.at("folder");
+    check(folder.kind==Kind::group&&folder.name=="Folder"&&folder.children.empty()&&folder.stack.empty()&&
+        folder.compositing==Compositing{}&&!folder.source&&!folder.text&&!folder.image&&!folder.transform_parent&&folder.visible,
+        "New Folder is an empty neutral Group in the existing native model");
+    check(session.document().collections==before.collections,"Folder creation does not change Collection membership");
+    for(const auto& [id,object]:before.objects)check(session.document().objects.at(id)==object,"Existing authored object bytes remain unchanged");
+    const auto after_values=evaluate(session.document());const auto after_transforms=transforms(session.document());
+    check(after_transforms.at("folder").world==identity_matrix,"New Folder starts with an identity transform");
+    for(const auto& [ref,value]:before_values)check(after_values.at(ref)==value,"Existing property values and stable references remain unchanged");
+    for(const auto& [id,transform]:before_transforms)check(after_transforms.at(id).world==transform.world,"Existing world transforms remain unchanged");
+    const auto after_scene=scene(session.document());
+    check(drawable_order(before,before_scene)==drawable_order(session.document(),after_scene),
+        "An empty Folder adds no drawable content and preserves paint order");
+    check(decode(encode(session.document()))==session.document(),"Folder survives native 0.20 encode/decode exactly");
+    const auto created=session.document();const auto created_revision=session.revision();const auto created_history=session.history();
+    rejects("REVISION_CONFLICT",[&]{session.apply({CreateFolder{"comp","","stale-folder","Stale"}},0);});
+    check(session.document()==created&&session.revision()==created_revision&&session.history()==created_history,
+        "Stale Create Folder revision rejects without an authored delta");
+    session.undo(session.revision());check(session.document()==before,"Create Folder has one exact Undo boundary");
+    session.redo(session.revision());check(session.document()==created,"Create Folder has one exact Redo boundary");
+    check(!created_history.states.empty()&&created_history.states.back().label=="Create Folder: Folder","History names the new Folder action");
+
+    const auto before_move_values=evaluate(created);const auto before_move_transforms=transforms(created);
+    const auto before_move_scene=scene(created);
+    apply(session,{PutInside{"comp","","folder",{"a","b"}}});
+    const auto moved=session.document();
+    check(moved.compositions.front().roots==std::vector<Id>{"source","folder"}&&
+        moved.objects.at("folder").children==std::vector<Id>{"a","b"},
+        "Put Inside moves the immediately preceding A/B block into the new Folder in paint order");
+    for(const auto* id:{"a","b"}) {
+        check(moved.objects.at(id)==created.objects.at(id),"Put Inside retains A/B stable authored object state");
+        check(transforms(moved).at(id).world==before_move_transforms.at(id).world,"Put Inside preserves A/B world transforms");
+    }
+    const auto moved_values=evaluate(moved);
+    for(const auto& [ref,value]:before_move_values)check(moved_values.at(ref)==value,"Put Inside preserves stable property references and values");
+    check(drawable_order(created,before_move_scene)==drawable_order(moved,scene(moved)),
+        "Put Inside preserves the existing drawable paint order");
+    check(decode(encode(moved))==moved,"Folder organization survives native 0.20 encode/decode exactly");
+    session.undo(session.revision());check(session.document()==created,"Put Inside into Folder is one exact Undo");
+    session.redo(session.revision());check(session.document()==moved,"Put Inside into Folder is one exact Redo");
+
+    atomic(session,"DUPLICATE_ID",{CreateFolder{"comp","","a","Duplicate"}});
+    atomic(session,"DUPLICATE_ID",{CreateFolder{"comp","","a-p0","Point collision"}});
+    atomic(session,"MISSING_COMPOSITION",{CreateFolder{"missing","","missing-comp","Missing composition"}});
+    atomic(session,"INVALID_PARENT",{CreateFolder{"comp","missing-parent","missing-parent-child","Missing parent"}});
+    auto separate=fixture();Object foreign;foreign.id="foreign-parent";foreign.name="Foreign";foreign.kind=Kind::group;
+    separate.objects.emplace(foreign.id,foreign);separate.compositions.push_back(Composition{"other","Other",{"foreign-parent"},{}});
+    Session planes(separate);atomic(planes,"INVALID_PARENT",{CreateFolder{"comp","foreign-parent","foreign-child","Foreign parent"}});
+}
 
 void scene_contract() {
     Session session(fixture());auto evaluated=scene(session.document());check(!evaluated.requires_compositing&&evaluated.roots.size()==3,"Neutral scene retains direct rendering");
@@ -127,6 +197,6 @@ void neutral_ungroup() {
 
 }
 int main() {
-    try{scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{create_empty_folder();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

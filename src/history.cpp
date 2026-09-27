@@ -165,6 +165,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,CreateNamedColor>)return "Add named color: "+c.color.name;
         else if constexpr(std::is_same_v<T,DeleteNamedColor>)return "Delete named color: "+name(c.color);
         else if constexpr(std::is_same_v<T,CreatePath>)return "Add Path: "+c.name;
+        else if constexpr(std::is_same_v<T,CreateFolder>)return "Create Folder: "+c.name;
         else if constexpr(std::is_same_v<T,CreatePrimitive>)return std::string(c.source.type=="nect.shape.circle"?"Add Circle: ":
             c.source.type=="nect.shape.rectangle"?"Add Rectangle: ":c.source.type=="nect.shape.polygon"?"Add Polygon: ":"Add Star: ")+c.name;
         else if constexpr(std::is_same_v<T,AddRasterAsset>)return "Add image asset: "+c.asset.name;
