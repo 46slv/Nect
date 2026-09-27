@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QAction>
 #include <QCheckBox>
+#include <QContextMenuEvent>
 #include <QComboBox>
 #include <QCompleter>
 #include <QAbstractItemView>
@@ -138,6 +139,63 @@ void folder_action(Window& window) {
         "Desktop Folder creation has one exact Undo boundary");
     session.redo(session.revision());window.host.edited();
     check(session.document()==created,"Desktop Folder creation has one exact Redo boundary");
+}
+void move_out_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    for(const auto* id:{"move-out-x","move-out-a","move-out-b","move-out-c","move-out-y"}) {
+        Point point;point.id=std::string(id)+"-point";point.x.literal=20;point.y.literal=40;
+        setup.push_back(CreatePath{composition,"",id,id,{{std::string(id)+"-contour",false,{point}}}});
+    }
+    setup.push_back(GroupContiguous{composition,"",{"move-out-a","move-out-b","move-out-c"},"move-out-inner","Folder"});
+    setup.push_back(GroupContiguous{composition,"",{"move-out-x","move-out-inner","move-out-y"},"move-out-outer","Folder"});
+    setup.push_back(Set{{"move-out-inner","","transform.tx"},70});
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+    const auto before=session.document();const auto before_world=evaluate_transforms(before,evaluate(before));
+    auto* move_out=named_action(window,"move-out-of-folder");
+    check(move_out->text()=="Move selected out of Folder","Edit menu exposes the Move Out action by its bounded label");
+
+    window.canvas->set_selection("move-out-b");QApplication::processEvents();const auto revision=session.revision();
+    move_out->trigger();
+    check(session.revision()==revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("MOVE_OUT_SELECTION"),
+        "A middle child selection refuses with a scoped error and no authored delta");
+    window.canvas->set_selection("move-out-a","move-out-a-point");QApplication::processEvents();move_out->trigger();
+    check(session.revision()==revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("MOVE_OUT_SELECTION"),
+        "Point selection refuses Move Out atomically");
+
+    window.canvas->set_selection("move-out-a");QApplication::processEvents();move_out->trigger();QApplication::processEvents();
+    check(session.revision()==revision+1&&session.document().objects.at("move-out-inner").children==std::vector<Id>{"move-out-b","move-out-c"}&&
+        session.document().objects.at("move-out-outer").children==std::vector<Id>{"move-out-x","move-out-a","move-out-inner","move-out-y"},
+        "Edit action extracts a selected prefix next to its nested Folder through one Session command");
+    check(window.canvas->drill_scope()=="move-out-outer","Canvas drill scope follows the moved child to its new structural parent");
+    const auto moved_world=evaluate_transforms(session.document(),evaluate(session.document()));
+    for(const auto& [id,transform]:before_world)for(std::size_t i=0;i<6;++i)
+        check(std::abs(transform.world[i]-moved_world.at(id).world[i])<1e-8,"Desktop Move Out preserves every world transform");
+    auto* tree=window.findChild<QTreeWidget*>();QTreeWidgetItem* selected_item=nullptr;
+    QTreeWidgetItemIterator iterator(tree);while(*iterator){if((*iterator)->data(0,Qt::UserRole)=="move-out-a"&&(*iterator)->data(0,Qt::UserRole+1).toString().isEmpty())selected_item=*iterator;++iterator;}
+    check(selected_item!=nullptr,"Structure tree contains the extracted object row");
+    check(selected_item->isSelected(),"Structure tree selects the extracted object row");
+    check(tree->currentItem()==selected_item,"Structure tree makes the extracted object row current");
+    const auto moved=session.document();session.undo(session.revision());window.host.edited();
+    check(session.document()==before,"Desktop prefix Move Out has one exact Undo");
+    session.redo(session.revision());window.host.edited();check(session.document()==moved,"Desktop prefix Move Out Redo restores the exact state");
+    session.undo(session.revision());window.host.edited();
+
+    window.canvas->set_selection("move-out-c");QApplication::processEvents();bool context_action=false;
+    const auto context_revision=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* action:menu->actions())if(action->objectName()=="move-out-of-folder-context") {
+                context_action=true;menu->setActiveAction(action);QTest::keyClick(menu,Qt::Key_Return);return;
+            }
+    });
+    const auto point=window.canvas->rect().center();QContextMenuEvent context(QContextMenuEvent::Mouse,point,window.canvas->mapToGlobal(point));
+    QApplication::sendEvent(window.canvas,&context);QApplication::processEvents();
+    check(context_action&&session.revision()==context_revision+1&&session.document().objects.at("move-out-inner").children==std::vector<Id>{"move-out-a","move-out-b"}&&
+        session.document().objects.at("move-out-outer").children==std::vector<Id>{"move-out-x","move-out-inner","move-out-c","move-out-y"},
+        "Selection menu exposes and executes the same Move Out Session command for a suffix");
+    check(window.canvas->drill_scope()=="move-out-outer","Selection-menu extraction also follows the new parent scope");
+    session.undo(session.revision());window.host.edited();check(session.document()==before,"Selection-menu Move Out has one exact Undo");
 }
 void history_action(Window& window,const char* text) {
     for(auto* action:window.findChildren<QAction*>())if(action->text()==QString::fromLatin1(text)) {
@@ -1467,7 +1525,8 @@ int main(int argc,char** argv) {
         layout_session.undo(layout_session.revision());layout.host.edited();
         check(layout.canvas->evaluated_values()==evaluate(layout_session.document()),"External Undo refreshes projection after Canvas notification scope ends");
         layout.hide();Window folders(temp.path()+"/folders");folders.show();QApplication::processEvents();folder_action(folders);
-        folders.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
+        folders.hide();Window move_out(temp.path()+"/move-out");move_out.show();QApplication::processEvents();move_out_action(move_out);
+        move_out.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
         stacking.hide();Window layout_setup(temp.path()+"/layout-setup");layout_setup.show();QApplication::processEvents();
         layout_setup_previews_commit_and_recovers(layout_setup);layout_setup.hide();
         Window layout_refs(temp.path()+"/layout-references");layout_refs.show();QApplication::processEvents();

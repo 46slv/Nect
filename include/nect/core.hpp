@@ -389,6 +389,8 @@ struct SetMask { Id object; std::optional<GeometryMask> mask; };
 struct MaskObjects { Id composition,parent; std::vector<Id> members; Id id,mask_id; std::string name; bool top=true; };
 struct PutInside { Id composition,parent,group; std::vector<Id> members; };
 struct Ungroup { Id composition,parent,group; };
+// Move an ordered prefix or suffix of a Group's children beside the retained Group.
+struct MoveOut { Id composition,parent,group; std::vector<Id> members; std::string placement; };
 // World-space displacement, applied once per selected object across Structure
 // and Transform Parent relationships. Selection is one Composition, 1..1000 IDs.
 struct TranslateObjects { std::vector<Id> objects; double dx,dy; };
@@ -423,7 +425,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
-    SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,
+    SetVisibility,SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
     AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects>;
 
 using Affine=std::array<double,6>;

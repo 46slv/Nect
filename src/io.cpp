@@ -830,6 +830,10 @@ Command read_command(const j::value& v) {
         keys(o,{"type","composition","parent","group"});
         return Ungroup{text(o.at("composition")),text(o.at("parent")),text(o.at("group"))};
     }
+    if(type=="move_out") {
+        keys(o,{"type","composition","parent","group","members","placement"});
+        return MoveOut{text(o.at("composition")),text(o.at("parent")),text(o.at("group")),ids(o.at("members")),text(o.at("placement"))};
+    }
     if(type=="put_inside") {
         keys(o,{"type","composition","parent","group","members"});
         return PutInside{text(o.at("composition")),text(o.at("parent")),text(o.at("group")),ids(o.at("members"))};

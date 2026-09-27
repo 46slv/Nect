@@ -1755,6 +1755,61 @@ void ungroup(Document& document,const Ungroup& command) {
     for(const auto& [ref,value]:values)if(ref.object!=command.group&&!changed_matrices.contains(ref))
         require(transform_equal(value,after_values.at(ref)),"UNGROUP_DEPENDENCY","Ungroup changed geometry or another property through a transform dependency");
 }
+void move_out(Document& document,const MoveOut& command) {
+    require(command.placement=="before"||command.placement=="after","MOVE_OUT_PLACEMENT","Placement must be before or after the Folder");
+    require(!command.members.empty()&&command.members.size()<=1000,"MOVE_OUT_SELECTION","Move Out requires 1..1000 ordered Folder children");
+    require(document.objects.contains(command.group)&&document.objects.at(command.group).kind==Kind::group,"INVALID_GROUP","Move Out requires a Group Folder");
+    const auto group=document.objects.at(command.group);
+    auto& siblings_list=siblings(document,command.composition,command.parent);
+    const auto group_at=std::find(siblings_list.begin(),siblings_list.end(),command.group);
+    require(group_at!=siblings_list.end(),"INVALID_GROUP","Folder must belong to the specified parent and Composition");
+    require(group.visible&&group.compositing.blend=="normal"&&!group.compositing.isolated&&!group.compositing.mask&&
+        group.compositing.opacity.literal==1&&!driven(group.compositing.opacity)&&group.stack.empty(),
+        "UNGROUP_APPEARANCE","Move Out requires a visible neutral Folder without opacity, blend, isolation, mask or effects");
+    require(!group.transform_parent&&std::none_of(group.transform.begin(),group.transform.end(),[](const Scalar& v){return driven(v);}),
+        "UNGROUP_DYNAMIC","Move Out requires static Folder transforms following structure");
+
+    auto& children=document.objects.at(command.group).children;
+    std::set<Id> unique;
+    for(const auto& id:command.members) {
+        require(id!=command.group&&unique.insert(id).second,"DUPLICATE_TARGET","Moved Folder children must be unique");
+        require(document.objects.contains(id),"MISSING_OBJECT",id);
+    }
+    const auto is_prefix=command.members.size()<=children.size()&&
+        std::equal(command.members.begin(),command.members.end(),children.begin());
+    const auto suffix_start=children.size()-std::min(children.size(),command.members.size());
+    const auto is_suffix=command.members.size()<=children.size()&&
+        std::equal(command.members.begin(),command.members.end(),children.begin()+static_cast<std::ptrdiff_t>(suffix_start));
+    require((command.placement=="before"&&is_prefix)||(command.placement=="after"&&is_suffix),
+        "MOVE_OUT_SELECTION","Move Out requires an ordered contiguous prefix before or suffix after the Folder");
+
+    const auto values=evaluate(document);const auto before=evaluate_transforms(document,values);
+    std::set<Ref> changed_affines;
+    for(const auto& id:command.members) {
+        if(document.objects.at(id).transform_parent)continue;
+        const auto desired=compose(before.at(command.group).local,before.at(id).local);
+        for(std::size_t i=0;i<desired.size();++i) {
+            const Ref ref{id,"",affine_fields[i]};
+            if(transform_equal(values.at(ref),desired[i]))continue;
+            set_changed_scalar(document,ref,desired[i],values);
+            changed_affines.insert(ref);
+        }
+    }
+
+    const auto group_index=static_cast<std::size_t>(std::distance(siblings_list.begin(),group_at));
+    const auto child_index=command.placement=="before"?std::size_t{0}:children.size()-command.members.size();
+    children.erase(children.begin()+static_cast<std::ptrdiff_t>(child_index),
+        children.begin()+static_cast<std::ptrdiff_t>(child_index+command.members.size()));
+    auto insert_at=siblings_list.begin()+static_cast<std::ptrdiff_t>(group_index+(command.placement=="after"?1:0));
+    siblings_list.insert(insert_at,command.members.begin(),command.members.end());
+
+    validate(document);
+    const auto after_values=evaluate(document);const auto after=evaluate_transforms(document,after_values);
+    for(const auto& [id,old]:before)for(std::size_t i=0;i<old.world.size();++i)
+        require(transform_equal(old.world[i],after.at(id).world[i]),"TRANSFORM_PRESERVATION","Move Out changed a surviving world transform");
+    for(const auto& [ref,value]:values)if(!changed_affines.contains(ref))
+        require(transform_equal(value,after_values.at(ref)),"UNGROUP_DEPENDENCY","Move Out changed geometry or another property through a transform dependency");
+}
 struct DuplicationPlan {
     std::map<Id,Id> ids;
     std::vector<Id> roots;
@@ -1900,6 +1955,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             candidate.objects.at(c.id).compositing.mask=GeometryMask{c.mask_id,source};candidate.objects.at(source).visible=false;
         } else if constexpr(std::is_same_v<T,Ungroup>) {
             ungroup(candidate,c);
+        } else if constexpr(std::is_same_v<T,MoveOut>) {
+            move_out(candidate,c);
         } else if constexpr(std::is_same_v<T,PutInside>) {
             put_inside(candidate,c);
         } else if constexpr(std::is_same_v<T,SetExpression>) {

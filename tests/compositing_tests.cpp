@@ -231,9 +231,94 @@ void neutral_ungroup() {
     auto singular=document;matrix(singular.objects.at("group"),{0,0,0,1,20,30});Session collapsed(singular);const auto old=transforms(singular);apply(collapsed,{Ungroup{"comp","","group"}});same_matrix(old.at("a").world,transforms(collapsed.document()).at("a").world);
     auto nested=document;Object outer;outer.id="outer";outer.name="Outer";outer.kind=Kind::group;outer.children={"group"};matrix(outer,{2,0,0,2,50,60});nested.objects.emplace("outer",outer);nested.compositions[0].roots={"outer","source"};Session nesting(nested);const auto prior=transforms(nested);apply(nesting,{Ungroup{"comp","outer","group"}});same_matrix(prior.at("a").world,transforms(nesting.document()).at("a").world);check(nesting.document().objects.at("outer").children==std::vector<Id>{"a","b"},"Nested Group unwrap preserves outer container");
 }
+Document move_out_fixture() {
+    auto document=fixture();document.objects.emplace("c",rectangle("c",90,15));document.objects.emplace("y",rectangle("y",220,30));
+    Object group;group.id="folder";group.name="Folder";group.kind=Kind::group;group.children={"a","b","c"};matrix(group,{0,2,-3,0,200,30});
+    document.objects.emplace(group.id,group);document.compositions[0].roots={"source","folder","y"};
+    matrix(document.objects.at("a"),{1,.5,1.2,2,10,30});document.objects.at("b").transform_parent="source";
+    document.objects.at("c").transform_parent="folder";
+    document.collections={{"collection","Stable members",{"folder","a","c"}}};
+    document.objects.at("source").contours[0].points[0].x.binding=Binding{{"folder","","transform.tx"},1,0,"copy_local_value"};
+    return document;
+}
+void move_out_preservation(const Document& before,const Session& session,const std::vector<Id>& roots,const std::vector<Id>& children,const std::vector<Id>& moved) {
+    const auto& after=session.document();
+    check(after.compositions.front().roots==roots,"Move Out inserts moved roots beside the retained Folder in paint order");
+    check(after.objects.at("folder").children==children,"Move Out retains Folder with the remaining children");
+    check(after.collections==before.collections,"Move Out preserves Collection membership");
+    const std::array<std::string,6> affine_fields{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty"};
+    const auto before_values=evaluate(before),after_values=evaluate(after);const auto before_transforms=transforms(before),after_transforms=transforms(after);
+    for(const auto& [id,object]:before.objects) {
+        same_matrix(before_transforms.at(id).world,after_transforms.at(id).world);
+        if(std::find(moved.begin(),moved.end(),id)==moved.end()) {
+            auto retained=after.objects.at(id);if(id=="folder")retained.children=object.children;
+            check(retained==object,"Unmoved authored object remains exact apart from Folder child ownership");
+        }
+        else {
+            auto moved_object=after.objects.at(id);const auto& original=object;
+            for(std::size_t i=0;i<6;++i)moved_object.transform[i]=original.transform[i];
+            check(moved_object==original,"Move Out changes only the moved object's local affine values");
+        }
+    }
+    for(const auto& [ref,value]:before_values) {
+        const bool moved_affine=std::find(moved.begin(),moved.end(),ref.object)!=moved.end()&&ref.point.empty()&&ref.field.starts_with("transform.")&&
+            std::find(std::begin(affine_fields),std::end(affine_fields),ref.field)!=std::end(affine_fields);
+        if(!moved_affine)check(after_values.at(ref)==value,"Move Out preserves every non-adjusted evaluated property value");
+    }
+    check(drawable_order(before,scene(before))==drawable_order(after,scene(after)),"Move Out preserves drawable paint order");
+    check(after.objects.at("source").contours[0].points[0].x.binding==before.objects.at("source").contours[0].points[0].x.binding,
+        "Move Out preserves a stable property reference to the retained Folder");
+    check(decode(encode(after))==after,"Move Out result survives native 0.20 encode/decode");
+}
+void move_out_folder() {
+    const auto document=move_out_fixture();
+    Session prefix(document);const auto response=request(prefix,R"({"op":"apply","expected_revision":0,"commands":[{"type":"move_out","composition":"comp","parent":"","group":"folder","members":["a"],"placement":"before"}]})");
+    check(response.find("\"changed\":true")!=std::string::npos,"JSON-lines Move Out reaches the shared Session command");
+    move_out_preservation(document,prefix,{"source","a","folder","y"},{"b","c"},{"a"});
+    const auto prefix_result=prefix.document();prefix.undo(prefix.revision());check(prefix.document()==document,"Move Out prefix uses one exact Undo boundary");
+    prefix.redo(prefix.revision());check(prefix.document()==prefix_result,"Move Out prefix Redo restores the exact extraction");
+
+    Session suffix(document);apply(suffix,{MoveOut{"comp","","folder",{"c"},"after"}});
+    move_out_preservation(document,suffix,{"source","folder","c","y"},{"a","b"},{"c"});
+    const auto suffix_result=suffix.document();suffix.undo(suffix.revision());check(suffix.document()==document,"Move Out suffix uses one exact Undo boundary");
+    suffix.redo(suffix.revision());check(suffix.document()==suffix_result,"Move Out suffix Redo restores the exact extraction");
+
+    Session whole(document);apply(whole,{MoveOut{"comp","","folder",{"a","b","c"},"after"}});
+    move_out_preservation(document,whole,{"source","folder","a","b","c","y"},{},{"a","b","c"});
+
+    auto reject_move=[&](const Document& candidate,const char* code,const MoveOut& command) {Session invalid(candidate);atomic(invalid,code,{command});};
+    reject_move(document,"MOVE_OUT_SELECTION",MoveOut{"comp","","folder",{"b"},"before"});
+    reject_move(document,"MOVE_OUT_SELECTION",MoveOut{"comp","","folder",{"a","c"},"before"});
+    reject_move(document,"MOVE_OUT_PLACEMENT",MoveOut{"comp","","folder",{"a"},"inside"});
+    reject_move(document,"INVALID_PARENT",MoveOut{"comp","source","folder",{"a"},"before"});
+    reject_move(document,"MISSING_COMPOSITION",MoveOut{"missing","","folder",{"a"},"before"});
+    auto hidden=document;hidden.objects.at("folder").visible=false;
+    reject_move(hidden,"UNGROUP_APPEARANCE",MoveOut{"comp","","folder",{"a"},"before"});
+    for(int case_id=0;case_id<5;++case_id) {
+        auto unsafe=document;auto& folder=unsafe.objects.at("folder");
+        if(case_id==0)folder.compositing.opacity.literal=.5;
+        if(case_id==1)folder.compositing.opacity.expression=Expression{"1"};
+        if(case_id==2)folder.compositing.blend="multiply";
+        if(case_id==3)folder.compositing.isolated=true;
+        if(case_id==4)folder.compositing.mask=GeometryMask{"folder-mask","source"};
+        reject_move(unsafe,"UNGROUP_APPEARANCE",MoveOut{"comp","","folder",{"a"},"before"});
+    }
+    auto dynamic=document;dynamic.objects.at("folder").transform[4].expression=Expression{"200"};
+    reject_move(dynamic,"UNGROUP_DYNAMIC",MoveOut{"comp","","folder",{"a"},"before"});
+    dynamic=document;dynamic.objects.at("folder").transform_parent="source";
+    reject_move(dynamic,"UNGROUP_DYNAMIC",MoveOut{"comp","","folder",{"a"},"before"});
+    auto driven=document;driven.objects.at("a").transform[0].expression=Expression{"1"};
+    reject_move(driven,"DRIVEN_PROPERTY",MoveOut{"comp","","folder",{"a"},"before"});
+    auto dependent=document;dependent.objects.at("source").contours[0].points[0].x.binding=Binding{{"a","","transform.tx"},1,0,"copy_local_value"};
+    reject_move(dependent,"UNGROUP_DEPENDENCY",MoveOut{"comp","","folder",{"a"},"before"});
+
+    Session stale(document);const auto stale_doc=stale.document();const auto stale_history=stale.history();const auto stale_revision=stale.revision();
+    rejects("REVISION_CONFLICT",[&]{stale.apply({MoveOut{"comp","","folder",{"a"},"before"}},stale_revision+1);});
+    check(stale.document()==stale_doc&&stale.revision()==stale_revision&&stale.history()==stale_history,"Stale Move Out retains document, revision and history");
+}
 
 }
 int main() {
-    try{create_empty_folder();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{create_empty_folder();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

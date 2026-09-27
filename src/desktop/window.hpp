@@ -122,6 +122,7 @@ private:
     void stack_selection(int direction,bool to_edge);
     void mask_selection(bool top);
     void put_selection_inside();
+    void move_selection_out();
     void selection_menu(const QPoint& global);
     void choose_transform_parent();
     void edit_text_content(const Id& object);
