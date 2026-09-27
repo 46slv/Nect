@@ -211,6 +211,10 @@ void adjacent_folder_transfer_action(Window& window) {
     const auto before=session.document();const auto before_world=evaluate_transforms(before,evaluate(before));
     const auto before_render=Canvas::render_artboard(before,composition,window.canvas->active_artboard(),1,false);
     auto* action=named_action(window,"move-to-next-folder");
+    auto* reverse=named_action(window,"move-to-previous-folder");
+    window.canvas->set_selection("transfer-a");QApplication::processEvents();const auto missing_previous_revision=session.revision();reverse->trigger();
+    check(session.revision()==missing_previous_revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Reverse transfer refuses when no previous sibling Folder exists");
     window.canvas->set_selection("transfer-a");QApplication::processEvents();const auto revision=session.revision();action->trigger();
     check(session.revision()==revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
         "Non-suffix Folder selection refuses without authored delta");
@@ -247,6 +251,32 @@ void adjacent_folder_transfer_action(Window& window) {
     const auto point=window.canvas->rect().center();QContextMenuEvent context(QContextMenuEvent::Mouse,point,window.canvas->mapToGlobal(point));
     QApplication::sendEvent(window.canvas,&context);QApplication::processEvents();
     check(context_enabled&&session.document()==moved,"Selection menu reaches the same adjacent Folder transfer");
+    check(reverse->text()=="Move selected to previous Folder","Edit menu exposes the reverse bounded transfer");
+    bool reverse_context_enabled=false;
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* candidate:menu->actions())if(candidate->objectName()=="move-to-previous-folder-context") {
+                reverse_context_enabled=candidate->isEnabled();menu->close();return;
+            }
+    });
+    QContextMenuEvent reverse_context(QContextMenuEvent::Mouse,point,window.canvas->mapToGlobal(point));
+    QApplication::sendEvent(window.canvas,&reverse_context);QApplication::processEvents();
+    check(reverse_context_enabled,"Selection menu enables reverse transfer for a valid prefix");
+    const auto reverse_revision_before=session.revision();
+    window.canvas->set_selection("transfer-b","transfer-b-point");QApplication::processEvents();reverse->trigger();
+    check(session.revision()==reverse_revision_before&&session.document()==moved&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Reverse transfer refuses point selection without authored delta");
+    window.canvas->set_selection("transfer-b");QApplication::processEvents();
+    const auto reverse_revision=session.revision();reverse->trigger();QApplication::processEvents();
+    check(session.revision()==reverse_revision+1&&session.document().objects.at("transfer-source").children==std::vector<Id>{"transfer-a","transfer-b"}&&
+        session.document().objects.at("transfer-next").children.empty(),"Reverse Edit action moves a prefix into the previous Folder");
+    check(window.canvas->drill_scope()=="transfer-source"&&window.canvas->selected_object=="transfer-b",
+        "Reverse transfer follows the selected object into its previous Folder");
+    check(Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false)==before_render,
+        "Reverse transfer preserves rendered pixels");
+    const auto reverse_result=session.document();session.undo(session.revision());window.host.edited();
+    check(session.document()==moved,"Reverse transfer is one exact Undo");
+    session.redo(session.revision());window.host.edited();check(session.document()==reverse_result,"Reverse transfer is one exact Redo");
 }
 void batch_rename_action(Window& window) {
     auto& session=window.host.session;const auto composition=window.canvas->active_composition();

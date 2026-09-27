@@ -400,9 +400,37 @@ void adjacent_folder_transfer() {
     auto driven=document;driven.objects.at("a").transform[4].expression=Expression{"1"};Session blocked(driven);
     atomic(blocked,"DRIVEN_PROPERTY",{MoveOut{"comp","","folder",{"a","b","c"},"after"},PutInside{"comp","","next-folder",{"a","b","c"}}});
 }
+void reverse_adjacent_folder_transfer() {
+    auto document=move_out_fixture();
+    document.objects.emplace("d",rectangle("d",280,25));
+    Object next;next.id="next-folder";next.name="Next";next.kind=Kind::group;next.children={"d"};
+    document.objects.emplace(next.id,next);
+    auto& roots=document.compositions[0].roots;
+    roots.insert(std::find(roots.begin(),roots.end(),"y"),"next-folder");
+    Session session(document);const auto before_world=transforms(document);
+    const auto before_order=drawable_order(document,scene(document));
+    const std::vector<Command> commands{
+        MoveOut{"comp","","next-folder",{"d"},"before"},
+        ReorderObjects{"comp","",{"source","d","folder","next-folder","y"}},
+        PutInside{"comp","","folder",{"d"}},
+        ReorderObjects{"comp","folder",{"a","b","c","d"}}};
+    const auto response=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"move_out","composition":"comp","parent":"","group":"next-folder","members":["d"],"placement":"before"},{"type":"reorder_objects","composition":"comp","parent":"","order":["source","d","folder","next-folder","y"]},{"type":"put_inside","composition":"comp","parent":"","group":"folder","members":["d"]},{"type":"reorder_objects","composition":"comp","parent":"folder","order":["a","b","c","d"]}]})");
+    check(response.find("\"changed\":true")!=std::string::npos,"JSON-lines composes the reverse transfer into one Session edit");
+    const auto& after=session.document();
+    check(after.compositions[0].roots==roots&&after.objects.at("folder").children==std::vector<Id>{"a","b","c","d"}&&
+        after.objects.at("next-folder").children.empty(),"Reverse adjacent transfer appends a prefix to the previous Folder");
+    const auto after_world=transforms(after);
+    for(const auto& [id,old]:before_world)same_matrix(old.world,after_world.at(id).world);
+    check(drawable_order(after,scene(after))==before_order,"Reverse adjacent transfer preserves drawable paint order");
+    check(after.collections==document.collections&&decode(encode(after))==after,"Reverse transfer keeps Collections and native identity");
+    const auto moved=after;session.undo(session.revision());check(session.document()==document,"Reverse transfer has one exact Undo");
+    session.redo(session.revision());check(session.document()==moved,"Reverse transfer has one exact Redo");
+    auto unsafe=document;unsafe.objects.at("folder").visible=false;Session rejected(unsafe);
+    atomic(rejected,"PUT_INSIDE_APPEARANCE",commands);
+}
 
 }
 int main() {
-    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

@@ -1963,8 +1963,13 @@ void put_inside(Document& document,const PutInside& command) {
         for(const auto& field:affine_fields)changed_affines.insert({id,"",field});
     }
     const auto after_values=evaluate(document);const auto after=evaluate_transforms(document,after_values);
-    for(const auto& [id,old]:before)for(std::size_t i=0;i<6;++i)
-        require(transform_equal(old.world[i],after.at(id).world[i]),"TRANSFORM_PRESERVATION","Put Inside could not preserve world transforms through dependent bindings");
+    for(const auto& [id,old]:before)for(std::size_t i=0;i<6;++i) {
+        const auto current=after.at(id).world[i];
+        const auto roundoff=unique.contains(id)&&
+            std::abs(old.world[i]-current)<=32*std::numeric_limits<double>::epsilon()*
+                std::max({1.0,std::abs(old.world[i]),std::abs(current),std::abs(basis[4]),std::abs(basis[5])});
+        require(transform_equal(old.world[i],current)||roundoff,"TRANSFORM_PRESERVATION","Put Inside changed world transform of "+id);
+    }
     for(const auto& [ref,value]:values)if(!changed_affines.contains(ref))
         require(transform_equal(value,after_values.at(ref)),"PUT_INSIDE_DEPENDENCY","Put Inside changed a dependent property value");
 }
