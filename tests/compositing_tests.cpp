@@ -428,9 +428,65 @@ void reverse_adjacent_folder_transfer() {
     auto unsafe=document;unsafe.objects.at("folder").visible=false;Session rejected(unsafe);
     atomic(rejected,"PUT_INSIDE_APPEARANCE",commands);
 }
+void explicit_nonadjacent_folder_transfer() {
+    auto document=move_out_fixture();
+    Object gap;gap.id="empty-gap";gap.name="Empty gap";gap.kind=Kind::group;
+    document.objects.emplace(gap.id,gap);
+    document.objects.emplace("d",rectangle("d",280,25));
+    Object next;next.id="next-folder";next.name="Next";next.kind=Kind::group;next.children={"d"};
+    document.objects.emplace(next.id,next);
+    document.compositions[0].roots={"source","folder","empty-gap","next-folder","y"};
+    const auto original_order=drawable_order(document,scene(document));
+    const auto original_world=transforms(document);
+    const auto original_values=evaluate(document);
+    Session forward(document);
+    const auto response=request(forward,R"({"op":"apply","expected_revision":0,"commands":[{"type":"move_out","composition":"comp","parent":"","group":"folder","members":["b","c"],"placement":"after"},{"type":"reorder_objects","composition":"comp","parent":"","order":["source","folder","empty-gap","b","c","next-folder","y"]},{"type":"put_inside","composition":"comp","parent":"","group":"next-folder","members":["b","c"]}]})");
+    check(response.find("\"changed\":true")!=std::string::npos,"JSON-lines composes an explicit nonadjacent Folder move in one edit");
+    const auto forward_document=forward.document();
+    check(forward_document.compositions[0].roots==document.compositions[0].roots&&
+        forward_document.objects.at("folder").children==std::vector<Id>{"a"}&&
+        forward_document.objects.at("next-folder").children==std::vector<Id>{"b","c","d"},
+        "Nonadjacent transfer crosses only an empty Folder and preserves hierarchy order");
+    check(drawable_order(forward_document,scene(forward_document))==original_order,
+        "Nonadjacent transfer preserves flattened paint order");
+    for(const auto& [id,old]:original_world)same_matrix(old.world,transforms(forward_document).at(id).world);
+    for(const auto& [ref,value]:original_values)if(ref.object!="b"&&ref.object!="c")
+        check(evaluate(forward_document).at(ref)==value,"Nonadjacent transfer preserves untouched evaluated values");
+    check(forward_document.collections==document.collections&&
+        forward_document.objects.at("source").contours[0].points[0].x.binding==document.objects.at("source").contours[0].points[0].x.binding&&
+        decode(encode(forward_document))==forward_document,"Nonadjacent transfer preserves references, Collections and native state");
+    forward.undo(forward.revision());check(forward.document()==document,"Nonadjacent forward transfer has one exact Undo");
+    forward.redo(forward.revision());check(forward.document()==forward_document,"Nonadjacent forward transfer has one exact Redo");
+
+    Session reverse(document);
+    const auto reverse_response=request(reverse,R"({"op":"apply","expected_revision":0,"commands":[{"type":"move_out","composition":"comp","parent":"","group":"next-folder","members":["d"],"placement":"before"},{"type":"reorder_objects","composition":"comp","parent":"","order":["source","d","folder","empty-gap","next-folder","y"]},{"type":"put_inside","composition":"comp","parent":"","group":"folder","members":["d"]},{"type":"reorder_objects","composition":"comp","parent":"folder","order":["a","b","c","d"]}]})");
+    check(reverse_response.find("\"changed\":true")!=std::string::npos,"JSON-lines composes explicit reverse nonadjacent movement atomically");
+    const auto reverse_document=reverse.document();
+    check(reverse_document.compositions[0].roots==document.compositions[0].roots&&
+        reverse_document.objects.at("folder").children==std::vector<Id>{"a","b","c","d"}&&
+        reverse_document.objects.at("next-folder").children.empty()&&
+        drawable_order(reverse_document,scene(reverse_document))==original_order,
+        "Reverse transfer across an empty Folder preserves hierarchy and paint order");
+    for(const auto& [id,old]:original_world)same_matrix(old.world,transforms(reverse_document).at(id).world);
+    check(reverse_document.collections==document.collections&&decode(encode(reverse_document))==reverse_document,
+        "Reverse nonadjacent transfer preserves Collections and native state");
+    reverse.undo(reverse.revision());check(reverse.document()==document,"Reverse nonadjacent transfer has one exact Undo");
+    reverse.redo(reverse.revision());check(reverse.document()==reverse_document,"Reverse nonadjacent transfer has one exact Redo");
+
+    auto unsafe=document;unsafe.objects.at("next-folder").visible=false;Session rejected(unsafe);
+    atomic(rejected,"PUT_INSIDE_APPEARANCE",{MoveOut{"comp","","folder",{"c"},"after"},
+        ReorderObjects{"comp","",{"source","folder","empty-gap","c","next-folder","y"}},
+        PutInside{"comp","","next-folder",{"c"}}});
+    Session stale(document);const auto stale_document=stale.document();const auto stale_history=stale.history();
+    rejects("REVISION_CONFLICT",[&]{stale.apply({MoveOut{"comp","","folder",{"c"},"after"},
+        ReorderObjects{"comp","",{"source","folder","empty-gap","c","next-folder","y"}},
+        PutInside{"comp","","next-folder",{"c"}}},stale.revision()+1);});
+    check(stale.document()==stale_document&&stale.history()==stale_history&&stale.revision()==0,
+        "Stale explicit transfer leaves Document, History and revision unchanged");
+}
 
 }
 int main() {
-    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

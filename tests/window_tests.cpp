@@ -301,6 +301,68 @@ void adjacent_folder_transfer_action(Window& window) {
     check(session.document()==moved,"Reverse transfer is one exact Undo");
     session.redo(session.revision());window.host.edited();check(session.document()==reverse_result,"Reverse transfer is one exact Redo");
 }
+void explicit_folder_transfer_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    auto path=[&](const char* id,double x) {
+        Contour contour;contour.id=std::string(id)+"-contour";contour.closed=true;
+        for(const auto& xy:std::vector<Vec2>{{x,80},{x+30,80},{x+30,110},{x,110}}) {
+            Point point;point.id=std::string(id)+"-point-"+std::to_string(contour.points.size());
+            point.x.literal=xy.x;point.y.literal=xy.y;contour.points.push_back(point);
+        }
+        setup.push_back(CreatePath{composition,"",id,id,{contour}});
+    };
+    path("chosen-a",30);path("chosen-b",80);path("chosen-c",130);path("chosen-d",180);path("barrier",230);
+    setup.push_back(GroupContiguous{composition,"",{"chosen-a","chosen-b","chosen-c"},"source-folder","Source"});
+    setup.push_back(CreateFolder{composition,"","empty-gap","Empty"});
+    setup.push_back(GroupContiguous{composition,"",{"chosen-d"},"destination-folder","Destination"});
+    setup.push_back(CreateFolder{composition,"","blocked-folder","Blocked"});
+    setup.push_back(ReorderObjects{composition,"",{"source-folder","empty-gap","destination-folder","barrier","blocked-folder"}});
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+    auto* action=named_action(window,"move-to-folder");
+    check(action->text()=="Move selected to Folder…","Edit menu exposes the explicit destination action");
+    const auto before=session.document();const auto before_world=evaluate_transforms(before,evaluate(before));
+    const auto before_render=Canvas::render_artboard(before,composition,window.canvas->active_artboard(),1,false);
+    window.canvas->set_selection("chosen-b");QApplication::processEvents();action->trigger();
+    check(session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Middle child selection refuses without authored delta");
+    window.canvas->set_selection("chosen-c","chosen-c-point-0");QApplication::processEvents();action->trigger();
+    check(session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Point selection refuses explicit Folder movement");
+    window.canvas->set_selection("chosen-c");QApplication::processEvents();
+    bool offered=false,blocked_offered=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+        auto* combo=dialog->findChild<QComboBox*>();
+        if(combo)for(int i=0;i<combo->count();++i) {
+            if(combo->itemText(i).contains("destination-folder")){offered=true;combo->setCurrentIndex(i);}
+            blocked_offered|=combo->itemText(i).contains("blocked-folder");
+        }
+        dialog->accept();return;
+    }});
+    const auto revision=session.revision();action->trigger();QApplication::processEvents();
+    check(offered&&!blocked_offered,"Destination chooser offers the paint-order-safe Folder and excludes a Folder across a drawable");
+    check(session.revision()==revision+1&&session.document().objects.at("source-folder").children==std::vector<Id>{"chosen-a","chosen-b"}&&
+        session.document().objects.at("destination-folder").children==std::vector<Id>{"chosen-c","chosen-d"},
+        "Explicit nonadjacent transfer moves the suffix in one Session edit");
+    check(window.canvas->drill_scope()=="destination-folder"&&window.canvas->selected_object=="chosen-c",
+        "Selection follows the explicitly chosen Folder");
+    for(const auto& [id,transform]:before_world) {
+        const auto after_world=evaluate_transforms(session.document(),evaluate(session.document())).at(id).world;
+        for(std::size_t i=0;i<6;++i)check(std::abs(transform.world[i]-after_world[i])<1e-8,"Explicit transfer preserves world coordinates");
+    }
+    check(Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false)==before_render&&
+        decode(encode(session.document()))==session.document(),"Explicit transfer preserves pixels and native state");
+    const auto moved=session.document();session.undo(session.revision());window.host.edited();check(session.document()==before,"Explicit transfer is one exact Undo");
+    session.redo(session.revision());window.host.edited();check(session.document()==moved,"Explicit transfer is one exact Redo");
+    Point blocked_point;blocked_point.id="blocked-child-point";blocked_point.x.literal=260;blocked_point.y.literal=90;
+    session.apply({CreatePath{composition,"blocked-folder","blocked-child","Blocked child",{{"blocked-child-contour",false,{blocked_point}}}}},session.revision());
+    window.host.edited();window.canvas->set_selection("blocked-child");QApplication::processEvents();
+    const auto blocked_document=session.document();const auto blocked_revision=session.revision();const auto blocked_history=session.history();
+    action->trigger();
+    check(session.document()==blocked_document&&session.revision()==blocked_revision&&session.history()==blocked_history&&
+        window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_ORDER"),
+        "A painted sibling barrier leaves no eligible Folder and refuses without an authored delta");
+}
 void batch_rename_action(Window& window) {
     auto& session=window.host.session;const auto composition=window.canvas->active_composition();
     std::vector<Command> setup;
@@ -2164,7 +2226,8 @@ int main(int argc,char** argv) {
         batch_rename.hide();Window sort_paint_order(temp.path()+"/sort-paint-order");sort_paint_order.show();QApplication::processEvents();sort_paint_order_action(sort_paint_order);
         sort_paint_order.hide();Window move_out(temp.path()+"/move-out");move_out.show();QApplication::processEvents();move_out_action(move_out);
         move_out.hide();Window transfer(temp.path()+"/folder-transfer");transfer.show();QApplication::processEvents();adjacent_folder_transfer_action(transfer);
-        transfer.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
+        transfer.hide();Window chosen_transfer(temp.path()+"/chosen-transfer");chosen_transfer.show();QApplication::processEvents();explicit_folder_transfer_action(chosen_transfer);
+        chosen_transfer.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
         stacking.hide();Window layout_setup(temp.path()+"/layout-setup");layout_setup.show();QApplication::processEvents();
         layout_setup_previews_commit_and_recovers(layout_setup);layout_setup.hide();
         Window layout_refs(temp.path()+"/layout-references");layout_refs.show();QApplication::processEvents();

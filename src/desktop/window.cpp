@@ -510,6 +510,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     action(edit,"Move selected out of Folder",{},[this]{move_selection_out();})->setObjectName("move-out-of-folder");
     action(edit,"Move selected to next Folder",{},[this]{move_selection_to_next_folder();})->setObjectName("move-to-next-folder");
     action(edit,"Move selected to previous Folder",{},[this]{move_selection_to_previous_folder();})->setObjectName("move-to-previous-folder");
+    action(edit,"Move selected to Folder…",{},[this]{move_selection_to_folder();})->setObjectName("move-to-folder");
     action(edit,"Duplicate objects in place",QKeySequence("Ctrl+D"),[this]{duplicate_selection();})->setObjectName("duplicate-objects");
     action(edit,"Rotate / scale selection…",QKeySequence("Ctrl+Shift+T"),[this]{transform_selection();})->setObjectName("transform-selection");
     auto* arrange=edit->addMenu("Arrange stacking order");
@@ -3585,6 +3586,82 @@ void Window::move_selection_to_previous_folder() {
     canvas->set_selections(std::move(selection));host.edited();
     statusBar()->showMessage("Moved selected objects to the previous Folder; Undo restores both Folders",6000);
 }
+void Window::move_selection_to_folder() {
+    if(canvas->selected_objects().empty()||
+       std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& item){return !item.point.empty();}))
+        throw Error("FOLDER_TRANSFER_SELECTION","Select whole objects forming a prefix or suffix inside a Folder");
+    Id source;std::vector<Id> members;
+    try{members=selected_siblings(source,1);}
+    catch(const Error&){throw Error("FOLDER_TRANSFER_SELECTION","Select siblings inside one Folder");}
+    const auto& document=host.session.document();
+    if(source.empty()||!document.objects.contains(source)||document.objects.at(source).kind!=Kind::group)
+        throw Error("FOLDER_TRANSFER_SELECTION","Selection must be inside a Folder");
+    const auto& children=document.objects.at(source).children;
+    const bool prefix=members.size()<=children.size()&&std::equal(members.begin(),members.end(),children.begin());
+    const bool suffix=members.size()<=children.size()&&
+        std::equal(members.begin(),members.end(),children.end()-static_cast<std::ptrdiff_t>(members.size()));
+    if(!prefix&&!suffix)throw Error("FOLDER_TRANSFER_SELECTION","Select an ordered prefix or suffix of Folder children");
+
+    const auto composition=canvas->active_composition();
+    const auto& roots=find_composition(document,composition).roots;
+    Id parent;std::vector<Id> siblings;std::size_t source_index=0;bool found=false;
+    std::function<void(const std::vector<Id>&,const Id&)> locate=[&](const std::vector<Id>& scope,const Id& owner) {
+        if(found)return;
+        for(std::size_t i=0;i<scope.size();++i)if(scope[i]==source) {
+            parent=owner;siblings=scope;source_index=i;found=true;return;
+        }
+        for(const auto& id:scope)locate(document.objects.at(id).children,id);
+    };
+    locate(roots,{});
+    if(!found)throw Error("FOLDER_TRANSFER_SELECTION","Source Folder is outside the active Composition");
+    struct Destination {Id id;std::size_t index;};
+    std::vector<Destination> destinations;QStringList labels;
+    for(std::size_t i=0;i<siblings.size();++i) {
+        if(i==source_index||document.objects.at(siblings[i]).kind!=Kind::group||
+           (i<source_index&&!prefix)||(i>source_index&&!suffix))continue;
+        const auto begin=std::min(i,source_index)+1,end=std::max(i,source_index);
+        bool clear=true;
+        for(auto k=begin;k<end;++k) {
+            const auto& between=document.objects.at(siblings[k]);
+            if(between.kind!=Kind::group||!between.children.empty()||!between.visible||
+               between.compositing.opacity.literal!=1||between.compositing.opacity.binding||between.compositing.opacity.expression||
+               between.compositing.blend!="normal"||between.compositing.isolated||between.compositing.mask||!between.stack.empty()) {
+                clear=false;break;
+            }
+        }
+        if(!clear)continue;
+        destinations.push_back({siblings[i],i});
+        labels.push_back(qs(document.objects.at(siblings[i]).name)+" ["+qs(siblings[i])+"]");
+    }
+    if(destinations.empty())throw Error("FOLDER_TRANSFER_ORDER","No sibling Folder is reachable without crossing painted content; keep paint order or choose a separate stacking operation");
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    bool accepted=false;
+    const auto choice=QInputDialog::getItem(this,"Move selected to Folder","Destination Folder · paint order preserved",labels,0,false,&accepted);
+    if(!accepted)return;
+    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The Folder choice belongs to another document");
+    if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","The document changed while choosing a Folder");
+    const auto chosen=labels.indexOf(choice);
+    if(chosen<0)throw Error("FOLDER_TRANSFER_SELECTION","Choose a listed destination Folder");
+    const auto destination=destinations[static_cast<std::size_t>(chosen)];
+    const bool later=destination.index>source_index;
+    const auto placement=later?std::string("after"):std::string("before");
+    std::vector<Command> commands{MoveOut{composition,parent,source,members,placement}};
+    auto after_move=siblings;
+    after_move.insert(after_move.begin()+static_cast<std::ptrdiff_t>(source_index+(later?1:0)),members.begin(),members.end());
+    auto before_put=siblings;
+    before_put.insert(before_put.begin()+static_cast<std::ptrdiff_t>(destination.index),members.begin(),members.end());
+    if(before_put!=after_move)commands.push_back(ReorderObjects{composition,parent,std::move(before_put)});
+    commands.push_back(PutInside{composition,parent,destination.id,members});
+    if(!later) {
+        auto destination_order=document.objects.at(destination.id).children;
+        destination_order.insert(destination_order.end(),members.begin(),members.end());
+        commands.push_back(ReorderObjects{composition,destination.id,std::move(destination_order)});
+    }
+    std::vector<Canvas::Selection> selection;for(const auto& id:members)selection.push_back({id,{}});
+    canvas->cancel_interaction();host.session.apply(commands,revision);
+    canvas->set_selections(std::move(selection));host.edited();
+    statusBar()->showMessage("Moved selected objects to the chosen Folder without changing paint order; Undo restores both Folders",7000);
+}
 void Window::batch_rename_selection() {
     Id parent;
     const auto ids=selected_siblings(parent,2);
@@ -3782,6 +3859,7 @@ void Window::selection_menu(const QPoint& global) {
     move_to_next->setEnabled(false);
     auto* move_to_previous=menu.addAction("Move selected to previous Folder");move_to_previous->setObjectName("move-to-previous-folder-context");
     move_to_previous->setEnabled(false);
+    auto* move_to_folder=menu.addAction("Move selected to Folder…");move_to_folder->setObjectName("move-to-folder-context");move_to_folder->setEnabled(false);
     try {
         Id folder;const auto members=selected_siblings(folder,1);const auto& d=host.session.document();
         if(!folder.empty()&&d.objects.contains(folder)&&d.objects.at(folder).kind==Kind::group) {
@@ -3790,6 +3868,7 @@ void Window::selection_menu(const QPoint& global) {
             const bool suffix=members.size()<=children.size()&&
                 std::equal(members.begin(),members.end(),children.begin()+static_cast<std::ptrdiff_t>(children.size()-std::min(children.size(),members.size())));
             move_out->setEnabled(prefix||suffix);
+            move_to_folder->setEnabled(prefix||suffix);
             if(suffix&&std::all_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& item){return item.point.empty();})) {
                 const auto& composition=find_composition(d,canvas->active_composition());
                 std::function<bool(const std::vector<Id>&)> has_next=[&](const std::vector<Id>& siblings) {
@@ -3823,7 +3902,7 @@ void Window::selection_menu(const QPoint& global) {
         top->setEnabled((d.objects.at(members.back()).kind==Kind::path||d.objects.at(members.back()).kind==Kind::text));bottom->setEnabled((d.objects.at(members.front()).kind==Kind::path||d.objects.at(members.front()).kind==Kind::text));inside->setEnabled(d.objects.at(members.back()).kind==Kind::group);
     } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
     auto* chosen=menu.exec(global);if(!chosen)return;
-    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==transform)transform_selection();else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==move_out)move_selection_out();else if(chosen==move_to_next)move_selection_to_next_folder();else if(chosen==move_to_previous)move_selection_to_previous_folder();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();else if(chosen==batch_rename)batch_rename_selection();else if(chosen==sort_paint_order)sort_selection_by_name_paint_order();});
+    perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==transform)transform_selection();else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==move_out)move_selection_out();else if(chosen==move_to_next)move_selection_to_next_folder();else if(chosen==move_to_previous)move_selection_to_previous_folder();else if(chosen==move_to_folder)move_selection_to_folder();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();else if(chosen==batch_rename)batch_rename_selection();else if(chosen==sort_paint_order)sort_selection_by_name_paint_order();});
 }
 void Window::duplicate_selection() {
     if(canvas->selected_objects().empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select objects or Groups to duplicate");
