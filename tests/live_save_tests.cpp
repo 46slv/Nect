@@ -161,7 +161,7 @@ void typed_source_save_as(const QString& directory) {
     check(host.file_path==native_path(destination)&&!host.dirty()&&
           host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
           host.persistence()["native_error"].isNull()&&bytes(destination)==committed_bytes&&
-          bytes(destination).contains("\"version\":\"0.21\""),
+          bytes(destination).contains("\"version\":\"0.22\""),
           "Valid Save As binds the committed revision only after exact destination readback");
     const auto saved=load_native(destination).document;
     const auto saved_layout=text_layout_property(saved,target_layout);
@@ -189,7 +189,7 @@ void typed_source_save_as(const QString& directory) {
           cold_layout.driver->link==source_layout&&cold_layout.evaluated=="auto"&&
           reopened.session.document().objects.at("save-as-target").text->parameters.at("frame_width").literal==96&&
           reopened.session.document().objects.at("save-as-target").text->parameters.at("frame_height").literal==48,
-          "Cold reopen from destination restores native 0.21 authored sources and stable layout link");
+          "Cold reopen from destination restores native 0.22 authored sources and stable layout link");
 }
 void independent_failures(const QString& directory) {
     const auto blocked=directory+"/blocked-recovery";put(blocked,"not a directory");

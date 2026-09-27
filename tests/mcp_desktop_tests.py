@@ -201,9 +201,9 @@ try:
                 entry=next(item for item in entries if item['ref']==ref)
                 result=core('get',ref=ref)['result']
                 kind='string' if field in text_fields[:3] else 'enum'
-                authored=dict(literal=value,driver=None) if field in ('text.content','text.family','text.direction','text.layout','text.alignment') else dict(literal=value)
+                authored=dict(literal=value,driver=None)
                 assert result==entry and result['type']==kind and result['authored']==authored
-                assert result['evaluated']==value and result['link']==(field in ('text.content','text.family','text.direction','text.layout','text.alignment')) and result['expression'] is False
+                assert result['evaluated']==value and result['link']==(field in ('text.content','text.family','text.locale','text.direction','text.layout','text.alignment')) and result['expression'] is False
                 if kind=='enum':
                     choices={'text.layout':['auto','frame'],'text.direction':['horizontal','vertical'],
                         'text.alignment':['start','center','end']}[field]
@@ -346,6 +346,33 @@ try:
         peer_source['alignment']='end'
         rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
         assert core('get',ref=title_alignment)['result']['authored']==dict(literal='center',driver=None)
+        title_locale=dict(object='title',point='',field='text.locale')
+        peer_locale=dict(object='typed-peer',point='',field='text.locale')
+        locale_literal=core('get',ref=title_locale)['result']['authored']['literal']
+        rev=apply([dict(type='link_text_locale',target=title_locale,source=peer_locale,replace_driver=False)],rev)
+        linked_locale=core('get',ref=title_locale)['result']
+        locale_entry=next(item for item in core('properties')['result'] if item['ref']==title_locale)
+        assert linked_locale['authored']==dict(literal=locale_literal,driver=dict(link=peer_locale))
+        assert linked_locale['evaluated']=='fr-FR' and linked_locale['link'] is True
+        assert locale_entry==linked_locale
+        title_obj=next(item for item in core('inspect')['result']['objects'] if item['id']=='title')
+        blocked_locale_source=dict(title_obj['text'],locale='de-DE')
+        blocked=core('apply',expected_revision=rev,commands=[dict(type='update_text',object='title',source=blocked_locale_source)])
+        assert not blocked['ok'] and blocked['error']['code']=='DRIVEN_PROPERTY' and blocked['revision']==rev
+        peer_source['locale']='ja-JP'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        assert core('get',ref=title_locale)['result']['evaluated']=='ja-JP'
+        rev=apply([dict(type='unlink_text_locale',target=title_locale)],rev)
+        assert core('get',ref=title_locale)['result']['authored']==dict(literal='ja-JP',driver=None)
+        undo=core('undo',expected_revision=rev);assert undo['ok'];rev=undo['revision']
+        assert core('get',ref=title_locale)['result']['authored']==dict(literal=locale_literal,driver=dict(link=peer_locale))
+        peer_source['locale']='ar-SA'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        assert core('get',ref=title_locale)['result']['evaluated']=='ar-SA'
+        rev=apply([dict(type='unlink_text_locale',target=title_locale)],rev)
+        peer_source['locale']='fr-FR'
+        rev=apply([dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        assert core('get',ref=title_locale)['result']['authored']==dict(literal='ar-SA',driver=None)
         rev=apply([dict(type='delete_objects',objects=['typed-peer'])],rev)
         layout=core('text_layout',object='title')['result'];assert layout['glyph_count']>0 and layout['used_fonts']
         assert core('export_plan',composition=comp['id'],artboard=first['id'])['result']['text_policy']=='outlines'
@@ -728,7 +755,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.21'
+        assert native_save_as['version']=='0.22'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']

@@ -274,6 +274,14 @@ TextFamilyDriver read_text_family_driver(const j::value& value) {
 j::object text_family_driver_json(const TextFamilyDriver& driver) {
     return {{"link",ref_json(driver.link)}};
 }
+TextLocaleDriver read_text_locale_driver(const j::value& value) {
+    const auto& driver=value.as_object();
+    if(driver.contains("link")){keys(driver,{"link"});return TextLocaleDriver{read_ref(driver.at("link"))};}
+    throw Error("INVALID_TEXT_LOCALE_DRIVER","Text locale driver requires one link");
+}
+j::object text_locale_driver_json(const TextLocaleDriver& driver) {
+    return {{"link",ref_json(driver.link)}};
+}
 TextDirectionDriver read_text_direction_driver(const j::value& value) {
     const auto& driver=value.as_object();
     if(driver.contains("link")){keys(driver,{"link"});return TextDirectionDriver{read_ref(driver.at("link"))};}
@@ -298,16 +306,17 @@ TextAlignmentDriver read_text_alignment_driver(const j::value& value) {
 j::object text_alignment_driver_json(const TextAlignmentDriver& driver) {
     return {{"link",ref_json(driver.link)}};
 }
-TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true,bool allow_direction_driver=true,bool allow_layout_driver=true,bool allow_alignment_driver=true) {
+TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true,bool allow_locale_driver=true,bool allow_direction_driver=true,bool allow_layout_driver=true,bool allow_alignment_driver=true) {
     const auto& o=v.as_object();
     if(!allow_italic_driver&&o.contains("italic_driver"))throw Error("UNSUPPORTED_TEXT_ITALIC_DRIVER","Text italic drivers require native 0.15");
     if(!allow_weight_driver&&o.contains("weight_driver"))throw Error("UNSUPPORTED_TEXT_WEIGHT_DRIVER","Text weight drivers require native 0.16");
     if(!allow_content_driver&&o.contains("content_driver"))throw Error("UNSUPPORTED_TEXT_CONTENT_DRIVER","Text content drivers require native 0.17");
     if(!allow_family_driver&&o.contains("family_driver"))throw Error("UNSUPPORTED_TEXT_FAMILY_DRIVER","Text family drivers require native 0.18");
+    if(!allow_locale_driver&&o.contains("locale_driver"))throw Error("UNSUPPORTED_TEXT_LOCALE_DRIVER","Text locale drivers require native 0.22");
     if(!allow_direction_driver&&o.contains("direction_driver"))throw Error("UNSUPPORTED_TEXT_DIRECTION_DRIVER","Text direction drivers require native 0.19");
     if(!allow_layout_driver&&o.contains("layout_driver"))throw Error("UNSUPPORTED_TEXT_LAYOUT_DRIVER","Text layout drivers require native 0.20");
     if(!allow_alignment_driver&&o.contains("alignment_driver"))throw Error("UNSUPPORTED_TEXT_ALIGNMENT_DRIVER","Text alignment drivers require native 0.21");
-    keys(o,{"id","version","content","content_driver","family","family_driver","locale","layout","layout_driver","direction","direction_driver","alignment","alignment_driver","weight","italic","italic_driver","weight_driver","parameters"});
+    keys(o,{"id","version","content","content_driver","family","family_driver","locale","locale_driver","layout","layout_driver","direction","direction_driver","alignment","alignment_driver","weight","italic","italic_driver","weight_driver","parameters"});
     TextSource s;s.id=text(o.at("id"));s.version=j::value_to<unsigned>(o.at("version"));
     s.content=text(o.at("content"));s.family=text(o.at("family"));s.locale=text(o.at("locale"));
     s.layout=text(o.at("layout"));s.direction=text(o.at("direction"));s.alignment=text(o.at("alignment"));
@@ -316,6 +325,7 @@ TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_ita
     if(const auto* driver=o.if_contains("weight_driver"))s.weight_driver=read_text_weight_driver(*driver);
     if(const auto* driver=o.if_contains("content_driver"))s.content_driver=read_text_content_driver(*driver);
     if(const auto* driver=o.if_contains("family_driver"))s.family_driver=read_text_family_driver(*driver);
+    if(const auto* driver=o.if_contains("locale_driver"))s.locale_driver=read_text_locale_driver(*driver);
     if(const auto* driver=o.if_contains("direction_driver"))s.direction_driver=read_text_direction_driver(*driver);
     if(const auto* driver=o.if_contains("layout_driver"))s.layout_driver=read_text_layout_driver(*driver);
     if(const auto* driver=o.if_contains("alignment_driver"))s.alignment_driver=read_text_alignment_driver(*driver);
@@ -360,6 +370,7 @@ j::value text_json(const TextSource& s) {
     if(s.weight_driver)result["weight_driver"]=text_weight_driver_json(*s.weight_driver);
     if(s.content_driver)result["content_driver"]=text_content_driver_json(*s.content_driver);
     if(s.family_driver)result["family_driver"]=text_family_driver_json(*s.family_driver);
+    if(s.locale_driver)result["locale_driver"]=text_locale_driver_json(*s.locale_driver);
     if(s.direction_driver)result["direction_driver"]=text_direction_driver_json(*s.direction_driver);
     if(s.layout_driver)result["layout_driver"]=text_layout_driver_json(*s.layout_driver);
     if(s.alignment_driver)result["alignment_driver"]=text_alignment_driver_json(*s.alignment_driver);
@@ -386,6 +397,12 @@ j::object text_family_property_json(const Document& d,const Ref& ref,const TextF
     j::value driver=nullptr;if(value.driver)driver=text_family_driver_json(*value.driver);
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","string"},{"origin","authored"},
         {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
+        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+}
+j::object text_locale_property_json(const Document& d,const Ref& ref,const TextLocaleProperty& value) {
+    j::value driver=nullptr;if(value.driver)driver=text_locale_driver_json(*value.driver);
+    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","string"},{"origin","authored"},
+        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)} }},
         {"evaluated",value.evaluated},{"link",true},{"expression",false}};
 }
 j::object text_direction_property_json(const Document& d,const Ref& ref,const TextDirectionProperty& value) {
@@ -695,6 +712,13 @@ Command read_command(const j::value& v) {
     if(type=="unlink_text_family") {
         keys(o,{"type","target"});return UnlinkTextFamily{read_ref(o.at("target"))};
     }
+    if(type=="link_text_locale") {
+        keys(o,{"type","target","source","replace_driver"});
+        return LinkTextLocale{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="unlink_text_locale") {
+        keys(o,{"type","target"});return UnlinkTextLocale{read_ref(o.at("target"))};
+    }
     if(type=="link_text_direction") {
         keys(o,{"type","target","source","replace_driver"});
         return LinkTextDirection{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
@@ -937,10 +961,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,21> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21"};
+        constexpr std::array<std::string_view,22> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.21 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.22 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1023,7 +1047,7 @@ Document decode(std::string_view input) {
 
                 if(obj.kind==Kind::text) {
                     if(o.contains("source")||o.contains("point_edit")||o.contains("contours"))throw Error("INVALID_OBJECT","Text has incompatible geometry fields");
-                    obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17,minor>=18,minor>=19,minor>=20,minor>=21);
+                    obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17,minor>=18,minor>=22,minor>=19,minor>=20,minor>=21);
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
                     obj.source=read_primitive(o.at("source"),minor>=8,minor>=10);
@@ -1306,6 +1330,7 @@ std::string request(Session& session,std::string_view input) {
             }
             if(r.field=="text.content")result=text_content_property_json(session.document(),r,text_content_property(session.document(),r));
             else if(r.field=="text.family")result=text_family_property_json(session.document(),r,text_family_property(session.document(),r));
+            else if(r.field=="text.locale")result=text_locale_property_json(session.document(),r,text_locale_property(session.document(),r));
             else if(r.field=="text.direction")result=text_direction_property_json(session.document(),r,text_direction_property(session.document(),r));
             else if(r.field=="text.layout")result=text_layout_property_json(session.document(),r,text_layout_property(session.document(),r));
             else if(r.field=="text.alignment")result=text_alignment_property_json(session.document(),r,text_alignment_property(session.document(),r));
@@ -1332,6 +1357,7 @@ std::string request(Session& session,std::string_view input) {
             const auto weight_values=evaluate_text_weights(session.document());
             const auto content_values=evaluate_text_contents(session.document());
             const auto family_values=evaluate_text_families(session.document());
+            const auto locale_values=evaluate_text_locales(session.document());
             const auto direction_values=evaluate_text_directions(session.document());
             const auto layout_values=evaluate_text_layouts(session.document());
             const auto alignment_values=evaluate_text_alignments(session.document());
@@ -1347,6 +1373,12 @@ std::string request(Session& session,std::string_view input) {
                         const auto& source=*session.document().objects.at(ref.object).text;
                         list.push_back(text_family_property_json(session.document(),ref,
                             {source.family,source.family_driver,family_values.at(ref)}));
+                        continue;
+                    }
+                    if(ref.field=="text.locale") {
+                        const auto& source=*session.document().objects.at(ref.object).text;
+                        list.push_back(text_locale_property_json(session.document(),ref,
+                            {source.locale,source.locale_driver,locale_values.at(ref)}));
                         continue;
                     }
                     if(ref.field=="text.direction") {

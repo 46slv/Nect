@@ -2198,9 +2198,75 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* alignment_status=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(qs(alignment_state.literal),alignment_driver_name(alignment_state.driver),qs(alignment_state.evaluated)));
     alignment_status->setObjectName("text-alignment-state");alignment_status->setWordWrap(true);alignment_status->setTextFormat(Qt::PlainText);form->addRow("",alignment_status);
-    auto* locale=new QLineEdit(qs(source.locale));locale->setObjectName("text-locale");form->addRow("Language tag",locale);
-    connect(locale,&QLineEdit::editingFinished,this,[this,locale,update]{if(locale->isModified()){
-        locale->setModified(false);perform([&]{update([&](auto& s){s.locale=locale->text().toStdString();});});}});
+    const Ref locale_ref{id,"","text.locale"};const auto locale_state=text_locale_property(host.session.document(),locale_ref);
+    const auto locale_revision=host.session.revision();
+    auto* locale_row=new QWidget(box);auto* locale_layout=new QHBoxLayout(locale_row);locale_layout->setContentsMargins(0,0,0,0);
+    auto* locale_value=new QLineEdit(qs(locale_state.driver?locale_state.evaluated:locale_state.literal));
+    locale_value->setObjectName("text-locale");locale_value->setReadOnly(true);
+    locale_value->setToolTip("Use Edit locale to stage and apply a change.");locale_layout->addWidget(locale_value);
+    auto* locale_driver_button=new QToolButton(locale_row);locale_driver_button->setObjectName("text-locale-driver");
+    locale_driver_button->setText(locale_state.driver?"Driver…":"Drive…");locale_driver_button->setPopupMode(QToolButton::InstantPopup);
+    auto* locale_menu=new QMenu(locale_driver_button);locale_driver_button->setMenu(locale_menu);locale_layout->addWidget(locale_driver_button);
+    auto* edit_locale=locale_menu->addAction("Edit locale…");
+    auto* link_locale=locale_menu->addAction("Link to Text locale…");
+    auto* unlink_locale=locale_menu->addAction("Unlink locale");unlink_locale->setEnabled(locale_state.driver.has_value());
+    connect(edit_locale,&QAction::triggered,this,[this,id,frozen_session,locale_revision,locale_state,locale_ref]{
+        QDialog dialog(this);dialog.setObjectName("text-locale-dialog");dialog.setWindowTitle("Edit Text locale");
+        auto* box_layout=new QVBoxLayout(&dialog);
+        auto* editor=new QLineEdit(qs(locale_state.driver?locale_state.evaluated:locale_state.literal),&dialog);
+        editor->setObjectName("text-locale-editor");editor->setEnabled(!locale_state.driver);box_layout->addWidget(editor);
+        auto* unlink=new QCheckBox("Unlink the driver and edit this locale",&dialog);
+        unlink->setObjectName("unlink-text-locale-driver");unlink->setVisible(locale_state.driver.has_value());box_layout->addWidget(unlink);
+        auto* status=new QLabel("Apply commits the locale. Cancel keeps the current locale.",&dialog);
+        status->setObjectName("text-locale-editor-status");status->setWordWrap(true);box_layout->addWidget(status);
+        connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
+        connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,locale_revision,locale_state,locale_ref,editor,unlink,status]{
+            try {
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=locale_revision)throw Error("STALE_CONTEXT","Text changed while the locale editor was open; reopen it");
+                if(locale_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a locale edit");
+                const auto found=host.session.document().objects.find(id);
+                if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
+                const auto value=editor->text().toStdString();
+                std::vector<Command> commands;
+                if(locale_state.driver)commands.push_back(UnlinkTextLocale{locale_ref});
+                if(value!=(locale_state.driver?locale_state.evaluated:locale_state.literal)) {
+                    auto next=*found->second.text;next.locale=value;next.locale_driver.reset();
+                    commands.push_back(UpdateText{id,std::move(next)});
+                }
+                if(!commands.empty()){host.session.apply(commands,locale_revision);host.edited();}
+                dialog.accept();
+            } catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+        });
+        dialog.exec();
+    });
+    QStringList locale_source_labels;std::vector<Id> locale_source_ids;
+    for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
+        locale_source_ids.push_back(source_id);locale_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+    }
+    link_locale->setEnabled(!locale_source_ids.empty());const bool replace_locale_driver=locale_state.driver.has_value();
+    connect(link_locale,&QAction::triggered,this,[this,id,frozen_session,locale_revision,replace_locale_driver,locale_source_ids,locale_source_labels]{
+        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text locale","Source Text",locale_source_labels,0,false,&accepted);
+        if(!accepted)return;
+        const auto index=locale_source_labels.indexOf(choice);if(index<0)return;
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({LinkTextLocale{{id,"","text.locale"},{locale_source_ids.at(static_cast<std::size_t>(index)),"","text.locale"},replace_locale_driver}},locale_revision);host.edited();});
+    });
+    connect(unlink_locale,&QAction::triggered,this,[this,id,frozen_session,locale_revision,locale_ref]{
+        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({UnlinkTextLocale{locale_ref}},locale_revision);host.edited();});
+    });
+    form->addRow("Language tag",locale_row);
+    const auto locale_driver_name=[this](const std::optional<TextLocaleDriver>& driver) {
+        if(!driver)return QString("none");
+        const auto found=host.session.document().objects.find(driver->link.object);
+        return QString("link to ")+(found==host.session.document().objects.end()?qs(driver->link.object):qs(found->second.name)+" ("+qs(driver->link.object)+")");
+    };
+    auto* locale_status=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
+        .arg(qs(locale_state.literal),locale_driver_name(locale_state.driver),qs(locale_state.evaluated)));
+    locale_status->setObjectName("text-locale-state");locale_status->setWordWrap(true);locale_status->setTextFormat(Qt::PlainText);form->addRow("",locale_status);
     for(const auto* parameter:{"origin_x","origin_y","font_size","frame_width","frame_height","tracking","line_spacing"})
         add_property(form,{id,"",std::string("text.")+parameter},parameter_label(parameter));
     std::map<std::string,double> parameters;for(const auto& [name,value]:source.parameters){(void)value;parameters[name]=inspector_values_.at({id,"","text."+name});}

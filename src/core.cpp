@@ -138,6 +138,14 @@ const TextSource& text_family_source(const Document& document,const Ref& ref) {
     require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text family Ref must identify a Text object");
     return *object->second.text;
 }
+const TextSource& text_locale_source(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_TEXT_REF","Text locale properties require an empty point ID");
+    require(ref.field=="text.locale","TYPE_MISMATCH","Only Text locale accepts a string property Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text locale Ref must identify a Text object");
+    return *object->second.text;
+}
 const TextSource& text_direction_source(const Document& document,const Ref& ref) {
     require(ref.point.empty(),"INVALID_TEXT_REF","Text direction properties require an empty point ID");
     require(ref.field=="text.direction","TYPE_MISMATCH","Only Text direction accepts an enum property Ref");
@@ -274,6 +282,34 @@ public:
         std::map<Ref,std::string> result;
         for(const auto& [id,object]:document_.objects)if(object.kind==Kind::text&&object.text)
             result.emplace(Ref{id,"","text.family"},visit(id,0));
+        return result;
+    }
+};
+class TextLocaleEvaluator {
+    const Document& document_;
+    std::map<Id,std::string> values_;
+    std::set<Id> active_;
+    std::string visit(const Id& id,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Text locale dependency depth limit 128");
+        if(const auto found=values_.find(id);found!=values_.end())return found->second;
+        require(active_.insert(id).second,"DEPENDENCY_CYCLE","Text locale dependency cycle");
+        const auto& source=text_locale_source(document_,{id,"","text.locale"});
+        auto value=source.locale;
+        if(source.locale_driver) {
+            (void)text_locale_source(document_,source.locale_driver->link);
+            value=visit(source.locale_driver->link.object,depth+1);
+        }
+        require(!value.empty()&&value.size()<=128,"LIMIT","Evaluated Text locale must contain 1..128 UTF-8 bytes");
+        text_utf8(value);
+        active_.erase(id);values_.emplace(id,value);return value;
+    }
+public:
+    explicit TextLocaleEvaluator(const Document& document):document_(document){}
+    std::string value(const Id& id){return visit(id,0);}
+    std::map<Ref,std::string> all() {
+        std::map<Ref,std::string> result;
+        for(const auto& [id,object]:document_.objects)if(object.kind==Kind::text&&object.text)
+            result.emplace(Ref{id,"","text.locale"},visit(id,0));
         return result;
     }
 };
@@ -766,6 +802,7 @@ TextSource evaluated_text_source(const Document& document,const Id& object) {
     auto source=*found->second.text;
     source.content=evaluate_text_content(document,object);
     source.family=evaluate_text_family(document,object);
+    source.locale=evaluate_text_locale(document,object);
     source.layout=evaluate_text_layout(document,object);
     source.direction=evaluate_text_direction(document,object);
     source.alignment=evaluate_text_alignment(document,object);
@@ -795,6 +832,16 @@ std::string evaluate_text_family(const Document& document,const Id& object) {
 }
 std::map<Ref,std::string> evaluate_text_families(const Document& document) {
     return TextFamilyEvaluator(document).all();
+}
+TextLocaleProperty text_locale_property(const Document& document,const Ref& ref) {
+    const auto& source=text_locale_source(document,ref);
+    return {source.locale,source.locale_driver,evaluate_text_locale(document,ref.object)};
+}
+std::string evaluate_text_locale(const Document& document,const Id& object) {
+    return TextLocaleEvaluator(document).value(object);
+}
+std::map<Ref,std::string> evaluate_text_locales(const Document& document) {
+    return TextLocaleEvaluator(document).all();
 }
 TextDirectionProperty text_direction_property(const Document& document,const Ref& ref) {
     const auto& source=text_direction_source(document,ref);
@@ -1256,6 +1303,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     (void)evaluate_text_weights(d);
     (void)evaluate_text_contents(d);
     (void)evaluate_text_families(d);
+    (void)evaluate_text_locales(d);
     (void)evaluate_text_directions(d);
     (void)evaluate_text_layouts(d);
     (void)evaluate_text_alignments(d);
@@ -1941,6 +1989,7 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
             object.text->id=plan.ids.at(object.text->id);
             if(object.text->content_driver)object.text->content_driver->link=remap(object.text->content_driver->link);
             if(object.text->family_driver)object.text->family_driver->link=remap(object.text->family_driver->link);
+            if(object.text->locale_driver)object.text->locale_driver->link=remap(object.text->locale_driver->link);
             if(object.text->direction_driver)object.text->direction_driver->link=remap(object.text->direction_driver->link);
             if(object.text->layout_driver)object.text->layout_driver->link=remap(object.text->layout_driver->link);
             if(object.text->alignment_driver)object.text->alignment_driver->link=remap(object.text->alignment_driver->link);
@@ -2063,6 +2112,16 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             const auto value=evaluate_text_family(candidate,c.target.object);
             auto& source=*candidate.objects.at(c.target.object).text;
             source.family=value;source.family_driver.reset();
+        } else if constexpr(std::is_same_v<T,LinkTextLocale>) {
+            const auto& current=text_locale_source(candidate,c.target);
+            (void)text_locale_source(candidate,c.source);
+            require(!current.locale_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing a Text locale driver requires replace_driver=true");
+            candidate.objects.at(c.target.object).text->locale_driver=TextLocaleDriver{c.source};
+        } else if constexpr(std::is_same_v<T,UnlinkTextLocale>) {
+            (void)text_locale_source(candidate,c.target);
+            const auto value=evaluate_text_locale(candidate,c.target.object);
+            auto& source=*candidate.objects.at(c.target.object).text;
+            source.locale=value;source.locale_driver.reset();
         } else if constexpr(std::is_same_v<T,LinkTextDirection>) {
             const auto& current=text_direction_source(candidate,c.target);
             (void)text_direction_source(candidate,c.source);
@@ -2299,6 +2358,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(!c.source.weight_driver,"USE_TYPED_COMMAND","Create Text weight links with link_text_weight");
             require(!c.source.content_driver,"USE_TYPED_COMMAND","Create Text content links with link_text_content");
             require(!c.source.family_driver,"USE_TYPED_COMMAND","Create Text family links with link_text_family");
+            require(!c.source.locale_driver,"USE_TYPED_COMMAND","Create Text locale links with link_text_locale");
             require(!c.source.direction_driver,"USE_TYPED_COMMAND","Create Text direction links with link_text_direction");
             require(!c.source.layout_driver,"USE_TYPED_COMMAND","Create Text layout links with link_text_layout");
             require(!c.source.alignment_driver,"USE_TYPED_COMMAND","Create Text alignment links with link_text_alignment");
@@ -2330,6 +2390,11 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 require(next.family==o.text->family,"DRIVEN_PROPERTY","Unlink the Text family driver before changing its authored literal");
                 next.family_driver=o.text->family_driver;
             } else require(!next.family_driver,"USE_TYPED_COMMAND","Create Text family links with link_text_family");
+            if(o.text->locale_driver) {
+                require(!next.locale_driver||next.locale_driver==o.text->locale_driver,"DRIVEN_PROPERTY","UpdateText cannot replace or remove a Text locale driver");
+                require(next.locale==o.text->locale,"DRIVEN_PROPERTY","Unlink the Text locale driver before changing its authored literal");
+                next.locale_driver=o.text->locale_driver;
+            } else require(!next.locale_driver,"USE_TYPED_COMMAND","Create Text locale links with link_text_locale");
             if(o.text->direction_driver) {
                 require(!next.direction_driver||next.direction_driver==o.text->direction_driver,"DRIVEN_PROPERTY","UpdateText cannot replace or remove a Text direction driver");
                 require(next.direction==o.text->direction,"DRIVEN_PROPERTY","Unlink the Text direction driver before changing its authored literal");

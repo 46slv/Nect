@@ -1297,7 +1297,7 @@ void text_authoring(Window& window) {
     QTest::keyClick(family->lineEdit(),Qt::Key_Return);QApplication::processEvents();
     check(session.document().objects.at(id).text->family==original_family.toStdString()&&session.revision()==font_revision+1,
         "An installed family entered with inline completion commits exactly once");
-    auto family_source_text=default_text(new_id(),"Weight source");family_source_text.weight=700;family_source_text.family="Linked Family A";
+    auto family_source_text=default_text(new_id(),"Weight source");family_source_text.weight=700;family_source_text.family="Linked Family A";family_source_text.locale="ar-SA";
     const auto source_id=new_id(),source_name=std::string("Weight source");const auto composition=session.document().compositions.front().id;
     session.apply({CreateText{composition,"",source_id,source_name,family_source_text}},session.revision());window.host.edited();QApplication::processEvents();
     auto* direction_driver_button=visible_child<QToolButton>(window,"text-direction-driver");bool chose_direction_source=false;
@@ -1498,6 +1498,84 @@ void text_authoring(Window& window) {
     session.apply({UpdateText{source_id,changed_alignment_source}},session.revision());window.host.edited();QApplication::processEvents();
     check(session.document().objects.at(id).text->alignment=="end"&&!session.document().objects.at(id).text->alignment_driver,
         "Unlinked Text alignment stays frozen when its former source changes");
+    auto* locale_driver_button=visible_child<QToolButton>(window,"text-locale-driver");
+    check(visible_child<QLineEdit>(window,"text-locale")->isReadOnly()&&locale_driver_button->menu()->actions().size()==3,
+        "Text locale Inspector exposes a staged literal display and explicit edit/link/unlink menu");
+    const auto locale_initial_revision=session.revision();bool locale_cancel_safe=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QLineEdit*>("text-locale-editor");if(!editor){dialog->reject();return;}
+        editor->setText("fr-FR");locale_cancel_safe=session.revision()==locale_initial_revision&&
+            session.document().objects.at(id).text->locale=="ja-JP";dialog->reject();});
+    locale_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(locale_cancel_safe&&session.revision()==locale_initial_revision&&session.document().objects.at(id).text->locale=="ja-JP",
+        "Text locale Cancel discards its staged string without changing authored state or revision");
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        dialog->findChild<QLineEdit*>("text-locale-editor")->setText("fr-FR");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    locale_driver_button=visible_child<QToolButton>(window,"text-locale-driver");locale_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(session.document().objects.at(id).text->locale=="fr-FR"&&session.revision()==locale_initial_revision+1,
+        "Applying a staged Text locale commits one shared Session revision");
+    bool chose_locale_source=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget))
+        if(auto* combo=dialog->findChild<QComboBox*>()) {
+            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
+            dialog->accept();chose_locale_source=true;return;
+        }});
+    locale_driver_button=visible_child<QToolButton>(window,"text-locale-driver");locale_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(chose_locale_source&&session.document().objects.at(id).text->locale=="fr-FR"&&
+        session.document().objects.at(id).text->locale_driver->link==Ref{source_id,"","text.locale"}&&
+        evaluate_text_locale(session.document(),id)=="ar-SA"&&
+        visible_child<QLineEdit>(window,"text-locale")->text()=="ar-SA"&&
+        visible_child<QLabel>(window,"text-locale-state")->text().contains("Literal: fr-FR")&&
+        visible_child<QLabel>(window,"text-locale-state")->text().contains("Evaluated: ar-SA"),
+        "Text locale Inspector links the same field and shows literal, source and evaluated value");
+    const auto linked_locale_revision=session.revision();bool locale_apply_failed=false,locale_cancel_with_driver=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QLineEdit*>("text-locale-editor");auto* status=dialog->findChild<QLabel*>("text-locale-editor-status");
+        editor->setText("de-DE");dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        locale_apply_failed=dialog->isVisible()&&session.revision()==linked_locale_revision&&
+            session.document().objects.at(id).text->locale_driver.has_value()&&status->text().contains("unlink option");dialog->reject();});
+    visible_child<QToolButton>(window,"text-locale-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(locale_apply_failed,"Failed driven Text locale Apply retains its driver and Session revision");
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QLineEdit*>("text-locale-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-locale-driver");
+        unlink->setChecked(true);editor->setText("de-DE");locale_cancel_with_driver=session.revision()==linked_locale_revision&&
+            session.document().objects.at(id).text->locale_driver->link==Ref{source_id,"","text.locale"};dialog->reject();});
+    visible_child<QToolButton>(window,"text-locale-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(locale_cancel_with_driver&&session.revision()==linked_locale_revision&&
+        session.document().objects.at(id).text->locale_driver->link==Ref{source_id,"","text.locale"},
+        "Cancel discards both a staged locale edit and its staged unlink");
+    bool locale_stale_preserved=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QLineEdit*>("text-locale-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-locale-driver");
+        auto* status=dialog->findChild<QLabel*>("text-locale-editor-status");unlink->setChecked(true);editor->setText("de-DE");
+        auto next=*session.document().objects.at(source_id).text;next.locale="ja-JP";
+        session.apply({UpdateText{source_id,next}},session.revision());window.host.edited();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        locale_stale_preserved=dialog->isVisible()&&session.document().objects.at(id).text->locale_driver.has_value()&&
+            session.revision()==linked_locale_revision+1&&status->text().contains("changed while the locale editor was open");dialog->reject();});
+    visible_child<QToolButton>(window,"text-locale-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(locale_stale_preserved,"Stale Text locale Apply preserves the committed driver and evaluation");
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        dialog->findChild<QCheckBox*>("unlink-text-locale-driver")->setChecked(true);
+        dialog->findChild<QLineEdit*>("text-locale-editor")->setText("en-GB");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    visible_child<QToolButton>(window,"text-locale-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->locale_driver&&session.document().objects.at(id).text->locale=="en-GB"&&
+        session.revision()==linked_locale_revision+2,"Text locale unlink and edit commit as one atomic Session revision");
+    auto* locale_menu_button=visible_child<QToolButton>(window,"text-locale-driver");bool chose_locale_source_again=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget))
+        if(auto* combo=dialog->findChild<QComboBox*>()) {
+            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
+            dialog->accept();chose_locale_source_again=true;return;
+        }});
+    locale_menu_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    locale_menu_button=visible_child<QToolButton>(window,"text-locale-driver");locale_menu_button->menu()->actions().at(2)->trigger();QApplication::processEvents();
+    auto changed_locale_source=*session.document().objects.at(source_id).text;changed_locale_source.locale="ar-SA";
+    session.apply({UpdateText{source_id,changed_locale_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(chose_locale_source_again&&!session.document().objects.at(id).text->locale_driver&&
+        session.document().objects.at(id).text->locale=="ja-JP",
+        "Unlink locale freezes the evaluated value while later source changes leave it unchanged");
     auto* family_driver=visible_child<QToolButton>(window,"text-family-driver");bool chose_family_source=false;
     check(visible_child<QComboBox>(window,"text-family")->isEnabled()&&family_driver->menu()->actions().size()==2,
         "Text family Inspector exposes a literal control and link/edit menu");

@@ -212,7 +212,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.21','current writer uses native 0.21')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.22','current writer uses native 0.22')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -395,11 +395,11 @@ with tempfile.TemporaryDirectory() as tmp:
     check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
         'Rejected process command preserves the authored source and link')
     check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
-    check(replies[12]['result']['version']=='0.21' and replies[12]['result']==replies[8]['result'],
+    check(replies[12]['result']['version']=='0.22' and replies[12]['result']==replies[8]['result'],
         'Undo restores the pre-unlink native state exactly')
     check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
         'Undo restores the stable driver and its evaluated integer through a fresh request')
-    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.21 Text weight document validates in a fresh process')
+    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.22 Text weight document validates in a fresh process')
     old_weight=json.loads(json.dumps(replies[12]['result']));old_weight['version']='0.15'
     check(run('--validate',old_weight).returncode==2 and 'UNSUPPORTED_TEXT_WEIGHT_DRIVER' in run('--validate',old_weight).stderr,
         'Native 0.15 rejects the new Text weight driver instead of dropping it')
@@ -469,10 +469,10 @@ with tempfile.TemporaryDirectory() as tmp:
         linked_layout['glyph_count']>0 and linked_layout['used_fonts'] and
         all(linked_layout[field]==frozen_layout[field] for field in layout_fields),
         'Text layout consumes the linked family, and unlink freezes identical geometry, warnings and used fonts')
-    native=replies[12]['result'];check(native['version']=='0.21' and run('--validate',native).returncode==0,
-        'Native 0.21 content link validates in a separate CLI process')
-    family_native=replies[22]['result'];check(family_native['version']=='0.21' and run('--validate',family_native).returncode==0,
-        'Native 0.21 family link validates in a separate CLI process')
+    native=replies[12]['result'];check(native['version']=='0.22' and run('--validate',native).returncode==0,
+        'Native 0.22 content link validates in a separate CLI process')
+    family_native=replies[22]['result'];check(family_native['version']=='0.22' and run('--validate',family_native).returncode==0,
+        'Native 0.22 family link validates in a separate CLI process')
     path.write_text(json.dumps(family_native,ensure_ascii=False),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
         json.dumps(dict(op='get',ref=family_ref_b))+'\n'+json.dumps(dict(op='inspect'))+'\n',
@@ -554,8 +554,8 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='vertical' and reply['linked_horizontal']['result']['evaluated']=='horizontal',
         'Unlink freezes Text direction, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.21' and run('--validate',native).returncode==0,
-        'Native 0.21 Text direction link validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.22' and run('--validate',native).returncode==0,
+        'Native 0.22 Text direction link validates in a separate CLI process')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
         json.dumps(dict(op='get',ref=ref_a))+'\n'+json.dumps(dict(op='inspect'))+'\n',
@@ -642,8 +642,8 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='frame',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='frame' and reply['linked_auto']['result']['evaluated']=='auto',
         'Unlink freezes Text layout, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.21' and run('--validate',native).returncode==0,
-        'Native 0.21 Text layout link validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.22' and run('--validate',native).returncode==0,
+        'Native 0.22 Text layout link validates in a separate CLI process')
     target_native=next(obj for obj in native['objects'] if obj['id']=='layout-b')['text']
     check(target_native['layout']=='frame' and target_native['layout_driver']==dict(link=ref_a) and
         target_native['parameters']['frame_width']['literal']==96 and target_native['parameters']['frame_height']['literal']==48,
@@ -727,10 +727,10 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='end',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='center',
         'A driven alignment edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.21' and run('--validate',native).returncode==0,
-        'Native 0.21 Text alignment link validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.22' and run('--validate',native).returncode==0,
+        'Native 0.22 Text alignment link validates in a separate CLI process')
     check(linked_metadata['alignment']=='end' and linked_metadata['alignment_driver']==dict(link=ref_a),
-        'Native 0.21 retains alignment literal separately from its stable Ref')
+        'Native 0.22 retains alignment literal separately from its stable Ref')
     legacy=json.loads(json.dumps(native));legacy['version']='0.20'
     target=next(obj for obj in legacy['objects'] if obj['id']=='alignment-b')['text'];target.pop('alignment_driver')
     check(run('--validate',legacy).returncode==0 and
@@ -748,4 +748,102 @@ with tempfile.TemporaryDirectory() as tmp:
         cold_target['evaluated']=='end' and next(obj for obj in cold_doc['objects'] if obj['id']=='alignment-b')['text']['alignment_driver']==dict(link=ref_a) and
         path.read_bytes()==before,
         'A separate JSON-lines cold open preserves Text alignment source, Ref, evaluation and exact native bytes')
+
+# Text locale links preserve their unnormalized literal and use the same platform layout path.
+locale_schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.22.schema.json').read_text())
+locale_field=locale_schema['$defs']['text_source']['properties']['locale_driver']
+locale_driver=locale_schema['$defs']['locale_driver'];locale_ref=locale_schema['$defs']['locale_ref']
+previous_locale_schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.21.schema.json').read_text())
+check(locale_schema['properties']['version']['const']=='0.22' and
+      'locale_driver' not in previous_locale_schema['$defs']['text_source']['properties'] and
+      locale_field['$ref']=='#/$defs/locale_driver' and locale_driver['additionalProperties'] is False and
+      locale_driver['required']==['link'] and locale_ref['properties']['point']['const']=='' and
+      locale_ref['properties']['field']['const']=='text.locale',
+      'Native 0.22 adds only the closed same-field Text locale Ref driver')
+with tempfile.TemporaryDirectory() as tmp:
+    path=Path(tmp)/'text-locale.nect';path.write_text(json.dumps(sample),encoding='utf-8')
+    composition_id=sample['compositions'][0]['id']
+    def locale_text(source_id,content,locale):
+        return dict(id=source_id,version=1,content=content,family='Yu Gothic',locale=locale,layout='frame',
+            direction='horizontal',alignment='start',weight=400,italic=False,
+            parameters={name:dict(literal=value) for name,value in dict(origin_x=0,origin_y=0,font_size=28,
+                frame_width=180,frame_height=72,tracking=0,line_spacing=0).items()})
+    source_a=locale_text('locale-a-source','Source locale','ar-SA')
+    source_b=locale_text('locale-b-source','سلام','ja-JP')
+    twin_arabic=locale_text('locale-arabic-twin-source','سلام','ar-SA')
+    twin_japanese=locale_text('locale-japanese-twin-source','سلام','ja-JP')
+    ref_a=dict(object='locale-a',point='',field='text.locale')
+    ref_b=dict(object='locale-b',point='',field='text.locale')
+    requests=[
+        ('create',dict(op='apply',expected_revision=0,commands=[
+            dict(type='create_text',composition=composition_id,parent='',id='locale-a',name='Locale A',source=source_a),
+            dict(type='create_text',composition=composition_id,parent='',id='locale-b',name='Locale B',source=source_b),
+            dict(type='create_text',composition=composition_id,parent='',id='locale-arabic-twin',name='Arabic twin',source=twin_arabic),
+            dict(type='create_text',composition=composition_id,parent='',id='locale-japanese-twin',name='Japanese twin',source=twin_japanese)])),
+        ('resolve',dict(op='resolve_name',name='Locale B',point='',field='text.locale')),
+        ('literal',dict(op='get',ref=ref_b)),('properties',dict(op='properties')),
+        ('link',dict(op='apply',expected_revision=1,commands=[dict(type='link_text_locale',target=ref_b,source=ref_a,replace_driver=False)])),
+        ('linked',dict(op='get',ref=ref_b)),('linked_layout',dict(op='text_layout',object='locale-b')),
+        ('arabic_twin_layout',dict(op='text_layout',object='locale-arabic-twin')),
+        ('source_ja',dict(op='apply',expected_revision=2,commands=[dict(type='update_text',object='locale-a',source=dict(source_a,locale='ja-JP'))])),
+        ('linked_ja',dict(op='get',ref=ref_b)),('linked_ja_layout',dict(op='text_layout',object='locale-b')),
+        ('japanese_twin_layout',dict(op='text_layout',object='locale-japanese-twin')),
+        ('rejected_edit',dict(op='apply',expected_revision=3,commands=[dict(type='update_text',object='locale-b',source=dict(source_b,locale='fr-FR'))])),
+        ('unlink',dict(op='apply',expected_revision=3,commands=[dict(type='unlink_text_locale',target=ref_b)])),
+        ('frozen',dict(op='get',ref=ref_b)),('undo',dict(op='undo',expected_revision=4)),
+        ('restored',dict(op='get',ref=ref_b)),('native',dict(op='inspect'))]
+    proc=subprocess.run([exe,'--serve',str(path)],input='\n'.join(json.dumps(request) for _,request in requests)+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=20)
+    replies=[json.loads(line) for line in proc.stdout.splitlines()]
+    check(len(replies)==len(requests),'Text locale JSON-lines returns one response per request')
+    reply={name:replies[index] for index,(name,_) in enumerate(requests)}
+    check(all(reply[name]['ok'] for name,_ in requests if name!='rejected_edit'),
+        'Text locale API create/discovery/link/update/unlink/Undo requests succeed')
+    check(reply['resolve']['result']==ref_b,'resolve_name returns the stable Text locale Ref')
+    check(reply['literal']['result']['type']=='string' and
+        reply['literal']['result']['authored']==dict(literal='ja-JP',driver=None) and
+        reply['literal']['result']['evaluated']=='ja-JP' and reply['literal']['result']['link'] is True,
+        'Text locale get exposes its literal, evaluated value and link capability')
+    metadata=next(value for value in reply['properties']['result'] if value['ref']==ref_b)
+    check(metadata==reply['literal']['result'] and
+        reply['linked']['result']['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
+        reply['linked']['result']['evaluated']=='ar-SA' and
+        reply['linked_ja']['result']['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
+        reply['linked_ja']['result']['evaluated']=='ja-JP',
+        'Text locale discovery retains authored bytes while evaluating the source locale dynamically')
+    def same_layout(left,right):
+        return all(left[key]==right[key] for key in ('x','y','width','height','overflow','glyph_count','warnings','used_fonts'))
+    check(same_layout(reply['linked_layout']['result'],reply['arabic_twin_layout']['result']) and
+        same_layout(reply['linked_ja_layout']['result'],reply['japanese_twin_layout']['result']),
+        'Linked Arabic Text layout, used fonts and warnings equal same-document literal twins')
+    check(not reply['rejected_edit']['ok'] and reply['rejected_edit']['error']['code']=='DRIVEN_PROPERTY' and
+        reply['rejected_edit']['revision']==3 and reply['frozen']['result']['authored']==dict(literal='ja-JP',driver=None) and
+        reply['restored']['result']['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
+        reply['restored']['result']['evaluated']=='ja-JP',
+        'Driven Text locale edit rejects atomically; unlink freezes and Undo restores its driver')
+    native=reply['native']['result'];check(native['version']=='0.22' and run('--validate',native).returncode==0,
+        'Native 0.22 Text locale link validates in a separate CLI process')
+    linked_metadata=next(obj for obj in native['objects'] if obj['id']=='locale-b')['text']
+    check(linked_metadata['locale']=='ja-JP' and linked_metadata['locale_driver']==dict(link=ref_a),
+        'Native 0.22 retains the target locale literal separately from its stable Ref')
+    legacy=json.loads(json.dumps(native));legacy['version']='0.21'
+    legacy_target=next(obj for obj in legacy['objects'] if obj['id']=='locale-b')['text'];legacy_target.pop('locale_driver')
+    check(run('--validate',legacy).returncode==0 and
+        'UNSUPPORTED_TEXT_LOCALE_DRIVER' in run('--validate',dict(native,version='0.21')).stderr,
+        'Native 0.21 preserves locale literals and rejects a falsely versioned driver')
+    malformed=json.loads(json.dumps(native));next(obj for obj in malformed['objects'] if obj['id']=='locale-b')['text']['locale_driver']={'other':ref_a}
+    check('INVALID_TEXT_LOCALE_DRIVER' in run('--validate',malformed).stderr,
+        'Malformed native Text locale drivers reject instead of being dropped')
+    path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
+    cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
+        json.dumps(dict(op='text_layout',object='locale-b'))+'\n'+json.dumps(dict(op='text_layout',object='locale-japanese-twin'))+'\n'+
+        json.dumps(dict(op='inspect'))+'\n',capture_output=True,text=True,encoding='utf-8',timeout=20)
+    cold_replies=[json.loads(line) for line in cold.stdout.splitlines()]
+    cold_target=cold_replies[0]['result'];cold_doc=cold_replies[3]['result']
+    check(all(value['ok'] for value in cold_replies) and cold_target['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
+        cold_target['evaluated']=='ja-JP' and same_layout(json.loads(cold.stdout.splitlines()[1])['result'],
+        json.loads(cold.stdout.splitlines()[2])['result']) and
+        next(obj for obj in cold_doc['objects'] if obj['id']=='locale-b')['text']['locale_driver']==dict(link=ref_a) and
+        path.read_bytes()==before,
+        'A separate JSON-lines cold open preserves locale source, Ref, evaluation, layout and exact native bytes')
 print(f'PASS {checks} process and native migration checks')

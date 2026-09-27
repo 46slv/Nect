@@ -1116,3 +1116,29 @@ earlier files retain their alignment literal and reject a present 0.21 driver.
 `schemas/native-v0.21.schema.json` constrains the closed same-field Ref shape;
 the core checks source existence and the closed `start`/`center`/`end` domain.
 Enum expressions and generic typed batches remain separate work.
+
+## Native 0.22 — typed Text locale link
+
+`TextSource.locale` retains its authored nonempty UTF-8 literal, limited to
+128 bytes, and may store one optional `locale_driver:{"link":Ref}` to another
+Text object's same `text.locale` field. The source and target use stable Object
+IDs and an empty point ID. Evaluation follows the link with the existing
+128-edge dependency bound and rejects missing, non-Text, self and cyclic
+references. It preserves the literal and driver while the pure evaluated Text
+projection substitutes only the locale used by the existing DirectWrite layout
+and font-name fallback path.
+
+`link_text_locale` and `unlink_text_locale` use Session revision, validation and
+Undo. Replacing a link requires `replace_driver:true`; unlink freezes the current
+evaluated locale into the target literal. `UpdateText` may edit unrelated Text
+fields while preserving a locale driver, but it cannot change the driven locale
+literal or replace/remove its driver. Rename and reorder preserve the stable
+Ref, duplication remaps it when both endpoints are copied, and a surviving
+dependent prevents deletion of its source.
+
+The 0.22 writer omits `locale_driver` for literal-only Text. Native 0.21 and
+earlier files retain their locale literals and reject this driver field.
+`schemas/native-v0.22.schema.json` constrains the closed same-field Ref shape;
+the core applies the existing nonempty, 128-byte and UTF-8 checks without
+canonicalizing tags or changing platform shaping, warning or fallback behavior.
+BCP 47 policy, generic string links and locale expressions remain unsupported.

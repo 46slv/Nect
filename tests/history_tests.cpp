@@ -107,7 +107,7 @@ void authored_roundtrip() {
 }
 void typed_text_layout_history() {
     Session session(empty_document("layout-history-doc","layout-history-comp","layout-history-frame"));
-    auto source=default_text("layout-history-source-text","Source");
+    auto source=default_text("layout-history-source-text","Source");source.locale="ar-SA";
     auto target=default_text("layout-history-target-text","Target");target.layout="frame";
     apply(session,{CreateText{"layout-history-comp","","layout-history-source","Source",source},
         CreateText{"layout-history-comp","","layout-history-target","Target",target}});
@@ -130,6 +130,27 @@ void typed_text_layout_history() {
     check(!session.document().objects.at("layout-history-target").text->layout_driver&&
         session.document().objects.at("layout-history-target").text->layout=="auto",
         "History Redo restores the frozen Text layout literal");
+    const Ref source_locale{"layout-history-source","","text.locale"},target_locale{"layout-history-target","","text.locale"};
+    const auto locale_before=session.history().retained_bytes;
+    apply(session,{LinkTextLocale{target_locale,source_locale,false}});
+    const auto locale_linked=session.history();
+    check(locale_linked.retained_bytes>locale_before&&locale_linked.states.back().estimated_bytes>0&&
+        locale_linked.states.back().label.find("Link Text locale")!=std::string::npos&&
+        evaluate_text_locale(session.document(),"layout-history-target")=="ar-SA",
+        "Typed Text locale link stores its driver delta and evaluated string in retained History");
+    apply(session,{UnlinkTextLocale{target_locale}});
+    check(session.history().states.back().label.find("Unlink Text locale")!=std::string::npos&&
+        !session.document().objects.at("layout-history-target").text->locale_driver&&
+        session.document().objects.at("layout-history-target").text->locale=="ar-SA",
+        "Typed Text locale unlink records its frozen literal in History");
+    session.undo(session.revision());
+    check(session.document().objects.at("layout-history-target").text->locale_driver->link==source_locale&&
+        evaluate_text_locale(session.document(),"layout-history-target")=="ar-SA",
+        "History Undo restores the typed Text locale driver and projection");
+    session.redo(session.revision());
+    check(!session.document().objects.at("layout-history-target").text->locale_driver&&
+        session.document().objects.at("layout-history-target").text->locale=="ar-SA",
+        "History Redo restores the frozen Text locale literal");
 }
 void limits_and_gestures() {
     const auto document=demo_document();const Ref x{"path-A","point-A1","x"};
