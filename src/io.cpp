@@ -1601,12 +1601,12 @@ std::string request(Session& session,std::string_view input) {
             result=std::move(definitions);
         } else if(op=="operator_types") {
             keys(o,{"op"});j::array definitions;
-            for(const auto* type:{"nect.paint.fill","nect.paint.stroke","nect.shape.repeater","nect.shape.offset","nect.group.posterize"}) {
-                auto defaults=default_operation("new-operation",type);
+            for(const auto& descriptor:builtin_operation_types()) {
+                auto defaults=default_operation("new-operation",descriptor.type);
                 j::array parameters;for(const auto& [name,scalar]:defaults.parameters)
                     parameters.push_back({{"name",name},{"unit",property_unit(operation_ref("object",defaults.id,name))},{"default",scalar.literal}});
-                j::object definition{{"type",type},{"version",1},{"input","local_paths_and_paint"},
-                    {"output","local_paths_and_paint"},{"bypass","preserve_input"},
+                j::object definition{{"type",descriptor.type},{"version",descriptor.version},{"input",descriptor.input},
+                    {"output",descriptor.output},{"target_kind",descriptor.target_kind},{"bypass","preserve_input"},
                     {"parameters",parameters},{"template",operation_json(defaults)}};
                 if(defaults.type=="nect.paint.stroke") {
                     definition["supported_versions"]=j::array{1,2};
@@ -1625,8 +1625,6 @@ std::string request(Session& session,std::string_view input) {
                     definition["zero_amount"]="exact input; no geometry conversion";
                 }
                 if(defaults.type=="nect.group.posterize") {
-                    definition["input"]="postchildren_premultiplied_srgb_rgba";
-                    definition["output"]="premultiplied_srgb_rgba";
                     definition["scope"]="group";
                     definition["domain"]="Group postchildren premultiplied sRGB RGBA pixels";
                     definition["placement"]="after children composite in Group order; before Group mask, opacity and blend";

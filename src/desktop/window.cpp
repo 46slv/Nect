@@ -187,11 +187,7 @@ QString parameter_label(const std::string& parameter) {
     return qs(parameter);
 }
 QString operation_label(const ShapeOperation& operation) {
-    if(operation.type=="nect.paint.fill")return QStringLiteral("Fill");
-    if(operation.type=="nect.paint.stroke")return QStringLiteral("Stroke");
-    if(operation.type=="nect.shape.repeater")return QStringLiteral("Repeater");
-    if(operation.type=="nect.shape.offset")return QStringLiteral("Offset Paths");
-    if(operation.type=="nect.group.posterize")return QStringLiteral("Group Posterize");
+    if(const auto* descriptor=builtin_operation_type(operation.type))return qs(descriptor->label);
     return qs(operation.type);
 }
 const ShapeOperation& find_operation(const Document& document,const Id& object,const Id& operation) {
@@ -468,13 +464,14 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     effects_layout->addWidget(effects_search_);
     effects_catalog_=new QListWidget(effects_body);effects_catalog_->setObjectName("effects-catalog");
     effects_catalog_->setSelectionMode(QAbstractItemView::SingleSelection);
-    auto* offset_entry=new QListWidgetItem("Offset Paths",effects_catalog_);
-    offset_entry->setData(Qt::UserRole,QStringLiteral("nect.shape.offset"));
-    offset_entry->setToolTip("Object-local closed-path geometry modifier · nect.shape.offset · behavior v1");
-    auto* posterize_entry=new QListWidgetItem("Group Posterize",effects_catalog_);
-    posterize_entry->setData(Qt::UserRole,QStringLiteral("nect.group.posterize"));
-    posterize_entry->setToolTip("Postchildren Group pixel operator · nect.group.posterize · behavior v1");
-    effects_catalog_->setCurrentItem(offset_entry);effects_layout->addWidget(effects_catalog_);
+    for(const auto& descriptor:builtin_operation_types())if(descriptor.effects_catalog) {
+        auto* entry=new QListWidgetItem(qs(descriptor.label),effects_catalog_);
+        entry->setData(Qt::UserRole,qs(descriptor.type));
+        entry->setToolTip(qs(descriptor.target_kind)+" · "+qs(descriptor.input)+" → "+qs(descriptor.output)+
+            " · "+qs(descriptor.type)+" · behavior v"+QString::number(descriptor.version));
+    }
+    if(effects_catalog_->count())effects_catalog_->setCurrentRow(0);
+    effects_layout->addWidget(effects_catalog_);
     auto* no_results=new QLabel("No supported effects match this search.",effects_body);
     no_results->setObjectName("effects-no-results");no_results->setWordWrap(true);no_results->hide();effects_layout->addWidget(no_results);
     effects_target_=new QLabel(effects_body);effects_target_->setObjectName("effects-target");

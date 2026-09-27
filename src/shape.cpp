@@ -6,21 +6,32 @@
 #include <limits>
 
 namespace nect {
+const std::vector<BuiltinOperationType>& builtin_operation_types() {
+    static const std::vector<BuiltinOperationType> types{
+        {"nect.paint.fill","Fill","path_or_text","local_paths_and_paint","local_paths_and_paint",1,false,
+            {{"r",0},{"g",0},{"b",0},{"a",1}}},
+        {"nect.paint.stroke","Stroke","path_or_text","local_paths_and_paint","local_paths_and_paint",1,false,
+            {{"r",0},{"g",0},{"b",0},{"a",1},{"width",2}}},
+        {"nect.shape.repeater","Repeater","path_or_text","local_paths_and_paint","local_paths_and_paint",1,false,
+            {{"copies",3},{"position_x",100},{"position_y",0},{"anchor_x",0},{"anchor_y",0},{"rotation",0},
+             {"scale_x",1},{"scale_y",1},{"offset",0},{"start_opacity",1},{"end_opacity",1}}},
+        {"nect.shape.offset","Offset Paths","path_or_text","local_paths_and_paint","local_paths_and_paint",1,true,
+            {{"amount",10},{"miter_limit",4}}},
+        {"nect.group.posterize","Group Posterize","group","postchildren_premultiplied_srgb_rgba","premultiplied_srgb_rgba",1,true,
+            {{"levels",2}}},
+    };
+    return types;
+}
+const BuiltinOperationType* builtin_operation_type(const std::string& type) {
+    const auto& types=builtin_operation_types();
+    const auto it=std::find_if(types.begin(),types.end(),[&](const auto& entry){return entry.type==type;});
+    return it==types.end()?nullptr:&*it;
+}
 ShapeOperation default_operation(Id id,const std::string& type) {
-    ShapeOperation op;op.id=std::move(id);op.type=type;
-    if(type=="nect.paint.fill"||type=="nect.paint.stroke") {
-        op.parameters={{"r",{0,{}}},{"g",{0,{}}},{"b",{0,{}}},{"a",{1,{}}}};
-        if(type=="nect.paint.stroke")op.parameters["width"]={2,{}};
-    } else if(type=="nect.shape.repeater") {
-        op.parameters={{"copies",{3,{}}},{"position_x",{100,{}}},{"position_y",{0,{}}},
-            {"anchor_x",{0,{}}},{"anchor_y",{0,{}}},{"rotation",{0,{}}},
-            {"scale_x",{1,{}}},{"scale_y",{1,{}}},{"offset",{0,{}}},
-            {"start_opacity",{1,{}}},{"end_opacity",{1,{}}}};
-    } else if(type=="nect.shape.offset") {
-        op.parameters={{"amount",{10,{}}},{"miter_limit",{4,{}}}};
-    } else if(type=="nect.group.posterize") {
-        op.parameters={{"levels",{2,{}}}};
-    } else throw Error("UNSUPPORTED_OPERATOR",type);
+    const auto* descriptor=builtin_operation_type(type);
+    if(!descriptor)throw Error("UNSUPPORTED_OPERATOR",type);
+    ShapeOperation op;op.id=std::move(id);op.type=descriptor->type;op.version=descriptor->version;
+    for(const auto& [name,value]:descriptor->parameter_defaults)op.parameters.emplace(name,Scalar{value,{}});
     return op;
 }
 Ref operation_ref(const Id& object,const Id& operation,const std::string& parameter) {

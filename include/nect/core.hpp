@@ -195,6 +195,15 @@ struct ShapeOperation {
     bool operator==(const ShapeOperation&) const = default;
 };
 ShapeOperation default_operation(Id id,const std::string& type);
+// Immutable descriptors for executable built-ins. External extension registration is not yet supported.
+struct BuiltinOperationType {
+    std::string type,label,target_kind,input,output;
+    unsigned version=1;
+    bool effects_catalog=false;
+    std::map<std::string,double> parameter_defaults;
+};
+const std::vector<BuiltinOperationType>& builtin_operation_types();
+const BuiltinOperationType* builtin_operation_type(const std::string& type);
 Ref operation_ref(const Id& object,const Id& operation,const std::string& parameter);
 // field is start_x/start_y/end_x/end_y or stop.<stable stop ID>.offset/r/g/b/a.
 Ref gradient_ref(const Id& object,const Id& operation,const Id& gradient,const std::string& field);

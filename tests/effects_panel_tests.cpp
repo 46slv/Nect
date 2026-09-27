@@ -91,6 +91,23 @@ int main(int argc,char** argv) {
         search->setText("OFFsET");events();
         auto* catalog=named<QListWidget>(window,"effects-catalog");
         check(!catalog->item(0)->isHidden(),"Effects catalog search is case-insensitive");
+        const auto builtin_definitions=api(request(session,R"({"op":"operator_types"})")).value("result").toArray();
+        int catalog_index=0;
+        for(const auto& descriptor:builtin_operation_types())if(descriptor.effects_catalog) {
+            check(catalog_index<catalog->count(),"Executable built-in descriptor has an Effects catalog row");
+            const auto* item=catalog->item(catalog_index++);
+            QJsonObject definition;
+            for(const auto value:builtin_definitions)if(value.toObject().value("type").toString()==QString::fromStdString(descriptor.type))
+                definition=value.toObject();
+            check(!definition.isEmpty()&&item->text()==QString::fromStdString(descriptor.label)&&
+                item->data(Qt::UserRole).toString()==QString::fromStdString(descriptor.type)&&
+                definition.value("version").toInt()==static_cast<int>(descriptor.version)&&
+                definition.value("input").toString()==QString::fromStdString(descriptor.input)&&
+                definition.value("output").toString()==QString::fromStdString(descriptor.output)&&
+                definition.value("target_kind").toString()==QString::fromStdString(descriptor.target_kind),
+                "Effects catalog and API discover the same executable built-in type contract");
+        }
+        check(catalog_index==catalog->count(),"Effects catalog contains only advertised built-in effects");
         const auto search_revision=session.revision();const auto search_document=encode(session.document());
         search->setText("unavailable effect");events();
         check(!named<QPushButton>(window,"effects-apply")->isEnabled()&&
