@@ -352,6 +352,7 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
     if(image.isNull()||image.width()<1||image.height()<1)throw Error("RENDER_ALLOCATION","Could not read rendered analysis pixels");
     constexpr std::uint64_t max_pixels=4'000'000;
     constexpr std::size_t max_regions=10'000;
+    constexpr std::size_t max_edge_runs=100'000;
     const auto width=static_cast<std::uint64_t>(image.width());
     const auto height=static_cast<std::uint64_t>(image.height());
     const auto pixel_count=width*height;
@@ -388,7 +389,27 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         regions.append(QJsonObject{{"area",static_cast<qint64>(area)},
             {"x",min_x},{"y",min_y},{"width",max_x-min_x+1},{"height",max_y-min_y+1}});
     }
-    return {{"regions",regions},{"threshold",threshold},{"connectivity",4},{"scale",scale},
+    QJsonArray edge_runs;
+    std::uint64_t edge_pixel_count=0;
+    const auto foreground_at=[&](int x,int y) {return qAlpha(image.pixel(x,y))>=threshold;};
+    const auto edge_at=[&](int x,int y) {
+        return foreground_at(x,y)&&(x==0||!foreground_at(x-1,y)||x+1==image.width()||!foreground_at(x+1,y)||
+            y==0||!foreground_at(x,y-1)||y+1==image.height()||!foreground_at(x,y+1));
+    };
+    for(int y=0;y<image.height();++y) {
+        int x=0;
+        while(x<image.width()) {
+            while(x<image.width()&&!edge_at(x,y))++x;
+            if(x==image.width())break;
+            const auto start=x;
+            do {++edge_pixel_count;++x;} while(x<image.width()&&edge_at(x,y));
+            if(static_cast<std::size_t>(edge_runs.size())>=max_edge_runs)
+                throw Error("ANALYSIS_LIMIT","Region analysis is limited to 100,000 edge runs");
+            edge_runs.append(QJsonObject{{"y",y},{"x",start},{"width",x-start}});
+        }
+    }
+    return {{"regions",regions},{"edge_runs",edge_runs},{"edge_pixel_count",static_cast<qint64>(edge_pixel_count)},
+        {"edge_rule","foreground-4-neighbor"},{"threshold",threshold},{"connectivity",4},{"scale",scale},
         {"width",image.width()},{"height",image.height()},{"color_space","sRGB"},
         {"coordinate_space","artboard-output-pixels"},{"origin","top-left"},
         {"pixel_format","ARGB32_Premultiplied"},{"alpha_domain","8-bit premultiplied Canvas output alpha byte"},

@@ -9,6 +9,8 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <algorithm>
+#include <array>
+#include <initializer_list>
 #include <iostream>
 #include <stdexcept>
 
@@ -43,6 +45,20 @@ void check_region(const QJsonObject& value,int area,int x,int y,int width,int he
     check(value.value("area").toInt()==area,message);
     check(value.value("x").toInt()==x&&value.value("y").toInt()==y&&
         value.value("width").toInt()==width&&value.value("height").toInt()==height,message);
+}
+QJsonArray expected_runs(std::initializer_list<std::array<int,3>> spans) {
+    QJsonArray result;
+    for(const auto& span:spans)result.append(QJsonObject{{"y",span[0]},{"x",span[1]},{"width",span[2]}});
+    return result;
+}
+void check_edges(const QJsonObject& value,const QJsonArray& expected,int pixel_count,const char* message) {
+    const auto runs=value.value("edge_runs").toArray();
+    check(runs==expected,message);
+    check(value.value("edge_pixel_count").toInt()==pixel_count,message);
+    check(value.value("edge_rule").toString()=="foreground-4-neighbor",message);
+    int run_pixel_count=0;
+    for(const auto& run:runs)run_pixel_count+=run.toObject().value("width").toInt();
+    check(run_pixel_count==value.value("edge_pixel_count").toInt(),"Edge run widths sum to the edge pixel count");
 }
 QJsonObject pixel_request(std::uint64_t revision,int threshold) {
     QImage image(8,6,QImage::Format_ARGB32_Premultiplied);image.fill(qRgba(0,0,0,0));
@@ -96,6 +112,50 @@ void independent_pixel_oracle() {
     try {analyze_region_pixels(exact_components,1,1.0,0);throw std::runtime_error("Expected component limit refusal");}
     catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT","The 10,001st component refuses without a partial result");}
 }
+void independent_edge_oracle() {
+    QImage rectangle_image(6,5,QImage::Format_ARGB32_Premultiplied);rectangle_image.fill(Qt::transparent);
+    for(int y=1;y<=3;++y)for(int x=1;x<=3;++x)rectangle_image.setPixel(x,y,qRgba(0,0,0,255));
+    const auto rectangle_result=analyze_region_pixels(rectangle_image,128,1.0,9);
+    check_region(rectangle_result.value("regions").toArray()[0].toObject(),9,1,1,3,3,
+        "Independent edge rectangle remains a nine-pixel component");
+    check_edges(rectangle_result,expected_runs({{1,1,3},{2,1,1},{2,3,1},{3,1,3}}),8,
+        "A 3x3 solid rectangle excludes its interior center from the edge runs");
+
+    QImage boundary_image(3,3,QImage::Format_ARGB32_Premultiplied);boundary_image.fill(qRgba(0,0,0,255));
+    const auto boundary_result=analyze_region_pixels(boundary_image,128,1.0,10);
+    check_edges(boundary_result,expected_runs({{0,0,3},{1,0,1},{1,2,1},{2,0,3}}),8,
+        "Pixels at every Artboard edge see outside neighbors as transparent");
+
+    QImage diagonal_image(3,3,QImage::Format_ARGB32_Premultiplied);diagonal_image.fill(Qt::transparent);
+    diagonal_image.setPixel(0,0,qRgba(0,0,0,255));
+    diagonal_image.setPixel(1,1,qRgba(0,0,0,255));
+    diagonal_image.setPixel(2,2,qRgba(0,0,0,127));
+    const auto at_128=analyze_region_pixels(diagonal_image,128,1.0,11);
+    check(at_128.value("regions").toArray().size()==2,"Diagonal-only pixels remain separate 4-connected regions");
+    check_edges(at_128,expected_runs({{0,0,1},{1,1,1}}),2,
+        "Two diagonally touching pixels each remain an edge pixel and alpha 127 is excluded");
+    const auto at_127=analyze_region_pixels(diagonal_image,127,1.0,11);
+    check(at_127.value("regions").toArray().size()==3,"Alpha equal to the lowered threshold is included");
+    check_edges(at_127,expected_runs({{0,0,1},{1,1,1},{2,2,1}}),3,
+        "The formerly excluded alpha-127 pixel appears as one edge run at threshold 127");
+
+    QImage hole_image(7,7,QImage::Format_ARGB32_Premultiplied);hole_image.fill(Qt::transparent);
+    for(int y=1;y<=5;++y)for(int x=1;x<=5;++x)
+        if(x!=3||y!=3)hole_image.setPixel(x,y,qRgba(0,0,0,255));
+    const auto hole_result=analyze_region_pixels(hole_image,128,1.0,12);
+    const auto hole_regions=hole_result.value("regions").toArray();
+    check(hole_regions.size()==1&&hole_regions[0].toObject().value("area").toInt()==24,
+        "A transparent hole stays outside the foreground component area");
+    check_edges(hole_result,expected_runs({{1,1,5},{2,1,1},{2,3,1},{2,5,1},
+        {3,1,2},{3,4,2},{4,1,1},{4,3,1},{4,5,1},{5,1,5}}),20,
+        "Transparent hole pixels contribute inner boundary edges around the hole");
+
+    QImage comb(2004,102,QImage::Format_ARGB32_Premultiplied);comb.fill(Qt::transparent);
+    for(int x=0;x<comb.width();++x)comb.setPixel(x,0,qRgba(0,0,0,255));
+    for(int y=1;y<comb.height();++y)for(int x=0;x<comb.width();x+=2)comb.setPixel(x,y,qRgba(0,0,0,255));
+    try {analyze_region_pixels(comb,1,1.0,13);throw std::runtime_error("Expected edge run limit refusal");}
+    catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT","The 100,001st edge run refuses without a partial result");}
+}
 void live_canvas_api() {
     QTemporaryDir temp;check(temp.isValid(),"Temporary test directory is available");
     auto document=empty_document("region-document","region-composition","region-artboard");
@@ -123,6 +183,8 @@ void live_canvas_api() {
     check_region(regions[0].toObject(),4,1,1,2,2,"Canvas rendering and API match the first independent block");
     check_region(regions[1].toObject(),9,5,2,3,3,"Canvas rendering and API match the second independent block");
     check_region(regions[2].toObject(),1,3,3,1,1,"Canvas API preserves diagonal-only separation");
+    check_edges(result,expected_runs({{1,1,2},{2,1,2},{2,5,3},{3,3,1},{3,5,1},{3,7,1},{4,5,3}}),13,
+        "Live Canvas edge runs match the independent row-major pixel oracle");
     check(result.value("width").toInt()==8&&result.value("height").toInt()==6&&
         result.value("source_revision").toInt()==static_cast<int>(revision),"Live result reports the rendered dimensions and source revision");
     auto lower_fields=fields;lower_fields["threshold"]=127;
@@ -130,6 +192,9 @@ void live_canvas_api() {
     const auto lower_regions=lower.value("result").toObject().value("regions").toArray();
     check(lower.value("ok").toBool()&&lower_regions.size()==4,"Canvas API includes alpha exactly at threshold 127");
     check_region(lower_regions[3].toObject(),1,0,5,1,1,"Canvas low-alpha component has exact area and bounds");
+    check_edges(lower.value("result").toObject(),expected_runs({{1,1,2},{2,1,2},{2,5,3},
+        {3,3,1},{3,5,1},{3,7,1},{4,5,3},{5,0,1}}),14,
+        "Canvas API includes the threshold-equal pixel in its edge map");
     check(host.session.revision()==revision&&host.session.history()==original_history&&
         encode(host.session.document())==original_document&&bytes(native)==native_before,
         "Analysis leaves Session revision, history, authored document and native bytes unchanged");
@@ -161,6 +226,30 @@ void live_canvas_api() {
         {"artboard","large-region-artboard"},{"scale",1.0},{"threshold",128}};
     const auto limit=api(oversized,large_fields);
     check(limit.value("error").toObject().value("code")=="ANALYSIS_LIMIT","Live API applies the 4,000,000 pixel limit before render allocation");
+
+    auto comb_document=empty_document("comb-region-document","comb-region-composition","comb-region-artboard");
+    auto& comb_composition=comb_document.compositions.front();
+    comb_composition.artboards.front().width=2004;comb_composition.artboards.front().height=102;
+    auto comb_bar=rectangle("comb-bar",0,0,2004,1);
+    comb_composition.roots.push_back(comb_bar.id);comb_document.objects.emplace(comb_bar.id,std::move(comb_bar));
+    for(int x=0;x<2004;x+=2) {
+        auto tooth=rectangle("comb-tooth-"+std::to_string(x),x,1,1,101);
+        comb_composition.roots.push_back(tooth.id);comb_document.objects.emplace(tooth.id,std::move(tooth));
+    }
+    Host comb_host(temp.path()+"/comb-recovery");comb_host.session=Session(std::move(comb_document));
+    const auto comb_native=temp.path()+"/comb.nect";comb_host.save(comb_native);
+    const auto comb_native_before=bytes(comb_native);
+    const auto comb_document_before=encode(comb_host.session.document());
+    const auto comb_history_before=comb_host.session.history();
+    const auto comb_revision=comb_host.session.revision();
+    const auto comb_fields=QJsonObject{{"expected_revision",static_cast<qint64>(comb_revision)},
+        {"composition","comb-region-composition"},{"artboard","comb-region-artboard"},{"scale",1.0},{"threshold",1}};
+    const auto comb_limit=api(comb_host,comb_fields);
+    check(comb_limit.value("error").toObject().value("code")=="ANALYSIS_LIMIT"&&!comb_limit.contains("result"),
+        "Live API refuses an over-limit edge map without a partial result");
+    check(comb_host.session.revision()==comb_revision&&comb_host.session.history()==comb_history_before&&
+        encode(comb_host.session.document())==comb_document_before&&bytes(comb_native)==comb_native_before,
+        "Edge-map limit refusal leaves Session revision, history, Document and native bytes unchanged");
 }
 }
 int main(int argc,char** argv) {
@@ -168,7 +257,8 @@ int main(int argc,char** argv) {
     QApplication app(argc,argv);
     try {
         independent_pixel_oracle();
+        independent_edge_oracle();
         live_canvas_api();
-        std::cout<<"PASS region analysis pixel oracle, limits, live Canvas API and read-only behavior\n";return 0;
+        std::cout<<"PASS region and edge-map pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

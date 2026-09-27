@@ -711,6 +711,10 @@ try:
         assert direct_vector_analysis['revision']==vector['revision']
         assert direct_vector_analysis['result']['source_revision']==vector['revision']
         assert direct_vector_analysis['result']['regions'], 'Filled SVG artwork yields at least one analyzed region'
+        vector_edges=direct_vector_analysis['result']['edge_runs']
+        assert vector_edges and direct_vector_analysis['result']['edge_pixel_count']>0, 'Filled SVG artwork yields analyzed edge pixels'
+        assert direct_vector_analysis['result']['edge_rule']=='foreground-4-neighbor'
+        assert sum(run['width'] for run in vector_edges)==direct_vector_analysis['result']['edge_pixel_count']
         assert any(o['id']=='mcp-vector' and o['kind']=='group' for o in core('inspect')['result']['objects'])
         vector_document=core('inspect')['result']
         ungroup_revision=apply([dict(type='ungroup',composition=comp['id'],parent='',group='mcp-vector')],vector['revision'])
