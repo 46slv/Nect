@@ -4,6 +4,7 @@ Uses a temporary document and offscreen desktop; this is semantic/persistence
 evidence, not a viewport performance or visual quality claim.
 """
 import json
+import hashlib
 import struct
 import zlib
 import base64
@@ -621,11 +622,125 @@ try:
         assert not any(o['id']=='mcp-vector' for o in core('inspect')['result']['objects'])
         assert core('undo',expected_revision=ungroup_revision)['ok'] and core('inspect')['result']==vector_document
         assert core('undo',expected_revision=ungroup_revision+1)['ok'] and core('inspect')['result']==vector_before
+        # P03-SAVE-AS-02: formal MCP Save As preserves typed Text state and
+        # moves the active native/recovery provenance to an owned destination.
+        live=tool('nect_session');identity={key:live[key] for key in ('session_id','document_id')};rev=live['revision']
+        save_source=core('text_defaults')['result']
+        save_source.update(id='mcp-save-as-source-text',content='Save As source',layout='auto')
+        save_target=core('text_defaults')['result']
+        save_target.update(id='mcp-save-as-target-text',content='Target text in an owned frame',layout='frame')
+        save_target['parameters']['frame_width']=dict(literal=96)
+        save_target['parameters']['frame_height']=dict(literal=48)
+        rev=apply([dict(type='create_text',composition=comp['id'],parent='',id='mcp-save-as-source',name='Save As source',source=save_source),
+                   dict(type='create_text',composition=comp['id'],parent='',id='mcp-save-as-target',name='Save As target',source=save_target)],rev)
+        save_source_ref=dict(object='mcp-save-as-source',point='',field='text.layout')
+        save_target_ref=dict(object='mcp-save-as-target',point='',field='text.layout')
+        rev=apply([dict(type='link_text_layout',target=save_target_ref,source=save_source_ref,replace_driver=False)],rev)
+        linked_layout=core('get',ref=save_target_ref)['result']
+        save_width_ref=dict(object='mcp-save-as-target',point='',field='text.frame_width')
+        save_height_ref=dict(object='mcp-save-as-target',point='',field='text.frame_height')
+        assert linked_layout['authored']==dict(literal='frame',driver=dict(link=save_source_ref))
+        assert linked_layout['evaluated']=='auto'
+        assert core('get',ref=save_width_ref)['result']['evaluated']==96
+        assert core('get',ref=save_height_ref)['result']['evaluated']==48
+        save_document=core('inspect')['result']
+        save_session_id=identity['session_id'];save_document_id=identity['document_id']
+        original_native=temp/'mcp-save-as-original.nect'
+        destination_native=temp/'mcp-save-as-destination.nect'
+        original_saved=tool('nect_file',dict(identity,op='save',path=str(original_native),expected_revision=rev))
+        assert original_saved['ok'] and original_saved['revision']==rev,original_saved
+        original_live=tool('nect_session')
+        assert Path(original_live['file']).resolve()==original_native.resolve()
+        assert original_live['revision']==rev and original_live['persistence']['saved_revision']==rev
+        assert tool('nect_file',dict(identity,op='recover',expected_revision=rev))['ok']
+        original_live=tool('nect_session')
+        assert original_live['persistence']['recovery_revision']==rev
+        original_recovery=Path(original_live['persistence']['recovery_file'])
+        original_receipt=original_recovery.with_suffix('.recovery.json')
+        original_bytes=original_native.read_bytes()
+        original_hash=hashlib.sha256(original_bytes).hexdigest()
+        protected_bytes=original_recovery.read_bytes()
+        protected_receipt=original_receipt.read_bytes()
+        assert protected_bytes==original_bytes
+        assert json.loads(protected_receipt)['source_file']==original_live['file']
+
+        # Stale identities/revisions must be rejected before touching any path.
+        rejected_identity_path=temp/'stale-identity-save.nect'
+        stale_session=tool('nect_file',dict(identity,session_id='stale-save-session',op='save',
+            path=str(rejected_identity_path),expected_revision=rev))
+        assert not stale_session['ok'] and stale_session['error']['code']=='SESSION_CONFLICT',stale_session
+        stale_document=tool('nect_file',dict(identity,document_id='stale-save-document',op='save',
+            path=str(rejected_identity_path),expected_revision=rev))
+        assert not stale_document['ok'] and stale_document['error']['code']=='SESSION_CONFLICT',stale_document
+        stale_revision_path=temp/'stale-revision-save.nect'
+        stale_revision=tool('nect_file',dict(identity,op='save',path=str(stale_revision_path),expected_revision=rev-1))
+        assert not stale_revision['ok'] and stale_revision['error']['code']=='REVISION_CONFLICT',stale_revision
+        rejected_destination=temp/'missing-save-as-parent'/'failed.nect'
+        assert not rejected_destination.parent.exists()
+        failed_save=tool('nect_file',dict(identity,op='save',path=str(rejected_destination),expected_revision=rev))
+        assert not failed_save['ok'] and failed_save['error']['code']=='IO_ERROR',failed_save
+        unchanged=tool('nect_session')
+        assert unchanged['session_id']==save_session_id and unchanged['document_id']==save_document_id
+        assert unchanged['revision']==rev and Path(unchanged['file']).resolve()==original_native.resolve()
+        assert unchanged['persistence']['saved_revision']==rev and unchanged['persistence']['recovery_revision']==rev
+        assert core('inspect')['result']==save_document
+        assert not rejected_destination.exists() and not rejected_identity_path.exists() and not stale_revision_path.exists()
+        assert original_native.read_bytes()==original_bytes and hashlib.sha256(original_native.read_bytes()).hexdigest()==original_hash
+        assert original_recovery.read_bytes()==protected_bytes and original_receipt.read_bytes()==protected_receipt
+
+        destination_saved=tool('nect_file',dict(identity,op='save',path=str(destination_native),expected_revision=rev))
+        assert destination_saved['ok'] and destination_saved['revision']==rev,destination_saved
+        destination_live=tool('nect_session')
+        assert Path(destination_live['file']).resolve()==destination_native.resolve()
+        assert destination_live['revision']==rev and destination_live['persistence']['saved_revision']==rev
+        assert tool('nect_file',dict(identity,op='recover',expected_revision=rev))['ok']
+        destination_live=tool('nect_session')
+        assert destination_live['persistence']['recovery_revision']==rev
+        destination_bytes=destination_native.read_bytes()
+        destination_hash=hashlib.sha256(destination_bytes).hexdigest()
+        assert destination_bytes==original_bytes and destination_hash==original_hash
+        assert original_native.read_bytes()==original_bytes and hashlib.sha256(original_native.read_bytes()).hexdigest()==original_hash
+        recovery_receipt=json.loads(original_receipt.read_text(encoding='utf-8'))
+        assert recovery_receipt['source_file']==destination_live['file']
+        assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
+        native_save_as=json.loads(destination_bytes.decode('utf-8'))
+        assert native_save_as['version']=='0.20'
+        native_objects={obj['id']:obj for obj in native_save_as['objects']}
+        saved_source=native_objects['mcp-save-as-source']['text']
+        saved_target=native_objects['mcp-save-as-target']['text']
+        assert saved_source['id']=='mcp-save-as-source-text' and saved_source['layout']=='auto'
+        assert saved_target['id']=='mcp-save-as-target-text' and saved_target['layout']=='frame'
+        assert saved_target['layout_driver']==dict(link=save_source_ref)
+        assert saved_target['parameters']['frame_width']['literal']==96
+        assert saved_target['parameters']['frame_height']['literal']==48
+
+        # Cold-open the Save As destination in a new desktop Session and read it
+        # through the same formal MCP client used for the live mutations.
+        desktop.kill();desktop.wait(timeout=5)
+        desktop,_=start(endpoint,temp,destination_native)
+        cold_live=tool('nect_session')
+        identity={key:cold_live[key] for key in ('session_id','document_id')}
+        assert cold_live['session_id']!=save_session_id and cold_live['document_id']==save_document_id
+        assert cold_live['revision']==0 and cold_live['persistence']['saved_revision']==0
+        assert Path(cold_live['file']).resolve()==destination_native.resolve()
+        cold_layout=core('get',ref=save_target_ref)['result']
+        assert cold_layout['authored']==dict(literal='frame',driver=dict(link=save_source_ref))
+        assert cold_layout['evaluated']=='auto'
+        assert core('get',ref=save_width_ref)['result']['evaluated']==96
+        assert core('get',ref=save_height_ref)['result']['evaluated']==48
+        cold_document=core('inspect')['result']
+        cold_objects={obj['id']:obj for obj in cold_document['objects']}
+        assert cold_objects['mcp-save-as-source']['text']['id']=='mcp-save-as-source-text'
+        assert cold_objects['mcp-save-as-target']['text']['layout_driver']==dict(link=save_source_ref)
+        assert destination_native.read_bytes()==destination_bytes
+        assert original_native.read_bytes()==original_bytes and hashlib.sha256(original_native.read_bytes()).hexdigest()==original_hash
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,
             mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True, independent_duplication=True, geometric_alignment_undo=True, equal_gap_spacing_undo=True, editable_svg_undo=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,
             independent_svg_parser_paths=expected_svg_paths, ordered_stack_readback=True,
-            automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, image_lifecycle_native_recovery=True, gui_performance_claim=False)
+            automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, image_lifecycle_native_recovery=True,
+            typed_text_save_as=True, stale_save_identity_and_revision_rejected=True, invalid_save_as_atomic=True,
+            save_as_recovery_provenance=True, save_as_destination_cold_open=True, gui_save_as_acceptance=False, gui_performance_claim=False)
         print(json.dumps(receipt, indent=2))
 finally:
     if mcp:
