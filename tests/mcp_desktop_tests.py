@@ -360,6 +360,41 @@ try:
         gradient=next(x['template'] for x in gradients if x['type']=='linear')
         gradient['id']='motif-gradient'
         rev=apply([dict(type='set_gradient',object='path-0',operation='motif-fill',gradient=gradient)],rev)
+        gradient_enabled_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.enabled')
+        operation_enabled_ref=dict(object='path-0',point='',field='op.motif-fill.enabled')
+        gradient_enabled=core('get',ref=gradient_enabled_ref)['result']
+        assert gradient_enabled['type']=='bool' and gradient_enabled['unit']=='boolean' and \
+            gradient_enabled['space']=='local' and gradient_enabled['origin']=='authored' and \
+            gradient_enabled['authored']==dict(literal=True,driver=None) and gradient_enabled['evaluated'] is True and \
+            gradient_enabled['link'] is False and gradient_enabled['expression'] is False
+        assert core('resolve_name',name=next(obj['name'] for obj in core('inspect')['result']['objects']
+            if obj['id']=='path-0'),point='',field=gradient_enabled_ref['field'])['result']==gradient_enabled_ref
+        assert next(item for item in core('properties')['result'] if item['ref']==gradient_enabled_ref)==gradient_enabled
+        assert core('get',ref=operation_enabled_ref)['result']['evaluated'] is True
+        assert gradient_enabled_ref['field']!=operation_enabled_ref['field'] and gradient_enabled==desktop_api_call(
+            endpoint,dict(identity,op='core',request=dict(op='get',ref=gradient_enabled_ref)))['result']
+        bad_gradient_point=core('get',ref=dict(gradient_enabled_ref,point='unexpected-point'))
+        bad_gradient_id=core('get',ref=dict(gradient_enabled_ref,field='op.motif-fill.gradient.missing-gradient.enabled'))
+        bad_gradient_operation=core('get',ref=dict(gradient_enabled_ref,field='op.missing-operation.gradient.motif-gradient.enabled'))
+        assert bad_gradient_point['error']['code']=='INVALID_GRADIENT_REF' and \
+            bad_gradient_id['error']['code']=='MISSING_GRADIENT' and \
+            bad_gradient_operation['error']['code']=='MISSING_OPERATION'
+        scalar_before=core('get',ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.start_x'))['result']['evaluated']
+        atomic=core('apply',expected_revision=rev,commands=[
+            dict(type='set',ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.start_x'),value=scalar_before+1),
+            dict(type='set',ref=gradient_enabled_ref,value=0)])
+        assert not atomic['ok'] and atomic['error']['code']=='MISSING_REFERENCE' and atomic['revision']==rev
+        assert core('get',ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.start_x'))['result']['evaluated']==scalar_before
+        bypassed_gradient=dict(gradient,enabled=False)
+        rev=apply([dict(type='set_gradient',object='path-0',operation='motif-fill',gradient=bypassed_gradient)],rev)
+        disabled=core('get',ref=gradient_enabled_ref)['result']
+        assert disabled['authored']==dict(literal=False,driver=None) and disabled['evaluated'] is False and \
+            core('get',ref=operation_enabled_ref)['result']['evaluated'] is True and \
+            any(item['ref']==gradient_enabled_ref for item in core('properties')['result'])
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=gradient_enabled_ref)['result']==gradient_enabled
+        generic_set=core('apply',expected_revision=rev,commands=[dict(type='set',ref=gradient_enabled_ref,value=0)])
+        assert not generic_set['ok'] and generic_set['error']['code']=='MISSING_REFERENCE' and generic_set['revision']==rev
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),

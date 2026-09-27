@@ -599,6 +599,7 @@ std::string unit(const Ref& r) {
     if(r.field.starts_with("text.")||r.field.starts_with("image."))return "du";
     if(r.field.starts_with("op.")) {
         const auto name=operation_address(r.field).second;
+        if(name.starts_with("gradient.")&&name.ends_with(".enabled"))return "boolean";
         if(name.starts_with("gradient.")&&(name.ends_with(".start_x")||name.ends_with(".start_y")||name.ends_with(".end_x")||name.ends_with(".end_y")))return "du";
         if(name=="width"||name=="amount"||name=="position_x"||name=="position_y"||name=="anchor_x"||name=="anchor_y")return "du";
         if(name=="rotation")return "degree";
@@ -829,6 +830,8 @@ std::vector<Ref> properties(const Document& document) {
             refs.push_back({id,"","text.layout"});refs.push_back({id,"","text.direction"});refs.push_back({id,"","text.alignment"});}
         for(const auto& operation:object.stack) {
             refs.push_back(operation_ref(id,operation.id,"enabled"));
+            if(operation.gradient)
+                refs.push_back(gradient_ref(id,operation.id,operation.gradient->id,"enabled"));
             if((object.kind==Kind::path||object.kind==Kind::text)&&operation.type=="nect.paint.fill")
                 refs.push_back(operation_ref(id,operation.id,"fill_rule"));
         }
@@ -987,6 +990,32 @@ bool operation_enabled_property(const Document& document,const Ref& ref) {
         [&](const auto& operation){return operation.id==operation_id;});
     require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
     return found->enabled;
+}
+bool gradient_enabled_property(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_GRADIENT_REF","Gradient enabled requires an empty point ID");
+    require(ref.field.starts_with("op."),"INVALID_GRADIENT_REF","Gradient enabled Ref must identify a paint operation");
+    const auto separator=ref.field.find('.',3);
+    require(separator!=std::string::npos&&separator>3,"INVALID_GRADIENT_REF","Gradient enabled Ref requires an operation ID");
+    const auto [operation_id,field]=operation_address(ref.field);
+    identity(operation_id);
+    constexpr std::string_view prefix="gradient.";
+    constexpr std::string_view suffix=".enabled";
+    require(field.starts_with(prefix)&&field.ends_with(suffix),"UNKNOWN_GRADIENT_PROPERTY",field);
+    const auto gradient_length=field.size()-prefix.size()-suffix.size();
+    require(gradient_length>0,"INVALID_GRADIENT_REF","Gradient enabled Ref requires a gradient ID");
+    const auto gradient_id=field.substr(prefix.size(),gradient_length);
+    require(gradient_id.find('.')==std::string::npos,"INVALID_GRADIENT_REF","Gradient enabled Ref has a malformed gradient ID");
+    identity(gradient_id);
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    const auto found=std::find_if(object->second.stack.begin(),object->second.stack.end(),
+        [&](const auto& operation){return operation.id==operation_id;});
+    require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
+    require(found->type=="nect.paint.fill"||found->type=="nect.paint.stroke",
+        "INVALID_DOMAIN","Gradient enabled requires a Fill or Stroke operation");
+    require(found->gradient.has_value(),"MISSING_GRADIENT",gradient_id);
+    require(found->gradient->id==gradient_id,"MISSING_GRADIENT",gradient_id);
+    return found->gradient->enabled;
 }
 bool object_visibility_property(const Document& document,const Ref& ref) {
     require(ref.point.empty(),"INVALID_OBJECT_REF","Object visibility requires an empty point ID");
@@ -1149,6 +1178,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     }
     if(f=="point_edit.enabled") {
         (void)point_edit_enabled_property(d,r);
+        return r;
+    }
+    if(f.starts_with("op.")&&f.find(".gradient.")!=std::string::npos&&f.ends_with(".enabled")) {
+        (void)gradient_enabled_property(d,r);
         return r;
     }
     if(f.starts_with("op.")&&f.ends_with(".enabled")) {

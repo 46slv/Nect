@@ -1120,10 +1120,16 @@ void gradient_authoring(Window& window) {
     check(current().gradient&&current().gradient->enabled&&current().gradient->type=="linear",
         "Paint mode creates an authored linear gradient");
     const auto gid=current().gradient->id;
+    const auto gradient_enabled_ref=gradient_ref(object,op,gid,"enabled");
+    const auto operation_enabled_ref=operation_ref(object,op,"enabled");
     const auto first=current().gradient->stops.front().id,last=current().gradient->stops.back().id;
     auto ref=[&](const std::string& field){return gradient_ref(object,op,gid,field);};
     check(current().gradient->stops.size()==2&&first!=last&&current().gradient->stops[0].rgba[3].literal==1&&
         current().gradient->stops[1].rgba[3].literal==1,"Initial stable stops do not duplicate the paint opacity");
+    check(gradient_enabled_property(session.document(),gradient_enabled_ref)&&
+        operation_enabled_property(session.document(),operation_enabled_ref)&&
+        !evaluate(session.document()).contains(gradient_enabled_ref),
+        "Inspector-created gradient has a typed bypass Ref separate from numeric picker values and operation enabled");
     hex("gradient-stop-hex-"+first,"#000000FF");hex("gradient-stop-hex-"+last,"#FFFFFFFF");
     window.canvas->fit_artboard();QApplication::processEvents();
     const auto& artboard=session.document().compositions.front().artboards.front();
@@ -1146,8 +1152,13 @@ void gradient_authoring(Window& window) {
         "Changing gradient type preserves stop identities and authored colors");
     const auto center_text=QString::number(cx).toLatin1();edit_number(window,ref("start_x"),center_text.constData());
     check(pixel(cx,cy+10).red()+35<pixel(cx+55,cy+10).red(),"Radial paint uses the authored center and radius frame");
-    choose(0);check(!current().gradient->enabled&&current().gradient->id==gid,"Solid bypass retains the authored gradient");
-    choose(1);check(current().gradient->id==gid&&current().gradient->enabled,"Re-enabling restores the same gradient identity");
+    choose(0);check(!current().gradient->enabled&&current().gradient->id==gid&&
+        !gradient_enabled_property(session.document(),gradient_enabled_ref)&&
+        operation_enabled_property(session.document(),operation_enabled_ref),
+        "Solid mode exposes the retained gradient's false bypass without changing operation enabled");
+    choose(1);check(current().gradient->id==gid&&current().gradient->enabled&&
+        gradient_enabled_property(session.document(),gradient_enabled_ref),
+        "Returning to Gradient restores true through the same stable bypass Ref");
     const auto start_text=QString::number(cx-110).toLatin1();edit_number(window,ref("start_x"),start_text.constData());
     click("gradient-stop-add-"+op);
     const auto middle=current().gradient->stops.back().id;
