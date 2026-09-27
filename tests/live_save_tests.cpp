@@ -2,6 +2,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QTest>
@@ -25,6 +26,7 @@ template<class F> void rejects(const char* code,F action) {
     throw std::runtime_error("Expected storage rejection");
 }
 QByteArray bytes(const QString& path) {QFile f(path);check(f.open(QIODevice::ReadOnly),"Read persisted fixture");return f.readAll();}
+QByteArray sha256(const QByteArray& value) {return QCryptographicHash::hash(value,QCryptographicHash::Sha256).toHex();}
 void put(const QString& path,const QByteArray& value) {QFile f(path);check(f.open(QIODevice::WriteOnly),"Open external writer");check(f.write(value)==value.size(),"External write");}
 void add(Host& host) {
     Point p;p.id="point";p.x.literal=1;p.y.literal=2;
@@ -91,6 +93,104 @@ void coalescing_and_conflict(const QString& directory) {
     host.open_recovery(protected_file);check(host.file_path.isEmpty()&&host.dirty(),"Opening recovery creates an unnamed document");
     set(host,19);host.recover();check(bytes(protected_file)==protected_bytes,"Recovered work does not live-save over its recovery source");
 }
+void typed_source_save_as(const QString& directory) {
+    Host host(directory+"/typed-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    auto source=default_text("save-as-source-text","Source");source.layout="auto";
+    source.parameters.at("font_size").literal=28;
+    auto target=default_text("save-as-target-text","Target text in a fixed frame");target.layout="frame";
+    target.parameters.at("frame_width").literal=96;target.parameters.at("frame_height").literal=48;
+    const Ref source_layout{"save-as-source","","text.layout"},target_layout{"save-as-target","","text.layout"};
+    host.session.apply({
+        CreateText{composition,"","save-as-source","Source",source},
+        CreateText{composition,"","save-as-target","Target",target}},host.session.revision());
+    host.edited();
+    host.session.apply({LinkTextLayout{target_layout,source_layout,false}},host.session.revision());host.edited();
+    const auto source_path=directory+"/typed-source.nect";
+    host.save(source_path);host.recover();
+    const auto saved_revision=host.session.revision();
+    check(host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(saved_revision)&&
+          host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(saved_revision),
+          "Typed source fixture is saved and protected before the external conflict");
+    const auto initial_source=load_native(source_path).document;
+    check(initial_source.objects.contains("save-as-source")&&initial_source.objects.contains("save-as-target")&&
+          initial_source.objects.at("save-as-source").text->id=="save-as-source-text"&&
+          initial_source.objects.at("save-as-target").text->id=="save-as-target-text",
+          "Native source starts with both stable Text object and source IDs");
+    const auto initial_layout=text_layout_property(initial_source,target_layout);
+    check(initial_layout.literal=="frame"&&initial_layout.driver&&initial_layout.driver->link==source_layout&&
+          initial_layout.evaluated=="auto"&&
+          initial_source.objects.at("save-as-target").text->parameters.at("frame_width").literal==96&&
+          initial_source.objects.at("save-as-target").text->parameters.at("frame_height").literal==48&&
+          initial_source.objects.at("save-as-source").text->parameters.at("font_size").literal==28,
+          "Native source retains target frame literals, typed layout Ref and a separate authored Scalar");
+
+    auto external=initial_source;external.objects.at("save-as-source").text->content="External edit";
+    const auto external_bytes=QByteArray::fromStdString(encode(external));put(source_path,external_bytes);
+    const auto external_hash=sha256(external_bytes);
+    const Ref source_size{"save-as-source","","text.font_size"};
+    host.session.apply({Set{source_size,29}},host.session.revision());host.edited();
+    const auto committed_revision=host.session.revision();
+    const auto committed_document=host.session.document();
+    const auto committed_bytes=QByteArray::fromStdString(encode(committed_document));
+    until([&]{const auto state=host.persistence();return state["native_error"].toObject()["code"]=="FILE_CHANGED"&&
+        state["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision);},
+        "External source conflict is recorded while the typed latest revision reaches recovery");
+    const auto recovery_path=host.persistence()["recovery_file"].toString();
+    const auto recovery_meta=directory+"/typed-recovery/"+host.session_id+".recovery.json";
+    const auto protected_bytes=bytes(recovery_path),protected_meta_bytes=bytes(recovery_meta);
+    check(protected_bytes==committed_bytes&&
+          QJsonDocument::fromJson(protected_meta_bytes).object()["source_file"]==native_path(source_path),
+          "Protected conflict recovery contains the committed authored state and original source binding");
+    check(bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash,
+          "External original bytes and SHA-256 survive conflict detection");
+
+    const auto failed_destination=directory+"/missing-save-as-parent/failed.nect";
+    rejects("IO_ERROR",[&]{host.save(failed_destination);});
+    check(host.file_path==native_path(source_path)&&host.session.revision()==committed_revision&&
+          host.session.document()==committed_document&&host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(saved_revision)&&
+          host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
+          !QFile::exists(failed_destination),
+          "Failed Save As leaves source binding, saved revision, live authored state and destination unchanged");
+    check(bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash&&
+          bytes(recovery_path)==protected_bytes&&bytes(recovery_meta)==protected_meta_bytes,
+          "Failed Save As preserves the external original and protected recovery bytes");
+
+    const auto destination=directory+"/typed-save-as.nect";
+    host.save(destination);
+    check(host.file_path==native_path(destination)&&!host.dirty()&&
+          host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
+          host.persistence()["native_error"].isNull()&&bytes(destination)==committed_bytes&&
+          bytes(destination).contains("\"version\":\"0.20\""),
+          "Valid Save As binds the committed revision only after exact destination readback");
+    const auto saved=load_native(destination).document;
+    const auto saved_layout=text_layout_property(saved,target_layout);
+    check(saved.objects.contains("save-as-source")&&saved.objects.contains("save-as-target")&&
+          saved.objects.at("save-as-source").text->id=="save-as-source-text"&&
+          saved.objects.at("save-as-target").text->id=="save-as-target-text"&&
+          saved_layout.literal=="frame"&&saved_layout.driver&&saved_layout.driver->link==source_layout&&
+          saved_layout.evaluated=="auto"&&
+          saved.objects.at("save-as-target").text->parameters.at("frame_width").literal==96&&
+          saved.objects.at("save-as-target").text->parameters.at("frame_height").literal==48&&
+          saved.objects.at("save-as-source").text->parameters.at("font_size").literal==29,
+          "Destination readback retains stable IDs, exact authored layout and Scalar values, and evaluates the link");
+    host.recover();
+    check(host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
+          bytes(recovery_path)==committed_bytes&&
+          QJsonDocument::fromJson(bytes(recovery_meta)).object()["source_file"]==native_path(destination),
+          "Successful Save As readback moves protected recovery provenance to the destination");
+    check(bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash,
+          "Valid Save As leaves externally changed original bytes and hash untouched");
+
+    Host reopened(directory+"/cold-recovery");reopened.open(destination);
+    const auto cold_layout=text_layout_property(reopened.session.document(),target_layout);
+    check(reopened.session.document()==committed_document&&reopened.session.revision()==0&&
+          reopened.file_path==native_path(destination)&&cold_layout.literal=="frame"&&cold_layout.driver&&
+          cold_layout.driver->link==source_layout&&cold_layout.evaluated=="auto"&&
+          reopened.session.document().objects.at("save-as-target").text->parameters.at("frame_width").literal==96&&
+          reopened.session.document().objects.at("save-as-target").text->parameters.at("frame_height").literal==48,
+          "Cold reopen from destination restores native 0.20 authored sources and stable layout link");
+}
 void independent_failures(const QString& directory) {
     const auto blocked=directory+"/blocked-recovery";put(blocked,"not a directory");
     Host host(blocked);const auto path=directory+"/protected-native.nect";host.save(path);add(host);
@@ -119,7 +219,7 @@ int main(int argc,char** argv) {
     QCoreApplication app(argc,argv);
     try {
         QTemporaryDir temp;check(temp.isValid(),"Create owned live-save test folder");
-        coalescing_and_conflict(temp.path());independent_failures(temp.path());identity_drain(temp.path());
-        std::cout<<"PASS asynchronous committed snapshots, bounded queue, live API, independent failure, conflict, recovery and Session drain\n";return 0;
+        coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
+        std::cout<<"PASS asynchronous snapshots, typed Save As source preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
