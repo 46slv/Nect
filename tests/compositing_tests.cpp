@@ -207,6 +207,19 @@ void scene_contract() {
     Session session(fixture());auto evaluated=scene(session.document());check(!evaluated.requires_compositing&&evaluated.roots.size()==3,"Neutral scene retains direct rendering");
     apply(session,{GroupContiguous{"comp","",{"a","b"},"group","Group"}});
     evaluated=scene(session.document());check(!evaluated.roots[0].isolated&&evaluated.roots[0].children[0].id=="a"&&evaluated.roots[0].children[1].id=="b","Neutral group preserves paint order and pass-through boundary");
+    const Ref isolated{"group","","composite.isolated"};
+    const auto discovered=properties(session.document());
+    check(std::find(discovered.begin(),discovered.end(),isolated)!=discovered.end(),
+        "Composite isolation has a typed property address");
+    check(resolve_name(session.document(),"Group","","composite.isolated")==isolated&&
+        !composite_isolated_property(session.document(),isolated),
+        "Neutral Group authored isolation is false by stable ID and name");
+    rejects("INVALID_OBJECT_REF",[&]{(void)composite_isolated_property(session.document(),{"group","point","composite.isolated"});});
+    rejects("TYPE_MISMATCH",[&]{(void)composite_isolated_property(session.document(),{"group","","composite.other"});});
+    rejects("MISSING_REFERENCE",[&]{(void)composite_isolated_property(session.document(),{"missing","","composite.isolated"});});
+    atomic(session,"MISSING_REFERENCE",{SetCompositing{"group","normal",true},Set{isolated,1}});
+    rejects("REVISION_CONFLICT",[&]{session.apply({SetCompositing{"group","normal",true}},session.revision()+1);});
+    check(!composite_isolated_property(session.document(),isolated),"Stale isolation edit leaves authored state unchanged");
     apply(session,{SetExpression{{{"group","","composite.opacity"}},{".5"}}});
     evaluated=scene(session.document());check(evaluated.roots[0].isolated&&evaluated.roots[0].opacity==.5,"Opacity is an ordinary expression-capable Scalar and aggregate boundary");
     atomic(session,"DRIVEN_PROPERTY",{Set{{"group","","composite.opacity"},.8}});
@@ -214,10 +227,28 @@ void scene_contract() {
     for(const auto* blend:{"normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion"}) {
         apply(session,{SetCompositing{"group",blend,false}});evaluated=scene(session.document());
         check(evaluated.roots[0].blend==blend&&evaluated.roots[0].isolated==(std::string(blend)!="normal"),"Supported blend resolves exact isolation semantics");
+        check(!composite_isolated_property(session.document(),isolated),
+            "Non-normal blend may isolate the scene while the authored isolation remains false");
     }
     atomic(session,"UNSUPPORTED_BLEND",{SetCompositing{"group","plus",false}});
     atomic(session,"OUT_OF_RANGE",{Set{{"group","","composite.opacity"},1.1}});
-    apply(session,{SetCompositing{"group","normal",true}});check(scene(session.document()).roots[0].isolated,"Explicit normal isolation remains meaningful");
+    apply(session,{SetCompositing{"group","normal",true}});
+    check(scene(session.document()).roots[0].isolated&&composite_isolated_property(session.document(),isolated),
+        "Explicit normal isolation changes both authored typed state and scene");
+    const auto isolated_get=request(session,R"({"op":"get","ref":{"object":"group","point":"","field":"composite.isolated"}})");
+    check(isolated_get.find("\"type\":\"bool\"")!=std::string::npos&&
+        isolated_get.find("\"literal\":true")!=std::string::npos&&
+        isolated_get.find("\"evaluated\":true")!=std::string::npos,
+        "API get returns authored isolation without a derived scene projection");
+    const auto native=encode(session.document());
+    check(composite_isolated_property(decode(native),isolated)&&encode(decode(native))==native,
+        "Native retains the existing authored isolation bit exactly");
+    session.undo(session.revision());
+    check(!composite_isolated_property(session.document(),isolated),"Undo restores authored isolation");
+    session.redo(session.revision());
+    apply(session,{Rename{"group","Renamed Group"}});
+    check(resolve_name(session.document(),"Renamed Group","","composite.isolated")==isolated,
+        "Renaming a Group preserves its stable isolation Ref");
     apply(session,{SetVisibility{"group",false}});evaluated=scene(session.document());
     check(!evaluated.roots[0].visible&&evaluated.shapes.contains("a"),"Hidden tree retains editable evaluated leaf geometry");
     check(object_visibility_property(session.document(),{"a","","object.visible"})&&

@@ -817,6 +817,7 @@ std::vector<Ref> properties(const Document& document) {
     }
     for(const auto& [id,object]:document.objects) {
         refs.push_back({id,"","object.visible"});
+        refs.push_back({id,"","composite.isolated"});
         if(object.kind==Kind::text&&object.text)
         {refs.push_back({id,"","text.italic"});refs.push_back({id,"","text.weight"});
             refs.push_back({id,"","text.content"});refs.push_back({id,"","text.family"});refs.push_back({id,"","text.locale"});
@@ -989,6 +990,13 @@ bool object_visibility_property(const Document& document,const Ref& ref) {
     require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
     return object->second.visible;
 }
+bool composite_isolated_property(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_OBJECT_REF","Composite isolation requires an empty point ID");
+    require(ref.field=="composite.isolated","TYPE_MISMATCH","Only composite.isolated accepts this Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    return object->second.compositing.isolated;
+}
 bool is_text_readonly_field(const std::string& field) {
     return field=="text.content"||field=="text.family"||field=="text.locale"||
         field=="text.layout"||field=="text.direction"||field=="text.alignment";
@@ -1033,6 +1041,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     Ref r{matches.front(),p,f};
     if(f=="object.visible") {
         (void)object_visibility_property(d,r);
+        return r;
+    }
+    if(f=="composite.isolated") {
+        (void)composite_isolated_property(d,r);
         return r;
     }
     if(f.starts_with("op.")&&f.ends_with(".enabled")) {

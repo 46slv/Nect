@@ -778,6 +778,14 @@ try:
         group=next(n for n in plan['roots'] if n['object']=='mcp-masked-group')
         assert group['isolated'] and group['opacity']==.65 and group['mask']['source']=='mcp-mask'
         assert group['blend']=='screen' and plan['backdrop']=='transparent'
+        isolation_ref=dict(object='mcp-masked-group',point='',field='composite.isolated')
+        isolation=core('get',ref=isolation_ref)
+        assert isolation['ok'] and isolation['result']['type']=='bool'
+        assert isolation['result']['authored']==dict(literal=False,driver=None)
+        assert isolation['result']['evaluated'] is False and group['isolated'] is True
+        assert isolation['result']==desktop_api_call(endpoint,dict(identity,op='core',
+            request=dict(op='get',ref=isolation_ref)))['result']
+        assert any(item['ref']==isolation_ref for item in core('properties')['result'])
         before_bad=core('inspect')['result']
         bad=core('apply',expected_revision=rev,commands=[dict(type='set_visibility',object='mcp-mask',visible=True),
             dict(type='set_compositing',object='mcp-masked-group',blend='unsupported-add',isolated=False)])
