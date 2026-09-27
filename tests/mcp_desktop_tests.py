@@ -82,6 +82,13 @@ def point(id_, x, y):
                 in_length={'literal': 20}, out_angle={'literal': 0}, out_length={'literal': 20})
 
 
+def make_png(rgb, width=2, height=2):
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+    rows = (b'\0' + bytes(rgb) * width) * height
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b'')
+
+
 try:
     with tempfile.TemporaryDirectory(prefix='nect-mcp-') as directory:
         temp = Path(directory)
@@ -94,7 +101,11 @@ try:
         init = rpc('initialize', dict(protocolVersion='2025-06-18', capabilities={}, clientInfo=dict(name='nect-scenario', version='1')))
         assert init['result']['protocolVersion'] == '2025-06-18'
         mcp.stdin.write(json.dumps(dict(jsonrpc='2.0', method='notifications/initialized')) + '\n'); mcp.stdin.flush()
-        assert {t['name'] for t in rpc('tools/list')['result']['tools']} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png', 'nect_analyze_regions', 'nect_import_svg'}
+        listed_tools = rpc('tools/list')['result']['tools']
+        assert {t['name'] for t in listed_tools} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png', 'nect_analyze_regions', 'nect_import_svg'}
+        analyze_schema = next(t for t in listed_tools if t['name'] == 'nect_analyze_regions')['inputSchema']
+        assert analyze_schema['properties']['include_color_groups'] == {'type': 'boolean'}
+        assert 'include_color_groups' not in analyze_schema['required']
         live = tool('nect_session')
         identity = {key: live[key] for key in ('session_id', 'document_id')}
         comp = core('inspect')['result']['compositions'][0]
@@ -114,13 +125,31 @@ try:
             border='outside-background-clipped', coordinate_space='artboard-output-pixels', area=0, runs=[])
         assert direct_regions['result']['erosion'] == dict(operation='erode', kernel='cross-4-radius-1',
             border='outside-background', coordinate_space='artboard-output-pixels', area=0, runs=[])
+        initial_document = core('inspect')['result']
+        color_fixture_path = temp / 'mcp-color-groups.png'
+        color_fixture_path.write_bytes(make_png((12, 34, 56), width=3, height=2))
+        color_fixture = tool('nect_image', dict(identity, op='import_image', expected_revision=live['revision'],
+            path=str(color_fixture_path), mode='embedded', composition=comp['id'], parent='',
+            asset='mcp-color-groups-asset', id='mcp-color-groups-image', name='Color group fixture', x=0, y=0))
+        assert color_fixture['ok'], color_fixture
+        color_groups_request = dict(identity, op='analyze_regions', expected_revision=color_fixture['revision'],
+            composition=comp['id'], artboard=comp['artboards'][0]['id'], scale=1, threshold=128,
+            include_color_groups=True)
+        direct_color_groups = desktop_api_call(endpoint, color_groups_request)
+        mcp_color_groups = tool('nect_analyze_regions', color_groups_request)
+        assert direct_color_groups == mcp_color_groups and direct_color_groups['ok']
+        assert direct_color_groups['result']['color_groups'] == [dict(rgb=[12, 34, 56], area=6,
+            bounds=dict(x=0, y=0, width=3, height=2),
+            runs=[dict(y=0, x=0, width=3), dict(y=1, x=0, width=3)])]
+        color_undo = core('undo', expected_revision=color_fixture['revision'])
+        assert color_undo['ok'] and core('inspect')['result'] == initial_document
         rng = random.Random(7821)
         commands = []
         for i in range(24):
             commands.append(dict(type='create_path', composition=comp['id'], parent='', id=f'path-{i}', name=f'Motif {i}',
                 contours=[dict(id=f'contour-{i}', closed=False, points=[point(f'p-{i}-0', rng.randrange(40, 850), rng.randrange(40, 570)),
                                                                      point(f'p-{i}-1', rng.randrange(40, 850), rng.randrange(40, 570))])]))
-        rev = apply(commands, 0)
+        rev = apply(commands, color_undo['revision'])
         guide_source_ref=dict(object='mcp-guide-source',point='',field='guide.position')
         guide_target_ref=dict(object='mcp-guide-target',point='',field='guide.position')
         rev=apply([dict(type='add_guide',composition=comp['id'],guide=dict(id=guide_source_ref['object'],name='MCP Guide source',axis='x',position=100)),
@@ -628,12 +657,7 @@ try:
         assert core('redo',expected_revision=rev)['ok'];rev+=1
         assert core('inspect')['result']==after_offset
         # Local image lifecycle uses the same Session through formal MCP.
-        def png(rgb,width=2,height=2):
-            def chunk(kind, data):
-                return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)
-            rows=(b'\0'+bytes(rgb)*width)*height
-            return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(rows))+chunk(b'IEND',b'')
-        image_path=temp/'linked.png';original_image=png((220,80,30));image_path.write_bytes(original_image)
+        image_path=temp/'linked.png';original_image=make_png((220,80,30));image_path.write_bytes(original_image)
         def image(action,**kwargs):
             return tool('nect_image',dict(identity,op='asset',asset='mcp-image-asset',action=action,expected_revision=rev,**kwargs))
         imported=tool('nect_image',dict(identity,op='import_image',expected_revision=rev,path=str(image_path),mode='linked',
@@ -647,7 +671,7 @@ try:
                    dict(type='set_mask',object='mcp-image',mask=dict(id='mcp-image-mask',source='mcp-mask',version=1,enabled=True,fill_rule='nonzero')),
                    dict(type='set_compositing',object='mcp-image',blend='multiply',isolated=False)],rev)
         accepted=core('inspect')['result'];assert base64.b64decode(accepted['raster_assets'][0]['bytes'])==original_image
-        image_path.write_bytes(png((20,180,220)))
+        image_path.write_bytes(make_png((20,180,220)))
         assert image('check')['result']['state']=='changed' and core('inspect')['result']==accepted
         reload=image('reload');assert reload['ok'] and {'mcp-image','mcp-image-copy','mcp-image-asset'}.issubset(reload['result']['changed_ids']);rev=reload['revision']
         assert core('get',ref=dict(object='mcp-image',point='',field='image.width'))['result']['evaluated']==160
@@ -707,7 +731,7 @@ try:
         spacing_rev=apply([dict(type='distribute_objects',objects=['align-2','align-0','align-1'],axis='x')],alignment_rev+1)
         assert core('get',ref=dict(object='align-1',point='',field='transform.tx'))['result']['evaluated']==30
         assert core('undo',expected_revision=spacing_rev)['ok'] and core('inspect')['result']==alignment_before
-        line_image_path=temp/'line-candidate.png';line_image_path.write_bytes(png((220,80,30),width=5,height=1))
+        line_image_path=temp/'line-candidate.png';line_image_path.write_bytes(make_png((220,80,30),width=5,height=1))
         line_image=tool('nect_image',dict(identity,op='import_image',expected_revision=spacing_rev+1,path=str(line_image_path),
             mode='embedded',composition=comp['id'],parent='',asset='mcp-line-asset',id='mcp-line-image',
             name='One-pixel line fixture',x=100,y=100))
@@ -725,6 +749,10 @@ try:
         assert direct_vector_analysis==mcp_vector_analysis and direct_vector_analysis['ok']
         assert direct_vector_analysis['revision']==vector['revision']
         assert direct_vector_analysis['result']['source_revision']==vector['revision']
+        vector_false_request=dict(vector_analysis_request,include_color_groups=False)
+        direct_vector_false=desktop_api_call(endpoint,vector_false_request)
+        mcp_vector_false=tool('nect_analyze_regions',vector_false_request)
+        assert direct_vector_false==direct_vector_analysis==mcp_vector_false
         vector_morphology=direct_vector_analysis['result']['morphology']
         assert vector_morphology['operation']=='dilate'
         assert vector_morphology['kernel']=='cross-4-radius-1'

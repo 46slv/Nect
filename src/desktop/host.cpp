@@ -349,7 +349,8 @@ QJsonObject Host::export_png(const QString& path,const Id& composition,const Id&
         {"background",white_background?"white":"transparent"},{"color_space","sRGB"},{"revision",static_cast<qint64>(expected)}};
 }
 
-QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale,std::uint64_t source_revision) {
+QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale,std::uint64_t source_revision,
+    bool include_color_groups) {
     if(threshold<1||threshold>255)throw Error("INVALID_THRESHOLD","Alpha threshold must be an integer from 1 through 255");
     if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","Analysis scale must be greater than zero and at most 16");
     if(image.isNull()||image.width()<1||image.height()<1)throw Error("RENDER_ALLOCATION","Could not read rendered analysis pixels");
@@ -656,7 +657,7 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         {"coordinate_space","artboard-output-pixels"},{"width",image.width()},{"height",image.height()},
         {"source_revision",static_cast<qint64>(source_revision)},
         {"area",static_cast<qint64>(mask_boolean_area)},{"runs",mask_boolean_runs}};
-    return {{"regions",regions},{"edge_runs",edge_runs},{"edge_pixel_count",static_cast<qint64>(edge_pixel_count)},
+    QJsonObject result{{"regions",regions},{"edge_runs",edge_runs},{"edge_pixel_count",static_cast<qint64>(edge_pixel_count)},
         {"edge_rule","foreground-4-neighbor"},{"threshold",threshold},{"connectivity",4},{"scale",scale},
         {"width",image.width()},{"height",image.height()},{"color_space","sRGB"},
         {"coordinate_space","artboard-output-pixels"},{"origin","top-left"},
@@ -668,9 +669,75 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         {"line_rule","exact-one-pixel-wide-4-direction-min3"},
         {"line_coordinate_space","artboard-output-pixel-centers"},{"morphology",morphology},{"erosion",erosion},
         {"mask_boolean",mask_boolean}};
+    if(include_color_groups) {
+        constexpr std::size_t max_color_groups=256;
+        constexpr std::size_t max_color_runs=20'000;
+        struct ColorRun {int y,x,width;};
+        struct ColorGroup {
+            std::uint64_t area=0;
+            int min_x=0,min_y=0,max_x=0,max_y=0;
+            bool has_bounds=false;
+            std::vector<ColorRun> runs;
+        };
+        const auto straight=image.convertToFormat(QImage::Format_ARGB32);
+        if(straight.isNull())throw Error("RENDER_ALLOCATION","Could not convert rendered pixels for color grouping");
+        std::map<std::array<int,3>,ColorGroup> groups;
+        std::size_t total_runs=0;
+        for(int y=0;y<image.height();++y) {
+            int x=0;
+            while(x<image.width()) {
+                while(x<image.width()&&qAlpha(image.pixel(x,y))<threshold)++x;
+                if(x==image.width())break;
+                const auto first=straight.pixel(x,y);
+                const std::array<int,3> key{qRed(first),qGreen(first),qBlue(first)};
+                const auto start=x;
+                do {
+                    ++x;
+                    if(x==image.width()||qAlpha(image.pixel(x,y))<threshold)break;
+                    const auto pixel=straight.pixel(x,y);
+                    if(qRed(pixel)!=key[0]||qGreen(pixel)!=key[1]||qBlue(pixel)!=key[2])break;
+                } while(true);
+                auto group=groups.find(key);
+                if(group==groups.end()) {
+                    if(groups.size()>=max_color_groups)
+                        throw Error("ANALYSIS_LIMIT","Color grouping is limited to 256 distinct output RGB keys");
+                    group=groups.emplace(key,ColorGroup{}).first;
+                }
+                if(total_runs>=max_color_runs)
+                    throw Error("ANALYSIS_LIMIT","Color grouping is limited to 20,000 output color runs");
+                ++total_runs;
+                auto& value=group->second;
+                const auto run_width=x-start;
+                value.runs.push_back({y,start,run_width});
+                value.area+=static_cast<std::uint64_t>(run_width);
+                if(!value.has_bounds) {
+                    value.min_x=start;value.max_x=x-1;value.min_y=y;value.max_y=y;value.has_bounds=true;
+                } else {
+                    value.min_x=std::min(value.min_x,start);value.max_x=std::max(value.max_x,x-1);
+                    value.min_y=std::min(value.min_y,y);value.max_y=std::max(value.max_y,y);
+                }
+            }
+        }
+        QJsonArray color_groups;
+        for(const auto& [rgb,value]:groups) {
+            QJsonArray runs;
+            for(const auto& run:value.runs)
+                runs.append(QJsonObject{{"y",run.y},{"x",run.x},{"width",run.width}});
+            color_groups.append(QJsonObject{{"rgb",QJsonArray{rgb[0],rgb[1],rgb[2]}},
+                {"area",static_cast<qint64>(value.area)},
+                {"bounds",QJsonObject{{"x",value.min_x},{"y",value.min_y},
+                    {"width",value.max_x-value.min_x+1},{"height",value.max_y-value.min_y+1}}},
+                {"runs",runs}});
+        }
+        result.insert("color_groups",color_groups);
+        result.insert("color_key_domain","output-srgb-straight-rgb8");
+        result.insert("color_alpha_rule","output-alpha-byte-ge-threshold");
+    }
+    return result;
 }
 
-QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected) {
+QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected,
+    bool include_color_groups) {
     if(expected!=session.revision())throw Error("REVISION_CONFLICT","Refresh revision before analyzing regions");
     if(session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before analyzing regions");
     if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","Analysis scale must be greater than zero and at most 16");
@@ -688,7 +755,7 @@ QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,doubl
     if(pixel_width*pixel_height>4'000'000)
         throw Error("ANALYSIS_LIMIT","Region analysis is limited to 4,000,000 output pixels");
     const auto image=Canvas::render_artboard(session.document(),composition,artboard,scale,false);
-    return analyze_region_pixels(image,threshold,scale,expected);
+    return analyze_region_pixels(image,threshold,scale,expected,include_color_groups);
 }
 
 QByteArray Host::dispatch(const QByteArray& input) {
@@ -698,7 +765,7 @@ QByteArray Host::dispatch(const QByteArray& input) {
         auto outer=QJsonDocument::fromJson(input).object();
         const auto operation=string(outer,"op");
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
-            (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold"}:
+            (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","include_color_groups"}:
             (operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
              operation=="core"?QStringList{"op","session_id","document_id","request"}:
              operation=="import_svg"?QStringList{"op","session_id","document_id","expected_revision","path","composition","prefix","name","x","y"}:
@@ -739,8 +806,14 @@ QByteArray Host::dispatch(const QByteArray& input) {
                     const auto threshold=outer.value("threshold").toDouble();
                     if(!std::isfinite(threshold)||std::floor(threshold)!=threshold||threshold<1||threshold>255)
                         throw Error("INVALID_THRESHOLD","Alpha threshold must be an integer from 1 through 255");
+                    bool include_color_groups=false;
+                    if(outer.contains("include_color_groups")) {
+                        if(!outer.value("include_color_groups").isBool())
+                            throw Error("INVALID_REQUEST","include_color_groups must be a Boolean");
+                        include_color_groups=outer.value("include_color_groups").toBool();
+                    }
                     response={{"ok",true},{"result",analyze_regions(string(outer,"composition").toStdString(),
-                        string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),static_cast<int>(threshold),session.revision())}};
+                        string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),static_cast<int>(threshold),session.revision(),include_color_groups)}};
                 } else if(op=="import_svg") {
                     if(!outer.value("x").isDouble()||!outer.value("y").isDouble())throw Error("INVALID_REQUEST","Numeric x/y required");
                     response={{"ok",true},{"result",import_svg(string(outer,"path"),string(outer,"composition").toStdString(),string(outer,"prefix").toStdString(),
