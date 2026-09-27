@@ -1218,3 +1218,22 @@ export refuses an enabled Group Posterize and its API export plan lists the
 unsupported effect; a bypassed instance allows ordinary SVG projection. This
 operator uses only the existing 8-bit sRGB pixel path and makes no HDR,
 linear-light or exact vector-export claim.
+
+## Native 0.26 — linked Fill rule
+
+Path and Text Fill operations expose their `nonzero` or `evenodd` rule as an
+authored enum property at `op.<operation-id>.fill_rule`. The operation keeps its
+literal choice when a same-field stable `Ref` link drives its evaluated choice.
+`link_fill_rule` requires an explicit `replace_driver` flag; `unlink_fill_rule`
+freezes the current evaluated choice as the literal. Session validation rejects
+cycles, invalid domains and failed multi-command edits atomically. `get` and
+`properties` expose literal, driver and evaluated choice separately. Canvas,
+render plans and SVG use the evaluated Fill choice.
+
+The 0.26 writer omits `fill_rule_driver` when absent. Native 0.1–0.25 documents
+remain readable with literal-only Fill rules; an older version claiming this
+driver is rejected. `schemas/native-v0.26.schema.json` defines the optional
+driver wire shape, while Session validation checks that its source is an
+existing Fill rule on a Path or Text object. Offset and mask fill rules remain
+literal. This slice does not add expression evaluation to the Fill enum or
+generalize links to every typed property.

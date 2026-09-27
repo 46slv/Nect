@@ -73,6 +73,10 @@ struct TextAlignmentDriver {
     Ref link;
     bool operator==(const TextAlignmentDriver&) const = default;
 };
+struct FillRuleDriver {
+    Ref link;
+    bool operator==(const FillRuleDriver&) const = default;
+};
 
 struct TextPathAttachment {
     Id path;
@@ -189,6 +193,7 @@ struct ShapeOperation {
     std::map<std::string,Scalar> parameters;
     std::string composite="below";
     std::string fill_rule="nonzero";
+    std::optional<FillRuleDriver> fill_rule_driver;
     std::optional<Gradient> gradient;
     std::string line_join="miter"; // Offset v1 / Stroke v2: miter, round, bevel.
     std::string line_cap="butt"; // Stroke v2: butt, round, square; v1 stays butt.
@@ -368,6 +373,8 @@ struct ReorderOperations { Id object; std::vector<Id> order; };
 struct EnableOperation { Id object; Id operation; bool enabled; };
 struct StrokeStyle { Id object,operation; std::string line_cap="butt",line_join="miter"; double miter_limit=4; };
 struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; std::optional<std::string> line_join; };
+struct LinkFillRule { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkFillRule { Ref target; };
 struct SetGradient { Id object; Id operation; std::optional<Gradient> gradient; };
 
 struct AddArtboard { Id composition; Artboard artboard; std::size_t index; };
@@ -456,7 +463,7 @@ struct AlignObjects {
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,ConvertToPath,AddOperation,RemoveOperation,
-    ReorderOperations,EnableOperation,OperationOptions,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
+    ReorderOperations,EnableOperation,OperationOptions,LinkFillRule,UnlinkFillRule,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
@@ -565,7 +572,8 @@ struct Bounds {double left=0,top=0,right=0,bottom=0;};
 // world_space=true computes extrema directly in the Composition plane.
 std::optional<Bounds> object_bounds(const Document&,const Id&,const std::map<Ref,double>&,
     const std::map<Id,EvaluatedTransform>&,bool world_space=false);
-EvaluatedShape evaluate_shape(const Document&,const Id&,const std::map<Ref,double>&);
+EvaluatedShape evaluate_shape(const Document&,const Id&,const std::map<Ref,double>&,
+    const std::map<Ref,std::string>* fill_rules=nullptr);
 struct EvaluatedMask {
     Id source;
     std::string fill_rule;
@@ -595,6 +603,14 @@ void add_default_stroke(Document&,const Id& object);
 
 std::vector<Ref> properties(const Document& document);
 Scalar property(const Document& document, const Ref& ref);
+struct FillRuleProperty {
+    std::string literal;
+    std::optional<FillRuleDriver> driver;
+    std::string evaluated;
+};
+FillRuleProperty fill_rule_property(const Document&,const Ref&);
+std::string evaluate_fill_rule(const Document&,const Ref&);
+std::map<Ref,std::string> evaluate_fill_rules(const Document&);
 struct GuidePositionProperty {
     double literal=0;
     std::optional<Ref> driver;

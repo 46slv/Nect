@@ -306,6 +306,14 @@ TextAlignmentDriver read_text_alignment_driver(const j::value& value) {
 j::object text_alignment_driver_json(const TextAlignmentDriver& driver) {
     return {{"link",ref_json(driver.link)}};
 }
+FillRuleDriver read_fill_rule_driver(const j::value& value) {
+    const auto& driver=value.as_object();
+    if(driver.contains("link")){keys(driver,{"link"});return FillRuleDriver{read_ref(driver.at("link"))};}
+    throw Error("INVALID_FILL_RULE_DRIVER","Fill rule driver requires one link");
+}
+j::object fill_rule_driver_json(const FillRuleDriver& driver) {
+    return {{"link",ref_json(driver.link)}};
+}
 TextPathAttachment read_text_path_attachment(const j::value& value) {
     const auto& attachment=value.as_object();keys(attachment,{"path","contour","start_mode","start","spacing","reversed"});
     return {text(attachment.at("path")),text(attachment.at("contour")),text(attachment.at("start_mode")),
@@ -457,6 +465,13 @@ j::object text_alignment_property_json(const Document& d,const Ref& ref,const Te
         {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
         {"evaluated",value.evaluated},{"link",true},{"expression",false},{"choices",std::move(choices)}};
 }
+j::object fill_rule_property_json(const Document& d,const Ref& ref,const FillRuleProperty& value) {
+    j::value driver=nullptr;if(value.driver)driver=fill_rule_driver_json(*value.driver);
+    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","enum"},{"origin","authored"},
+        {"choices",j::array{"nonzero","evenodd"}},
+        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
+        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+}
 j::object text_readonly_property_json(const Document& d,const Ref& ref,const TextPropertyValue& value) {
     const auto type=value.kind==TextPropertyKind::string?"string":"enum";
     j::object result{{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type",type},{"origin","authored"},
@@ -539,15 +554,17 @@ j::value gradient_json(const Gradient& g) {
         {"start_x",scalar_json(g.start_x)},{"start_y",scalar_json(g.start_y)},
         {"end_x",scalar_json(g.end_x)},{"end_y",scalar_json(g.end_y)},{"stops",stops}};
 }
-ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool allow_expression=true,bool allow_offset=true,bool allow_stroke_style=true) {
+ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool allow_expression=true,bool allow_offset=true,bool allow_stroke_style=true,bool allow_fill_rule_driver=false) {
     const auto& o=v.as_object();
-    if(allow_stroke_style)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient","line_join","line_cap"});
-    else if(allow_offset)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient","line_join"});
-    else if(allow_gradient)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","gradient"});
-    else keys(o,{"id","type","version","enabled","parameters","composite","fill_rule"});
+    if(!allow_fill_rule_driver&&o.contains("fill_rule_driver"))throw Error("UNSUPPORTED_FILL_RULE_DRIVER","Fill rule drivers require native 0.26 and the dedicated link command");
+    if(allow_stroke_style)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","fill_rule_driver","gradient","line_join","line_cap"});
+    else if(allow_offset)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","fill_rule_driver","gradient","line_join"});
+    else if(allow_gradient)keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","fill_rule_driver","gradient"});
+    else keys(o,{"id","type","version","enabled","parameters","composite","fill_rule","fill_rule_driver"});
     ShapeOperation op;op.id=text(o.at("id"));op.type=text(o.at("type"));
     op.version=j::value_to<unsigned>(o.at("version"));op.enabled=o.at("enabled").as_bool();
     op.composite=text(o.at("composite"));op.fill_rule=text(o.at("fill_rule"));
+    if(const auto* driver=o.if_contains("fill_rule_driver"))op.fill_rule_driver=read_fill_rule_driver(*driver);
     if(op.type=="nect.shape.offset") {
         if(!allow_offset)throw Error("UNSUPPORTED_OPERATOR","Offset Paths requires native 0.12");
         op.line_join=text(o.at("line_join"));
@@ -564,6 +581,7 @@ j::value operation_json(const ShapeOperation& op) {
     j::object parameters;for(const auto& [name,value]:op.parameters)parameters[name]=scalar_json(value);
     j::object result{{"id",op.id},{"type",op.type},{"version",op.version},{"enabled",op.enabled},
         {"parameters",parameters},{"composite",op.composite},{"fill_rule",op.fill_rule}};
+    if(op.fill_rule_driver)result["fill_rule_driver"]=fill_rule_driver_json(*op.fill_rule_driver);
     if(op.gradient)result["gradient"]=gradient_json(*op.gradient);
     if(op.type=="nect.shape.offset")result["line_join"]=op.line_join;
     if(op.type=="nect.paint.stroke"&&op.version==2){result["line_join"]=op.line_join;result["line_cap"]=op.line_cap;}
@@ -785,6 +803,13 @@ Command read_command(const j::value& v) {
     }
     if(type=="unlink_text_alignment") {
         keys(o,{"type","target"});return UnlinkTextAlignment{read_ref(o.at("target"))};
+    }
+    if(type=="link_fill_rule") {
+        keys(o,{"type","target","source","replace_driver"});
+        return LinkFillRule{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="unlink_fill_rule") {
+        keys(o,{"type","target"});return UnlinkFillRule{read_ref(o.at("target"))};
     }
     if(type=="add_artboard") {
         keys(o,{"type","composition","artboard","index"});
@@ -1014,10 +1039,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,25> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25"};
+        constexpr std::array<std::string_view,26> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.25 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.26 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1089,7 +1114,7 @@ Document decode(std::string_view input) {
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
                 if(minor>=3) {
-                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12,minor>=13));
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12,minor>=13,minor>=26));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
                     if(text(o.at("fill"))!="none")throw Error("UNSUPPORTED_APPEARANCE","Legacy format only supports stroked paths");
@@ -1227,6 +1252,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     for(const auto& id:comp->roots)reject_unsupported(id);
 
     const auto values=evaluate(d);
+    const auto fill_rule_values=evaluate_fill_rules(d);
     const auto transforms=evaluate_transforms(d,values);
     const bool external_parenting=std::any_of(d.objects.begin(),d.objects.end(),[](const auto& entry){return entry.second.transform_parent.has_value();});
 
@@ -1349,7 +1375,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
         if(o.kind==Kind::group) {
             for(const auto& child:o.children) render(child);
         } else {
-            paint_shape(evaluate_shape(d,id,values));
+            paint_shape(evaluate_shape(d,id,values,&fill_rule_values));
         }
 
         out<<"</g>\n";
@@ -1398,6 +1424,7 @@ std::string request(Session& session,std::string_view input) {
             if(r.field=="guide.position")result=guide_position_property_json(
                 guide_property_name(session.document(),r),r,guide_position_property(session.document(),r));
             else if(r.field.starts_with("artboard."))result=artboard_size_property_json(session.document(),r,artboard_size_property(session.document(),r));
+            else if(r.field.starts_with("op.")&&r.field.ends_with(".fill_rule"))result=fill_rule_property_json(session.document(),r,fill_rule_property(session.document(),r));
             else if(r.field=="text.content")result=text_content_property_json(session.document(),r,text_content_property(session.document(),r));
             else if(r.field=="text.family")result=text_family_property_json(session.document(),r,text_family_property(session.document(),r));
             else if(r.field=="text.locale")result=text_locale_property_json(session.document(),r,text_locale_property(session.document(),r));
@@ -1431,6 +1458,7 @@ std::string request(Session& session,std::string_view input) {
             const auto direction_values=evaluate_text_directions(session.document());
             const auto layout_values=evaluate_text_layouts(session.document());
             const auto alignment_values=evaluate_text_alignments(session.document());
+            const auto fill_rule_values=evaluate_fill_rules(session.document());
             std::map<Id,std::pair<std::string,GuidePositionProperty>> guide_values;
             for(const auto& composition:session.document().compositions) {
                 const auto positions=evaluate_guide_positions(session.document(),composition.id);
@@ -1446,6 +1474,15 @@ std::string request(Session& session,std::string_view input) {
                 }
                 if(ref.field.starts_with("artboard.")) {
                     list.push_back(artboard_size_property_json(session.document(),ref,artboard_size_property(session.document(),ref)));
+                    continue;
+                }
+                if(ref.field.starts_with("op.")&&ref.field.ends_with(".fill_rule")) {
+                    const auto& object=session.document().objects.at(ref.object);
+                    const auto operation=std::find_if(object.stack.begin(),object.stack.end(),[&](const auto& candidate) {
+                        return operation_ref(ref.object,candidate.id,"fill_rule")==ref;
+                    });
+                    list.push_back(fill_rule_property_json(session.document(),ref,
+                        {operation->fill_rule,operation->fill_rule_driver,fill_rule_values.at(ref)}));
                     continue;
                 }
                 if(is_text_readonly_field(ref.field)) {

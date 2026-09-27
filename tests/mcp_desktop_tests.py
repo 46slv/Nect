@@ -1027,7 +1027,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.25'
+        assert native_save_as['version']=='0.26'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']
@@ -1065,13 +1065,51 @@ try:
         assert cold_objects['mcp-save-as-target']['text']['layout_driver']==dict(link=save_source_ref)
         assert destination_native.read_bytes()==destination_bytes
         assert original_native.read_bytes()==original_bytes and hashlib.sha256(original_native.read_bytes()).hexdigest()==original_hash
+        fill_live=tool('nect_session');identity={key:fill_live[key] for key in ('session_id','document_id')}
+        fill_source=dict(object='mcp-fill-source',point='',field='op.mcp-source-fill.fill_rule')
+        fill_target=dict(object='mcp-fill-target',point='',field='op.mcp-target-fill.fill_rule')
+        fill_operation=lambda id_,rule:dict(id=id_,type='nect.paint.fill',version=1,enabled=True,
+            parameters={key:dict(literal=value) for key,value in dict(r=0,g=0,b=0,a=1).items()},composite='below',fill_rule=rule)
+        square=lambda id_,x,y,width,height:dict(id=id_+'-contour',closed=True,points=[
+            point(id_+'-p0',x,y),point(id_+'-p1',x+width,y),point(id_+'-p2',x+width,y+height),point(id_+'-p3',x,y+height)])
+        fill_rev=apply([
+            dict(type='create_path',composition=comp['id'],parent='',id='mcp-fill-source',name='MCP Fill source',
+                contours=[square('mcp-fill-source',20,20,80,80)]),
+            dict(type='create_path',composition=comp['id'],parent='',id='mcp-fill-target',name='MCP Fill target',
+                contours=[square('mcp-fill-target',120,20,80,80)]),
+            dict(type='add_operation',object='mcp-fill-source',index=1,operation=fill_operation('mcp-source-fill','evenodd')),
+            dict(type='add_operation',object='mcp-fill-target',index=1,operation=fill_operation('mcp-target-fill','nonzero')),
+            dict(type='set_visibility',object='mcp-fill-source',visible=False)],0)
+        assert core('resolve_name',name='MCP Fill target',point='',field=fill_target['field'])['result']==fill_target
+        fill_rev=apply([dict(type='link_fill_rule',target=fill_target,source=fill_source,replace_driver=False)],fill_rev)
+        mcp_fill=core('get',ref=fill_target)['result']
+        direct_fill=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=fill_target)))
+        assert direct_fill['ok'] and direct_fill['result']==mcp_fill, (direct_fill,mcp_fill)
+        assert mcp_fill['authored']==dict(literal='nonzero',driver=dict(link=fill_source)) and \
+            mcp_fill['evaluated']=='evenodd' and mcp_fill['choices']==['nonzero','evenodd'] and mcp_fill['link'] is True and mcp_fill['expression'] is False, mcp_fill
+        fill_metadata=next(item for item in core('properties')['result'] if item['ref']==fill_target)
+        assert fill_metadata==mcp_fill
+        fill_rev=apply([dict(type='operation_options',object='mcp-fill-source',operation='mcp-source-fill',
+            composite='below',fill_rule='nonzero')],fill_rev)
+        assert core('get',ref=fill_target)['result']['evaluated']=='nonzero'
+        fill_plan=core('render_plan',object='mcp-fill-target')['result']
+        fill_svg=core('export_svg',composition=comp['id'],artboard=comp['artboards'][0]['id'])['result']
+        assert next(layer for layer in fill_plan['paint_layers'] if layer['operation']=='mcp-target-fill')['fill_rule']=='nonzero' and 'fill-rule="nonzero"' in fill_svg
+        failed_fill_batch=core('apply',expected_revision=fill_rev,commands=[
+            dict(type='operation_options',object='mcp-fill-target',operation='mcp-target-fill',composite='above',fill_rule='nonzero'),
+            dict(type='link_fill_rule',target=fill_target,source=fill_target,replace_driver=False)])
+        assert not failed_fill_batch['ok'] and failed_fill_batch['error']['code']=='DEPENDENCY_CYCLE' and failed_fill_batch['revision']==fill_rev
+        fill_rev=apply([dict(type='unlink_fill_rule',target=fill_target)],fill_rev)
+        assert core('get',ref=fill_target)['result']['authored']==dict(literal='nonzero',driver=None)
+        assert core('undo',expected_revision=fill_rev)['ok'] and core('get',ref=fill_target)['result']['authored']==dict(literal='nonzero',driver=dict(link=fill_source))
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,
             mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True, independent_duplication=True, geometric_alignment_undo=True, equal_gap_spacing_undo=True, editable_svg_undo=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,
             independent_svg_parser_paths=expected_svg_paths, ordered_stack_readback=True,
             automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, image_lifecycle_native_recovery=True,
             typed_text_save_as=True, stale_save_identity_and_revision_rejected=True, invalid_save_as_atomic=True,
-            save_as_recovery_provenance=True, save_as_destination_cold_open=True, gui_save_as_acceptance=False, gui_performance_claim=False)
+            save_as_recovery_provenance=True, save_as_destination_cold_open=True, fill_rule_link=True,
+            gui_save_as_acceptance=False, gui_performance_claim=False)
         print(json.dumps(receipt, indent=2))
 finally:
     if mcp:

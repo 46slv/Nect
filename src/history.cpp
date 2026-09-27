@@ -28,6 +28,7 @@ std::size_t extra(const TextLayoutDriver&);
 std::size_t extra(const TextAlignmentDriver&);
 std::size_t extra(const TextContentDriver&);
 std::size_t extra(const TextFamilyDriver&);
+std::size_t extra(const FillRuleDriver&);
 std::size_t extra(const Scalar&);
 std::size_t extra(const Point&);
 std::size_t extra(const Contour&);
@@ -82,6 +83,7 @@ std::size_t extra(const TextAlignmentDriver& v){return extra(v.link);}
 std::size_t extra(const TextContentDriver& v){return extra(v.link);}
 std::size_t extra(const TextFamilyDriver& v){return extra(v.link);}
 std::size_t extra(const TextLocaleDriver& v){return extra(v.link);}
+std::size_t extra(const FillRuleDriver& v){return extra(v.link);}
 std::size_t extra(const Scalar& v){return total(extra(v.binding),extra(v.expression));}
 std::size_t extra(const Point& v){return total(extra(v.id),extra(v.x),extra(v.y),extra(v.in_angle),extra(v.in_length),extra(v.out_angle),extra(v.out_length));}
 std::size_t extra(const Contour& v){return total(extra(v.id),extra(v.points));}
@@ -90,7 +92,7 @@ std::size_t extra(const Primitive& v){return total(extra(v.id),extra(v.type),ext
 std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides));}
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
 std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops));}
-std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
+std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.fill_rule_driver),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
 std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule));}
 std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.mask));}
 std::size_t extra(const ImageSource& v){return total(extra(v.asset),extra(v.width),extra(v.height));}
@@ -169,6 +171,8 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,UnlinkTextLayout>)return "Unlink Text layout: "+property_label(c.target);
         else if constexpr(std::is_same_v<T,LinkTextAlignment>)return "Link Text alignment: "+property_label(c.target);
         else if constexpr(std::is_same_v<T,UnlinkTextAlignment>)return "Unlink Text alignment: "+property_label(c.target);
+        else if constexpr(std::is_same_v<T,LinkFillRule>)return "Link Fill rule: "+property_label(c.target);
+        else if constexpr(std::is_same_v<T,UnlinkFillRule>)return "Unlink Fill rule: "+property_label(c.target);
         else if constexpr(std::is_same_v<T,Rename>)return "Rename: "+c.name;
         else if constexpr(std::is_same_v<T,RenameNamedColor>)return "Rename color: "+c.name;
         else if constexpr(std::is_same_v<T,CreateNamedColor>)return "Add named color: "+c.color.name;

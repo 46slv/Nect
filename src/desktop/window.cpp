@@ -2679,11 +2679,109 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             if(!applied){const QSignalBlocker blocker(composite);composite->setCurrentIndex(before);}
         });
         }
-        if(operation.type=="nect.paint.fill"||operation.type=="nect.shape.offset") {
+        if(operation.type=="nect.paint.fill") {
+            const auto target=operation_ref(object.id,operation.id,"fill_rule");
+            const auto state=fill_rule_property(host.session.document(),target);
+            const auto rule_index=state.evaluated=="evenodd"?1:0;
+            auto* rule_row=new QWidget(group);auto* rule_layout=new QHBoxLayout(rule_row);rule_layout->setContentsMargins(0,0,0,0);
             auto* rule=new QComboBox;rule->setObjectName("operation-fill-rule-"+qs(operation.id));
             rule->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-            rule->setMinimumContentsLength(10);
-            rule->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
+            rule->setMinimumContentsLength(10);rule->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
+            rule->addItem("Nonzero winding","nonzero");rule->addItem("Even-odd","evenodd");
+            rule->setCurrentIndex(rule_index);rule->setEnabled(false);
+            rule->setToolTip("Use the Fill rule editor to stage a literal, link or unlink change.");rule_layout->addWidget(rule);
+            auto* driver_button=new QToolButton(rule_row);driver_button->setObjectName("operation-fill-rule-driver-"+qs(operation.id));
+            driver_button->setText(state.driver?"Driver…":"Drive…");driver_button->setPopupMode(QToolButton::InstantPopup);
+            auto* driver_menu=new QMenu(driver_button);driver_button->setMenu(driver_menu);rule_layout->addWidget(driver_button);
+            auto* edit_rule=driver_menu->addAction("Edit, link or unlink…");
+            const auto frozen_revision=host.session.revision();
+            connect(edit_rule,&QAction::triggered,this,[this,object_id=object.id,operation_id=operation.id,target,state,frozen_session,frozen_revision] {
+                QDialog dialog(this);dialog.setObjectName("fill-rule-dialog-"+qs(operation_id));dialog.setWindowTitle("Edit Fill rule");
+                auto* dialog_layout=new QVBoxLayout(&dialog);
+                auto* mode=new QComboBox(&dialog);mode->setObjectName("fill-rule-mode-"+qs(operation_id));
+                mode->addItem("Edit literal","edit");
+                QStringList source_labels;std::vector<Ref> source_refs;
+                for(const auto& [source_id,source_object]:host.session.document().objects)
+                    if(source_object.kind==Kind::path||source_object.kind==Kind::text)
+                        for(const auto& source_operation:source_object.stack)if(source_operation.type=="nect.paint.fill") {
+                            const auto source_ref=operation_ref(source_id,source_operation.id,"fill_rule");
+                            if(source_ref==target)continue;
+                            source_refs.push_back(source_ref);
+                            source_labels<<qs(source_object.name)+" — Fill ["+qs(source_operation.id)+"] — "+qs(source_id);
+                        }
+                if(!source_refs.empty())mode->addItem("Link to another Fill","link");
+                if(state.driver)mode->addItem("Unlink driver","unlink");
+                dialog_layout->addWidget(mode);
+                auto* value=new QComboBox(&dialog);value->setObjectName("fill-rule-value-"+qs(operation_id));
+                value->addItem("Nonzero winding","nonzero");value->addItem("Even-odd","evenodd");
+                value->setCurrentIndex(state.evaluated=="evenodd"?1:0);dialog_layout->addWidget(value);
+                auto* source=new QComboBox(&dialog);source->setObjectName("fill-rule-source-"+qs(operation_id));
+                for(const auto& label:source_labels)source->addItem(label);
+                if(state.driver) {
+                    const auto found=std::find(source_refs.begin(),source_refs.end(),state.driver->link);
+                    if(found!=source_refs.end())source->setCurrentIndex(static_cast<int>(std::distance(source_refs.begin(),found)));
+                }
+                dialog_layout->addWidget(source);
+                auto* unlink_edit=new QCheckBox("Unlink the driver before editing the literal",&dialog);
+                unlink_edit->setObjectName("fill-rule-unlink-before-edit-"+qs(operation_id));
+                unlink_edit->setVisible(state.driver.has_value());dialog_layout->addWidget(unlink_edit);
+                auto* status=new QLabel("Apply commits the staged Fill rule change. Cancel keeps the Session unchanged.",&dialog);
+                status->setObjectName("fill-rule-status-"+qs(operation_id));status->setWordWrap(true);dialog_layout->addWidget(status);
+                const auto update_mode=[mode,value,source,unlink_edit,state] {
+                    const auto selected=mode->currentData().toString();
+                    value->setEnabled(selected=="edit"&&(!state.driver||unlink_edit->isChecked()));
+                    source->setEnabled(selected=="link");
+                    unlink_edit->setVisible(selected=="edit"&&state.driver.has_value());
+                };
+                connect(mode,&QComboBox::currentIndexChanged,&dialog,[update_mode](int){update_mode();});
+                connect(unlink_edit,&QCheckBox::toggled,&dialog,[update_mode](bool){update_mode();});
+                update_mode();
+                auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);dialog_layout->addWidget(buttons);
+                connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+                connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
+                    [this,&dialog,object_id,operation_id,target,state,frozen_session,frozen_revision,mode,value,source,source_refs,unlink_edit,status] {
+                        try {
+                            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Fill belongs to another document");
+                            if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","The Fill changed while its rule editor was open; reopen it");
+                            const auto object=host.session.document().objects.find(object_id);
+                            if(object==host.session.document().objects.end())throw Error("MISSING_OBJECT",object_id);
+                            const auto current=std::find_if(object->second.stack.begin(),object->second.stack.end(),
+                                [&](const auto& candidate){return candidate.id==operation_id&&candidate.type=="nect.paint.fill";});
+                            if(current==object->second.stack.end())throw Error("MISSING_OPERATION",operation_id);
+                            const auto selected=mode->currentData().toString();std::vector<Command> commands;
+                            if(selected=="link") {
+                                if(source_refs.empty()||source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a Fill rule source");
+                                commands.push_back(LinkFillRule{target,source_refs.at(static_cast<std::size_t>(source->currentIndex())),state.driver.has_value()});
+                            } else if(selected=="unlink") {
+                                commands.push_back(UnlinkFillRule{target});
+                            } else {
+                                if(state.driver&&!unlink_edit->isChecked())throw Error("DRIVEN_PROPERTY","Select unlink before editing a linked Fill rule");
+                                if(state.driver)commands.push_back(UnlinkFillRule{target});
+                                const auto next=value->currentData().toString().toStdString();
+                                const auto frozen=state.driver?state.evaluated:state.literal;
+                                if(next!=frozen)commands.push_back(OperationOptions{object_id,operation_id,current->composite,next});
+                            }
+                            if(!commands.empty()){host.session.apply(commands,frozen_revision);host.edited();}
+                            dialog.accept();
+                        } catch(const std::exception& error) {status->setText(QString::fromUtf8(error.what()));}
+                    });
+                dialog.exec();
+            });
+            rule_layout->addStretch();form->addRow("Fill rule",rule_row);
+            QString driver_name="none";
+            if(state.driver) {
+                const auto found=host.session.document().objects.find(state.driver->link.object);
+                const auto source_name=found==host.session.document().objects.end()?qs(state.driver->link.object):qs(found->second.name);
+                driver_name=QString("link to %1 / %2").arg(source_name,qs(state.driver->link.field));
+            }
+            auto* state_label=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
+                .arg(qs(state.literal),driver_name,qs(state.evaluated)));
+            state_label->setObjectName("operation-fill-rule-state-"+qs(operation.id));
+            state_label->setWordWrap(true);state_label->setTextFormat(Qt::PlainText);form->addRow("",state_label);
+        } else if(operation.type=="nect.shape.offset") {
+            auto* rule=new QComboBox;rule->setObjectName("operation-fill-rule-"+qs(operation.id));
+            rule->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            rule->setMinimumContentsLength(10);rule->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
             rule->addItem("Nonzero winding","nonzero");rule->addItem("Even-odd","evenodd");
             rule->setCurrentIndex(operation.fill_rule=="evenodd"?1:0);form->addRow("Fill rule",rule);
             connect(rule,&QComboBox::currentIndexChanged,this,[this,rule,apply,id=object.id,op=operation.id,before=rule->currentIndex()](int) {

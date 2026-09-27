@@ -1,4 +1,5 @@
 #include "canvas.hpp"
+#include "nect/io.hpp"
 
 #include <QApplication>
 #include <QImage>
@@ -192,6 +193,31 @@ void open_mask_hole_and_fill_rule() {
     f.apply({SetMask{"target",GeometryMask{"mask","source",1,true,"nonzero"}}});
     f.color(210,210,Qt::green,"Nonzero rule fills same-winding nested contours");f.no_error();
 }
+void linked_fill_rule_projects_to_canvas_and_svg() {
+    auto d=document();auto target=rectangle("target",80,80,300,280,Qt::green);
+    auto inner=rectangle("inner",160,160,100,100,Qt::green);target.contours.push_back(inner.contours.front());add(d,std::move(target));
+    auto source=rectangle("source",420,80,120,120,Qt::black);source.visible=false;
+    source.stack.front().fill_rule="evenodd";add(d,std::move(source));
+    Fixture f(d);const Ref target_ref=operation_ref("target","target-fill","fill_rule");
+    const Ref source_ref=operation_ref("source","source-fill","fill_rule");
+    auto expected=d;expected.objects.at("target").stack.front().fill_rule="evenodd";
+    f.apply({LinkFillRule{target_ref,source_ref}});
+    check(fill_rule_property(f.session.document(),target_ref).literal=="nonzero"&&
+        fill_rule_property(f.session.document(),target_ref).evaluated=="evenodd",
+        "Linked Fill keeps target-authored nonzero while evaluating source even-odd");
+    f.color(210,210,Qt::white,"Linked even-odd rule cuts a same-winding Canvas hole");
+    f.color(120,120,Qt::green,"Linked rule preserves target Fill outside its hole");
+    check(export_svg(f.session.document(),"composition","artboard")==export_svg(expected,"composition","artboard"),
+        "SVG projects the same evaluated Fill rule as an unlinked even-odd twin");
+    f.apply({OperationOptions{"source","source-fill","below","nonzero"}});
+    expected.objects.at("target").stack.front().fill_rule="nonzero";
+    f.color(210,210,Qt::green,"Changing the Fill source updates the Canvas hole");
+    check(fill_rule_property(f.session.document(),target_ref).literal=="nonzero"&&
+        fill_rule_property(f.session.document(),target_ref).evaluated=="nonzero"&&
+        export_svg(f.session.document(),"composition","artboard")==export_svg(expected,"composition","artboard"),
+        "Updated source rule drives both target evaluation and SVG projection");
+    f.no_error();
+}
 void repeated_mask_uses_external_world_transform() {
     auto d=document();add(d,rectangle("target",80,80,300,240,Qt::green));auto source=rectangle("source",100,100,40,80,Qt::black);
     source.visible=false;source.transform_parent="driver";
@@ -304,7 +330,7 @@ int main(int argc,char** argv) {
     try {
         group_opacity_is_applied_once();group_posterize_uses_independent_postcomposite_pixel_oracle();pass_through_and_isolation_have_distinct_backdrops();blend_alpha_and_transparent_root();
         all_supported_blends_match_independent_channel_formulas();
-        open_mask_hole_and_fill_rule();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
+        open_mask_hole_and_fill_rule();linked_fill_rule_projects_to_canvas_and_svg();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
         mask_outline_is_separate_from_inherited_selection();cropped_unmasked_scope_preserves_stroke_gradient_and_repeater();
         cropped_mask_scope_preserves_world_alignment();render_limits_remain_visible();
         std::cout<<"PASS "<<checks<<" compositing Canvas pixel and interaction checks\n";return 0;

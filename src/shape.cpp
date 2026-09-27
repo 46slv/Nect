@@ -338,7 +338,8 @@ TextLayout evaluate_text_projection(const Document& document,const Id& id,const 
     project_text_on_path(document,id,source,shaped,values,projected);
     return projected;
 }
-EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,double>& values) {
+EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,double>& values,
+    const std::map<Ref,std::string>* fill_rules) {
     const auto& o=d.objects.at(id);
     if(o.kind!=Kind::path&&o.kind!=Kind::text)throw Error("INVALID_DOMAIN","Shape stack accepts one Path or Text source");
     auto contours=std::make_shared<std::vector<EvaluatedContour>>();
@@ -369,7 +370,9 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
             if(painted_anchors()+anchors(shape.paths)>250000)
                 throw Error("OUTPUT_LIMIT","Shape paint output exceeds 250000 cubic anchors per object");
             PaintLayer paint;paint.operation=op.id;paint.type=op.type;
-            paint.rgba={v("r"),v("g"),v("b"),v("a")};paint.paths=shape.paths;paint.fill_rule=op.fill_rule;
+            paint.rgba={v("r"),v("g"),v("b"),v("a")};paint.paths=shape.paths;
+            paint.fill_rule=op.type=="nect.paint.fill"?
+                (fill_rules?fill_rules->at(operation_ref(id,op.id,"fill_rule")):evaluate_fill_rule(d,operation_ref(id,op.id,"fill_rule"))):op.fill_rule;
             if(op.gradient&&op.gradient->enabled) {
                 const auto& g=*op.gradient;EvaluatedGradient resolved;resolved.type=g.type;
                 auto gv=[&](const std::string& field){return values.at(gradient_ref(id,op.id,g.id,field));};

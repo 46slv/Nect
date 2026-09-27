@@ -955,11 +955,65 @@ void stack_authoring(Window& window) {
     color=pixel(480,320);
     check(std::abs(color.red()-32)<=2&&std::abs(color.blue()-224)<=2,
         "Composite Above changes the actual Canvas paint order");
-    choose("operation-fill-rule-",blue,1);
-    const auto& blue_operation=session.document().objects.at(object).stack.back();
-    check(blue_operation.fill_rule=="evenodd","Fill-rule control updates authored operation options");
+    auto fill_driver_button=[&] {
+        const auto buttons=window.findChildren<QToolButton*>(QString::fromStdString("operation-fill-rule-driver-"+blue));
+        check(!buttons.empty(),"Fill rule driver button exists for the selected operation");
+        auto* button=buttons.back();reveal(window,button);
+        check(button->isVisible(),"Current Fill rule driver button is visible after scrolling");return button;
+    };
+    auto* fill_driver=fill_driver_button();
+    const auto fill_ref=operation_ref(object,blue,"fill_rule");
+    const auto fill_revision=session.revision();bool fill_cancel_staged=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("fill-rule-dialog-"+blue));
+        auto* value=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-value-"+blue)):nullptr;
+        if(!dialog||!value){if(dialog)dialog->reject();else if(auto* active=qobject_cast<QDialog*>(QApplication::activeModalWidget()))active->reject();return;}
+        value->setCurrentIndex(1);fill_cancel_staged=session.revision()==fill_revision&&
+            fill_rule_property(session.document(),fill_ref).literal=="nonzero";dialog->reject();});
+    fill_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(fill_cancel_staged&&session.revision()==fill_revision&&
+        fill_rule_property(session.document(),fill_ref).literal=="nonzero",
+        "Fill rule Inspector stages its literal and Cancel leaves Session bytes and revision unchanged");
+    fill_driver=fill_driver_button();bool fill_apply_modal=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("fill-rule-dialog-"+blue));
+        auto* value=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-value-"+blue)):nullptr;
+        fill_apply_modal=dialog&&value;
+        if(!dialog||!value){if(dialog)dialog->reject();else if(auto* active=qobject_cast<QDialog*>(QApplication::activeModalWidget()))active->reject();return;}
+        value->setCurrentIndex(1);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    fill_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(fill_apply_modal&&fill_rule_property(session.document(),fill_ref).literal=="evenodd"&&session.revision()==fill_revision+1,
+        "Applying a staged Fill rule literal commits one shared Session revision");
+    const Ref source_fill_ref=operation_ref(object,red,"fill_rule");
+    session.apply({OperationOptions{object,red,"below","evenodd"}},session.revision());window.host.edited();QApplication::processEvents();
+    fill_driver=fill_driver_button();
+    const auto link_revision=session.revision();bool link_draft_staged=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("fill-rule-dialog-"+blue));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-mode-"+blue)):nullptr;
+        auto* source=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-source-"+blue)):nullptr;
+        if(!dialog||!mode||!source){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));source->setCurrentIndex(0);
+        link_draft_staged=session.revision()==link_revision&&!fill_rule_property(session.document(),fill_ref).driver;
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    fill_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(link_draft_staged&&fill_rule_property(session.document(),fill_ref).driver==FillRuleDriver{source_fill_ref}&&
+        fill_rule_property(session.document(),fill_ref).evaluated=="evenodd",
+        "Fill Inspector stages a same-field source and commits it through Session");
+    session.apply({OperationOptions{object,red,"below","nonzero"}},session.revision());window.host.edited();
+    check(fill_rule_property(session.document(),fill_ref).evaluated=="nonzero","Fill Inspector link follows source edits");
+    fill_driver=fill_driver_button();
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("fill-rule-dialog-"+blue));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-mode-"+blue)):nullptr;
+        if(!dialog||!mode){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("unlink"));dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    fill_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    session.apply({OperationOptions{object,red,"below","evenodd"}},session.revision());window.host.edited();
+    check(!fill_rule_property(session.document(),fill_ref).driver&&fill_rule_property(session.document(),fill_ref).literal=="nonzero"&&
+        fill_rule_property(session.document(),fill_ref).evaluated=="nonzero",
+        "Fill Inspector unlink freezes the evaluated choice against later source edits");
     const auto enabled_name="operation-enabled-"+blue;
-    auto* enabled=visible_child<QCheckBox>(window,enabled_name.c_str());reveal(window,enabled);
+    const auto enabled_widgets=window.findChildren<QCheckBox*>(QString::fromStdString(enabled_name));
+    check(!enabled_widgets.empty(),"Enabled checkbox exists for the selected Fill operation");
+    auto* enabled=enabled_widgets.back();reveal(window,enabled);
+    check(enabled->isVisible(),"Current Fill enabled checkbox is visible after scrolling");
     QTest::mouseClick(enabled,Qt::LeftButton,Qt::NoModifier,QPoint(8,enabled->height()/2));QApplication::processEvents();
     color=pixel(480,320);
     check(std::abs(color.red()-239)<=2,"Disabling a paint removes its actual rendered contribution");
@@ -2019,7 +2073,7 @@ void text_path_authoring(Window& window) {
     Host cold_reopen(native_dir.path()+"/recovery");cold_reopen.open(native_path);
     check(cold_reopen.session.document()==session.document()&&
         cold_reopen.session.document().objects.at("ui-text").text->path_attachment->contour=="ui-contour",
-        "Native 0.25 cold reopen preserves exact editable Text and stable Contour attachment IDs");
+        "Native 0.26 cold reopen preserves exact editable Text and stable Contour attachment IDs");
     const auto attached_document=session.document();const auto detach_revision=session.revision();
     visible_child<QPushButton>(window,"text-path-detach")->click();QApplication::processEvents();
     check(session.revision()==detach_revision+1&&!session.document().objects.at("ui-text").text->path_attachment&&

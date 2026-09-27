@@ -6,6 +6,97 @@ namespace {
 int checks=0;
 void check(bool ok,const char* reason){if(!ok)throw std::runtime_error(reason);++checks;}
 template<class F>void rejects(const char* code,F action){try{action();}catch(const Error& e){check(e.code==code,("Expected "+std::string(code)+", got "+e.code).c_str());return;}throw std::runtime_error("Expected rejection: "+std::string(code));}
+void fill_rule_link_contract() {
+    Session session(empty_document("fill-doc","fill-comp","fill-art"));
+    session.apply({CreatePrimitive{"fill-comp","","fill-source","Source",default_primitive("source-shape","nect.shape.rectangle")},
+        CreatePrimitive{"fill-comp","","fill-target","Target",default_primitive("target-shape","nect.shape.rectangle")}},0);
+    auto source_fill=default_operation("source-fill","nect.paint.fill");
+    auto target_fill=default_operation("target-fill","nect.paint.fill");target_fill.fill_rule="nonzero";
+    session.apply({AddOperation{"fill-source",source_fill,1},AddOperation{"fill-target",target_fill,1},
+        OperationOptions{"fill-source","source-fill","below","evenodd"}},session.revision());
+    const Ref target{"fill-target","","op.target-fill.fill_rule"},source{"fill-source","","op.source-fill.fill_rule"};
+    const auto target_shape_rule=[&] {
+        const auto shape=evaluate_shape(session.document(),"fill-target",evaluate(session.document()));
+        const auto paint=std::find_if(shape.paints.begin(),shape.paints.end(),[](const auto& layer){return layer.operation=="target-fill";});
+        if(paint==shape.paints.end())throw std::runtime_error("Target Fill layer is missing from shape evaluation");
+        return paint->fill_rule;
+    };
+    check(resolve_name(session.document(),"Target","",target.field)==target&&
+        fill_rule_property(session.document(),target).literal=="nonzero"&&
+        target_shape_rule()=="nonzero",
+        "Fill rule has a stable typed Ref and literal paint evaluation");
+    rejects("MISSING_REFERENCE",[&]{session.apply({Set{target,1}},session.revision());});
+    rejects("INVALID_DOMAIN",[&]{session.apply({LinkFillRule{target,operation_ref("fill-source","fill-source-stroke","fill_rule")}},session.revision());});
+    rejects("INVALID_OPERATION_REF",[&]{session.apply({LinkFillRule{target,{"fill-source","point","op.source-fill.fill_rule"}}},session.revision());});
+    rejects("TYPE_MISMATCH",[&]{session.apply({LinkFillRule{target,{"fill-source","","op.source-fill.composite"}}},session.revision());});
+    const auto literal_bytes=encode(session.document());
+    check(literal_bytes.find("\"version\":\"0.26\"")!=std::string::npos&&
+        literal_bytes.find("fill_rule_driver")==std::string::npos&&encode(decode(literal_bytes))==literal_bytes,
+        "Native 0.26 omits an absent Fill rule driver and roundtrips literal state");
+    auto legacy_literal=literal_bytes;
+    const auto current_version=legacy_literal.find("\"version\":\"0.26\"");
+    check(current_version!=std::string::npos,"Native writer exposes 0.26 for the literal migration fixture");
+    legacy_literal.replace(current_version,std::string("\"version\":\"0.26\"").size(),"\"version\":\"0.25\"");
+    check(decode(legacy_literal)==session.document(),"Native 0.25 retains literal-only Fill rules");
+
+    session.apply({LinkFillRule{target,source}},session.revision());
+    auto state=fill_rule_property(session.document(),target);
+    check(state.literal=="nonzero","Linked Fill retains its authored literal");
+    check(state.driver==FillRuleDriver{source},"Linked Fill stores the exact same-field source Ref");
+    check(state.evaluated=="evenodd","Linked Fill evaluator follows the even-odd source");
+    check(target_shape_rule()=="evenodd",
+        "Linked Fill shape evaluation uses the resolved enum");
+    auto linked=encode(session.document());check(linked.find("\"fill_rule_driver\":{\"link\":")!=std::string::npos&&
+        encode(decode(linked))==linked,"Native 0.26 retains the closed stable Fill rule Ref exactly");
+    auto false_version=linked;const auto version= false_version.find("\"version\":\"0.26\"");
+    false_version.replace(version,std::string("\"version\":\"0.26\"").size(),"\"version\":\"0.25\"");
+    rejects("UNSUPPORTED_FILL_RULE_DRIVER",[&]{decode(false_version);});
+    auto malformed=linked;const auto field=malformed.find("op.source-fill.fill_rule");
+    check(field!=std::string::npos,"Native linked source Ref is present");
+    malformed.replace(field,std::string("op.source-fill.fill_rule").size(),"text.direction");
+    rejects("TYPE_MISMATCH",[&]{decode(malformed);});
+
+    const auto before_bad_batch=encode(session.document());const auto revision=session.revision();
+    rejects("DEPENDENCY_CYCLE",[&]{session.apply({OperationOptions{"fill-target","target-fill","above","nonzero"},
+        LinkFillRule{target,target}},revision);});
+    check(session.revision()==revision&&encode(session.document())==before_bad_batch,
+        "An invalid second command leaves the first composite edit and all authored bytes uncommitted");
+    rejects("DUPLICATE_TARGET",[&]{session.apply({LinkFillRule{target,source,false},UnlinkFillRule{target}},revision);});
+    rejects("DRIVEN_PROPERTY",[&]{session.apply({LinkFillRule{target,source}},revision);});
+    rejects("DRIVEN_PROPERTY",[&]{session.apply({OperationOptions{"fill-target","target-fill","above","evenodd"}},revision);});
+    session.apply({OperationOptions{"fill-target","target-fill","above","nonzero"}},revision);
+    check(session.document().objects.at("fill-target").stack.back().fill_rule_driver==FillRuleDriver{source},
+        "An unrelated composite edit preserves the Fill rule driver");
+    session.apply({OperationOptions{"fill-source","source-fill","below","nonzero"}},session.revision());
+    check(fill_rule_property(session.document(),target).evaluated=="nonzero"&&
+        target_shape_rule()=="nonzero",
+        "Changing the source choice updates target paint evaluation");
+    rejects("MISSING_OPERATION",[&]{session.apply({RemoveOperation{"fill-source","source-fill"}},session.revision());});
+    const auto unlink_revision=session.revision();session.apply({UnlinkFillRule{target}},unlink_revision);
+    check(fill_rule_property(session.document(),target).literal=="nonzero"&&
+        !fill_rule_property(session.document(),target).driver,"Unlink freezes the evaluated choice into the target literal");
+    session.undo(session.revision());
+    check(fill_rule_property(session.document(),target).driver==FillRuleDriver{source},"Undo restores the Fill rule link");
+    session.apply({OperationOptions{"fill-source","source-fill","below","evenodd"}},session.revision());
+    check(fill_rule_property(session.document(),target).evaluated=="evenodd","Undo-restored link follows later source edits");
+
+    Session duplicate(session.document());
+    duplicate.apply({DuplicateObjects{{"fill-source","fill-target"},"fill-copy"}},0);
+    const auto copied_source=std::find_if(duplicate.document().objects.begin(),duplicate.document().objects.end(),
+        [](const auto& entry){return entry.second.name=="Source copy";});
+    const auto copied_target=std::find_if(duplicate.document().objects.begin(),duplicate.document().objects.end(),
+        [](const auto& entry){return entry.second.name=="Target copy";});
+    check(copied_source!=duplicate.document().objects.end()&&copied_target!=duplicate.document().objects.end(),
+        "Duplicating both Fill link endpoints creates stable copies");
+    const auto copied_fill=std::find_if(copied_target->second.stack.begin(),copied_target->second.stack.end(),
+        [](const auto& operation){return operation.type=="nect.paint.fill";});
+    check(copied_fill!=copied_target->second.stack.end()&&copied_fill->fill_rule_driver&&
+        copied_fill->fill_rule_driver->link==operation_ref(copied_source->first,
+            std::find_if(copied_source->second.stack.begin(),copied_source->second.stack.end(),
+                [](const auto& operation){return operation.type=="nect.paint.fill";})->id,"fill_rule")&&
+        evaluate_fill_rule(duplicate.document(),operation_ref(copied_target->first,copied_fill->id,"fill_rule"))=="evenodd",
+        "Duplicating source and target remaps only the copied Fill link to the copied source");
+}
 }
 int main(){try{
     Session s(empty_document("doc","comp","art"));
@@ -62,5 +153,6 @@ int main(){try{
         s.document().objects.at("rect").stack.front().id=="repeat","Source conversion preserves the later editable shape stack");
     auto invalid=s.document();invalid.objects.at("rect").stack.front().version=2;
     rejects("UNSUPPORTED_OPERATOR_VERSION",[&]{validate(invalid);});
+    fill_rule_link_contract();
     std::cout<<"PASS "<<checks<<" ordered shape stack checks\n";return 0;
 }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}}

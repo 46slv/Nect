@@ -209,9 +209,9 @@ void group_posterize_native_api_and_refusals() {
     check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({3,4}),
         "ReorderOperations changes the ordered postchildren evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.25\"")!=std::string::npos&&decode(native)==session.document()&&
+    check(native.find("\"version\":\"0.26\"")!=std::string::npos&&decode(native)==session.document()&&
         decode(native).objects.at("group").stack[0].id=="posterize-second",
-        "Native 0.25 preserves Group operation IDs, levels and reordered stack");
+        "Native 0.26 preserves Group operation IDs, levels and reordered stack");
     check(request(session,R"({"op":"operator_types"})").find("nect.group.posterize")!=std::string::npos,
         "API operator discovery advertises the Group pixel effect");
     check(request(session,R"({"op":"operator_types"})").find("postchildren_premultiplied_srgb_rgba")!=std::string::npos,
@@ -225,9 +225,9 @@ void group_posterize_native_api_and_refusals() {
     rejects("UNSUPPORTED_SVG_EFFECT",[&]{(void)export_svg(session.document(),"comp","art");});
 
     auto legacy_bytes=encode(d);
-    const auto old_version=legacy_bytes.find("\"version\":\"0.25\"");
-    check(old_version!=std::string::npos,"Native fixture writer uses 0.25 before migration downgrade");
-    legacy_bytes.replace(old_version,std::string("\"version\":\"0.25\"").size(),"\"version\":\"0.24\"");
+    const auto old_version=legacy_bytes.find("\"version\":\"0.26\"");
+    check(old_version!=std::string::npos,"Native fixture writer uses 0.26 before migration downgrade");
+    legacy_bytes.replace(old_version,std::string("\"version\":\"0.26\"").size(),"\"version\":\"0.24\"");
     const auto group_id=legacy_bytes.find("\"id\":\"group\"");
     check(group_id!=std::string::npos,"Native fixture contains the target Group object");
     const auto object_start=legacy_bytes.rfind('{',group_id);
@@ -255,8 +255,8 @@ void group_posterize_native_api_and_refusals() {
     else throw std::runtime_error("Could not remove Group stack member from legacy fixture");
     legacy_bytes.erase(erase_start,erase_end-erase_start);
     check(decode(legacy_bytes).objects.at("group").stack.empty(),"Native 0.24 Group migrates to an empty effect stack");
-    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.25\"");
-    smuggled.replace(old_writer,std::string("\"version\":\"0.25\"").size(),"\"version\":\"0.24\"");
+    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.26\"");
+    smuggled.replace(old_writer,std::string("\"version\":\"0.26\"").size(),"\"version\":\"0.24\"");
     rejects("INVALID_OBJECT",[&]{(void)decode(smuggled);});
 
     session.apply({EnableOperation{"group","posterize",false},EnableOperation{"group","posterize-second",false}},session.revision());

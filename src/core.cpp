@@ -53,6 +53,7 @@ void identity(const Id& id) {
     for(const unsigned char c : id)
         require((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-',"INVALID_ID",id);
 }
+std::pair<Id,std::string> operation_address(const std::string& field);
 struct ParsedTextItalicExpression {
     bool is_literal=false;
     bool literal=false;
@@ -169,6 +170,21 @@ const TextSource& text_alignment_source(const Document& document,const Ref& ref)
     require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
     require(object->second.kind==Kind::text&&object->second.text.has_value(),"TYPE_MISMATCH","Text alignment Ref must identify a Text object");
     return *object->second.text;
+}
+const ShapeOperation& fill_rule_source(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_OPERATION_REF","Fill rule properties require an empty point ID");
+    require(ref.field.starts_with("op."),"TYPE_MISMATCH","Fill rule Ref must identify an operation property");
+    const auto [operation_id,parameter]=operation_address(ref.field);
+    require(parameter=="fill_rule","TYPE_MISMATCH","Only Fill rule accepts this operation property Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::path||object->second.kind==Kind::text,
+        "TYPE_MISMATCH","Fill rule Ref must identify a Path or Text object");
+    const auto found=std::find_if(object->second.stack.begin(),object->second.stack.end(),
+        [&](const auto& operation){return operation.id==operation_id;});
+    require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
+    require(found->type=="nect.paint.fill","INVALID_DOMAIN","Fill rule links apply only to Fill operations");
+    return *found;
 }
 class TextItalicEvaluator {
     const Document& document_;
@@ -392,6 +408,35 @@ public:
         for(const auto& [id,object]:document_.objects)if(object.kind==Kind::text&&object.text)
             result.emplace(Ref{id,"","text.alignment"},visit(id,0));
         return result;
+    }
+};
+class FillRuleEvaluator {
+    const Document& document_;
+    std::map<Ref,std::string> values_;
+    std::set<Ref> active_;
+    std::string visit(const Ref& ref,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Fill rule dependency depth limit 128");
+        if(const auto found=values_.find(ref);found!=values_.end())return found->second;
+        require(active_.insert(ref).second,"DEPENDENCY_CYCLE","Fill rule dependency cycle");
+        const auto& operation=fill_rule_source(document_,ref);
+        auto value=operation.fill_rule;
+        if(operation.fill_rule_driver) {
+            const auto& source=operation.fill_rule_driver->link;
+            (void)fill_rule_source(document_,source);
+            value=visit(source,depth+1);
+        }
+        require(value=="nonzero"||value=="evenodd","UNSUPPORTED_FILL_RULE",value);
+        active_.erase(ref);values_.emplace(ref,value);return value;
+    }
+public:
+    explicit FillRuleEvaluator(const Document& document):document_(document){}
+    std::string value(const Ref& ref){return visit(ref,0);}
+    std::map<Ref,std::string> all() {
+        for(const auto& [id,object]:document_.objects)
+            if(object.kind==Kind::path||object.kind==Kind::text)
+                for(const auto& operation:object.stack)if(operation.type=="nect.paint.fill")
+                    (void)visit(operation_ref(id,operation.id,"fill_rule"),0);
+        return values_;
     }
 };
 Expression remap_text_italic_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
@@ -770,10 +815,14 @@ std::vector<Ref> properties(const Document& document) {
         if(ref.point.empty()&&ref.field.starts_with("stroke."))continue;
         refs.push_back(ref);
     }
-    for(const auto& [id,object]:document.objects)if(object.kind==Kind::text&&object.text)
+    for(const auto& [id,object]:document.objects) {
+        if(object.kind==Kind::text&&object.text)
         {refs.push_back({id,"","text.italic"});refs.push_back({id,"","text.weight"});
             refs.push_back({id,"","text.content"});refs.push_back({id,"","text.family"});refs.push_back({id,"","text.locale"});
             refs.push_back({id,"","text.layout"});refs.push_back({id,"","text.direction"});refs.push_back({id,"","text.alignment"});}
+        if(object.kind==Kind::path||object.kind==Kind::text)for(const auto& operation:object.stack)
+            if(operation.type=="nect.paint.fill")refs.push_back(operation_ref(id,operation.id,"fill_rule"));
+    }
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards) {
         refs.push_back({board.id,"","artboard.width"});
         refs.push_back({board.id,"","artboard.height"});
@@ -905,6 +954,16 @@ std::string evaluate_text_alignment(const Document& document,const Id& object) {
 std::map<Ref,std::string> evaluate_text_alignments(const Document& document) {
     return TextAlignmentEvaluator(document).all();
 }
+FillRuleProperty fill_rule_property(const Document& document,const Ref& ref) {
+    const auto& operation=fill_rule_source(document,ref);
+    return {operation.fill_rule,operation.fill_rule_driver,evaluate_fill_rule(document,ref)};
+}
+std::string evaluate_fill_rule(const Document& document,const Ref& ref) {
+    return FillRuleEvaluator(document).value(ref);
+}
+std::map<Ref,std::string> evaluate_fill_rules(const Document& document) {
+    return FillRuleEvaluator(document).all();
+}
 bool is_text_readonly_field(const std::string& field) {
     return field=="text.content"||field=="text.family"||field=="text.locale"||
         field=="text.layout"||field=="text.direction"||field=="text.alignment";
@@ -947,6 +1006,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
     require(!matches.empty(),"MISSING_NAME","No matching object: "+name);
     require(matches.size()==1,"AMBIGUOUS_NAME","Name must resolve to exactly one object: "+name);
     Ref r{matches.front(),p,f};
+    if(f.starts_with("op.")&&f.ends_with(".fill_rule")) {
+        (void)fill_rule_property(d,r);
+        return r;
+    }
     if(f.starts_with("text.")) {
         require(p.empty(),"INVALID_TEXT_REF","Text properties require an empty point ID");
         if(is_text_readonly_field(f)) {
@@ -1326,7 +1389,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                 const auto expected=default_operation(op.id,op.type);
                 require(op.parameters.size()==expected.parameters.size(),"INVALID_OPERATOR_PARAMETERS",op.type);
                 for(const auto& [name,value]:op.parameters){(void)value;require(expected.parameters.contains(name),"INVALID_OPERATOR_PARAMETERS",op.type);}
-                require(op.composite=="below"&&op.fill_rule=="nonzero"&&op.line_join=="miter"&&op.line_cap=="butt"&&!op.gradient,
+                require(op.composite=="below"&&op.fill_rule=="nonzero"&&op.line_join=="miter"&&op.line_cap=="butt"&&!op.gradient&&!op.fill_rule_driver,
                     "INVALID_OPERATOR_OPTIONS","Group Posterize has no shape compositing, fill, stroke or gradient options");
             }
         } else {
@@ -1356,6 +1419,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                 require(op.composite=="above"||op.composite=="below","UNSUPPORTED_COMPOSITE",op.composite);
                 require(op.fill_rule=="nonzero"||op.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",op.fill_rule);
                 if(op.type!="nect.paint.fill"&&op.type!="nect.shape.offset")require(op.fill_rule=="nonzero","INVALID_OPERATOR_OPTIONS","Fill rule only applies to Fill or Offset");
+                require(!op.fill_rule_driver||op.type=="nect.paint.fill","INVALID_DOMAIN","Fill rule links apply only to Fill operations");
                 if(op.type=="nect.shape.offset") {
                     require(op.composite=="below","INVALID_OPERATOR_OPTIONS","Offset has no Above/Below compositing option");
                     require(op.line_join=="miter"||op.line_join=="round"||op.line_join=="bevel","INVALID_OPERATOR_OPTIONS","Offset joins are miter, round or bevel");
@@ -1471,6 +1535,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     (void)evaluate_text_directions(d);
     (void)evaluate_text_layouts(d);
     (void)evaluate_text_alignments(d);
+    const auto fill_rule_values=evaluate_fill_rules(d);
     const auto transforms=evaluate_transforms(d,values);
     for(const auto& [id,object]:d.objects)if(object.text&&object.text->path_attachment) {
         const auto source=evaluated_text_source(d,id);
@@ -1529,7 +1594,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         if(o.kind==Kind::text)check_shape=false; // Authored text remains readable without the Windows layout backend.
 #endif
         if(check_shape)
-            (void)evaluate_shape(d,id,values);
+            (void)evaluate_shape(d,id,values,&fill_rule_values);
     }
     return values;
 }
@@ -2202,6 +2267,7 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         }
         for(auto& contour:object.contours){contour.id=plan.ids.at(contour.id);for(auto& point:contour.points)point.id=plan.ids.at(point.id);}
         for(auto& op:object.stack) {
+            if(op.fill_rule_driver)op.fill_rule_driver->link=remap(op.fill_rule_driver->link);
             op.id=plan.ids.at(op.id);if(op.gradient){op.gradient->id=plan.ids.at(op.gradient->id);for(auto& stop:op.gradient->stops)stop.id=plan.ids.at(stop.id);}
         }
         if(!object.legacy_stroke.empty())object.legacy_stroke=plan.ids.at(object.legacy_stroke);
@@ -2229,6 +2295,12 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
 }
 Document edited(const Document& document,const std::vector<Command>& commands,std::map<Ref,double>* evaluated=nullptr) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
+    std::set<Ref> fill_rule_targets;
+    for(const auto& command:commands)std::visit([&](const auto& value) {
+        using T=std::decay_t<decltype(value)>;
+        if constexpr(std::is_same_v<T,LinkFillRule>||std::is_same_v<T,UnlinkFillRule>)
+            require(fill_rule_targets.insert(value.target).second,"DUPLICATE_TARGET","A Fill rule target may be linked or unlinked only once per batch");
+    },command);
 
     auto candidate=document;
     for(const auto& command:commands) std::visit([&](const auto& c) {
@@ -2348,6 +2420,19 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             const auto value=evaluate_text_alignment(candidate,c.target.object);
             auto& source=*candidate.objects.at(c.target.object).text;
             source.alignment=value;source.alignment_driver.reset();
+        } else if constexpr(std::is_same_v<T,LinkFillRule>) {
+            const auto& current=fill_rule_source(candidate,c.target);
+            (void)fill_rule_source(candidate,c.source);
+            require(c.target!=c.source,"DEPENDENCY_CYCLE","A Fill rule cannot link to itself");
+            require(!current.fill_rule_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing a Fill rule driver requires replace_driver=true");
+            const auto operation_id=operation_address(c.target.field).first;
+            operation(candidate.objects.at(c.target.object),operation_id).fill_rule_driver=FillRuleDriver{c.source};
+        } else if constexpr(std::is_same_v<T,UnlinkFillRule>) {
+            (void)fill_rule_source(candidate,c.target);
+            const auto value=evaluate_fill_rule(candidate,c.target);
+            const auto operation_id=operation_address(c.target.field).first;
+            auto& source=operation(candidate.objects.at(c.target.object),operation_id);
+            source.fill_rule=value;source.fill_rule_driver.reset();
         } else if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
             require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
             const auto values=evaluate(candidate);scalar_targets(candidate,c.targets,values);
@@ -2681,6 +2766,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         } else if constexpr(std::is_same_v<T,AddOperation>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);
+            require(!c.operation.fill_rule_driver,"USE_TYPED_COMMAND","Create Fill rule links with link_fill_rule");
             require(o.kind==Kind::path||o.kind==Kind::text||(o.kind==Kind::group&&c.operation.type=="nect.group.posterize"),
                 "INVALID_DOMAIN","Shape operations require a Path or Text; Group postchildren operations require nect.group.posterize");
             require(c.index<=o.stack.size(),"INVALID_ORDER","Operation insertion index out of range");
@@ -2701,7 +2787,9 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             operation(candidate.objects.at(c.object),c.operation).enabled=c.enabled;
         } else if constexpr(std::is_same_v<T,OperationOptions>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
-            auto& op=operation(candidate.objects.at(c.object),c.operation);op.composite=c.composite;op.fill_rule=c.fill_rule;
+            auto& op=operation(candidate.objects.at(c.object),c.operation);
+            require(!op.fill_rule_driver||op.fill_rule==c.fill_rule,"DRIVEN_PROPERTY","Unlink the Fill rule driver before changing its authored choice");
+            op.composite=c.composite;op.fill_rule=c.fill_rule;
             if(c.line_join)op.line_join=*c.line_join;
         } else if constexpr(std::is_same_v<T,StrokeStyle>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
