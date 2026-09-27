@@ -339,9 +339,14 @@ TextLayout evaluate_text_projection(const Document& document,const Id& id,const 
     return projected;
 }
 EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,double>& values,
-    const std::map<Ref,std::string>* fill_rules) {
+    const std::map<Ref,std::string>* fill_rules,const std::map<Ref,bool>* operation_enabled) {
     const auto& o=d.objects.at(id);
     if(o.kind!=Kind::path&&o.kind!=Kind::text)throw Error("INVALID_DOMAIN","Shape stack accepts one Path or Text source");
+    std::map<Ref,bool> computed_operation_enabled;
+    if(!operation_enabled) {
+        computed_operation_enabled=evaluate_operation_enableds(d);
+        operation_enabled=&computed_operation_enabled;
+    }
     auto contours=std::make_shared<std::vector<EvaluatedContour>>();
     for(const auto& contour:path_contours(o,&values)) {
         EvaluatedContour result;result.closed=contour.closed;
@@ -364,7 +369,7 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
     };
     const auto painted_anchors=[&] {std::size_t count=0;for(const auto& paint:shape.paints)count+=anchors(paint.paths);return count;};
     for(const auto& op:o.stack) {
-        if(!op.enabled)continue;
+        if(!operation_enabled->at(operation_ref(id,op.id,"enabled")))continue;
         auto v=[&](const char* name){return values.at(operation_ref(id,op.id,name));};
         if(op.type=="nect.paint.fill"||op.type=="nect.paint.stroke") {
             if(painted_anchors()+anchors(shape.paths)>250000)

@@ -8,10 +8,12 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
     const auto plane=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==composition;});
     if(plane==document.compositions.end())throw Error("MISSING_COMPOSITION",composition);
     const auto visibility=evaluate_object_visibilities(document);
+    const auto fill_rules=evaluate_fill_rules(document);
+    const auto operation_enabled=evaluate_operation_enableds(document);
     EvaluatedScene scene;
     const auto shape=[&](const Id& id)->const EvaluatedShape& {
         if(const auto found=scene.shapes.find(id);found!=scene.shapes.end())return found->second;
-        return scene.shapes.emplace(id,evaluate_shape(document,id,values)).first->second;
+        return scene.shapes.emplace(id,evaluate_shape(document,id,values,&fill_rules,&operation_enabled)).first->second;
     };
     std::function<EvaluatedSceneNode(const Id&,unsigned)> node=[&](const Id& id,unsigned depth) {
         if(depth>128)throw Error("HIERARCHY_DEPTH","Scene hierarchy depth limit 128");
@@ -25,7 +27,7 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
             result.mask=std::move(resolved);
         }
         if(object.kind==Kind::group)for(const auto& operation:object.stack)
-            if(operation.type=="nect.group.posterize"&&operation.enabled)
+            if(operation.type=="nect.group.posterize"&&operation_enabled.at(operation_ref(id,operation.id,"enabled")))
                 result.posterize_levels.push_back(static_cast<unsigned>(values.at(operation_ref(id,operation.id,"levels"))));
         result.isolated=composite.isolated||result.opacity!=1||result.blend!="normal"||result.mask.has_value()||!result.posterize_levels.empty();
         scene.requires_compositing=scene.requires_compositing||result.isolated;

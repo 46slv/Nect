@@ -1024,6 +1024,63 @@ void stack_authoring(Window& window) {
     check(!fill_rule_property(session.document(),fill_ref).driver&&fill_rule_property(session.document(),fill_ref).literal=="nonzero"&&
         fill_rule_property(session.document(),fill_ref).evaluated=="nonzero",
         "Fill Inspector unlink freezes the evaluated choice against later source edits");
+    const auto source_object=std::find_if(session.document().objects.begin(),session.document().objects.end(),
+        [&](const auto& entry){return entry.first!=object&&entry.second.name=="Source";});
+    check(source_object!=session.document().objects.end()&&!source_object->second.stack.empty(),
+        "A second operation in the selected object's Composition can drive enabled state");
+    const auto source_object_id=source_object->first;
+    const auto source_operation=source_object->second.stack.front().id;
+    const Ref source_enabled=operation_ref(source_object_id,source_operation,"enabled");
+    const Ref target_enabled=operation_ref(object,blue,"enabled");
+    session.apply({EnableOperation{source_object_id,source_operation,false}},session.revision());window.host.edited();QApplication::processEvents();
+    auto enabled_driver_button=[&] {
+        auto* button=visible_child<QPushButton>(window,("operation-enabled-driver-"+blue).c_str());
+        reveal(window,button);
+        check(button->isEnabled(),"Operation enabled source picker remains enabled for a Composition-wide source");return button;
+    };
+    auto* enabled_driver=enabled_driver_button();const auto operation_link_revision=session.revision();bool enabled_cancel_staged=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+blue));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+blue)):nullptr;
+        auto* source=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-source-"+blue)):nullptr;
+        if(!dialog||!mode||!source){if(dialog)dialog->reject();return;}
+        const auto label=QString("[%1]").arg(QString::fromStdString(source_operation));int selected=-1;
+        for(int index=0;index<source->count();++index)if(source->itemText(index).contains(label))selected=index;
+        if(selected<0){dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));source->setCurrentIndex(selected);
+        enabled_cancel_staged=session.revision()==operation_link_revision&&!operation_enabled_state(session.document(),target_enabled).driver;
+        dialog->reject();});
+    QTest::mouseClick(enabled_driver,Qt::LeftButton);QApplication::processEvents();
+    check(enabled_cancel_staged&&session.revision()==operation_link_revision&&!operation_enabled_state(session.document(),target_enabled).driver,
+        "Operation enabled Inspector Cancel keeps the Session and authored target unchanged");
+    enabled_driver=enabled_driver_button();
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+blue));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+blue)):nullptr;
+        auto* source=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-source-"+blue)):nullptr;
+        if(!dialog||!mode||!source){if(dialog)dialog->reject();return;}
+        const auto label=QString("[%1]").arg(QString::fromStdString(source_operation));int selected=-1;
+        for(int index=0;index<source->count();++index)if(source->itemText(index).contains(label))selected=index;
+        if(selected<0){dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));source->setCurrentIndex(selected);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    QTest::mouseClick(enabled_driver,Qt::LeftButton);QApplication::processEvents();
+    check(operation_enabled_state(session.document(),target_enabled).driver==source_enabled&&
+        !operation_enabled_state(session.document(),target_enabled).evaluated&&session.revision()==operation_link_revision+1,
+        "Operation enabled Inspector links to another object in the owning Composition");
+    auto* linked_checkbox=visible_child<QCheckBox>(window,("operation-enabled-"+blue).c_str());
+    check(!linked_checkbox->isEnabled(),"A linked enabled checkbox prevents implicit literal edits");
+    session.apply({EnableOperation{source_object_id,source_operation,true}},session.revision());window.host.edited();QApplication::processEvents();
+    check(operation_enabled_state(session.document(),target_enabled).evaluated,
+        "Operation enabled Inspector follows a source edit from another object");
+    enabled_driver=enabled_driver_button();
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+blue));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+blue)):nullptr;
+        if(!dialog||!mode){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("unlink"));dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    QTest::mouseClick(enabled_driver,Qt::LeftButton);QApplication::processEvents();
+    session.apply({EnableOperation{source_object_id,source_operation,false}},session.revision());window.host.edited();
+    check(!operation_enabled_state(session.document(),target_enabled).driver&&
+        operation_enabled_state(session.document(),target_enabled).literal&&operation_enabled_state(session.document(),target_enabled).evaluated,
+        "Operation enabled Inspector unlink freezes the evaluated value against later source edits");
     const auto enabled_name="operation-enabled-"+blue;
     const auto enabled_widgets=window.findChildren<QCheckBox*>(QString::fromStdString(enabled_name));
     check(!enabled_widgets.empty(),"Enabled checkbox exists for the selected Fill operation");
@@ -1092,6 +1149,39 @@ void stack_authoring(Window& window) {
         evaluate(session.document()).at(operation_ref(object,stroke,"miter_limit"))==8&&
         nect::property(session.document(),miter_ref).expression.has_value(),
         "Inspector line-join control preserves the evaluated miter limit");
+}
+void single_operation_enabled_source(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    Point target_point,source_point;target_point.id="single-target-point";source_point.id="single-source-point";
+    target_point.x.literal=70;target_point.y.literal=80;source_point.x.literal=180;source_point.y.literal=80;
+    session.apply({CreatePath{composition,"","single-target","Single target",{{"single-target-contour",false,{target_point}}}},
+        CreatePath{composition,"","single-source","Single source",{{"single-source-contour",false,{source_point}}}}},0);
+    const auto& target_object=session.document().objects.at("single-target");
+    const auto& source_object=session.document().objects.at("single-source");
+    check(target_object.stack.size()==1&&source_object.stack.size()==1,
+        "The Composition source-picker fixture has exactly one operation on each Object");
+    const auto target_operation=target_object.stack.front().id;
+    const auto source_operation=source_object.stack.front().id;
+    const Ref target=operation_ref("single-target",target_operation,"enabled");
+    const Ref source=operation_ref("single-source",source_operation,"enabled");
+    session.apply({EnableOperation{"single-source",source_operation,false}},session.revision());
+    window.canvas->set_selection("single-target");window.host.edited();QApplication::processEvents();
+    auto* link=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());
+    reveal(window,link);
+    check(link->isEnabled(),"Link stays enabled when target Object has one operation and another Object is the source");
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* source_combo=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-source-"+target_operation)):nullptr;
+        if(!dialog||!mode||!source_combo){if(dialog)dialog->reject();return;}
+        const auto label=QString("[%1]").arg(QString::fromStdString(source_operation));int index=-1;
+        for(int i=0;i<source_combo->count();++i)if(source_combo->itemText(i).contains(label))index=i;
+        if(index<0){dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));source_combo->setCurrentIndex(index);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    QTest::mouseClick(link,Qt::LeftButton);QApplication::processEvents();
+    check(operation_enabled_state(session.document(),target).driver==source&&
+        !operation_enabled_state(session.document(),target).evaluated,
+        "A single-operation target links to a same-composition source outside its Object");
 }
 void gradient_authoring(Window& window) {
     auto& session=window.host.session;
@@ -2365,7 +2455,9 @@ int main(int argc,char** argv) {
             "Pick-whip cancellation preserves document and restores context");
         primitive_authoring(w);
         stack_authoring(w);
-        w.hide();Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
+        w.hide();{Window enabled_links(temp.path()+"/enabled-links");enabled_links.show();QApplication::processEvents();
+            single_operation_enabled_source(enabled_links);enabled_links.hide();}
+        Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
         gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
         boards.hide();Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);
         texts.hide();Window path_text(temp.path()+"/text-path");path_text.show();QApplication::processEvents();text_path_authoring(path_text);

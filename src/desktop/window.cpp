@@ -2688,6 +2688,20 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         "Earlier paints default above later paints. Path modifiers affect geometry before paint is applied. Repeater affects paths and paints before it; copies share their source points.");
     order_hint->setWordWrap(true);order_hint->setStyleSheet("color: #a4acb8; font-size: 11px;");layout->addWidget(order_hint);
     const auto frozen_session=host.session_id;
+    const auto& document=host.session.document();
+    const Composition* owner_composition=nullptr;
+    const std::function<bool(const Id&)> contains_object=[&](const Id& id) {
+        if(id==object.id)return true;
+        for(const auto& child:document.objects.at(id).children)if(contains_object(child))return true;
+        return false;
+    };
+    for(const auto& composition:document.compositions) {
+        if(std::any_of(composition.roots.begin(),composition.roots.end(),contains_object)) {
+            owner_composition=&composition;break;
+        }
+    }
+    if(!owner_composition)throw Error("ORPHAN_OBJECT","Operation Inspector target is not owned by a Composition");
+    const auto enabled_composition=owner_composition->id;
     auto apply=[this,frozen_session](const std::vector<Command>& commands) {
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The shape stack belongs to another document");
         host.session.apply(commands,host.session.revision());host.edited();
@@ -2700,9 +2714,15 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         group->setProperty("nect-operation",qs(operation.id));
         auto* form=new QFormLayout(group);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(group);
         auto* controls=new QWidget;auto* row=new QHBoxLayout(controls);row->setContentsMargins(0,0,0,0);
-        auto* enabled=new QCheckBox("Enabled");enabled->setChecked(operation.enabled);
+        const auto enabled_ref=operation_ref(object.id,operation.id,"enabled");
+        const auto enabled_state=operation_enabled_state(host.session.document(),enabled_ref);
+        auto* enabled=new QCheckBox("Enabled");enabled->setChecked(enabled_state.literal);enabled->setEnabled(!enabled_state.driver);
         enabled->setObjectName("operation-enabled-"+qs(operation.id));
         enabled->setAccessibleName(name+" enabled");row->addWidget(enabled);row->addStretch();
+        auto* enabled_driver=new QPushButton(enabled_state.driver?"Driver…":"Link…");
+        enabled_driver->setObjectName("operation-enabled-driver-"+qs(operation.id));
+        enabled_driver->setEnabled(true);
+        row->addWidget(enabled_driver);
         auto* up=new QPushButton("↑");up->setFixedWidth(28);up->setEnabled(index>0);
         up->setObjectName("operation-up-"+qs(operation.id));up->setToolTip("Move earlier in the stack");
         auto* down=new QPushButton("↓");down->setFixedWidth(28);down->setEnabled(index+1<object.stack.size());
@@ -2711,6 +2731,72 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         remove->setObjectName("operation-remove-"+qs(operation.id));remove->setToolTip("Remove "+name);
         remove->setAccessibleName("Remove "+name);
         row->addWidget(up);row->addWidget(down);row->addWidget(remove);form->addRow(controls);
+        QString enabled_source_name="none";
+        if(enabled_state.driver) {
+            const auto source_object=host.session.document().objects.find(enabled_state.driver->object);
+            const auto source_name=source_object==host.session.document().objects.end()?qs(enabled_state.driver->object):qs(source_object->second.name);
+            enabled_source_name=QString("%1 / %2").arg(source_name,qs(enabled_state.driver->field));
+        }
+        auto* enabled_state_label=new QLabel(QString("Literal: %1 · Source: %2 · Evaluated: %3")
+            .arg(enabled_state.literal?"true":"false",enabled_source_name,enabled_state.evaluated?"true":"false"));
+        enabled_state_label->setObjectName("operation-enabled-state-"+qs(operation.id));
+        enabled_state_label->setWordWrap(true);enabled_state_label->setTextFormat(Qt::PlainText);
+        form->addRow("",enabled_state_label);
+        connect(enabled_driver,&QPushButton::clicked,this,[this,object_id=object.id,operation_id=operation.id,
+            enabled_ref,enabled_state,frozen_session,enabled_composition,frozen_revision=host.session.revision()] {
+            QDialog dialog(this);dialog.setObjectName("operation-enabled-dialog-"+qs(operation_id));
+            dialog.setWindowTitle("Operation enabled dependency");auto* dialog_layout=new QVBoxLayout(&dialog);
+            auto* mode=new QComboBox(&dialog);mode->setObjectName("operation-enabled-mode-"+qs(operation_id));
+            mode->addItem("Choose an action","none");
+            const auto& current_document=host.session.document();
+            const auto& composition=find_composition(current_document,enabled_composition);
+            std::vector<Ref> source_refs;QStringList source_labels;
+            std::function<void(const Id&)> collect=[&](const Id& source_id) {
+                const auto& source_object=current_document.objects.at(source_id);
+                for(const auto& source_operation:source_object.stack) {
+                    const auto source_ref=operation_ref(source_id,source_operation.id,"enabled");
+                    if(source_ref==enabled_ref)continue;
+                    source_refs.push_back(source_ref);
+                    source_labels<<qs(source_object.name)+" — "+operation_label(source_operation)+" ["+
+                        qs(source_operation.id)+"] — "+qs(source_id);
+                }
+                for(const auto& child:source_object.children)collect(child);
+            };
+            for(const auto& root:composition.roots)collect(root);
+            if(!source_refs.empty())mode->addItem(enabled_state.driver?"Replace with another operation":"Link to another operation","link");
+            if(enabled_state.driver)mode->addItem("Unlink and freeze evaluated value","unlink");
+            dialog_layout->addWidget(mode);
+            auto* source=new QComboBox(&dialog);source->setObjectName("operation-enabled-source-"+qs(operation_id));
+            for(const auto& label:source_labels)source->addItem(label);
+            if(enabled_state.driver) {
+                const auto found=std::find(source_refs.begin(),source_refs.end(),*enabled_state.driver);
+                if(found!=source_refs.end())source->setCurrentIndex(static_cast<int>(std::distance(source_refs.begin(),found)));
+            }
+            dialog_layout->addWidget(source);
+            auto* status=new QLabel("Linking follows another operation's enabled state. Unlink freezes the current evaluated value; Cancel leaves the Session unchanged.",&dialog);
+            if(source_refs.empty()&&!enabled_state.driver)
+                status->setText("No other operation in this Composition can drive the enabled state. Cancel leaves the Session unchanged.");
+            status->setObjectName("operation-enabled-status-"+qs(operation_id));status->setWordWrap(true);dialog_layout->addWidget(status);
+            const auto update_mode=[mode,source] {source->setEnabled(mode->currentData().toString()=="link");};
+            connect(mode,&QComboBox::currentIndexChanged,&dialog,[update_mode](int){update_mode();});update_mode();
+            auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);dialog_layout->addWidget(buttons);
+            connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+            connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
+                [this,&dialog,object_id,operation_id,enabled_ref,enabled_state,frozen_session,frozen_revision,mode,source,source_refs,status] {
+                    try {
+                        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Operation stack belongs to another document");
+                        if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","Operation enabled source changed while its editor was open; reopen it");
+                        const auto selected=mode->currentData().toString();std::vector<Command> commands;
+                        if(selected=="link") {
+                            if(source_refs.empty()||source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose an operation enabled source");
+                            commands.push_back(LinkOperationEnabled{enabled_ref,source_refs.at(static_cast<std::size_t>(source->currentIndex())),enabled_state.driver.has_value()});
+                        } else if(selected=="unlink")commands.push_back(UnlinkOperationEnabled{enabled_ref});
+                        else throw Error("INVALID_COMMAND","Choose a link or unlink action");
+                        host.session.apply(commands,frozen_revision);host.edited();dialog.accept();
+                    } catch(const std::exception& error) {status->setText(QString::fromUtf8(error.what()));}
+                });
+            dialog.exec();
+        });
         connect(enabled,&QCheckBox::toggled,this,[this,enabled,apply,id=object.id,op=operation.id](bool checked) {
             bool applied=false;
             perform([&]{apply({EnableOperation{id,op,checked}});applied=true;});

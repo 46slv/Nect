@@ -190,6 +190,7 @@ struct ShapeOperation {
     std::string type; // nect.paint.*, nect.shape.*, nect.group.posterize
     unsigned version=1;
     bool enabled=true;
+    std::optional<Ref> enabled_driver;
     std::map<std::string,Scalar> parameters;
     std::string composite="below";
     std::string fill_rule="nonzero";
@@ -345,7 +346,7 @@ std::vector<Ref> color_properties(const Document&);
 std::array<Ref,4> color_channels(const Document&,const Ref&);
 ColorValue color_value(const Document&,const Ref&,const std::map<Ref,double>&);
 std::optional<Ref> color_link(const Document&,const Ref&);
-bool color_is_used(const Document&,const Ref&);
+bool color_is_used(const Document&,const Ref&,const std::map<Ref,bool>* operation_enabled=nullptr);
 
 struct Set { Ref ref; double value; };
 struct Link { Ref target; Binding binding; };
@@ -373,6 +374,8 @@ struct AddOperation { Id object; ShapeOperation operation; std::size_t index; };
 struct RemoveOperation { Id object; Id operation; };
 struct ReorderOperations { Id object; std::vector<Id> order; };
 struct EnableOperation { Id object; Id operation; bool enabled; };
+struct LinkOperationEnabled { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkOperationEnabled { Ref target; };
 struct StrokeStyle { Id object,operation; std::string line_cap="butt",line_join="miter"; double miter_limit=4; };
 struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; std::optional<std::string> line_join; };
 struct LinkFillRule { Ref target; Ref source; bool replace_driver=false; };
@@ -467,7 +470,7 @@ struct AlignObjects {
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,ConvertToPath,AddOperation,RemoveOperation,
-    ReorderOperations,EnableOperation,OperationOptions,LinkFillRule,UnlinkFillRule,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
+    ReorderOperations,EnableOperation,LinkOperationEnabled,UnlinkOperationEnabled,OperationOptions,LinkFillRule,UnlinkFillRule,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
@@ -577,7 +580,8 @@ struct Bounds {double left=0,top=0,right=0,bottom=0;};
 std::optional<Bounds> object_bounds(const Document&,const Id&,const std::map<Ref,double>&,
     const std::map<Id,EvaluatedTransform>&,bool world_space=false);
 EvaluatedShape evaluate_shape(const Document&,const Id&,const std::map<Ref,double>&,
-    const std::map<Ref,std::string>* fill_rules=nullptr);
+    const std::map<Ref,std::string>* fill_rules=nullptr,
+    const std::map<Ref,bool>* operation_enabled=nullptr);
 struct EvaluatedMask {
     Id source;
     std::string fill_rule;
@@ -617,6 +621,14 @@ std::string evaluate_fill_rule(const Document&,const Ref&);
 std::map<Ref,std::string> evaluate_fill_rules(const Document&);
 bool gradient_enabled_property(const Document&,const Ref&);
 bool operation_enabled_property(const Document&,const Ref&);
+struct OperationEnabledProperty {
+    bool literal=true;
+    std::optional<Ref> driver;
+    bool evaluated=true;
+};
+OperationEnabledProperty operation_enabled_state(const Document&,const Ref&);
+bool evaluate_operation_enabled(const Document&,const Ref&);
+std::map<Ref,bool> evaluate_operation_enableds(const Document&);
 bool object_visibility_property(const Document&,const Ref&);
 struct ObjectVisibilityProperty {
     bool literal=true;

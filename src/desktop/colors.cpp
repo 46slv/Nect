@@ -422,7 +422,9 @@ void ColorTools::refresh() {
         } else if(!selected.empty()&&document.named_colors.contains(selected))load_editor(selected,values);
         else clear_editor();
         used_colors_.clear();std::map<std::array<double,4>,std::vector<Ref>> grouped;
-        for(const auto& ref:color_properties(document))if(color_is_used(document,ref))grouped[color_value(document,ref,values).rgba].push_back(ref);
+        const auto operation_enabled=evaluate_operation_enableds(document);
+        for(const auto& ref:color_properties(document))if(color_is_used(document,ref,&operation_enabled))
+            grouped[color_value(document,ref,values).rgba].push_back(ref);
         used_->clear();int selected_group=-1;
         for(auto& [rgba,refs]:grouped) {
             ColorValue value;value.rgba=rgba;used_colors_.push_back({value,std::move(refs)});

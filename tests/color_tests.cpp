@@ -62,5 +62,28 @@ int main(){try{
     apply({UnlinkColor{stop},DeleteNamedColor{"brand"}});check(s.document().named_colors.empty(),"Explicit detach permits removing a definition");
     s.undo(s.revision());check(s.document().named_colors.contains("brand")&&color_link(s.document(),stop)==named,"Undo restores named definition and links atomically");
     auto clash=primary;clash.id="source";rejects("DUPLICATE_ID",[&]{apply({CreateNamedColor{clash}});});
+    Session enabled_session(empty_document("enabled-color-doc","enabled-color-comp","enabled-color-art"));
+    enabled_session.apply({CreatePrimitive{"enabled-color-comp","","enabled-color-source","Enable source",
+            default_primitive("enabled-color-source-shape","nect.shape.rectangle")},
+        CreatePrimitive{"enabled-color-comp","","enabled-color-target","Color target",
+            default_primitive("enabled-color-target-shape","nect.shape.rectangle")}},0);
+    auto disabled_source=default_operation("color-enable-source","nect.paint.fill");disabled_source.enabled=false;
+    auto color_target=default_operation("linked-color-fill","nect.paint.fill");
+    enabled_session.apply({AddOperation{"enabled-color-source",disabled_source,1},
+        AddOperation{"enabled-color-target",color_target,1}},enabled_session.revision());
+    const auto target_enabled=operation_ref("enabled-color-target","linked-color-fill","enabled");
+    const auto source_enabled=operation_ref("enabled-color-source","color-enable-source","enabled");
+    const auto target_color=operation_ref("enabled-color-target","linked-color-fill","color");
+    enabled_session.apply({LinkOperationEnabled{target_enabled,source_enabled,false}},enabled_session.revision());
+    check(!color_is_used(enabled_session.document(),target_color),
+        "Color usage excludes an operation whose linked enabled source evaluates false");
+    enabled_session.apply({EnableOperation{"enabled-color-source","color-enable-source",true}},enabled_session.revision());
+    check(color_is_used(enabled_session.document(),target_color),
+        "Color usage includes a target Fill when its linked enabled source evaluates true");
+    enabled_session.apply({EnableOperation{"enabled-color-source","color-enable-source",false}},enabled_session.revision());
+    enabled_session.apply({UnlinkOperationEnabled{target_enabled}},enabled_session.revision());
+    enabled_session.apply({EnableOperation{"enabled-color-source","color-enable-source",true}},enabled_session.revision());
+    check(!color_is_used(enabled_session.document(),target_color),
+        "Unlink freezes the disabled color-use state against later source changes");
     std::cout<<"PASS "<<checks<<" color checks\n";return 0;
 }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}}

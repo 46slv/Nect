@@ -186,6 +186,21 @@ const ShapeOperation& fill_rule_source(const Document& document,const Ref& ref) 
     require(found->type=="nect.paint.fill","INVALID_DOMAIN","Fill rule links apply only to Fill operations");
     return *found;
 }
+const ShapeOperation& operation_enabled_source(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_OPERATION_REF","Operation enabled properties require an empty point ID");
+    require(ref.field.starts_with("op."),"TYPE_MISMATCH","Operation enabled Ref must identify an operation property");
+    const auto [operation_id,parameter]=operation_address(ref.field);
+    identity(operation_id);
+    require(parameter=="enabled","TYPE_MISMATCH","Only operation enabled accepts this Ref");
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::path||object->second.kind==Kind::text||object->second.kind==Kind::group,
+        "INVALID_DOMAIN","Operation enabled requires a Path, Text or Group");
+    const auto found=std::find_if(object->second.stack.begin(),object->second.stack.end(),
+        [&](const auto& operation){return operation.id==operation_id;});
+    require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
+    return *found;
+}
 class TextItalicEvaluator {
     const Document& document_;
     std::map<Id,bool> values_;
@@ -439,6 +454,62 @@ public:
         return values_;
     }
 };
+struct OperationEnabledEvaluation { bool value=true; unsigned remaining_edges=0; };
+class OperationEnabledEvaluator {
+    const Document& document_;
+    std::map<Id,Id> compositions_;
+    std::map<Ref,OperationEnabledEvaluation> values_;
+    std::set<Ref> active_;
+
+    OperationEnabledEvaluation visit(const Ref& ref,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Operation enabled dependency depth limit 128");
+        if(const auto found=values_.find(ref);found!=values_.end()) {
+            require(depth+found->second.remaining_edges<=128,"DEPENDENCY_DEPTH","Operation enabled dependency depth limit 128");
+            return found->second;
+        }
+        require(active_.insert(ref).second,"DEPENDENCY_CYCLE","Operation enabled dependency cycle");
+        const auto& operation=operation_enabled_source(document_,ref);
+        OperationEnabledEvaluation result{operation.enabled,0};
+        if(operation.enabled_driver) {
+            (void)operation_enabled_source(document_,*operation.enabled_driver);
+            require(*operation.enabled_driver!=ref,"DEPENDENCY_CYCLE","Operation enabled cannot link to itself");
+            const auto target_owner=compositions_.find(ref.object),source_owner=compositions_.find(operation.enabled_driver->object);
+            require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                "ORPHAN_OBJECT","Operation enabled links require objects owned by a Composition");
+            require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                "Operation enabled links must stay in one Composition");
+            const auto upstream=visit(*operation.enabled_driver,depth+1);
+            result={upstream.value,upstream.remaining_edges+1};
+        }
+        require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Operation enabled dependency depth limit 128");
+        active_.erase(ref);
+        values_.emplace(ref,result);
+        return result;
+    }
+public:
+    explicit OperationEnabledEvaluator(const Document& document):document_(document) {
+        std::set<Id> active;
+        std::function<void(const Id&,const Id&,unsigned)> own=[&](const Id& id,const Id& composition,unsigned depth) {
+            require(depth<=128,"HIERARCHY_DEPTH","Hierarchy depth limit 128");
+            require(document_.objects.contains(id),"MISSING_OBJECT",id);
+            require(active.insert(id).second,"INVALID_HIERARCHY","Repeated owner or cycle: "+id);
+            require(compositions_.emplace(id,composition).second,"INVALID_HIERARCHY","Repeated object owner: "+id);
+            for(const auto& child:document_.objects.at(id).children)own(child,composition,depth+1);
+            active.erase(id);
+        };
+        for(const auto& composition:document_.compositions)
+            for(const auto& root:composition.roots)own(root,composition.id,0);
+    }
+    bool value(const Ref& ref) { (void)operation_enabled_source(document_,ref);return visit(ref,0).value; }
+    std::map<Ref,bool> all() {
+        std::map<Ref,bool> result;
+        for(const auto& [id,object]:document_.objects)for(const auto& operation:object.stack) {
+            const auto ref=operation_ref(id,operation.id,"enabled");
+            result.emplace(ref,visit(ref,0).value);
+        }
+        return result;
+    }
+};
 Expression remap_text_italic_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
     const auto parsed=parse_text_italic_expression(expression);
     if(parsed.is_literal)return expression;
@@ -599,6 +670,7 @@ std::string unit(const Ref& r) {
     if(r.field.starts_with("text.")||r.field.starts_with("image."))return "du";
     if(r.field.starts_with("op.")) {
         const auto name=operation_address(r.field).second;
+        if(name=="enabled")return "boolean";
         if(name.starts_with("gradient.")&&name.ends_with(".enabled"))return "boolean";
         if(name.starts_with("gradient.")&&(name.ends_with(".start_x")||name.ends_with(".start_y")||name.ends_with(".end_x")||name.ends_with(".end_y")))return "du";
         if(name=="width"||name=="amount"||name=="position_x"||name=="position_y"||name=="anchor_x"||name=="anchor_y")return "du";
@@ -977,19 +1049,18 @@ std::string evaluate_fill_rule(const Document& document,const Ref& ref) {
 std::map<Ref,std::string> evaluate_fill_rules(const Document& document) {
     return FillRuleEvaluator(document).all();
 }
+OperationEnabledProperty operation_enabled_state(const Document& document,const Ref& ref) {
+    const auto& operation=operation_enabled_source(document,ref);
+    return {operation.enabled,operation.enabled_driver,OperationEnabledEvaluator(document).value(ref)};
+}
+bool evaluate_operation_enabled(const Document& document,const Ref& ref) {
+    return OperationEnabledEvaluator(document).value(ref);
+}
+std::map<Ref,bool> evaluate_operation_enableds(const Document& document) {
+    return OperationEnabledEvaluator(document).all();
+}
 bool operation_enabled_property(const Document& document,const Ref& ref) {
-    require(ref.point.empty(),"INVALID_OPERATION_REF","Operation enabled requires an empty point ID");
-    require(ref.field.starts_with("op."),"TYPE_MISMATCH","Operation enabled Ref must identify an operation");
-    const auto [operation_id,field]=operation_address(ref.field);
-    require(field=="enabled","TYPE_MISMATCH","Only operation enabled accepts this Ref");
-    const auto object=document.objects.find(ref.object);
-    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
-    require(object->second.kind==Kind::path||object->second.kind==Kind::text||object->second.kind==Kind::group,
-        "INVALID_DOMAIN","Operation enabled requires a Path, Text or Group");
-    const auto found=std::find_if(object->second.stack.begin(),object->second.stack.end(),
-        [&](const auto& operation){return operation.id==operation_id;});
-    require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
-    return found->enabled;
+    return operation_enabled_source(document,ref).enabled;
 }
 bool gradient_enabled_property(const Document& document,const Ref& ref) {
     require(ref.point.empty(),"INVALID_GRADIENT_REF","Gradient enabled requires an empty point ID");
@@ -1719,6 +1790,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     (void)evaluate_text_layouts(d);
     (void)evaluate_text_alignments(d);
     const auto fill_rule_values=evaluate_fill_rules(d);
+    const auto operation_enabled_values=evaluate_operation_enableds(d);
     const auto transforms=evaluate_transforms(d,values);
     for(const auto& [id,object]:d.objects)if(object.text&&object.text->path_attachment) {
         const auto source=evaluated_text_source(d,id);
@@ -1763,21 +1835,24 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         for(const auto& op:o.stack)if(op.gradient) {
             const auto& g=*op.gradient;
             auto v=[&](const char* field){return values.at(gradient_ref(id,op.id,g.id,field));};
-            if(op.enabled&&g.enabled)require(std::hypot(v("end_x")-v("start_x"),v("end_y")-v("start_y"))>1e-9,
+            if(operation_enabled_values.at(operation_ref(id,op.id,"enabled"))&&g.enabled)
+                require(std::hypot(v("end_x")-v("start_x"),v("end_y")-v("start_y"))>1e-9,
                     "GRADIENT_GEOMETRY","Gradient start and end must differ");
             std::set<double> offsets;
             for(const auto& stop:g.stops)require(offsets.insert(values.at(gradient_ref(id,op.id,g.id,"stop."+stop.id+".offset"))).second,
                 "GRADIENT_STOPS","Coincident gradient stop offsets are not yet supported");
         }
         bool check_shape=(o.kind==Kind::path||o.kind==Kind::text)&&(o.stack.size()>1||
-            std::any_of(o.stack.begin(),o.stack.end(),[](const auto& op){return op.enabled&&(op.type=="nect.shape.repeater"||op.type=="nect.shape.offset");}));
+            std::any_of(o.stack.begin(),o.stack.end(),[&](const auto& op){return
+                operation_enabled_values.at(operation_ref(id,op.id,"enabled"))&&
+                (op.type=="nect.shape.repeater"||op.type=="nect.shape.offset");}));
 #ifdef _WIN32
         check_shape=check_shape||o.kind==Kind::text;
 #else
         if(o.kind==Kind::text)check_shape=false; // Authored text remains readable without the Windows layout backend.
 #endif
         if(check_shape)
-            (void)evaluate_shape(d,id,values,&fill_rule_values);
+            (void)evaluate_shape(d,id,values,&fill_rule_values,&operation_enabled_values);
     }
     return values;
 }
@@ -2451,6 +2526,7 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         }
         for(auto& contour:object.contours){contour.id=plan.ids.at(contour.id);for(auto& point:contour.points)point.id=plan.ids.at(point.id);}
         for(auto& op:object.stack) {
+            if(op.enabled_driver)op.enabled_driver=remap(*op.enabled_driver);
             if(op.fill_rule_driver)op.fill_rule_driver->link=remap(op.fill_rule_driver->link);
             op.id=plan.ids.at(op.id);if(op.gradient){op.gradient->id=plan.ids.at(op.gradient->id);for(auto& stop:op.gradient->stops)stop.id=plan.ids.at(stop.id);}
         }
@@ -2481,12 +2557,15 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
     std::set<Ref> fill_rule_targets;
     std::set<Ref> visibility_targets;
+    std::set<Ref> operation_enabled_targets;
     for(const auto& command:commands)std::visit([&](const auto& value) {
         using T=std::decay_t<decltype(value)>;
         if constexpr(std::is_same_v<T,LinkFillRule>||std::is_same_v<T,UnlinkFillRule>)
             require(fill_rule_targets.insert(value.target).second,"DUPLICATE_TARGET","A Fill rule target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkObjectVisibility>||std::is_same_v<T,UnlinkObjectVisibility>)
             require(visibility_targets.insert(value.target).second,"DUPLICATE_TARGET","An Object visibility target may be linked or unlinked only once per batch");
+        else if constexpr(std::is_same_v<T,LinkOperationEnabled>||std::is_same_v<T,UnlinkOperationEnabled>)
+            require(operation_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","An operation enabled target may be linked or unlinked only once per batch");
     },command);
 
     auto candidate=document;
@@ -2508,6 +2587,20 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(c.target.object!=c.source.object,"DEPENDENCY_CYCLE","Object visibility cannot link to itself");
             require(!target.visibility_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing an Object visibility driver requires replace_driver=true");
             candidate.objects.at(c.target.object).visibility_driver=c.source;
+        } else if constexpr(std::is_same_v<T,LinkOperationEnabled>) {
+            const auto& target=operation_enabled_source(candidate,c.target);
+            (void)operation_enabled_source(candidate,c.source);
+            require(c.target!=c.source,"DEPENDENCY_CYCLE","Operation enabled cannot link to itself");
+            require(!target.enabled_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing an operation enabled driver requires replace_driver=true");
+            const auto [operation_id,parameter]=operation_address(c.target.field);(void)parameter;
+            operation(candidate.objects.at(c.target.object),operation_id).enabled_driver=c.source;
+        } else if constexpr(std::is_same_v<T,UnlinkOperationEnabled>) {
+            const auto& target=operation_enabled_source(candidate,c.target);
+            require(target.enabled_driver.has_value(),"PROPERTY_NOT_LINKED","Operation enabled has no driver to unlink");
+            const auto frozen=evaluate_operation_enabled(candidate,c.target);
+            const auto [operation_id,parameter]=operation_address(c.target.field);(void)parameter;
+            auto& source=operation(candidate.objects.at(c.target.object),operation_id);
+            source.enabled=frozen;source.enabled_driver.reset();
         } else if constexpr(std::is_same_v<T,UnlinkObjectVisibility>) {
             const auto& target=visibility_source(candidate,c.target);
             require(target.visibility_driver.has_value(),"PROPERTY_NOT_LINKED","Object visibility has no driver to unlink");
@@ -2970,6 +3063,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);
             require(!c.operation.fill_rule_driver,"USE_TYPED_COMMAND","Create Fill rule links with link_fill_rule");
+            require(!c.operation.enabled_driver,"USE_TYPED_COMMAND","Create operation enabled links with link_operation_enabled");
             require(o.kind==Kind::path||o.kind==Kind::text||(o.kind==Kind::group&&c.operation.type=="nect.group.posterize"),
                 "INVALID_DOMAIN","Shape operations require a Path or Text; Group postchildren operations require nect.group.posterize");
             require(c.index<=o.stack.size(),"INVALID_ORDER","Operation insertion index out of range");
@@ -2987,7 +3081,9 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             stack.clear();for(const auto& id:c.order){require(old.contains(id),"INVALID_ORDER",id);stack.push_back(old.at(id));old.erase(id);}
         } else if constexpr(std::is_same_v<T,EnableOperation>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
-            operation(candidate.objects.at(c.object),c.operation).enabled=c.enabled;
+            auto& target=operation(candidate.objects.at(c.object),c.operation);
+            require(!target.enabled_driver,"DRIVEN_PROPERTY","Unlink the operation enabled driver before changing its authored literal");
+            target.enabled=c.enabled;
         } else if constexpr(std::is_same_v<T,OperationOptions>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& op=operation(candidate.objects.at(c.object),c.operation);

@@ -1139,7 +1139,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.27'
+        assert native_save_as['version']=='0.28'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']
@@ -1206,7 +1206,7 @@ try:
         enabled_direct=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=enabled_ref)))
         assert enabled_direct['ok'] and enabled_direct['result']==enabled_mcp and \
             enabled_mcp['type']=='bool' and enabled_mcp['authored']==dict(literal=True,driver=None) and \
-            enabled_mcp['evaluated'] is True and enabled_mcp['link'] is False and enabled_mcp['expression'] is False
+            enabled_mcp['evaluated'] is True and enabled_mcp['link'] is True and enabled_mcp['expression'] is False, (enabled_direct,enabled_mcp)
         fill_rev=apply([dict(type='operation_options',object='mcp-fill-source',operation='mcp-source-fill',
             composite='below',fill_rule='nonzero')],fill_rev)
         assert core('get',ref=fill_target)['result']['evaluated']=='nonzero'
@@ -1219,7 +1219,33 @@ try:
         assert not failed_fill_batch['ok'] and failed_fill_batch['error']['code']=='DEPENDENCY_CYCLE' and failed_fill_batch['revision']==fill_rev
         fill_rev=apply([dict(type='unlink_fill_rule',target=fill_target)],fill_rev)
         assert core('get',ref=fill_target)['result']['authored']==dict(literal='nonzero',driver=None)
-        assert core('undo',expected_revision=fill_rev)['ok'] and core('get',ref=fill_target)['result']['authored']==dict(literal='nonzero',driver=dict(link=fill_source))
+        fill_undo=core('undo',expected_revision=fill_rev)
+        assert fill_undo['ok'] and core('get',ref=fill_target)['result']['authored']==dict(literal='nonzero',driver=dict(link=fill_source))
+        fill_rev=fill_undo['revision']
+        enabled_source=dict(object='mcp-fill-source',point='',field='op.mcp-source-fill.enabled')
+        fill_rev=apply([
+            dict(type='enable_operation',object='mcp-fill-source',operation='mcp-source-fill',enabled=False),
+            dict(type='link_operation_enabled',target=enabled_ref,source=enabled_source,replace_driver=False)],fill_rev)
+        linked_enabled=core('get',ref=enabled_ref)['result']
+        direct_enabled=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=enabled_ref)))
+        assert direct_enabled['ok'] and direct_enabled['result']==linked_enabled
+        assert linked_enabled['authored']==dict(literal=True,driver=dict(link=enabled_source)) and \
+            linked_enabled['evaluated'] is False and linked_enabled['link'] is True and linked_enabled['expression'] is False
+        enabled_metadata=next(item for item in core('properties')['result'] if item['ref']==enabled_ref)
+        assert enabled_metadata==linked_enabled
+        disabled_plan=core('render_plan',object='mcp-fill-target')['result']
+        assert not any(layer['operation']=='mcp-target-fill' for layer in disabled_plan['paint_layers'])
+        fill_rev=apply([dict(type='enable_operation',object='mcp-fill-source',operation='mcp-source-fill',enabled=True)],fill_rev)
+        assert core('get',ref=enabled_ref)['result']['evaluated'] is True
+        enabled_plan=core('render_plan',object='mcp-fill-target')['result']
+        assert any(layer['operation']=='mcp-target-fill' for layer in enabled_plan['paint_layers'])
+        failed_enabled=core('apply',expected_revision=fill_rev,commands=[
+            dict(type='enable_operation',object='mcp-fill-target',operation='mcp-target-fill',enabled=False)])
+        assert not failed_enabled['ok'] and failed_enabled['error']['code']=='DRIVEN_PROPERTY' and failed_enabled['revision']==fill_rev
+        fill_rev=apply([dict(type='unlink_operation_enabled',target=enabled_ref)],fill_rev)
+        assert core('get',ref=enabled_ref)['result']['authored']==dict(literal=True,driver=None)
+        fill_rev=apply([dict(type='enable_operation',object='mcp-fill-source',operation='mcp-source-fill',enabled=False)],fill_rev)
+        assert core('get',ref=enabled_ref)['result']['evaluated'] is True
         receipt = dict(status='PASS', seed=7821, paths=24, semantic_mutations=rev,
             mcp_initialize_list_call=True, same_live_desktop_session=True, atomic_failure=True, independent_duplication=True, geometric_alignment_undo=True, equal_gap_spacing_undo=True, editable_svg_undo=True,
             stale_session_rejected=True, native_restart=True, abnormal_exit_recovery=True,
@@ -1227,6 +1253,7 @@ try:
             automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, image_lifecycle_native_recovery=True,
             typed_text_save_as=True, stale_save_identity_and_revision_rejected=True, invalid_save_as_atomic=True,
             save_as_recovery_provenance=True, save_as_destination_cold_open=True, fill_rule_link=True,
+            operation_enabled_link=True,
             gui_save_as_acceptance=False, gui_performance_claim=False)
         print(json.dumps(receipt, indent=2))
 finally:

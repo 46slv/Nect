@@ -31,6 +31,152 @@ void operation_enabled_read_contract() {
     session.undo(session.revision());
     check(operation_enabled_property(session.document(),ref),"Undo restores the authored operation enabled choice");
 }
+void operation_enabled_link_contract() {
+    Session session(empty_document("enabled-link-doc","enabled-link-comp","enabled-link-art"));
+    auto atomic_reject=[&](const char* code,std::vector<Command> commands) {
+        const auto before=encode(session.document());const auto rev=session.revision();
+        rejects(code,[&]{session.apply(std::move(commands),rev);});
+        check(session.revision()==rev&&encode(session.document())==before,
+            "Rejected operation-enabled command preserves authored bytes and revision");
+    };
+    session.apply({CreatePrimitive{"enabled-link-comp","","enabled-source","Source",
+            default_primitive("enabled-source-shape","nect.shape.rectangle")},
+        CreatePrimitive{"enabled-link-comp","","enabled-target","Target",
+            default_primitive("enabled-target-shape","nect.shape.rectangle")},
+        CreatePrimitive{"enabled-link-comp","","enabled-alternate","Alternate",
+            default_primitive("enabled-alternate-shape","nect.shape.rectangle")}},0);
+    auto source_op=default_operation("enabled-source-fill","nect.paint.fill");source_op.enabled=false;
+    auto target_op=default_operation("enabled-target-fill","nect.paint.fill");target_op.enabled=false;
+    auto alternate_op=default_operation("enabled-alternate-fill","nect.paint.fill");alternate_op.enabled=false;
+    session.apply({AddOperation{"enabled-source",source_op,1},AddOperation{"enabled-target",target_op,1},
+        AddOperation{"enabled-alternate",alternate_op,1}},session.revision());
+    const Ref target=operation_ref("enabled-target","enabled-target-fill","enabled");
+    const Ref source=operation_ref("enabled-source","enabled-source-fill","enabled");
+    const Ref alternate=operation_ref("enabled-alternate","enabled-alternate-fill","enabled");
+    const auto literal_state=operation_enabled_state(session.document(),target);
+    check(property_unit(target)=="boolean"&&
+        resolve_name(session.document(),"Target","",target.field)==target&&
+        !literal_state.literal&&!literal_state.driver&&!literal_state.evaluated,
+        "Operation enabled is a typed boolean property with the authored literal before linking");
+    auto literal_native=encode(session.document());const auto literal_version=literal_native.find("\"version\":\"0.28\"");
+    check(literal_version!=std::string::npos&&decode(literal_native)==session.document(),
+        "Native 0.28 roundtrips a literal operation enabled property");
+    literal_native.replace(literal_version,std::string("\"version\":\"0.28\"").size(),"\"version\":\"0.27\"");
+    check(decode(literal_native)==session.document(),"Native 0.27 literal-only documents remain readable");
+
+    session.apply({LinkOperationEnabled{target,source,false}},session.revision());
+    auto state=operation_enabled_state(session.document(),target);
+    const auto linked_shape=evaluate_shape(session.document(),"enabled-target",evaluate(session.document()));
+    check(!state.literal&&state.driver==source&&!state.evaluated&&
+        std::none_of(linked_shape.paints.begin(),linked_shape.paints.end(),
+            [](const auto& paint){return paint.operation=="enabled-target-fill";}),
+        "A same-composition operation link preserves the literal and bypasses the linked Fill");
+    session.apply({EnableOperation{"enabled-source","enabled-source-fill",true}},session.revision());
+    const auto active_shape=evaluate_shape(session.document(),"enabled-target",evaluate(session.document()));
+    check(!operation_enabled_state(session.document(),target).literal&&
+        operation_enabled_state(session.document(),target).evaluated&&
+        std::any_of(active_shape.paints.begin(),active_shape.paints.end(),
+            [](const auto& paint){return paint.operation=="enabled-target-fill";}),
+        "An enabled source activates a linked Fill while its target authored literal remains false");
+    session.apply({EnableOperation{"enabled-source","enabled-source-fill",false}},session.revision());
+    Session duplicate(session.document());duplicate.apply({DuplicateObjects{{"enabled-source","enabled-target"},"enabled-copy"}},0);
+    const auto copied_source=std::find_if(duplicate.document().objects.begin(),duplicate.document().objects.end(),
+        [](const auto& entry){return entry.second.name=="Source copy";});
+    const auto copied_target=std::find_if(duplicate.document().objects.begin(),duplicate.document().objects.end(),
+        [](const auto& entry){return entry.second.name=="Target copy";});
+    check(copied_source!=duplicate.document().objects.end()&&copied_target!=duplicate.document().objects.end(),
+        "Duplicating both operation-enabled link endpoints creates stable object copies");
+    const auto copied_operation=std::find_if(copied_target->second.stack.begin(),copied_target->second.stack.end(),
+        [](const auto& operation){return operation.type=="nect.paint.fill";});
+    const auto copied_source_operation=std::find_if(copied_source->second.stack.begin(),copied_source->second.stack.end(),
+        [](const auto& operation){return operation.type=="nect.paint.fill";});
+    check(copied_operation!=copied_target->second.stack.end()&&copied_operation->enabled_driver&&
+        copied_source_operation!=copied_source->second.stack.end()&&
+        copied_operation->enabled_driver==operation_ref(copied_source->first,copied_source_operation->id,"enabled")&&
+        !evaluate_operation_enabled(duplicate.document(),operation_ref(copied_target->first,copied_operation->id,"enabled")),
+        "Duplicating both endpoints remaps operation IDs and evaluates against the copied source");
+    atomic_reject("DRIVEN_PROPERTY",{EnableOperation{"enabled-target","enabled-target-fill",false}});
+    atomic_reject("DRIVEN_PROPERTY",{LinkOperationEnabled{target,alternate,false}});
+    atomic_reject("DUPLICATE_TARGET",{LinkOperationEnabled{target,alternate,true},UnlinkOperationEnabled{target}});
+    atomic_reject("DEPENDENCY_CYCLE",{LinkOperationEnabled{source,target,false}});
+    atomic_reject("DEPENDENCY_CYCLE",{LinkOperationEnabled{target,target,true}});
+    atomic_reject("MISSING_OPERATION",{LinkOperationEnabled{target,
+        operation_ref("enabled-source","absent-operation","enabled"),true}});
+    atomic_reject("TYPE_MISMATCH",{LinkOperationEnabled{target,
+        {"enabled-source","","op.enabled-source-fill.gradient.absent-gradient.enabled"},true}});
+    atomic_reject("INVALID_OPERATION_REF",{LinkOperationEnabled{target,{"enabled-source","point",source.field},false}});
+    atomic_reject("TYPE_MISMATCH",{LinkOperationEnabled{target,operation_ref("enabled-source","enabled-source-fill","r"),false}});
+
+    const auto revision=session.revision();
+
+    session.apply({LinkOperationEnabled{target,alternate,true}},session.revision());
+    check(operation_enabled_state(session.document(),target).driver==alternate&&
+        !operation_enabled_state(session.document(),target).evaluated,
+        "Explicit replacement switches the target to another stable boolean source");
+    const auto linked=encode(session.document());
+    check(linked.find("\"version\":\"0.28\"")!=std::string::npos&&
+        linked.find("\"enabled_driver\":{\"link\":")!=std::string::npos&&encode(decode(linked))==linked,
+        "Native 0.28 preserves the closed enabled driver and exact Ref");
+    auto old_driver=linked;const auto old_version=old_driver.find("\"version\":\"0.28\"");
+    old_driver.replace(old_version,std::string("\"version\":\"0.28\"").size(),"\"version\":\"0.27\"");
+    rejects("UNSUPPORTED_OPERATION_ENABLED_DRIVER",[&]{(void)decode(old_driver);});
+
+    session.apply({EnableOperation{"enabled-alternate","enabled-alternate-fill",true}},session.revision());
+    check(operation_enabled_state(session.document(),target).evaluated,
+        "An enabled source updates the target evaluated value without changing its literal");
+    auto smuggled=default_operation("smuggled","nect.paint.fill");smuggled.enabled_driver=source;
+    atomic_reject("USE_TYPED_COMMAND",{AddOperation{"enabled-target",smuggled,2}});
+    const auto unlink_revision=session.revision();
+    session.apply({UnlinkOperationEnabled{target}},unlink_revision);
+    check(!operation_enabled_state(session.document(),target).driver&&
+        operation_enabled_state(session.document(),target).literal&&
+        operation_enabled_state(session.document(),target).evaluated,
+        "Unlink freezes the currently evaluated enabled value into the authored literal");
+    session.apply({EnableOperation{"enabled-alternate","enabled-alternate-fill",false}},session.revision());
+    check(operation_enabled_state(session.document(),target).evaluated,
+        "Frozen operation enabled literal no longer follows its former source");
+    session.undo(session.revision());
+    check(!operation_enabled_state(session.document(),target).driver&&
+        operation_enabled_state(session.document(),target).evaluated,
+        "The first Undo restores only the source toggle after unlink");
+    session.undo(session.revision());
+    check(operation_enabled_state(session.document(),target).driver==alternate&&
+        operation_enabled_state(session.document(),target).evaluated,
+        "Undo restores the stable enabled driver and computed value");
+
+    atomic_reject("MISSING_OPERATION",{RemoveOperation{"enabled-alternate","enabled-alternate-fill"}});
+    session.apply({UnlinkOperationEnabled{target},RemoveOperation{"enabled-alternate","enabled-alternate-fill"}},session.revision());
+    check(session.revision()==revision+7,"Unlink permits removing the former source in the same atomic batch");
+
+    auto other_composition=empty_document("other-enabled-doc","other-enabled-comp","other-enabled-art").compositions.front();
+    auto cross_document=empty_document("cross-enabled-doc","cross-enabled-comp","cross-enabled-art");
+    cross_document.compositions.push_back(other_composition);
+    Session cross(cross_document);
+    cross.apply({CreatePrimitive{"cross-enabled-comp","","cross-target","Target",
+            default_primitive("cross-target-shape","nect.shape.rectangle")},
+        CreatePrimitive{"other-enabled-comp","","cross-source","Source",
+            default_primitive("cross-source-shape","nect.shape.rectangle")}},0);
+    cross.apply({AddOperation{"cross-target",default_operation("cross-target-fill","nect.paint.fill"),1},
+        AddOperation{"cross-source",default_operation("cross-source-fill","nect.paint.fill"),1}},cross.revision());
+    rejects("CROSS_COMPOSITION",[&]{cross.apply({LinkOperationEnabled{
+        operation_ref("cross-target","cross-target-fill","enabled"),
+        operation_ref("cross-source","cross-source-fill","enabled"),false}},cross.revision());});
+
+    auto deep=empty_document("enabled-depth-doc","enabled-depth-comp","enabled-depth-art");
+    std::vector<Command> deep_links;
+    for(int i=0;i<130;++i) {
+        const auto id="enabled-depth-"+std::to_string(i);Object object;object.id=id;object.name=id;
+        object.source=default_primitive(id+"-shape","nect.shape.rectangle");
+        object.stack.push_back(default_operation(id+"-fill","nect.paint.fill"));
+        deep.objects.emplace(id,std::move(object));deep.compositions.front().roots.push_back(id);
+        if(i<129)deep_links.push_back(LinkOperationEnabled{
+            operation_ref(id,id+"-fill","enabled"),
+            operation_ref("enabled-depth-"+std::to_string(i+1),"enabled-depth-"+std::to_string(i+1)+"-fill","enabled"),false});
+    }
+    Session depth(std::move(deep));
+    rejects("DEPENDENCY_DEPTH",[&]{depth.apply(std::move(deep_links),depth.revision());});
+
+}
 void fill_rule_link_contract() {
     Session session(empty_document("fill-doc","fill-comp","fill-art"));
     session.apply({CreatePrimitive{"fill-comp","","fill-source","Source",default_primitive("source-shape","nect.shape.rectangle")},
@@ -55,14 +201,14 @@ void fill_rule_link_contract() {
     rejects("INVALID_OPERATION_REF",[&]{session.apply({LinkFillRule{target,{"fill-source","point","op.source-fill.fill_rule"}}},session.revision());});
     rejects("TYPE_MISMATCH",[&]{session.apply({LinkFillRule{target,{"fill-source","","op.source-fill.composite"}}},session.revision());});
     const auto literal_bytes=encode(session.document());
-    check(literal_bytes.find("\"version\":\"0.27\"")!=std::string::npos&&
+    check(literal_bytes.find("\"version\":\"0.28\"")!=std::string::npos&&
         literal_bytes.find("fill_rule_driver")==std::string::npos&&encode(decode(literal_bytes))==literal_bytes,
-        "Native 0.27 omits an absent Fill rule driver and roundtrips literal state");
+        "Native 0.28 omits an absent Fill rule driver and roundtrips literal state");
     auto legacy_literal=literal_bytes;
-    const auto current_version=legacy_literal.find("\"version\":\"0.27\"");
-    check(current_version!=std::string::npos,"Native writer exposes 0.27 for the literal migration fixture");
-    legacy_literal.replace(current_version,std::string("\"version\":\"0.27\"").size(),"\"version\":\"0.25\"");
-    check(decode(legacy_literal)==session.document(),"Native 0.25 retains literal-only Fill rules");
+    const auto current_version=legacy_literal.find("\"version\":\"0.28\"");
+    check(current_version!=std::string::npos,"Native writer exposes 0.28 for the literal migration fixture");
+    legacy_literal.replace(current_version,std::string("\"version\":\"0.28\"").size(),"\"version\":\"0.27\"");
+    check(decode(legacy_literal)==session.document(),"Native 0.27 retains literal-only Fill rules");
 
     session.apply({LinkFillRule{target,source}},session.revision());
     auto state=fill_rule_property(session.document(),target);
@@ -72,9 +218,9 @@ void fill_rule_link_contract() {
     check(target_shape_rule()=="evenodd",
         "Linked Fill shape evaluation uses the resolved enum");
     auto linked=encode(session.document());check(linked.find("\"fill_rule_driver\":{\"link\":")!=std::string::npos&&
-        encode(decode(linked))==linked,"Native 0.27 retains the closed stable Fill rule Ref exactly");
-    auto false_version=linked;const auto version= false_version.find("\"version\":\"0.27\"");
-    false_version.replace(version,std::string("\"version\":\"0.27\"").size(),"\"version\":\"0.25\"");
+        encode(decode(linked))==linked,"Native 0.28 retains the closed stable Fill rule Ref exactly");
+    auto false_version=linked;const auto version= false_version.find("\"version\":\"0.28\"");
+    false_version.replace(version,std::string("\"version\":\"0.28\"").size(),"\"version\":\"0.25\"");
     rejects("UNSUPPORTED_FILL_RULE_DRIVER",[&]{decode(false_version);});
     auto malformed=linked;const auto field=malformed.find("op.source-fill.fill_rule");
     check(field!=std::string::npos,"Native linked source Ref is present");
@@ -125,6 +271,7 @@ void fill_rule_link_contract() {
 }
 int main(){try{
     operation_enabled_read_contract();
+    operation_enabled_link_contract();
     Session s(empty_document("doc","comp","art"));
     s.apply({CreatePrimitive{"comp","","rect","Motif",{"source","nect.shape.rectangle",1,
         {{"center_x",{10,{}}},{"center_y",{10,{}}},{"width",{20,{}}},{"height",{10,{}}}}}}},0);
