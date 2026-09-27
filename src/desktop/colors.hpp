@@ -57,6 +57,7 @@ private:
     void copy_value(const ColorValue& value);
     void remember(ColorValue value);
     void pick_named(const Ref& target,const QString& session);
+    void edit_expressions(const Ref& target,const QString& session);
     void create_named(const ColorValue& value);
     bool editor_dirty() const;
     void load_editor(const Id& id,const std::map<Ref,double>& values);

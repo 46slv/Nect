@@ -5,6 +5,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QCheckBox>
 #include <QColor>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -149,6 +150,7 @@ void ColorTools::populate_menu(QMenu* menu,const Ref& ref,const QString& session
         window_.host.session.apply({LinkColor{ref,source}},window_.host.session.revision());window_.host.edited();
     });
     action("color-link-named","Link named color…",[this,ref,session]{check_target(ref,session);pick_named(ref,session);});
+    action("color-edit-expressions","Edit RGBA expressions…",[this,ref,session]{check_target(ref,session);edit_expressions(ref,session);});
     action("color-unlink","Unlink · keep evaluated RGBA",[this,ref,session]{
         check_target(ref,session);window_.host.session.apply({UnlinkColor{ref}},window_.host.session.revision());window_.host.edited();
     });
@@ -200,6 +202,74 @@ void ColorTools::pick_named(const Ref& target,const QString& session) {
         const Ref source{list->currentItem()->data(Qt::UserRole).toString().toStdString(),"","color"};
         window_.host.session.apply({LinkColor{target,source}},window_.host.session.revision());window_.host.edited();dialog->accept();
     });});dialog->show();
+}
+
+void ColorTools::edit_expressions(const Ref& target,const QString& session) {
+    check_target(target,session);
+    const auto revision=window_.host.session.revision();
+    const auto& document=window_.host.session.document();
+    const auto refs=color_channels(document,target);
+    const auto values=evaluate(document);
+    auto* dialog=new QDialog(&window_);dialog->setObjectName("color-expression-editor");
+    dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setWindowTitle("Edit RGBA expressions");
+    auto* layout=new QVBoxLayout(dialog);
+    auto* note=new QLabel("Use =expression or a number from 0 to 1. Changes commit together. Existing links or expressions need explicit replacement.");
+    note->setWordWrap(true);layout->addWidget(note);
+    auto* form=new QFormLayout;layout->addLayout(form);
+    std::array<QLineEdit*,4> edits{};
+    std::array<QString,4> initial{};
+    std::array<Scalar,4> authored{};
+    constexpr std::array<const char*,4> names{"Red","Green","Blue","Alpha"};
+    for(std::size_t i=0;i<4;++i) {
+        authored[i]=nect::property(document,refs[i]);
+        initial[i]=authored[i].expression?"="+qs(authored[i].expression->source):number(values.at(refs[i]));
+        edits[i]=new QLineEdit(initial[i],dialog);
+        edits[i]->setObjectName(QString("color-expression-%1").arg(i));
+        if(authored[i].binding) {
+            const auto& source=authored[i].binding->source;
+            edits[i]->setToolTip("Linked to "+qs(source.object)+" / "+qs(source.field));
+        } else edits[i]->setToolTip(authored[i].expression?"Authored expression":"Literal channel");
+        const auto label=QString::fromLatin1(names[i])+(authored[i].binding?" · linked":authored[i].expression?" · expression":" · literal");
+        form->addRow(label,edits[i]);
+    }
+    auto* replace=new QCheckBox("Replace existing channel links or expressions",dialog);
+    replace->setObjectName("color-expression-replace");layout->addWidget(replace);
+    auto* status=new QLabel(dialog);status->setObjectName("color-expression-status");status->setWordWrap(true);layout->addWidget(status);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,dialog);layout->addWidget(buttons);
+    connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
+    connect(buttons,&QDialogButtonBox::accepted,this,[this,dialog,status,replace,edits,initial,authored,refs,target,session,revision]{
+        try {
+            check_target(target,session);
+            if(window_.host.session.revision()!=revision)throw Error("REVISION_CONFLICT","The document changed while the Color draft was open");
+            std::vector<Command> commands;
+            for(std::size_t i=0;i<4;++i) {
+                const auto input=edits[i]->text().trimmed();
+                if(input==initial[i])continue;
+                if(input.isEmpty())throw Error("INVALID_COLOR","Color channel draft is empty");
+                const bool driven=authored[i].binding.has_value()||authored[i].expression.has_value();
+                if(driven&&!replace->isChecked())throw Error("DRIVEN_PROPERTY","Check Replace before changing a driven channel");
+                if(input.startsWith('=')) {
+                    const auto expression=input.mid(1).trimmed().toStdString();
+                    if(expression.empty())throw Error("INVALID_EXPRESSION","Expression draft is empty");
+                    commands.push_back(SetExpression{{refs[i]},{expression,1},replace->isChecked()});
+                } else {
+                    bool ok=false;const auto value=input.toDouble(&ok);
+                    if(!ok||!std::isfinite(value)||value<0||value>1)
+                        throw Error("INVALID_COLOR","RGBA literals must be finite numbers from 0 to 1");
+                    if(driven)commands.push_back(UnlinkProperties{{refs[i]}});
+                    commands.push_back(EditProperties{{refs[i]},value,false});
+                }
+            }
+            if(!commands.empty()) {
+                window_.host.session.apply(commands,revision);
+                window_.host.edited();
+            }
+            dialog->accept();
+        } catch(const std::exception& error) {
+            status->setText(QString::fromUtf8(error.what())+" · committed Color unchanged");
+        }
+    });
+    dialog->show();
 }
 
 void ColorTools::show_manager() {

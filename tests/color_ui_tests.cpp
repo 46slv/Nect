@@ -3,6 +3,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QIcon>
@@ -72,6 +73,64 @@ int main(int argc,char** argv) {
         QWidget controls(&window);
         auto* source_menu=tools->menu_button(source,&controls);auto* target_menu=tools->menu_button(target,&controls);
         auto* brand_menu=tools->menu_button(brand,&controls);
+        const auto before_draft=encode(session.document());auto revision=session.revision();
+        action(source_menu,"color-edit-expressions");
+        auto* expression_dialog=widget<QDialog>(window,"color-expression-editor");
+        auto* expression_buttons=expression_dialog->findChild<QDialogButtonBox*>();
+        check(expression_buttons!=nullptr,"RGBA expression editor exposes Apply and Cancel");
+        type(widget<QLineEdit>(*expression_dialog,"color-expression-0"),"=ref(\"brand\",\"\",\"color.r\")");
+        QTest::mouseClick(expression_buttons->button(QDialogButtonBox::Cancel),Qt::LeftButton);QApplication::processEvents();
+        check(session.revision()==revision&&encode(session.document())==before_draft,"Canceled RGBA draft does not mutate authored Color");
+        action(source_menu,"color-edit-expressions");expression_dialog=widget<QDialog>(window,"color-expression-editor");
+        expression_buttons=expression_dialog->findChild<QDialogButtonBox*>();
+        for(int i=0;i<4;++i) {
+            const auto text=QString("=ref(\"brand\",\"\",\"color.%1\")").arg("rgba"[i]);
+            type(widget<QLineEdit>(*expression_dialog,QString("color-expression-%1").arg(i).toUtf8().constData()),text.toUtf8().constData());
+        }
+        QTest::mouseClick(expression_buttons->button(QDialogButtonBox::Ok),Qt::LeftButton);QApplication::processEvents();
+        check(session.revision()==revision+1&&color(session.document(),source)==palette,
+            "RGBA expressions commit together through the production Color menu");
+        for(const auto& channel:color_channels(session.document(),source))
+            check(nect::property(session.document(),channel).expression.has_value(),"All four channels retain authored expressions");
+        ColorValue changed_brand;changed_brand.rgba={0.3,0.4,0.5,0.6};apply({SetColor{brand,changed_brand}});
+        check(color(session.document(),source)==changed_brand,"RGBA expressions follow stable named Color refs");
+        action(source_menu,"color-edit-expressions");expression_dialog=widget<QDialog>(window,"color-expression-editor");
+        expression_buttons=expression_dialog->findChild<QDialogButtonBox*>();
+        auto* replace=widget<QCheckBox>(*expression_dialog,"color-expression-replace");
+        type(widget<QLineEdit>(*expression_dialog,"color-expression-0"),"=0.1");
+        type(widget<QLineEdit>(*expression_dialog,"color-expression-3"),"=1/0");
+        revision=session.revision();const auto before_invalid=encode(session.document());
+        QTest::mouseClick(expression_buttons->button(QDialogButtonBox::Ok),Qt::LeftButton);QApplication::processEvents();
+        check(session.revision()==revision&&encode(session.document())==before_invalid,
+            "Replacing existing expressions requires explicit intent and leaves the full Color unchanged");
+        replace->setChecked(true);
+        QTest::mouseClick(expression_buttons->button(QDialogButtonBox::Ok),Qt::LeftButton);QApplication::processEvents();
+        check(session.revision()==revision&&encode(session.document())==before_invalid&&
+            widget<QLabel>(*expression_dialog,"color-expression-status")->text().contains("unchanged"),
+            "Invalid fourth expression rejects earlier channel edits atomically");
+        expression_dialog->reject();QApplication::processEvents();
+        action(source_menu,"color-edit-expressions");expression_dialog=widget<QDialog>(window,"color-expression-editor");
+        expression_buttons=expression_dialog->findChild<QDialogButtonBox*>();
+        widget<QCheckBox>(*expression_dialog,"color-expression-replace")->setChecked(true);
+        type(widget<QLineEdit>(*expression_dialog,"color-expression-0"),"0.7");
+        QTest::mouseClick(expression_buttons->button(QDialogButtonBox::Ok),Qt::LeftButton);QApplication::processEvents();
+        const auto channels=color_channels(session.document(),source);
+        check(color(session.document(),source).rgba[0]==0.7&&
+            !nect::property(session.document(),channels[0]).expression&&
+            nect::property(session.document(),channels[1]).expression.has_value(),
+            "Explicit literal replacement changes only the selected channel and preserves other expressions");
+        action(source_menu,"color-edit-expressions");expression_dialog=widget<QDialog>(window,"color-expression-editor");
+        expression_buttons=expression_dialog->findChild<QDialogButtonBox*>();
+        type(widget<QLineEdit>(*expression_dialog,"color-expression-0"),"=0.2");
+        apply({RenameNamedColor{"brand","Brand renamed"}});
+        revision=session.revision();const auto before_stale=encode(session.document());
+        QTest::mouseClick(expression_buttons->button(QDialogButtonBox::Ok),Qt::LeftButton);QApplication::processEvents();
+        check(session.revision()==revision&&encode(session.document())==before_stale&&
+            widget<QLabel>(*expression_dialog,"color-expression-status")->text().contains("changed"),
+            "A stale RGBA draft cannot overwrite a newer Session revision");
+        expression_dialog->reject();QApplication::processEvents();
+        apply({RenameNamedColor{"brand","Brand"}});
+        apply({UnlinkColor{source},SetColor{brand,palette}});
         tools->show_manager();QApplication::processEvents();
         auto* manager=widget<QDialog>(window,"color-manager");auto* history=widget<QListWidget>(*manager,"copied-colors");
         auto* used=widget<QListWidget>(*manager,"used-colors");auto* named_list=widget<QListWidget>(*manager,"named-colors");
@@ -111,7 +170,7 @@ int main(int argc,char** argv) {
         select_named(named_list,"brand");type(widget<QLineEdit>(*manager,"named-color-channel-0"),"0.9");click(*manager,"named-color-apply");
         check(color(session.document(),target).rgba[0]==0.9&&color(session.document(),source)==changed&&history->count()==2,
             "Editing a named color propagates to linked targets and leaves independent paint/history unchanged");
-        auto revision=session.revision();click(*manager,"named-color-delete");
+        revision=session.revision();click(*manager,"named-color-delete");
         check(session.revision()==revision&&session.document().named_colors.contains("brand")&&color_link(session.document(),target)==std::optional<Ref>{brand},
             "Deleting a referenced named color rejects without damaging links");
         const auto frozen=color(session.document(),target);action(target_menu,"color-unlink");
