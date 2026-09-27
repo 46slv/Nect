@@ -97,6 +97,60 @@ with tempfile.TemporaryDirectory() as tmp:
     check(run('--validate', saved).returncode==0, 'edited document reloads in fresh process')
     check('M 180 150' in run('--svg', saved).stdout, 'fresh process export uses persisted edit')
 
+guide_document = json.loads(json.dumps(sample))
+guide_composition = guide_document['compositions'][0]
+guide_composition['guides'] = []
+guide_source = dict(object='process-guide-source', point='', field='guide.position')
+guide_target = dict(object='process-guide-target', point='', field='guide.position')
+with tempfile.TemporaryDirectory() as tmp:
+    source_path = Path(tmp) / 'guide-source.nect.json'
+    source_path.write_text(json.dumps(guide_document), encoding='utf-8')
+    requests = [
+        dict(op='apply', expected_revision=0, commands=[
+            dict(type='add_guide', composition=guide_composition['id'],
+                 guide=dict(id=guide_source['object'], name='Guide source', axis='x', position=100)),
+            dict(type='add_guide', composition=guide_composition['id'],
+                 guide=dict(id=guide_target['object'], name='Guide target', axis='x', position=240))]),
+        dict(op='apply', expected_revision=1, commands=[dict(type='link_guide_position',
+            target=guide_target, source=guide_source, replace_driver=False)]),
+        dict(op='get', ref=guide_target),
+        dict(op='properties'),
+        dict(op='apply', expected_revision=2, commands=[dict(type='set', ref=guide_target, value=5)]),
+        dict(op='inspect'),
+    ]
+    proc = subprocess.run([exe, '--serve', str(source_path)], input='\n'.join(map(json.dumps, requests))+'\n',
+                          capture_output=True, text=True, encoding='utf-8', timeout=10)
+    check(proc.returncode == 0, 'Guide JSON-lines process exits normally')
+    replies = [json.loads(line) for line in proc.stdout.splitlines()]
+    check(len(replies) == len(requests) and replies[0]['ok'] and replies[1]['ok'],
+          'Guide add and link commands share the Session JSON-lines path')
+    guide_get = replies[2]['result']
+    check(guide_get['type'] == 'number' and guide_get['unit'] == 'du' and guide_get['space'] == 'composition' and
+          guide_get['authored'] == dict(literal=240, driver=guide_source) and guide_get['evaluated'] == 100 and
+          guide_get['link'] is True and guide_get['expression'] is False,
+          f'Guide JSON-lines get exposes the typed authored literal and evaluated link value: {guide_get!r}')
+    guide_properties = replies[3]['result']
+    check(next(value for value in guide_properties if value['ref'] == guide_target)['evaluated'] == 100,
+          'Guide JSON-lines properties returns the evaluated Guide view')
+    check(not replies[4]['ok'] and replies[4]['error']['code'] == 'TYPE_MISMATCH' and replies[4]['revision'] == 2,
+          'Generic Scalar set rejects Guide.position without advancing revision')
+    linked_native = replies[5]['result']
+    check(linked_native['version'] == '0.23' and
+          next(value for value in linked_native['compositions'][0]['guides'] if value['id'] == guide_target['object'])['position_driver'] == dict(link=guide_source),
+          'Native 0.23 inspect preserves the optional Guide driver and authored target literal')
+
+    cold_path = Path(tmp) / 'guide-cold.nect.json'
+    cold_path.write_text(json.dumps(linked_native), encoding='utf-8')
+    cold_requests = [dict(op='get', ref=guide_target),
+        dict(op='apply', expected_revision=0, commands=[dict(type='unlink_guide_position', target=guide_target)]),
+        dict(op='get', ref=guide_target)]
+    cold = subprocess.run([exe, '--serve', str(cold_path)], input='\n'.join(map(json.dumps, cold_requests))+'\n',
+                          capture_output=True, text=True, encoding='utf-8', timeout=10)
+    cold_replies = [json.loads(line) for line in cold.stdout.splitlines()]
+    check(cold.returncode == 0 and cold_replies[0]['result']['evaluated'] == 100 and cold_replies[1]['ok'] and
+          cold_replies[2]['result']['authored'] == dict(literal=100, driver=None) and cold_replies[2]['result']['evaluated'] == 100,
+          'A distinct JSON-lines process reopens the Guide link and explicit unlink freezes its evaluated value')
+
 duplicate = subprocess.run(
     [exe, '--serve'], input='{"op":"inspect","op":"apply"}\n',
     text=True, capture_output=True, timeout=10)
@@ -212,7 +266,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.22','current writer uses native 0.22')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.23','current writer uses native 0.23')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -229,6 +283,9 @@ field_rules=schema['$defs']['ref']['properties']['field']['anyOf']
 for property_ in replies[1]['result']:
     if property_['type']!='number': continue
     name=property_['ref']['field']
+    # Typed Artboard and Guide views are surfaced by `properties()`, but their
+    # Refs are not members of the native scalar Ref vocabulary.
+    if name.startswith('artboard.') or name=='guide.position': continue
     check(any(name in rule.get('enum',[]) or ('pattern' in rule and re.fullmatch(rule['pattern'],name)) for rule in field_rules),
           'schema accepts emitted numeric field '+name)
 old_schema=json.loads((polystar_path.parent.parent/'schemas/native-v0.16.schema.json').read_text())
@@ -395,11 +452,11 @@ with tempfile.TemporaryDirectory() as tmp:
     check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
         'Rejected process command preserves the authored source and link')
     check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
-    check(replies[12]['result']['version']=='0.22' and replies[12]['result']==replies[8]['result'],
+    check(replies[12]['result']['version']=='0.23' and replies[12]['result']==replies[8]['result'],
         'Undo restores the pre-unlink native state exactly')
     check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
         'Undo restores the stable driver and its evaluated integer through a fresh request')
-    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.22 Text weight document validates in a fresh process')
+    check(run('--validate',replies[12]['result']).returncode==0,'Native 0.23 Text weight document validates in a fresh process')
     old_weight=json.loads(json.dumps(replies[12]['result']));old_weight['version']='0.15'
     check(run('--validate',old_weight).returncode==2 and 'UNSUPPORTED_TEXT_WEIGHT_DRIVER' in run('--validate',old_weight).stderr,
         'Native 0.15 rejects the new Text weight driver instead of dropping it')
@@ -469,10 +526,10 @@ with tempfile.TemporaryDirectory() as tmp:
         linked_layout['glyph_count']>0 and linked_layout['used_fonts'] and
         all(linked_layout[field]==frozen_layout[field] for field in layout_fields),
         'Text layout consumes the linked family, and unlink freezes identical geometry, warnings and used fonts')
-    native=replies[12]['result'];check(native['version']=='0.22' and run('--validate',native).returncode==0,
-        'Native 0.22 content link validates in a separate CLI process')
-    family_native=replies[22]['result'];check(family_native['version']=='0.22' and run('--validate',family_native).returncode==0,
-        'Native 0.22 family link validates in a separate CLI process')
+    native=replies[12]['result'];check(native['version']=='0.23' and run('--validate',native).returncode==0,
+        'Native 0.23 content link validates in a separate CLI process')
+    family_native=replies[22]['result'];check(family_native['version']=='0.23' and run('--validate',family_native).returncode==0,
+        'Native 0.23 family link validates in a separate CLI process')
     path.write_text(json.dumps(family_native,ensure_ascii=False),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
         json.dumps(dict(op='get',ref=family_ref_b))+'\n'+json.dumps(dict(op='inspect'))+'\n',
@@ -554,8 +611,8 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='vertical' and reply['linked_horizontal']['result']['evaluated']=='horizontal',
         'Unlink freezes Text direction, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.22' and run('--validate',native).returncode==0,
-        'Native 0.22 Text direction link validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.23' and run('--validate',native).returncode==0,
+        'Native 0.23 Text direction link validates in a separate CLI process')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
         json.dumps(dict(op='get',ref=ref_a))+'\n'+json.dumps(dict(op='inspect'))+'\n',
@@ -642,8 +699,8 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='frame',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='frame' and reply['linked_auto']['result']['evaluated']=='auto',
         'Unlink freezes Text layout, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.22' and run('--validate',native).returncode==0,
-        'Native 0.22 Text layout link validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.23' and run('--validate',native).returncode==0,
+        'Native 0.23 Text layout link validates in a separate CLI process')
     target_native=next(obj for obj in native['objects'] if obj['id']=='layout-b')['text']
     check(target_native['layout']=='frame' and target_native['layout_driver']==dict(link=ref_a) and
         target_native['parameters']['frame_width']['literal']==96 and target_native['parameters']['frame_height']['literal']==48,
@@ -727,10 +784,10 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='end',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='center',
         'A driven alignment edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.22' and run('--validate',native).returncode==0,
-        'Native 0.22 Text alignment link validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.23' and run('--validate',native).returncode==0,
+        'Native 0.23 Text alignment link validates in a separate CLI process')
     check(linked_metadata['alignment']=='end' and linked_metadata['alignment_driver']==dict(link=ref_a),
-        'Native 0.22 retains alignment literal separately from its stable Ref')
+        'Native 0.23 retains alignment literal separately from its stable Ref')
     legacy=json.loads(json.dumps(native));legacy['version']='0.20'
     target=next(obj for obj in legacy['objects'] if obj['id']=='alignment-b')['text'];target.pop('alignment_driver')
     check(run('--validate',legacy).returncode==0 and
@@ -821,11 +878,11 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored']['result']['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
         reply['restored']['result']['evaluated']=='ja-JP',
         'Driven Text locale edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.22' and run('--validate',native).returncode==0,
-        'Native 0.22 Text locale link validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.23' and run('--validate',native).returncode==0,
+        'Native 0.23 Text locale link validates in a separate CLI process')
     linked_metadata=next(obj for obj in native['objects'] if obj['id']=='locale-b')['text']
     check(linked_metadata['locale']=='ja-JP' and linked_metadata['locale_driver']==dict(link=ref_a),
-        'Native 0.22 retains the target locale literal separately from its stable Ref')
+        'Native 0.23 retains the target locale literal separately from its stable Ref')
     legacy=json.loads(json.dumps(native));legacy['version']='0.21'
     legacy_target=next(obj for obj in legacy['objects'] if obj['id']=='locale-b')['text'];legacy_target.pop('locale_driver')
     check(run('--validate',legacy).returncode==0 and

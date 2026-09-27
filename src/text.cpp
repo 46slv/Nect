@@ -75,7 +75,7 @@ bool same_point(const Vec2& a,const Vec2& b) {return a.x==b.x&&a.y==b.y;}
 
 // DirectWrite supplies cubic outlines in baseline coordinates. The sink keeps
 // those exact curves; it never flattens them or manufactures authored point IDs.
-class OutlineSink final : public IDWriteGeometrySink {
+class OutlineSink : public IDWriteGeometrySink {
 public:
     OutlineSink(std::vector<EvaluatedContour>& contours,std::size_t& anchor_count,DWRITE_MATRIX transform,FLOAT x,FLOAT y)
         :contours_(contours),anchor_count_(anchor_count),transform_(transform),x_(x),y_(y){}
@@ -154,7 +154,7 @@ bool visible_characters(const DWRITE_GLYPH_RUN_DESCRIPTION* description) {
     return false;
 }
 
-class OutlineRenderer final : public IDWriteTextRenderer1 {
+class OutlineRenderer : public IDWriteTextRenderer1 {
 public:
     OutlineRenderer(IDWriteTextAnalyzer2* analyzer,IDWriteFontCollection* fonts,const std::wstring& requested,
         const std::wstring& locale,std::vector<EvaluatedContour>& contours,TextLayout& result,bool vertical)

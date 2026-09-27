@@ -97,7 +97,7 @@ std::size_t extra(const ImageSource& v){return total(extra(v.asset),extra(v.widt
 std::size_t extra(const RasterAsset& v){return total(extra(v.id),extra(v.name),extra(v.mode),extra(v.locator),v.payload?v.payload->bytes().size()+sizeof(RasterPayload)+allocation_overhead:0);}
 std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.compositing),extra(v.image));}
 std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
-std::size_t extra(const Guide& v){return total(extra(v.id),extra(v.name),extra(v.axis));}
+std::size_t extra(const Guide& v){return total(extra(v.id),extra(v.name),extra(v.axis),extra(v.position_driver));}
 std::size_t extra(const LayoutRect&){return 0;}
 std::size_t extra(const Margin&){return 0;}
 std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds));}

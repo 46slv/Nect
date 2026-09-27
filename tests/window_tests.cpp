@@ -1139,12 +1139,41 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     check(visible_position_fields==1&&restored_position->text()=="25",
         "After queued Escape refresh settles, one current Guide editor is visible with authored state");
 
+    const Id guide_source_id="guide-ui-source";
+    const Ref guide_target_ref{guide_id,"","guide.position"};
+    const Ref guide_source_ref{guide_source_id,"","guide.position"};
+    session.apply({AddGuide{session.document().compositions.front().id,
+            {guide_source_id,"UI Guide source","x",100}},
+        LinkGuidePosition{guide_target_ref,guide_source_ref,false}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    auto* linked_position=visible_child<QLineEdit>(window,position_name.c_str());
+    auto* linked_status=visible_child<QLabel>(window,("guide-position-status-"+guide_id).c_str());
+    auto* unlink_position=visible_child<QPushButton>(window,("guide-unlink-position-"+guide_id).c_str());
+    check(linked_position->isReadOnly()&&linked_position->text()=="100"&&
+          linked_status->text().contains("UI Guide source")&&linked_status->text().contains("25")&&
+          unlink_position->text()=="Unlink position",
+        "Guide editor shows the evaluated coordinate, source name, authored literal and explicit Unlink action");
+    const auto before_unlink=session.revision();QTest::mouseClick(unlink_position,Qt::LeftButton);QApplication::processEvents();
+    auto* unlinked_position=visible_child<QLineEdit>(window,position_name.c_str());
+    auto* unlinked_status=window.findChild<QLabel*>(QString::fromStdString("guide-position-status-"+guide_id));
+    auto* hidden_unlink=window.findChild<QPushButton*>(QString::fromStdString("guide-unlink-position-"+guide_id));
+    const auto frozen_position=guide_position_property(session.document(),guide_target_ref);
+    check(session.revision()==before_unlink+1&&frozen_position.literal==100&&!frozen_position.driver&&
+          frozen_position.evaluated==100&&!unlinked_position->isReadOnly()&&unlinked_position->text()=="100"&&
+          unlinked_status&&!unlinked_status->isVisible()&&hidden_unlink&&!hidden_unlink->isVisible(),
+        "Guide Unlink freezes the evaluated coordinate and refreshes the editor to editable literal state");
+
     input(position_name.c_str(),"nan",false);const auto before_delete=session.revision();
-    check(window.statusBar()->currentMessage().contains("INVALID_VALUE")&&session.document().compositions.front().guides.front().position==25,
+    check(window.statusBar()->currentMessage().contains("INVALID_VALUE")&&
+          guide_position_property(session.document(),guide_target_ref).literal==100,
         "Nonfinite Guide input is rejected while the invalid draft remains visible");
     const std::string delete_name="guide-delete-"+guide_id;click(delete_name.c_str());
-    check(session.revision()==before_delete+1&&session.document().compositions.front().guides.empty(),
-        "Explicit Delete Guide discards an invalid draft and removes only that stable ID");
+    check(session.revision()==before_delete+1&&session.document().compositions.front().guides.size()==1&&
+          session.document().compositions.front().guides.front().id==guide_source_id,
+        "Explicit Delete Guide discards an invalid draft and removes only the selected stable ID");
+    click(("guide-delete-"+guide_source_id).c_str());
+    check(session.revision()==before_delete+2&&session.document().compositions.front().guides.empty(),
+        "Explicit Delete Guide can then remove the independent source Guide");
 
     click("margin-clear");const auto before_copy_without_margin=session.revision();click("grid-copy-margin-box");
     check(session.revision()==before_copy_without_margin&&window.statusBar()->currentMessage().contains("INVALID_LAYOUT"),

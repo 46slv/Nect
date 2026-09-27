@@ -4,6 +4,7 @@
 #include <QComboBox>
 #include <QMenu>
 #include <QPushButton>
+#include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
@@ -29,9 +30,16 @@ void controls(){
     s.undo(s.revision());w.host.edited();s.undo(s.revision());w.host.edited();s.undo(s.revision());w.host.edited();check(encode(s.document())==original,"Mask, blend and bypass Undo restores exact source structure");
     w.canvas->set_selections({{"content",""},{"clip",""}});context(w,"Mask With Bottom · Content");
     const auto bottom=w.canvas->selected_object;check(s.document().objects.at(bottom).compositing.mask->source=="content","Bottom uses first painted object");
-    w.canvas->set_selections({{bottom,""},{"background",""}});context(w,"Put Inside · Masked Group");
-    check(s.document().objects.at(bottom).children.front()=="background"&&s.document().compositions.front().roots.size()==1,"Put Inside targets top selected Group and retains order");
     check(encode(decode(encode(s.document())))==encode(s.document()),"Masked UI document survives native readback");
+    const auto masked=encode(s.document());const auto masked_revision=s.revision();
+    w.canvas->set_selections({{bottom,""},{"background",""}});context(w,"Put Inside · Masked Group");
+    check(s.revision()==masked_revision&&encode(s.document())==masked&&
+          w.statusBar()->currentMessage().startsWith("PUT_INSIDE_APPEARANCE"),
+        "Put Inside rejects a masked destination without changing authored state");
+    s.apply({SetMask{bottom,std::nullopt}},s.revision());w.host.edited();
+    w.canvas->set_selections({{bottom,""},{"background",""}});context(w,"Put Inside · Masked Group");
+    check(s.document().objects.at(bottom).children.front()=="background"&&s.document().compositions.front().roots.size()==1,
+        "Put Inside targets the now neutral top selected Group and retains order");
 }
 }
 int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();std::cout<<"Compositing UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

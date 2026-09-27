@@ -238,6 +238,7 @@ struct Guide {
     std::string name;
     std::string axis="x"; // x is a vertical line, y is horizontal.
     double position=0;
+    std::optional<Ref> position_driver;
     bool operator==(const Guide&) const = default;
 };
 struct LayoutRect {
@@ -357,6 +358,8 @@ struct DetachArtboardParent { Id composition; Id artboard; };
 struct AddGuide { Id composition; Guide guide; };
 struct UpdateGuide { Id composition; Guide guide; };
 struct DeleteGuide { Id composition; Id guide_id; };
+struct LinkGuidePosition { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkGuidePosition { Ref target; };
 struct SetArtboardLayout { Id composition; Id artboard_id; std::optional<ArtboardLayout> layout; };
 struct AddRasterAsset { RasterAsset asset; };
 struct ReplaceRasterAsset { RasterAsset asset; };
@@ -434,7 +437,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,OperationOptions,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
-    DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,SetArtboardLayout,CreateText,UpdateText,
+    DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
@@ -537,6 +540,14 @@ void add_default_stroke(Document&,const Id& object);
 
 std::vector<Ref> properties(const Document& document);
 Scalar property(const Document& document, const Ref& ref);
+struct GuidePositionProperty {
+    double literal=0;
+    std::optional<Ref> driver;
+    double evaluated=0;
+};
+GuidePositionProperty guide_position_property(const Document&,const Ref&);
+double evaluate_guide_position(const Document&,const Id& composition,const Id& guide);
+std::map<Id,double> evaluate_guide_positions(const Document&,const Id& composition);
 struct ArtboardSizeProperty {
     double literal=0;
     std::optional<Ref> driver;

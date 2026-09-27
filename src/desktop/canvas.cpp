@@ -1045,9 +1045,11 @@ const Guide* Canvas::hit_guide(QPointF screen) const {
     const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),
         [&](const auto& item){return item.id==active_composition_;});
     if(composition==document.compositions.end())return nullptr;
+    const auto positions=evaluate_guide_positions(document,composition->id);
     const Guide* chosen=nullptr;double best=6.0;
     for(const auto& guide:composition->guides) {
-        const auto world=guide.axis=="x"?QPointF(guide.position,0):QPointF(0,guide.position);
+        const auto position=positions.at(guide.id);
+        const auto world=guide.axis=="x"?QPointF(position,0):QPointF(0,position);
         const auto mapped=view().map(world);
         const auto separation=guide.axis=="x"?std::abs(screen.x()-mapped.x()):std::abs(screen.y()-mapped.y());
         if(separation>6.0)continue;
@@ -1060,6 +1062,8 @@ const Guide* Canvas::hit_guide(QPointF screen) const {
 
 void Canvas::begin_guide_drag(const Guide& guide,QPointF screen) {
     try {
+        if(guide.position_driver)
+            throw Error("DRIVEN_GUIDE_POSITION","Unlink the Guide position in Composition setup before dragging it");
         guide_drag_start_=guide;guide_drag_inverse_view_=view().inverted();guide_drag_world_start_=guide_drag_inverse_view_.map(screen);
         guide_drag_session_=session_identity_provider_?session_identity_provider_():QString::fromStdString(session_.document().id);
         guide_drag_document_=session_.document().id;guide_drag_composition_=active_composition_;
@@ -1079,9 +1083,11 @@ void Canvas::paint_layout_overlays(QPainter& painter,const Document& document) c
         const auto visible=view().inverted().mapRect(QRectF(rect()));
         QPen pen(QColor(44,151,205,190),1,Qt::DashLine);pen.setCosmetic(true);
         painter.setPen(pen);
+        const auto positions=evaluate_guide_positions(document,composition->id);
         for(const auto& guide:composition->guides) {
-            if(guide.axis=="x")painter.drawLine(QPointF(guide.position,visible.top()),QPointF(guide.position,visible.bottom()));
-            else if(guide.axis=="y")painter.drawLine(QPointF(visible.left(),guide.position),QPointF(visible.right(),guide.position));
+            const auto position=positions.at(guide.id);
+            if(guide.axis=="x")painter.drawLine(QPointF(position,visible.top()),QPointF(position,visible.bottom()));
+            else if(guide.axis=="y")painter.drawLine(QPointF(visible.left(),position),QPointF(visible.right(),position));
         }
     }
     for(const auto& source:composition->artboards) {
@@ -1232,9 +1238,11 @@ void Canvas::prepare_snap(bool point_drag) {
     const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),
         [&](const auto& item){return item.id==active_composition_;});
     if(composition==document.compositions.end())return;
+    const auto guide_positions=snap_guides_enabled_?evaluate_guide_positions(document,composition->id):std::map<Id,double>{};
     if(snap_guides_enabled_)for(const auto& guide:composition->guides) {
-        if(!std::isfinite(guide.position))continue;
-        SnapCandidate candidate{guide.position,SnapKind::guide,guide.id,QStringLiteral("guide line"),0};
+        const auto position=guide_positions.at(guide.id);
+        if(!std::isfinite(position))continue;
+        SnapCandidate candidate{position,SnapKind::guide,guide.id,QStringLiteral("guide line"),0};
         if(guide.axis=="x")snap_x_targets_.push_back(candidate);
         else if(guide.axis=="y")snap_y_targets_.push_back(candidate);
     }

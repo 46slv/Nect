@@ -1187,6 +1187,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         layout->addWidget(new QLabel("No active artboard"));layout->addStretch();return;
     }
     const auto& comp=find_composition(host.session.document(),canvas->active_composition());
+    const auto guide_positions=evaluate_guide_positions(host.session.document(),comp.id);
     const auto& board=find_artboard(comp,canvas->active_artboard());
     const auto resolved=evaluate_artboard(comp,board.id);
     const auto composition=comp.id,id=board.id;const auto frozen_session=host.session_id;
@@ -1371,18 +1372,33 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* row=new QGroupBox(qs(source.name),guides_box);row->setObjectName("guide-row-"+qs(source.id));auto* form=new QFormLayout(row);
         auto* name_input=new QLineEdit(qs(source.name),row);name_input->setObjectName("guide-name-"+qs(source.id));
         auto* axis_input=new QComboBox(row);axis_input->setObjectName("guide-axis-"+qs(source.id));axis_input->addItem("Vertical · x",QStringLiteral("x"));axis_input->addItem("Horizontal · y",QStringLiteral("y"));axis_input->setCurrentIndex(axis_input->findData(qs(source.axis)));
-        auto* position_input=make_number(row,("guide-position-"+source.id).c_str(),"Guide position",QString::number(source.position,'g',15));
+        const Ref position_ref{source.id,"","guide.position"};
+        auto* position_input=make_number(row,("guide-position-"+source.id).c_str(),"Guide position",QString::number(guide_positions.at(source.id),'g',15));
+        position_input->setReadOnly(source.position_driver.has_value());
+        auto* position_status=new QLabel(row);position_status->setObjectName("guide-position-status-"+qs(source.id));
+        auto* unlink_position=new QPushButton("Unlink position",row);unlink_position->setObjectName("guide-unlink-position-"+qs(source.id));
+        if(source.position_driver) {
+            auto source_name=source.position_driver->object;
+            for(const auto& candidate:comp.guides)if(candidate.id==source.position_driver->object){source_name=candidate.name;break;}
+            position_status->setText("Linked to "+qs(source_name)+" · authored "+QString::number(source.position,'g',15)+" du");
+            position_status->setVisible(true);unlink_position->setVisible(true);
+        } else {position_status->setVisible(false);unlink_position->setVisible(false);}
         form->addRow("Name",name_input);form->addRow("Axis",axis_input);form->addRow("Position · du",position_input);
+        form->addRow("Position source",position_status);form->addRow(unlink_position);
         auto* actions=new QWidget(row);auto* buttons=new QHBoxLayout(actions);buttons->setContentsMargins(0,0,0,0);
         auto* apply=new QPushButton("Apply Guide",actions);apply->setObjectName("guide-apply-"+qs(source.id));buttons->addWidget(apply);
         auto* remove=new QPushButton("Delete Guide",actions);remove->setObjectName("guide-delete-"+qs(source.id));buttons->addWidget(remove);form->addRow(actions);
         const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,parse_number] {
-            auto changed=source;changed.name=name_input->text().toStdString();changed.axis=axis_input->currentData().toString().toStdString();changed.position=parse_number(position_input);
+            auto changed=source;changed.name=name_input->text().toStdString();changed.axis=axis_input->currentData().toString().toStdString();
+            changed.position=source.position_driver?source.position:parse_number(position_input);
             return std::vector<Command>{UpdateGuide{composition,std::move(changed)}};
         };
         bind_number(name_input,row,builder);bind_number(position_input,row,builder);
         connect(axis_input,qOverload<int>(&QComboBox::currentIndexChanged),this,[preview_from,row,builder](int){preview_from(row,builder);});
         connect(apply,&QPushButton::clicked,this,[commit_from,row,builder]{commit_from(row,builder);});
+        connect(unlink_position,&QPushButton::clicked,this,[commit_explicit,row,position_ref]{
+            commit_explicit(row,[position_ref]{return std::vector<Command>{UnlinkGuidePosition{position_ref}};});
+        });
         connect(remove,&QPushButton::clicked,this,[commit_explicit,row,composition,guide_id=source.id]{commit_explicit(row,[composition,guide_id]{return std::vector<Command>{DeleteGuide{composition,guide_id}};});});
         guides_layout->addWidget(row);
     };
@@ -2819,9 +2835,10 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
     for(const auto& board:active_composition.artboards)if(board.layout&&board.layout->grid)
         alignment_target->addItem(QString("Grid: %1 · Artboard: %2 (%3)")
             .arg(qs(board.layout->grid->id),qs(board.name),qs(board.id)),qs("grid:"+board.layout->grid->id));
+    const auto guide_positions=evaluate_guide_positions(d,active_composition.id);
     for(const auto& guide:active_composition.guides)
         alignment_target->addItem(QString("Guide: %1 (%2) · %3=%4")
-            .arg(qs(guide.name),qs(guide.id),qs(guide.axis),QString::number(guide.position,'g',15)),qs("guide:"+guide.id));
+            .arg(qs(guide.name),qs(guide.id),qs(guide.axis),QString::number(guide_positions.at(guide.id),'g',15)),qs("guide:"+guide.id));
     for(int index=0;index<alignment_target->count();++index)
         alignment_target->setItemData(index,alignment_target->itemText(index),Qt::ToolTipRole);
     auto target_index=alignment_target->findData(qs(alignment_reference_));
