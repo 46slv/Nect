@@ -19,6 +19,8 @@ import uuid
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
+from session_client import call as desktop_api_call
 EXE = str(Path(sys.argv[1]).resolve())
 desktop = None
 mcp = None
@@ -92,10 +94,18 @@ try:
         init = rpc('initialize', dict(protocolVersion='2025-06-18', capabilities={}, clientInfo=dict(name='nect-scenario', version='1')))
         assert init['result']['protocolVersion'] == '2025-06-18'
         mcp.stdin.write(json.dumps(dict(jsonrpc='2.0', method='notifications/initialized')) + '\n'); mcp.stdin.flush()
-        assert {t['name'] for t in rpc('tools/list')['result']['tools']} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png', 'nect_import_svg'}
+        assert {t['name'] for t in rpc('tools/list')['result']['tools']} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png', 'nect_analyze_regions', 'nect_import_svg'}
         live = tool('nect_session')
         identity = {key: live[key] for key in ('session_id', 'document_id')}
         comp = core('inspect')['result']['compositions'][0]
+        region_request = dict(identity, op='analyze_regions', expected_revision=live['revision'],
+            composition=comp['id'], artboard=comp['artboards'][0]['id'], scale=1, threshold=128)
+        direct_regions = desktop_api_call(endpoint, region_request)
+        mcp_regions = tool('nect_analyze_regions', region_request)
+        assert direct_regions == mcp_regions and direct_regions['ok']
+        assert direct_regions['revision'] == live['revision']
+        assert direct_regions['result']['source_revision'] == live['revision']
+        assert direct_regions['result']['regions'] == []
         rng = random.Random(7821)
         commands = []
         for i in range(24):
@@ -693,6 +703,14 @@ try:
         vector_before=core('inspect')['result']
         vector=tool('nect_import_svg',dict(identity,op='import_svg',expected_revision=spacing_rev+1,path=str(svg_input),composition=comp['id'],prefix='mcp-vector',name='Vector',x=10,y=20))
         assert vector['ok'] and vector['result']['paths']==2 and vector['result']['root']=='mcp-vector'
+        vector_analysis_request=dict(identity,op='analyze_regions',expected_revision=vector['revision'],
+            composition=comp['id'],artboard=comp['artboards'][0]['id'],scale=1,threshold=128)
+        direct_vector_analysis=desktop_api_call(endpoint,vector_analysis_request)
+        mcp_vector_analysis=tool('nect_analyze_regions',vector_analysis_request)
+        assert direct_vector_analysis==mcp_vector_analysis and direct_vector_analysis['ok']
+        assert direct_vector_analysis['revision']==vector['revision']
+        assert direct_vector_analysis['result']['source_revision']==vector['revision']
+        assert direct_vector_analysis['result']['regions'], 'Filled SVG artwork yields at least one analyzed region'
         assert any(o['id']=='mcp-vector' and o['kind']=='group' for o in core('inspect')['result']['objects'])
         vector_document=core('inspect')['result']
         ungroup_revision=apply([dict(type='ungroup',composition=comp['id'],parent='',group='mcp-vector')],vector['revision'])

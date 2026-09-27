@@ -117,6 +117,14 @@ TOOLS = [
          scale={'type':'number'},background={'type':'string','enum':['transparent','white']}),
          'required':['session_id','document_id','op','expected_revision','path','composition','artboard','scale','background'],'additionalProperties':False},
      'annotations':{'readOnlyHint':False,'destructiveHint':True,'openWorldHint':False}},
+    {'name': 'nect_analyze_regions',
+     'description': 'Read-only analysis of committed Canvas output on one Artboard. Requires the exact live session/document identity and expected revision; active gestures reject. Uses a transparent backdrop and the shared Canvas renderer at scale 0 < scale <= 16, then finds deterministic 4-connected components where the 8-bit output alpha byte is >= threshold. Returns integer pixel area and bounds, image dimensions, sRGB/premultiplied alpha domain, and source revision. Limits: 4,000,000 output pixels and 10,000 regions. No files, Session history, or authored state are changed.',
+     'inputSchema': {'type':'object','properties':dict(IDENTITY,
+         op={'type':'string','enum':['analyze_regions']},expected_revision={'type':'integer','minimum':0},
+         composition={'type':'string'},artboard={'type':'string'},scale={'type':'number','exclusiveMinimum':0,'maximum':16},
+         threshold={'type':'integer','minimum':1,'maximum':255}),
+         'required':['session_id','document_id','op','expected_revision','composition','artboard','scale','threshold'],'additionalProperties':False},
+     'annotations':{'readOnlyHint':True,'destructiveHint':False,'openWorldHint':False}},
     {'name': 'nect_import_svg',
      'description': 'Import a bounded local static SVG as editable path/Group artwork in one Undo. Supports M/L/H/V/C/S/Q/T/A/Z, groups, rect/circle/ellipse/line/polyline/polygon, solid paints and affine transforms. Shapes/arcs become paths; elliptical portions use cubic approximation (spans at most45 degrees). CSS stylesheets, text/images, masks, external content and unknown semantics reject atomically. The source viewport maps coordinates but is not imported as a crop or Artboard. Original file unchanged. Requires absolute local path, fresh 1..40-character identifier prefix, current identity/revision; 1 MiB,128 nodes,10000 points.',
      'inputSchema': {'type': 'object', 'properties': dict(IDENTITY,
@@ -221,7 +229,11 @@ def run(endpoint):
                 for key, value in arguments.items():
                     rule = schema['properties'][key]
                     expected = {'string': str, 'object': dict, 'integer': int, 'number': (int, float)}[rule['type']]
-                    if not isinstance(value, expected) or isinstance(value, bool) or ('enum' in rule and value not in rule['enum']) or ('minimum' in rule and value < rule['minimum']):
+                    if (not isinstance(value, expected) or isinstance(value, bool) or
+                        ('enum' in rule and value not in rule['enum']) or
+                        ('minimum' in rule and value < rule['minimum']) or
+                        ('maximum' in rule and value > rule['maximum']) or
+                        ('exclusiveMinimum' in rule and value <= rule['exclusiveMinimum'])):
                         raise ProtocolError(-32602, 'Invalid argument: ' + key)
                 envelope = {'op': 'hello'} if name == 'nect_session' else dict(arguments)
                 if name == 'nect_command':

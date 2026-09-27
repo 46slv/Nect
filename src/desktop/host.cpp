@@ -20,6 +20,8 @@
 #include <memory>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <cstdint>
 
 namespace nect::desktop {
 Id new_id() { return QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString(); }
@@ -344,6 +346,76 @@ QJsonObject Host::export_png(const QString& path,const Id& composition,const Id&
         {"background",white_background?"white":"transparent"},{"color_space","sRGB"},{"revision",static_cast<qint64>(expected)}};
 }
 
+QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale,std::uint64_t source_revision) {
+    if(threshold<1||threshold>255)throw Error("INVALID_THRESHOLD","Alpha threshold must be an integer from 1 through 255");
+    if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","Analysis scale must be greater than zero and at most 16");
+    if(image.isNull()||image.width()<1||image.height()<1)throw Error("RENDER_ALLOCATION","Could not read rendered analysis pixels");
+    constexpr std::uint64_t max_pixels=4'000'000;
+    constexpr std::size_t max_regions=10'000;
+    const auto width=static_cast<std::uint64_t>(image.width());
+    const auto height=static_cast<std::uint64_t>(image.height());
+    const auto pixel_count=width*height;
+    if(pixel_count>max_pixels)throw Error("ANALYSIS_LIMIT","Region analysis is limited to 4,000,000 output pixels");
+
+    std::vector<std::uint8_t> visited(static_cast<std::size_t>(pixel_count),0);
+    std::vector<std::uint32_t> queue;
+    QJsonArray regions;
+    const auto alpha_at=[&](std::uint32_t index) {
+        const auto y=static_cast<int>(index/width),x=static_cast<int>(index%width);
+        return qAlpha(image.pixel(x,y));
+    };
+    for(std::uint32_t seed=0;seed<static_cast<std::uint32_t>(pixel_count);++seed) {
+        if(visited[seed]||alpha_at(seed)<threshold)continue;
+        if(static_cast<std::size_t>(regions.size())>=max_regions)
+            throw Error("ANALYSIS_LIMIT","Region analysis is limited to 10,000 components");
+        queue.clear();queue.push_back(seed);visited[seed]=1;
+        std::size_t cursor=0;
+        std::uint64_t area=0;
+        auto min_x=static_cast<int>(seed%width),max_x=min_x;
+        auto min_y=static_cast<int>(seed/width),max_y=min_y;
+        const auto enqueue=[&](std::uint32_t index) {
+            if(!visited[index]&&alpha_at(index)>=threshold) {visited[index]=1;queue.push_back(index);}
+        };
+        while(cursor<queue.size()) {
+            const auto index=queue[cursor++];
+            const auto x=static_cast<int>(index%width),y=static_cast<int>(index/width);
+            ++area;min_x=std::min(min_x,x);max_x=std::max(max_x,x);min_y=std::min(min_y,y);max_y=std::max(max_y,y);
+            if(x>0)enqueue(index-1);
+            if(static_cast<std::uint64_t>(x)+1<width)enqueue(index+1);
+            if(y>0)enqueue(index-static_cast<std::uint32_t>(width));
+            if(static_cast<std::uint64_t>(y)+1<height)enqueue(index+static_cast<std::uint32_t>(width));
+        }
+        regions.append(QJsonObject{{"area",static_cast<qint64>(area)},
+            {"x",min_x},{"y",min_y},{"width",max_x-min_x+1},{"height",max_y-min_y+1}});
+    }
+    return {{"regions",regions},{"threshold",threshold},{"connectivity",4},{"scale",scale},
+        {"width",image.width()},{"height",image.height()},{"color_space","sRGB"},
+        {"coordinate_space","artboard-output-pixels"},{"origin","top-left"},
+        {"pixel_format","ARGB32_Premultiplied"},{"alpha_domain","8-bit premultiplied Canvas output alpha byte"},
+        {"source_revision",static_cast<qint64>(source_revision)}};
+}
+
+QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected) {
+    if(expected!=session.revision())throw Error("REVISION_CONFLICT","Refresh revision before analyzing regions");
+    if(session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before analyzing regions");
+    if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","Analysis scale must be greater than zero and at most 16");
+    if(threshold<1||threshold>255)throw Error("INVALID_THRESHOLD","Alpha threshold must be an integer from 1 through 255");
+    const auto found=std::find_if(session.document().compositions.begin(),session.document().compositions.end(),
+        [&](const auto& value){return value.id==composition;});
+    if(found==session.document().compositions.end())throw Error("MISSING_COMPOSITION",composition);
+    const auto board=evaluate_artboard(*found,artboard);
+    const auto pixel_width=std::ceil(board.width*scale),pixel_height=std::ceil(board.height*scale);
+    constexpr double renderer_axis_limit=8192;
+    constexpr double renderer_pixel_limit=16'777'216;
+    if(!std::isfinite(pixel_width)||!std::isfinite(pixel_height)||pixel_width<1||pixel_height<1||
+       pixel_width>renderer_axis_limit||pixel_height>renderer_axis_limit||pixel_width*pixel_height>renderer_pixel_limit)
+        throw Error("EXPORT_LIMIT","PNG output is limited to 8192 pixels per axis and 16,777,216 pixels");
+    if(pixel_width*pixel_height>4'000'000)
+        throw Error("ANALYSIS_LIMIT","Region analysis is limited to 4,000,000 output pixels");
+    const auto image=Canvas::render_artboard(session.document(),composition,artboard,scale,false);
+    return analyze_region_pixels(image,threshold,scale,expected);
+}
+
 QByteArray Host::dispatch(const QByteArray& input) {
     QJsonObject response;
     try {
@@ -351,12 +423,13 @@ QByteArray Host::dispatch(const QByteArray& input) {
         auto outer=QJsonDocument::fromJson(input).object();
         const auto operation=string(outer,"op");
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
+            (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold"}:
             (operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
              operation=="core"?QStringList{"op","session_id","document_id","request"}:
              operation=="import_svg"?QStringList{"op","session_id","document_id","expected_revision","path","composition","prefix","name","x","y"}:
                 (operation=="import_image"?QStringList{"op","session_id","document_id","expected_revision","path","mode","composition","parent","asset","id","name","x","y"}:
                  operation=="asset"?QStringList{"op","session_id","document_id","expected_revision","asset","action","path"}:
-                 QStringList{"op","session_id","document_id","expected_revision","path"}));
+                 QStringList{"op","session_id","document_id","expected_revision","path"})));
         for(auto it=outer.begin();it!=outer.end();++it)
             if(!allowed.contains(it.key()))throw Error("UNKNOWN_FIELD",it.key().toStdString());
         if(string(outer,"op")=="hello") {
@@ -385,6 +458,14 @@ QByteArray Host::dispatch(const QByteArray& input) {
                         throw Error("INVALID_REQUEST","Numeric scale and transparent/white background required");
                     response={{"ok",true},{"result",export_png(string(outer,"path"),string(outer,"composition").toStdString(),
                         string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),background=="white",session.revision())}};
+                } else if(op=="analyze_regions") {
+                    if(!outer.value("scale").isDouble()||!outer.value("threshold").isDouble())
+                        throw Error("INVALID_REQUEST","Numeric scale and integer alpha threshold required");
+                    const auto threshold=outer.value("threshold").toDouble();
+                    if(!std::isfinite(threshold)||std::floor(threshold)!=threshold||threshold<1||threshold>255)
+                        throw Error("INVALID_THRESHOLD","Alpha threshold must be an integer from 1 through 255");
+                    response={{"ok",true},{"result",analyze_regions(string(outer,"composition").toStdString(),
+                        string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),static_cast<int>(threshold),session.revision())}};
                 } else if(op=="import_svg") {
                     if(!outer.value("x").isDouble()||!outer.value("y").isDouble())throw Error("INVALID_REQUEST","Numeric x/y required");
                     response={{"ok",true},{"result",import_svg(string(outer,"path"),string(outer,"composition").toStdString(),string(outer,"prefix").toStdString(),
