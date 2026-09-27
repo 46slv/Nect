@@ -60,6 +60,20 @@ void check_edges(const QJsonObject& value,const QJsonArray& expected,int pixel_c
     for(const auto& run:runs)run_pixel_count+=run.toObject().value("width").toInt();
     check(run_pixel_count==value.value("edge_pixel_count").toInt(),"Edge run widths sum to the edge pixel count");
 }
+QJsonObject expected_contour(int region,std::initializer_list<std::array<int,2>> points) {
+    QJsonArray vertices;
+    for(const auto& xy:points) {
+        QJsonArray point;point.append(xy[0]);point.append(xy[1]);vertices.append(point);
+    }
+    return {{"region_index",region},{"closed",true},{"vertices",vertices}};
+}
+void check_contours(const QJsonObject& value,const QJsonArray& expected,const char* message) {
+    check(value.value("outer_contours").toArray()==expected,message);
+    check(value.value("contour_rule").toString()=="foreground-right-clockwise-outer"&&
+        value.value("contour_coordinate_space").toString()=="artboard-output-pixel-corners"&&
+        value.value("contour_closed").toString()=="implicit-last-to-first",
+        "Contour rule, corner coordinate space and implicit closure are declared");
+}
 QJsonObject pixel_request(std::uint64_t revision,int threshold) {
     QImage image(8,6,QImage::Format_ARGB32_Premultiplied);image.fill(qRgba(0,0,0,0));
     for(int y=1;y<3;++y)for(int x=1;x<3;++x)image.setPixel(x,y,qRgba(40,90,130,255));
@@ -156,6 +170,81 @@ void independent_edge_oracle() {
     try {analyze_region_pixels(comb,1,1.0,13);throw std::runtime_error("Expected edge run limit refusal");}
     catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT","The 100,001st edge run refuses without a partial result");}
 }
+QImage serpentine(int width,int stripe_count) {
+    QImage image(width,stripe_count*2-1,QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);
+    for(int stripe=0;stripe<stripe_count;++stripe) {
+        const auto y=stripe*2;
+        for(int x=0;x<width;++x)image.setPixel(x,y,qRgba(0,0,0,255));
+        if(stripe+1<stripe_count) {
+            const auto connector_x=(stripe%2==0)?width-1:0;
+            image.setPixel(connector_x,y+1,qRgba(0,0,0,255));
+        }
+    }
+    return image;
+}
+void independent_contour_oracle() {
+    QImage rectangle_image(6,6,QImage::Format_ARGB32_Premultiplied);rectangle_image.fill(Qt::transparent);
+    for(int y=1;y<=3;++y)for(int x=1;x<=3;++x)rectangle_image.setPixel(x,y,qRgba(0,0,0,255));
+    const auto rectangle_result=analyze_region_pixels(rectangle_image,128,1.0,14);
+    check_contours(rectangle_result,QJsonArray{expected_contour(0,{{1,1},{4,1},{4,4},{1,4}})},
+        "A filled 3x3 pixel rectangle produces its four pixel-corner vertices");
+
+    QImage boundary_image(3,3,QImage::Format_ARGB32_Premultiplied);boundary_image.fill(Qt::transparent);
+    boundary_image.setPixel(2,2,qRgba(0,0,0,255));
+    const auto boundary_result=analyze_region_pixels(boundary_image,128,1.0,15);
+    check_contours(boundary_result,QJsonArray{expected_contour(0,{{2,2},{3,2},{3,3},{2,3}})},
+        "A pixel at the bottom-right Artboard edge uses width and height corner coordinates");
+
+    QImage diagonal_image(3,3,QImage::Format_ARGB32_Premultiplied);diagonal_image.fill(Qt::transparent);
+    diagonal_image.setPixel(0,0,qRgba(0,0,0,255));
+    diagonal_image.setPixel(1,1,qRgba(0,0,0,255));
+    diagonal_image.setPixel(2,2,qRgba(0,0,0,127));
+    const auto at_128=analyze_region_pixels(diagonal_image,128,1.0,16);
+    check(at_128.value("regions").toArray().size()==2,"Diagonal corner contact remains two 4-connected regions");
+    check_contours(at_128,QJsonArray{
+        expected_contour(0,{{0,0},{1,0},{1,1},{0,1}}),
+        expected_contour(1,{{1,1},{2,1},{2,2},{1,2}})},
+        "Diagonal foreground pixels trace separate contours and alpha 127 is excluded at threshold 128");
+    const auto at_127=analyze_region_pixels(diagonal_image,127,1.0,16);
+    check(at_127.value("regions").toArray().size()==3,"Alpha equal to threshold 127 becomes a third region");
+    check_contours(at_127,QJsonArray{
+        expected_contour(0,{{0,0},{1,0},{1,1},{0,1}}),
+        expected_contour(1,{{1,1},{2,1},{2,2},{1,2}}),
+        expected_contour(2,{{2,2},{3,2},{3,3},{2,3}})},
+        "The threshold-equal diagonal pixel receives its own canonical contour");
+
+    QImage l_image(4,4,QImage::Format_ARGB32_Premultiplied);l_image.fill(Qt::transparent);
+    l_image.setPixel(1,1,qRgba(0,0,0,255));l_image.setPixel(1,2,qRgba(0,0,0,255));
+    l_image.setPixel(2,2,qRgba(0,0,0,255));
+    const auto l_result=analyze_region_pixels(l_image,128,1.0,17);
+    check_contours(l_result,QJsonArray{expected_contour(0,{{1,1},{2,1},{2,2},{3,2},{3,3},{1,3}})},
+        "A three-pixel L preserves its concave corner while removing straight intermediate vertices");
+
+    QImage self_touch_image(4,5,QImage::Format_ARGB32_Premultiplied);self_touch_image.fill(Qt::transparent);
+    for(const auto& xy:std::vector<std::array<int,2>>{{1,1},{0,1},{0,2},{0,3},{1,3},{2,3},{2,2}})
+        self_touch_image.setPixel(xy[0],xy[1],qRgba(0,0,0,255));
+    const auto self_touch_result=analyze_region_pixels(self_touch_image,128,1.0,17);
+    check(self_touch_result.value("regions").toArray().size()==1,"A connected foreground route reunites diagonal corner-touching pixels");
+    check_contours(self_touch_result,QJsonArray{expected_contour(0,{{0,1},{2,1},{2,2},{1,2},{1,3},{2,3},
+        {2,2},{3,2},{3,4},{0,4}})},
+        "At a diagonal vertex crossing, right-turn pairing keeps the self-touch boundary walk deterministic");
+
+    QImage ring_image(7,7,QImage::Format_ARGB32_Premultiplied);ring_image.fill(Qt::transparent);
+    for(int y=1;y<=5;++y)for(int x=1;x<=5;++x)
+        if(x==1||x==5||y==1||y==5)ring_image.setPixel(x,y,qRgba(0,0,0,255));
+    const auto ring_result=analyze_region_pixels(ring_image,128,1.0,18);
+    check_contours(ring_result,QJsonArray{expected_contour(0,{{1,1},{6,1},{6,6},{1,6}})},
+        "A 5x5 opaque ring returns only its outer contour and omits the hole boundary");
+    check_edges(ring_result,expected_runs({{1,1,5},{2,1,1},{2,5,1},{3,1,1},{3,5,1},
+        {4,1,1},{4,5,1},{5,1,5}}),16,
+        "R09-D2 edge runs still include foreground pixels adjacent to the transparent ring center");
+
+    const auto exact_limit=analyze_region_pixels(serpentine(999,100),1,1.0,19);
+    check(exact_limit.value("regions").toArray().size()==1&&exact_limit.value("outer_contours").toArray().size()==1,
+        "Exactly 200,000 directed boundary edges are accepted for one connected serpentine region");
+    try {analyze_region_pixels(serpentine(1000,100),1,1.0,20);throw std::runtime_error("Expected boundary edge limit refusal");}
+    catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT","More than 200,000 directed boundary edges refuses without a partial result");}
+}
 void live_canvas_api() {
     QTemporaryDir temp;check(temp.isValid(),"Temporary test directory is available");
     auto document=empty_document("region-document","region-composition","region-artboard");
@@ -185,6 +274,11 @@ void live_canvas_api() {
     check_region(regions[2].toObject(),1,3,3,1,1,"Canvas API preserves diagonal-only separation");
     check_edges(result,expected_runs({{1,1,2},{2,1,2},{2,5,3},{3,3,1},{3,5,1},{3,7,1},{4,5,3}}),13,
         "Live Canvas edge runs match the independent row-major pixel oracle");
+    check_contours(result,QJsonArray{
+        expected_contour(0,{{1,1},{3,1},{3,3},{1,3}}),
+        expected_contour(1,{{5,2},{8,2},{8,5},{5,5}}),
+        expected_contour(2,{{3,3},{4,3},{4,4},{3,4}})},
+        "Live Canvas contours preserve component indexes and use pixel-corner coordinates");
     check(result.value("width").toInt()==8&&result.value("height").toInt()==6&&
         result.value("source_revision").toInt()==static_cast<int>(revision),"Live result reports the rendered dimensions and source revision");
     auto lower_fields=fields;lower_fields["threshold"]=127;
@@ -195,6 +289,8 @@ void live_canvas_api() {
     check_edges(lower.value("result").toObject(),expected_runs({{1,1,2},{2,1,2},{2,5,3},
         {3,3,1},{3,5,1},{3,7,1},{4,5,3},{5,0,1}}),14,
         "Canvas API includes the threshold-equal pixel in its edge map");
+    check(lower.value("result").toObject().value("outer_contours").toArray().size()==4,
+        "Canvas API returns the fourth threshold-equal component contour");
     check(host.session.revision()==revision&&host.session.history()==original_history&&
         encode(host.session.document())==original_document&&bytes(native)==native_before,
         "Analysis leaves Session revision, history, authored document and native bytes unchanged");
@@ -250,6 +346,35 @@ void live_canvas_api() {
     check(comb_host.session.revision()==comb_revision&&comb_host.session.history()==comb_history_before&&
         encode(comb_host.session.document())==comb_document_before&&bytes(comb_native)==comb_native_before,
         "Edge-map limit refusal leaves Session revision, history, Document and native bytes unchanged");
+
+    auto serpent_document=empty_document("serpent-region-document","serpent-region-composition","serpent-region-artboard");
+    auto& serpent_composition=serpent_document.compositions.front();
+    serpent_composition.artboards.front().width=1000;serpent_composition.artboards.front().height=199;
+    for(int stripe=0;stripe<100;++stripe) {
+        const auto y=stripe*2;
+        auto bar=rectangle("serpent-bar-"+std::to_string(stripe),0,y,1000,1);
+        serpent_composition.roots.push_back(bar.id);serpent_document.objects.emplace(bar.id,std::move(bar));
+        if(stripe<99) {
+            const auto x=(stripe%2==0)?999:0;
+            auto connector=rectangle("serpent-link-"+std::to_string(stripe),x,y+1,1,1);
+            serpent_composition.roots.push_back(connector.id);serpent_document.objects.emplace(connector.id,std::move(connector));
+        }
+    }
+    Host serpent_host(temp.path()+"/serpent-recovery");serpent_host.session=Session(std::move(serpent_document));
+    const auto serpent_native=temp.path()+"/serpent.nect";serpent_host.save(serpent_native);
+    const auto serpent_native_before=bytes(serpent_native);
+    const auto serpent_document_before=encode(serpent_host.session.document());
+    const auto serpent_history_before=serpent_host.session.history();
+    const auto serpent_revision=serpent_host.session.revision();
+    const auto serpent_fields=QJsonObject{{"expected_revision",static_cast<qint64>(serpent_revision)},
+        {"composition","serpent-region-composition"},{"artboard","serpent-region-artboard"},
+        {"scale",1.0},{"threshold",1}};
+    const auto serpent_limit=api(serpent_host,serpent_fields);
+    check(serpent_limit.value("error").toObject().value("code")=="ANALYSIS_LIMIT"&&!serpent_limit.contains("result"),
+        "Live Canvas API rejects a connected 200,200-edge serpentine below the pixel, region and edge-run caps");
+    check(serpent_host.session.revision()==serpent_revision&&serpent_host.session.history()==serpent_history_before&&
+        encode(serpent_host.session.document())==serpent_document_before&&bytes(serpent_native)==serpent_native_before,
+        "Boundary-edge limit refusal leaves Session revision, history, Document and native bytes unchanged");
 }
 }
 int main(int argc,char** argv) {
@@ -258,7 +383,8 @@ int main(int argc,char** argv) {
     try {
         independent_pixel_oracle();
         independent_edge_oracle();
+        independent_contour_oracle();
         live_canvas_api();
-        std::cout<<"PASS region and edge-map pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
+        std::cout<<"PASS region, edge-map and contour pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

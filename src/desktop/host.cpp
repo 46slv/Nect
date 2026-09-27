@@ -19,6 +19,9 @@
 #include <limits>
 #include <memory>
 #include <algorithm>
+#include <array>
+#include <map>
+#include <tuple>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -353,12 +356,14 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
     constexpr std::uint64_t max_pixels=4'000'000;
     constexpr std::size_t max_regions=10'000;
     constexpr std::size_t max_edge_runs=100'000;
+    constexpr std::uint64_t max_boundary_edges=200'000;
     const auto width=static_cast<std::uint64_t>(image.width());
     const auto height=static_cast<std::uint64_t>(image.height());
     const auto pixel_count=width*height;
     if(pixel_count>max_pixels)throw Error("ANALYSIS_LIMIT","Region analysis is limited to 4,000,000 output pixels");
 
-    std::vector<std::uint8_t> visited(static_cast<std::size_t>(pixel_count),0);
+    constexpr auto no_region=std::numeric_limits<std::uint32_t>::max();
+    std::vector<std::uint32_t> pixel_regions(static_cast<std::size_t>(pixel_count),no_region);
     std::vector<std::uint32_t> queue;
     QJsonArray regions;
     const auto alpha_at=[&](std::uint32_t index) {
@@ -366,16 +371,19 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         return qAlpha(image.pixel(x,y));
     };
     for(std::uint32_t seed=0;seed<static_cast<std::uint32_t>(pixel_count);++seed) {
-        if(visited[seed]||alpha_at(seed)<threshold)continue;
+        if(pixel_regions[seed]!=no_region||alpha_at(seed)<threshold)continue;
         if(static_cast<std::size_t>(regions.size())>=max_regions)
             throw Error("ANALYSIS_LIMIT","Region analysis is limited to 10,000 components");
-        queue.clear();queue.push_back(seed);visited[seed]=1;
+        const auto region_index=static_cast<std::uint32_t>(regions.size());
+        queue.clear();queue.push_back(seed);pixel_regions[seed]=region_index;
         std::size_t cursor=0;
         std::uint64_t area=0;
         auto min_x=static_cast<int>(seed%width),max_x=min_x;
         auto min_y=static_cast<int>(seed/width),max_y=min_y;
         const auto enqueue=[&](std::uint32_t index) {
-            if(!visited[index]&&alpha_at(index)>=threshold) {visited[index]=1;queue.push_back(index);}
+            if(pixel_regions[index]==no_region&&alpha_at(index)>=threshold) {
+                pixel_regions[index]=region_index;queue.push_back(index);
+            }
         };
         while(cursor<queue.size()) {
             const auto index=queue[cursor++];
@@ -389,6 +397,7 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         regions.append(QJsonObject{{"area",static_cast<qint64>(area)},
             {"x",min_x},{"y",min_y},{"width",max_x-min_x+1},{"height",max_y-min_y+1}});
     }
+
     QJsonArray edge_runs;
     std::uint64_t edge_pixel_count=0;
     const auto foreground_at=[&](int x,int y) {return qAlpha(image.pixel(x,y))>=threshold;};
@@ -408,12 +417,130 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
             edge_runs.append(QJsonObject{{"y",y},{"x",start},{"width",x-start}});
         }
     }
+
+    std::uint64_t boundary_edge_count=0;
+    for(std::uint32_t index=0;index<static_cast<std::uint32_t>(pixel_count);++index) {
+        const auto region=pixel_regions[index];
+        if(region==no_region)continue;
+        const auto x=static_cast<int>(index%width),y=static_cast<int>(index/width);
+        if(x==0||pixel_regions[index-1]!=region)++boundary_edge_count;
+        if(static_cast<std::uint64_t>(x)+1==width||pixel_regions[index+1]!=region)++boundary_edge_count;
+        if(y==0||pixel_regions[index-static_cast<std::uint32_t>(width)]!=region)++boundary_edge_count;
+        if(static_cast<std::uint64_t>(y)+1==height||pixel_regions[index+static_cast<std::uint32_t>(width)]!=region)++boundary_edge_count;
+    }
+    if(boundary_edge_count>max_boundary_edges)
+        throw Error("ANALYSIS_LIMIT","Region analysis is limited to 200,000 directed boundary edges");
+
+    struct DirectedEdge {std::uint32_t region;int x;int y;int direction;bool used=false;};
+    struct Vertex {int x;int y;};
+    struct Contour {std::uint32_t region;std::vector<Vertex> vertices;};
+    std::vector<DirectedEdge> boundary_edges;
+    boundary_edges.reserve(static_cast<std::size_t>(boundary_edge_count));
+    std::map<std::tuple<std::uint32_t,int,int,int>,std::size_t> outgoing_edges;
+    const auto add_edge=[&](std::uint32_t region,int x,int y,int direction) {
+        const auto edge_index=boundary_edges.size();
+        boundary_edges.push_back({region,x,y,direction,false});
+        const auto [unused,inserted]=outgoing_edges.emplace(std::tuple{region,x,y,direction},edge_index);
+        (void)unused;
+        if(!inserted)throw Error("ANALYSIS_CONTOUR","Duplicate directed region boundary edge");
+    };
+    for(std::uint32_t index=0;index<static_cast<std::uint32_t>(pixel_count);++index) {
+        const auto region=pixel_regions[index];
+        if(region==no_region)continue;
+        const auto x=static_cast<int>(index%width),y=static_cast<int>(index/width);
+        // E, S, W, N with foreground on the right in top-left image coordinates.
+        if(y==0||pixel_regions[index-static_cast<std::uint32_t>(width)]!=region)add_edge(region,x,y,0);
+        if(static_cast<std::uint64_t>(x)+1==width||pixel_regions[index+1]!=region)add_edge(region,x+1,y,1);
+        if(static_cast<std::uint64_t>(y)+1==height||pixel_regions[index+static_cast<std::uint32_t>(width)]!=region)
+            add_edge(region,x+1,y+1,2);
+        if(x==0||pixel_regions[index-1]!=region)add_edge(region,x,y+1,3);
+    }
+
+    const auto endpoint=[](const DirectedEdge& edge) {
+        switch(edge.direction) {
+        case 0:return Vertex{edge.x+1,edge.y};
+        case 1:return Vertex{edge.x,edge.y+1};
+        case 2:return Vertex{edge.x-1,edge.y};
+        default:return Vertex{edge.x,edge.y-1};
+        }
+    };
+    std::vector<Contour> contours;
+    for(std::size_t start=0;start<boundary_edges.size();++start) {
+        if(boundary_edges[start].used)continue;
+        std::vector<Vertex> cycle;
+        auto current=start;
+        while(true) {
+            auto& edge=boundary_edges[current];
+            if(edge.used) {
+                if(current==start)break;
+                throw Error("ANALYSIS_CONTOUR","Region boundary trace entered an earlier cycle");
+            }
+            edge.used=true;
+            cycle.push_back({edge.x,edge.y});
+            const auto end=endpoint(edge);
+            const std::array<int,4> turn_order{
+                (edge.direction+1)%4,edge.direction,(edge.direction+3)%4,(edge.direction+2)%4};
+            auto next=std::numeric_limits<std::size_t>::max();
+            for(const auto direction:turn_order) {
+                const auto found=outgoing_edges.find(std::tuple{edge.region,end.x,end.y,direction});
+                if(found!=outgoing_edges.end()) {next=found->second;break;}
+            }
+            if(next==std::numeric_limits<std::size_t>::max())
+                throw Error("ANALYSIS_CONTOUR","Region boundary trace could not close");
+            current=next;
+        }
+
+        std::int64_t signed_area_twice=0;
+        for(std::size_t i=0;i<cycle.size();++i) {
+            const auto& a=cycle[i];const auto& b=cycle[(i+1)%cycle.size()];
+            signed_area_twice+=static_cast<std::int64_t>(a.x)*b.y-static_cast<std::int64_t>(b.x)*a.y;
+        }
+        if(signed_area_twice<0)continue; // Counterclockwise inner/hole boundary.
+        if(signed_area_twice==0)throw Error("ANALYSIS_CONTOUR","Region boundary has zero signed area");
+
+        std::vector<Vertex> simplified;
+        simplified.reserve(cycle.size());
+        for(std::size_t i=0;i<cycle.size();++i) {
+            const auto& previous=cycle[(i+cycle.size()-1)%cycle.size()];
+            const auto& current_vertex=cycle[i];
+            const auto& next_vertex=cycle[(i+1)%cycle.size()];
+            if((previous.x==current_vertex.x&&current_vertex.x==next_vertex.x)||
+               (previous.y==current_vertex.y&&current_vertex.y==next_vertex.y))continue;
+            simplified.push_back(current_vertex);
+        }
+        if(simplified.size()<4)throw Error("ANALYSIS_CONTOUR","Region outer contour has fewer than four corners");
+        const auto first=std::min_element(simplified.begin(),simplified.end(),[](const auto& a,const auto& b) {
+            return std::tie(a.y,a.x)<std::tie(b.y,b.x);
+        });
+        std::rotate(simplified.begin(),first,simplified.end());
+        contours.push_back({boundary_edges[start].region,std::move(simplified)});
+    }
+    std::sort(contours.begin(),contours.end(),[](const auto& a,const auto& b) {
+        if(a.region!=b.region)return a.region<b.region;
+        const auto& a_start=a.vertices.front();const auto& b_start=b.vertices.front();
+        if(a_start.y!=b_start.y)return a_start.y<b_start.y;
+        if(a_start.x!=b_start.x)return a_start.x<b_start.x;
+        return std::lexicographical_compare(a.vertices.begin(),a.vertices.end(),b.vertices.begin(),b.vertices.end(),
+            [](const auto& left,const auto& right) {return std::tie(left.x,left.y)<std::tie(right.x,right.y);});
+    });
+    QJsonArray outer_contours;
+    for(const auto& contour:contours) {
+        QJsonArray vertices;
+        for(const auto& vertex:contour.vertices) {
+            QJsonArray point;point.append(vertex.x);point.append(vertex.y);vertices.append(point);
+        }
+        outer_contours.append(QJsonObject{{"region_index",static_cast<int>(contour.region)},
+            {"closed",true},{"vertices",vertices}});
+    }
     return {{"regions",regions},{"edge_runs",edge_runs},{"edge_pixel_count",static_cast<qint64>(edge_pixel_count)},
         {"edge_rule","foreground-4-neighbor"},{"threshold",threshold},{"connectivity",4},{"scale",scale},
         {"width",image.width()},{"height",image.height()},{"color_space","sRGB"},
         {"coordinate_space","artboard-output-pixels"},{"origin","top-left"},
         {"pixel_format","ARGB32_Premultiplied"},{"alpha_domain","8-bit premultiplied Canvas output alpha byte"},
-        {"source_revision",static_cast<qint64>(source_revision)}};
+        {"source_revision",static_cast<qint64>(source_revision)},
+        {"outer_contours",outer_contours},{"contour_rule","foreground-right-clockwise-outer"},
+        {"contour_coordinate_space","artboard-output-pixel-corners"},
+        {"contour_closed","implicit-last-to-first"}};
 }
 
 QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected) {

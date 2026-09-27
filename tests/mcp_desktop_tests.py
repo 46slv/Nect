@@ -106,6 +106,10 @@ try:
         assert direct_regions['revision'] == live['revision']
         assert direct_regions['result']['source_revision'] == live['revision']
         assert direct_regions['result']['regions'] == []
+        assert direct_regions['result']['outer_contours'] == []
+        assert direct_regions['result']['contour_rule'] == 'foreground-right-clockwise-outer'
+        assert direct_regions['result']['contour_coordinate_space'] == 'artboard-output-pixel-corners'
+        assert direct_regions['result']['contour_closed'] == 'implicit-last-to-first'
         rng = random.Random(7821)
         commands = []
         for i in range(24):
@@ -711,6 +715,12 @@ try:
         assert direct_vector_analysis['revision']==vector['revision']
         assert direct_vector_analysis['result']['source_revision']==vector['revision']
         assert direct_vector_analysis['result']['regions'], 'Filled SVG artwork yields at least one analyzed region'
+        vector_contours=direct_vector_analysis['result']['outer_contours']
+        assert vector_contours, 'Filled SVG artwork yields at least one outer contour'
+        assert all(contour['closed'] is True and 0 <= contour['region_index'] < len(direct_vector_analysis['result']['regions'])
+                   and len(contour['vertices']) >= 4
+                   and all(len(point) == 2 and all(isinstance(coordinate, int) for coordinate in point)
+                           for point in contour['vertices']) for contour in vector_contours)
         vector_edges=direct_vector_analysis['result']['edge_runs']
         assert vector_edges and direct_vector_analysis['result']['edge_pixel_count']>0, 'Filled SVG artwork yields analyzed edge pixels'
         assert direct_vector_analysis['result']['edge_rule']=='foreground-4-neighbor'
