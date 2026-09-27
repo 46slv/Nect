@@ -797,6 +797,32 @@ try:
         assert isolation['result']==desktop_api_call(endpoint,dict(identity,op='core',
             request=dict(op='get',ref=isolation_ref)))['result']
         assert any(item['ref']==isolation_ref for item in core('properties')['result'])
+        mask_enabled_ref=dict(object='mcp-masked-group',point='',field='mask.enabled')
+        mask_enabled=core('get',ref=mask_enabled_ref)
+        assert mask_enabled['ok'] and mask_enabled['result']['type']=='bool'
+        assert mask_enabled['result']['unit']=='boolean' and mask_enabled['result']['space']=='local'
+        assert mask_enabled['result']['origin']=='authored'
+        assert mask_enabled['result']['authored']==dict(literal=True,driver=None)
+        assert mask_enabled['result']['evaluated'] is True
+        assert mask_enabled['result']['link'] is False and mask_enabled['result']['expression'] is False
+        assert mask_enabled['result']==desktop_api_call(endpoint,dict(identity,op='core',
+            request=dict(op='get',ref=mask_enabled_ref)))['result']
+        assert any(item['ref']==mask_enabled_ref for item in core('properties')['result'])
+        before_mask_disable=core('inspect')['result']
+        disabled_mask=dict(id='mcp-geometry-clip',source='mcp-mask',version=1,enabled=False,fill_rule='nonzero')
+        rev=apply([dict(type='set_mask',object='mcp-masked-group',mask=disabled_mask)],rev)
+        bypassed=core('get',ref=mask_enabled_ref)['result']
+        bypass_plan=core('compositing_plan',composition=comp['id'])['result']
+        bypass_group=next(n for n in bypass_plan['roots'] if n['object']=='mcp-masked-group')
+        assert bypassed['authored']==dict(literal=False,driver=None) and bypassed['evaluated'] is False
+        assert bypass_group['mask'] is None and any(o['id']=='mcp-mask' for o in core('inspect')['result']['objects'])
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('inspect')['result']==before_mask_disable
+        assert core('get',ref=mask_enabled_ref)['result']['authored']==dict(literal=True,driver=None)
+        before_bad=core('inspect')['result']
+        bad_mask_scalar=core('apply',expected_revision=rev,commands=[dict(type='set',ref=mask_enabled_ref,value=0)])
+        assert not bad_mask_scalar['ok'] and bad_mask_scalar['revision']==rev
+        assert core('inspect')['result']==before_bad
         before_bad=core('inspect')['result']
         bad=core('apply',expected_revision=rev,commands=[dict(type='set_visibility',object='mcp-mask',visible=True),
             dict(type='set_compositing',object='mcp-masked-group',blend='unsupported-add',isolated=False)])

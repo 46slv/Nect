@@ -153,6 +153,63 @@ void object_visibility_link_contract() {
     }
     Session depth(std::move(deep));atomic(depth,"DEPENDENCY_DEPTH",std::move(links));
 }
+void mask_enabled_read_contract() {
+    auto document=fixture();
+    document.objects.at("a").compositing.mask=GeometryMask{"mask-a","source",1,true,"nonzero"};
+    Session session(document);
+    const Ref ref{"a","","mask.enabled"};
+    const auto refs=properties(session.document());
+    check(std::find(refs.begin(),refs.end(),ref)!=refs.end()&&
+        resolve_name(session.document(),"a","","mask.enabled")==ref&&
+        geometry_mask_enabled_property(session.document(),ref)&&property_unit(ref)=="boolean",
+        "Present optional mask exposes a stable owner Ref by ID and unique name as a boolean");
+    const auto initial=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"mask.enabled"}})");
+    check(initial.find("\"type\":\"bool\"")!=std::string::npos&&
+        initial.find("\"unit\":\"boolean\"")!=std::string::npos&&
+        initial.find("\"origin\":\"authored\"")!=std::string::npos&&
+        initial.find("\"literal\":true")!=std::string::npos&&
+        initial.find("\"evaluated\":true")!=std::string::npos&&
+        initial.find("\"driver\":null")!=std::string::npos&&
+        initial.find("\"link\":false")!=std::string::npos&&
+        initial.find("\"expression\":false")!=std::string::npos,
+        "API get reports the authored mask bypass bit without dependency capability");
+    rejects("INVALID_OBJECT_REF",[&]{(void)geometry_mask_enabled_property(session.document(),{"a","point","mask.enabled"});});
+    rejects("TYPE_MISMATCH",[&]{(void)geometry_mask_enabled_property(session.document(),{"a","","object.visible"});});
+    rejects("MISSING_REFERENCE",[&]{(void)geometry_mask_enabled_property(session.document(),{"missing","","mask.enabled"});});
+    atomic(session,"MISSING_REFERENCE",{SetMask{"a",GeometryMask{"mask-a","source",1,false,"nonzero"}},Set{ref,1}});
+    rejects("REVISION_CONFLICT",[&]{session.apply({SetMask{"a",GeometryMask{"mask-a","source",1,false,"nonzero"}},SetMask{"a",GeometryMask{"mask-a","source",1,true,"nonzero"}}},session.revision()+1);});
+
+    auto disabled=*session.document().objects.at("a").compositing.mask;
+    disabled.enabled=false;
+    apply(session,{SetMask{"a",disabled}});
+    check(!geometry_mask_enabled_property(session.document(),ref)&&!scene(session.document()).roots.front().mask,
+        "SetMask changes the same typed bit and scene bypasses clipping while retaining the mask source object");
+    const auto disabled_get=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"mask.enabled"}})");
+    check(disabled_get.find("\"literal\":false")!=std::string::npos&&disabled_get.find("\"evaluated\":false")!=std::string::npos,
+        "API read follows the disabled authored literal");
+    session.undo(session.revision());
+    check(geometry_mask_enabled_property(session.document(),ref)&&scene(session.document()).roots.front().mask,
+        "Undo restores mask clipping and the exact enabled literal");
+    const auto saved=encode(session.document());
+    check(geometry_mask_enabled_property(decode(saved),ref)&&decode(saved).objects.at("a").compositing.mask->id=="mask-a"&&encode(decode(saved))==saved,
+        "Native 0.27 roundtrip preserves mask enable and identity without byte drift");
+    const auto all=request(session,R"({"op":"properties"})");
+    check(all.find("\"field\":\"mask.enabled\"")!=std::string::npos,
+        "Properties enumeration includes only the present optional mask field");
+    atomic(session,"MISSING_REFERENCE",{Set{ref,0}});
+    apply(session,{SetMask{"a",std::nullopt}});
+    const auto removed_refs=properties(session.document());
+    check(std::find(removed_refs.begin(),removed_refs.end(),ref)==removed_refs.end(),
+        "Removing the mask removes the optional property from discovery");
+    rejects("MISSING_MASK",[&]{(void)geometry_mask_enabled_property(session.document(),ref);});
+    rejects("MISSING_MASK",[&]{(void)resolve_name(session.document(),"a","","mask.enabled");});
+    const auto missing_get=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"mask.enabled"}})");
+    check(missing_get.find("\"code\":\"MISSING_MASK\"")!=std::string::npos,
+        "Exact get after removal rejects with MISSING_MASK instead of inventing false");
+    apply(session,{SetMask{"a",GeometryMask{"replacement-mask","source",1,true,"nonzero"}}});
+    check(geometry_mask_enabled_property(session.document(),ref)&&session.document().objects.at("a").compositing.mask->id=="replacement-mask",
+        "Owner-slot Ref becomes valid for a replacement mask without claiming persistent mask identity");
+}
 void object_visibility_consumer_parity() {
     auto document=fixture();document.objects.at("source").visible=true;document.objects.at("b").visible=false;
     Object group;group.id="group";group.name="Group";group.kind=Kind::group;group.children={"a"};
@@ -782,6 +839,6 @@ void previewed_folder_api() {
 
 }
 int main() {
-    try{object_visibility_read_contract();object_visibility_link_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{object_visibility_read_contract();object_visibility_link_contract();mask_enabled_read_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

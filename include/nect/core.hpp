@@ -626,6 +626,7 @@ ObjectVisibilityProperty object_visibility_state(const Document&,const Ref&);
 bool evaluate_object_visibility(const Document&,const Id& object);
 std::map<Id,bool> evaluate_object_visibilities(const Document&);
 bool composite_isolated_property(const Document&,const Ref&);
+bool geometry_mask_enabled_property(const Document&,const Ref&);
 struct GuidePositionProperty {
     double literal=0;
     std::optional<Ref> driver;

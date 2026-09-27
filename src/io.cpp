@@ -491,6 +491,12 @@ j::object composite_isolated_property_json(const Document& d,const Ref& ref,bool
         {"authored",j::object{{"literal",isolated},{"driver",nullptr}}},
         {"evaluated",isolated},{"link",false},{"expression",false}};
 }
+j::object geometry_mask_enabled_property_json(const Document& d,const Ref& ref,bool enabled) {
+    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
+        {"unit","boolean"},{"space","local"},{"origin","authored"},
+        {"authored",j::object{{"literal",enabled},{"driver",nullptr}}},
+        {"evaluated",enabled},{"link",false},{"expression",false}};
+}
 j::object text_readonly_property_json(const Document& d,const Ref& ref,const TextPropertyValue& value) {
     const auto type=value.kind==TextPropertyKind::string?"string":"enum";
     j::object result{{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type",type},{"origin","authored"},
@@ -1460,6 +1466,8 @@ std::string request(Session& session,std::string_view input) {
                 session.document(),r,object_visibility_state(session.document(),r));
             else if(r.field=="composite.isolated")result=composite_isolated_property_json(
                 session.document(),r,composite_isolated_property(session.document(),r));
+            else if(r.field=="mask.enabled")result=geometry_mask_enabled_property_json(
+                session.document(),r,geometry_mask_enabled_property(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.ends_with(".enabled"))result=operation_enabled_property_json(
                 session.document(),r,operation_enabled_property(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.ends_with(".fill_rule"))result=fill_rule_property_json(session.document(),r,fill_rule_property(session.document(),r));
@@ -1522,6 +1530,11 @@ std::string request(Session& session,std::string_view input) {
                 if(ref.field=="composite.isolated") {
                     list.push_back(composite_isolated_property_json(session.document(),ref,
                         composite_isolated_property(session.document(),ref)));
+                    continue;
+                }
+                if(ref.field=="mask.enabled") {
+                    list.push_back(geometry_mask_enabled_property_json(session.document(),ref,
+                        geometry_mask_enabled_property(session.document(),ref)));
                     continue;
                 }
                 if(ref.field.starts_with("op.")&&ref.field.ends_with(".enabled")) {

@@ -160,6 +160,67 @@ with tempfile.TemporaryDirectory() as tmp:
           replies[7]['result']['authored'] == dict(literal=False,driver=None) and replies[7]['result']['evaluated'] is False,
           'JSON-lines unlink freezes evaluated visibility after the former source changes')
 
+with tempfile.TemporaryDirectory() as tmp:
+    source = Path(tmp) / 'mask-enabled.nect.json'
+    source.write_text(json.dumps(sample), encoding='utf-8')
+    mask_ref = dict(object='path-A', point='', field='mask.enabled')
+    mask = dict(id='process-mask', source='path-B', version=1, enabled=True, fill_rule='nonzero')
+    requests = [
+        dict(op='apply', expected_revision=0, commands=[dict(type='set_mask', object='path-A', mask=mask)]),
+        dict(op='get', ref=mask_ref),
+        dict(op='resolve_name', name='Curve A', point='', field='mask.enabled'),
+        dict(op='properties'),
+        dict(op='apply', expected_revision=1, commands=[dict(type='set_mask', object='path-A', mask=dict(mask, enabled=False))]),
+        dict(op='get', ref=mask_ref),
+        dict(op='apply', expected_revision=2, commands=[
+            dict(type='set_mask', object='path-A', mask=mask),
+            dict(type='set', ref=mask_ref, value=0)]),
+        dict(op='get', ref=mask_ref),
+        dict(op='undo', expected_revision=2),
+        dict(op='get', ref=mask_ref),
+        dict(op='apply', expected_revision=3, commands=[dict(type='set_mask', object='path-A', mask=None)]),
+        dict(op='get', ref=mask_ref),
+        dict(op='properties'),
+        dict(op='apply', expected_revision=4, commands=[dict(type='set_mask', object='path-A', mask=dict(mask, id='process-mask-replacement'))]),
+        dict(op='inspect'),
+    ]
+    process = subprocess.run([exe, '--serve', str(source)], input='\n'.join(map(json.dumps, requests))+'\n',
+        capture_output=True, text=True, encoding='utf-8', timeout=20)
+    replies = [json.loads(line) for line in process.stdout.splitlines()]
+    check(process.returncode == 0 and len(replies) == len(requests) and replies[0]['ok'],
+          'Mask enabled JSON-lines process creates and reads the optional owner-slot property')
+    initial_mask = replies[1]['result']
+    discovered = next(value for value in replies[3]['result'] if value['ref'] == mask_ref)
+    check(initial_mask['type'] == 'bool' and initial_mask['unit'] == 'boolean' and
+          initial_mask['authored'] == dict(literal=True, driver=None) and initial_mask['evaluated'] is True and
+          initial_mask['link'] is False and initial_mask['expression'] is False and
+          replies[2]['result'] == mask_ref and discovered == initial_mask,
+          'JSON-lines get, properties and unique name resolution report the exact authored boolean')
+    check(replies[4]['ok'] and replies[5]['result']['authored'] == dict(literal=False, driver=None) and
+          not replies[6]['ok'] and replies[6]['error']['code'] == 'MISSING_REFERENCE' and replies[6]['revision'] == 2 and
+          replies[7]['result']['authored'] == dict(literal=False, driver=None),
+          'SetMask changes the read while generic Scalar mutation rejects without committing a batch prefix')
+    check(replies[8]['ok'] and replies[9]['result']['authored'] == dict(literal=True, driver=None) and
+          replies[10]['ok'] and replies[11]['error']['code'] == 'MISSING_MASK' and
+          not any(value['ref'] == mask_ref for value in replies[12]['result']),
+          'Undo restores the literal, and removal makes get fail with MISSING_MASK and removes discovery')
+    check(replies[13]['ok'] and replies[14]['result']['version'] == '0.27' and
+          next(obj for obj in replies[14]['result']['objects'] if obj['id'] == 'path-A')['compositing']['mask']['id'] == 'process-mask-replacement',
+          'Replacement mask retains its native identity under the owner-slot Ref')
+    saved = replies[14]['result']
+    source.write_text(json.dumps(saved), encoding='utf-8')
+    before = source.read_bytes()
+    cold = subprocess.run([exe, '--serve', str(source)], input=json.dumps(dict(op='get', ref=mask_ref))+'\n'+
+        json.dumps(dict(op='properties'))+'\n'+json.dumps(dict(op='inspect'))+'\n',
+        capture_output=True, text=True, encoding='utf-8', timeout=20)
+    cold_replies = [json.loads(line) for line in cold.stdout.splitlines()]
+    cold_get = cold_replies[0]['result']
+    check(cold.returncode == 0 and len(cold_replies) == 3 and all(item['ok'] for item in cold_replies) and
+          cold_get['authored'] == dict(literal=True, driver=None) and cold_get['evaluated'] is True and
+          next(value for value in cold_replies[1]['result'] if value['ref'] == mask_ref) == cold_get and
+          source.read_bytes() == before,
+          'Distinct JSON-lines cold open preserves mask ID, authored literal, typed read and exact native bytes')
+
 guide_document = json.loads(json.dumps(sample))
 guide_composition = guide_document['compositions'][0]
 guide_composition['guides'] = []
