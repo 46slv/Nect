@@ -10,10 +10,11 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
     const auto visibility=evaluate_object_visibilities(document);
     const auto fill_rules=evaluate_fill_rules(document);
     const auto operation_enabled=evaluate_operation_enableds(document);
+    const auto gradient_enabled=evaluate_gradient_enableds(document);
     EvaluatedScene scene;
     const auto shape=[&](const Id& id)->const EvaluatedShape& {
         if(const auto found=scene.shapes.find(id);found!=scene.shapes.end())return found->second;
-        return scene.shapes.emplace(id,evaluate_shape(document,id,values,&fill_rules,&operation_enabled)).first->second;
+        return scene.shapes.emplace(id,evaluate_shape(document,id,values,&fill_rules,&operation_enabled,&gradient_enabled)).first->second;
     };
     std::function<EvaluatedSceneNode(const Id&,unsigned)> node=[&](const Id& id,unsigned depth) {
         if(depth>128)throw Error("HIERARCHY_DEPTH","Scene hierarchy depth limit 128");

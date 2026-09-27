@@ -70,12 +70,12 @@ malformed_driver = json.loads(json.dumps(sample))
 next(obj for obj in malformed_driver['objects'] if obj['id'] == 'path-A')['visibility_driver'] = dict(
     link=dict(object='path-B', point='', field='object.visible'), unexpected=True)
 check('UNKNOWN_FIELD' in run('--validate', malformed_driver).stderr,
-      'native 0.28 rejects unknown visibility driver wrapper fields')
+      'native 0.29 rejects unknown visibility driver wrapper fields')
 malformed_visibility_ref = json.loads(json.dumps(sample))
 next(obj for obj in malformed_visibility_ref['objects'] if obj['id'] == 'path-A')['visibility_driver'] = dict(
     link=dict(object='path-B', point='', field='composite.opacity'))
 check('TYPE_MISMATCH' in run('--validate', malformed_visibility_ref).stderr,
-      'native 0.28 rejects a visibility driver Ref with the wrong field')
+      'native 0.29 rejects a visibility driver Ref with the wrong field')
 
 visibility_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.27.schema.json').read_text(encoding='utf-8'))
 visibility_driver = visibility_schema['$defs']['visibility_driver']
@@ -95,6 +95,17 @@ check(operation_enabled_schema['properties']['version']['const'] == '0.28' and
       operation_enabled_ref['additionalProperties'] is False and
       operation_enabled_ref['properties']['field']['pattern'] == '^op\\.[A-Za-z0-9_-]+\\.enabled$',
       'native 0.28 schema describes only the closed same-field operation enabled Ref')
+gradient_enabled_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.29.schema.json').read_text(encoding='utf-8'))
+gradient_definition = gradient_enabled_schema['$defs']['gradient']
+gradient_enabled_driver = gradient_enabled_schema['$defs']['gradient_enabled_driver']
+gradient_enabled_ref = gradient_enabled_schema['$defs']['gradient_enabled_ref']
+check(gradient_enabled_schema['properties']['version']['const'] == '0.29' and
+      gradient_definition['additionalProperties'] is False and
+      gradient_definition['properties']['enabled_driver']['$ref'] == '#/$defs/gradient_enabled_driver' and
+      gradient_enabled_driver['additionalProperties'] is False and gradient_enabled_driver['required'] == ['link'] and
+      gradient_enabled_ref['additionalProperties'] is False and gradient_enabled_ref['properties']['point']['const'] == '' and
+      gradient_enabled_ref['properties']['field']['pattern'] == '^op\\.[A-Za-z0-9_-]+\\.gradient\\.[A-Za-z0-9_-]+\\.enabled$',
+      'native 0.29 schema adds only the closed same-field Gradient enabled Ref')
 
 wrong_color = dict(sample, color_space='cmyk')
 check('UNSUPPORTED_COLOR_OR_UNIT' in run('--validate', wrong_color).stderr, 'CMYK not pretended supported')
@@ -275,7 +286,7 @@ with tempfile.TemporaryDirectory() as tmp:
           replies[10]['ok'] and replies[11]['error']['code'] == 'MISSING_MASK' and
           not any(value['ref'] == mask_ref for value in replies[12]['result']),
           'Undo restores the literal, and removal makes get fail with MISSING_MASK and removes discovery')
-    check(replies[13]['ok'] and replies[14]['result']['version'] == '0.28' and
+    check(replies[13]['ok'] and replies[14]['result']['version'] == '0.29' and
           next(obj for obj in replies[14]['result']['objects'] if obj['id'] == 'path-A')['compositing']['mask']['id'] == 'process-mask-replacement',
           'Replacement mask retains its native identity under the owner-slot Ref')
     saved = replies[14]['result']
@@ -330,9 +341,9 @@ with tempfile.TemporaryDirectory() as tmp:
     check(not replies[4]['ok'] and replies[4]['error']['code'] == 'TYPE_MISMATCH' and replies[4]['revision'] == 2,
           'Generic Scalar set rejects Guide.position without advancing revision')
     linked_native = replies[5]['result']
-    check(linked_native['version'] == '0.28' and
+    check(linked_native['version'] == '0.29' and
           next(value for value in linked_native['compositions'][0]['guides'] if value['id'] == guide_target['object'])['position_driver'] == dict(link=guide_source),
-          'Native 0.28 inspect preserves the optional Guide driver and authored target literal')
+          'Native 0.29 inspect preserves the optional Guide driver and authored target literal')
 
     cold_path = Path(tmp) / 'guide-cold.nect.json'
     cold_path.write_text(json.dumps(linked_native), encoding='utf-8')
@@ -438,7 +449,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(authored.returncode == 0 and len(replies) == 2 and replies[0]['ok'] and replies[1]['ok'],
           'Group Posterize authors through the real JSON-lines process')
     group_native = replies[1]['result']
-    check(group_native['version'] == '0.28' and
+    check(group_native['version'] == '0.29' and
           next(obj for obj in group_native['objects'] if obj['id'] == 'ornament')['stack'] == [operation],
           'Current writer preserves Group Posterize identity, version, level, and order')
     cold_path = Path(tmp) / 'group-posterize.nect'
@@ -484,7 +495,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.28','current writer uses native 0.28')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.29','current writer uses native 0.29')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -670,7 +681,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
         'Rejected process command preserves the authored source and link')
     check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
-    check(replies[12]['result']['version']=='0.28' and replies[12]['result']==replies[8]['result'],
+    check(replies[12]['result']['version']=='0.29' and replies[12]['result']==replies[8]['result'],
         'Undo restores the pre-unlink native state exactly')
     check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
         'Undo restores the stable driver and its evaluated integer through a fresh request')
@@ -744,9 +755,9 @@ with tempfile.TemporaryDirectory() as tmp:
         linked_layout['glyph_count']>0 and linked_layout['used_fonts'] and
         all(linked_layout[field]==frozen_layout[field] for field in layout_fields),
         'Text layout consumes the linked family, and unlink freezes identical geometry, warnings and used fonts')
-    native=replies[12]['result'];check(native['version']=='0.28' and run('--validate',native).returncode==0,
+    native=replies[12]['result'];check(native['version']=='0.29' and run('--validate',native).returncode==0,
         'Native 0.23 content link validates in a separate CLI process')
-    family_native=replies[22]['result'];check(family_native['version']=='0.28' and run('--validate',family_native).returncode==0,
+    family_native=replies[22]['result'];check(family_native['version']=='0.29' and run('--validate',family_native).returncode==0,
         'Native 0.23 family link validates in a separate CLI process')
     path.write_text(json.dumps(family_native,ensure_ascii=False),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
@@ -829,7 +840,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='vertical' and reply['linked_horizontal']['result']['evaluated']=='horizontal',
         'Unlink freezes Text direction, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.28' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.29' and run('--validate',native).returncode==0,
         'Native 0.23 Text direction link validates in a separate CLI process')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
@@ -917,7 +928,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='frame',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='frame' and reply['linked_auto']['result']['evaluated']=='auto',
         'Unlink freezes Text layout, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.28' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.29' and run('--validate',native).returncode==0,
         'Native 0.23 Text layout link validates in a separate CLI process')
     target_native=next(obj for obj in native['objects'] if obj['id']=='layout-b')['text']
     check(target_native['layout']=='frame' and target_native['layout_driver']==dict(link=ref_a) and
@@ -1002,7 +1013,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='end',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='center',
         'A driven alignment edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.28' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.29' and run('--validate',native).returncode==0,
         'Native 0.23 Text alignment link validates in a separate CLI process')
     check(linked_metadata['alignment']=='end' and linked_metadata['alignment_driver']==dict(link=ref_a),
         'Native 0.23 retains alignment literal separately from its stable Ref')
@@ -1096,7 +1107,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored']['result']['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
         reply['restored']['result']['evaluated']=='ja-JP',
         'Driven Text locale edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.28' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.29' and run('--validate',native).returncode==0,
         'Native 0.23 Text locale link validates in a separate CLI process')
     linked_metadata=next(obj for obj in native['objects'] if obj['id']=='locale-b')['text']
     check(linked_metadata['locale']=='ja-JP' and linked_metadata['locale_driver']==dict(link=ref_a),
@@ -1188,8 +1199,8 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored']['result']['authored']==dict(literal='nonzero',driver=dict(link=source_ref)) and
         reply['follows']['result']['evaluated']=='evenodd',
         'Fill unlink freezes the choice and Undo restores the live dependency')
-    native=reply['native']['result'];check(native['version']=='0.28' and run('--validate',native).returncode==0,
-        'Native 0.28 Fill driver validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.29' and run('--validate',native).returncode==0,
+        'Native 0.29 Fill driver validates in a separate CLI process')
     native_target=next(obj for obj in native['objects'] if obj['id']=='path-B')['stack'][-1]
     check(native_target['fill_rule']=='nonzero' and native_target['fill_rule_driver']==dict(link=source_ref),
         'Native Fill keeps the authored literal beside its stable driver')
@@ -1257,16 +1268,16 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['driven_edit']['revision']==2,
         'EnableOperation refuses a linked enabled target without changing its revision')
     native=reply['native']['result']
-    check(native['version']=='0.28' and
+    check(native['version']=='0.29' and
         next(obj for obj in native['objects'] if obj['id']=='path-B')['stack'][0]['enabled_driver']==dict(link=source_ref) and
         run('--validate',native).returncode==0,
-        'Native 0.28 preserves and validates the authored operation enabled source Ref')
+        'Native 0.29 preserves and validates the authored operation enabled source Ref')
     old=json.loads(json.dumps(native));old['version']='0.27'
     check('UNSUPPORTED_OPERATION_ENABLED_DRIVER' in run('--validate',old).stderr,
         'Native 0.27 rejects operation enabled driver smuggling')
     malformed=json.loads(json.dumps(native));next(obj for obj in malformed['objects'] if obj['id']=='path-B')['stack'][0]['enabled_driver']={'link':source_ref,'extra':True}
     check('UNKNOWN_FIELD' in run('--validate',malformed).stderr,
-        'Native 0.28 rejects unknown operation enabled driver wrapper fields')
+        'Native 0.29 rejects unknown operation enabled driver wrapper fields')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=target_ref))+'\n'+
         json.dumps(dict(op='properties'))+'\n'+json.dumps(dict(op='inspect'))+'\n',
@@ -1278,4 +1289,95 @@ with tempfile.TemporaryDirectory() as tmp:
         next(obj for obj in cold_doc['objects'] if obj['id']=='path-B')['stack'][0]['enabled_driver']==dict(link=source_ref) and
         path.read_bytes()==before,
         'A distinct JSON-lines cold open preserves the typed link, evaluated value, exact Ref and native bytes')
+
+# Gradient bypass links are native v0.29 properties distinct from operation enabled.
+def gradient(id,enabled):
+    return dict(id=id,type='linear',version=1,enabled=enabled,
+        start_x=dict(literal=0),start_y=dict(literal=0),end_x=dict(literal=200),end_y=dict(literal=0),
+        stops=[dict(id=id+'-start',offset=dict(literal=0),rgba=[dict(literal=1),dict(literal=0),dict(literal=0),dict(literal=1)]),
+               dict(id=id+'-end',offset=dict(literal=1),rgba=[dict(literal=0),dict(literal=0),dict(literal=1),dict(literal=1)])])
+
+with tempfile.TemporaryDirectory() as tmp:
+    path=Path(tmp)/'gradient-enabled.nect';path.write_text(json.dumps(sample),encoding='utf-8')
+    source_ref=dict(object='path-A',point='',field='op.path-A-stroke.gradient.source-gradient.enabled')
+    target_ref=dict(object='path-B',point='',field='op.path-B-stroke.gradient.target-gradient.enabled')
+    target_stop=dict(object='path-B',point='',field='op.path-B-stroke.gradient.target-gradient.stop.target-gradient-start.color')
+    steps=[
+        ('setup',dict(op='apply',expected_revision=0,commands=[
+            dict(type='set_gradient',object='path-A',operation='path-A-stroke',gradient=gradient('source-gradient',True)),
+            dict(type='set_gradient',object='path-B',operation='path-B-stroke',gradient=gradient('target-gradient',False)),
+            dict(type='enable_operation',object='path-A',operation='path-A-stroke',enabled=False)])),
+        ('link',dict(op='apply',expected_revision=1,commands=[dict(type='link_gradient_enabled',target=target_ref,source=source_ref,replace_driver=False)])),
+        ('get',dict(op='get',ref=target_ref)),('properties',dict(op='properties')),
+        ('render_active',dict(op='render_plan',object='path-B')),('source_render',dict(op='render_plan',object='path-A')),
+        ('colors_active',dict(op='used_colors')),
+        ('svg_active',dict(op='export_svg',composition=sample['compositions'][0]['id'],artboard=sample['compositions'][0]['artboards'][0]['id'])),
+        ('direct_toggle',dict(op='apply',expected_revision=2,commands=[
+            dict(type='set_gradient',object='path-B',operation='path-B-stroke',gradient=gradient('target-gradient',True))])),
+        ('same_id_edit',dict(op='apply',expected_revision=2,commands=[dict(type='set_gradient',object='path-B',operation='path-B-stroke',gradient=dict(
+            gradient('target-gradient',False),end_x=dict(literal=280)))])),
+        ('preserved',dict(op='get',ref=target_ref)),
+        ('source_disable',dict(op='apply',expected_revision=3,commands=[dict(type='set_gradient',object='path-A',operation='path-A-stroke',gradient=gradient('source-gradient',False))])),
+        ('get_disabled',dict(op='get',ref=target_ref)),('render_disabled',dict(op='render_plan',object='path-B')),
+        ('colors_disabled',dict(op='used_colors')),
+        ('svg_disabled',dict(op='export_svg',composition=sample['compositions'][0]['id'],artboard=sample['compositions'][0]['artboards'][0]['id'])),
+        ('source_enable',dict(op='apply',expected_revision=4,commands=[dict(type='set_gradient',object='path-A',operation='path-A-stroke',gradient=gradient('source-gradient',True))])),
+        ('get_enabled',dict(op='get',ref=target_ref)),
+        ('delete_source',dict(op='apply',expected_revision=5,commands=[dict(type='delete_objects',objects=['path-A'])])),
+        ('native',dict(op='inspect')),
+    ]
+    proc=subprocess.run([exe,'--serve',str(path)],input='\n'.join(json.dumps(request) for _,request in steps)+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=25)
+    replies=[json.loads(line) for line in proc.stdout.splitlines()]
+    check(proc.returncode==0 and len(replies)==len(steps),'Gradient enabled JSON-lines commands return one response per request')
+    reply={name:replies[index] for index,(name,_) in enumerate(steps)}
+    check(reply['setup']['ok'] and reply['link']['ok'] and reply['get']['result']['authored']==dict(literal=False,driver=dict(link=source_ref)) and
+        reply['get']['result']['evaluated'] is True and next(value for value in reply['properties']['result'] if value['ref']==target_ref)==reply['get']['result'],
+        'JSON-lines link and typed properties preserve the false target literal and exact source Ref')
+    active_layer=next(layer for layer in reply['render_active']['result']['paint_layers'] if layer['operation']=='path-B-stroke')
+    active_uses=[ref for color in reply['colors_active']['result']['colors'] for ref in color['uses']]
+    check(active_layer.get('gradient') is not None and reply['source_render']['result']['paint_layers']==[] and target_stop in active_uses and
+        len(ET.fromstring(reply['svg_active']['result']).findall('.//{http://www.w3.org/2000/svg}linearGradient'))==1,
+        'Evaluated target bypass reaches paint planning, used-color discovery and SVG even when the source Stroke is disabled')
+    check(not reply['direct_toggle']['ok'] and reply['direct_toggle']['error']['code']=='DRIVEN_PROPERTY' and reply['direct_toggle']['revision']==2 and
+        reply['same_id_edit']['ok'] and reply['preserved']['result']['authored']==dict(literal=False,driver=dict(link=source_ref)) and
+        reply['preserved']['result']['evaluated'] is True,
+        'Driven Paint toggle is refused while same-ID geometry replacement preserves the authored driver')
+    disabled_uses=[ref for color in reply['colors_disabled']['result']['colors'] for ref in color['uses']]
+    check(reply['source_disable']['ok'] and reply['get_disabled']['result']['evaluated'] is False and
+        next(layer for layer in reply['render_disabled']['result']['paint_layers'] if layer['operation']=='path-B-stroke').get('gradient') is None and
+        target_stop not in disabled_uses and not ET.fromstring(reply['svg_disabled']['result']).findall('.//{http://www.w3.org/2000/svg}linearGradient') and
+        reply['get_enabled']['result']['evaluated'] is True,
+        'Source toggles update target shape, used-color and SVG projections without changing the authored false target')
+    check(not reply['delete_source']['ok'] and reply['delete_source']['error']['code']=='MISSING_REFERENCE' and
+        reply['delete_source']['revision']==5,
+        'Deleting a source object fails while a surviving Gradient target depends on it')
+    native=reply['native']['result'];target_object=next(obj for obj in native['objects'] if obj['id']=='path-B')
+    native_gradient=target_object['stack'][0]['gradient']
+    check(native['version']=='0.29' and native_gradient['enabled'] is False and native_gradient['enabled_driver']==dict(link=source_ref) and
+        run('--validate',native).returncode==0,
+        'Native 0.29 persists the target literal and exact closed same-field driver')
+    false_version=json.loads(json.dumps(native));false_version['version']='0.28'
+    check('UNSUPPORTED_GRADIENT_ENABLED_DRIVER' in run('--validate',false_version).stderr,
+        'Native 0.28 rejects a falsely versioned Gradient enabled driver')
+    literal_legacy=json.loads(json.dumps(native));literal_legacy['version']='0.28'
+    del next(obj for obj in literal_legacy['objects'] if obj['id']=='path-B')['stack'][0]['gradient']['enabled_driver']
+    check(run('--validate',literal_legacy).returncode==0,
+        'Native 0.28 continues to read literal-only Gradient state')
+    malformed=json.loads(json.dumps(native));next(obj for obj in malformed['objects'] if obj['id']=='path-B')['stack'][0]['gradient']['enabled_driver']['extra']=True
+    check('UNKNOWN_FIELD' in run('--validate',malformed).stderr,
+        'Native rejects unknown Gradient enabled driver wrapper fields')
+    wrong_ref=json.loads(json.dumps(native));next(obj for obj in wrong_ref['objects'] if obj['id']=='path-B')['stack'][0]['gradient']['enabled_driver']['link']['field']='op.path-A-stroke.enabled'
+    check(run('--validate',wrong_ref).returncode==2,
+        'Native validation rejects a Gradient enabled Ref with the wrong typed field')
+    path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
+    cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=target_ref))+'\n'+
+        json.dumps(dict(op='properties'))+'\n'+json.dumps(dict(op='inspect'))+'\n',capture_output=True,text=True,encoding='utf-8',timeout=20)
+    cold_replies=[json.loads(line) for line in cold.stdout.splitlines()]
+    cold_doc=cold_replies[2]['result']
+    check(cold.returncode==0 and all(item['ok'] for item in cold_replies) and cold_replies[0]['result']==reply['get_enabled']['result'] and
+        next(value for value in cold_replies[1]['result'] if value['ref']==target_ref)==cold_replies[0]['result'] and
+        next(obj for obj in cold_doc['objects'] if obj['id']=='path-B')['stack'][0]['gradient']['enabled_driver']==dict(link=source_ref) and
+        path.read_bytes()==before,
+        'A distinct JSON-lines process cold-opens the link with equal typed state and exact unchanged native bytes')
 print(f'PASS {checks} process and native migration checks')

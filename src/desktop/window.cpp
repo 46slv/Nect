@@ -2946,7 +2946,8 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             auto* hex=new QLineEdit(hex_color(color));hex->setObjectName("operation-hex-"+qs(operation.id));
             hex->setAccessibleName(name+" HEX RGBA");hex->setToolTip("sRGB #RRGGBB or #RRGGBBAA; linked channels require explicit unlinking before replacement.");
             color_layout->addWidget(swatch);color_layout->addWidget(hex);
-            form->addRow(operation.gradient&&operation.gradient->enabled?"Solid fallback":"sRGB",color_row);
+            form->addRow(operation.gradient&&gradient_enabled_state(host.session.document(),
+                gradient_ref(object.id,operation.id,operation.gradient->id,"enabled")).evaluated?"Solid fallback":"sRGB",color_row);
             form->addRow(color_tools_->menu_button(operation_ref(object.id,operation.id,"color")));
             auto apply_color=[this,apply,id=object.id,op=operation.id](const QColor& selected) {
                 const auto values=evaluate(host.session.document());
@@ -3132,6 +3133,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
 void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOperation& operation) {
     const auto id=object.id,op=operation.id;
     const auto frozen_session=host.session_id;
+    const auto& document=host.session.document();
     auto apply=[this,frozen_session](const std::vector<Command>& commands) {
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The gradient belongs to another document");
         host.session.apply(commands,host.session.revision());host.edited();
@@ -3140,12 +3142,18 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
     mode->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);mode->setMinimumContentsLength(10);
     mode->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
     mode->addItem("Solid");mode->addItem("Linear gradient");mode->addItem("Radial gradient");
-    mode->setCurrentIndex(!operation.gradient||!operation.gradient->enabled?0:operation.gradient->type=="radial"?2:1);
+    const auto gradient_ref_value=operation.gradient?std::optional<Ref>{gradient_ref(id,op,operation.gradient->id,"enabled")}:std::nullopt;
+    const auto gradient_state=gradient_ref_value?std::optional<GradientEnabledProperty>{gradient_enabled_state(document,*gradient_ref_value)}:std::nullopt;
+    const auto gradient_active=gradient_state?gradient_state->evaluated:false;
+    mode->setCurrentIndex(!operation.gradient||!gradient_active?0:operation.gradient->type=="radial"?2:1);
+    mode->setEnabled(!gradient_state||!gradient_state->driver);
+    if(gradient_state&&gradient_state->driver)mode->setToolTip("Unlink the Gradient enabled driver before changing Paint mode.");
     form->addRow("Paint",mode);
     connect(mode,&QComboBox::currentIndexChanged,this,[this,mode,id,op,apply,before=mode->currentIndex()](int index) {
         bool applied=false;
         perform([&]{
             auto gradient=find_operation(host.session.document(),id,op).gradient;
+            if(gradient&&gradient->enabled_driver)throw Error("DRIVEN_PROPERTY","Unlink the Gradient enabled driver before changing Paint mode");
             if(index==0) {
                 if(gradient)gradient->enabled=false;
             } else {
@@ -3181,7 +3189,70 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         });
         if(!applied){const QSignalBlocker blocker(mode);mode->setCurrentIndex(before);}
     });
-    if(!operation.gradient||!operation.gradient->enabled)return;
+    if(operation.gradient&&gradient_state&&gradient_ref_value) {
+        auto* driver_row=new QWidget;auto* driver_layout=new QHBoxLayout(driver_row);driver_layout->setContentsMargins(0,0,0,0);
+        auto* driver_button=new QToolButton(driver_row);driver_button->setObjectName("gradient-enabled-driver-"+qs(op));
+        driver_button->setText(gradient_state->driver?"Driver…":"Drive…");driver_button->setPopupMode(QToolButton::InstantPopup);
+        auto* driver_menu=new QMenu(driver_button);driver_button->setMenu(driver_menu);driver_layout->addWidget(driver_button);
+        auto* link_enabled=driver_menu->addAction(gradient_state->driver?"Replace enabled source…":"Link enabled source…");
+        auto* unlink_enabled=driver_menu->addAction("Unlink and freeze evaluated value");
+        unlink_enabled->setEnabled(gradient_state->driver.has_value());driver_layout->addStretch();form->addRow("Gradient enabled",driver_row);
+        const Composition* owner_composition=nullptr;
+        const std::function<bool(const Id&)> contains_target=[&](const Id& source_id) {
+            if(source_id==id)return true;
+            for(const auto& child:document.objects.at(source_id).children)if(contains_target(child))return true;
+            return false;
+        };
+        for(const auto& composition:document.compositions)if(
+            std::any_of(composition.roots.begin(),composition.roots.end(),contains_target)) {
+            owner_composition=&composition;break;
+        }
+        if(!owner_composition)throw Error("ORPHAN_OBJECT","Gradient Inspector target is not owned by a Composition");
+        std::vector<Ref> source_refs;QStringList source_labels;
+        std::function<void(const Id&)> collect_sources=[&](const Id& source_id) {
+            const auto& source_object=document.objects.at(source_id);
+            for(const auto& source_operation:source_object.stack)if(source_operation.gradient) {
+                const auto ref=gradient_ref(source_id,source_operation.id,source_operation.gradient->id,"enabled");
+                if(ref==*gradient_ref_value)continue;
+                source_refs.push_back(ref);
+                source_labels<<qs(source_object.name)+" — "+operation_label(source_operation)+" / Gradient ["+
+                    qs(source_operation.gradient->id)+"] — "+qs(source_id);
+            }
+            for(const auto& child:source_object.children)collect_sources(child);
+        };
+        for(const auto& root:owner_composition->roots)collect_sources(root);
+        link_enabled->setEnabled(!source_refs.empty());
+        QString driver_source="none";
+        if(gradient_state->driver) {
+            const auto& source=*gradient_state->driver;const auto source_object=document.objects.find(source.object);
+            driver_source=QString("%1 / %2").arg(source_object==document.objects.end()?qs(source.object):qs(source_object->second.name),qs(source.field));
+        }
+        auto* state_label=new QLabel(QString("Literal: %1 · Source: %2 · Evaluated: %3")
+            .arg(gradient_state->literal?"true":"false",driver_source,gradient_state->evaluated?"true":"false"));
+        state_label->setObjectName("gradient-enabled-state-"+qs(op));
+        state_label->setWordWrap(true);state_label->setTextFormat(Qt::PlainText);form->addRow("",state_label);
+        const auto frozen_revision=host.session.revision();const auto target_ref=*gradient_ref_value;
+        connect(link_enabled,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision,
+            replace_driver=gradient_state->driver.has_value(),source_refs,source_labels] {
+            bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Gradient enabled","Source Gradient",source_labels,0,false,&accepted);
+            if(!accepted)return;
+            const auto index=source_labels.indexOf(choice);if(index<0)return;
+            perform([&]{
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Gradient belongs to another document");
+                if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","Gradient enabled source changed while its editor was open; reopen it");
+                host.session.apply({LinkGradientEnabled{target_ref,source_refs.at(static_cast<std::size_t>(index)),replace_driver}},frozen_revision);
+                host.edited();
+            });
+        });
+        connect(unlink_enabled,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision] {
+            perform([&]{
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Gradient belongs to another document");
+                if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","Gradient enabled state changed while its editor was open; reopen it");
+                host.session.apply({UnlinkGradientEnabled{target_ref}},frozen_revision);host.edited();
+            });
+        });
+    }
+    if(!operation.gradient||!gradient_active)return;
     const auto& gradient=*operation.gradient;
     const auto gradient_id=gradient.id;
     auto* handles=new QPushButton(canvas->gradient_operation()==op?"Finish gradient handles":"Edit gradient handles");

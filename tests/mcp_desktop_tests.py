@@ -366,7 +366,7 @@ try:
         assert gradient_enabled['type']=='bool' and gradient_enabled['unit']=='boolean' and \
             gradient_enabled['space']=='local' and gradient_enabled['origin']=='authored' and \
             gradient_enabled['authored']==dict(literal=True,driver=None) and gradient_enabled['evaluated'] is True and \
-            gradient_enabled['link'] is False and gradient_enabled['expression'] is False
+            gradient_enabled['link'] is True and gradient_enabled['expression'] is False, gradient_enabled
         assert core('resolve_name',name=next(obj['name'] for obj in core('inspect')['result']['objects']
             if obj['id']=='path-0'),point='',field=gradient_enabled_ref['field'])['result']==gradient_enabled_ref
         assert next(item for item in core('properties')['result'] if item['ref']==gradient_enabled_ref)==gradient_enabled
@@ -395,6 +395,51 @@ try:
         assert core('get',ref=gradient_enabled_ref)['result']==gradient_enabled
         generic_set=core('apply',expected_revision=rev,commands=[dict(type='set',ref=gradient_enabled_ref,value=0)])
         assert not generic_set['ok'] and generic_set['error']['code']=='MISSING_REFERENCE' and generic_set['revision']==rev
+        target_gradient=dict(gradient,id='mcp-target-gradient',enabled=False)
+        target_gradient['stops']=[dict(stop,id='mcp-target-'+stop['id']) for stop in gradient['stops']]
+        target_gradient_ref=dict(object='path-1',point='',field='op.path-1-stroke.gradient.mcp-target-gradient.enabled')
+        target_stop_ref=dict(object='path-1',point='',field='op.path-1-stroke.gradient.mcp-target-gradient.stop.mcp-target-'+gradient['stops'][0]['id']+'.color')
+        rev=apply([dict(type='set_gradient',object='path-1',operation='path-1-stroke',gradient=target_gradient)],rev)
+        linked=core('apply',expected_revision=rev,commands=[dict(type='link_gradient_enabled',target=target_gradient_ref,
+            source=gradient_enabled_ref,replace_driver=False)])
+        assert linked['ok'] and linked['revision']==rev+1;rev=linked['revision']
+        linked_value=core('get',ref=target_gradient_ref)['result']
+        direct_value=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=target_gradient_ref)))['result']
+        assert linked_value['type']=='bool' and linked_value['authored']==dict(literal=False,driver=dict(link=gradient_enabled_ref)) and \
+            linked_value['evaluated'] is True and linked_value==direct_value and \
+            next(item for item in core('properties')['result'] if item['ref']==target_gradient_ref)==linked_value
+        plan=core('render_plan',object='path-1')['result']
+        assert next(layer for layer in plan['paint_layers'] if layer['operation']=='path-1-stroke').get('gradient') is not None
+        active_color_inventory=core('used_colors')['result']
+        active_color_refs=[ref for color in active_color_inventory['colors'] for ref in color['uses']]
+        assert target_stop_ref in active_color_refs, (target_stop_ref,active_color_refs)
+        assert '<linearGradient' in core('export_svg',composition=comp['id'],artboard=comp['artboards'][0]['id'])['result']
+        stale=core('apply',expected_revision=rev-1,commands=[dict(type='link_gradient_enabled',target=target_gradient_ref,
+            source=gradient_enabled_ref,replace_driver=True)])
+        assert not stale['ok'] and stale['error']['code']=='REVISION_CONFLICT' and stale['revision']==rev
+        direct_toggle=core('apply',expected_revision=rev,commands=[dict(type='set_gradient',object='path-1',operation='path-1-stroke',
+            gradient=dict(target_gradient,enabled=True))])
+        assert not direct_toggle['ok'] and direct_toggle['error']['code']=='DRIVEN_PROPERTY' and direct_toggle['revision']==rev
+        target_replacement=dict(target_gradient,end_x=dict(literal=350))
+        rev=apply([dict(type='set_gradient',object='path-1',operation='path-1-stroke',gradient=target_replacement)],rev)
+        preserved=core('get',ref=target_gradient_ref)['result']
+        assert preserved['authored']==dict(literal=False,driver=dict(link=gradient_enabled_ref)) and preserved['evaluated'] is True
+        source_off=dict(gradient,enabled=False)
+        direct_toggle=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='apply',expected_revision=rev,
+            commands=[dict(type='set_gradient',object='path-0',operation='motif-fill',gradient=source_off)])))
+        assert direct_toggle['ok'];rev+=1
+        assert core('get',ref=target_gradient_ref)['result']['evaluated'] is False
+        assert not any(target_stop_ref in color['uses'] for color in core('used_colors')['result']['colors'])
+        rev=apply([dict(type='unlink_gradient_enabled',target=target_gradient_ref)],rev)
+        frozen=core('get',ref=target_gradient_ref)['result']
+        source_on=dict(gradient,enabled=True)
+        api_source=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='apply',expected_revision=rev,
+            commands=[dict(type='set_gradient',object='path-0',operation='motif-fill',gradient=source_on)])))
+        assert api_source['ok'];rev+=1
+        frozen_after=core('get',ref=target_gradient_ref)['result']
+        assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
+        mcp_native=core('inspect')['result']
+        assert mcp_native['version']=='0.29' and core('get',ref=target_gradient_ref)['result']==frozen
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -1139,7 +1184,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.28'
+        assert native_save_as['version']=='0.29'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']

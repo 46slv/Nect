@@ -382,11 +382,12 @@ j::object named_color_json(const NamedColor& color) {
     return {{"id",color.id},{"name",color.name},{"space","srgb"},{"profile","srgb"},{"alpha","straight"},{"rgba",rgba}};
 }
 j::object color_property_json(const Document& d,const Ref& ref,const std::map<Ref,double>& values,
-    const std::map<Ref,bool>* operation_enabled=nullptr) {
+    const std::map<Ref,bool>* operation_enabled=nullptr,const std::map<Ref,bool>* gradient_enabled=nullptr) {
     j::array channels,authored;for(const auto& channel:color_channels(d,ref)){channels.push_back(ref_json(channel));authored.push_back(scalar_json(property(d,channel)));}
     const auto link=color_link(d,ref);
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","color"},{"authored",authored},
-        {"evaluated",color_json(color_value(d,ref,values))},{"channels",channels},{"used",color_is_used(d,ref,operation_enabled)},
+        {"evaluated",color_json(color_value(d,ref,values))},{"channels",channels},
+        {"used",color_is_used(d,ref,operation_enabled,gradient_enabled)},
         {"link",link?j::value(ref_json(*link)):j::value(nullptr)}};
 }
 j::value text_json(const TextSource& s) {
@@ -487,11 +488,12 @@ j::object operation_enabled_property_json(const Document& d,const Ref& ref,const
         {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
         {"evaluated",value.evaluated},{"link",true},{"expression",false}};
 }
-j::object gradient_enabled_property_json(const Document& d,const Ref& ref,bool enabled) {
+j::object gradient_enabled_property_json(const Document& d,const Ref& ref,const GradientEnabledProperty& value) {
+    j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
         {"unit","boolean"},{"space","local"},{"origin","authored"},
-        {"authored",j::object{{"literal",enabled},{"driver",nullptr}}},
-        {"evaluated",enabled},{"link",false},{"expression",false}};
+        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
+        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
 }
 j::object object_visibility_property_json(const Document& d,const Ref& ref,const ObjectVisibilityProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
@@ -576,11 +578,19 @@ j::value point_edit_json(const PointEdit& edit) {
         {"enabled",edit.enabled},{"overrides",overrides}};
 }
 
-Gradient read_gradient(const j::value& v,bool allow_expression=true) {
-    const auto& o=v.as_object();keys(o,{"id","type","version","enabled","start_x","start_y","end_x","end_y","stops"});
+Gradient read_gradient(const j::value& v,bool allow_expression=true,bool allow_enabled_driver=true) {
+    const auto& o=v.as_object();
+    if(!allow_enabled_driver&&o.contains("enabled_driver"))
+        throw Error("UNSUPPORTED_GRADIENT_ENABLED_DRIVER","Gradient enabled drivers require native 0.29 and the dedicated link command");
+    std::vector<std::string_view> allowed{"id","type","version","enabled","start_x","start_y","end_x","end_y","stops"};
+    if(allow_enabled_driver)allowed.push_back("enabled_driver");
+    keys(o,allowed);
     Gradient g;g.id=text(o.at("id"));g.type=text(o.at("type"));g.version=j::value_to<unsigned>(o.at("version"));
     g.enabled=o.at("enabled").as_bool();g.start_x=read_scalar(o.at("start_x"),allow_expression);g.start_y=read_scalar(o.at("start_y"),allow_expression);
     g.end_x=read_scalar(o.at("end_x"),allow_expression);g.end_y=read_scalar(o.at("end_y"),allow_expression);
+    if(const auto* driver=o.if_contains("enabled_driver")) {
+        const auto& wrapper=driver->as_object();keys(wrapper,{"link"});g.enabled_driver=read_ref(wrapper.at("link"));
+    }
     for(const auto& entry:o.at("stops").as_array()) {
         const auto& s=entry.as_object();keys(s,{"id","offset","rgba"});
         GradientStop stop;stop.id=text(s.at("id"));stop.offset=read_scalar(s.at("offset"),allow_expression);
@@ -596,12 +606,15 @@ j::value gradient_json(const Gradient& g) {
         j::array rgba;for(const auto& channel:stop.rgba)rgba.push_back(scalar_json(channel));
         stops.push_back({{"id",stop.id},{"offset",scalar_json(stop.offset)},{"rgba",rgba}});
     }
-    return j::object{{"id",g.id},{"type",g.type},{"version",g.version},{"enabled",g.enabled},
+    j::object result{{"id",g.id},{"type",g.type},{"version",g.version},{"enabled",g.enabled},
         {"start_x",scalar_json(g.start_x)},{"start_y",scalar_json(g.start_y)},
         {"end_x",scalar_json(g.end_x)},{"end_y",scalar_json(g.end_y)},{"stops",stops}};
+    if(g.enabled_driver)result["enabled_driver"]=j::object{{"link",ref_json(*g.enabled_driver)}};
+    return result;
 }
 ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool allow_expression=true,bool allow_offset=true,
-    bool allow_stroke_style=true,bool allow_fill_rule_driver=false,bool allow_enabled_driver=false) {
+    bool allow_stroke_style=true,bool allow_fill_rule_driver=false,bool allow_enabled_driver=false,
+    bool allow_gradient_enabled_driver=false) {
     const auto& o=v.as_object();
     if(!allow_fill_rule_driver&&o.contains("fill_rule_driver"))throw Error("UNSUPPORTED_FILL_RULE_DRIVER","Fill rule drivers require native 0.26 and the dedicated link command");
     if(!allow_enabled_driver&&o.contains("enabled_driver"))
@@ -630,7 +643,7 @@ ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool al
     } else if(o.contains("line_join"))throw Error("INVALID_OPERATOR_OPTIONS","Line join applies only to Offset or Stroke v2");
     if(o.contains("line_cap")&&!(op.type=="nect.paint.stroke"&&op.version==2))throw Error("INVALID_OPERATOR_OPTIONS","Line cap applies only to Stroke v2");
     for(const auto& p:o.at("parameters").as_object())op.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
-    if(const auto* g=o.if_contains("gradient"))op.gradient=read_gradient(*g,allow_expression);
+    if(const auto* g=o.if_contains("gradient"))op.gradient=read_gradient(*g,allow_expression,allow_gradient_enabled_driver);
     return op;
 }
 j::value operation_json(const ShapeOperation& op) {
@@ -875,6 +888,13 @@ Command read_command(const j::value& v) {
     if(type=="unlink_operation_enabled") {
         keys(o,{"type","target"});return UnlinkOperationEnabled{read_ref(o.at("target"))};
     }
+    if(type=="link_gradient_enabled") {
+        keys(o,{"type","target","source","replace_driver"});
+        return LinkGradientEnabled{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="unlink_gradient_enabled") {
+        keys(o,{"type","target"});return UnlinkGradientEnabled{read_ref(o.at("target"))};
+    }
     if(type=="link_fill_rule") {
         keys(o,{"type","target","source","replace_driver"});
         return LinkFillRule{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
@@ -1110,10 +1130,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,28> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28"};
+        constexpr std::array<std::string_view,29> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.28 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.29 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1183,13 +1203,13 @@ Document decode(std::string_view input) {
                     throw Error("INVALID_OBJECT","Group has path-only fields");
                 if(minor>=25) {
                     if(!o.contains("stack"))throw Error("INVALID_OBJECT","Native 0.25 Group requires an operation stack");
-                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,true,true,true,true,minor>=26,minor>=28));
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,true,true,true,true,minor>=26,minor>=28,minor>=29));
                 } else if(o.contains("stack"))throw Error("INVALID_OBJECT","Group operation stacks require native 0.25");
                 obj.children=ids(o.at("children"));
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
                 if(minor>=3) {
-                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12,minor>=13,minor>=26,minor>=28));
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12,minor>=13,minor>=26,minor>=28,minor>=29));
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
                     if(text(o.at("fill"))!="none")throw Error("UNSUPPORTED_APPEARANCE","Legacy format only supports stroked paths");
@@ -1316,6 +1336,7 @@ std::string encode(const Document& d) {
 std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     validate(d);
     const auto operation_enabled=evaluate_operation_enableds(d);
+    const auto gradient_enabled=evaluate_gradient_enableds(d);
     auto comp=std::find_if(d.compositions.begin(),d.compositions.end(),
         [&](const auto& c){return c.id==comp_id;});
     if(comp==d.compositions.end()) throw Error("MISSING_COMPOSITION",comp_id);
@@ -1454,7 +1475,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
         if(o.kind==Kind::group) {
             for(const auto& child:o.children) render(child);
         } else {
-            paint_shape(evaluate_shape(d,id,values,&fill_rule_values,&operation_enabled));
+            paint_shape(evaluate_shape(d,id,values,&fill_rule_values,&operation_enabled,&gradient_enabled));
         }
 
         out<<"</g>\n";
@@ -1512,7 +1533,7 @@ std::string request(Session& session,std::string_view input) {
             else if(r.field=="point_edit.enabled")result=point_edit_enabled_property_json(
                 session.document(),r,point_edit_enabled_property(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.find(".gradient.")!=std::string::npos&&r.field.ends_with(".enabled"))
-                result=gradient_enabled_property_json(session.document(),r,gradient_enabled_property(session.document(),r));
+                result=gradient_enabled_property_json(session.document(),r,gradient_enabled_state(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.ends_with(".enabled"))result=operation_enabled_property_json(
                 session.document(),r,operation_enabled_state(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.ends_with(".fill_rule"))result=fill_rule_property_json(session.document(),r,fill_rule_property(session.document(),r));
@@ -1551,6 +1572,7 @@ std::string request(Session& session,std::string_view input) {
             const auto alignment_values=evaluate_text_alignments(session.document());
             const auto fill_rule_values=evaluate_fill_rules(session.document());
             const auto operation_enabled_values=evaluate_operation_enableds(session.document());
+            const auto gradient_enabled_values=gradient_enabled_states(session.document());
             std::map<Id,std::pair<std::string,GuidePositionProperty>> guide_values;
             for(const auto& composition:session.document().compositions) {
                 const auto positions=evaluate_guide_positions(session.document(),composition.id);
@@ -1589,8 +1611,7 @@ std::string request(Session& session,std::string_view input) {
                     continue;
                 }
                 if(ref.field.starts_with("op.")&&ref.field.find(".gradient.")!=std::string::npos&&ref.field.ends_with(".enabled")) {
-                    list.push_back(gradient_enabled_property_json(session.document(),ref,
-                        gradient_enabled_property(session.document(),ref)));
+                    list.push_back(gradient_enabled_property_json(session.document(),ref,gradient_enabled_values.at(ref)));
                     continue;
                 }
                 if(ref.field.starts_with("op.")&&ref.field.ends_with(".enabled")) {
@@ -1669,18 +1690,21 @@ std::string request(Session& session,std::string_view input) {
                     {"evaluated",values.at(ref)}});
             }
             const auto operation_enabled=evaluate_operation_enableds(session.document());
-            for(const auto& ref:color_properties(session.document()))list.push_back(color_property_json(session.document(),ref,values,&operation_enabled));
+            const auto gradient_enabled=evaluate_gradient_enableds(session.document());
+            for(const auto& ref:color_properties(session.document()))list.push_back(color_property_json(session.document(),ref,values,&operation_enabled,&gradient_enabled));
             result=std::move(list);
         } else if(op=="color_properties") {
             keys(o,{"op"});j::array list;const auto values=evaluate(session.document());
             const auto operation_enabled=evaluate_operation_enableds(session.document());
-            for(const auto& ref:color_properties(session.document()))list.push_back(color_property_json(session.document(),ref,values,&operation_enabled));
+            const auto gradient_enabled=evaluate_gradient_enableds(session.document());
+            for(const auto& ref:color_properties(session.document()))list.push_back(color_property_json(session.document(),ref,values,&operation_enabled,&gradient_enabled));
             result=std::move(list);
         } else if(op=="used_colors") {
             keys(o,{"op"});const auto& d=session.document();const auto values=evaluate(d);
             std::map<std::array<double,4>,std::vector<Ref>> grouped;
             const auto operation_enabled=evaluate_operation_enableds(d);
-            for(const auto& ref:color_properties(d))if(color_is_used(d,ref,&operation_enabled))
+            const auto gradient_enabled=evaluate_gradient_enableds(d);
+            for(const auto& ref:color_properties(d))if(color_is_used(d,ref,&operation_enabled,&gradient_enabled))
                 grouped[color_value(d,ref,values).rgba].push_back(ref);
             j::array inventory;for(const auto& [rgba,refs]:grouped) {
                 j::array uses;for(const auto& ref:refs)uses.push_back(ref_json(ref));ColorValue value;value.rgba=rgba;

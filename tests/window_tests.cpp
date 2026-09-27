@@ -1295,6 +1295,58 @@ void gradient_authoring(Window& window) {
     QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint+QPoint(30,0));QApplication::processEvents();
     check(session.revision()==cancel_revision&&!session.gesture_active()&&evaluate(session.document()).at(ref("end_x"))==initial,
         "Escape cancels a gradient preview without a history entry");
+    auto source_fill=default_operation("link-source-fill","nect.paint.fill");source_fill.enabled=false;
+    Gradient source_gradient;source_gradient.id="link-source-gradient";
+    GradientStop source_first;source_first.id="link-source-first";GradientStop source_last;source_last.id="link-source-last";source_last.offset.literal=1;
+    source_first.rgba[0].literal=1;source_last.rgba[2].literal=1;source_gradient.stops={source_first,source_last};
+    auto target_disabled=*current().gradient;target_disabled.enabled=false;
+    session.apply({AddOperation{object,source_fill,0},SetGradient{object,source_fill.id,source_gradient},
+        SetGradient{object,op,target_disabled}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto solid_preview=pixel(cx-55,cy+10);
+    const auto source_enabled_ref=gradient_ref(object,source_fill.id,source_gradient.id,"enabled");
+    bool chose_gradient_source=false;
+    QTimer::singleShot(10,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget))
+        if(auto* combo=dialog->findChild<QComboBox*>()) {
+            for(int index=0;index<combo->count();++index)if(combo->itemText(index).contains(QString::fromStdString(source_gradient.id))) {
+                combo->setCurrentIndex(index);dialog->accept();chose_gradient_source=true;return;
+            }
+            dialog->reject();
+        }});
+    auto* enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    enabled_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    const auto linked_state=gradient_enabled_state(session.document(),gradient_enabled_ref);
+    const auto linked_preview=pixel(cx-55,cy+10);
+    auto* linked_mode=visible_child<QComboBox>(window,("gradient-mode-"+op).c_str());reveal(window,linked_mode);
+    auto* linked_status=visible_child<QLabel>(window,("gradient-enabled-state-"+op).c_str());
+    check(chose_gradient_source&&linked_state.literal==false&&linked_state.driver==source_enabled_ref&&linked_state.evaluated&&
+        linked_mode->currentIndex()==1&&!linked_mode->isEnabled()&&
+        linked_status->text().contains("Literal: false")&&linked_status->text().contains("Evaluated: true")&&
+        std::abs(linked_preview.red()-solid_preview.red())>25,
+        "Inspector displays authored and evaluated Paint separately, and Canvas preview follows the linked source");
+    const auto driven_toggle_revision=session.revision();linked_mode->setCurrentIndex(0);QApplication::processEvents();
+    check(session.revision()==driven_toggle_revision&&gradient_enabled_state(session.document(),gradient_enabled_ref).driver==source_enabled_ref&&
+        gradient_enabled_state(session.document(),gradient_enabled_ref).literal==false&&linked_mode->currentIndex()==1,
+        "A direct Inspector Paint mode toggle while driven is refused without clearing or changing the link");
+    auto source_disabled=source_gradient;source_disabled.enabled=false;
+    session.apply({SetGradient{object,source_fill.id,source_disabled}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto disabled_pixel=pixel(cx-55,cy+10);
+    check(!gradient_enabled_state(session.document(),gradient_enabled_ref).evaluated&&
+        window.canvas->gradient_operation().empty()&&disabled_pixel.red()+20<linked_preview.red(),
+        "Canvas removes evaluated gradient handles and previews the retained solid paint when the source bypasses");
+    session.apply({SetGradient{object,source_fill.id,source_gradient}},session.revision());window.host.edited();QApplication::processEvents();
+    auto* linked_handles=visible_child<QPushButton>(window,("gradient-handles-"+op).c_str());reveal(window,linked_handles);
+    check(gradient_enabled_state(session.document(),gradient_enabled_ref).evaluated&&linked_handles->isEnabled(),
+        "The target Inspector restores its Canvas gradient controls when the source evaluates true again");
+    QTest::mouseClick(linked_handles,Qt::LeftButton);QApplication::processEvents();
+    check(window.canvas->gradient_operation()==op,
+        "Canvas gradient handles can be enabled from the evaluated active gradient while its authored literal is false");
+    enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    auto* unlink=enabled_driver->menu()->actions().at(1);unlink->trigger();QApplication::processEvents();
+    check(!gradient_enabled_state(session.document(),gradient_enabled_ref).driver&&
+        gradient_enabled_state(session.document(),gradient_enabled_ref).literal&&
+        visible_child<QComboBox>(window,("gradient-mode-"+op).c_str())->isEnabled(),
+        "Inspector unlink freezes the evaluated value and enables direct Paint mode editing again");
+    choose(0);choose(1);click("gradient-handles-"+op);
     const Ref center{object,"","generator.center_x"};
     session.apply({Link{ref("end_x"),{center,1,110,"copy_local_value"}}},session.revision());window.host.edited();QApplication::processEvents();
     const auto driven_revision=session.revision();window.canvas->setFocus();

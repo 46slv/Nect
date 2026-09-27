@@ -201,6 +201,33 @@ const ShapeOperation& operation_enabled_source(const Document& document,const Re
     require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
     return *found;
 }
+template<class DocumentType>
+auto& gradient_enabled_source(DocumentType& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_GRADIENT_REF","Gradient enabled requires an empty point ID");
+    require(ref.field.starts_with("op."),"INVALID_GRADIENT_REF","Gradient enabled Ref must identify a paint operation");
+    const auto separator=ref.field.find('.',3);
+    require(separator!=std::string::npos&&separator>3,"INVALID_GRADIENT_REF","Gradient enabled Ref requires an operation ID");
+    const auto [operation_id,field]=operation_address(ref.field);
+    identity(operation_id);
+    constexpr std::string_view prefix="gradient.";
+    constexpr std::string_view suffix=".enabled";
+    require(field.starts_with(prefix)&&field.ends_with(suffix),"UNKNOWN_GRADIENT_PROPERTY",field);
+    const auto gradient_length=field.size()-prefix.size()-suffix.size();
+    require(gradient_length>0,"INVALID_GRADIENT_REF","Gradient enabled Ref requires a gradient ID");
+    const auto gradient_id=field.substr(prefix.size(),gradient_length);
+    require(gradient_id.find('.')==std::string::npos,"INVALID_GRADIENT_REF","Gradient enabled Ref has a malformed gradient ID");
+    identity(gradient_id);
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    const auto found=std::find_if(object->second.stack.begin(),object->second.stack.end(),
+        [&](const auto& operation){return operation.id==operation_id;});
+    require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
+    require(found->type=="nect.paint.fill"||found->type=="nect.paint.stroke",
+        "INVALID_DOMAIN","Gradient enabled requires a Fill or Stroke operation");
+    require(found->gradient.has_value(),"MISSING_GRADIENT",gradient_id);
+    require(found->gradient->id==gradient_id,"MISSING_GRADIENT",gradient_id);
+    return *found->gradient;
+}
 class TextItalicEvaluator {
     const Document& document_;
     std::map<Id,bool> values_;
@@ -506,6 +533,69 @@ public:
         for(const auto& [id,object]:document_.objects)for(const auto& operation:object.stack) {
             const auto ref=operation_ref(id,operation.id,"enabled");
             result.emplace(ref,visit(ref,0).value);
+        }
+        return result;
+    }
+};
+struct GradientEnabledEvaluation { bool value=true; unsigned remaining_edges=0; };
+class GradientEnabledEvaluator {
+    const Document& document_;
+    std::map<Id,Id> compositions_;
+    std::map<Ref,GradientEnabledEvaluation> values_;
+    std::set<Ref> active_;
+
+    GradientEnabledEvaluation visit(const Ref& ref,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Gradient enabled dependency depth limit 128");
+        if(const auto found=values_.find(ref);found!=values_.end()) {
+            require(depth+found->second.remaining_edges<=128,"DEPENDENCY_DEPTH","Gradient enabled dependency depth limit 128");
+            return found->second;
+        }
+        require(active_.insert(ref).second,"DEPENDENCY_CYCLE","Gradient enabled dependency cycle");
+        const auto& gradient=gradient_enabled_source(document_,ref);
+        GradientEnabledEvaluation result{gradient.enabled,0};
+        if(gradient.enabled_driver) {
+            (void)gradient_enabled_source(document_,*gradient.enabled_driver);
+            require(*gradient.enabled_driver!=ref,"DEPENDENCY_CYCLE","Gradient enabled cannot link to itself");
+            const auto target_owner=compositions_.find(ref.object),source_owner=compositions_.find(gradient.enabled_driver->object);
+            require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                "ORPHAN_OBJECT","Gradient enabled links require objects owned by a Composition");
+            require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                "Gradient enabled links must stay in one Composition");
+            const auto upstream=visit(*gradient.enabled_driver,depth+1);
+            result={upstream.value,upstream.remaining_edges+1};
+        }
+        require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Gradient enabled dependency depth limit 128");
+        active_.erase(ref);values_.emplace(ref,result);return result;
+    }
+public:
+    explicit GradientEnabledEvaluator(const Document& document):document_(document) {
+        std::set<Id> active;
+        std::function<void(const Id&,const Id&,unsigned)> own=[&](const Id& id,const Id& composition,unsigned depth) {
+            require(depth<=128,"HIERARCHY_DEPTH","Hierarchy depth limit 128");
+            require(document_.objects.contains(id),"MISSING_OBJECT",id);
+            require(active.insert(id).second,"INVALID_HIERARCHY","Repeated owner or cycle: "+id);
+            require(compositions_.emplace(id,composition).second,"INVALID_HIERARCHY","Repeated object owner: "+id);
+            for(const auto& child:document_.objects.at(id).children)own(child,composition,depth+1);
+            active.erase(id);
+        };
+        for(const auto& composition:document_.compositions)
+            for(const auto& root:composition.roots)own(root,composition.id,0);
+    }
+    bool value(const Ref& ref) { (void)gradient_enabled_source(document_,ref);return visit(ref,0).value; }
+    std::map<Ref,bool> all() {
+        std::map<Ref,bool> result;
+        for(const auto& [id,object]:document_.objects)for(const auto& operation:object.stack)if(operation.gradient) {
+            const auto ref=gradient_ref(id,operation.id,operation.gradient->id,"enabled");
+            result.emplace(ref,visit(ref,0).value);
+        }
+        return result;
+    }
+    std::map<Ref,GradientEnabledProperty> states() {
+        std::map<Ref,GradientEnabledProperty> result;
+        for(const auto& [id,object]:document_.objects)for(const auto& operation:object.stack)if(operation.gradient) {
+            const auto ref=gradient_ref(id,operation.id,operation.gradient->id,"enabled");
+            const auto evaluated=visit(ref,0).value;
+            result.emplace(ref,GradientEnabledProperty{operation.gradient->enabled,operation.gradient->enabled_driver,evaluated});
         }
         return result;
     }
@@ -1063,30 +1153,20 @@ bool operation_enabled_property(const Document& document,const Ref& ref) {
     return operation_enabled_source(document,ref).enabled;
 }
 bool gradient_enabled_property(const Document& document,const Ref& ref) {
-    require(ref.point.empty(),"INVALID_GRADIENT_REF","Gradient enabled requires an empty point ID");
-    require(ref.field.starts_with("op."),"INVALID_GRADIENT_REF","Gradient enabled Ref must identify a paint operation");
-    const auto separator=ref.field.find('.',3);
-    require(separator!=std::string::npos&&separator>3,"INVALID_GRADIENT_REF","Gradient enabled Ref requires an operation ID");
-    const auto [operation_id,field]=operation_address(ref.field);
-    identity(operation_id);
-    constexpr std::string_view prefix="gradient.";
-    constexpr std::string_view suffix=".enabled";
-    require(field.starts_with(prefix)&&field.ends_with(suffix),"UNKNOWN_GRADIENT_PROPERTY",field);
-    const auto gradient_length=field.size()-prefix.size()-suffix.size();
-    require(gradient_length>0,"INVALID_GRADIENT_REF","Gradient enabled Ref requires a gradient ID");
-    const auto gradient_id=field.substr(prefix.size(),gradient_length);
-    require(gradient_id.find('.')==std::string::npos,"INVALID_GRADIENT_REF","Gradient enabled Ref has a malformed gradient ID");
-    identity(gradient_id);
-    const auto object=document.objects.find(ref.object);
-    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
-    const auto found=std::find_if(object->second.stack.begin(),object->second.stack.end(),
-        [&](const auto& operation){return operation.id==operation_id;});
-    require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
-    require(found->type=="nect.paint.fill"||found->type=="nect.paint.stroke",
-        "INVALID_DOMAIN","Gradient enabled requires a Fill or Stroke operation");
-    require(found->gradient.has_value(),"MISSING_GRADIENT",gradient_id);
-    require(found->gradient->id==gradient_id,"MISSING_GRADIENT",gradient_id);
-    return found->gradient->enabled;
+    return gradient_enabled_source(document,ref).enabled;
+}
+GradientEnabledProperty gradient_enabled_state(const Document& document,const Ref& ref) {
+    const auto& gradient=gradient_enabled_source(document,ref);
+    return {gradient.enabled,gradient.enabled_driver,evaluate_gradient_enabled(document,ref)};
+}
+std::map<Ref,GradientEnabledProperty> gradient_enabled_states(const Document& document) {
+    return GradientEnabledEvaluator(document).states();
+}
+bool evaluate_gradient_enabled(const Document& document,const Ref& ref) {
+    return GradientEnabledEvaluator(document).value(ref);
+}
+std::map<Ref,bool> evaluate_gradient_enableds(const Document& document) {
+    return GradientEnabledEvaluator(document).all();
 }
 bool object_visibility_property(const Document& document,const Ref& ref) {
     require(ref.point.empty(),"INVALID_OBJECT_REF","Object visibility requires an empty point ID");
@@ -1791,6 +1871,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     (void)evaluate_text_alignments(d);
     const auto fill_rule_values=evaluate_fill_rules(d);
     const auto operation_enabled_values=evaluate_operation_enableds(d);
+    const auto gradient_enabled_values=evaluate_gradient_enableds(d);
     const auto transforms=evaluate_transforms(d,values);
     for(const auto& [id,object]:d.objects)if(object.text&&object.text->path_attachment) {
         const auto source=evaluated_text_source(d,id);
@@ -1835,7 +1916,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         for(const auto& op:o.stack)if(op.gradient) {
             const auto& g=*op.gradient;
             auto v=[&](const char* field){return values.at(gradient_ref(id,op.id,g.id,field));};
-            if(operation_enabled_values.at(operation_ref(id,op.id,"enabled"))&&g.enabled)
+            if(operation_enabled_values.at(operation_ref(id,op.id,"enabled"))&&
+                gradient_enabled_values.at(gradient_ref(id,op.id,g.id,"enabled")))
                 require(std::hypot(v("end_x")-v("start_x"),v("end_y")-v("start_y"))>1e-9,
                     "GRADIENT_GEOMETRY","Gradient start and end must differ");
             std::set<double> offsets;
@@ -1852,7 +1934,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         if(o.kind==Kind::text)check_shape=false; // Authored text remains readable without the Windows layout backend.
 #endif
         if(check_shape)
-            (void)evaluate_shape(d,id,values,&fill_rule_values,&operation_enabled_values);
+            (void)evaluate_shape(d,id,values,&fill_rule_values,&operation_enabled_values,&gradient_enabled_values);
     }
     return values;
 }
@@ -2528,7 +2610,10 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         for(auto& op:object.stack) {
             if(op.enabled_driver)op.enabled_driver=remap(*op.enabled_driver);
             if(op.fill_rule_driver)op.fill_rule_driver->link=remap(op.fill_rule_driver->link);
-            op.id=plan.ids.at(op.id);if(op.gradient){op.gradient->id=plan.ids.at(op.gradient->id);for(auto& stop:op.gradient->stops)stop.id=plan.ids.at(stop.id);}
+            op.id=plan.ids.at(op.id);if(op.gradient){
+                if(op.gradient->enabled_driver)op.gradient->enabled_driver=remap(*op.gradient->enabled_driver);
+                op.gradient->id=plan.ids.at(op.gradient->id);for(auto& stop:op.gradient->stops)stop.id=plan.ids.at(stop.id);
+            }
         }
         if(!object.legacy_stroke.empty())object.legacy_stroke=plan.ids.at(object.legacy_stroke);
         require(document.objects.emplace(object.id,std::move(object)).second,"DUPLICATE_ID","Duplicate prefix collides with an existing object");
@@ -2558,6 +2643,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
     std::set<Ref> fill_rule_targets;
     std::set<Ref> visibility_targets;
     std::set<Ref> operation_enabled_targets;
+    std::set<Ref> gradient_enabled_targets;
     for(const auto& command:commands)std::visit([&](const auto& value) {
         using T=std::decay_t<decltype(value)>;
         if constexpr(std::is_same_v<T,LinkFillRule>||std::is_same_v<T,UnlinkFillRule>)
@@ -2566,6 +2652,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(visibility_targets.insert(value.target).second,"DUPLICATE_TARGET","An Object visibility target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkOperationEnabled>||std::is_same_v<T,UnlinkOperationEnabled>)
             require(operation_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","An operation enabled target may be linked or unlinked only once per batch");
+        else if constexpr(std::is_same_v<T,LinkGradientEnabled>||std::is_same_v<T,UnlinkGradientEnabled>)
+            require(gradient_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A Gradient enabled target may be linked or unlinked only once per batch");
     },command);
 
     auto candidate=document;
@@ -2601,6 +2689,19 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             const auto [operation_id,parameter]=operation_address(c.target.field);(void)parameter;
             auto& source=operation(candidate.objects.at(c.target.object),operation_id);
             source.enabled=frozen;source.enabled_driver.reset();
+        } else if constexpr(std::is_same_v<T,LinkGradientEnabled>) {
+            const auto& target=gradient_enabled_source(candidate,c.target);
+            (void)gradient_enabled_source(candidate,c.source);
+            require(c.target!=c.source,"DEPENDENCY_CYCLE","Gradient enabled cannot link to itself");
+            require(!target.enabled_driver||c.replace_driver,
+                "DRIVEN_PROPERTY","Replacing a Gradient enabled driver requires replace_driver=true");
+            auto& gradient=gradient_enabled_source(candidate,c.target);gradient.enabled_driver=c.source;
+        } else if constexpr(std::is_same_v<T,UnlinkGradientEnabled>) {
+            const auto& target=gradient_enabled_source(candidate,c.target);
+            require(target.enabled_driver.has_value(),"PROPERTY_NOT_LINKED","Gradient enabled has no driver to unlink");
+            const auto frozen=evaluate_gradient_enabled(candidate,c.target);
+            auto& gradient=gradient_enabled_source(candidate,c.target);
+            gradient.enabled=frozen;gradient.enabled_driver.reset();
         } else if constexpr(std::is_same_v<T,UnlinkObjectVisibility>) {
             const auto& target=visibility_source(candidate,c.target);
             require(target.visibility_driver.has_value(),"PROPERTY_NOT_LINKED","Object visibility has no driver to unlink");
@@ -3064,6 +3165,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             auto& o=candidate.objects.at(c.object);
             require(!c.operation.fill_rule_driver,"USE_TYPED_COMMAND","Create Fill rule links with link_fill_rule");
             require(!c.operation.enabled_driver,"USE_TYPED_COMMAND","Create operation enabled links with link_operation_enabled");
+            require(!c.operation.gradient||!c.operation.gradient->enabled_driver,"USE_TYPED_COMMAND","Create Gradient enabled links with link_gradient_enabled");
             require(o.kind==Kind::path||o.kind==Kind::text||(o.kind==Kind::group&&c.operation.type=="nect.group.posterize"),
                 "INVALID_DOMAIN","Shape operations require a Path or Text; Group postchildren operations require nect.group.posterize");
             require(c.index<=o.stack.size(),"INVALID_ORDER","Operation insertion index out of range");
@@ -3100,7 +3202,19 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             op.version=2;op.line_cap=c.line_cap;op.line_join=c.line_join;
         } else if constexpr(std::is_same_v<T,SetGradient>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
-            operation(candidate.objects.at(c.object),c.operation).gradient=c.gradient;
+            auto& target=operation(candidate.objects.at(c.object),c.operation);
+            if(!c.gradient)target.gradient.reset();
+            else {
+                auto next=*c.gradient;
+                if(target.gradient&&target.gradient->id==next.id) {
+                    require(!next.enabled_driver||next.enabled_driver==target.gradient->enabled_driver,
+                        "USE_TYPED_COMMAND","SetGradient cannot replace a Gradient enabled driver");
+                    require(next.enabled==target.gradient->enabled||!target.gradient->enabled_driver,
+                        "DRIVEN_PROPERTY","Unlink the Gradient enabled driver before changing its authored literal");
+                    next.enabled_driver=target.gradient->enabled_driver;
+                } else require(!next.enabled_driver,"USE_TYPED_COMMAND","Create Gradient enabled links with link_gradient_enabled");
+                target.gradient=std::move(next);
+            }
         } else if constexpr(std::is_same_v<T,EnablePointEdit>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);

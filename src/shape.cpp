@@ -339,13 +339,19 @@ TextLayout evaluate_text_projection(const Document& document,const Id& id,const 
     return projected;
 }
 EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,double>& values,
-    const std::map<Ref,std::string>* fill_rules,const std::map<Ref,bool>* operation_enabled) {
+    const std::map<Ref,std::string>* fill_rules,const std::map<Ref,bool>* operation_enabled,
+    const std::map<Ref,bool>* gradient_enabled) {
     const auto& o=d.objects.at(id);
     if(o.kind!=Kind::path&&o.kind!=Kind::text)throw Error("INVALID_DOMAIN","Shape stack accepts one Path or Text source");
     std::map<Ref,bool> computed_operation_enabled;
     if(!operation_enabled) {
         computed_operation_enabled=evaluate_operation_enableds(d);
         operation_enabled=&computed_operation_enabled;
+    }
+    std::map<Ref,bool> computed_gradient_enabled;
+    if(!gradient_enabled) {
+        computed_gradient_enabled=evaluate_gradient_enableds(d);
+        gradient_enabled=&computed_gradient_enabled;
     }
     auto contours=std::make_shared<std::vector<EvaluatedContour>>();
     for(const auto& contour:path_contours(o,&values)) {
@@ -378,7 +384,7 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
             paint.rgba={v("r"),v("g"),v("b"),v("a")};paint.paths=shape.paths;
             paint.fill_rule=op.type=="nect.paint.fill"?
                 (fill_rules?fill_rules->at(operation_ref(id,op.id,"fill_rule")):evaluate_fill_rule(d,operation_ref(id,op.id,"fill_rule"))):op.fill_rule;
-            if(op.gradient&&op.gradient->enabled) {
+            if(op.gradient&&gradient_enabled->at(gradient_ref(id,op.id,op.gradient->id,"enabled"))) {
                 const auto& g=*op.gradient;EvaluatedGradient resolved;resolved.type=g.type;
                 auto gv=[&](const std::string& field){return values.at(gradient_ref(id,op.id,g.id,field));};
                 resolved.start={gv("start_x"),gv("start_y")};resolved.end={gv("end_x"),gv("end_y")};

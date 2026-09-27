@@ -96,10 +96,10 @@ void object_visibility_link_contract() {
         get.find("\"evaluated\":false")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos,
         "API get reports literal, stable driver Ref and evaluated own value separately");
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.28\"")!=std::string::npos&&
+    check(linked_native.find("\"version\":\"0.29\"")!=std::string::npos&&
         linked_native.find("\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}}")!=std::string::npos&&
         decode(linked_native)==session.document(),
-        "Native 0.28 roundtrip preserves the optional stable visibility driver");
+        "Native 0.29 roundtrip preserves the optional stable visibility driver");
     atomic(session,"DRIVEN_PROPERTY",{SetVisibility{"a",true}});
     atomic(session,"DRIVEN_PROPERTY",{LinkObjectVisibility{target,{"b","","object.visible"},false}});
     atomic(session,"DUPLICATE_TARGET",{LinkObjectVisibility{target,source,false},UnlinkObjectVisibility{target}});
@@ -132,12 +132,12 @@ void object_visibility_link_contract() {
         !object_visibility_state(deletion.document(),target).literal,
         "Deleting a visibility source is atomic unless the target is first unlinked and frozen in the same batch");
 
-    auto old_literal=encode(document);const auto current_version=old_literal.find("\"version\":\"0.28\"");
-    check(current_version!=std::string::npos,"Native writer emits 0.28 for the 0.27 compatibility fixture");
-    old_literal.replace(current_version,std::string("\"version\":\"0.28\"").size(),"\"version\":\"0.27\"");
+    auto old_literal=encode(document);const auto current_version=old_literal.find("\"version\":\"0.29\"");
+    check(current_version!=std::string::npos,"Native writer emits 0.29 for the 0.27 compatibility fixture");
+    old_literal.replace(current_version,std::string("\"version\":\"0.29\"").size(),"\"version\":\"0.27\"");
     check(decode(old_literal)==document,"Native 0.27 literal-only documents remain readable unchanged");
-    auto false_version=linked_native;const auto linked_version=false_version.find("\"version\":\"0.28\"");
-    false_version.replace(linked_version,std::string("\"version\":\"0.28\"").size(),"\"version\":\"0.26\"");
+    auto false_version=linked_native;const auto linked_version=false_version.find("\"version\":\"0.29\"");
+    false_version.replace(linked_version,std::string("\"version\":\"0.29\"").size(),"\"version\":\"0.26\"");
     rejects("UNKNOWN_FIELD",[&]{decode(false_version);});
 
     auto cross_document=fixture();auto other=empty_document("other-doc","other-comp","other-art").compositions.front();
@@ -192,7 +192,7 @@ void mask_enabled_read_contract() {
         "Undo restores mask clipping and the exact enabled literal");
     const auto saved=encode(session.document());
     check(geometry_mask_enabled_property(decode(saved),ref)&&decode(saved).objects.at("a").compositing.mask->id=="mask-a"&&encode(decode(saved))==saved,
-        "Native 0.28 roundtrip preserves mask enable and identity without byte drift");
+        "Native 0.29 roundtrip preserves mask enable and identity without byte drift");
     const auto all=request(session,R"({"op":"properties"})");
     check(all.find("\"field\":\"mask.enabled\"")!=std::string::npos,
         "Properties enumeration includes only the present optional mask field");
@@ -432,9 +432,9 @@ void group_posterize_native_api_and_refusals() {
     check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({3,4}),
         "ReorderOperations changes the ordered postchildren evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.28\"")!=std::string::npos&&decode(native)==session.document()&&
+    check(native.find("\"version\":\"0.29\"")!=std::string::npos&&decode(native)==session.document()&&
         decode(native).objects.at("group").stack[0].id=="posterize-second",
-        "Native 0.28 preserves Group operation IDs, levels and reordered stack");
+        "Native 0.29 preserves Group operation IDs, levels and reordered stack");
     check(request(session,R"({"op":"operator_types"})").find("nect.group.posterize")!=std::string::npos,
         "API operator discovery advertises the Group pixel effect");
     check(request(session,R"({"op":"operator_types"})").find("postchildren_premultiplied_srgb_rgba")!=std::string::npos,
@@ -467,9 +467,9 @@ void group_posterize_native_api_and_refusals() {
     rejects("UNSUPPORTED_SVG_EFFECT",[&]{(void)export_svg(session.document(),"comp","art");});
 
     auto legacy_bytes=encode(d);
-    const auto old_version=legacy_bytes.find("\"version\":\"0.28\"");
-    check(old_version!=std::string::npos,"Native fixture writer uses 0.28 before migration downgrade");
-    legacy_bytes.replace(old_version,std::string("\"version\":\"0.28\"").size(),"\"version\":\"0.24\"");
+    const auto old_version=legacy_bytes.find("\"version\":\"0.29\"");
+    check(old_version!=std::string::npos,"Native fixture writer uses 0.29 before migration downgrade");
+    legacy_bytes.replace(old_version,std::string("\"version\":\"0.29\"").size(),"\"version\":\"0.24\"");
     const auto group_id=legacy_bytes.find("\"id\":\"group\"");
     check(group_id!=std::string::npos,"Native fixture contains the target Group object");
     const auto object_start=legacy_bytes.rfind('{',group_id);
@@ -497,8 +497,8 @@ void group_posterize_native_api_and_refusals() {
     else throw std::runtime_error("Could not remove Group stack member from legacy fixture");
     legacy_bytes.erase(erase_start,erase_end-erase_start);
     check(decode(legacy_bytes).objects.at("group").stack.empty(),"Native 0.24 Group migrates to an empty effect stack");
-    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.28\"");
-    smuggled.replace(old_writer,std::string("\"version\":\"0.28\"").size(),"\"version\":\"0.24\"");
+    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.29\"");
+    smuggled.replace(old_writer,std::string("\"version\":\"0.29\"").size(),"\"version\":\"0.24\"");
     rejects("INVALID_OBJECT",[&]{(void)decode(smuggled);});
 
     session.apply({EnableOperation{"group","posterize",false},EnableOperation{"group","posterize-second",false}},session.revision());

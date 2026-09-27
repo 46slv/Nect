@@ -142,6 +142,10 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         if(owner.empty())owner=name(ref.object);
         return owner+(ref.point.empty()?"":" / "+ref.point)+" / "+ref.field;
     };
+    if(const auto* command=std::get_if<LinkGradientEnabled>(&commands.front()))
+        return "Link Gradient enabled: "+property_label(command->target);
+    if(const auto* command=std::get_if<UnlinkGradientEnabled>(&commands.front()))
+        return "Unlink Gradient enabled: "+property_label(command->target);
     auto label=std::visit([&](const auto& c)->std::string {
         using T=std::decay_t<decltype(c)>;
         if constexpr(std::is_same_v<T,Set>)return "Set "+property_label(c.ref);

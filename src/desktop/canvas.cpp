@@ -144,6 +144,7 @@ void Canvas::refresh() {
         } else { active_composition_.clear(); active_artboard_.clear(); }
         if(const auto* validated=session_.preview_values())values_=*validated;
         else values_=evaluate(document);
+        const auto gradient_enabled=evaluate_gradient_enableds(document);
         const auto visibility=evaluate_object_visibilities(document);
         transforms_ = evaluate_transforms(document,values_);
         geometry_.clear();
@@ -323,7 +324,8 @@ void Canvas::refresh() {
             if (selected_object == gradient_object_ && document.objects.contains(gradient_object_)) {
                 const auto& stack = document.objects.at(gradient_object_).stack;
                 const auto operation = std::find_if(stack.begin(), stack.end(), [&](const auto& op) { return op.id == gradient_operation_; });
-                if (operation != stack.end() && operation->gradient && operation->gradient->enabled) {
+                if (operation != stack.end() && operation->gradient && gradient_enabled.at(
+                    gradient_ref(gradient_object_,gradient_operation_,operation->gradient->id,"enabled"))) {
                     const auto& gradient = *operation->gradient;
                     auto get = [&](const char* field) { return values_.at(gradient_ref(gradient_object_, gradient_operation_, gradient.id, field)); };
                     gradient_control_ = GradientControl{gradient.id, {get("start_x"), get("start_y")},

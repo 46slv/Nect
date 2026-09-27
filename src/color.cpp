@@ -47,16 +47,20 @@ std::optional<Ref> color_link(const Document& d,const Ref& ref) {
     }
     return candidate;
 }
-bool color_is_used(const Document& d,const Ref& ref,const std::map<Ref,bool>* operation_enabled) {
+bool color_is_used(const Document& d,const Ref& ref,const std::map<Ref,bool>* operation_enabled,
+    const std::map<Ref,bool>* gradient_enabled) {
     if(!ref.point.empty())return false;
     const auto object=d.objects.find(ref.object);if(object==d.objects.end())return false;
     std::map<Ref,bool> computed_enabled;
     if(!operation_enabled) {computed_enabled=evaluate_operation_enableds(d);operation_enabled=&computed_enabled;}
+    std::map<Ref,bool> computed_gradient_enabled;
+    if(!gradient_enabled) {computed_gradient_enabled=evaluate_gradient_enableds(d);gradient_enabled=&computed_gradient_enabled;}
     for(const auto& op:object->second.stack) {
         if(!operation_enabled->at(operation_ref(ref.object,op.id,"enabled"))||
             (op.type!="nect.paint.fill"&&op.type!="nect.paint.stroke"))continue;
-        if(ref==operation_ref(ref.object,op.id,"color"))return !op.gradient||!op.gradient->enabled;
-        if(op.gradient&&op.gradient->enabled)for(const auto& stop:op.gradient->stops)
+        const bool gradient_active=op.gradient&&gradient_enabled->at(gradient_ref(ref.object,op.id,op.gradient->id,"enabled"));
+        if(ref==operation_ref(ref.object,op.id,"color"))return !gradient_active;
+        if(gradient_active)for(const auto& stop:op.gradient->stops)
             if(ref==gradient_ref(ref.object,op.id,op.gradient->id,"stop."+stop.id+".color"))return true;
     }
     return false;
