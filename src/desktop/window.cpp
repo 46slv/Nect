@@ -454,6 +454,61 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     scroll->setWidgetResizable(true); scroll->setMinimumWidth(300);
     inspector_=new QWidget; scroll->setWidget(inspector_); right->setWidget(scroll);
     addDockWidget(Qt::RightDockWidgetArea,right);
+    effects_dock_=new QDockWidget("Effects",this);
+    effects_dock_->setObjectName("effects");
+    auto* effects_body=new QWidget(effects_dock_);
+    auto* effects_layout=new QVBoxLayout(effects_body);
+    effects_layout->setContentsMargins(8,8,8,8);effects_layout->setSpacing(6);
+    auto* effects_heading=new QLabel("Built-in effects",effects_body);effects_heading->setObjectName("effects-heading");
+    effects_layout->addWidget(effects_heading);
+    effects_search_=new QLineEdit(effects_body);effects_search_->setObjectName("effects-search");
+    effects_search_->setPlaceholderText("Search effects…");effects_search_->setClearButtonEnabled(true);
+    effects_layout->addWidget(effects_search_);
+    effects_catalog_=new QListWidget(effects_body);effects_catalog_->setObjectName("effects-catalog");
+    effects_catalog_->setSelectionMode(QAbstractItemView::SingleSelection);
+    auto* offset_entry=new QListWidgetItem("Offset Paths",effects_catalog_);
+    offset_entry->setData(Qt::UserRole,QStringLiteral("nect.shape.offset"));
+    offset_entry->setToolTip("Object-local closed-path geometry modifier · nect.shape.offset · behavior v1");
+    effects_catalog_->setCurrentItem(offset_entry);effects_layout->addWidget(effects_catalog_);
+    auto* no_results=new QLabel("No supported effects match this search.",effects_body);
+    no_results->setObjectName("effects-no-results");no_results->setWordWrap(true);no_results->hide();effects_layout->addWidget(no_results);
+    effects_target_=new QLabel(effects_body);effects_target_->setObjectName("effects-target");
+    effects_target_->setWordWrap(true);effects_target_->setTextFormat(Qt::PlainText);effects_layout->addWidget(effects_target_);
+    effects_apply_=new QPushButton("Apply Offset Paths",effects_body);effects_apply_->setObjectName("effects-apply");
+    effects_layout->addWidget(effects_apply_);
+    effects_status_=new QLabel(effects_body);effects_status_->setObjectName("effects-status");
+    effects_status_->setWordWrap(true);effects_status_->setTextFormat(Qt::PlainText);effects_layout->addWidget(effects_status_);
+    auto* applied=new QGroupBox("Applied Offset instances",effects_body);applied->setObjectName("effects-applied");
+    effects_operations_=new QWidget(applied);effects_operations_layout_=new QVBoxLayout(effects_operations_);
+    effects_operations_layout_->setContentsMargins(0,0,0,0);effects_operations_layout_->setSpacing(4);
+    auto* applied_layout=new QVBoxLayout(applied);applied_layout->addWidget(effects_operations_);
+    effects_layout->addWidget(applied);effects_layout->addStretch();
+    effects_dock_->setWidget(effects_body);
+    addDockWidget(Qt::RightDockWidgetArea,effects_dock_);
+    tabifyDockWidget(right,effects_dock_);
+    right->raise();
+    connect(effects_search_,&QLineEdit::textChanged,this,[this](const QString&){rebuild_effects_panel();});
+    connect(effects_apply_,&QPushButton::clicked,this,[this]{
+        const auto frozen_session=effects_session_;const auto frozen_target=effects_target_id_;
+        const auto frozen_revision=effects_revision_;const auto frozen_generation=effects_generation_;
+        const auto target_label=effects_target_->text();
+        try {
+            if(frozen_generation!=effects_generation_)throw Error("REVISION_CONFLICT","Effects panel changed; refresh the target before applying");
+            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Effects target belongs to another document");
+            if(canvas->selected_object!=frozen_target)throw Error("TARGET_CONFLICT","Effects target changed; choose the current target");
+            if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Effects target changed elsewhere; refresh the panel before applying");
+            add_operation("nect.shape.offset");
+            effects_status_->setText("Applied nect.shape.offset · "+target_label);
+        } catch(const Error& error) {
+            const auto message=(frozen_target.empty()?QStringLiteral("Target: none"):target_label)+
+                " · nect.shape.offset · "+qs(error.code)+": "+QString::fromUtf8(error.what());
+            effects_status_->setText(message);statusBar()->showMessage(message,12000);
+        } catch(const std::exception& error) {
+            const auto message=(frozen_target.empty()?QStringLiteral("Target: none"):target_label)+
+                " · nect.shape.offset · "+QString::fromUtf8(error.what());
+            effects_status_->setText(message);statusBar()->showMessage(message,12000);
+        }
+    });
     resizeDocks({structure,right},{215,320},Qt::Horizontal);
     auto* file=menuBar()->addMenu("&File");
     auto* edit=menuBar()->addMenu("&Edit");
@@ -670,6 +725,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* colors=action(view,"Colors…",{},[this]{color_tools_->show_manager();});colors->setObjectName("show-colors");
     auto* history=action(view,"History…",QKeySequence("Ctrl+Shift+H"),[this]{show_history();});history->setObjectName("show-history");
     view->addAction(structure->toggleViewAction());view->addAction(right->toggleViewAction());
+    view->addAction(effects_dock_->toggleViewAction());
     auto* toolbar=addToolBar("Authoring");toolbar->setMovable(false);
     toolbar->addAction(circle);toolbar->addAction(rectangle);toolbar->addAction(text);
     auto* curve=toolbar->addAction("+ Curve"); connect(curve,&QAction::triggered,this,[this]{perform([this]{add_curve();});});
@@ -712,7 +768,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         else canvas_notification_.reset();
         host.edited();
     };
-    canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();update_batch_rename_action();update_sort_paint_order_action();};
+    canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();rebuild_effects_panel();update_batch_rename_action();update_sort_paint_order_action();};
     canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
     canvas->view_state_changed=[this]{sync_utility_view_state();};
     canvas->zoom_changed=[this](double zoom){
@@ -988,9 +1044,109 @@ void Window::refresh(bool project_canvas) {
     breadcrumb_->setText(canvas->breadcrumb());
     refreshing_=false;
     rebuild_inspector(true);
+    rebuild_effects_panel();
     color_tools_->refresh();
     refresh_history();
     update_utility_strip();
+}
+
+void Window::rebuild_effects_panel() {
+    if(!effects_catalog_||!effects_status_||!effects_operations_layout_)return;
+    ++effects_generation_;
+    effects_session_=host.session_id;
+    effects_target_id_=canvas->selected_object;
+    effects_revision_=host.session.revision();
+
+    const auto query=effects_search_?effects_search_->text().trimmed():QString{};
+    auto* entry=effects_catalog_->count()?effects_catalog_->item(0):nullptr;
+    const bool matches=entry&&entry->text().contains(query,Qt::CaseInsensitive);
+    if(entry)entry->setHidden(!matches);
+    if(auto* empty=effects_dock_->findChild<QLabel*>("effects-no-results")) {
+        empty->setVisible(!matches);
+        if(!matches)empty->setText("No supported effect matches “"+query+"”.");
+    }
+    effects_apply_->setEnabled(matches);
+
+    const auto& document=host.session.document();
+    const auto selected=document.objects.find(effects_target_id_);
+    QString target_text="Target: none";
+    QString state_text;
+    if(effects_target_id_.empty()) {
+        state_text="TARGET_UNAVAILABLE · nect.shape.offset · Select a Path, primitive, or Text.";
+    } else if(selected==document.objects.end()) {
+        target_text="Unavailable target: missing object ["+qs(effects_target_id_)+"]";
+        state_text="TARGET_UNAVAILABLE · nect.shape.offset · The selected object no longer exists in this document.";
+    } else {
+        const auto& object=selected->second;
+        const auto identity=qs(object.name)+" ["+qs(object.id)+"]";
+        if(object.kind==Kind::path||object.kind==Kind::text) {
+            const auto kind=object.text?QStringLiteral("Text"):object.source?primitive_label(*object.source):QStringLiteral("Path");
+            target_text="Target: "+identity+" · "+kind;
+            state_text="Ready · nect.shape.offset v1 · Object-local closed-path processing.";
+        } else {
+            const auto kind=object.kind==Kind::group?QStringLiteral("Group"):object.kind==Kind::image?QStringLiteral("Image"):QStringLiteral("unsupported object");
+            target_text="Unavailable target: "+kind+" · "+identity;
+            state_text="TARGET_UNAVAILABLE · nect.shape.offset · "+kind+
+                " shape stacks are unsupported; select a Path, primitive, or Text.";
+        }
+    }
+    effects_target_->setText(target_text);
+    effects_status_->setText(matches?state_text:"No supported effect matches “"+query+"”.");
+
+    while(auto* item=effects_operations_layout_->takeAt(0)) {
+        if(auto* widget=item->widget()) {widget->hide();widget->deleteLater();}
+        delete item;
+    }
+    if(selected==document.objects.end()) {
+        auto* empty=new QLabel("No applied Offset instances for this target.",effects_operations_);
+        empty->setObjectName("effects-no-applied");empty->setWordWrap(true);effects_operations_layout_->addWidget(empty);
+    } else {
+        const auto& object=selected->second;
+        std::size_t count=0;
+        for(const auto& operation:object.stack)if(operation.type=="nect.shape.offset") {
+            ++count;
+            const auto generation=effects_generation_;const auto session=effects_session_;
+            const auto target=effects_target_id_;const auto revision=effects_revision_;const auto operation_id=operation.id;
+            const auto panel_target_label=effects_target_->text();
+            auto* card=new QGroupBox("Offset Paths · behavior v"+QString::number(operation.version),effects_operations_);
+            card->setObjectName("effects-operation-"+qs(operation.id));
+            auto* card_layout=new QVBoxLayout(card);
+            auto* identity=new QLabel("Instance ID: "+qs(operation.id),card);
+            identity->setObjectName("effects-operation-id-"+qs(operation.id));
+            identity->setTextFormat(Qt::PlainText);identity->setWordWrap(true);card_layout->addWidget(identity);
+            auto* edit=new QPushButton("Edit in Properties",card);
+            edit->setObjectName("effects-edit-properties-"+qs(operation.id));
+            edit->setToolTip("Open the normal Amount, Miter limit, reorder, bypass and remove controls in Properties.");
+            card_layout->addWidget(edit);effects_operations_layout_->addWidget(card);
+            connect(edit,&QPushButton::clicked,this,[this,generation,session,target,revision,operation_id,panel_target_label]{
+                try {
+                    if(generation!=effects_generation_)throw Error("REVISION_CONFLICT","Effects panel changed; reopen the current Offset instance");
+                    if(host.session_id!=session)throw Error("SESSION_CONFLICT","Offset belongs to another document");
+                    if(canvas->selected_object!=target)throw Error("TARGET_CONFLICT","Effects target changed; select the original target again");
+                    if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Offset changed elsewhere; refresh the panel before opening it");
+                    const auto& current=find_operation(host.session.document(),target,operation_id);
+                    if(current.type!="nect.shape.offset")throw Error("INVALID_OPERATOR","The selected instance is no longer Offset Paths");
+                    auto* properties=findChild<QDockWidget*>("properties");
+                    if(!properties)throw Error("MISSING_PANEL","Properties panel is unavailable");
+                    properties->show();properties->raise();
+                    effects_status_->setText("Opened Offset instance "+qs(operation_id)+" in Properties.");
+                    QTimer::singleShot(0,this,[this,generation,session,target,revision,operation_id]{
+                        if(generation!=effects_generation_||host.session_id!=session||canvas->selected_object!=target||host.session.revision()!=revision)return;
+                        reveal_operation(operation_id);
+                    });
+                } catch(const Error& error) {
+                    const auto message=panel_target_label+" · nect.shape.offset · "+
+                        qs(error.code)+": "+QString::fromUtf8(error.what());
+                    effects_status_->setText(message);statusBar()->showMessage(message,12000);
+                }
+            });
+        }
+        if(count==0) {
+            auto* empty=new QLabel("No applied Offset instances for this target.",effects_operations_);
+            empty->setObjectName("effects-no-applied");empty->setWordWrap(true);effects_operations_layout_->addWidget(empty);
+        }
+    }
+    effects_operations_layout_->addStretch();
 }
 
 void Window::sync_utility_view_state() {

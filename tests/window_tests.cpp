@@ -1260,6 +1260,9 @@ void artboard_authoring(Window& window) {
     const auto svg=export_svg(session.document(),window.canvas->active_composition(),window.canvas->active_artboard());
     check(svg.find("viewBox=\"2000 100 400 300\"")!=std::string::npos&&svg.find(first_circle)==std::string::npos,
         "Active export identifiers select the offset frame and exclude other composition content");
+    // Compare the two fit commands in the same viewport: dock content can
+    // resize the Canvas after the earlier frame fit above.
+    window.canvas->fit_artboard();
     const auto active_zoom=window.canvas->zoom();window.canvas->fit_all_artboards();
     check(std::abs(window.canvas->zoom()-active_zoom)<1e-8,"Fit all uses only the active composition plane");
     window.host.create_document();QApplication::processEvents();

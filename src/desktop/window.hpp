@@ -12,7 +12,9 @@
 #include <QPointer>
 
 class QDialog;
+class QDockWidget;
 class QDoubleSpinBox;
+class QPushButton;
 class QStringListModel;
 class QScrollArea;
 class QToolButton;
@@ -43,6 +45,18 @@ private:
     void refresh_history();
     QTreeWidget* tree_;
     QListWidget* artboards_;
+    QDockWidget* effects_dock_=nullptr;
+    QLineEdit* effects_search_=nullptr;
+    QListWidget* effects_catalog_=nullptr;
+    QLabel* effects_target_=nullptr;
+    QLabel* effects_status_=nullptr;
+    QPushButton* effects_apply_=nullptr;
+    QWidget* effects_operations_=nullptr;
+    QVBoxLayout* effects_operations_layout_=nullptr;
+    QString effects_session_;
+    Id effects_target_id_;
+    std::uint64_t effects_revision_=0;
+    std::uint64_t effects_generation_=0;
     bool artboard_editing_=false;
     QWidget* inspector_;
     QScrollArea* inspector_scroll_;
@@ -94,6 +108,7 @@ private:
     bool layout_draft_current() const;
     bool reject_stale_layout_draft();
     void rebuild_inspector(bool use_canvas_values=false);
+    void rebuild_effects_panel();
     void sync_tree_selection();
     void add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected);
     void add_multi_properties(QVBoxLayout* layout);
