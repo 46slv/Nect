@@ -3043,13 +3043,16 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             auto* driver_menu=new QMenu(driver_button);driver_button->setMenu(driver_menu);rule_layout->addWidget(driver_button);
             auto* edit_rule=driver_menu->addAction("Edit, link or unlink…");
             const auto frozen_revision=host.session.revision();
-            connect(edit_rule,&QAction::triggered,this,[this,object_id=object.id,operation_id=operation.id,target,state,frozen_session,frozen_revision] {
+            connect(edit_rule,&QAction::triggered,this,[this,object_id=object.id,operation_id=operation.id,target,state,frozen_session,frozen_revision,enabled_composition] {
                 QDialog dialog(this);dialog.setObjectName("fill-rule-dialog-"+qs(operation_id));dialog.setWindowTitle("Edit Fill rule");
                 auto* dialog_layout=new QVBoxLayout(&dialog);
                 auto* mode=new QComboBox(&dialog);mode->setObjectName("fill-rule-mode-"+qs(operation_id));
                 mode->addItem("Edit literal","edit");
                 QStringList source_labels;std::vector<Ref> source_refs;
-                for(const auto& [source_id,source_object]:host.session.document().objects)
+                const auto& current_document=host.session.document();
+                const auto& composition=find_composition(current_document,enabled_composition);
+                std::function<void(const Id&)> collect=[&](const Id& source_id) {
+                    const auto& source_object=current_document.objects.at(source_id);
                     if(source_object.kind==Kind::path||source_object.kind==Kind::text)
                         for(const auto& source_operation:source_object.stack)if(source_operation.type=="nect.paint.fill") {
                             const auto source_ref=operation_ref(source_id,source_operation.id,"fill_rule");
@@ -3057,19 +3060,39 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                             source_refs.push_back(source_ref);
                             source_labels<<qs(source_object.name)+" — Fill ["+qs(source_operation.id)+"] — "+qs(source_id);
                         }
+                    for(const auto& child:source_object.children)collect(child);
+                };
+                for(const auto& root:composition.roots)collect(root);
                 if(!source_refs.empty())mode->addItem("Link to another Fill","link");
                 if(state.driver)mode->addItem("Unlink driver","unlink");
                 dialog_layout->addWidget(mode);
                 auto* value=new QComboBox(&dialog);value->setObjectName("fill-rule-value-"+qs(operation_id));
                 value->addItem("Nonzero winding","nonzero");value->addItem("Even-odd","evenodd");
                 value->setCurrentIndex(state.evaluated=="evenodd"?1:0);dialog_layout->addWidget(value);
+                auto* source_search=new QLineEdit(&dialog);
+                source_search->setObjectName("fill-rule-source-search-"+qs(operation_id));
+                source_search->setPlaceholderText("Search object ID, Fill ID or property path");
+                dialog_layout->addWidget(source_search);
                 auto* source=new QComboBox(&dialog);source->setObjectName("fill-rule-source-"+qs(operation_id));
-                for(const auto& label:source_labels)source->addItem(label);
+                for(int i=0;i<source_labels.size();++i)source->addItem(source_labels.at(i),i);
                 if(state.driver) {
                     const auto found=std::find(source_refs.begin(),source_refs.end(),state.driver->link);
                     if(found!=source_refs.end())source->setCurrentIndex(static_cast<int>(std::distance(source_refs.begin(),found)));
                 }
                 dialog_layout->addWidget(source);
+                connect(source_search,&QLineEdit::textChanged,&dialog,[source,source_labels,source_refs](const QString& query) {
+                    const auto selected=source->currentData().toInt();
+                    const bool had_selection=source->currentIndex()>=0;
+                    const QSignalBlocker blocker(source);
+                    source->clear();
+                    for(int i=0;i<source_labels.size();++i) {
+                        const auto& ref=source_refs.at(static_cast<std::size_t>(i));
+                        const auto path=qs(ref.object)+" / "+qs(ref.field);
+                        if(source_labels.at(i).contains(query,Qt::CaseInsensitive)||path.contains(query,Qt::CaseInsensitive))
+                            source->addItem(source_labels.at(i),i);
+                    }
+                    source->setCurrentIndex(had_selection?source->findData(selected):-1);
+                });
                 auto* unlink_edit=new QCheckBox("Unlink the driver before editing the literal",&dialog);
                 unlink_edit->setObjectName("fill-rule-unlink-before-edit-"+qs(operation_id));
                 unlink_edit->setVisible(state.driver.has_value());dialog_layout->addWidget(unlink_edit);
@@ -3098,8 +3121,11 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                             if(current==object->second.stack.end())throw Error("MISSING_OPERATION",operation_id);
                             const auto selected=mode->currentData().toString();std::vector<Command> commands;
                             if(selected=="link") {
-                                if(source_refs.empty()||source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a Fill rule source");
-                                commands.push_back(LinkFillRule{target,source_refs.at(static_cast<std::size_t>(source->currentIndex())),state.driver.has_value()});
+                                if(source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a visible Fill rule source");
+                                const auto source_index=source->currentData().toInt();
+                                if(source_index<0||static_cast<std::size_t>(source_index)>=source_refs.size())
+                                    throw Error("MISSING_REFERENCE","Choose a valid Fill rule source");
+                                commands.push_back(LinkFillRule{target,source_refs.at(static_cast<std::size_t>(source_index)),state.driver.has_value()});
                             } else if(selected=="unlink") {
                                 commands.push_back(UnlinkFillRule{target});
                             } else {

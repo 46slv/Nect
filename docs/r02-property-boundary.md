@@ -1,5 +1,17 @@
 # R02 / P03 property and save boundary — R02-ENTRY-01
 
+## R02-FILL-RULE-SOURCE-PATH-01 — typed enum source search (frozen 2026-09-28)
+
+**Entry and scope:** Clean synchronized `codex/practical-alpha@a1829337e676d06977ca3ba5cee26546e4435eee`, native writer 0.32. R02/P03 and Confirmed REQ-4/42/199 retain stable source selection and target-context obligations. The existing Fill rule dialog stages literal, link and unlink through `OperationOptions`/`LinkFillRule`/`UnlinkFillRule`. Add stable Ref search only to its source choice and limit candidates to the target's Composition. Keep the enum owner, typed command and closed native representation.
+
+**Positive oracle:** With at least two Fill sources, case-insensitive search by Object ID, Operation ID and `op.<id>.fill_rule` path identifies the exact source, while the target selection stays fixed. Applying a visible source commits one revision, links the exact Ref and supports Undo/Redo. A source in another Composition is not offered.
+
+**Negative oracle:** Filtering a prior choice away clears selection; Apply with no visible source rejects without changing Document/revision/history. Cancel after a search leaves the original literal or driver and selection unchanged. Session continues to reject stale or invalid sources atomically.
+
+**Exit and residuals:** Review the focused Fill rule dialog and Window test diff, build Release `window_tests`, run serial `window_interaction`, then synchronize/read back. Hands-on GUI remains `LOCAL_WAIT`; general typed picker, multi-target/relative semantics, R02/P03 and whole REQ-4/42/199 remain open.
+
+**Local result (2026-09-28):** The Fill rule source list now traverses only the target Composition and searches label, Object ID and `op.<id>.fill_rule` path without changing the typed Session commands. Filtered rows retain the original Ref index and a missing visible choice cannot apply. The offscreen Window contract checks case-insensitive Object/path search, hidden-choice refusal with equal Document/revision, exact same-field link and target selection, plus Undo/Redo; the existing literal Cancel and unlink cases still run. Release `window_tests` built and serial `window_interaction` passed **1/1**; `git diff --check` passed. This is offscreen Window evidence, not hands-on GUI acceptance or whole R02/P03/Requirement closure.
+
 ## R02-OPERATION-ENABLED-SOURCE-PATH-01 — typed boolean source search (frozen 2026-09-28)
 
 **Entry and scope:** Clean synchronized `codex/practical-alpha@f775b2b15a99f1a8ef0c2af4619830ba26fd397b`, native writer 0.32, verified single-writer takeover. R02/P03 and Confirmed REQ-4/42/199 still require searchable stable source identity with target context retained. This packet changes only the existing Operation enabled dependency dialog. It keeps `LinkOperationEnabled`, the exact qualified operation Ref, and the existing literal/unlink behavior; it does not introduce a generic typed picker, multi-target boolean editing, expressions or a new storage owner.

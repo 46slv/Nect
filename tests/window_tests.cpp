@@ -1005,18 +1005,36 @@ void stack_authoring(Window& window) {
     const Ref source_fill_ref=operation_ref(object,red,"fill_rule");
     session.apply({OperationOptions{object,red,"below","evenodd"}},session.revision());window.host.edited();QApplication::processEvents();
     fill_driver=fill_driver_button();
-    const auto link_revision=session.revision();bool link_draft_staged=false;
+    const auto link_revision=session.revision();const auto fill_before_link=session.document();
+    bool link_draft_staged=false;bool hidden_fill_rejected=false;
     QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("fill-rule-dialog-"+blue));
         auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-mode-"+blue)):nullptr;
+        auto* search=dialog?dialog->findChild<QLineEdit*>(QString::fromStdString("fill-rule-source-search-"+blue)):nullptr;
         auto* source=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-source-"+blue)):nullptr;
-        if(!dialog||!mode||!source){if(dialog)dialog->reject();return;}
-        mode->setCurrentIndex(mode->findData("link"));source->setCurrentIndex(0);
+        if(!dialog||!mode||!search||!source){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));
+        search->setText("no-such-fill-rule-path");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        hidden_fill_rejected=dialog->isVisible()&&source->currentIndex()<0&&session.document()==fill_before_link&&
+            session.revision()==link_revision&&
+            !fill_rule_property(session.document(),fill_ref).driver;
+        search->setText(QString::fromStdString(object).toUpper());
+        check(source->count()==1,"Stable Object ID filters Fill rule sources");
+        search->setText(QString::fromStdString("OP."+red+".FILL_RULE"));
+        check(source->count()==1,"Stable Fill rule path filters to the exact source");
+        source->setCurrentIndex(0);
         link_draft_staged=session.revision()==link_revision&&!fill_rule_property(session.document(),fill_ref).driver;
         dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
     fill_driver->menu()->actions().front()->trigger();QApplication::processEvents();
-    check(link_draft_staged&&fill_rule_property(session.document(),fill_ref).driver==FillRuleDriver{source_fill_ref}&&
-        fill_rule_property(session.document(),fill_ref).evaluated=="evenodd",
-        "Fill Inspector stages a same-field source and commits it through Session");
+    check(hidden_fill_rejected&&link_draft_staged&&fill_rule_property(session.document(),fill_ref).driver==FillRuleDriver{source_fill_ref}&&
+        fill_rule_property(session.document(),fill_ref).evaluated=="evenodd"&&session.revision()==link_revision+1&&
+        window.canvas->selected_object==object,
+        "Fill Inspector rejects hidden source then links the exact stable Ref while retaining target selection");
+    session.undo(session.revision());window.host.edited();
+    check(session.document()==fill_before_link,"Undo restores the Fill rule before the source link");
+    session.redo(session.revision());window.host.edited();
+    check(fill_rule_property(session.document(),fill_ref).driver==FillRuleDriver{source_fill_ref},
+        "Redo restores the exact Fill rule source Ref");
     session.apply({OperationOptions{object,red,"below","nonzero"}},session.revision());window.host.edited();
     check(fill_rule_property(session.document(),fill_ref).evaluated=="nonzero","Fill Inspector link follows source edits");
     fill_driver=fill_driver_button();
