@@ -295,13 +295,21 @@ try:
             dict(type='add_guide',composition=comp['id'],guide=dict(id=guide_target_ref['object'],name='MCP Guide target',axis='x',position=240))],rev)
         rev=apply([dict(type='link_guide_position',target=guide_target_ref,source=guide_source_ref,replace_driver=False)],rev)
         guide_value=core('get',ref=guide_target_ref)['result']
-        assert guide_value['authored']==dict(literal=240,driver=guide_source_ref) and guide_value['evaluated']==100
+        assert guide_value['authored']==dict(literal=240,driver=guide_source_ref,source_kind='link',expression=None) and guide_value['evaluated']==100
         guide_property=next(value for value in core('properties')['result'] if value['ref']==guide_target_ref)
         assert guide_property['type']=='number' and guide_property['space']=='composition' and guide_property['link'] is True
         assert core('resolve_name',name='MCP Guide target',point='',field='guide.position')['result']==guide_target_ref
         rev=apply([dict(type='update_guide',composition=comp['id'],
             guide=dict(id=guide_source_ref['object'],name='MCP renamed source',axis='x',position=120))],rev)
         assert core('get',ref=guide_target_ref)['result']['evaluated']==120
+        guide_expression=dict(source='ref("mcp-guide-source","","guide.position") + 20',version=1)
+        rev=apply([dict(type='set_guide_position_expression',target=guide_target_ref,
+            expression=guide_expression,replace_driver=True)],rev)
+        guide_expression_value=core('get',ref=guide_target_ref)['result']
+        assert guide_expression_value['authored']==dict(literal=240,driver=None,source_kind='expression',expression=guide_expression)
+        assert guide_expression_value['evaluated']==140 and guide_expression_value['expression'] is True
+        guide_expression_metadata=next(value for value in core('properties')['result'] if value['ref']==guide_target_ref)
+        assert guide_expression_metadata==guide_expression_value
         guide_before_failure=core('inspect')['result']
         guide_failure=core('apply',expected_revision=rev,commands=[dict(type='set',ref=guide_target_ref,value=9)])
         assert not guide_failure['ok'] and guide_failure['error']['code']=='TYPE_MISMATCH' and guide_failure['revision']==rev
@@ -439,7 +447,7 @@ try:
         frozen_after=core('get',ref=target_gradient_ref)['result']
         assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.33' and core('get',ref=target_gradient_ref)['result']==frozen
+        assert mcp_native['version']=='0.34' and core('get',ref=target_gradient_ref)['result']==frozen
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -1294,7 +1302,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.33'
+        assert native_save_as['version']=='0.34'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']
@@ -1302,7 +1310,8 @@ try:
             for guide in composition['guides']}
         assert saved_guides[guide_source_ref['object']]['position']==120
         assert saved_guides[guide_target_ref['object']]['position']==240
-        assert saved_guides[guide_target_ref['object']]['position_driver']==dict(link=guide_source_ref)
+        assert saved_guides[guide_target_ref['object']]['position_expression']==guide_expression
+        assert 'position_driver' not in saved_guides[guide_target_ref['object']]
         assert saved_source['id']=='mcp-save-as-source-text' and saved_source['layout']=='auto'
         assert saved_target['id']=='mcp-save-as-target-text' and saved_target['layout']=='frame'
         assert saved_target['layout_driver']==dict(link=save_source_ref)
@@ -1322,8 +1331,8 @@ try:
         assert cold_layout['authored']==dict(literal='frame',driver=dict(link=save_source_ref))
         assert cold_layout['evaluated']=='auto'
         cold_guide=core('get',ref=guide_target_ref)['result']
-        assert cold_guide['authored']==dict(literal=240,driver=guide_source_ref)
-        assert cold_guide['evaluated']==120
+        assert cold_guide['authored']==dict(literal=240,driver=None,source_kind='expression',expression=guide_expression)
+        assert cold_guide['evaluated']==140
         assert core('get',ref=save_width_ref)['result']['evaluated']==96
         assert core('get',ref=save_height_ref)['result']['evaluated']==48
         cold_document=core('inspect')['result']

@@ -1751,23 +1751,39 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* axis_input=new QComboBox(row);axis_input->setObjectName("guide-axis-"+qs(source.id));axis_input->addItem("Vertical · x",QStringLiteral("x"));axis_input->addItem("Horizontal · y",QStringLiteral("y"));axis_input->setCurrentIndex(axis_input->findData(qs(source.axis)));
         const Ref position_ref{source.id,"","guide.position"};
         auto* position_input=make_number(row,("guide-position-"+source.id).c_str(),"Guide position",QString::number(guide_positions.at(source.id),'g',15));
-        position_input->setReadOnly(source.position_driver.has_value());
+        const bool position_driven=source.position_driver.has_value()||source.position_expression.has_value();
+        position_input->setReadOnly(position_driven);
         auto* position_status=new QLabel(row);position_status->setObjectName("guide-position-status-"+qs(source.id));
         auto* unlink_position=new QPushButton("Unlink position",row);unlink_position->setObjectName("guide-unlink-position-"+qs(source.id));
-        if(source.position_driver) {
+        auto* expression=new ExpressionInput;expression->setObjectName("guide-position-expression-"+qs(source.id));
+        expression->setAccessibleName(qs(source.name)+" position expression");expression->setFixedHeight(58);
+        expression->setPlaceholderText("Numeric expression in du; Ctrl+Enter to apply");
+        if(source.position_expression)expression->setPlainText(qs(source.position_expression->source));
+        auto* replace_source=new QCheckBox("Replace current position source",row);
+        replace_source->setObjectName("guide-position-replace-"+qs(source.id));
+        replace_source->setVisible(position_driven);
+        auto* apply_expression=new QPushButton("Apply position expression",row);
+        apply_expression->setObjectName("guide-position-apply-expression-"+qs(source.id));
+        if(position_driven) {
+            QString source_description;
+            if(source.position_driver) {
             auto source_name=source.position_driver->object;
             for(const auto& candidate:comp.guides)if(candidate.id==source.position_driver->object){source_name=candidate.name;break;}
-            position_status->setText("Linked to "+qs(source_name)+" · authored "+QString::number(source.position,'g',15)+" du");
+                source_description="Linked to "+qs(source_name);
+            } else source_description="Expression · "+qs(source.position_expression->source);
+            position_status->setText(source_description+" · authored "+QString::number(source.position,'g',15)+" du · evaluated "+
+                QString::number(guide_positions.at(source.id),'g',15)+" du");
             position_status->setVisible(true);unlink_position->setVisible(true);
         } else {position_status->setVisible(false);unlink_position->setVisible(false);}
         form->addRow("Name",name_input);form->addRow("Axis",axis_input);form->addRow("Position · du",position_input);
-        form->addRow("Position source",position_status);form->addRow(unlink_position);
+        form->addRow("Position source",position_status);form->addRow("Position expression · du",expression);
+        form->addRow("",replace_source);form->addRow("",apply_expression);form->addRow(unlink_position);
         auto* actions=new QWidget(row);auto* buttons=new QHBoxLayout(actions);buttons->setContentsMargins(0,0,0,0);
         auto* apply=new QPushButton("Apply Guide",actions);apply->setObjectName("guide-apply-"+qs(source.id));buttons->addWidget(apply);
         auto* remove=new QPushButton("Delete Guide",actions);remove->setObjectName("guide-delete-"+qs(source.id));buttons->addWidget(remove);form->addRow(actions);
         const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,parse_number] {
             auto changed=source;changed.name=name_input->text().toStdString();changed.axis=axis_input->currentData().toString().toStdString();
-            changed.position=source.position_driver?source.position:parse_number(position_input);
+            changed.position=(source.position_driver||source.position_expression)?source.position:parse_number(position_input);
             return std::vector<Command>{UpdateGuide{composition,std::move(changed)}};
         };
         bind_number(name_input,row,builder);bind_number(position_input,row,builder);
@@ -1776,6 +1792,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         connect(unlink_position,&QPushButton::clicked,this,[commit_explicit,row,position_ref]{
             commit_explicit(row,[position_ref]{return std::vector<Command>{UnlinkGuidePosition{position_ref}};});
         });
+        const auto expression_command=[position_ref,expression,replace_source] {
+            return std::vector<Command>{SetGuidePositionExpression{position_ref,
+                {expression->toPlainText().toStdString(),1},replace_source->isChecked()}};
+        };
+        expression->apply=[commit_explicit,row,expression_command]{commit_explicit(row,expression_command);};
+        expression->cancel=[this]{rebuild_inspector();};
+        connect(apply_expression,&QPushButton::clicked,this,[commit_explicit,row,expression_command]{commit_explicit(row,expression_command);});
         connect(remove,&QPushButton::clicked,this,[commit_explicit,row,composition,guide_id=source.id]{commit_explicit(row,[composition,guide_id]{return std::vector<Command>{DeleteGuide{composition,guide_id}};});});
         guides_layout->addWidget(row);
     };

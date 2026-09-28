@@ -2346,19 +2346,56 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
           linked_status->text().contains("UI Guide source")&&linked_status->text().contains("25")&&
           unlink_position->text()=="Unlink position",
         "Guide editor shows the evaluated coordinate, source name, authored literal and explicit Unlink action");
+    auto* expression_editor=visible_child<QPlainTextEdit>(window,("guide-position-expression-"+guide_id).c_str());
+    auto* apply_expression=visible_child<QPushButton>(window,("guide-position-apply-expression-"+guide_id).c_str());
+    auto* replace_source=visible_child<QCheckBox>(window,("guide-position-replace-"+guide_id).c_str());
+    const QString guide_expression=QString::fromStdString("ref(\""+guide_source_id+"\",\"\",\"guide.position\") + 20");
+    expression_editor->setPlainText(guide_expression);
+    const auto before_unapproved_replace=session.revision();QTest::mouseClick(apply_expression,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_replace&&
+          window.statusBar()->currentMessage().contains("DRIVEN_GUIDE_POSITION")&&
+          expression_editor->toPlainText()==guide_expression,
+        "Guide expression replacement requires the visible explicit replacement choice and keeps a rejected draft");
+    replace_source->setChecked(true);QTest::mouseClick(apply_expression,Qt::LeftButton);QApplication::processEvents();
+    auto* expression_position=visible_child<QLineEdit>(window,position_name.c_str());
+    auto* expression_status=visible_child<QLabel>(window,("guide-position-status-"+guide_id).c_str());
+    auto expression_value=guide_position_property(session.document(),guide_target_ref);
+    check(expression_position->isReadOnly()&&expression_position->text()=="120"&&
+          expression_value.literal==25&&!expression_value.driver&&expression_value.source_kind=="expression"&&
+          expression_value.evaluated==120&&expression_status->text().contains("Expression")&&
+          expression_status->text().contains("authored 25")&&expression_status->text().contains("evaluated 120"),
+        "Guide Inspector applies a valid expression and reports its retained literal and evaluated result");
+    expression_editor=visible_child<QPlainTextEdit>(window,("guide-position-expression-"+guide_id).c_str());
+    expression_editor->setPlainText("ref(");
+    replace_source=visible_child<QCheckBox>(window,("guide-position-replace-"+guide_id).c_str());
+    replace_source->setChecked(true);
+    const auto before_invalid_expression=session.revision();
+    apply_expression=visible_child<QPushButton>(window,("guide-position-apply-expression-"+guide_id).c_str());
+    QTest::mouseClick(apply_expression,Qt::LeftButton);QApplication::processEvents();
+    const auto invalid_guide_expression_status=window.statusBar()->currentMessage();
+    const auto invalid_guide_expression_actual="revision="+std::to_string(session.revision())+
+        ", expected="+std::to_string(before_invalid_expression)+", draft="+expression_editor->toPlainText().toStdString()+
+        ", status="+invalid_guide_expression_status.toStdString()+", expression_present="+
+        std::to_string(guide_position_property(session.document(),guide_target_ref).expression.has_value());
+    check(session.revision()==before_invalid_expression&&expression_editor->toPlainText()=="ref("&&
+          window.statusBar()->currentMessage().contains("EXPRESSION_SYNTAX")&&
+          guide_position_property(session.document(),guide_target_ref).expression.has_value(),
+        "Invalid Guide expression remains visible as a draft without changing authored state: "+invalid_guide_expression_actual);
+    unlink_position=visible_child<QPushButton>(window,("guide-unlink-position-"+guide_id).c_str());
     const auto before_unlink=session.revision();QTest::mouseClick(unlink_position,Qt::LeftButton);QApplication::processEvents();
     auto* unlinked_position=visible_child<QLineEdit>(window,position_name.c_str());
     auto* unlinked_status=window.findChild<QLabel*>(QString::fromStdString("guide-position-status-"+guide_id));
     auto* hidden_unlink=window.findChild<QPushButton*>(QString::fromStdString("guide-unlink-position-"+guide_id));
     const auto frozen_position=guide_position_property(session.document(),guide_target_ref);
-    check(session.revision()==before_unlink+1&&frozen_position.literal==100&&!frozen_position.driver&&
-          frozen_position.evaluated==100&&!unlinked_position->isReadOnly()&&unlinked_position->text()=="100"&&
+    check(session.revision()==before_unlink+1&&frozen_position.literal==120&&!frozen_position.driver&&
+          !frozen_position.expression&&frozen_position.source_kind=="literal"&&frozen_position.evaluated==120&&
+          !unlinked_position->isReadOnly()&&unlinked_position->text()=="120"&&
           unlinked_status&&!unlinked_status->isVisible()&&hidden_unlink&&!hidden_unlink->isVisible(),
-        "Guide Unlink freezes the evaluated coordinate and refreshes the editor to editable literal state");
+        "Guide Unlink freezes an expression's evaluated coordinate and refreshes the editor to editable literal state");
 
     input(position_name.c_str(),"nan",false);const auto before_delete=session.revision();
     check(window.statusBar()->currentMessage().contains("INVALID_VALUE")&&
-          guide_position_property(session.document(),guide_target_ref).literal==100,
+          guide_position_property(session.document(),guide_target_ref).literal==120,
         "Nonfinite Guide input is rejected while the invalid draft remains visible");
     const std::string delete_name="guide-delete-"+guide_id;click(delete_name.c_str());
     check(session.revision()==before_delete+1&&session.document().compositions.front().guides.size()==1&&

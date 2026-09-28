@@ -441,20 +441,21 @@ void snap_guide_grid_priority_visibility_and_controls() {
         auto document=grid_guide_snap_document(220);
         auto& guides=document.compositions.front().guides;
         guides.front().position=220;
-        guides.front().position_driver=Ref{"guide-snap-source","","guide.position"};
+        guides.front().position_expression=Expression{R"(ref("guide-snap-source","","guide.position"))",1};
         guides.push_back({"guide-snap-source","Evaluated snap source","x",200});
         Fixture f(document);f.canvas.set_selection("path");
         f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);
         const auto start=f.screen(140,130),end=f.screen(156,130);
         f.press(start);f.move(end);
         near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),20,
-            "Guide Snap uses a linked target's evaluated coordinate instead of its authored literal");
+            "Guide Snap uses an expression-driven target's evaluated coordinate instead of its authored literal");
         check(f.canvas.last_snap_feedback().contains("Guide → guide-snap"),
-            "Evaluated Guide snap feedback identifies the linked target Guide");
+            "Evaluated Guide snap feedback identifies the expression-driven target Guide");
         f.release(end);
         const auto& target=f.session.document().compositions.front().guides.front();
-        check(target.position==220&&target.position_driver==Ref{"guide-snap-source","","guide.position"},
-            "Canvas snapping preserves the target Guide's authored literal and driver");
+        check(target.position==220&&!target.position_driver&&target.position_expression==
+            Expression{R"(ref("guide-snap-source","","guide.position"))",1},
+            "Canvas snapping preserves the target Guide's authored literal and expression");
         f.no_error();
     }
     {
@@ -1317,14 +1318,30 @@ void guide_drag_uses_stable_identity_and_one_session_undo() {
     check(driven.last_error.startsWith("DRIVEN_GUIDE_POSITION")&&!driven.session.gesture_active()&&
           driven.session.revision()==before_revision&&driven.session.document()==before,
         "Hit testing follows evaluated Guide positions and rejects dragging a driven target atomically");
+    auto expression_document=fixture_document();
+    expression_document.compositions.front().guides={{"z-expression-source","Source","x",100},
+        {"a-expression-target","Target","x",30}};
+    expression_document.compositions.front().guides.back().position_expression=
+        Expression{R"(ref("z-expression-source","","guide.position") + 20)",1};
+    Fixture expression_driven(std::move(expression_document));expression_driven.canvas.set_guide_edit_mode(true);
+    const auto expression_before=expression_driven.session.document();
+    const auto expression_revision=expression_driven.session.revision();
+    const auto expression_line=expression_driven.screen(120,20);
+    expression_driven.press(expression_line);expression_driven.move(expression_line+QPoint(18,0));
+    expression_driven.release(expression_line+QPoint(18,0));
+    check(expression_driven.last_error.startsWith("DRIVEN_GUIDE_POSITION")&&
+          expression_driven.session.revision()==expression_revision&&expression_driven.session.document()==expression_before,
+        "Canvas hit testing follows Guide expressions and refuses to drag their authored target literal");
 }
 
 void layout_overlays_are_view_only_and_not_exported() {
     auto document=empty_document("overlay-document","overlay-composition","overlay-artboard");
     auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
     board.layout=ArtboardLayout{Margin{10,15,20,25},Grid{"overlay-grid",{20,25,150,110},2,2,10,10}};
-    document.compositions.front().guides={{"overlay-guide-x","Vertical","x",30,Ref{"overlay-source-x","","guide.position"}},
+    document.compositions.front().guides={{"overlay-guide-x","Vertical","x",30},
         {"overlay-guide-y","Horizontal","y",40},{"overlay-source-x","Evaluated source","x",120}};
+    document.compositions.front().guides.front().position_expression=
+        Expression{R"(ref("overlay-source-x","","guide.position"))",1};
     Session session(document);Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();canvas.fit_artboard();QApplication::processEvents();
     check(canvas.show_guides()&&canvas.show_grid()&&canvas.show_margin(),"Authored layout overlays default visible per Canvas window");
     const auto committed=session.document();const auto revision=session.revision();
@@ -1340,7 +1357,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     };
     const auto evaluated_guide_pixels=count_guide_pixels(image,120),literal_guide_pixels=count_guide_pixels(image,30);
     check(evaluated_guide_pixels>20&&literal_guide_pixels<20,
-        "Canvas paints the linked Guide at its evaluated coordinate, not its authored literal (evaluated="+
+        "Canvas paints the expression-driven Guide at its evaluated coordinate, not its authored literal (evaluated="+
             std::to_string(evaluated_guide_pixels)+", literal="+std::to_string(literal_guide_pixels)+")");
     session.begin_gesture(session.revision());
     session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}}});
@@ -1348,7 +1365,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     const auto preview_image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
     check(count_guide_pixels(preview_image,140)>20&&count_guide_pixels(preview_image,120)<20&&
           count_guide_pixels(preview_image,30)<20,
-        "Canvas Guide overlay follows the evaluated position in the Session preview document");
+        "Canvas expression-driven Guide overlay follows the evaluated position in the Session preview document");
     session.cancel_gesture();canvas.refresh();QApplication::processEvents();
     const auto exported=Canvas::render_artboard(session.document(),"overlay-composition","overlay-artboard",1,true);
     check(exported.pixelColor(30,70)==QColor(Qt::white),"Guide overlay is absent from the Artboard export projection");

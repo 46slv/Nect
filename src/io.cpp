@@ -449,11 +449,13 @@ std::string guide_property_name(const Document& d,const Ref& ref) {
     throw Error("MISSING_GUIDE",ref.object);
 }
 j::object guide_position_property_json(const std::string& name,const Ref& ref,const GuidePositionProperty& value) {
+    j::value expression=nullptr;if(value.expression)expression=expression_json(*value.expression);
     return {{"ref",ref_json(ref)},{"name",name},{"type","number"},{"unit","du"},
         {"space","composition"},{"origin","authored"},
         {"range",j::object{{"min",-1e9},{"max",1e9}}},
-        {"authored",j::object{{"literal",value.literal},{"driver",value.driver?j::value(ref_json(*value.driver)):j::value(nullptr)}}},
-        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+        {"authored",j::object{{"literal",value.literal},{"driver",value.driver?j::value(ref_json(*value.driver)):j::value(nullptr)},
+            {"source_kind",value.source_kind},{"expression",std::move(expression)}}},
+        {"evaluated",value.evaluated},{"link",true},{"expression",true}};
 }
 j::object text_content_property_json(const Document& d,const Ref& ref,const TextContentProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=text_content_driver_json(*value.driver);
@@ -713,11 +715,13 @@ std::size_t layout_count(const j::value& value) {
         throw Error("INVALID_LAYOUT","Grid counts must be integers from 1 through 1000");
     return static_cast<std::size_t>(count);
 }
-Guide read_guide(const j::value& value,bool allow_position_driver=false) {
+Guide read_guide(const j::value& value,bool allow_position_driver=false,bool allow_position_expression=false) {
     try {
         if(!value.is_object())throw Error("INVALID_GUIDE","Guide must be an object");
         const auto& object=value.as_object();
-        if(allow_position_driver)keys(object,{"id","name","axis","position","position_driver"});
+        if(allow_position_driver&&allow_position_expression)
+            keys(object,{"id","name","axis","position","position_driver","position_expression"});
+        else if(allow_position_driver)keys(object,{"id","name","axis","position","position_driver"});
         else keys(object,{"id","name","axis","position"});
         if(!object.contains("id")||!object.contains("name")||!object.contains("axis")||!object.contains("position"))
             throw Error("INVALID_GUIDE","Guide requires id, name, axis and position");
@@ -733,6 +737,11 @@ Guide read_guide(const j::value& value,bool allow_position_driver=false) {
             if(!fields.contains("link"))throw Error("INVALID_GUIDE","Guide position_driver requires link");
             guide.position_driver=read_ref(fields.at("link"));
         }
+        if(object.contains("position_expression")) {
+            if(!allow_position_expression)
+                throw Error("INVALID_GUIDE","Guide position expressions require native 0.34");
+            guide.position_expression=read_expression(object.at("position_expression"));
+        }
         return guide;
     } catch(const Error& error) {
         if(error.code=="INVALID_GUIDE")throw;
@@ -744,6 +753,7 @@ Guide read_guide(const j::value& value,bool allow_position_driver=false) {
 j::value guide_json(const Guide& guide) {
     j::object result{{"id",guide.id},{"name",guide.name},{"axis",guide.axis},{"position",guide.position}};
     if(guide.position_driver)result["position_driver"]=j::object{{"link",ref_json(*guide.position_driver)}};
+    if(guide.position_expression)result["position_expression"]=expression_json(*guide.position_expression);
     return result;
 }
 ArtboardLayout read_layout(const j::value& value) {
@@ -987,7 +997,7 @@ Command read_command(const j::value& v) {
     if(type=="add_guide"||type=="update_guide") {
         keys(o,{"type","composition","guide"});
         if(type=="add_guide")return AddGuide{text(o.at("composition")),read_guide(o.at("guide"))};
-        return UpdateGuide{text(o.at("composition")),read_guide(o.at("guide"),true)};
+        return UpdateGuide{text(o.at("composition")),read_guide(o.at("guide"),true,true)};
     }
     if(type=="delete_guide") {
         keys(o,{"type","composition","guide_id"});return DeleteGuide{text(o.at("composition")),text(o.at("guide_id"))};
@@ -995,6 +1005,10 @@ Command read_command(const j::value& v) {
     if(type=="link_guide_position") {
         keys(o,{"type","target","source","replace_driver"});
         return LinkGuidePosition{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="set_guide_position_expression") {
+        keys(o,{"type","target","expression","replace_driver"});
+        return SetGuidePositionExpression{read_ref(o.at("target")),read_expression(o.at("expression")),o.at("replace_driver").as_bool()};
     }
     if(type=="unlink_guide_position") {
         keys(o,{"type","target"});return UnlinkGuidePosition{read_ref(o.at("target"))};
@@ -1223,10 +1237,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,33> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33"};
+        constexpr std::array<std::string_view,34> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.33 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.34 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1248,7 +1262,7 @@ Document decode(std::string_view input) {
             c.roots=ids(co.at("roots"));
 
             for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33));
-            if(minor>=14)for(const auto& gv:co.at("guides").as_array())c.guides.push_back(read_guide(gv,minor>=23));
+            if(minor>=14)for(const auto& gv:co.at("guides").as_array())c.guides.push_back(read_guide(gv,minor>=23,minor>=34));
             d.compositions.push_back(std::move(c));
         }
 
@@ -1679,7 +1693,9 @@ std::string request(Session& session,std::string_view input) {
                 const auto positions=evaluate_guide_positions(session.document(),composition.id);
                 for(const auto& guide:composition.guides)guide_values.emplace(guide.id,
                     std::make_pair(guide.name,GuidePositionProperty{
-                        guide.position,guide.position_driver,positions.at(guide.id)}));
+                        guide.position,guide.position_driver,guide.position_expression,
+                        guide.position_driver?"link":guide.position_expression?"expression":"literal",
+                        positions.at(guide.id)}));
             }
             for(const auto& ref:properties(session.document())) {
                 if(ref.field=="guide.position") {

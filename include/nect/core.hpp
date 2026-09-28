@@ -271,6 +271,7 @@ struct Guide {
     std::string axis="x"; // x is a vertical line, y is horizontal.
     double position=0;
     std::optional<Ref> position_driver;
+    std::optional<Expression> position_expression;
     bool operator==(const Guide&) const = default;
 };
 struct LayoutRect {
@@ -414,6 +415,7 @@ struct AddGuide { Id composition; Guide guide; };
 struct UpdateGuide { Id composition; Guide guide; };
 struct DeleteGuide { Id composition; Id guide_id; };
 struct LinkGuidePosition { Ref target; Ref source; bool replace_driver=false; };
+struct SetGuidePositionExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGuidePosition { Ref target; };
 struct SetArtboardLayout { Id composition; Id artboard_id; std::optional<ArtboardLayout> layout; };
 struct AddRasterAsset { RasterAsset asset; };
@@ -496,7 +498,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,LinkPointEditEnabled,UnlinkPointEditEnabled,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,LinkOperationEnabled,UnlinkOperationEnabled,LinkGradientEnabled,UnlinkGradientEnabled,OperationOptions,LinkFillRule,UnlinkFillRule,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
-    DeleteArtboard,ReorderArtboards,DetachArtboardParent,LinkArtboardSize,SetArtboardSizeExpression,UnlinkArtboardSize,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
+    DeleteArtboard,ReorderArtboards,DetachArtboardParent,LinkArtboardSize,SetArtboardSizeExpression,UnlinkArtboardSize,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,SetGuidePositionExpression,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
@@ -707,6 +709,8 @@ std::map<Ref,bool> evaluate_point_edit_enableds(const Document&);
 struct GuidePositionProperty {
     double literal=0;
     std::optional<Ref> driver;
+    std::optional<Expression> expression;
+    std::string source_kind="literal";
     double evaluated=0;
 };
 GuidePositionProperty guide_position_property(const Document&,const Ref&);

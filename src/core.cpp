@@ -905,6 +905,7 @@ auto& lookup_property(D& d,const Ref& r) {
     throw Error("MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
 }
 std::string unit(const Ref& r) {
+    if(r.point.empty()&&r.field=="guide.position")return "du";
     if(r.point.empty()&&r.field=="text.italic")return "boolean";
     if(r.point.empty()&&r.field=="mask.enabled")return "boolean";
     if(r.point.empty()&&r.field.starts_with("mask.")&&r.field.ends_with(".enabled")) {
@@ -1205,7 +1206,9 @@ GuidePositionProperty guide_position_property(const Document& document,const Ref
     require(ref.point.empty(),"INVALID_GUIDE_REF","Guide position requires an empty point ID");
     require(ref.field=="guide.position","UNKNOWN_GUIDE_PROPERTY",ref.field);
     for(const auto& composition:document.compositions)for(const auto& guide:composition.guides)if(guide.id==ref.object)
-        return {guide.position,guide.position_driver,evaluate_guide_position(document,composition.id,guide.id)};
+        return {guide.position,guide.position_driver,guide.position_expression,
+            guide.position_driver?"link":guide.position_expression?"expression":"literal",
+            evaluate_guide_position(document,composition.id,guide.id)};
     if(document.objects.contains(ref.object)||document.named_colors.contains(ref.object))
         throw Error("TYPE_MISMATCH","Guide position Ref must identify a Guide");
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards)if(board.id==ref.object)
@@ -1939,6 +1942,7 @@ private:
     std::map<Id,GuideLocation> guides_;
     std::set<Id> artboards_;
     std::map<Id,GuideEvaluation> cache_;
+    ExpressionCache expressions_;
 
     [[noreturn]] void missing(const Id& id,const char* role) const {
         if(document_.objects.contains(id)||document_.named_colors.contains(id)||artboards_.contains(id))
@@ -1957,20 +1961,40 @@ private:
         }
         require(active.insert(current).second,"GUIDE_CYCLE","Guide position dependency cycle at "+current);
         GuideEvaluation result{location.guide->position,0};
+        require(!(location.guide->position_driver&&location.guide->position_expression),
+            "GUIDE_SOURCE_CONFLICT","A Guide position can have one active source");
+        auto resolve_source=[&](const Ref& source) {
+            require(source.point.empty()&&source.field=="guide.position","GUIDE_EXPRESSION_TYPE",
+                "Guide position dependencies may reference only guide.position");
+            identity(source.object);
+            require(source.object!=current,"GUIDE_SELF_LINK","A Guide position cannot reference itself");
+            const auto source_location=guides_.find(source.object);
+            if(source_location==guides_.end())missing(source.object,"Guide position source");
+            require(source_location->second.composition->id==composition_id,"WRONG_COMPOSITION",
+                "Guide position dependencies must stay in one Composition");
+            require(source_location->second.guide->axis==location.guide->axis,"GUIDE_AXIS_MISMATCH",
+                "Guide position dependencies must use the same axis");
+            return visit(source.object,composition_id,depth+1,active);
+        };
         if(location.guide->position_driver) {
             const auto& source=*location.guide->position_driver;
             require(source.point.empty()&&source.field=="guide.position","INVALID_GUIDE_REF",
                 "Guide position links must target another guide.position Ref");
-            identity(source.object);
-            require(source.object!=current,"GUIDE_SELF_LINK","A Guide cannot link its position to itself");
-            const auto source_location=guides_.find(source.object);
-            if(source_location==guides_.end())missing(source.object,"Guide position link source");
-            require(source_location->second.composition->id==composition_id,"WRONG_COMPOSITION",source.object);
-            require(source_location->second.guide->axis==location.guide->axis,"GUIDE_AXIS_MISMATCH",
-                "Linked Guides must use the same axis");
-            const auto source_value=visit(source.object,composition_id,depth+1,active);
+            const auto source_value=resolve_source(source);
             result.value=source_value.value;
             result.remaining_edges=source_value.remaining_edges+1;
+        } else if(location.guide->position_expression) {
+            const auto& compiled=compiled_expression(expressions_,*location.guide->position_expression);
+            std::size_t max_edges=0;
+            for(const auto& source:expression_dependencies(compiled)) {
+                const auto upstream=resolve_source(source);
+                max_edges=std::max(max_edges,upstream.remaining_edges+1);
+            }
+            validate_expression_unit(compiled,"du");
+            result.value=evaluate_expression(compiled,"du",[&](const Ref& source) {
+                return resolve_source(source).value;
+            });
+            result.remaining_edges=max_edges;
         }
         require(depth+result.remaining_edges<256,"GUIDE_DEPTH","Guide position dependency depth exceeds 256");
         require(std::isfinite(result.value)&&std::abs(result.value)<=1e9,"GUIDE_POSITION_RANGE",
@@ -3154,6 +3178,85 @@ void edit_point_edit_enabled(Document& candidate,const UnlinkPointEditEnabled& c
     auto& point_edit=*candidate.objects.at(command.target.object).point_edit;
     point_edit.enabled=frozen;point_edit.enabled_driver.reset();
 }
+void edit_guide_position_expression(Document& candidate,const SetGuidePositionExpression& command) {
+    require(command.target.point.empty()&&command.target.field=="guide.position","INVALID_GUIDE_REF",
+        "Guide expression target must be an empty-point guide.position Ref");
+    identity(command.target.object);
+    Composition* owner=nullptr;Guide* target=nullptr;
+    for(auto& item:candidate.compositions)for(auto& guide:item.guides)if(guide.id==command.target.object) {
+        owner=&item;target=&guide;
+    }
+    if(!target) {
+        if(candidate.objects.contains(command.target.object)||candidate.named_colors.contains(command.target.object))
+            throw Error("TYPE_MISMATCH","Guide expression target must identify a Guide: "+command.target.object);
+        for(const auto& item:candidate.compositions)for(const auto& board:item.artboards)if(board.id==command.target.object)
+            throw Error("TYPE_MISMATCH","Guide expression target must identify a Guide: "+command.target.object);
+        throw Error("MISSING_GUIDE",command.target.object);
+    }
+    const bool same_expression=target->position_expression&&*target->position_expression==command.expression;
+    require((!target->position_driver&&!target->position_expression)||same_expression||command.replace_driver,
+        "DRIVEN_GUIDE_POSITION","Replacing a Guide position source requires replace_driver=true");
+    target->position_driver.reset();
+    target->position_expression=command.expression;
+    (void)evaluate_guide_position(candidate,owner->id,target->id);
+}
+void edit_guide_position(Document& candidate,const LinkGuidePosition& command) {
+    const auto valid_ref=[](const Ref& ref,const char* role) {
+        require(ref.point.empty()&&ref.field=="guide.position","INVALID_GUIDE_REF",
+            std::string("Guide ")+role+" must be an empty-point guide.position Ref");
+        identity(ref.object);
+    };
+    valid_ref(command.target,"target");valid_ref(command.source,"source");
+    require(command.target.object!=command.source.object,"GUIDE_SELF_LINK","A Guide cannot link its position to itself");
+    Composition* target_composition=nullptr;Guide* target=nullptr;
+    Composition* source_composition=nullptr;Guide* source=nullptr;
+    for(auto& item:candidate.compositions)for(auto& guide:item.guides) {
+        if(guide.id==command.target.object){target_composition=&item;target=&guide;}
+        if(guide.id==command.source.object){source_composition=&item;source=&guide;}
+    }
+    const auto wrong_kind=[&](const Id& id) {
+        if(candidate.objects.contains(id)||candidate.named_colors.contains(id))return true;
+        for(const auto& item:candidate.compositions)for(const auto& board:item.artboards)if(board.id==id)return true;
+        return false;
+    };
+    if(!target) {
+        if(wrong_kind(command.target.object))throw Error("TYPE_MISMATCH","Guide link target must identify a Guide: "+command.target.object);
+        throw Error("MISSING_GUIDE",command.target.object);
+    }
+    if(!source) {
+        if(wrong_kind(command.source.object))throw Error("TYPE_MISMATCH","Guide link source must identify a Guide: "+command.source.object);
+        throw Error("MISSING_GUIDE",command.source.object);
+    }
+    require(target_composition==source_composition,"WRONG_COMPOSITION","Guide position links must stay in one Composition");
+    require(target->axis==source->axis,"GUIDE_AXIS_MISMATCH","Linked Guides must use the same axis");
+    const bool same_link=target->position_driver&&*target->position_driver==command.source;
+    require((!target->position_driver&&!target->position_expression)||same_link||command.replace_driver,
+        "DRIVEN_GUIDE_POSITION","Replacing a Guide position source requires replace_driver=true");
+    target->position_driver=command.source;
+    target->position_expression.reset();
+    (void)evaluate_guide_position(candidate,target_composition->id,target->id);
+}
+void edit_guide_position(Document& candidate,const SetGuidePositionExpression& command) {
+    edit_guide_position_expression(candidate,command);
+}
+void edit_guide_position(Document& candidate,const UnlinkGuidePosition& command) {
+    require(command.target.point.empty()&&command.target.field=="guide.position","INVALID_GUIDE_REF",
+        "Guide unlink target must be an empty-point guide.position Ref");
+    identity(command.target.object);
+    Composition* owner=nullptr;Guide* target=nullptr;
+    for(auto& item:candidate.compositions)for(auto& guide:item.guides)if(guide.id==command.target.object) {
+        owner=&item;target=&guide;
+    }
+    if(!target) {
+        if(candidate.objects.contains(command.target.object)||candidate.named_colors.contains(command.target.object))
+            throw Error("TYPE_MISMATCH","Guide unlink target must identify a Guide: "+command.target.object);
+        throw Error("MISSING_GUIDE",command.target.object);
+    }
+    require(target->position_driver.has_value()||target->position_expression.has_value(),
+        "GUIDE_NOT_LINKED","Guide position has no source to unlink");
+    const auto frozen=evaluate_guide_position(candidate,owner->id,target->id);
+    target->position=frozen;target->position_driver.reset();target->position_expression.reset();
+}
 Document edited(const Document& document,const std::vector<Command>& commands,std::map<Ref,double>* evaluated=nullptr) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
     std::set<Ref> fill_rule_targets;
@@ -3164,6 +3267,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
     std::set<Ref> point_edit_enabled_targets;
     std::set<Ref> composite_isolation_targets;
     std::set<Ref> artboard_size_targets;
+    std::set<Ref> guide_position_targets;
     for(const auto& command:commands)std::visit([&](const auto& value) {
         using T=std::decay_t<decltype(value)>;
         if constexpr(std::is_same_v<T,LinkFillRule>||std::is_same_v<T,UnlinkFillRule>)
@@ -3182,6 +3286,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(composite_isolation_targets.insert(value.target).second,"DUPLICATE_TARGET","A Composite isolation target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkArtboardSize>||std::is_same_v<T,SetArtboardSizeExpression>||std::is_same_v<T,UnlinkArtboardSize>)
             require(artboard_size_targets.insert(value.target).second,"DUPLICATE_TARGET","An Artboard size target may be changed only once per batch");
+        else if constexpr(std::is_same_v<T,LinkGuidePosition>||std::is_same_v<T,SetGuidePositionExpression>||std::is_same_v<T,UnlinkGuidePosition>)
+            require(guide_position_targets.insert(value.target).second,"DUPLICATE_TARGET","A Guide position target may be changed only once per batch");
     },command);
 
     auto candidate=document;
@@ -3604,7 +3710,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             auto comp=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),[&](const auto& item){return item.id==c.composition;});
             require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);
             if constexpr(std::is_same_v<T,AddGuide>) {
-                require(!c.guide.position_driver,"GUIDE_DRIVER_SMUGGLING","Use link_guide_position after adding an undriven Guide");
+                require(!c.guide.position_driver&&!c.guide.position_expression,"GUIDE_DRIVER_SMUGGLING",
+                    "Use a dedicated Guide position command after adding an undriven Guide");
                 comp->guides.push_back(c.guide);
             }
             else {
@@ -3619,67 +3726,24 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 }
                 if constexpr(std::is_same_v<T,UpdateGuide>) {
                     auto updated=c.guide;
-                    if(guide->position_driver) {
+                    if(guide->position_driver||guide->position_expression) {
                         require(updated.position==guide->position,"DRIVEN_GUIDE_POSITION",
                             "Unlink the Guide position explicitly before changing its literal");
                         require(!updated.position_driver||updated.position_driver==guide->position_driver,
                             "DRIVEN_GUIDE_DRIVER","Use link_guide_position to replace a Guide position driver");
+                        require(!updated.position_expression||updated.position_expression==guide->position_expression,
+                            "DRIVEN_GUIDE_DRIVER","Use set_guide_position_expression to replace a Guide position driver");
                         updated.position_driver=guide->position_driver;
-                    } else require(!updated.position_driver,"GUIDE_DRIVER_SMUGGLING",
-                        "Use link_guide_position to add a Guide position driver");
+                        updated.position_expression=guide->position_expression;
+                    } else require(!updated.position_driver&&!updated.position_expression,"GUIDE_DRIVER_SMUGGLING",
+                        "Use a dedicated Guide position command to add a source");
                     *guide=std::move(updated);
                 }
                 else comp->guides.erase(guide);
             }
-        } else if constexpr(std::is_same_v<T,LinkGuidePosition>) {
-            const auto valid_ref=[](const Ref& ref,const char* role) {
-                require(ref.point.empty()&&ref.field=="guide.position","INVALID_GUIDE_REF",
-                    std::string("Guide ")+role+" must be an empty-point guide.position Ref");
-                identity(ref.object);
-            };
-            valid_ref(c.target,"target");valid_ref(c.source,"source");
-            require(c.target.object!=c.source.object,"GUIDE_SELF_LINK","A Guide cannot link its position to itself");
-            Composition* target_composition=nullptr;Guide* target=nullptr;
-            Composition* source_composition=nullptr;Guide* source=nullptr;
-            for(auto& item:candidate.compositions)for(auto& guide:item.guides) {
-                if(guide.id==c.target.object){target_composition=&item;target=&guide;}
-                if(guide.id==c.source.object){source_composition=&item;source=&guide;}
-            }
-            const auto wrong_kind=[&](const Id& id) {
-                if(candidate.objects.contains(id)||candidate.named_colors.contains(id))return true;
-                for(const auto& item:candidate.compositions)for(const auto& board:item.artboards)if(board.id==id)return true;
-                return false;
-            };
-            if(!target) {
-                if(wrong_kind(c.target.object))throw Error("TYPE_MISMATCH","Guide link target must identify a Guide: "+c.target.object);
-                throw Error("MISSING_GUIDE",c.target.object);
-            }
-            if(!source) {
-                if(wrong_kind(c.source.object))throw Error("TYPE_MISMATCH","Guide link source must identify a Guide: "+c.source.object);
-                throw Error("MISSING_GUIDE",c.source.object);
-            }
-            require(target_composition==source_composition,"WRONG_COMPOSITION","Guide position links must stay in one Composition");
-            require(target->axis==source->axis,"GUIDE_AXIS_MISMATCH","Linked Guides must use the same axis");
-            require(!target->position_driver||*target->position_driver==c.source||c.replace_driver,
-                "DRIVEN_GUIDE_POSITION","Replacing a Guide position driver requires replace_driver=true");
-            target->position_driver=c.source;
-            (void)evaluate_guide_position(candidate,target_composition->id,target->id);
-        } else if constexpr(std::is_same_v<T,UnlinkGuidePosition>) {
-            require(c.target.point.empty()&&c.target.field=="guide.position","INVALID_GUIDE_REF",
-                "Guide unlink target must be an empty-point guide.position Ref");
-            identity(c.target.object);
-            Composition* owner=nullptr;Guide* target=nullptr;
-            for(auto& item:candidate.compositions)for(auto& guide:item.guides)if(guide.id==c.target.object) {
-                owner=&item;target=&guide;
-            }
-            if(!target) {
-                if(candidate.objects.contains(c.target.object)||candidate.named_colors.contains(c.target.object))
-                    throw Error("TYPE_MISMATCH","Guide unlink target must identify a Guide: "+c.target.object);
-                throw Error("MISSING_GUIDE",c.target.object);
-            }
-            require(target->position_driver.has_value(),"GUIDE_NOT_LINKED","Guide position has no driver to unlink");
-            const auto frozen=evaluate_guide_position(candidate,owner->id,target->id);
-            target->position=frozen;target->position_driver.reset();
+        } else if constexpr(std::is_same_v<T,LinkGuidePosition>||std::is_same_v<T,SetGuidePositionExpression>||
+            std::is_same_v<T,UnlinkGuidePosition>) {
+            edit_guide_position(candidate,c);
         } else if constexpr(std::is_same_v<T,SetArtboardLayout>) {
             auto comp=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),[&](const auto& item){return item.id==c.composition;});
             require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);

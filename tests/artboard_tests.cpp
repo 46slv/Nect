@@ -64,8 +64,8 @@ void layout_and_guide_acceptance() {
         "Clearing Grid retains the independently authored Margin");
     apply({SetArtboardLayout{"layout-comp","layout-art",copied}});
     const auto current=encode(session.document());
-    check(current.find("\"version\":\"0.33\"")!=std::string::npos&&encode(decode(current))==current,
-        "Native 0.33 roundtrip preserves Guide/Grid/Margin definitions and IDs");
+    check(current.find("\"version\":\"0.34\"")!=std::string::npos&&encode(decode(current))==current,
+        "Native 0.34 roundtrip preserves Guide/Grid/Margin definitions and IDs");
 
     const auto readback=request(session,R"({"op":"inspect"})");
     check(readback.find("\"guides\"")!=std::string::npos&&readback.find("\"id\":\"guide-x\"")!=std::string::npos&&
@@ -153,7 +153,7 @@ void layout_and_guide_acceptance() {
         for(auto& board:comp.artboards)board.layout.reset();
     }
     auto legacy=encode(legacy_document);
-    check(replace_all(legacy,"\"version\":\"0.33\"","\"version\":\"0.13\"")==1,
+    check(replace_all(legacy,"\"version\":\"0.34\"","\"version\":\"0.13\"")==1,
         "Legacy fixture changes only its native version");
     check(replace_all(legacy,",\"guides\":[]","")==legacy_document.compositions.size(),
         "Legacy fixture removes each v0.14 Composition Guides field");
@@ -214,7 +214,7 @@ void guide_position_links() {
     check(linked.find("\"ok\":true")!=std::string::npos&&linked.find("guide-target")!=std::string::npos,
         "Semantic JSON links a Guide position through the shared Session command and returns its changed Guide ID");
     const auto position=guide_position_property(session.document(),target);
-    check(position.literal==240&&position.driver==source&&position.evaluated==100,
+    check(position.literal==240&&position.driver==source&&!position.expression&&position.source_kind=="link"&&position.evaluated==100,
         "Guide position link preserves its authored literal and evaluates from the same-axis source");
     const auto discovered=properties(session.document());
     check(resolve_name(session.document(),"Target","","guide.position")==target&&
@@ -228,7 +228,8 @@ void guide_position_links() {
     check(get.find("\"type\":\"number\"")!=std::string::npos&&get.find("\"unit\":\"du\"")!=std::string::npos&&
         get.find("\"space\":\"composition\"")!=std::string::npos&&get.find("\"origin\":\"authored\"")!=std::string::npos&&
         std::abs(number_after("\"literal\":" )-240)<1e-12&&std::abs(number_after("\"evaluated\":" )-100)<1e-12&&
-        get.find("\"link\":true")!=std::string::npos&&get.find("\"expression\":false")!=std::string::npos,
+        get.find("\"source_kind\":\"link\"")!=std::string::npos&&
+        get.find("\"link\":true")!=std::string::npos&&get.find("\"expression\":true")!=std::string::npos,
         "Guide get returns the typed authored and evaluated position view");
     const auto property_list=request(session,R"({"op":"properties"})");
     check(property_list.find("\"object\":\"guide-target\"")!=std::string::npos&&
@@ -236,12 +237,23 @@ void guide_position_links() {
         "Properties lists Guide positions through their typed view");
 
     session.undo(session.revision());
-    check(!guide_position_property(session.document(),target).driver&&guide_position_property(session.document(),target).evaluated==240,
+    check(!guide_position_property(session.document(),target).driver&&!guide_position_property(session.document(),target).expression&&
+        guide_position_property(session.document(),target).evaluated==240,
         "Undo removes only the Guide position link and restores its literal value");
     session.redo(session.revision());
     check(guide_position_property(session.document(),target).driver==source&&
         guide_position_property(session.document(),target).evaluated==100,
         "Redo restores the stable Guide position Ref and evaluation");
+    {
+        Session idempotent(document);
+        idempotent.apply({AddGuide{"guide-link-comp",{"guide-source","Source","x",100}},
+            AddGuide{"guide-link-comp",{"guide-target","Target","x",240}}},0);
+        idempotent.apply({LinkGuidePosition{target,source,false}},1);
+        idempotent.apply({LinkGuidePosition{target,source,false}},idempotent.revision());
+        check(guide_position_property(idempotent.document(),target).driver==source&&
+            guide_position_property(idempotent.document(),target).evaluated==100,
+            "Repeating the same Guide link is idempotent without a replacement flag");
+    }
 
     Contour outline;outline.id="guide-align-outline";outline.closed=true;
     for(const auto& [x,y]:std::array<std::pair<double,double>,4>{{{0,0},{10,0},{10,10},{0,10}}}) {
@@ -272,48 +284,147 @@ void guide_position_links() {
     session.cancel_gesture();
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.33\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.34\"")!=std::string::npos&&
         native.find("\"position_driver\":{\"link\":{\"object\":\"guide-source\",\"point\":\"\",\"field\":\"guide.position\"}}")!=std::string::npos&&
         encode(decode(native))==native,
-        "Native 0.33 preserves an optional Guide position link and its authored literal");
+        "Native 0.34 preserves the existing optional Guide position link and authored literal");
     auto legacy_with_driver=native;
-    check(replace_all(legacy_with_driver,"\"version\":\"0.33\"","\"version\":\"0.22\"")==1,
+    check(replace_all(legacy_with_driver,"\"version\":\"0.34\"","\"version\":\"0.22\"")==1,
         "Legacy linked fixture downgrades only its version tag");
     rejects("INVALID_GUIDE",[&]{(void)decode(legacy_with_driver);});
+    auto native_033_link=encode(session.document());
+    check(replace_all(native_033_link,"\"version\":\"0.34\"","\"version\":\"0.33\"")==1&&
+        decode(native_033_link)==session.document(),
+        "Native 0.33 still decodes the existing Guide link representation unchanged");
     auto literal_document=session.document();
     for(auto& composition:literal_document.compositions)for(auto& guide:composition.guides)guide.position_driver.reset();
     auto legacy_literal=encode(literal_document);
-    check(replace_all(legacy_literal,"\"version\":\"0.33\"","\"version\":\"0.22\"")==1&&
+    check(replace_all(legacy_literal,"\"version\":\"0.34\"","\"version\":\"0.22\"")==1&&
         decode(legacy_literal)==literal_document,
         "Native 0.22 continues to decode literal-only Guide positions unchanged");
+
+    const Expression source_plus_twenty{R"(ref("guide-source","","guide.position") + 20)",1};
+    apply({UpdateGuide{"guide-link-comp",{"guide-source","Renamed source","x",100}}});
+    rejects("DRIVEN_GUIDE_POSITION",[&]{apply({SetGuidePositionExpression{target,source_plus_twenty,false}});});
+    apply({SetGuidePositionExpression{target,source_plus_twenty,true}});
+    auto expressed=guide_position_property(session.document(),target);
+    check(expressed.literal==240&&!expressed.driver&&expressed.expression==source_plus_twenty&&
+        expressed.source_kind=="expression"&&expressed.evaluated==120,
+        "Replacing a Guide link with a du expression retains the literal and evaluates from its stable Ref");
+    const auto expression_get=request(session,R"({"op":"get","ref":{"object":"guide-target","point":"","field":"guide.position"}})");
+    check(expression_get.find("\"source_kind\":\"expression\"")!=std::string::npos&&
+        expression_get.find("\"expression\":{\"source\":\"ref(\\\"guide-source\\\",\\\"\\\",\\\"guide.position\\\") + 20\",\"version\":1}")!=std::string::npos&&
+        expression_get.find("\"driver\":null")!=std::string::npos,
+        "Guide get exposes the exact optional expression and source kind");
+    const auto expression_properties=request(session,R"({"op":"properties"})");
+    check(expression_properties.find("\"object\":\"guide-target\"")!=std::string::npos&&
+        expression_properties.find("\"expression\":true")!=std::string::npos,
+        "Guide properties expose expression capability and the evaluated expression source");
+    session.undo(session.revision());
+    check(guide_position_property(session.document(),target).driver==source&&
+        !guide_position_property(session.document(),target).expression&&
+        guide_position_property(session.document(),target).evaluated==100,
+        "Undo restores the linked source after a Guide link-to-expression replacement");
+    session.redo(session.revision());
+    check(guide_position_property(session.document(),target).expression==source_plus_twenty&&
+        guide_position_property(session.document(),target).evaluated==120,
+        "Redo restores the exact Guide position expression");
+    apply({UpdateGuide{"guide-link-comp",{"guide-source","Renamed source","x",120}}});
+    expressed=guide_position_property(session.document(),target);
+    auto reordered=session.document();
+    std::reverse(reordered.compositions.front().guides.begin(),reordered.compositions.front().guides.end());
+    check(expressed.literal==240&&expressed.evaluated==140&&
+        evaluate_guide_position(reordered,"guide-link-comp","guide-target")==140,
+        "Guide expression follows source movement and stable identity across Guide array reordering");
+    apply({AddGuide{"guide-link-comp",{"guide-multi","Multi-source","x",15}},
+        SetGuidePositionExpression{{"guide-multi","","guide.position"},
+            {R"(ref("guide-source","","guide.position") + ref("guide-alternate","","guide.position") - 175)",1},false}});
+    check(guide_position_property(session.document(),{"guide-multi","","guide.position"}).evaluated==120,
+        "Guide expressions support multiple same-axis sources in one Composition");
+    apply({AddGuide{"guide-link-comp",{"guide-constant","Constant expression","x",15}},
+        SetGuidePositionExpression{{"guide-constant","","guide.position"},{"42",1},false}});
+    const auto constant_position=guide_position_property(session.document(),{"guide-constant","","guide.position"});
+    check(constant_position.source_kind=="expression"&&constant_position.expression==Expression{"42",1}&&
+        constant_position.literal==15&&constant_position.evaluated==42,
+        "Guide position expressions accept constants while retaining their authored literal");
+    apply({LinkGuidePosition{target,alternate,true}});
+    check(guide_position_property(session.document(),target).source_kind=="link"&&
+        guide_position_property(session.document(),target).evaluated==175,
+        "A Guide link explicitly replaces an authored expression");
+    session.undo(session.revision());
+    check(guide_position_property(session.document(),target).expression==source_plus_twenty&&
+        guide_position_property(session.document(),target).evaluated==140,
+        "Undo restores the exact Guide expression and its evaluated value after link replacement");
+    session.redo(session.revision());session.undo(session.revision());
+    const auto expression_native=encode(session.document());
+    check(expression_native.find("\"version\":\"0.34\"")!=std::string::npos&&
+        expression_native.find("\"position_expression\":{\"source\":\"ref(\\\"guide-source\\\",\\\"\\\",\\\"guide.position\\\") + 20\",\"version\":1}")!=std::string::npos&&
+        encode(decode(expression_native))==expression_native,
+        "Native 0.34 stores and byte-roundtrips the exact Guide expression while omitting an absent link");
+    auto expression_lied_version=expression_native;
+    check(replace_all(expression_lied_version,"\"version\":\"0.34\"","\"version\":\"0.33\"")==1,
+        "Native Guide expression version-lie fixture changes only its version tag");
+    rejects("INVALID_GUIDE",[&]{(void)decode(expression_lied_version);});
+    auto both_sources=session.document();
+    auto both_target=std::find_if(both_sources.compositions.front().guides.begin(),both_sources.compositions.front().guides.end(),
+        [](const auto& guide){return guide.id=="guide-target";});
+    both_target->position_driver=source;
+    rejects("GUIDE_SOURCE_CONFLICT",[&]{Session invalid(std::move(both_sources));});
 
     const auto before_failures=encode(session.document());const auto revision_before_failures=session.revision();
     const auto history_before_failures=session.history();
     rejects("DRIVEN_GUIDE_POSITION",[&]{apply({UpdateGuide{"guide-link-comp",{"guide-target","Changed value","x",250}}});});
     rejects("DRIVEN_GUIDE_POSITION",[&]{apply({LinkGuidePosition{target,alternate,false}});});
+    rejects("DRIVEN_GUIDE_POSITION",[&]{apply({SetGuidePositionExpression{target,{"25",1},false}});});
     rejects("GUIDE_AXIS_MISMATCH",[&]{apply({LinkGuidePosition{target,horizontal,true}});});
+    rejects("GUIDE_AXIS_MISMATCH",[&]{apply({SetGuidePositionExpression{target,
+        {R"(ref("guide-horizontal","","guide.position"))",1},true}});});
     rejects("WRONG_COMPOSITION",[&]{apply({LinkGuidePosition{target,other_plane,true}});});
+    rejects("WRONG_COMPOSITION",[&]{apply({SetGuidePositionExpression{target,
+        {R"(ref("guide-other-plane","","guide.position"))",1},true}});});
     rejects("INVALID_GUIDE_REF",[&]{apply({LinkGuidePosition{target,{"guide-source","point","guide.position"},true}});});
     rejects("INVALID_GUIDE_REF",[&]{apply({LinkGuidePosition{target,{"guide-source","","artboard.width"},true}});});
     rejects("GUIDE_SELF_LINK",[&]{apply({LinkGuidePosition{target,target,true}});});
     rejects("MISSING_GUIDE",[&]{apply({LinkGuidePosition{target,{"missing-guide","","guide.position"},true}});});
     rejects("TYPE_MISMATCH",[&]{apply({LinkGuidePosition{target,{"guide-link-art","","guide.position"},true}});});
+    rejects("GUIDE_EXPRESSION_TYPE",[&]{apply({SetGuidePositionExpression{target,
+        {R"(ref("guide-link-art","","artboard.width"))",1},true}});});
+    rejects("GUIDE_EXPRESSION_TYPE",[&]{apply({SetGuidePositionExpression{target,
+        {R"(ref("guide-source","point","guide.position"))",1},true}});});
+    rejects("MISSING_GUIDE",[&]{apply({SetGuidePositionExpression{target,
+        {R"(ref("missing-guide","","guide.position"))",1},true}});});
+    rejects("GUIDE_SELF_LINK",[&]{apply({SetGuidePositionExpression{target,
+        {R"(ref("guide-target","","guide.position"))",1},true}});});
+    rejects("GUIDE_CYCLE",[&]{apply({SetGuidePositionExpression{source,
+        {R"(ref("guide-target","","guide.position") + 1)",1},false}});});
+    rejects("GUIDE_POSITION_RANGE",[&]{apply({SetGuidePositionExpression{target,{"1e10",1},true}});});
+    rejects("UNSUPPORTED_EXPRESSION_VERSION",[&]{apply({SetGuidePositionExpression{target,{"1",2},true}});});
+    rejects("UNIT_MISMATCH",[&]{apply({SetGuidePositionExpression{target,
+        {R"(ref("guide-source","","guide.position") + ref("guide-align-shape","","generator.rotation"))",1},true}});});
+    rejects("EXPRESSION_SYNTAX",[&]{apply({SetGuidePositionExpression{target,{"ref(",1},true}});});
     rejects("TYPE_MISMATCH",[&]{apply({Set{target,280}});});
     rejects("TYPE_MISMATCH",[&]{apply({Link{target,{source,1,0,"copy_local_value"}}});});
     rejects("TYPE_MISMATCH",[&]{apply({Unlink{target}});});
     rejects("TYPE_MISMATCH",[&]{apply({SetExpression{{target},{"1",1},false}});});
     auto smuggled=Guide{"guide-smuggled","Smuggled","x",15};smuggled.position_driver=source;
     rejects("GUIDE_DRIVER_SMUGGLING",[&]{apply({AddGuide{"guide-link-comp",smuggled}});});
+    auto smuggled_expression=Guide{"guide-smuggled-expression","Smuggled expression","x",15};
+    smuggled_expression.position_expression=Expression{"10",1};
+    rejects("GUIDE_DRIVER_SMUGGLING",[&]{apply({AddGuide{"guide-link-comp",smuggled_expression}});});
     rejects("GUIDE_CYCLE",[&]{apply({LinkGuidePosition{source,target,false}});});
+    rejects("GUIDE_AXIS_MISMATCH",[&]{apply({UpdateGuide{"guide-link-comp",{"guide-source","Renamed source","y",120}}});});
     rejects("MISSING_GUIDE",[&]{apply({DeleteGuide{"guide-link-comp","guide-source"}});});
+    rejects("TYPE_MISMATCH",[&]{apply({SetGuidePositionExpression{target,{"180",1},true},Set{target,1}});});
     check(session.revision()==revision_before_failures&&session.history()==history_before_failures&&
         encode(session.document())==before_failures,
-        "Invalid Guide links, generic Scalar commands and dependent deletion preserve bytes, revision and Undo history");
+        "Invalid Guide expressions, generic Scalar commands, bad batches and dependent deletion preserve bytes, revision and Undo history");
 
     const auto freeze_value=guide_position_property(session.document(),target).evaluated;
     apply({UnlinkGuidePosition{target}});
     apply({UpdateGuide{"guide-link-comp",{"guide-source","Renamed source","x",500}}});
     check(!guide_position_property(session.document(),target).driver&&
+        !guide_position_property(session.document(),target).expression&&
+        guide_position_property(session.document(),target).source_kind=="literal"&&
         guide_position_property(session.document(),target).literal==freeze_value&&
         guide_position_property(session.document(),target).evaluated==freeze_value,
         "Explicit Guide unlink freezes the evaluated position before later source edits");
@@ -335,6 +446,14 @@ void guide_position_links() {
         chain.push_back(std::move(guide));
     }
     rejects("GUIDE_DEPTH",[&]{Session rejected(std::move(deep));});
+    auto expression_deep=empty_document("guide-expression-depth-doc","guide-expression-depth-comp","guide-expression-depth-art");
+    auto& expression_chain=expression_deep.compositions.front().guides;expression_chain.reserve(257);
+    for(std::size_t i=0;i<257;++i) {
+        Guide guide{"expression-depth-"+std::to_string(i),"Expression depth","x",static_cast<double>(i)};
+        if(i)guide.position_expression=Expression{"ref(\"expression-depth-"+std::to_string(i-1)+"\",\"\",\"guide.position\") + 1",1};
+        expression_chain.push_back(std::move(guide));
+    }
+    rejects("GUIDE_DEPTH",[&]{Session rejected(std::move(expression_deep));});
 }
 void artboard_size_drivers() {
     auto document=empty_document("size-driver-doc","size-driver-comp","size-parent");
@@ -355,7 +474,7 @@ void artboard_size_drivers() {
     const auto parent_height_end=malformed_parent_native.find_first_of(",}",parent_height_marker);
     malformed_parent_native.insert(parent_height_end,
         ",\"parent_size\":{\"artboard\":\"missing-parent\",\"width\":false,\"height\":false}");
-    check(replace_all(malformed_parent_native,"\"version\":\"0.33\"","\"version\":\"0.32\"")==1,
+    check(replace_all(malformed_parent_native,"\"version\":\"0.34\"","\"version\":\"0.32\"")==1,
         "Malformed false-false legacy parent fixture uses the preserved native 0.32 gate");
     rejects("MISSING_ARTBOARD",[&]{(void)decode(malformed_parent_native);});
     Artboard peer{"size-peer","Peer",50,60,200,300};
@@ -496,12 +615,12 @@ void artboard_size_drivers() {
         [](const auto& board){return board.id=="size-child";});
     native_child->width_driver=ArtboardSizeDriver{combined};
     auto typed_native=encode(native_document);
-    check(typed_native.find("\"version\":\"0.33\"")!=std::string::npos&&
+    check(typed_native.find("\"version\":\"0.34\"")!=std::string::npos&&
         typed_native.find("\"width_driver\":{\"expression\":")!=std::string::npos&&
         encode(decode(typed_native))==typed_native,
-        "Native 0.33 stores and cold-roundtrips the additive Artboard expression driver");
+        "Native 0.34 stores and cold-roundtrips the additive Artboard expression driver");
     auto lied_version=typed_native;
-    check(replace_all(lied_version,"\"version\":\"0.33\"","\"version\":\"0.32\"")==1,
+    check(replace_all(lied_version,"\"version\":\"0.34\"","\"version\":\"0.32\"")==1,
         "Native version-lie fixture changes only the version tag");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(lied_version);});
     auto literal_document=session.document();
@@ -509,7 +628,7 @@ void artboard_size_drivers() {
         [](const auto& board){return board.id=="size-child";});
     literal_child->width_driver.reset();literal_child->height_driver.reset();
     auto legacy=encode(literal_document);
-    check(replace_all(legacy,"\"version\":\"0.33\"","\"version\":\"0.32\"")==1&&
+    check(replace_all(legacy,"\"version\":\"0.34\"","\"version\":\"0.32\"")==1&&
         decode(legacy)==literal_document,
         "Native 0.32 still reopens literal and parent_size Artboards without driver fields");
     auto malformed=typed_native;

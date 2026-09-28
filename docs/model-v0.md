@@ -1325,3 +1325,21 @@ wrapper, while Session validation checks source identity and evaluation.
 Typed `get`/`properties` expose the retained literal, source kind, exact link
 or expression, and evaluated dimension. This is Artboard-size authoring, not
 content inheritance or a general mixed-type property graph.
+
+## Native 0.34 — authored Guide position expressions
+
+Each Guide retains its literal `position`, stable ID and axis. Native 0.34 adds
+an optional `position_expression: {source,version}` beside the existing
+`position_driver: {link: Ref}`. At most one may be present. The link representation
+and literal-only records remain unchanged; native 0.1–0.33 reject the new field.
+The 0.34 schema closes both optional fields and rejects their simultaneous use.
+
+`set_guide_position_expression` uses the bounded version-1 numeric expression
+language in `du`. Its references may identify only same-Composition,
+same-axis `guide.position` properties. Link and expression dependencies share
+the pure Guide evaluator, cycle and depth checks, and finite `[-1e9,1e9]` du
+range. A typed source replaces another only with `replace_driver`; unlink
+freezes the evaluated coordinate into the literal. Generic Scalar and Artboard
+dependencies remain separate. Native Save As retains expression source text
+and stable Guide Refs; Canvas overlay, hit, snap and Align-to-Guide use the
+evaluated coordinate.

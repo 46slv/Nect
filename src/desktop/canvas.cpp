@@ -1082,7 +1082,7 @@ const Guide* Canvas::hit_guide(QPointF screen) const {
 
 void Canvas::begin_guide_drag(const Guide& guide,QPointF screen) {
     try {
-        if(guide.position_driver)
+        if(guide.position_driver||guide.position_expression)
             throw Error("DRIVEN_GUIDE_POSITION","Unlink the Guide position in Composition setup before dragging it");
         guide_drag_start_=guide;guide_drag_inverse_view_=view().inverted();guide_drag_world_start_=guide_drag_inverse_view_.map(screen);
         guide_drag_session_=session_identity_provider_?session_identity_provider_():QString::fromStdString(session_.document().id);
