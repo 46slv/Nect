@@ -1485,3 +1485,25 @@ Snap and Grid-reference Align consume the evaluated layout. Native Save As
 retains the authored expression; native 0.1–0.39 reject a version-lied y
 expression. `schemas/native-v0.40.schema.json` closes the optional field and
 rejects simultaneous link and expression sources.
+
+## Native 0.41 — Margin top Artboard size link
+
+A present Margin retains its authored `top` literal and may add an optional
+`top_driver: {link: Ref}`. The Ref identifies the width or height of a distinct
+Artboard in the owner's Composition, with an empty point ID and `du` units.
+The existing Artboard-size evaluator resolves parent, link and expression
+sources without a second layout property store. Evaluated top and authored
+bottom must leave positive content height on the evaluated owning Artboard;
+invalid upstream edits reject atomically.
+
+Dedicated revisioned `link_margin_top` and `unlink_margin_top` commands own
+source changes. Replacing an active source requires `replace_driver`; unlink
+freezes evaluated top into the literal. Full layout and Artboard updates keep
+the source when the Margin and top literal survive, while rejecting direct
+driven edits and source injection. Duplication replays the stable source Ref;
+deleting a source Artboard used by a surviving Margin is refused. Typed reads
+show literal, exact link and evaluated top, with expression support false.
+Canvas Margin overlay, Inspector and one-shot Grid-to-Margin copy use evaluated
+top. Native Save As retains the literal and source; versions 0.1–0.40 remain
+readable and reject a version-lied top driver.
+`schemas/native-v0.41.schema.json` closes the optional field.
