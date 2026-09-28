@@ -21,6 +21,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QLineEdit>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -156,6 +157,53 @@ TextSourcePicker make_text_source_picker(QWidget* parent,const Document& documen
     });
     QObject::connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
     return {dialog,search,list,status,buttons};
+}
+QLineEdit* add_artboard_source_search(QWidget* parent,QVBoxLayout* layout,QComboBox* source,
+        const std::vector<Ref>& refs,const QStringList& labels,const std::optional<Ref>& selected_ref) {
+    auto* search=new QLineEdit(parent);
+    search->setObjectName(source->objectName()+"-search");
+    search->setAccessibleName("Search Artboard source name, ID or field path");
+    search->setPlaceholderText("Search Artboard name, ID or field path…");
+    layout->addWidget(search);
+
+    int selected_candidate=-1;
+    if(selected_ref) {
+        const auto found=std::find(refs.begin(),refs.end(),*selected_ref);
+        if(found!=refs.end())selected_candidate=static_cast<int>(std::distance(refs.begin(),found));
+    }
+    for(int candidate=0;candidate<static_cast<int>(refs.size());++candidate) {
+        const auto& ref=refs.at(static_cast<std::size_t>(candidate));
+        source->addItem(labels.at(candidate));
+        const int row=source->count()-1;
+        source->setItemData(row,candidate,Qt::UserRole);
+        source->setItemData(row,qs(ref.object+"/"+ref.field),Qt::ToolTipRole);
+    }
+    source->setCurrentIndex(selected_candidate);
+
+    const auto refill=[source,refs,labels](const QString& query) {
+        bool valid_selection=false;
+        const int selected=source->currentIndex()<0?-1:source->currentData(Qt::UserRole).toInt(&valid_selection);
+        const int selected_candidate=valid_selection?selected:-1;
+        const auto terms=query.simplified().split(' ',Qt::SkipEmptyParts);
+        const QSignalBlocker blocker(source);
+        source->clear();
+        int selected_row=-1;
+        for(int candidate=0;candidate<static_cast<int>(refs.size());++candidate) {
+            const auto& ref=refs.at(static_cast<std::size_t>(candidate));
+            const auto path=qs(ref.object)+" "+qs(ref.field)+" "+qs(ref.object+"/"+ref.field);
+            const auto searchable=labels.at(candidate)+" "+path;
+            if(!std::all_of(terms.begin(),terms.end(),[&](const QString& term){
+                    return searchable.contains(term,Qt::CaseInsensitive);}))continue;
+            source->addItem(labels.at(candidate));
+            const int row=source->count()-1;
+            source->setItemData(row,candidate,Qt::UserRole);
+            source->setItemData(row,qs(ref.object+"/"+ref.field),Qt::ToolTipRole);
+            if(candidate==selected_candidate)selected_row=row;
+        }
+        source->setCurrentIndex(selected_row);
+    };
+    QObject::connect(search,&QLineEdit::textChanged,parent,[refill](const QString& query){refill(query);});
+    return search;
 }
 std::vector<Ref> read_refs(const QByteArray& data) {
     std::vector<Ref> refs;for(const auto& value:QJsonDocument::fromJson(data).array())
@@ -1574,18 +1622,17 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* source=new QComboBox(source_box);source->setObjectName("artboard-"+axis+"-link-source");
         source->setAccessibleName(axis+" Artboard source");
         std::vector<Ref> source_refs;
+        QStringList source_labels;
         for(const auto& candidate:comp.artboards)for(const bool source_width:{true,false}) {
             Ref ref{candidate.id,"",source_width?"artboard.width":"artboard.height"};
             if(ref==target)continue;
             source_refs.push_back(ref);
-            source->addItem(qs(candidate.name)+" · "+(source_width?"width":"height")+
+            source_labels.push_back(qs(candidate.name)+" · "+(source_width?"width":"height")+
                 " ("+qs(candidate.id)+"/"+qs(ref.field)+")");
-            source->setItemData(source->count()-1,qs(candidate.id+"/"+ref.field),Qt::ToolTipRole);
         }
-        if(driver&&std::holds_alternative<Ref>(driver->value)) {
-            const auto it=std::find(source_refs.begin(),source_refs.end(),std::get<Ref>(driver->value));
-            if(it!=source_refs.end())source->setCurrentIndex(static_cast<int>(std::distance(source_refs.begin(),it)));
-        }
+        const auto selected_source=driver&&std::holds_alternative<Ref>(driver->value)?
+            std::optional<Ref>{std::get<Ref>(driver->value)}:std::nullopt;
+        auto* source_search=add_artboard_source_search(source_box,source_layout,source,source_refs,source_labels,selected_source);
         source_layout->addWidget(source);
         auto* expression=new ExpressionInput;expression->setObjectName("artboard-"+axis+"-expression");
         expression->setAccessibleName(axis+" expression");expression->setFixedHeight(58);
@@ -1603,14 +1650,22 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         unlink->setObjectName("artboard-"+axis+"-unlink");unlink->setEnabled(driver.has_value());actions->addWidget(unlink);
         auto* cancel=new QPushButton("Cancel draft",source_box);
         cancel->setObjectName("artboard-"+axis+"-cancel");actions->addWidget(cancel);
+        const bool link_available=!source_refs.empty();
+        link->setEnabled(link_available&&source->currentIndex()>=0);
+        connect(source,qOverload<int>(&QComboBox::currentIndexChanged),this,
+            [link,link_available](int index){link->setEnabled(link_available&&index>=0);});
+        connect(source_search,&QLineEdit::textChanged,this,[source,link,link_available](const QString&){
+            link->setEnabled(link_available&&source->currentIndex()>=0);
+        });
         auto commit=[this,frozen_session,frozen_revision](const std::vector<Command>& commands) {
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Artboard source belongs to another document");
             canvas->cancel_interaction();host.session.apply(commands,frozen_revision);host.edited();
         };
         connect(link,&QPushButton::clicked,this,[this,source,source_refs,target,replace,commit]{perform([&]{
-            const auto index=source->currentIndex();
-            if(index<0||static_cast<std::size_t>(index)>=source_refs.size())throw Error("NO_SOURCE","Choose an Artboard size source");
-            commit({LinkArtboardSize{target,source_refs[static_cast<std::size_t>(index)],replace->isChecked()}});
+            bool valid=false;const auto candidate=source->currentData(Qt::UserRole).toInt(&valid);
+            if(source->currentIndex()<0||!valid||candidate<0||static_cast<std::size_t>(candidate)>=source_refs.size())
+                throw Error("NO_SOURCE","Choose an Artboard size source");
+            commit({LinkArtboardSize{target,source_refs[static_cast<std::size_t>(candidate)],replace->isChecked()}});
         });});
         auto apply_expression=[this,expression,target,replace,commit]{perform([&]{
             commit({SetArtboardSizeExpression{target,{expression->toPlainText().toStdString(),1},replace->isChecked()}});
@@ -1732,18 +1787,16 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_left_source=new QComboBox(margin_source_box);margin_left_source->setObjectName("margin-left-link-source");
     margin_left_source->setAccessibleName("Margin left Artboard size source");
     std::vector<Ref> margin_left_sources;
+    QStringList margin_left_source_labels;
     for(const auto& candidate:comp.artboards)for(const bool source_width:{true,false}) {
         Ref source{candidate.id,"",source_width?"artboard.width":"artboard.height"};
         if(candidate.id==id)continue;
         margin_left_sources.push_back(source);
-        margin_left_source->addItem(qs(candidate.name)+" · "+(source_width?"width":"height")+
+        margin_left_source_labels.push_back(qs(candidate.name)+" · "+(source_width?"width":"height")+
             " ("+qs(candidate.id)+"/"+qs(source.field)+")");
-        margin_left_source->setItemData(margin_left_source->count()-1,qs(candidate.id+"/"+source.field),Qt::ToolTipRole);
     }
-    if(margin_left_driver) {
-        const auto found=std::find(margin_left_sources.begin(),margin_left_sources.end(),*margin_left_driver);
-        if(found!=margin_left_sources.end())margin_left_source->setCurrentIndex(static_cast<int>(std::distance(margin_left_sources.begin(),found)));
-    } else margin_left_source->setCurrentIndex(-1);
+    auto* margin_left_search=add_artboard_source_search(margin_source_box,margin_source_layout,
+        margin_left_source,margin_left_sources,margin_left_source_labels,margin_left_driver);
     margin_source_layout->addWidget(margin_left_source);
     auto* margin_replace=new QCheckBox("Replace current left source",margin_source_box);
     margin_replace->setObjectName("margin-left-replace");margin_replace->setEnabled(margin_left_is_driven);
@@ -1754,6 +1807,9 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_link->setEnabled(margin_link_available&&margin_left_source->currentIndex()>=0);margin_source_actions->addWidget(margin_link);
     connect(margin_left_source,qOverload<int>(&QComboBox::currentIndexChanged),this,
         [margin_link,margin_link_available](int index){margin_link->setEnabled(margin_link_available&&index>=0);});
+    connect(margin_left_search,&QLineEdit::textChanged,this,[margin_left_source,margin_link,margin_link_available](const QString&){
+        margin_link->setEnabled(margin_link_available&&margin_left_source->currentIndex()>=0);
+    });
     auto* margin_unlink=new QPushButton("Unlink · keep value",margin_source_box);margin_unlink->setObjectName("margin-left-unlink");
     margin_unlink->setEnabled(margin_left_is_driven);margin_source_actions->addWidget(margin_unlink);
     auto* margin_source_cancel=new QPushButton("Cancel draft",margin_source_box);margin_source_cancel->setObjectName("margin-left-cancel");
@@ -1775,9 +1831,11 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         canvas->cancel_interaction();host.session.apply(commands,frozen_revision);host.edited();
     };
     connect(margin_link,&QPushButton::clicked,this,[this,margin_left_source,margin_left_sources,margin_left_ref,margin_replace,margin_source_commit]{perform([&]{
-        const auto index=margin_left_source->currentIndex();
-        if(index<0||static_cast<std::size_t>(index)>=margin_left_sources.size())throw Error("NO_SOURCE","Choose an Artboard size source");
-        margin_source_commit({MarginLeftCommand{LinkMarginLeft{margin_left_ref,margin_left_sources[static_cast<std::size_t>(index)],margin_replace->isChecked()}}});
+        bool valid=false;const auto candidate=margin_left_source->currentData(Qt::UserRole).toInt(&valid);
+        if(margin_left_source->currentIndex()<0||!valid||candidate<0||static_cast<std::size_t>(candidate)>=margin_left_sources.size())
+            throw Error("NO_SOURCE","Choose an Artboard size source");
+        margin_source_commit({MarginLeftCommand{LinkMarginLeft{margin_left_ref,
+            margin_left_sources[static_cast<std::size_t>(candidate)],margin_replace->isChecked()}}});
     });});
     connect(margin_unlink,&QPushButton::clicked,this,[this,margin_left_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginLeftCommand{UnlinkMarginLeft{margin_left_ref}}});});
@@ -1850,18 +1908,16 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_x_source=new QComboBox(grid_source_box);grid_x_source->setObjectName("grid-bounds-x-link-source");
     grid_x_source->setAccessibleName("Grid bounds x Artboard size source");
     std::vector<Ref> grid_x_sources;
+    QStringList grid_x_source_labels;
     for(const auto& candidate:comp.artboards)for(const bool source_width:{true,false}) {
         if(candidate.id==id)continue;
         Ref source{candidate.id,"",source_width?"artboard.width":"artboard.height"};
         grid_x_sources.push_back(source);
-        grid_x_source->addItem(qs(candidate.name)+" · "+(source_width?"width":"height")+
+        grid_x_source_labels.push_back(qs(candidate.name)+" · "+(source_width?"width":"height")+
             " ("+qs(candidate.id)+"/"+qs(source.field)+")");
-        grid_x_source->setItemData(grid_x_source->count()-1,qs(candidate.id+"/"+source.field),Qt::ToolTipRole);
     }
-    if(grid_bounds_x_driver) {
-        const auto found=std::find(grid_x_sources.begin(),grid_x_sources.end(),*grid_bounds_x_driver);
-        if(found!=grid_x_sources.end())grid_x_source->setCurrentIndex(static_cast<int>(std::distance(grid_x_sources.begin(),found)));
-    } else grid_x_source->setCurrentIndex(-1);
+    auto* grid_x_search=add_artboard_source_search(grid_source_box,grid_source_layout,
+        grid_x_source,grid_x_sources,grid_x_source_labels,grid_bounds_x_driver);
     grid_source_layout->addWidget(grid_x_source);
     auto* grid_x_replace=new QCheckBox("Replace current X source",grid_source_box);
     grid_x_replace->setObjectName("grid-bounds-x-replace");grid_x_replace->setEnabled(grid_bounds_x_is_driven);
@@ -1872,6 +1928,9 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_x_link->setEnabled(grid_link_available&&grid_x_source->currentIndex()>=0);grid_source_actions->addWidget(grid_x_link);
     connect(grid_x_source,qOverload<int>(&QComboBox::currentIndexChanged),this,
         [grid_x_link,grid_link_available](int index){grid_x_link->setEnabled(grid_link_available&&index>=0);});
+    connect(grid_x_search,&QLineEdit::textChanged,this,[grid_x_source,grid_x_link,grid_link_available](const QString&){
+        grid_x_link->setEnabled(grid_link_available&&grid_x_source->currentIndex()>=0);
+    });
     auto* grid_x_unlink=new QPushButton("Unlink · keep value",grid_source_box);grid_x_unlink->setObjectName("grid-bounds-x-unlink");
     grid_x_unlink->setEnabled(grid_bounds_x_is_driven);grid_source_actions->addWidget(grid_x_unlink);
     auto* grid_x_cancel=new QPushButton("Cancel draft",grid_source_box);grid_x_cancel->setObjectName("grid-bounds-x-cancel");
@@ -1893,10 +1952,11 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     };
     const Ref grid_bounds_x_ref{grid_id,"","grid.bounds.x"};
     connect(grid_x_link,&QPushButton::clicked,this,[this,grid_x_source,grid_x_sources,grid_bounds_x_ref,grid_x_replace,grid_source_commit]{perform([&]{
-        const auto index=grid_x_source->currentIndex();
-        if(index<0||static_cast<std::size_t>(index)>=grid_x_sources.size())throw Error("NO_SOURCE","Choose an Artboard size source");
+        bool valid=false;const auto candidate=grid_x_source->currentData(Qt::UserRole).toInt(&valid);
+        if(grid_x_source->currentIndex()<0||!valid||candidate<0||static_cast<std::size_t>(candidate)>=grid_x_sources.size())
+            throw Error("NO_SOURCE","Choose an Artboard size source");
         grid_source_commit({GridBoundsXCommand{LinkGridBoundsX{grid_bounds_x_ref,
-            grid_x_sources[static_cast<std::size_t>(index)],grid_x_replace->isChecked()}}});
+            grid_x_sources[static_cast<std::size_t>(candidate)],grid_x_replace->isChecked()}}});
     });});
     connect(grid_x_unlink,&QPushButton::clicked,this,[this,grid_bounds_x_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsXCommand{UnlinkGridBoundsX{grid_bounds_x_ref}}});});

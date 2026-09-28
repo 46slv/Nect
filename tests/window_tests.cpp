@@ -2182,6 +2182,74 @@ void artboard_authoring(Window& window) {
     check(!authored(child).width_driver&&authored(child).width==400&&resolved(child).width==400,
         "Unlink freezes the evaluated Artboard dimension as its authored literal");
 
+    const Id size_source_a_id="size-search-a",size_source_b_id="size-search-b";
+    const auto size_composition=session.document().compositions.front().id;
+    session.apply({AddArtboard{size_composition,Artboard{size_source_a_id,"Equal source",0,0,30,40},2},
+        AddArtboard{size_composition,Artboard{size_source_b_id,"Equal source",0,0,150,160},3}},session.revision());
+    window.host.edited();QApplication::processEvents();select(child);
+    auto* width_search=visible_child<QLineEdit>(window,"artboard-width-link-source-search");reveal(window,width_search);
+    auto* width_sources=visible_child<QComboBox>(window,"artboard-width-link-source");reveal(window,width_sources);
+    auto* width_link=visible_child<QPushButton>(window,"artboard-width-link");reveal(window,width_link);
+    int source_b_height_original=-1;
+    for(int i=0;i<width_sources->count();++i)
+        if(width_sources->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(size_source_b_id+"/artboard.height"))
+            source_b_height_original=width_sources->itemData(i,Qt::UserRole).toInt();
+    check(source_b_height_original>=0&&width_sources->currentIndex()==-1&&!width_link->isEnabled(),
+        "Literal Artboard width has no implicit source and the exact duplicate-name height Ref is available");
+    width_search->setText("EQUAL SOURCE");QApplication::processEvents();
+    check(width_sources->count()==4,"Case-insensitive name search returns both fields for both equal-name Artboards");
+    width_search->setText("size-search-b/artboard.height");QApplication::processEvents();
+    check(width_sources->count()==1&&width_sources->itemData(0,Qt::ToolTipRole).toString()==
+        QString::fromStdString(size_source_b_id+"/artboard.height")&&
+        width_sources->itemData(0,Qt::UserRole).toInt()==source_b_height_original,
+        "Stable ID and field path search retains the original candidate index and exact tooltip path");
+    width_sources->setCurrentIndex(0);QApplication::processEvents();
+    width_search->setText("size-search-a/artboard.width");QApplication::processEvents();
+    check(width_sources->currentIndex()==-1&&!width_link->isEnabled(),
+        "A query that hides the selected Artboard source clears the draft and disables Link");
+    width_search->clear();QApplication::processEvents();
+    check(width_sources->currentIndex()==-1&&!width_link->isEnabled(),
+        "Clearing a query does not silently select a different Artboard source");
+    const auto before_empty_width_link=session.revision();QTest::mouseClick(width_link,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_empty_width_link&&!authored(child).width_driver,
+        "An empty filtered Artboard source cannot commit a replacement");
+    auto* height_search=visible_child<QLineEdit>(window,"artboard-height-link-source-search");reveal(window,height_search);
+    auto* height_sources=visible_child<QComboBox>(window,"artboard-height-link-source");reveal(window,height_sources);
+    height_search->setText("SIZE-SEARCH-B/ARTBOARD.WIDTH");QApplication::processEvents();
+    check(height_sources->count()==1&&height_sources->itemData(0,Qt::ToolTipRole).toString()==
+        QString::fromStdString(size_source_b_id+"/artboard.width"),
+        "Artboard height source search also accepts a case-insensitive exact ID and field path");
+
+    width_search->setText("size-search-b/artboard.height");QApplication::processEvents();
+    width_sources->setCurrentIndex(0);QApplication::processEvents();
+    const auto before_width_cancel=session.revision();button("artboard-width-cancel");
+    check(session.revision()==before_width_cancel&&!authored(child).width_driver&&window.canvas->active_artboard()==child,
+        "Cancel discards an explicitly selected Artboard source without changing the captured target");
+    width_search=visible_child<QLineEdit>(window,"artboard-width-link-source-search");reveal(window,width_search);
+    width_sources=visible_child<QComboBox>(window,"artboard-width-link-source");reveal(window,width_sources);
+    width_search->setText("size-search-b/artboard.height");QApplication::processEvents();width_sources->setCurrentIndex(0);
+    auto changed_source=authored(size_source_a_id);changed_source.name="Renamed source";
+    session.apply({UpdateArtboard{size_composition,changed_source}},session.revision());
+    const auto after_external_width_update=session.revision();button("artboard-width-link");
+    check(session.revision()==after_external_width_update&&!authored(child).width_driver&&
+        window.statusBar()->currentMessage().contains("REVISION_CONFLICT"),
+        "A stale Artboard source draft rejects without retargeting or mutating its destination");
+    window.host.edited();QApplication::processEvents();select(child);
+    width_search=visible_child<QLineEdit>(window,"artboard-width-link-source-search");reveal(window,width_search);
+    width_sources=visible_child<QComboBox>(window,"artboard-width-link-source");reveal(window,width_sources);
+    width_search->setText("size-search-b/artboard.height");QApplication::processEvents();width_sources->setCurrentIndex(0);
+    const auto before_exact_width_link=session.revision();button("artboard-width-link");
+    const Ref exact_width_target{child,"","artboard.width"};
+    const Ref exact_width_source{size_source_b_id,"","artboard.height"};
+    check(session.revision()==before_exact_width_link+1&&authored(child).width_driver&&
+        std::holds_alternative<Ref>(authored(child).width_driver->value)&&
+        std::get<Ref>(authored(child).width_driver->value)==exact_width_source&&resolved(child).width==160&&
+        artboard_size_property(session.document(),exact_width_target).driver==exact_width_source,
+        "Artboard width Link commits the exact chosen Ref to the Inspector target captured at build time");
+    button("artboard-width-unlink");
+    check(!authored(child).width_driver&&authored(child).width==160,
+        "Unlink freezes the exact selected Artboard source result into the width literal");
+
     // Open a real native fixture with an empty leading composition and two
     // independent planes. Empty legacy compositions must not break navigation.
     auto document=empty_document("navigation-doc","plane-a","board-a");
@@ -2440,25 +2508,49 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
           visible_child<QLineEdit>(window,"margin-left")->text()=="25",
         "An untouched Inspector built at an older revision cannot overwrite current layout values");
 
-    const Id margin_source_id="margin-ui-source";
-    session.apply({AddArtboard{composition_id,Artboard{margin_source_id,"Margin source",0,0,40,100},1}},session.revision());
+    const Id margin_source_id="margin-ui-source",margin_source_twin_id="margin-ui-source-twin";
+    session.apply({AddArtboard{composition_id,Artboard{margin_source_id,"Margin source",0,0,40,100},1},
+        AddArtboard{composition_id,Artboard{margin_source_twin_id,"Margin source",0,0,45,120},2}},session.revision());
     window.host.edited();QApplication::processEvents();
     auto* source_choice=visible_child<QComboBox>(window,"margin-left-link-source");
+    auto* margin_search=visible_child<QLineEdit>(window,"margin-left-link-source-search");
     int source_width_choice=-1;
     for(int i=0;i<source_choice->count();++i)
         if(source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))source_width_choice=i;
-    check(source_width_choice>=0,"Margin source list exposes the exact stable Artboard width Ref");
+    const int source_width_candidate=source_width_choice<0?-1:source_choice->itemData(source_width_choice,Qt::UserRole).toInt();
+    check(source_width_choice>=0&&source_width_candidate==source_width_choice,
+        "Margin source list preserves the exact stable Artboard width Ref and original candidate index");
     auto* margin_link_button=visible_child<QPushButton>(window,"margin-left-link");
     check(source_choice->currentIndex()==-1&&!margin_link_button->isEnabled(),
         "An unlinked Margin source picker has no implicit first Artboard selection");
-    const auto before_margin_cancel=session.revision();source_choice->setCurrentIndex(source_width_choice);QApplication::processEvents();
+    margin_search->setText("MARGIN SOURCE");QApplication::processEvents();
+    check(source_choice->count()==4,"Case-insensitive Margin name search preserves duplicate labels as separate stable sources");
+    int filtered_source_width=-1;
+    for(int i=0;i<source_choice->count();++i)
+        if(source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))
+            filtered_source_width=i;
+    check(filtered_source_width>=0&&source_choice->itemData(filtered_source_width,Qt::UserRole).toInt()==source_width_candidate,
+        "Filtering duplicate Margin labels keeps the selected source bound to its original candidate index");
+    source_choice->setCurrentIndex(filtered_source_width);QApplication::processEvents();
+    margin_search->setText("margin-ui-source-twin/artboard.height");QApplication::processEvents();
+    check(source_choice->currentIndex()==-1&&!margin_link_button->isEnabled(),
+        "Filtering out a pending Margin source clears its selection and Link availability");
+    margin_search->clear();QApplication::processEvents();
+    check(source_choice->currentIndex()==-1&&!margin_link_button->isEnabled(),
+        "Clearing the Margin search does not restore a hidden source selection");
+    const auto before_empty_margin_link=session.revision();QTest::mouseClick(margin_link_button,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_empty_margin_link&&!board().layout->margin->left_driver,
+        "An empty Margin source selection cannot commit a different Artboard Ref");
+    margin_search->setText("margin-ui-source/artboard.width");QApplication::processEvents();source_choice->setCurrentIndex(0);QApplication::processEvents();
+    const auto before_margin_cancel=session.revision();
     check(session.revision()==before_margin_cancel&&!board().layout->margin->left_driver&&margin_link_button->isEnabled(),
         "Choosing a Margin source enables explicit Link but remains a draft");
     click("margin-left-cancel");
     check(session.revision()==before_margin_cancel&&window.canvas->active_artboard()==board_id&&
         !board().layout->margin->left_driver,"Cancel discards the Margin source draft and retains the target Artboard");
     source_choice=visible_child<QComboBox>(window,"margin-left-link-source");
-    source_choice->setCurrentIndex(source_width_choice);QApplication::processEvents();
+    margin_search=visible_child<QLineEdit>(window,"margin-left-link-source-search");
+    margin_search->setText("margin-ui-source/artboard.width");QApplication::processEvents();source_choice->setCurrentIndex(0);QApplication::processEvents();
     click("margin-left-link");
     const Ref margin_target_ref{board_id,"","margin.left"};
     const Ref margin_source_ref{margin_source_id,"","artboard.width"};
@@ -2483,21 +2575,44 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         board().layout->grid->bounds.width==evaluate_artboard(session.document().compositions.front(),board_id).width-100,
         "Grid-to-Margin copy uses the evaluated linked inset once");
     auto* grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
+    auto* grid_search=visible_child<QLineEdit>(window,"grid-bounds-x-link-source-search");
     int grid_source_width_choice=-1;
     for(int i=0;i<grid_source_choice->count();++i)
         if(grid_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))grid_source_width_choice=i;
-    check(grid_source_width_choice>=0,"Grid x source list exposes the exact stable Artboard width Ref");
+    const int grid_source_width_candidate=grid_source_width_choice<0?-1:grid_source_choice->itemData(grid_source_width_choice,Qt::UserRole).toInt();
+    check(grid_source_width_choice>=0&&grid_source_width_candidate==grid_source_width_choice,
+        "Grid x source list exposes the stable Artboard width Ref and original candidate index");
     auto* grid_link_button=visible_child<QPushButton>(window,"grid-bounds-x-link");
     check(grid_source_choice->currentIndex()==-1&&!grid_link_button->isEnabled(),
         "An unlinked Grid x source picker has no implicit first Artboard selection");
-    const auto before_grid_cancel=session.revision();grid_source_choice->setCurrentIndex(grid_source_width_choice);QApplication::processEvents();
+    grid_search->setText("MARGIN SOURCE");QApplication::processEvents();
+    check(grid_source_choice->count()==4,"Case-insensitive Grid source name search preserves duplicate Artboard labels");
+    int filtered_grid_width=-1;
+    for(int i=0;i<grid_source_choice->count();++i)
+        if(grid_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))
+            filtered_grid_width=i;
+    check(filtered_grid_width>=0&&grid_source_choice->itemData(filtered_grid_width,Qt::UserRole).toInt()==grid_source_width_candidate,
+        "Filtered Grid source retains its original candidate index across duplicate names");
+    grid_source_choice->setCurrentIndex(filtered_grid_width);QApplication::processEvents();
+    grid_search->setText("margin-ui-source-twin/artboard.height");QApplication::processEvents();
+    check(grid_source_choice->currentIndex()==-1&&!grid_link_button->isEnabled(),
+        "A Grid source hidden by a query is cleared and cannot be linked");
+    grid_search->clear();QApplication::processEvents();
+    check(grid_source_choice->currentIndex()==-1&&!grid_link_button->isEnabled(),
+        "Clearing the Grid source query does not select a replacement");
+    const auto before_empty_grid_link=session.revision();QTest::mouseClick(grid_link_button,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_empty_grid_link&&!board().layout->grid->bounds_x_driver,
+        "An empty Grid source selection cannot commit a different Artboard Ref");
+    grid_search->setText("margin-ui-source/artboard.width");QApplication::processEvents();grid_source_choice->setCurrentIndex(0);QApplication::processEvents();
+    const auto before_grid_cancel=session.revision();
     check(session.revision()==before_grid_cancel&&!board().layout->grid->bounds_x_driver&&grid_link_button->isEnabled(),
         "Choosing a Grid x source enables explicit Link but remains a draft");
     click("grid-bounds-x-cancel");
     check(session.revision()==before_grid_cancel&&window.canvas->active_artboard()==board_id&&
         !board().layout->grid->bounds_x_driver,"Cancel discards the Grid x source draft and retains the target Artboard");
     grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
-    grid_source_choice->setCurrentIndex(grid_source_width_choice);QApplication::processEvents();
+    grid_search=visible_child<QLineEdit>(window,"grid-bounds-x-link-source-search");
+    grid_search->setText("margin-ui-source/artboard.width");QApplication::processEvents();grid_source_choice->setCurrentIndex(0);QApplication::processEvents();
     click("grid-bounds-x-link");
     const Ref grid_target_ref{board().layout->grid->id,"","grid.bounds.x"};
     const Ref grid_source_ref{margin_source_id,"","artboard.width"};
