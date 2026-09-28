@@ -1255,14 +1255,17 @@ void scalar_source_path_picker(Window& window) {
 }
 void single_operation_enabled_source(Window& window) {
     auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
-    Point target_point,source_point;target_point.id="single-target-point";source_point.id="single-source-point";
+    Point target_point,source_point,alternate_point;target_point.id="single-target-point";source_point.id="single-source-point";
+    alternate_point.id="single-alternate-point";
     target_point.x.literal=70;target_point.y.literal=80;source_point.x.literal=180;source_point.y.literal=80;
     session.apply({CreatePath{composition,"","single-target","Single target",{{"single-target-contour",false,{target_point}}}},
-        CreatePath{composition,"","single-source","Single source",{{"single-source-contour",false,{source_point}}}}},0);
+        CreatePath{composition,"","single-source","Single source",{{"single-source-contour",false,{source_point}}}},
+        CreatePath{composition,"","single-alternate","Alternate source",{{"single-alternate-contour",false,{alternate_point}}}}},0);
     const auto& target_object=session.document().objects.at("single-target");
     const auto& source_object=session.document().objects.at("single-source");
-    check(target_object.stack.size()==1&&source_object.stack.size()==1,
-        "The Composition source-picker fixture has exactly one operation on each Object");
+    check(target_object.stack.size()==1&&source_object.stack.size()==1&&
+        session.document().objects.at("single-alternate").stack.size()==1,
+        "The Composition source-picker fixture has one operation on each of three Objects");
     const auto target_operation=target_object.stack.front().id;
     const auto source_operation=source_object.stack.front().id;
     const Ref target=operation_ref("single-target",target_operation,"enabled");
@@ -1272,19 +1275,51 @@ void single_operation_enabled_source(Window& window) {
     auto* link=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());
     reveal(window,link);
     check(link->isEnabled(),"Link stays enabled when target Object has one operation and another Object is the source");
+    const auto unchanged=session.document();const auto unchanged_revision=session.revision();
+    bool rejected_hidden_source=false;
     QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
         auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* search=dialog?dialog->findChild<QLineEdit*>(QString::fromStdString("operation-enabled-source-search-"+target_operation)):nullptr;
         auto* source_combo=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-source-"+target_operation)):nullptr;
-        if(!dialog||!mode||!source_combo){if(dialog)dialog->reject();return;}
+        if(!dialog||!mode||!search||!source_combo){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));
+        search->setText("no-such-operation-path");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        rejected_hidden_source=dialog->isVisible()&&source_combo->currentIndex()<0&&
+            session.document()==unchanged&&session.revision()==unchanged_revision;
+        dialog->reject();});
+    QTest::mouseClick(link,Qt::LeftButton);QApplication::processEvents();
+    check(rejected_hidden_source&&session.document()==unchanged&&session.revision()==unchanged_revision&&
+        window.canvas->selected_object=="single-target",
+        "Filtering out a boolean source and applying or cancelling preserves the target and authored state");
+    link=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());reveal(window,link);
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* search=dialog?dialog->findChild<QLineEdit*>(QString::fromStdString("operation-enabled-source-search-"+target_operation)):nullptr;
+        auto* source_combo=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-source-"+target_operation)):nullptr;
+        if(!dialog||!mode||!search||!source_combo){if(dialog)dialog->reject();return;}
+        search->setText("SINGLE-SOURCE");
+        check(source_combo->count()==1,"Stable Object ID filters Boolean source candidates");
+        search->setText(QString::fromStdString("OP."+source_operation+".ENABLED"));
+        check(source_combo->count()==1,"Stable Operation field path filters Boolean source candidates");
         const auto label=QString("[%1]").arg(QString::fromStdString(source_operation));int index=-1;
         for(int i=0;i<source_combo->count();++i)if(source_combo->itemText(i).contains(label))index=i;
         if(index<0){dialog->reject();return;}
         mode->setCurrentIndex(mode->findData("link"));source_combo->setCurrentIndex(index);
         dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
     QTest::mouseClick(link,Qt::LeftButton);QApplication::processEvents();
-    check(operation_enabled_state(session.document(),target).driver==source&&
-        !operation_enabled_state(session.document(),target).evaluated,
-        "A single-operation target links to a same-composition source outside its Object");
+    check(operation_enabled_state(session.document(),target).driver==source,
+        "Stable boolean source path links to the exact Operation Ref");
+    check(!operation_enabled_state(session.document(),target).evaluated&&session.revision()==unchanged_revision+1,
+        "Boolean source path links in one revision to the evaluated source");
+    check(window.canvas->selected_object=="single-target",
+        "Boolean source path keeps the original target selected");
+    session.undo(session.revision());window.host.edited();
+    check(!operation_enabled_state(session.document(),target).driver,
+        "Undo removes the exact boolean source link");
+    session.redo(session.revision());window.host.edited();
+    check(operation_enabled_state(session.document(),target).driver==source,
+        "Redo restores the exact boolean source link");
 }
 void point_edit_enabled_source(Window& window) {
     auto& session=window.host.session;const auto composition=session.document().compositions.front().id;

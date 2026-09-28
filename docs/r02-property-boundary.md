@@ -1,5 +1,17 @@
 # R02 / P03 property and save boundary — R02-ENTRY-01
 
+## R02-OPERATION-ENABLED-SOURCE-PATH-01 — typed boolean source search (frozen 2026-09-28)
+
+**Entry and scope:** Clean synchronized `codex/practical-alpha@f775b2b15a99f1a8ef0c2af4619830ba26fd397b`, native writer 0.32, verified single-writer takeover. R02/P03 and Confirmed REQ-4/42/199 still require searchable stable source identity with target context retained. This packet changes only the existing Operation enabled dependency dialog. It keeps `LinkOperationEnabled`, the exact qualified operation Ref, and the existing literal/unlink behavior; it does not introduce a generic typed picker, multi-target boolean editing, expressions or a new storage owner.
+
+**Positive oracle:** An owned offscreen Window with two eligible operations in one Composition can search by the stable source Object ID, Operation ID or `op.<id>.enabled` path, independent of friendly labels and case. Explicitly choosing the filtered source links the exact Ref through one revision, preserves the target selection, and Undo restores the prior driver. Rename/reorder do not retarget the link.
+
+**Negative oracle:** Filtering out a previously selected source clears its selection. Applying with no visible explicit source refuses without Document/revision/history change. Cancel after a draft search leaves the prior driver and target selection intact. A stale revision or invalid source is rejected by the existing Session boundary without clearing the old driver. Keep actual hands-on GUI acceptance as `LOCAL_WAIT`.
+
+**Exit and residuals:** Review the focused Window diff, build Release `window_tests`, run serial `window_interaction`, and synchronize/read back a coherent checkpoint. General typed source selection, cross-type links, multi-target draft/relative semantics, R02/P03 and whole REQ-4/42/199 remain open.
+
+**Local result (2026-09-28):** The Operation enabled dialog now searches friendly labels and exact Object/`op.<id>.enabled` paths without changing its typed command or retained target. Filtered rows retain their original Ref index; a hidden or missing selection cannot be applied. The offscreen Window fixture has two eligible sources and checks case-insensitive Object/path search, exact Ref and one-revision link, target selection, Undo/Redo, no-match Apply rejection and Cancel with unchanged Document/revision. Release `window_tests` built and serial `window_interaction` passed **1/1** after correcting the test packet's mistaken `operation.` prefix to the existing `op.` field. `git diff --check` passed. This is offscreen interaction evidence, not hands-on GUI acceptance or whole Requirement/Route closure.
+
 ## R02-SCALAR-PICK-SOURCE-PATH-01 — stable Ref search in the existing picker (frozen 2026-09-28)
 
 **Entry and scope:** Clean synchronized `codex/practical-alpha@ff26c44ddffc05b7f60263f6dd21204a010578f2`, native writer 0.32. Confirmed REQ-4/42/199 require explicit source selection, stable path, preserved target context and atomic editing. `Window::pick_source` already freezes Scalar targets and selection and commits through `LinkProperties`, but its search filters only the display label/value; the stable object/point/field path lives only in a tooltip, which is overwritten for incompatible units. This packet adds exact stable path search to that existing Scalar picker. It does not generalize to non-Scalar typed drivers, redesign clipboard/relative semantics, add a new property store or claim whole Requirement acceptance.

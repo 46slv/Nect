@@ -2948,13 +2948,31 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             if(!source_refs.empty())mode->addItem(enabled_state.driver?"Replace with another operation":"Link to another operation","link");
             if(enabled_state.driver)mode->addItem("Unlink and freeze evaluated value","unlink");
             dialog_layout->addWidget(mode);
+            auto* source_search=new QLineEdit(&dialog);
+            source_search->setObjectName("operation-enabled-source-search-"+qs(operation_id));
+            source_search->setPlaceholderText("Search object ID, operation ID or property path");
+            dialog_layout->addWidget(source_search);
             auto* source=new QComboBox(&dialog);source->setObjectName("operation-enabled-source-"+qs(operation_id));
-            for(const auto& label:source_labels)source->addItem(label);
+            for(int i=0;i<source_labels.size();++i)source->addItem(source_labels.at(i),i);
             if(enabled_state.driver) {
                 const auto found=std::find(source_refs.begin(),source_refs.end(),*enabled_state.driver);
                 if(found!=source_refs.end())source->setCurrentIndex(static_cast<int>(std::distance(source_refs.begin(),found)));
             }
             dialog_layout->addWidget(source);
+            connect(source_search,&QLineEdit::textChanged,&dialog,[source,source_labels,source_refs](const QString& query) {
+                const auto selected=source->currentData().toInt();
+                const bool had_selection=source->currentIndex()>=0;
+                const QSignalBlocker blocker(source);
+                source->clear();
+                for(int i=0;i<source_labels.size();++i) {
+                    const auto& ref=source_refs.at(static_cast<std::size_t>(i));
+                    const auto path=qs(ref.object)+" / "+qs(ref.field);
+                    if(source_labels.at(i).contains(query,Qt::CaseInsensitive)||path.contains(query,Qt::CaseInsensitive))
+                        source->addItem(source_labels.at(i),i);
+                }
+                const auto retained=had_selection?source->findData(selected):-1;
+                source->setCurrentIndex(retained);
+            });
             auto* status=new QLabel("Linking follows another operation's enabled state. Unlink freezes the current evaluated value; Cancel leaves the Session unchanged.",&dialog);
             if(source_refs.empty()&&!enabled_state.driver)
                 status->setText("No other operation in this Composition can drive the enabled state. Cancel leaves the Session unchanged.");
@@ -2970,8 +2988,11 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                         if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","Operation enabled source changed while its editor was open; reopen it");
                         const auto selected=mode->currentData().toString();std::vector<Command> commands;
                         if(selected=="link") {
-                            if(source_refs.empty()||source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose an operation enabled source");
-                            commands.push_back(LinkOperationEnabled{enabled_ref,source_refs.at(static_cast<std::size_t>(source->currentIndex())),enabled_state.driver.has_value()});
+                            if(source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a visible operation enabled source");
+                            const auto source_index=source->currentData().toInt();
+                            if(source_index<0||static_cast<std::size_t>(source_index)>=source_refs.size())
+                                throw Error("MISSING_REFERENCE","Choose a valid operation enabled source");
+                            commands.push_back(LinkOperationEnabled{enabled_ref,source_refs.at(static_cast<std::size_t>(source_index)),enabled_state.driver.has_value()});
                         } else if(selected=="unlink")commands.push_back(UnlinkOperationEnabled{enabled_ref});
                         else throw Error("INVALID_COMMAND","Choose a link or unlink action");
                         host.session.apply(commands,frozen_revision);host.edited();dialog.accept();
