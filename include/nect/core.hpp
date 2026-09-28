@@ -292,6 +292,7 @@ struct Grid {
     std::optional<Ref> bounds_x_driver;
     std::optional<Expression> bounds_x_expression;
     std::optional<Ref> bounds_y_driver;
+    std::optional<Expression> bounds_y_expression;
     bool operator==(const Grid&) const = default;
 };
 struct ArtboardLayout {
@@ -423,10 +424,11 @@ struct LinkGridBoundsX { Ref target; Ref source; bool replace_driver=false; };
 struct SetGridBoundsXExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridBoundsX { Ref target; };
 struct LinkGridBoundsY { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridBoundsYExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridBoundsY { Ref target; };
 struct LayoutDependencyCommand {
     std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX,
-        LinkGridBoundsY,UnlinkGridBoundsY> operation;
+        LinkGridBoundsY,SetGridBoundsYExpression,UnlinkGridBoundsY> operation;
     LayoutDependencyCommand(LinkMarginLeft value):operation(std::move(value)){}
     LayoutDependencyCommand(SetMarginLeftExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkMarginLeft value):operation(std::move(value)){}
@@ -434,6 +436,7 @@ struct LayoutDependencyCommand {
     LayoutDependencyCommand(SetGridBoundsXExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkGridBoundsX value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkGridBoundsY value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridBoundsYExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkGridBoundsY value):operation(std::move(value)){}
 };
 using MarginLeftCommand=LayoutDependencyCommand;

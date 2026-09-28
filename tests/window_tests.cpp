@@ -2747,6 +2747,26 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         artboard_layout_property(session.document(),grid_y_target_ref).driver==grid_y_twin_ref&&
         std::get<double>(artboard_layout_property(session.document(),grid_y_target_ref).evaluated)==45,
         "Grid y Inspector replaces a source only after explicit authorization");
+    const auto grid_y_expression_text=QString::fromStdString("ref(\""+grid_y_source_id+"\",\"\",\"artboard.width\")");
+    auto* grid_y_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-y-expression");
+    auto* grid_y_expression_apply=visible_child<QPushButton>(window,"grid-bounds-y-apply-expression");
+    grid_y_replace=visible_child<QCheckBox>(window,"grid-bounds-y-replace");
+    const auto before_grid_y_draft=session.revision();grid_y_expression->setPlainText(grid_y_expression_text);QApplication::processEvents();
+    check(session.revision()==before_grid_y_draft&&board().layout->grid->bounds_y_driver==grid_y_twin_ref,
+        "Grid y expression stays a draft while a link remains active");
+    QTest::mouseClick(grid_y_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_grid_y_draft&&board().layout->grid->bounds_y_driver==grid_y_twin_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_Y"),
+        "Replacing the Grid y link with an expression requires visible authorization");
+    grid_y_replace->setChecked(true);QTest::mouseClick(grid_y_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    driven_grid_y=visible_child<QLineEdit>(window,"grid-y");grid_y_status=visible_child<QLabel>(window,"grid-bounds-y-source-state");
+    check(session.revision()==before_grid_y_draft+1&&driven_grid_y->isReadOnly()&&driven_grid_y->text()=="5"&&
+        !board().layout->grid->bounds_y_driver&&
+        board().layout->grid->bounds_y_expression==Expression{grid_y_expression_text.toStdString(),1}&&
+        std::get<double>(artboard_layout_property(session.document(),grid_y_target_ref).evaluated)==25&&
+        grid_y_status->text().contains("expression")&&grid_y_status->text().contains("Literal: 5")&&
+        grid_y_status->text().contains("Evaluated: 25"),
+        "Grid y Inspector applies an explicit du expression and retains the literal plus evaluated status");
     click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
     const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
@@ -2754,11 +2774,12 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         duplicate->layout->margin->left_expression==Expression{margin_expression_text.toStdString(),1}&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
         duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
-        duplicate->layout->grid->bounds_y_driver==grid_y_twin_ref&&
+        !duplicate->layout->grid->bounds_y_driver&&
+        duplicate->layout->grid->bounds_y_expression==Expression{grid_y_expression_text.toStdString(),1}&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==90&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.x"}).evaluated)==80&&
-        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.y"}).evaluated)==45,
-        "Duplicate frame replays exact Margin expression and Grid x/y links onto new stable target IDs");
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.y"}).evaluated)==25,
+        "Duplicate frame replays exact Margin and Grid expressions plus the Grid x link onto new stable target IDs");
     auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
     for(int i=0;i<artboards->count();++i)
         if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);

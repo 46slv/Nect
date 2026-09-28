@@ -1,6 +1,8 @@
 # R02 / P03 property and save boundary — R02-ENTRY-01
 
-The current native 0.39 authored type × surface inventory and next bounded expression packet are in [r02-typed-parameter-matrix.md](r02-typed-parameter-matrix.md). Older matrices below are historical entry-state snapshots.
+The current authored type × surface inventory and bounded Grid y expression packet are in [r02-typed-parameter-matrix.md](r02-typed-parameter-matrix.md). Older matrices below are historical entry-state snapshots.
+
+Native 0.40 closes the bounded Grid y expression cell from that matrix; its source contract, exact oracle and local 43/43 Release result are recorded there. The remaining type/surface cells and REQ-3/4/42/199 stay open.
 
 ## R02-GRID-Y-ARTBOARD-LINK-01 — vertical Grid offset dependency (frozen 2026-09-29)
 

@@ -447,7 +447,7 @@ try:
         frozen_after=core('get',ref=target_gradient_ref)['result']
         assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.39' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
+        assert mcp_native['version']=='0.40' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -533,6 +533,22 @@ try:
             grid_x_property==grid_x_updated and resolved_first['evaluated']['layout']['grid']['bounds']['x']==60
         assert grid_y_updated['authored']==grid_y_linked['authored'] and grid_y_updated['evaluated']==60 and \
             grid_y_property==grid_y_updated and resolved_first['evaluated']['layout']['grid']['bounds']['y']==60
+        grid_y_expression='ref("mcp-margin-upstream","","artboard.width")'
+        rev=apply([dict(type='set_grid_bounds_y_expression',target=target_grid_y_ref,
+            expression=dict(source=grid_y_expression,version=1),replace_driver=True)],rev)
+        grid_y_expressed=core('get',ref=target_grid_y_ref)['result']
+        assert grid_y_expressed['authored']==dict(literal=20,driver=None,source_kind='expression',
+            expression=dict(source=grid_y_expression,version=1)) and grid_y_expressed['evaluated']==60 and \
+            grid_y_expressed['expression'] is True
+        assert next(item for item in core('properties')['result'] if item['ref']==target_grid_y_ref)==grid_y_expressed
+        grid_y_native=core('inspect')['result']
+        grid_y_layout=next(board for board in grid_y_native['compositions'][0]['artboards']
+            if board['id']==first['id'])['layout']['grid']
+        assert grid_y_native['version']=='0.40' and grid_y_layout['bounds_y_expression']==dict(
+            source=grid_y_expression,version=1) and 'bounds_y_driver' not in grid_y_layout
+        rev=apply([dict(type='unlink_grid_bounds_y',target=target_grid_y_ref)],rev)
+        grid_y_frozen=core('get',ref=target_grid_y_ref)['result']
+        assert grid_y_frozen['authored']==dict(literal=60,driver=None,source_kind='literal') and grid_y_frozen['evaluated']==60
         grid_expression='ref("mcp-margin-upstream","","artboard.width") + 10'
         rev=apply([dict(type='set_grid_bounds_x_expression',target=target_grid_x_ref,
             expression=dict(source=grid_expression,version=1),replace_driver=True)],rev)
@@ -543,7 +559,7 @@ try:
         expression_native=core('inspect')['result']
         expression_layout=next(board for board in expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert expression_native['version']=='0.39' and expression_layout['bounds_x_expression']==dict(
+        assert expression_native['version']=='0.40' and expression_layout['bounds_x_expression']==dict(
             source=grid_expression,version=1) and 'bounds_x_driver' not in expression_layout
         margin_expression='ref("mcp-margin-upstream","","artboard.width") + 10'
         rev=apply([dict(type='set_margin_left_expression',target=target_margin_ref,
@@ -555,7 +571,7 @@ try:
         margin_expression_native=core('inspect')['result']
         margin_expression_layout=next(board for board in margin_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']
-        assert margin_expression_native['version']=='0.39' and margin_expression_layout['margin']['left_expression']==dict(
+        assert margin_expression_native['version']=='0.40' and margin_expression_layout['margin']['left_expression']==dict(
             source=margin_expression,version=1) and 'left_driver' not in margin_expression_layout['margin']
         same_margin_expression=core('apply',expected_revision=rev,commands=[dict(type='set_margin_left_expression',
             target=target_margin_ref,expression=dict(source=margin_expression,version=1),replace_driver=False)])
@@ -1404,7 +1420,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.39'
+        assert native_save_as['version']=='0.40'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']

@@ -1462,3 +1462,26 @@ evaluated y and authored Grid height must fit within the evaluated target
 Artboard height. Typed reads expose the literal, exact source, evaluated y and
 `du`; Canvas Grid overlay, snapping and Grid-reference alignment/distribution
 consume the evaluated bounds. Native Save As preserves the authored source.
+
+## Native 0.40 — Grid bounds y expression
+
+A present Grid may retain `bounds_y_expression: {source,version:1}` beside its
+authored `bounds.y` literal and optional `bounds_y_driver` link. At most one
+source may be present. The bounded numeric expression language evaluates to
+Artboard-local `du`; each `ref()` may address only width or height on a distinct
+Artboard in the Grid owner's Composition. Referenced dimensions use the existing
+Artboard-size graph, including parent inheritance, links and expressions.
+Artboard sizes do not depend on Grid layout, so the source edge stays one-way.
+The evaluated y and authored Grid height must fit within the evaluated target
+Artboard height.
+
+Dedicated `set_grid_bounds_y_expression` and existing link/unlink commands own
+source changes. Replacing a link or a different expression requires
+`replace_driver`; unlink freezes the evaluated y into the authored literal.
+Full layout and Artboard updates preserve an unchanged source for the same
+stable Grid ID and literal while rejecting implicit source edits. Typed reads
+expose the literal, exact source and evaluated y. Canvas Grid overlay, vertical
+Snap and Grid-reference Align consume the evaluated layout. Native Save As
+retains the authored expression; native 0.1–0.39 reject a version-lied y
+expression. `schemas/native-v0.40.schema.json` closes the optional field and
+rejects simultaneous link and expression sources.
