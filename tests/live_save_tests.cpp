@@ -325,6 +325,129 @@ void linked_point_edit_save_as(const QString& directory) {
           bytes(destination)==destination_bytes,
           "Re-enabling the cold-opened source restores the target override without changing destination bytes");
 }
+void linked_mask_save_as(const QString& directory) {
+    Host host(directory+"/linked-mask-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    const Id target_owner="linked-mask-save-target-owner",target_geometry="linked-mask-save-target-geometry";
+    const Id source_owner="linked-mask-save-source-owner",source_geometry="linked-mask-save-source-geometry";
+    const Id target_mask_id="linked-mask-save-target-mask",source_mask_id="linked-mask-save-source-mask";
+    const auto rectangle=[](const Id& id,double left,double top,double right,double bottom) {
+        const double corners[4][2]={{left,top},{right,top},{right,bottom},{left,bottom}};
+        std::vector<Point> points(4);
+        for(std::size_t i=0;i<points.size();++i) {
+            points[i].id=id+"-point-"+std::to_string(i);
+            points[i].x.literal=corners[i][0];points[i].y.literal=corners[i][1];
+        }
+        return Contour{id+"-contour",true,std::move(points)};
+    };
+    host.session.apply({
+        CreatePath{composition,"",target_owner,"Target owner",{rectangle(target_owner,0,0,100,100)}},
+        CreatePath{composition,"",target_geometry,"Target mask geometry",{rectangle(target_geometry,0,0,55,100)}},
+        CreatePath{composition,"",source_owner,"Source owner",{rectangle(source_owner,120,0,220,100)}},
+        CreatePath{composition,"",source_geometry,"Source mask geometry",{rectangle(source_geometry,120,0,175,100)}}
+    },host.session.revision());host.edited();
+    host.session.apply({
+        SetMask{target_owner,GeometryMask{target_mask_id,target_geometry,1,false,"nonzero"}},
+        SetMask{source_owner,GeometryMask{source_mask_id,source_geometry,1,true,"nonzero"}}
+    },host.session.revision());host.edited();
+    const auto target_ref=geometry_mask_enabled_ref(target_owner,target_mask_id);
+    const auto source_ref=geometry_mask_enabled_ref(source_owner,source_mask_id);
+    host.session.apply({LinkMaskEnabled{target_ref,source_ref,false}},host.session.revision());host.edited();
+    const auto initial=host.session.document();
+    const auto mask_state=geometry_mask_enabled_state(initial,target_ref);
+    const auto scene_uses_mask=[](const Document& document,const Id& composition_id,const Id& owner,const Id& source) {
+        const auto values=evaluate(document);
+        const auto evaluated=evaluate_scene(document,composition_id,values,evaluate_transforms(document,values));
+        for(const auto& root:evaluated.roots)
+            if(root.id==owner)return root.mask&&root.mask->source==source&&!root.mask->paths.empty();
+        return false;
+    };
+    check(initial.objects.at(target_owner).compositing.mask->id==target_mask_id&&
+          initial.objects.at(target_owner).compositing.mask->source==target_geometry&&
+          initial.objects.at(source_owner).compositing.mask->id==source_mask_id&&
+          initial.objects.at(source_owner).compositing.mask->source==source_geometry&&
+          !mask_state.literal&&mask_state.driver==source_ref&&mask_state.evaluated&&
+          scene_uses_mask(initial,composition,target_owner,target_geometry),
+          "False target literal follows the exact true source mask and resolves its clipping geometry");
+
+    const auto original=directory+"/linked-mask-source.nect";
+    host.save(original);host.recover();
+    const auto original_bytes=bytes(original);
+    check(original_bytes==QByteArray::fromStdString(encode(initial)),
+          "Original native file stores the linked masks before source bypass");
+
+    auto disabled_source=*initial.objects.at(source_owner).compositing.mask;disabled_source.enabled=false;
+    host.session.apply({SetMask{source_owner,disabled_source}},host.session.revision());host.edited();
+    const auto committed=host.session.document();
+    const auto committed_revision=host.session.revision();
+    const auto saved_revision=host.persistence()["saved_revision"].toInteger(-1);
+    const auto committed_bytes=QByteArray::fromStdString(encode(committed));
+    const auto target_state=geometry_mask_enabled_state(committed,target_ref);
+    check(!target_state.literal&&target_state.driver==source_ref&&!target_state.evaluated&&
+          committed.objects.at(target_owner).compositing.mask->id==target_mask_id&&
+          committed.objects.at(target_owner).compositing.mask->source==target_geometry&&
+          !committed.objects.at(source_owner).compositing.mask->enabled&&
+          committed.objects.at(source_owner).compositing.mask->id==source_mask_id&&
+          committed.objects.at(source_owner).compositing.mask->source==source_geometry&&
+          !scene_uses_mask(committed,composition,target_owner,target_geometry),
+          "Disabling the source bypasses clipping without changing target literal, mask IDs or geometry sources");
+    const auto recovery_meta=directory+"/linked-mask-recovery/"+host.session_id+".recovery.json";
+
+    const auto invalid=directory+"/missing-linked-mask-parent/failed.nect";
+    rejects("IO_ERROR",[&]{host.save(invalid);});
+    check(!QFile::exists(invalid)&&host.file_path==native_path(original)&&host.dirty()&&
+          host.session.revision()==committed_revision&&host.session.document()==committed&&
+          host.persistence()["saved_revision"].toInteger(-1)==saved_revision&&
+          bytes(original)==original_bytes,
+          "Failed linked-mask Save As preserves binding, revisions, authored state and original bytes");
+
+    const auto destination=directory+"/linked-mask-destination.nect";
+    host.save(destination);host.recover();
+    const auto destination_bytes=bytes(destination);
+    const auto saved=load_native(destination).document;
+    const auto saved_state=geometry_mask_enabled_state(saved,target_ref);
+    check(host.file_path==native_path(destination)&&!host.dirty()&&
+          host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
+          saved==committed&&destination_bytes==committed_bytes&&
+          saved.objects.at(target_owner).compositing.mask->id==target_mask_id&&
+          saved.objects.at(target_owner).compositing.mask->source==target_geometry&&
+          saved.objects.at(source_owner).compositing.mask->id==source_mask_id&&
+          saved.objects.at(source_owner).compositing.mask->source==source_geometry&&
+          !saved_state.literal&&saved_state.driver==source_ref&&!saved_state.evaluated&&
+          bytes(original)==original_bytes,
+          "Save As persists the committed Document, both mask IDs, geometry sources and exact disabled link");
+    check(host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
+          QJsonDocument::fromJson(bytes(recovery_meta)).object()["source_file"]==native_path(destination),
+          "Recovery provenance follows the linked-mask Save As destination");
+
+    Host reopened(directory+"/linked-mask-cold-recovery");reopened.open(destination);
+    const auto cold=reopened.session.document();
+    const auto cold_state=geometry_mask_enabled_state(cold,target_ref);
+    check(cold==committed&&reopened.session.revision()==0&&reopened.file_path==native_path(destination)&&
+          cold.objects.at(target_owner).compositing.mask->id==target_mask_id&&
+          cold.objects.at(target_owner).compositing.mask->source==target_geometry&&
+          cold.objects.at(source_owner).compositing.mask->id==source_mask_id&&
+          cold.objects.at(source_owner).compositing.mask->source==source_geometry&&
+          !cold_state.literal&&cold_state.driver==source_ref&&!cold_state.evaluated&&
+          !scene_uses_mask(cold,composition,target_owner,target_geometry),
+          "Cold Host reopen restores both exact mask identities and the evaluated bypass");
+    const auto cold_revision=reopened.session.revision();
+    rejects("MISSING_MASK",[&]{reopened.session.apply({SetMask{source_owner,std::nullopt}},cold_revision);});
+    rejects("MISSING_MASK",[&]{reopened.session.apply({SetMask{source_owner,
+        GeometryMask{"linked-mask-save-replacement-mask",source_geometry,1,true,"nonzero"}}},cold_revision);});
+    check(reopened.session.revision()==cold_revision&&reopened.session.document()==cold&&
+          geometry_mask_enabled_state(reopened.session.document(),target_ref).driver==source_ref,
+          "Missing or replaced source mask fails explicitly without owner-slot retargeting");
+
+    auto enabled_source=*reopened.session.document().objects.at(source_owner).compositing.mask;
+    enabled_source.enabled=true;
+    reopened.session.apply({SetMask{source_owner,enabled_source}},reopened.session.revision());
+    const auto reenabled=reopened.session.document();
+    const auto reenabled_state=geometry_mask_enabled_state(reenabled,target_ref);
+    check(!reenabled_state.literal&&reenabled_state.driver==source_ref&&reenabled_state.evaluated&&
+          scene_uses_mask(reenabled,composition,target_owner,target_geometry)&&bytes(destination)==destination_bytes,
+          "Re-enabling the cold-opened source restores clipping without changing saved destination bytes");
+}
 void independent_failures(const QString& directory) {
     const auto blocked=directory+"/blocked-recovery";put(blocked,"not a directory");
     Host host(blocked);const auto path=directory+"/protected-native.nect";host.save(path);add(host);
@@ -354,7 +477,7 @@ int main(int argc,char** argv) {
     try {
         QTemporaryDir temp;check(temp.isValid(),"Create owned live-save test folder");
         coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());point_edit_save_as(temp.path());
-        linked_point_edit_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
-        std::cout<<"PASS asynchronous snapshots, typed and Point Edit Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
+        linked_point_edit_save_as(temp.path());linked_mask_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
+        std::cout<<"PASS asynchronous snapshots, typed, Point Edit and mask Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
