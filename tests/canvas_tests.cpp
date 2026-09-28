@@ -1338,6 +1338,9 @@ void layout_overlays_are_view_only_and_not_exported() {
     auto document=empty_document("overlay-document","overlay-composition","overlay-artboard");
     auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
     board.layout=ArtboardLayout{Margin{10,15,20,25},Grid{"overlay-grid",{20,25,150,110},2,2,10,10}};
+    const Ref margin_source{"overlay-margin-source","","artboard.width"};
+    board.layout->margin->left_driver=margin_source;
+    document.compositions.front().artboards.push_back({margin_source.object,"Margin source",0,0,18,100});
     document.compositions.front().guides={{"overlay-guide-x","Vertical","x",30},
         {"overlay-guide-y","Horizontal","y",40},{"overlay-source-x","Evaluated source","x",120}};
     document.compositions.front().guides.front().position_expression=
@@ -1355,17 +1358,32 @@ void layout_overlays_are_view_only_and_not_exported() {
           }
         return pixels;
     };
+    const auto count_margin_pixels=[&](const QImage& source,double position) {
+        const int margin_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
+        const int top=qRound((canvas.height()/2.0+(15-80)*canvas.zoom())*image_scale);
+        const int bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
+        for(int y=top;y<=bottom;++y)for(int x=margin_x-qMax(2,qRound(2*image_scale));
+            x<=margin_x+qMax(2,qRound(2*image_scale));++x) {
+            const auto pixel=source.pixelColor(x,y);
+            if(pixel.red()>pixel.green()+20&&pixel.blue()>pixel.green()+30)++pixels;
+        }
+        return pixels;
+    };
     const auto evaluated_guide_pixels=count_guide_pixels(image,120),literal_guide_pixels=count_guide_pixels(image,30);
     check(evaluated_guide_pixels>20&&literal_guide_pixels<20,
         "Canvas paints the expression-driven Guide at its evaluated coordinate, not its authored literal (evaluated="+
             std::to_string(evaluated_guide_pixels)+", literal="+std::to_string(literal_guide_pixels)+")");
+    check(count_margin_pixels(image,18)>20&&count_margin_pixels(image,10)<20,
+        "Canvas paints the linked Margin inset at its evaluated Artboard width, not its authored literal");
     session.begin_gesture(session.revision());
-    session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}}});
+    session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
+        UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,100}}});
     canvas.refresh();QApplication::processEvents();
     const auto preview_image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
     check(count_guide_pixels(preview_image,140)>20&&count_guide_pixels(preview_image,120)<20&&
-          count_guide_pixels(preview_image,30)<20,
-        "Canvas expression-driven Guide overlay follows the evaluated position in the Session preview document");
+          count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,26)>20&&
+          count_margin_pixels(preview_image,18)<20&&count_margin_pixels(preview_image,10)<20,
+        "Canvas Guide and linked Margin overlays follow evaluated sources in the Session preview document");
     session.cancel_gesture();canvas.refresh();QApplication::processEvents();
     const auto exported=Canvas::render_artboard(session.document(),"overlay-composition","overlay-artboard",1,true);
     check(exported.pixelColor(30,70)==QColor(Qt::white),"Guide overlay is absent from the Artboard export projection");

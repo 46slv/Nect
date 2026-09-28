@@ -280,6 +280,7 @@ struct LayoutRect {
 };
 struct Margin {
     double left=0,top=0,right=0,bottom=0;
+    std::optional<Ref> left_driver;
     bool operator==(const Margin&) const = default;
 };
 struct Grid {
@@ -411,6 +412,13 @@ struct DetachArtboardParent { Id composition; Id artboard; };
 struct LinkArtboardSize { Ref target; Ref source; bool replace_driver=false; };
 struct SetArtboardSizeExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkArtboardSize { Ref target; };
+struct LinkMarginLeft { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkMarginLeft { Ref target; };
+struct MarginLeftCommand {
+    std::variant<LinkMarginLeft,UnlinkMarginLeft> operation;
+    MarginLeftCommand(LinkMarginLeft value):operation(std::move(value)){}
+    MarginLeftCommand(UnlinkMarginLeft value):operation(std::move(value)){}
+};
 struct AddGuide { Id composition; Guide guide; };
 struct UpdateGuide { Id composition; Guide guide; };
 struct DeleteGuide { Id composition; Id guide_id; };
@@ -498,7 +506,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,LinkPointEditEnabled,UnlinkPointEditEnabled,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,LinkOperationEnabled,UnlinkOperationEnabled,LinkGradientEnabled,UnlinkGradientEnabled,OperationOptions,LinkFillRule,UnlinkFillRule,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
-    DeleteArtboard,ReorderArtboards,DetachArtboardParent,LinkArtboardSize,SetArtboardSizeExpression,UnlinkArtboardSize,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,SetGuidePositionExpression,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
+    DeleteArtboard,ReorderArtboards,DetachArtboardParent,LinkArtboardSize,SetArtboardSizeExpression,UnlinkArtboardSize,MarginLeftCommand,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,SetGuidePositionExpression,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
@@ -726,6 +734,8 @@ struct ArtboardSizeProperty {
 ArtboardSizeProperty artboard_size_property(const Document&,const Ref&);
 struct ArtboardLayoutProperty {
     std::variant<double,std::size_t> literal;
+    std::optional<Ref> driver;
+    std::variant<double,std::size_t> evaluated;
 };
 ArtboardLayoutProperty artboard_layout_property(const Document&,const Ref&);
 enum class TextPropertyKind { string, enumeration };

@@ -446,11 +446,19 @@ j::object artboard_size_property_json(const Document& d,const Ref& ref,const Art
 j::object artboard_layout_property_json(const Document& d,const Ref& ref,const ArtboardLayoutProperty& value) {
     const bool integer=std::holds_alternative<std::size_t>(value.literal);
     const auto literal=std::visit([](const auto& item){return j::value(item);},value.literal);
-    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},
+    const auto evaluated=std::visit([](const auto& item){return j::value(item);},value.evaluated);
+    j::object result{{"ref",ref_json(ref)},{"name",property_name(d,ref)},
         {"type",integer?"integer":"number"},{"unit",integer?"unitless":"du"},
         {"space","artboard_local"},{"origin","authored"},
         {"authored",j::object{{"literal",literal}}},{"evaluated",literal},
         {"link",false},{"expression",false}};
+    if(ref.field=="margin.left") {
+        j::value driver=nullptr;if(value.driver)driver=ref_json(*value.driver);
+        result["authored"]=j::object{{"literal",literal},{"driver",std::move(driver)},
+            {"source_kind",value.driver?"link":"literal"}};
+        result["evaluated"]=evaluated;result["link"]=true;
+    }
+    return result;
 }
 std::string guide_property_name(const Document& d,const Ref& ref) {
     for(const auto& composition:d.compositions)for(const auto& guide:composition.guides)
@@ -765,17 +773,23 @@ j::value guide_json(const Guide& guide) {
     if(guide.position_expression)result["position_expression"]=expression_json(*guide.position_expression);
     return result;
 }
-ArtboardLayout read_layout(const j::value& value) {
+ArtboardLayout read_layout(const j::value& value,bool allow_margin_driver=false) {
     try {
         if(!value.is_object())throw Error("INVALID_LAYOUT","Layout must be an object");
         const auto& object=value.as_object();keys(object,{"margin","grid"});ArtboardLayout layout;
         if(object.contains("margin")) {
             if(!object.at("margin").is_object())throw Error("INVALID_LAYOUT","Margin must be an object");
-            const auto& margin=object.at("margin").as_object();keys(margin,{"left","top","right","bottom"});
+            const auto& margin=object.at("margin").as_object();
+            if(allow_margin_driver)keys(margin,{"left","top","right","bottom","left_driver"});
+            else keys(margin,{"left","top","right","bottom"});
             if(!margin.contains("left")||!margin.contains("top")||!margin.contains("right")||!margin.contains("bottom"))
                 throw Error("INVALID_LAYOUT","Margin requires left, top, right and bottom");
             layout.margin=Margin{layout_number(margin.at("left")),layout_number(margin.at("top")),
                 layout_number(margin.at("right")),layout_number(margin.at("bottom"))};
+            if(allow_margin_driver)if(const auto* driver=margin.if_contains("left_driver")) {
+                const auto& fields=driver->as_object();keys(fields,{"link"});
+                layout.margin->left_driver=read_ref(fields.at("link"));
+            }
         }
         if(object.contains("grid")) {
             if(!object.at("grid").is_object())throw Error("INVALID_LAYOUT","Grid must be an object");
@@ -810,8 +824,12 @@ j::value grid_json(const Grid& grid) {
 }
 j::value layout_json(const ArtboardLayout& layout) {
     j::object result;
-    if(layout.margin)result["margin"]=j::object{{"left",layout.margin->left},{"top",layout.margin->top},
-        {"right",layout.margin->right},{"bottom",layout.margin->bottom}};
+    if(layout.margin) {
+        j::object margin{{"left",layout.margin->left},{"top",layout.margin->top},
+            {"right",layout.margin->right},{"bottom",layout.margin->bottom}};
+        if(layout.margin->left_driver)margin["left_driver"]=j::object{{"link",ref_json(*layout.margin->left_driver)}};
+        result["margin"]=std::move(margin);
+    }
     if(layout.grid)result["grid"]=grid_json(*layout.grid);
     return result;
 }
@@ -826,7 +844,8 @@ j::object artboard_size_driver_json(const Artboard::SizeDriver& driver) {
     if(const auto* link=std::get_if<Ref>(&driver.value))return {{"link",ref_json(*link)}};
     return {{"expression",expression_json(std::get<Expression>(driver.value))}};
 }
-Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layout=false,bool allow_size_driver=false) {
+Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layout=false,bool allow_size_driver=false,
+    bool allow_margin_driver=false) {
     const auto& a=v.as_object();
     std::vector<std::string_view> allowed{"id","name","x","y","width","height"};
     if(allow_parent)allowed.push_back("parent_size");
@@ -840,7 +859,7 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
     }
     if(allow_layout)if(const auto* layout=a.if_contains("layout")) {
         if(layout->is_null())throw Error("INVALID_LAYOUT","Artboard layout must be omitted or an object; clear it with set_artboard_layout");
-        result.layout=read_layout(*layout);
+        result.layout=read_layout(*layout,allow_margin_driver);
     }
     if(allow_size_driver) {
         if(const auto* driver=a.if_contains("width_driver"))result.width_driver=read_artboard_size_driver(*driver);
@@ -998,10 +1017,10 @@ Command read_command(const j::value& v) {
     }
     if(type=="add_artboard") {
         keys(o,{"type","composition","artboard","index"});
-        return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true),j::value_to<std::size_t>(o.at("index"))};
+        return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,false,true),j::value_to<std::size_t>(o.at("index"))};
     }
     if(type=="update_artboard") {
-        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,true)};
+        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,true,true)};
     }
     if(type=="add_guide"||type=="update_guide") {
         keys(o,{"type","composition","guide"});
@@ -1024,8 +1043,15 @@ Command read_command(const j::value& v) {
     }
     if(type=="set_artboard_layout") {
         keys(o,{"type","composition","artboard_id","layout"});
-        std::optional<ArtboardLayout> layout;if(!o.at("layout").is_null())layout=read_layout(o.at("layout"));
+        std::optional<ArtboardLayout> layout;if(!o.at("layout").is_null())layout=read_layout(o.at("layout"),true);
         return SetArtboardLayout{text(o.at("composition")),text(o.at("artboard_id")),std::move(layout)};
+    }
+    if(type=="link_margin_left") {
+        keys(o,{"type","target","source","replace_driver"});
+        return MarginLeftCommand{LinkMarginLeft{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()}};
+    }
+    if(type=="unlink_margin_left") {
+        keys(o,{"type","target"});return MarginLeftCommand{UnlinkMarginLeft{read_ref(o.at("target"))}};
     }
     if(type=="delete_artboard"||type=="detach_artboard_parent") {
         keys(o,{"type","composition","artboard"});
@@ -1246,10 +1272,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,34> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34"};
+        constexpr std::array<std::string_view,35> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.34 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.35 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1270,7 +1296,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35));
             if(minor>=14)for(const auto& gv:co.at("guides").as_array())c.guides.push_back(read_guide(gv,minor>=23,minor>=34));
             d.compositions.push_back(std::move(c));
         }
@@ -1871,8 +1897,10 @@ std::string request(Session& session,std::string_view input) {
             const auto& comps=session.document().compositions;
             const auto comp=std::find_if(comps.begin(),comps.end(),[&](const auto& c){return c.id==id;});
             if(comp==comps.end())throw Error("MISSING_COMPOSITION",id);
-            j::array frames;for(const auto& a:comp->artboards)frames.push_back(j::object{
-                {"authored",artboard_json(a)},{"evaluated",artboard_json(evaluate_artboard(*comp,a.id))}});
+            j::array frames;for(const auto& a:comp->artboards) {
+                auto evaluated=evaluate_artboard(*comp,a.id);
+                frames.push_back(j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluated)}});
+            }
             result=std::move(frames);
         } else if(op=="text_defaults") {
             keys(o,{"op"});result=text_json(default_text("new-text-source"));

@@ -380,7 +380,7 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
           destination_bytes.contains(QByteArray::fromStdString(std::string("\"version\":\"")+native_version+"\""))&&
           saved_board.id==artboard_id&&saved_board.layout&&*saved_board.layout==committed_layout&&
           bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash,
-          "Valid Save As writes exact native 0.34 bytes and retains all authored layout fields and IDs");
+          "Valid Save As writes exact native 0.35 bytes and retains all authored layout fields and IDs");
     check(host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
           QJsonDocument::fromJson(bytes(recovery_meta)).object()["source_file"]==native_path(destination),
           "Recovery provenance follows the Grid and Margin Save As destination");
@@ -465,6 +465,67 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
           world_after==LayoutRect{world_before.x+125,world_before.y+75,world_before.width,world_before.height}&&
           bytes(destination)==destination_bytes,
           "Moving the reopened Artboard translates its world Grid frame without rewriting local layout");
+}
+void linked_margin_left_save_as(const QString& directory,const QString& nect_cli) {
+    Host host(directory+"/linked-margin-left-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    const auto target=host.session.document().compositions.front().artboards.front().id;
+    const Id source="save-margin-left-source",upstream="save-margin-left-upstream";
+    Artboard source_board{source,"Margin source",0,0,40,100};
+    source_board.parent_size=ArtboardParent{upstream,true,false};
+    Artboard upstream_board{upstream,"Source size",0,0,40,100};
+    ArtboardLayout layout;layout.margin=Margin{40,20,40,20};
+    layout.grid=Grid{"save-margin-left-grid",{40,20,880,600},2,1,20,0};
+    const Ref target_ref{target,"","margin.left"};
+    const Ref source_ref{source,"","artboard.width"};
+    host.session.apply({AddArtboard{composition,source_board,1},AddArtboard{composition,upstream_board,2},
+        SetArtboardLayout{composition,target,layout},MarginLeftCommand{LinkMarginLeft{target_ref,source_ref,false}}},
+        host.session.revision());host.edited();
+    const auto original=directory+"/linked-margin-left-source.nect";
+    host.save(original);host.recover();
+    auto changed_upstream=host.session.document().compositions.front().artboards[2];
+    changed_upstream.width=60;
+    host.session.apply({UpdateArtboard{composition,changed_upstream}},host.session.revision());host.edited();
+    const auto committed=host.session.document();
+    const auto committed_bytes=QByteArray::fromStdString(encode(committed));
+    const auto linked=artboard_layout_property(committed,target_ref);
+    check(std::get<double>(linked.literal)==40&&linked.driver==source_ref&&std::get<double>(linked.evaluated)==60,
+        "Host retains the authored Margin literal and Artboard source while its upstream width changes");
+
+    const auto destination=directory+"/linked-margin-left-destination.nect";
+    host.save(destination);host.recover();
+    const auto destination_bytes=bytes(destination);
+    const auto persisted=load_native(destination).document;
+    const auto persisted_link=artboard_layout_property(persisted,target_ref);
+    check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.35\"")&&
+        std::get<double>(persisted_link.literal)==40&&persisted_link.driver==source_ref&&std::get<double>(persisted_link.evaluated)==60,
+        "Host Save As writes exact native 0.35 bytes with the linked Margin source and authored literal");
+
+    Host cold(directory+"/linked-margin-left-cold-recovery");cold.open(destination);
+    const auto cold_value=artboard_layout_property(cold.session.document(),target_ref);
+    check(cold.session.revision()==0&&cold.session.document()==committed&&std::get<double>(cold_value.literal)==40&&
+        cold_value.driver==source_ref&&std::get<double>(cold_value.evaluated)==60,
+        "A fresh Host cold-open preserves the linked Margin Ref, literal and evaluated inset");
+
+    QProcess process;process.start(nect_cli,{"--serve",destination});
+    check(process.waitForStarted(5000),"Start a distinct JSON-lines process on the linked Margin Save As destination");
+    const QJsonObject ref{{"object",QString::fromStdString(target)},{"point",""},{"field","margin.left"}};
+    const auto query=QJsonDocument(QJsonObject{{"op","get"},{"ref",ref}}).toJson(QJsonDocument::Compact)+'\n'+
+        QByteArray("{\"op\":\"inspect\"}\n");
+    check(process.write(query)==query.size(),"Send linked Margin read and native inspect to the cold process");
+    process.closeWriteChannel();
+    check(process.waitForFinished(10000)&&process.exitStatus()==QProcess::NormalExit&&process.exitCode()==0,
+        "Distinct JSON-lines process exits after reading the linked Margin destination");
+    const auto output=process.readAllStandardOutput().trimmed().split('\n');
+    check(output.size()==2,"Cold process returns one linked typed read and one native inspect reply");
+    const auto read=QJsonDocument::fromJson(output[0]).object()["result"].toObject();
+    const auto native=QJsonDocument::fromJson(output[1]).object()["result"].toObject();
+    const auto driver=read["authored"].toObject()["driver"].toObject();
+    check(read["authored"].toObject()["literal"].toDouble()==40&&read["evaluated"].toDouble()==60&&
+        read["link"].toBool()&&driver["object"].toString()==QString::fromStdString(source)&&
+        driver["field"].toString()=="artboard.width"&&native==QJsonDocument::fromJson(destination_bytes).object(),
+        "Distinct process reads the evaluated linked inset and exact source from the Save As destination");
 }
 void linked_point_edit_save_as(const QString& directory) {
     Host host(directory+"/linked-point-edit-recovery");
@@ -698,7 +759,8 @@ int main(int argc,char** argv) {
         QTemporaryDir temp;check(temp.isValid(),"Create owned live-save test folder");
         coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());point_edit_save_as(temp.path());artboard_size_save_as(temp.path());
         layout_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
+        linked_margin_left_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         linked_point_edit_save_as(temp.path());linked_mask_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
-        std::cout<<"PASS asynchronous snapshots, typed, Grid/Margin, Point Edit and mask Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
+        std::cout<<"PASS asynchronous snapshots, typed, linked Margin, Grid, Point Edit and mask Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

@@ -182,6 +182,16 @@ check(guide_expression_schema['properties']['version']['const'] == '0.34' and
       guide_expression_definition['not']['required'] == ['position_driver', 'position_expression'] and
       guide_expression_schema['$defs']['expression']['additionalProperties'] is False,
       'native 0.34 schema adds a closed Guide expression and excludes simultaneous link and expression sources')
+margin_left_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.35.schema.json').read_text(encoding='utf-8'))
+margin_definition = margin_left_schema['$defs']['margin']
+margin_driver = margin_left_schema['$defs']['margin_left_driver']
+check(margin_left_schema['properties']['version']['const'] == '0.35' and
+      margin_definition['additionalProperties'] is False and
+      margin_definition['properties']['left_driver']['$ref'] == '#/$defs/margin_left_driver' and
+      'left_driver' not in guide_expression_schema['$defs']['margin']['properties'] and
+      margin_driver['additionalProperties'] is False and margin_driver['required'] == ['link'] and
+      margin_driver['properties']['link']['$ref'] == '#/$defs/artboard_size_ref',
+      'native 0.35 schema adds only an optional closed Artboard size Ref for Margin left')
 
 literal_029 = json.loads(json.dumps(sample));literal_029['version'] = '0.29'
 check(run('--validate', literal_029).returncode == 0,
@@ -405,9 +415,9 @@ with tempfile.TemporaryDirectory() as tmp:
         'Same-ID source toggles propagate while clear, clear/recreate, conversion and deletion guard surviving dependents')
     native=reply['linked_native']['result']
     native_target=next(obj for obj in native['objects'] if obj['id']==target_object)['point_edit']
-    check(native['version']=='0.34' and native_target['enabled'] is False and
+    check(native['version']=='0.35' and native_target['enabled'] is False and
         native_target['enabled_driver']==dict(link=source_ref) and run('--validate',native).returncode==0,
-        'Native 0.34 persists only the optional closed qualified driver beside the authored false literal')
+        'Native 0.35 persists only the optional closed qualified driver beside the authored false literal')
     old=native.copy();old['version']='0.31'
     check('UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER' in run('--validate',old).stderr,
         'Native 0.31 rejects a falsely versioned Point Edit enabled driver')
@@ -429,7 +439,7 @@ with tempfile.TemporaryDirectory() as tmp:
         next(value for value in cold_replies[1]['result'] if value['ref']==target_ref)==cold_expected and
         next(obj for obj in cold_doc['objects'] if obj['id']==target_object)['point_edit']==native_target and
         path.read_bytes()==before,
-        'A distinct JSON-lines process cold-opens native 0.34 with matching typed state and byte-stable authorship')
+        'A distinct JSON-lines process cold-opens native 0.35 with matching typed state and byte-stable authorship')
     check(reply['unlink']['ok'] and reply['frozen']['result']['authored']==dict(literal=False,driver=None) and
         reply['frozen']['result']['evaluated'] is False and reply['source_restore_after_unlink']['ok'] and
         reply['still_frozen']['result']['authored']==dict(literal=False,driver=None) and
@@ -480,7 +490,7 @@ with tempfile.TemporaryDirectory() as tmp:
           replies[10]['ok'] and replies[11]['error']['code'] == 'MISSING_MASK' and
           not any(value['ref'] == mask_ref for value in replies[12]['result']),
           'Undo restores the literal, and removal makes get fail with MISSING_MASK and removes discovery')
-    check(replies[13]['ok'] and replies[14]['result']['version'] == '0.34' and
+    check(replies[13]['ok'] and replies[14]['result']['version'] == '0.35' and
           next(obj for obj in replies[14]['result']['objects'] if obj['id'] == 'path-A')['compositing']['mask']['id'] == 'process-mask-replacement',
           'Replacement mask retains its native identity under the owner-slot Ref')
     saved = replies[14]['result']
@@ -544,9 +554,9 @@ with tempfile.TemporaryDirectory() as tmp:
           replies[4]['result'] and replies[6]['error']['code'] == 'INVALID_MASK_REF' and replies[6]['revision'] == 2,
           'Qualified get/properties expose exact linked state while legacy owner-slot reads stay literal-only')
     linked_native = replies[5]['result']
-    check(linked_native['version'] == '0.34' and
+    check(linked_native['version'] == '0.35' and
           next(obj for obj in linked_native['objects'] if obj['id'] == 'path-A')['compositing']['mask']['enabled_driver'] == dict(link=source_ref),
-          'Native 0.34 inspect preserves the exact mask driver beside its authored literal')
+          'Native 0.35 inspect preserves the exact mask driver beside its authored literal')
     changed = replies[7]['result']['changed_ids']
     disabled = replies[8]['result']
     plan = next(node for node in replies[9]['result']['roots'] if node['object'] == 'path-A')
@@ -573,7 +583,7 @@ with tempfile.TemporaryDirectory() as tmp:
               cold_replies[0]['result'] == linked and
               next(value for value in cold_replies[1]['result'] if value['ref'] == target_ref) == linked and
               cold_replies[2]['result'] == linked_native and cold_path.read_bytes() == before,
-              'Distinct JSON-lines process cold-opens native 0.34 with exact linked reads and unchanged bytes')
+              'Distinct JSON-lines process cold-opens native 0.35 with exact linked reads and unchanged bytes')
     old_version = json.loads(json.dumps(linked_native)); old_version['version'] = '0.30'
     check('UNSUPPORTED_MASK_ENABLED_DRIVER' in run('--validate', old_version).stderr,
           'Native 0.30 rejects a version-lied mask enabled driver')
@@ -581,12 +591,12 @@ with tempfile.TemporaryDirectory() as tmp:
     next(obj for obj in malformed['objects'] if obj['id'] == 'path-A')['compositing']['mask']['enabled_driver'] = dict(
         link=source_ref, extra=True)
     check('UNKNOWN_FIELD' in run('--validate', malformed).stderr,
-          'Native 0.34 rejects an unknown enabled driver wrapper field')
+          'Native 0.35 rejects an unknown enabled driver wrapper field')
     wrong_field = json.loads(json.dumps(linked_native))
     next(obj for obj in wrong_field['objects'] if obj['id'] == 'path-A')['compositing']['mask']['enabled_driver'] = dict(
         link=dict(object='path-B', point='', field='mask.enabled'))
     check('INVALID_MASK_REF' in run('--validate', wrong_field).stderr,
-          'Native 0.34 rejects the unqualified owner-slot Ref as a driver')
+          'Native 0.35 rejects the unqualified owner-slot Ref as a driver')
 
 guide_document = json.loads(json.dumps(sample))
 guide_composition = guide_document['compositions'][0]
@@ -635,10 +645,10 @@ with tempfile.TemporaryDirectory() as tmp:
     check(not replies[6]['ok'] and replies[6]['error']['code'] == 'TYPE_MISMATCH' and replies[6]['revision'] == 3,
           'Generic Scalar set rejects Guide.position without advancing revision')
     linked_native = replies[7]['result']
-    check(linked_native['version'] == '0.34' and
+    check(linked_native['version'] == '0.35' and
           next(value for value in linked_native['compositions'][0]['guides'] if value['id'] == guide_target['object'])['position_expression'] ==
               dict(source='ref("process-guide-source","","guide.position") + 20', version=1),
-          'Native 0.34 inspect preserves the exact Guide expression and authored target literal')
+          'Native 0.35 inspect preserves the exact Guide expression and authored target literal')
 
     cold_path = Path(tmp) / 'guide-cold.nect.json'
     cold_path.write_text(json.dumps(linked_native), encoding='utf-8')
@@ -652,6 +662,64 @@ with tempfile.TemporaryDirectory() as tmp:
           cold_replies[2]['result']['authored'] == dict(literal=120, driver=None, source_kind='literal', expression=None) and
           cold_replies[2]['result']['evaluated'] == 120,
           'A distinct JSON-lines process reopens the Guide expression and explicit unlink freezes its evaluated value')
+
+with tempfile.TemporaryDirectory() as tmp:
+    source_path = Path(tmp) / 'margin-left.nect'
+    source_path.write_text(json.dumps(sample), encoding='utf-8')
+    composition = sample['compositions'][0]
+    target = composition['artboards'][0]
+    width, height = target['width'], target['height']
+    target_ref = dict(object=target['id'], point='', field='margin.left')
+    source_ref = dict(object='process-margin-source', point='', field='artboard.width')
+    layout = dict(margin=dict(left=40, top=20, right=40, bottom=20),
+        grid=dict(id='process-margin-grid',bounds=dict(x=40,y=20,width=width-80,height=height-40),
+            columns=2,rows=1,column_gutter=20,row_gutter=0))
+    source_board = dict(id='process-margin-source',name='Margin source',x=0,y=0,width=40,height=100,
+        parent_size=dict(artboard='process-margin-upstream',width=True,height=False))
+    upstream_board = dict(id='process-margin-upstream',name='Source size',x=0,y=0,width=40,height=100)
+    requests = [
+        dict(op='apply',expected_revision=0,commands=[
+            dict(type='add_artboard',composition=composition['id'],artboard=source_board,index=1),
+            dict(type='add_artboard',composition=composition['id'],artboard=upstream_board,index=2),
+            dict(type='set_artboard_layout',composition=composition['id'],artboard_id=target['id'],layout=layout)]),
+        dict(op='apply',expected_revision=1,commands=[dict(type='link_margin_left',target=target_ref,
+            source=source_ref,replace_driver=False)]),
+        dict(op='get',ref=target_ref),
+        dict(op='apply',expected_revision=2,commands=[dict(type='update_artboard',composition=composition['id'],
+            artboard=dict(upstream_board,width=60))]),
+        dict(op='get',ref=target_ref),dict(op='properties'),dict(op='inspect'),
+        dict(op='apply',expected_revision=3,commands=[dict(type='unlink_margin_left',target=target_ref)]),
+        dict(op='get',ref=target_ref),
+    ]
+    process = subprocess.run([exe,'--serve',str(source_path)],input='\n'.join(map(json.dumps,requests))+'\n',
+        capture_output=True,text=True,encoding='utf-8',timeout=20)
+    replies = [json.loads(line) for line in process.stdout.splitlines()]
+    check(process.returncode==0 and len(replies)==len(requests) and all(item['ok'] for item in replies),
+        'Margin left JSON-lines link, upstream edit, typed reads, inspect and unlink succeed in the Session process')
+    expected_source = dict(object='process-margin-source',point='',field='artboard.width')
+    first,changed,listed = replies[2]['result'],replies[4]['result'],replies[5]['result']
+    check(first['authored']==dict(literal=40,driver=expected_source,source_kind='link') and first['evaluated']==40 and
+        first['link'] is True and changed['authored']==first['authored'] and changed['evaluated']==60 and
+        next(item for item in listed if item['ref']==target_ref)==changed,
+        'JSON-lines get and properties preserve Margin left literal/source while reporting updated evaluated value')
+    linked_native=replies[6]['result']
+    check(linked_native['version']=='0.35' and
+        next(board for board in linked_native['compositions'][0]['artboards'] if board['id']==target['id'])['layout']['margin']['left_driver']==dict(link=expected_source),
+        'Native 0.35 inspect stores only the optional exact Margin left source beside its literal')
+    cold_path=Path(tmp)/'margin-left-cold.nect';cold_path.write_text(json.dumps(linked_native),encoding='utf-8')
+    cold_bytes=cold_path.read_bytes()
+    cold=subprocess.run([exe,'--serve',str(cold_path)],input=json.dumps(dict(op='get',ref=target_ref))+'\n'+
+        json.dumps(dict(op='inspect'))+'\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
+    cold_replies=[json.loads(line) for line in cold.stdout.splitlines()]
+    check(cold.returncode==0 and len(cold_replies)==2 and all(item['ok'] for item in cold_replies) and
+        cold_replies[0]['result']==changed and cold_replies[1]['result']==linked_native and cold_path.read_bytes()==cold_bytes,
+        'Distinct JSON-lines process cold-opens exact 0.35 linked Margin and reads the same authored/evaluated state')
+    lied=json.loads(json.dumps(linked_native));lied['version']='0.34'
+    check('INVALID_LAYOUT' in run('--validate',lied).stderr,
+        'Native 0.34 version-lie cannot admit the new Margin left driver')
+    unlinked=replies[8]['result']
+    check(unlinked['authored']==dict(literal=60,driver=None,source_kind='literal') and unlinked['evaluated']==60,
+        'JSON-lines unlink freezes evaluated Margin left into the literal')
 
 duplicate = subprocess.run(
     [exe, '--serve'], input='{"op":"inspect","op":"apply"}\n',
@@ -745,7 +813,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(authored.returncode == 0 and len(replies) == 2 and replies[0]['ok'] and replies[1]['ok'],
           'Group Posterize authors through the real JSON-lines process')
     group_native = replies[1]['result']
-    check(group_native['version'] == '0.34' and
+    check(group_native['version'] == '0.35' and
           next(obj for obj in group_native['objects'] if obj['id'] == 'ornament')['stack'] == [operation],
           'Current writer preserves Group Posterize identity, version, level, and order')
     cold_path = Path(tmp) / 'group-posterize.nect'
@@ -791,7 +859,7 @@ color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.34','current writer uses native 0.34')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.35','current writer uses native 0.35')
 remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
@@ -977,7 +1045,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
         'Rejected process command preserves the authored source and link')
     check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
-    check(replies[12]['result']['version']=='0.34' and replies[12]['result']==replies[8]['result'],
+    check(replies[12]['result']['version']=='0.35' and replies[12]['result']==replies[8]['result'],
         'Undo restores the pre-unlink native state exactly')
     check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
         'Undo restores the stable driver and its evaluated integer through a fresh request')
@@ -1051,9 +1119,9 @@ with tempfile.TemporaryDirectory() as tmp:
         linked_layout['glyph_count']>0 and linked_layout['used_fonts'] and
         all(linked_layout[field]==frozen_layout[field] for field in layout_fields),
         'Text layout consumes the linked family, and unlink freezes identical geometry, warnings and used fonts')
-    native=replies[12]['result'];check(native['version']=='0.34' and run('--validate',native).returncode==0,
+    native=replies[12]['result'];check(native['version']=='0.35' and run('--validate',native).returncode==0,
         'Native 0.23 content link validates in a separate CLI process')
-    family_native=replies[22]['result'];check(family_native['version']=='0.34' and run('--validate',family_native).returncode==0,
+    family_native=replies[22]['result'];check(family_native['version']=='0.35' and run('--validate',family_native).returncode==0,
         'Native 0.23 family link validates in a separate CLI process')
     path.write_text(json.dumps(family_native,ensure_ascii=False),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
@@ -1136,7 +1204,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='vertical' and reply['linked_horizontal']['result']['evaluated']=='horizontal',
         'Unlink freezes Text direction, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.34' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.35' and run('--validate',native).returncode==0,
         'Native 0.23 Text direction link validates in a separate CLI process')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
@@ -1224,7 +1292,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='frame',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='frame' and reply['linked_auto']['result']['evaluated']=='auto',
         'Unlink freezes Text layout, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.34' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.35' and run('--validate',native).returncode==0,
         'Native 0.23 Text layout link validates in a separate CLI process')
     target_native=next(obj for obj in native['objects'] if obj['id']=='layout-b')['text']
     check(target_native['layout']=='frame' and target_native['layout_driver']==dict(link=ref_a) and
@@ -1309,7 +1377,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='end',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='center',
         'A driven alignment edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.34' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.35' and run('--validate',native).returncode==0,
         'Native 0.23 Text alignment link validates in a separate CLI process')
     check(linked_metadata['alignment']=='end' and linked_metadata['alignment_driver']==dict(link=ref_a),
         'Native 0.23 retains alignment literal separately from its stable Ref')
@@ -1403,7 +1471,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored']['result']['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
         reply['restored']['result']['evaluated']=='ja-JP',
         'Driven Text locale edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.34' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.35' and run('--validate',native).returncode==0,
         'Native 0.23 Text locale link validates in a separate CLI process')
     linked_metadata=next(obj for obj in native['objects'] if obj['id']=='locale-b')['text']
     check(linked_metadata['locale']=='ja-JP' and linked_metadata['locale_driver']==dict(link=ref_a),
@@ -1495,8 +1563,8 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored']['result']['authored']==dict(literal='nonzero',driver=dict(link=source_ref)) and
         reply['follows']['result']['evaluated']=='evenodd',
         'Fill unlink freezes the choice and Undo restores the live dependency')
-    native=reply['native']['result'];check(native['version']=='0.34' and run('--validate',native).returncode==0,
-        'Native 0.34 Fill driver validates in a separate CLI process')
+    native=reply['native']['result'];check(native['version']=='0.35' and run('--validate',native).returncode==0,
+        'Native 0.35 Fill driver validates in a separate CLI process')
     native_target=next(obj for obj in native['objects'] if obj['id']=='path-B')['stack'][-1]
     check(native_target['fill_rule']=='nonzero' and native_target['fill_rule_driver']==dict(link=source_ref),
         'Native Fill keeps the authored literal beside its stable driver')
@@ -1564,16 +1632,16 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['driven_edit']['revision']==2,
         'EnableOperation refuses a linked enabled target without changing its revision')
     native=reply['native']['result']
-    check(native['version']=='0.34' and
+    check(native['version']=='0.35' and
         next(obj for obj in native['objects'] if obj['id']=='path-B')['stack'][0]['enabled_driver']==dict(link=source_ref) and
         run('--validate',native).returncode==0,
-        'Native 0.34 preserves and validates the authored operation enabled source Ref')
+        'Native 0.35 preserves and validates the authored operation enabled source Ref')
     old=json.loads(json.dumps(native));old['version']='0.27'
     check('UNSUPPORTED_OPERATION_ENABLED_DRIVER' in run('--validate',old).stderr,
         'Native 0.27 rejects operation enabled driver smuggling')
     malformed=json.loads(json.dumps(native));next(obj for obj in malformed['objects'] if obj['id']=='path-B')['stack'][0]['enabled_driver']={'link':source_ref,'extra':True}
     check('UNKNOWN_FIELD' in run('--validate',malformed).stderr,
-        'Native 0.34 rejects unknown operation enabled driver wrapper fields')
+        'Native 0.35 rejects unknown operation enabled driver wrapper fields')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=target_ref))+'\n'+
         json.dumps(dict(op='properties'))+'\n'+json.dumps(dict(op='inspect'))+'\n',
@@ -1650,9 +1718,9 @@ with tempfile.TemporaryDirectory() as tmp:
         'Deleting a source object fails while a surviving Gradient target depends on it')
     native=reply['native']['result'];target_object=next(obj for obj in native['objects'] if obj['id']=='path-B')
     native_gradient=target_object['stack'][0]['gradient']
-    check(native['version']=='0.34' and native_gradient['enabled'] is False and native_gradient['enabled_driver']==dict(link=source_ref) and
+    check(native['version']=='0.35' and native_gradient['enabled'] is False and native_gradient['enabled_driver']==dict(link=source_ref) and
         run('--validate',native).returncode==0,
-        'Native 0.34 persists the target literal and exact closed same-field driver')
+        'Native 0.35 persists the target literal and exact closed same-field driver')
     false_version=json.loads(json.dumps(native));false_version['version']='0.28'
     check('UNSUPPORTED_GRADIENT_ENABLED_DRIVER' in run('--validate',false_version).stderr,
         'Native 0.28 rejects a falsely versioned Gradient enabled driver')
@@ -1722,9 +1790,9 @@ with tempfile.TemporaryDirectory() as tmp:
         not reply['delete_source']['ok'] and reply['delete_source']['error']['code']=='MISSING_REFERENCE' and reply['delete_source']['revision']==5,
         'Driven literal, invalid later command and referenced-source deletion reject atomically')
     native=reply['native']['result'];native_target=next(obj for obj in native['objects'] if obj['id']=='path-B')['compositing']
-    check(native['version']=='0.34' and native_target['isolated'] is False and
+    check(native['version']=='0.35' and native_target['isolated'] is False and
         native_target['isolated_driver']==dict(link=source_ref) and run('--validate',native).returncode==0,
-        'Native 0.34 keeps the authored literal and exact driver separately')
+        'Native 0.35 keeps the authored literal and exact driver separately')
     false_version=json.loads(json.dumps(native));false_version['version']='0.29'
     check('UNKNOWN_FIELD' in run('--validate',false_version).stderr,'Native 0.29 rejects a driver carried by a false version')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()

@@ -1355,4 +1355,24 @@ return the stored literal as the evaluated local value with no link or
 expression capability. Artboard movement affects Canvas world placement but
 does not rewrite those literals. `SetArtboardLayout` remains the sole full
 layout mutation owner, and native Save As retains the original Grid ID and
-layout values without adding a 0.35 field.
+layout values without a format change in that slice.
+
+## Native 0.35 — Margin left Artboard size link
+
+A present Margin may retain an optional `left_driver: {link: Ref}` beside its
+authored `left` literal. The Ref identifies another Artboard's width or height
+in the same Composition, with an empty point ID and `du` units. The evaluated
+source dimension supplies the target's local left inset; the literal and exact
+Ref remain authored. Other Margin sides and all Grid fields stay literal-only.
+The 0.35 writer omits `left_driver` when absent. Native 0.1–0.34 reject a
+version-lied driver, and `schemas/native-v0.35.schema.json` closes its shape.
+
+Dedicated `link_margin_left` and `unlink_margin_left` commands use the revisioned
+Session. Replacing a different active source requires `replace_driver`; unlink
+freezes the evaluated inset into the literal. Full layout and Artboard updates
+preserve a link while the authored left literal is unchanged and refuse direct
+driven edits or driver injection. Validation checks the evaluated inset against
+the evaluated target width before commit. Typed reads disclose literal, exact
+source and evaluated value; Canvas and the Inspector consume the evaluated
+layout. Artboard size remains independent of layout, so this one-way edge does
+not add a mixed dependency cycle.

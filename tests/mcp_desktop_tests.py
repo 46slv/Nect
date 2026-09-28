@@ -447,7 +447,7 @@ try:
         frozen_after=core('get',ref=target_gradient_ref)['result']
         assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.34' and core('get',ref=target_gradient_ref)['result']==frozen
+        assert mcp_native['version']=='0.35' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -488,6 +488,37 @@ try:
         assert not invalid['ok'] and invalid['error']['code']=='INVALID_ARTBOARD_REF'
         crop_svg=core('export_svg',composition=comp['id'],artboard=child['id'])['result']
         assert ET.fromstring(crop_svg).attrib['viewBox']=='100 50 700 240'
+        first_size=first
+        source_board=dict(id='mcp-margin-source',name='Margin source',x=0,y=0,width=40,height=100,
+            parent_size=dict(artboard='mcp-margin-upstream',width=True,height=False))
+        upstream_board=dict(id='mcp-margin-upstream',name='Margin upstream',x=0,y=0,width=40,height=100)
+        target_margin_ref=dict(object=first['id'],point='',field='margin.left')
+        margin_source_ref=dict(object='mcp-margin-source',point='',field='artboard.width')
+        margin_layout=dict(margin=dict(left=40,top=20,right=40,bottom=20),grid=dict(id='mcp-margin-grid',
+            bounds=dict(x=40,y=20,width=first_size['width']-80,height=first_size['height']-40),
+            columns=2,rows=1,column_gutter=20,row_gutter=0))
+        rev=apply([dict(type='add_artboard',composition=comp['id'],artboard=source_board,index=2),
+            dict(type='add_artboard',composition=comp['id'],artboard=upstream_board,index=3),
+            dict(type='set_artboard_layout',composition=comp['id'],artboard_id=first['id'],layout=margin_layout)],rev)
+        rev=apply([dict(type='link_margin_left',target=target_margin_ref,source=margin_source_ref,
+            replace_driver=False)],rev)
+        margin_linked=core('get',ref=target_margin_ref)['result']
+        assert margin_linked['authored']==dict(literal=40,driver=margin_source_ref,source_kind='link') and \
+            margin_linked['evaluated']==40 and margin_linked['link'] is True
+        upstream_changed=dict(upstream_board,width=60)
+        rev=apply([dict(type='update_artboard',composition=comp['id'],artboard=upstream_changed)],rev)
+        margin_updated=core('get',ref=target_margin_ref)['result']
+        margin_property=next(item for item in core('properties')['result'] if item['ref']==target_margin_ref)
+        resolved_first=next(item for item in core('artboards',composition=comp['id'])['result']
+            if item['authored']['id']==first['id'])
+        assert margin_updated['authored']==margin_linked['authored'] and margin_updated['evaluated']==60 and \
+            margin_property==margin_updated and resolved_first['evaluated']['layout']['margin']['left']==60
+        generic_margin_set=core('apply',expected_revision=rev,commands=[dict(type='set',ref=target_margin_ref,value=45)])
+        assert not generic_margin_set['ok'] and generic_margin_set['error']['code']=='MISSING_REFERENCE' and \
+            generic_margin_set['revision']==rev
+        rev=apply([dict(type='unlink_margin_left',target=target_margin_ref)],rev)
+        margin_frozen=core('get',ref=target_margin_ref)['result']
+        assert margin_frozen['authored']==dict(literal=60,driver=None,source_kind='literal') and margin_frozen['evaluated']==60
         text_source=core('text_defaults')['result'];text_source.update(id='title-source',content='\u82b1\u306e\u5f62\nNect 2026',direction='vertical')
         rev=apply([dict(type='create_text',composition=comp['id'],parent='',id='title',name='Editable title',source=text_source)],rev)
         text_source['content']='\u82b1\u306e\u8a18\u61b6\nNect 2026'
@@ -1302,7 +1333,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.34'
+        assert native_save_as['version']=='0.35'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']

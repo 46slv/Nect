@@ -2440,6 +2440,80 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
           visible_child<QLineEdit>(window,"margin-left")->text()=="25",
         "An untouched Inspector built at an older revision cannot overwrite current layout values");
 
+    const Id margin_source_id="margin-ui-source";
+    session.apply({AddArtboard{composition_id,Artboard{margin_source_id,"Margin source",0,0,40,100},1}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    auto* source_choice=visible_child<QComboBox>(window,"margin-left-link-source");
+    int source_width_choice=-1;
+    for(int i=0;i<source_choice->count();++i)
+        if(source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))source_width_choice=i;
+    check(source_width_choice>=0,"Margin source list exposes the exact stable Artboard width Ref");
+    auto* margin_link_button=visible_child<QPushButton>(window,"margin-left-link");
+    check(source_choice->currentIndex()==-1&&!margin_link_button->isEnabled(),
+        "An unlinked Margin source picker has no implicit first Artboard selection");
+    const auto before_margin_cancel=session.revision();source_choice->setCurrentIndex(source_width_choice);QApplication::processEvents();
+    check(session.revision()==before_margin_cancel&&!board().layout->margin->left_driver&&margin_link_button->isEnabled(),
+        "Choosing a Margin source enables explicit Link but remains a draft");
+    click("margin-left-cancel");
+    check(session.revision()==before_margin_cancel&&window.canvas->active_artboard()==board_id&&
+        !board().layout->margin->left_driver,"Cancel discards the Margin source draft and retains the target Artboard");
+    source_choice=visible_child<QComboBox>(window,"margin-left-link-source");
+    source_choice->setCurrentIndex(source_width_choice);QApplication::processEvents();
+    click("margin-left-link");
+    const Ref margin_target_ref{board_id,"","margin.left"};
+    const Ref margin_source_ref{margin_source_id,"","artboard.width"};
+    auto* driven_left=visible_child<QLineEdit>(window,"margin-left");
+    auto* driven_status=visible_child<QLabel>(window,"margin-left-source-state");
+    check(session.revision()==before_margin_cancel+1&&driven_left->isReadOnly()&&driven_left->text()=="25"&&
+        artboard_layout_property(session.document(),margin_target_ref).driver==margin_source_ref&&
+        driven_status->text().contains("Literal: 25")&&driven_status->text().contains("Evaluated: 40"),
+        "Margin Inspector links by stable Ref, keeps the authored literal read-only and shows evaluated status separately");
+    input("margin-top","5",true);
+    check(board().layout->margin->top==5&&board().layout->margin->left==25&&
+        board().layout->margin->left_driver==margin_source_ref,
+        "Editing an unrelated Margin side carries the authored left literal and preserves its source");
+    auto source_artboard=session.document().compositions.front().artboards[1];source_artboard.width=60;
+    session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==60&&
+        visible_child<QLabel>(window,"margin-left-source-state")->text().contains("Evaluated: 60"),
+        "Inspector status follows upstream Artboard width without changing authored left");
+    click("grid-copy-margin-box");
+    check(board().layout->grid&&board().layout->grid->bounds.x==60&&
+        board().layout->grid->bounds.width==evaluate_artboard(session.document().compositions.front(),board_id).width-60,
+        "Grid-to-Margin copy uses the evaluated linked inset once");
+    click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
+    const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
+    check(duplicate!=session.document().compositions.front().artboards.end()&&duplicate->layout&&
+        duplicate->layout->margin->left_driver==margin_source_ref&&
+        duplicate->layout->grid->id!=board().layout->grid->id&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==60,
+        "Duplicate frame strips the driver from AddArtboard and reapplies the exact source to its new stable target");
+    auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
+    for(int i=0;i<artboards->count();++i)
+        if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);
+    check(original_row!=nullptr,"Original linked target remains in the Artboard navigator after duplication");
+    QTest::mouseClick(artboards->viewport(),Qt::LeftButton,Qt::NoModifier,artboards->visualItemRect(original_row).center());QApplication::processEvents();
+    click("artboard-edit");
+    driven_left=visible_child<QLineEdit>(window,"margin-left");
+    const auto before_readonly_attempt=session.revision();driven_left->setFocus();QTest::keyClick(driven_left,Qt::Key_A,Qt::ControlModifier);
+    QTest::keyClicks(driven_left,"99");QTest::keyClick(driven_left,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==before_readonly_attempt&&driven_left->isReadOnly()&&board().layout->margin->left==25,
+        ("A driven Margin left field refuses direct Inspector edits without changing the source or literal: rev="+
+            std::to_string(session.revision())+" expected="+std::to_string(before_readonly_attempt)+
+            " readonly="+std::to_string(driven_left->isReadOnly())+" field="+driven_left->text().toStdString()+
+            " literal="+std::to_string(board().layout->margin->left)).c_str());
+    click("margin-left-unlink");
+    check(board().layout->margin->left==60&&!board().layout->margin->left_driver,
+        "Inspector Unlink freezes the currently evaluated inset into its literal");
+    source_artboard=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==margin_source_id;});
+    source_artboard.width=80;
+    session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
+    check(board().layout->margin->left==60&&!board().layout->margin->left_driver&&
+        std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==60,
+        "Unlinked Margin remains frozen when its former source changes");
+
     session.apply({SetArtboardLayout{composition_id,board_id,
                        ArtboardLayout{Margin{25,0,0,0},Grid{"recovery-grid",{25,0,100,100},2,1,10,0}}},
                    AddGuide{composition_id,{"recovery-guide","Recovery","y",25}}},session.revision());
