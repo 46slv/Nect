@@ -1235,9 +1235,10 @@ ArtboardLayoutProperty artboard_layout_property(const Document& document,const R
                     value.left_driver?"link":value.left_expression?"expression":"literal"};
             }
             if(ref.field=="margin.top") {
-                const bool driven=value.top_driver.has_value();
+                const bool driven=value.top_driver||value.top_expression;
                 const auto evaluated=driven?evaluate_artboard(composition,board.id).layout->margin->top:value.top;
-                return {value.top,value.top_driver,evaluated,{},value.top_driver?"link":"literal"};
+                return {value.top,value.top_driver,evaluated,value.top_expression,
+                    value.top_driver?"link":value.top_expression?"expression":"literal"};
             }
             if(ref.field=="margin.right")return {value.right,{},value.right};
             return {value.bottom,{},value.bottom};
@@ -2013,6 +2014,7 @@ using GridBoundsYLocation=GridBoundsXLocation;
 CompiledExpression compile_grid_bounds_x_expression(const Expression& expression);
 CompiledExpression compile_grid_bounds_y_expression(const Expression& expression);
 CompiledExpression compile_margin_left_expression(const Expression& expression);
+CompiledExpression compile_margin_top_expression(const Expression& expression);
 GridBoundsXLocation grid_bounds_x_location(Document& document,const Ref& ref,const char* role) {
     require(ref.point.empty(),"INVALID_LAYOUT_REF",std::string("Grid bounds x ")+role+" requires an empty point ID");
     require(ref.field=="grid.bounds.x","UNKNOWN_LAYOUT_PROPERTY",ref.field);
@@ -2202,11 +2204,32 @@ void edit_margin_top(Document& document,const LinkMarginTop& command) {
     require(target.composition==source.composition,"WRONG_COMPOSITION","Margin top links must stay within one Composition");
     require(target.board->id!=source.board->id,"ARTBOARD_SELF_LINK","Margin top cannot depend on its own Artboard size");
     require(target.board->layout&&target.board->layout->margin,"MISSING_MARGIN",target.board->id);
-    auto& slot=target.board->layout->margin->top_driver;
-    const bool same_link=slot&&*slot==command.source;
-    require(!slot||same_link||command.replace_driver,"DRIVEN_MARGIN_TOP",
+    auto& margin=*target.board->layout->margin;
+    const bool same_link=margin.top_driver&&*margin.top_driver==command.source&&!margin.top_expression;
+    require((!margin.top_driver&&!margin.top_expression)||same_link||command.replace_driver,"DRIVEN_MARGIN_TOP",
         "Replacing a Margin top source requires replace_driver=true");
-    slot=command.source;
+    margin.top_driver=command.source;
+    margin.top_expression.reset();
+}
+void edit_margin_top(Document& document,const SetMarginTopExpression& command) {
+    require(command.target.point.empty()&&command.target.field=="margin.top","INVALID_LAYOUT_REF",
+        "Margin top expression target must be an empty-point margin.top Ref");
+    const auto target=margin_top_location(document,command.target,"expression target");
+    require(target.board->layout&&target.board->layout->margin,"MISSING_MARGIN",target.board->id);
+    const auto compiled=compile_margin_top_expression(command.expression);
+    for(const auto& source_ref:expression_dependencies(compiled)) {
+        const auto source=artboard_dimension_location(document,source_ref,"expression source");
+        require(target.composition==source.composition,"WRONG_COMPOSITION",
+            "Margin top expressions must stay within one Composition");
+        require(target.board->id!=source.board->id,"ARTBOARD_SELF_LINK",
+            "Margin top cannot depend on its own Artboard size");
+    }
+    auto& margin=*target.board->layout->margin;
+    const bool same_expression=!margin.top_driver&&margin.top_expression==command.expression;
+    require((!margin.top_driver&&!margin.top_expression)||same_expression||command.replace_driver,
+        "DRIVEN_MARGIN_TOP","Replacing a Margin top source requires replace_driver=true");
+    margin.top_driver.reset();
+    margin.top_expression=command.expression;
 }
 void edit_margin_top(Document& document,const UnlinkMarginTop& command) {
     require(command.target.point.empty()&&command.target.field=="margin.top","INVALID_LAYOUT_REF",
@@ -2214,9 +2237,11 @@ void edit_margin_top(Document& document,const UnlinkMarginTop& command) {
     const auto target=margin_top_location(document,command.target,"unlink target");
     require(target.board->layout&&target.board->layout->margin,"MISSING_MARGIN",target.board->id);
     auto& margin=*target.board->layout->margin;
-    require(margin.top_driver.has_value(),"MARGIN_TOP_NOT_LINKED","Margin top has no Artboard size link to unlink");
+    require(margin.top_driver.has_value()||margin.top_expression.has_value(),"MARGIN_TOP_NOT_LINKED",
+        "Margin top has no Artboard size link or expression to unlink");
     margin.top=evaluate_artboard(*target.composition,target.board->id).layout->margin->top;
     margin.top_driver.reset();
+    margin.top_expression.reset();
 }
 CompiledExpression compile_artboard_size_expression(const Expression& expression) {
     const auto compiled=compile_expression(expression);validate_expression_unit(compiled,"du");
@@ -2247,12 +2272,22 @@ CompiledExpression compile_margin_left_expression(const Expression& expression) 
             "Margin left expressions may reference only empty-point Artboard width and height properties");
     return compiled;
 }
+CompiledExpression compile_margin_top_expression(const Expression& expression) {
+    const auto compiled=compile_expression(expression);validate_expression_unit(compiled,"du");
+    for(const auto& source:expression_dependencies(compiled))
+        require(artboard_size_ref(source),"MARGIN_TOP_EXPRESSION_TYPE",
+            "Margin top expressions may reference only empty-point Artboard width and height properties");
+    return compiled;
+}
 bool artboard_references_id(const Artboard& board,const Id& id) {
     if(board.parent_size&&board.parent_size->artboard==id)return true;
     if(board.layout&&board.layout->margin&&board.layout->margin->left_driver&&
         board.layout->margin->left_driver->object==id)return true;
     if(board.layout&&board.layout->margin&&board.layout->margin->top_driver&&
         board.layout->margin->top_driver->object==id)return true;
+    if(board.layout&&board.layout->margin&&board.layout->margin->top_expression)
+        for(const auto& source:expression_dependencies(*board.layout->margin->top_expression))
+            if(source.object==id)return true;
     if(board.layout&&board.layout->margin&&board.layout->margin->left_expression)
         for(const auto& source:expression_dependencies(*board.layout->margin->left_expression))
             if(source.object==id)return true;
@@ -2293,17 +2328,20 @@ void preserve_margin_left_source(const Margin* existing,Margin* incoming) {
         "Create Margin left sources with link_margin_left or set_margin_left_expression");
 }
 void preserve_margin_top_source(const Margin* existing,Margin* incoming) {
-    const bool existing_source=existing&&existing->top_driver.has_value();
-    const bool incoming_source=incoming&&incoming->top_driver.has_value();
+    const bool existing_source=existing&&(existing->top_driver||existing->top_expression);
+    const bool incoming_source=incoming&&(incoming->top_driver||incoming->top_expression);
     if(existing_source) {
         require(incoming,"DRIVEN_MARGIN_TOP","Unlink Margin top before clearing its Margin");
         require(incoming->top==existing->top,"DRIVEN_MARGIN_TOP",
             "Unlink Margin top before changing its authored literal");
         require(!incoming->top_driver||incoming->top_driver==existing->top_driver,
             "MARGIN_DRIVER_SMUGGLING","Use link_margin_top to change the Margin top source");
+        require(!incoming->top_expression||incoming->top_expression==existing->top_expression,
+            "MARGIN_DRIVER_SMUGGLING","Use set_margin_top_expression to change the Margin top source");
         incoming->top_driver=existing->top_driver;
+        incoming->top_expression=existing->top_expression;
     } else require(!incoming_source,"MARGIN_DRIVER_SMUGGLING",
-        "Create Margin top sources with link_margin_top");
+        "Create Margin top sources with link_margin_top or set_margin_top_expression");
 }
 void preserve_grid_bounds_x_source(const Grid* existing,Grid* incoming) {
     const bool existing_source=existing&&(existing->bounds_x_driver||existing->bounds_x_expression);
@@ -2357,6 +2395,8 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
         auto& margin=*result.layout->margin;
         require(!(margin.left_driver&&margin.left_expression),"MARGIN_SOURCE_CONFLICT",
             "Margin left may have only one active source");
+        require(!(margin.top_driver&&margin.top_expression),"MARGIN_SOURCE_CONFLICT",
+            "Margin top may have only one active source");
         if(margin.left_driver) {
             require(margin.left_driver->object!=artboard,"ARTBOARD_SELF_LINK","Margin left cannot depend on its own Artboard size");
             margin.left=evaluator.value(*margin.left_driver);
@@ -2376,6 +2416,16 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
                 "Margin top source must be an empty-point Artboard width or height Ref");
             require(margin.top_driver->object!=artboard,"ARTBOARD_SELF_LINK","Margin top cannot depend on its own Artboard size");
             margin.top=evaluator.value(*margin.top_driver);
+        } else if(margin.top_expression) {
+            const auto& compiled=compiled_expression(expressions,*margin.top_expression);
+            validate_expression_unit(compiled,"du");
+            for(const auto& source:expression_dependencies(compiled)) {
+                require(artboard_size_ref(source),"MARGIN_TOP_EXPRESSION_TYPE",
+                    "Margin top expressions may reference only empty-point Artboard width and height properties");
+                require(source.object!=artboard,"ARTBOARD_SELF_LINK","Margin top cannot depend on its own Artboard size");
+                (void)evaluator.value(source);
+            }
+            margin.top=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
         }
     }
     if(result.layout&&result.layout->grid) {
@@ -2608,6 +2658,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     for(const auto& source:expression_dependencies(compiled))validate_margin_source(source);
                 }
                 if(margin.top_driver)validate_margin_source(*margin.top_driver,true);
+                if(margin.top_expression) {
+                    const auto compiled=compile_margin_top_expression(*margin.top_expression);
+                    for(const auto& source:expression_dependencies(compiled))validate_margin_source(source,true);
+                }
             }
             if(a.layout&&a.layout->grid) {
                 const auto& grid=*a.layout->grid;
@@ -3873,7 +3927,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 using Operation=std::decay_t<decltype(operation)>;
                 constexpr bool margin_operation=std::is_same_v<Operation,LinkMarginLeft>||
                     std::is_same_v<Operation,SetMarginLeftExpression>||std::is_same_v<Operation,UnlinkMarginLeft>;
-                constexpr bool margin_top_operation=std::is_same_v<Operation,LinkMarginTop>||std::is_same_v<Operation,UnlinkMarginTop>;
+                constexpr bool margin_top_operation=std::is_same_v<Operation,LinkMarginTop>||
+                    std::is_same_v<Operation,SetMarginTopExpression>||std::is_same_v<Operation,UnlinkMarginTop>;
                 constexpr bool grid_y_operation=std::is_same_v<Operation,LinkGridBoundsY>||std::is_same_v<Operation,UnlinkGridBoundsY>;
                 std::set<Ref>* targets;
                 if constexpr(margin_operation)targets=&margin_left_targets;
@@ -4220,6 +4275,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     "MARGIN_DRIVER_SMUGGLING","Create Margin left expressions with set_margin_left_expression");
                 require(!c.artboard.layout||!c.artboard.layout->margin||!c.artboard.layout->margin->top_driver,
                     "MARGIN_DRIVER_SMUGGLING","Create Margin top drivers with link_margin_top");
+                require(!c.artboard.layout||!c.artboard.layout->margin||!c.artboard.layout->margin->top_expression,
+                    "MARGIN_DRIVER_SMUGGLING","Create Margin top expressions with set_margin_top_expression");
                 require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->bounds_x_driver,
                     "GRID_DRIVER_SMUGGLING","Create Grid bounds x drivers with link_grid_bounds_x");
                 require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->bounds_x_expression,
@@ -4334,7 +4391,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 if constexpr(std::is_same_v<Operation,LinkMarginLeft>||std::is_same_v<Operation,SetMarginLeftExpression>||
                     std::is_same_v<Operation,UnlinkMarginLeft>)
                     edit_margin_left(candidate,operation);
-                else if constexpr(std::is_same_v<Operation,LinkMarginTop>||std::is_same_v<Operation,UnlinkMarginTop>)
+                else if constexpr(std::is_same_v<Operation,LinkMarginTop>||std::is_same_v<Operation,SetMarginTopExpression>||
+                    std::is_same_v<Operation,UnlinkMarginTop>)
                     edit_margin_top(candidate,operation);
                 else if constexpr(std::is_same_v<Operation,LinkGridBoundsX>||std::is_same_v<Operation,SetGridBoundsXExpression>||
                     std::is_same_v<Operation,UnlinkGridBoundsX>)
@@ -4612,7 +4670,7 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
             const bool source_transition=std::visit([](const auto& operation) {
                 using T=std::decay_t<decltype(operation)>;
                 return std::is_same_v<T,LinkMarginLeft>||std::is_same_v<T,SetMarginLeftExpression>||
-                    std::is_same_v<T,LinkMarginTop>||
+                    std::is_same_v<T,LinkMarginTop>||std::is_same_v<T,SetMarginTopExpression>||
                     std::is_same_v<T,LinkGridBoundsX>||std::is_same_v<T,SetGridBoundsXExpression>||
                     std::is_same_v<T,LinkGridBoundsY>||std::is_same_v<T,SetGridBoundsYExpression>;
             },layout_source->operation);

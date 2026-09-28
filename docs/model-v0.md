@@ -1507,3 +1507,24 @@ Canvas Margin overlay, Inspector and one-shot Grid-to-Margin copy use evaluated
 top. Native Save As retains the literal and source; versions 0.1–0.40 remain
 readable and reject a version-lied top driver.
 `schemas/native-v0.41.schema.json` closes the optional field.
+
+## Native 0.42 — Margin top expression
+
+A present Margin may retain `top_expression: {source,version:1}` beside its
+authored `top` literal, mutually exclusive with `top_driver`. The bounded
+numeric expression evaluates to Artboard-local `du`; each `ref()` may address
+only width or height on a distinct Artboard in the owner's Composition. The
+existing Artboard-size evaluator resolves parent, link and expression sources.
+Evaluated top plus authored bottom must leave positive content height.
+
+Dedicated revisioned `set_margin_top_expression` authors the expression.
+Replacing a link or different expression requires `replace_driver`; the
+existing unlink command freezes evaluated top into the literal. Full layout
+and Artboard updates preserve an unchanged source, while rejecting direct
+driven edits and source injection. Duplication replays the exact expression;
+deleting a referenced source Artboard is refused. Typed reads expose literal,
+exact expression and evaluated top. Canvas Margin overlay, Inspector and
+Grid-to-Margin copy consume evaluated top. Native Save As retains source text
+and literal; versions 0.1–0.41 remain readable and reject a version-lied top
+expression. `schemas/native-v0.42.schema.json` closes the optional field and
+rejects simultaneous top link and expression sources.

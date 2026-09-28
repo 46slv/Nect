@@ -380,7 +380,7 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
           destination_bytes.contains(QByteArray::fromStdString(std::string("\"version\":\"")+native_version+"\""))&&
           saved_board.id==artboard_id&&saved_board.layout&&*saved_board.layout==committed_layout&&
           bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash,
-          "Valid Save As writes exact native 0.41 bytes and retains all authored layout fields and IDs");
+          "Valid Save As writes exact native 0.42 bytes and retains all authored layout fields and IDs");
     check(host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
           QJsonDocument::fromJson(bytes(recovery_meta)).object()["source_file"]==native_path(destination),
           "Recovery provenance follows the Grid and Margin Save As destination");
@@ -494,8 +494,10 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     changed_upstream.width=60;changed_upstream.height=70;
     host.session.apply({UpdateArtboard{composition,changed_upstream}},host.session.revision());host.edited();
     const Expression margin_expression{R"(ref("save-margin-left-source","","artboard.width") + 10)",1};
+    const Expression margin_top_expression{R"(ref("save-margin-left-source","","artboard.height") + 10)",1};
     const Expression y_expression{R"(ref("save-margin-left-source","","artboard.width"))",1};
     host.session.apply({MarginLeftCommand{SetMarginLeftExpression{target_ref,margin_expression,true}}},host.session.revision());host.edited();
+    host.session.apply({MarginTopCommand{SetMarginTopExpression{target_top_ref,margin_top_expression,true}}},host.session.revision());host.edited();
     host.session.apply({GridBoundsYCommand{SetGridBoundsYExpression{grid_y_ref,y_expression,true}}},host.session.revision());host.edited();
     const auto committed=host.session.document();
     const auto committed_bytes=QByteArray::fromStdString(encode(committed));
@@ -505,13 +507,13 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto linked_grid_y=artboard_layout_property(committed,grid_y_ref);
     check(std::get<double>(linked.literal)==40&&!linked.driver&&linked.expression==margin_expression&&
           linked.source_kind=="expression"&&std::get<double>(linked.evaluated)==70&&
-          std::get<double>(linked_top.literal)==20&&linked_top.driver==source_top_ref&&
-          linked_top.source_kind=="link"&&std::get<double>(linked_top.evaluated)==70&&
+          std::get<double>(linked_top.literal)==20&&!linked_top.driver&&linked_top.expression==margin_top_expression&&
+          linked_top.source_kind=="expression"&&std::get<double>(linked_top.evaluated)==80&&
           std::get<double>(linked_grid_x.literal)==40&&linked_grid_x.driver==source_ref&&
           std::get<double>(linked_grid_x.evaluated)==60&&std::get<double>(linked_grid_y.literal)==20&&
           !linked_grid_y.driver&&linked_grid_y.expression==y_expression&&
           linked_grid_y.source_kind=="expression"&&std::get<double>(linked_grid_y.evaluated)==60,
-        "Host retains Margin and Grid y expressions beside their authored literals after the upstream edit");
+        "Host retains Margin top/left and Grid y expressions beside their authored literals after the upstream edit");
 
     const auto destination=directory+"/linked-margin-left-destination.nect";
     host.save(destination);host.recover();
@@ -522,15 +524,15 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_x=artboard_layout_property(persisted,grid_x_ref);
     const auto persisted_grid_y=artboard_layout_property(persisted,grid_y_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.41\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.42\"")&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&
-        std::get<double>(persisted_top.literal)==20&&persisted_top.driver==source_top_ref&&
-        std::get<double>(persisted_top.evaluated)==70&&
+        std::get<double>(persisted_top.literal)==20&&!persisted_top.driver&&persisted_top.expression==margin_top_expression&&
+        std::get<double>(persisted_top.evaluated)==80&&
         std::get<double>(persisted_grid_x.literal)==40&&persisted_grid_x.driver==source_ref&&std::get<double>(persisted_grid_x.evaluated)==60&&
         std::get<double>(persisted_grid_y.literal)==20&&!persisted_grid_y.driver&&
         persisted_grid_y.expression==y_expression&&std::get<double>(persisted_grid_y.evaluated)==60,
-        "Host Save As writes exact native 0.41 Margin and Grid y expressions beside authored literals");
+        "Host Save As writes exact native 0.42 Margin top/left and Grid y expressions beside authored literals");
 
     Host cold(directory+"/linked-margin-left-cold-recovery");cold.open(destination);
     const auto cold_value=artboard_layout_property(cold.session.document(),target_ref);
@@ -539,8 +541,8 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto cold_grid_y=artboard_layout_property(cold.session.document(),grid_y_ref);
     check(cold.session.revision()==0&&cold.session.document()==committed&&std::get<double>(cold_value.literal)==40&&
         !cold_value.driver&&cold_value.expression==margin_expression&&std::get<double>(cold_value.evaluated)==70&&
-        std::get<double>(cold_top.literal)==20&&cold_top.driver==source_top_ref&&
-        std::get<double>(cold_top.evaluated)==70&&
+        std::get<double>(cold_top.literal)==20&&!cold_top.driver&&cold_top.expression==margin_top_expression&&
+        std::get<double>(cold_top.evaluated)==80&&
         std::get<double>(cold_grid_x.literal)==40&&cold_grid_x.driver==source_ref&&std::get<double>(cold_grid_x.evaluated)==60&&
         std::get<double>(cold_grid_y.literal)==20&&!cold_grid_y.driver&&
         cold_grid_y.expression==y_expression&&std::get<double>(cold_grid_y.evaluated)==60,
@@ -550,6 +552,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     check(process.waitForStarted(5000),"Start a distinct JSON-lines process on the Margin expression Save As destination");
     const QJsonObject ref{{"object",QString::fromStdString(target)},{"point",""},{"field","margin.left"}};
     const auto query=QJsonDocument(QJsonObject{{"op","get"},{"ref",ref}}).toJson(QJsonDocument::Compact)+'\n'+
+        QJsonDocument(QJsonObject{{"op","get"},{"ref",QJsonObject{{"object",QString::fromStdString(target)},{"point",""},{"field","margin.top"}}}}).toJson(QJsonDocument::Compact)+'\n'+
         QJsonDocument(QJsonObject{{"op","get"},{"ref",QJsonObject{{"object","save-margin-left-grid"},{"point",""},{"field","grid.bounds.x"}}}}).toJson(QJsonDocument::Compact)+'\n'+
         QJsonDocument(QJsonObject{{"op","get"},{"ref",QJsonObject{{"object","save-margin-left-grid"},{"point",""},{"field","grid.bounds.y"}}}}).toJson(QJsonDocument::Compact)+'\n'+
         QByteArray("{\"op\":\"inspect\"}\n");
@@ -558,16 +561,20 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     check(process.waitForFinished(10000)&&process.exitStatus()==QProcess::NormalExit&&process.exitCode()==0,
         "Distinct JSON-lines process exits after reading the Margin expression destination");
     const auto output=process.readAllStandardOutput().trimmed().split('\n');
-    check(output.size()==4,"Cold process returns linked Margin/Grid typed reads and one native inspect reply");
+    check(output.size()==5,"Cold process returns linked Margin/Grid typed reads and one native inspect reply");
     const auto read=QJsonDocument::fromJson(output[0]).object()["result"].toObject();
-    const auto grid_read=QJsonDocument::fromJson(output[1]).object()["result"].toObject();
-    const auto grid_y_read=QJsonDocument::fromJson(output[2]).object()["result"].toObject();
-    const auto native=QJsonDocument::fromJson(output[3]).object()["result"].toObject();
+    const auto top_read=QJsonDocument::fromJson(output[1]).object()["result"].toObject();
+    const auto grid_read=QJsonDocument::fromJson(output[2]).object()["result"].toObject();
+    const auto grid_y_read=QJsonDocument::fromJson(output[3]).object()["result"].toObject();
+    const auto native=QJsonDocument::fromJson(output[4]).object()["result"].toObject();
     const auto expression=read["authored"].toObject()["expression"].toObject();
     const auto grid_driver=grid_read["authored"].toObject()["driver"].toObject();
     check(read["authored"].toObject()["literal"].toDouble()==40&&read["evaluated"].toDouble()==70&&
         read["authored"].toObject()["source_kind"].toString()=="expression"&&read["expression"].toBool()&&
         expression["source"].toString()==QString::fromStdString(margin_expression.source)&&
+        top_read["authored"].toObject()["literal"].toDouble()==20&&top_read["evaluated"].toDouble()==80&&
+        top_read["expression"].toBool()&&top_read["authored"].toObject()["source_kind"].toString()=="expression"&&
+        top_read["authored"].toObject()["expression"].toObject()["source"].toString()==QString::fromStdString(margin_top_expression.source)&&
         grid_read["authored"].toObject()["literal"].toDouble()==40&&
         grid_read["evaluated"].toDouble()==60&&grid_read["link"].toBool()&&
         grid_driver["object"].toString()==QString::fromStdString(source)&&grid_driver["field"].toString()=="artboard.width"&&

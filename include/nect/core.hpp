@@ -283,6 +283,7 @@ struct Margin {
     std::optional<Ref> left_driver;
     std::optional<Expression> left_expression;
     std::optional<Ref> top_driver;
+    std::optional<Expression> top_expression;
     bool operator==(const Margin&) const = default;
 };
 struct Grid {
@@ -422,6 +423,7 @@ struct LinkMarginLeft { Ref target; Ref source; bool replace_driver=false; };
 struct SetMarginLeftExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkMarginLeft { Ref target; };
 struct LinkMarginTop { Ref target; Ref source; bool replace_driver=false; };
+struct SetMarginTopExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkMarginTop { Ref target; };
 struct LinkGridBoundsX { Ref target; Ref source; bool replace_driver=false; };
 struct SetGridBoundsXExpression { Ref target; Expression expression; bool replace_driver=false; };
@@ -430,13 +432,14 @@ struct LinkGridBoundsY { Ref target; Ref source; bool replace_driver=false; };
 struct SetGridBoundsYExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridBoundsY { Ref target; };
 struct LayoutDependencyCommand {
-    std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkMarginTop,UnlinkMarginTop,
+    std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkMarginTop,SetMarginTopExpression,UnlinkMarginTop,
         LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX,
         LinkGridBoundsY,SetGridBoundsYExpression,UnlinkGridBoundsY> operation;
     LayoutDependencyCommand(LinkMarginLeft value):operation(std::move(value)){}
     LayoutDependencyCommand(SetMarginLeftExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkMarginLeft value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkMarginTop value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetMarginTopExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkMarginTop value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkGridBoundsX value):operation(std::move(value)){}
     LayoutDependencyCommand(SetGridBoundsXExpression value):operation(std::move(value)){}

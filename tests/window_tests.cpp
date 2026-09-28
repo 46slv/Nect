@@ -2599,6 +2599,43 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     margin_top_source_choice->setCurrentIndex(margin_top_source_index);QApplication::processEvents();
     margin_top_replace->setChecked(true);click("margin-top-link");
     margin_top_replace=visible_child<QCheckBox>(window,"margin-top-replace");margin_top_replace->setChecked(false);
+    const QString margin_top_expression_text=QString::fromStdString("ref(\""+margin_source_id+"\",\"\",\"artboard.height\") - 20");
+    auto* margin_top_expression=visible_child<QPlainTextEdit>(window,"margin-top-expression");
+    auto* margin_top_expression_apply=visible_child<QPushButton>(window,"margin-top-apply-expression");
+    margin_top_expression->setPlainText(margin_top_expression_text);QApplication::processEvents();
+    const auto before_unapproved_margin_top_expression=session.revision();
+    QTest::mouseClick(margin_top_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_margin_top_expression&&
+        board().layout->margin->top_driver==margin_top_source_ref&&!board().layout->margin->top_expression&&
+        margin_top_expression->toPlainText()==margin_top_expression_text&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_TOP"),
+        "Margin top expression draft stays visible until an explicit source replacement is authorized");
+    margin_top_replace=visible_child<QCheckBox>(window,"margin-top-replace");margin_top_replace->setChecked(true);
+    margin_top_expression_apply=visible_child<QPushButton>(window,"margin-top-apply-expression");
+    QTest::mouseClick(margin_top_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    driven_margin_top=visible_child<QLineEdit>(window,"margin-top");
+    margin_top_status=visible_child<QLabel>(window,"margin-top-source-state");
+    const Expression margin_top_expression_source{margin_top_expression_text.toStdString(),1};
+    check(session.revision()==before_unapproved_margin_top_expression+1&&driven_margin_top->isReadOnly()&&
+        !board().layout->margin->top_driver&&board().layout->margin->top_expression==margin_top_expression_source&&
+        artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).driver==std::nullopt&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==80&&
+        margin_top_status->text().contains("expression")&&margin_top_status->text().contains("Literal: 0")&&
+        margin_top_status->text().contains("Evaluated: 80"),
+        "Margin top Inspector applies the explicit du expression and retains a read-only literal plus evaluation");
+    margin_top_expression=visible_child<QPlainTextEdit>(window,"margin-top-expression");
+    margin_top_expression->setPlainText("ref(");QApplication::processEvents();
+    const auto before_invalid_margin_top_expression=session.revision();
+    margin_top_expression_apply=visible_child<QPushButton>(window,"margin-top-apply-expression");
+    QTest::mouseClick(margin_top_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_invalid_margin_top_expression&&margin_top_expression->toPlainText()=="ref("&&
+        board().layout->margin->top_expression==margin_top_expression_source&&
+        window.statusBar()->currentMessage().contains("EXPRESSION_SYNTAX"),
+        "Invalid Margin top expression remains a draft without changing the active source");
+    click("margin-top-cancel-expression");
+    check(session.revision()==before_invalid_margin_top_expression&&
+        board().layout->margin->top_expression==margin_top_expression_source&&window.canvas->active_artboard()==board_id,
+        "Cancel discards an invalid Margin top expression draft and keeps the committed expression and selection");
     source_choice=visible_child<QComboBox>(window,"margin-left-link-source");
     margin_search=visible_child<QLineEdit>(window,"margin-left-link-source-search");
     margin_link_button=visible_child<QPushButton>(window,"margin-left-link");
@@ -2642,22 +2679,23 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         "Margin Inspector links by stable Ref, keeps the authored literal read-only and shows evaluated status separately");
     const auto before_margin_top_literal_attempt=session.revision();auto* margin_top_attempt=input("margin-top","5",true);
     check(session.revision()==before_margin_top_literal_attempt&&margin_top_attempt->isReadOnly()&&
-        board().layout->margin->top==0&&board().layout->margin->top_driver==margin_top_source_ref&&
+        board().layout->margin->top==0&&!board().layout->margin->top_driver&&
+        board().layout->margin->top_expression==margin_top_expression_source&&
         board().layout->margin->left==25&&board().layout->margin->left_driver==margin_source_ref,
-        "The linked Margin top literal stays read-only while unrelated Margin edits preserve both stable sources");
+        "The expression-driven Margin top literal stays read-only while unrelated edits preserve both sources");
     auto source_artboard=session.document().compositions.front().artboards[1];source_artboard.width=60;source_artboard.height=80;
     session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
     check(std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==60&&
-        std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==80&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==60&&
         visible_child<QLabel>(window,"margin-left-source-state")->text().contains("Evaluated: 60")&&
-        visible_child<QLabel>(window,"margin-top-source-state")->text().contains("Evaluated: 80"),
+        visible_child<QLabel>(window,"margin-top-source-state")->text().contains("Evaluated: 60"),
         "Inspector statuses follow independent upstream width and height edits without changing authored insets");
     input("margin-right","40",true);
     click("grid-copy-margin-box");
-    check(board().layout->grid&&board().layout->grid->bounds.x==60&&board().layout->grid->bounds.y==80&&
+    check(board().layout->grid&&board().layout->grid->bounds.x==60&&board().layout->grid->bounds.y==60&&
         board().layout->grid->bounds.width==evaluate_artboard(session.document().compositions.front(),board_id).width-100&&
-        board().layout->grid->bounds.height==evaluate_artboard(session.document().compositions.front(),board_id).height-80,
-        "Grid-to-Margin copy uses evaluated left and linked top while retaining the authored bottom inset");
+        board().layout->grid->bounds.height==evaluate_artboard(session.document().compositions.front(),board_id).height-60,
+        "Grid-to-Margin copy uses evaluated Margin left and top while retaining the authored bottom inset");
     auto* grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
     auto* grid_search=visible_child<QLineEdit>(window,"grid-bounds-x-link-source-search");
     int grid_source_width_choice=-1;
@@ -2800,10 +2838,20 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     const Ref grid_y_source_ref{grid_y_source_id,"","artboard.width"};
     auto* driven_grid_y=visible_child<QLineEdit>(window,"grid-y");
     auto* grid_y_status=visible_child<QLabel>(window,"grid-bounds-y-source-state");
-    check(session.revision()==before_grid_y_link+1&&driven_grid_y->isReadOnly()&&driven_grid_y->text()=="80"&&
-        artboard_layout_property(session.document(),grid_y_target_ref).driver==grid_y_source_ref&&
-        grid_y_status->text().contains("Literal: 80")&&grid_y_status->text().contains("Evaluated: 20"),
-        "Grid y Inspector links a searched stable Ref, keeps the literal read-only and shows evaluated status");
+    const auto linked_grid_y=artboard_layout_property(session.document(),grid_y_target_ref);
+    const auto linked_grid_y_details="revision="+std::to_string(session.revision())+
+        ", expected="+std::to_string(before_grid_y_link+1)+
+        ", readonly="+std::to_string(driven_grid_y->isReadOnly())+
+        ", literal_widget="+driven_grid_y->text().toStdString()+
+        ", source_kind="+linked_grid_y.source_kind+
+        ", source="+(linked_grid_y.driver?linked_grid_y.driver->object+"/"+linked_grid_y.driver->field:"none")+
+        ", evaluated="+std::to_string(std::get<double>(linked_grid_y.evaluated))+
+        ", state="+grid_y_status->text().toStdString();
+    check(session.revision()==before_grid_y_link+1&&driven_grid_y->isReadOnly()&&driven_grid_y->text()=="60"&&
+        linked_grid_y.driver==grid_y_source_ref&&
+        grid_y_status->text().contains("Literal: 60")&&grid_y_status->text().contains("Evaluated: 20"),
+        "Grid y Inspector links a searched stable Ref, keeps the literal read-only and shows evaluated status: "+
+            linked_grid_y_details);
     auto grid_y_source_artboard=*std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==grid_y_source_id;});
     grid_y_source_artboard.width=25;
@@ -2844,11 +2892,11 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         "Replacing the Grid y link with an expression requires visible authorization");
     grid_y_replace->setChecked(true);QTest::mouseClick(grid_y_expression_apply,Qt::LeftButton);QApplication::processEvents();
     driven_grid_y=visible_child<QLineEdit>(window,"grid-y");grid_y_status=visible_child<QLabel>(window,"grid-bounds-y-source-state");
-    check(session.revision()==before_grid_y_draft+1&&driven_grid_y->isReadOnly()&&driven_grid_y->text()=="80"&&
+    check(session.revision()==before_grid_y_draft+1&&driven_grid_y->isReadOnly()&&driven_grid_y->text()=="60"&&
         !board().layout->grid->bounds_y_driver&&
         board().layout->grid->bounds_y_expression==Expression{grid_y_expression_text.toStdString(),1}&&
         std::get<double>(artboard_layout_property(session.document(),grid_y_target_ref).evaluated)==25&&
-        grid_y_status->text().contains("expression")&&grid_y_status->text().contains("Literal: 80")&&
+        grid_y_status->text().contains("expression")&&grid_y_status->text().contains("Literal: 60")&&
         grid_y_status->text().contains("Evaluated: 25"),
         "Grid y Inspector applies an explicit du expression and retains the literal plus evaluated status");
     click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
@@ -2856,7 +2904,7 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
     check(duplicate!=session.document().compositions.front().artboards.end()&&duplicate->layout&&
         duplicate->layout->margin->left_expression==Expression{margin_expression_text.toStdString(),1}&&
-        duplicate->layout->margin->top_driver==margin_top_source_ref&&
+        duplicate->layout->margin->top_expression==margin_top_expression_source&&!duplicate->layout->margin->top_driver&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
         duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
         !duplicate->layout->grid->bounds_y_driver&&
@@ -2864,8 +2912,8 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==90&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.x"}).evaluated)==80&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.y"}).evaluated)==25&&
-        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.top"}).evaluated)==80,
-        "Duplicate frame replays the Margin top link, other Margin and Grid sources onto stable target IDs");
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.top"}).evaluated)==60,
+        "Duplicate frame replays the Margin top expression, other Margin and Grid sources onto stable target IDs");
     auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
     for(int i=0;i<artboards->count();++i)
         if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);
@@ -2885,16 +2933,16 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         "Inspector Unlink freezes the expression's evaluated inset into its literal");
     click("margin-top-unlink");
     const auto frozen_margin_top=artboard_layout_property(session.document(),Ref{board_id,"","margin.top"});
-    check(std::get<double>(frozen_margin_top.literal)==80&&!frozen_margin_top.driver&&
-        frozen_margin_top.source_kind=="literal"&&std::get<double>(frozen_margin_top.evaluated)==80,
-        "Margin top Inspector Unlink freezes its evaluated value and returns the field to an editable literal");
+    check(std::get<double>(frozen_margin_top.literal)==60&&!frozen_margin_top.driver&&!frozen_margin_top.expression&&
+        frozen_margin_top.source_kind=="literal"&&std::get<double>(frozen_margin_top.evaluated)==60,
+        "Margin top Inspector Unlink freezes its evaluated expression value and returns the field to an editable literal");
     source_artboard=*std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==margin_source_id;});
     source_artboard.width=100;source_artboard.height=95;
     session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
     check(board().layout->margin->left==90&&!board().layout->margin->left_driver&&!board().layout->margin->left_expression&&
         std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==90&&
-        std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==80,
+        std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==60,
         "Unlinked Margin left and top remain frozen when their former sources change");
 
     click("grid-bounds-x-unlink");click("grid-bounds-y-unlink");
