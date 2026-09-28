@@ -4567,8 +4567,12 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
         for(const auto& ref:properties(host.session.document())) {
             if(!scalar_values.contains(ref))continue;
             auto* item=new QListWidgetItem(property_label(host.session.document(),ref),list);item->setData(Qt::UserRole,expression_ref(ref));
+            item->setData(Qt::UserRole+1,qs(ref.object+"/"+ref.point+"/"+ref.field));
         }
-        connect(search,&QLineEdit::textChanged,dialog,[list](const QString& text){const auto terms=text.split(' ',Qt::SkipEmptyParts);for(int i=0;i<list->count();++i)list->item(i)->setHidden(!std::all_of(terms.begin(),terms.end(),[&](const auto& term){return list->item(i)->text().contains(term,Qt::CaseInsensitive);}));});
+        connect(search,&QLineEdit::textChanged,dialog,[list](const QString& text){const auto terms=text.split(' ',Qt::SkipEmptyParts);for(int i=0;i<list->count();++i){
+            auto* item=list->item(i);const auto searchable=item->text()+" "+item->data(Qt::UserRole+1).toString();
+            item->setHidden(!std::all_of(terms.begin(),terms.end(),[&](const auto& term){return searchable.contains(term,Qt::CaseInsensitive);}));
+        }if(list->currentItem()&&list->currentItem()->isHidden())list->setCurrentItem(nullptr);});
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);content->addWidget(buttons);
         const QPointer<ExpressionInput> safe_editor(editor);
         auto accept=[safe_editor,list,dialog]{if(safe_editor&&list->currentItem()){safe_editor->insertPlainText(list->currentItem()->data(Qt::UserRole).toString());safe_editor->setFocus();dialog->accept();}};

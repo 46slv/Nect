@@ -2,11 +2,15 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTemporaryDir>
 #include <QTest>
+#include <algorithm>
 #include <iostream>
 using namespace nect;
 using namespace nect::desktop;
@@ -39,6 +43,45 @@ void controls(){
     check(replace,"Explicit link replacement action is visible");replace->setChecked(true);QTest::keyClick(draft,Qt::Key_Return,Qt::ControlModifier);QApplication::processEvents();
     check(evaluate(s.document()).at(width)==75&&!property(s.document(),width).binding&&property(s.document(),width).expression,"Explicit replacement installs expression in one command");
     check(encode(decode(encode(s.document())))==encode(s.document()),"Expression UI result survives native reopen");
+    auto peer=default_primitive("peer-source","nect.shape.rectangle");peer.parameters.at("height").literal=40;
+    s.apply({CreatePrimitive{"comp","","rect-peer","Rectangle",peer}},s.revision());w.host.edited();
+    auto* fx_search=named<QPushButton>(w,"Width expression editor");fx_search->click();
+    draft=named<QPlainTextEdit>(w,"Width expression");draft->clear();
+    auto* panel=draft->parentWidget();check(panel&&panel->objectName()=="nect-expression-panel","Visible expression panel owns the draft");
+    const auto buttons=panel->findChildren<QPushButton*>();
+    const auto insert_it=std::find_if(buttons.begin(),buttons.end(),
+        [](QPushButton* button){return button->text()=="Insert reference…";});
+    check(insert_it!=buttons.end(),"Expression reference insert button exists");auto* insert=*insert_it;
+    const auto before_search=encode(s.document());const auto search_revision=s.revision();
+    insert->click();QApplication::processEvents();
+    QDialog* dialog=nullptr;
+    for(auto* top:QApplication::topLevelWidgets())if(auto* candidate=qobject_cast<QDialog*>(top);candidate&&candidate->isVisible()&&candidate->windowTitle()=="Insert expression reference")dialog=candidate;
+    check(dialog,"Expression reference dialog opens");
+    auto* search=dialog->findChild<QLineEdit*>();auto* list=dialog->findChild<QListWidget*>();
+    check(search&&list,"Expression dialog exposes search and source list");
+    search->setText("ReCt-PeEr//generator.height");QApplication::processEvents();
+    QListWidgetItem* selected=nullptr;
+    for(int i=0;i<list->count();++i)if(!list->item(i)->isHidden()){
+        check(!selected,"Exact stable Ref search disambiguates duplicate display names");selected=list->item(i);
+    }
+    check(selected&&selected->data(Qt::UserRole).toString()=="ref(\"rect-peer\",\"\",\"generator.height\")"&&
+          s.revision()==search_revision&&encode(s.document())==before_search,
+          "Case-insensitive stable object/point/field search retains the selected exact Ref without committing");
+    list->setCurrentItem(selected);
+    search->setText("rect//generator.height");QApplication::processEvents();
+    check(!list->currentItem()&&encode(s.document())==before_search,
+          "Hiding a selected source clears the pending exact Ref without modifying the document");
+    QTest::mouseClick(dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok),Qt::LeftButton);QApplication::processEvents();
+    check(dialog->isVisible()&&draft->toPlainText().isEmpty()&&s.revision()==search_revision,
+          "Confirming a hidden prior choice does not insert or commit it");
+    search->setText("ReCt-PeEr//generator.height");QApplication::processEvents();
+    list->setCurrentItem(selected);
+    QTest::mouseClick(dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok),Qt::LeftButton);QApplication::processEvents();
+    check(draft->toPlainText()=="ref(\"rect-peer\",\"\",\"generator.height\")"&&encode(s.document())==before_search,
+          "Expression insertion uses the exact chosen source ID and leaves draft uncommitted");
+    QTest::keyClick(draft,Qt::Key_Return,Qt::ControlModifier);QApplication::processEvents();
+    check(s.revision()==search_revision+1&&property(s.document(),width).expression->source=="ref(\"rect-peer\",\"\",\"generator.height\")"&&
+          evaluate(s.document()).at(width)==40,"Expression draft commits the exact duplicate-name source through Session");
 }
 }
 int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();std::cout<<"Expression UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
