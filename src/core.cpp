@@ -918,7 +918,7 @@ std::string unit(const Ref& r) {
     if(r.field=="generator.points")return "scalar";
     if(r.field=="generator.rotation")return "degree";
     if(r.field.starts_with("color."))return "scalar";
-    if(r.field.starts_with("text.")||r.field.starts_with("image."))return "du";
+    if(r.field.starts_with("text.")||r.field.starts_with("image.")||r.field=="artboard.width"||r.field=="artboard.height")return "du";
     if(r.field.starts_with("op.")) {
         const auto name=operation_address(r.field).second;
         if(name=="enabled")return "boolean";
@@ -1185,10 +1185,18 @@ ArtboardSizeProperty artboard_size_property(const Document& document,const Ref& 
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards)if(board.id==ref.object) {
         const bool width=ref.field=="artboard.width";
         std::optional<Ref> driver;
-        if(board.parent_size&&(width?board.parent_size->width:board.parent_size->height))
+        std::optional<Expression> expression;
+        std::string source_kind="literal";
+        if(board.parent_size&&(width?board.parent_size->width:board.parent_size->height)) {
             driver=Ref{board.parent_size->artboard,"",ref.field};
+            source_kind="parent_size";
+        } else if(const auto& typed=width?board.width_driver:board.height_driver;typed) {
+            if(const auto* link=std::get_if<Ref>(&typed->value)) {driver=*link;source_kind="link";}
+            else {expression=std::get<Expression>(typed->value);source_kind="expression";}
+        }
         const auto evaluated=evaluate_artboard(composition,board.id);
-        return {width?board.width:board.height,std::move(driver),width?evaluated.width:evaluated.height};
+        return {width?board.width:board.height,std::move(driver),std::move(expression),std::move(source_kind),
+            width?evaluated.width:evaluated.height};
     }
     throw Error("MISSING_ARTBOARD",ref.object);
 }
@@ -1763,24 +1771,142 @@ std::map<Ref,double> evaluate_properties(const Document& d,const std::vector<Ref
 }
 std::map<Ref,double> evaluate(const Document& d){return evaluate_properties(d);}
 
+namespace {
+struct ArtboardSizeEvaluation {double value=0;std::size_t remaining_edges=0;};
+
+Ref artboard_size_ref(const Id& artboard,bool width) {
+    return {artboard,"",width?"artboard.width":"artboard.height"};
+}
+bool artboard_size_ref(const Ref& ref) {
+    return ref.point.empty()&&(ref.field=="artboard.width"||ref.field=="artboard.height");
+}
+class ArtboardSizeEvaluator {
+public:
+    explicit ArtboardSizeEvaluator(const Composition& composition):composition_(composition) {
+        for(const auto& board:composition_.artboards)boards_.emplace(board.id,&board);
+    }
+
+    double value(const Ref& ref) {
+        require(artboard_size_ref(ref),"INVALID_ARTBOARD_REF","Artboard dimensions require an empty-point width or height Ref");
+        validate_parent_chain(ref.object);
+        std::set<Ref> active;
+        return visit(ref,0,active).value;
+    }
+
+private:
+    const Composition& composition_;
+    std::map<Id,const Artboard*> boards_;
+    std::map<Ref,ArtboardSizeEvaluation> cache_;
+    ExpressionCache expressions_;
+
+    void validate_parent_chain(const Id& id) const {
+        std::set<Id> seen;auto next=id;std::size_t depth=0;
+        for(;;) {
+            require(seen.insert(next).second,"ARTBOARD_CYCLE","Parent Artboard relationship cycle at "+next);
+            require(depth++<256,"ARTBOARD_DEPTH","Artboard parent depth limit 256");
+            const auto found=boards_.find(next);
+            require(found!=boards_.end(),"MISSING_ARTBOARD",next);
+            if(!found->second->parent_size)break;
+            next=found->second->parent_size->artboard;
+        }
+    }
+
+    ArtboardSizeEvaluation visit(const Ref& ref,std::size_t depth,std::set<Ref>& active) {
+        require(artboard_size_ref(ref),"INVALID_ARTBOARD_REF","Artboard expressions may reference only Artboard width and height");
+        require(depth<256,"ARTBOARD_DEPTH","Artboard size dependency depth limit 256");
+        if(const auto found=cache_.find(ref);found!=cache_.end()) {
+            require(depth+found->second.remaining_edges<256,"ARTBOARD_DEPTH","Artboard size dependency depth limit 256");
+            return found->second;
+        }
+        require(active.insert(ref).second,"ARTBOARD_CYCLE","Artboard size dependency cycle at "+ref.object+"/"+ref.field);
+        const auto found=boards_.find(ref.object);
+        require(found!=boards_.end(),"MISSING_ARTBOARD",ref.object);
+        const auto& board=*found->second;
+        const bool width=ref.field=="artboard.width";
+        const double literal=width?board.width:board.height;
+        const auto& driver=width?board.width_driver:board.height_driver;
+        const bool parent_driven=board.parent_size&&(width?board.parent_size->width:board.parent_size->height);
+        require(!(parent_driven&&driver),"ARTBOARD_SOURCE_CONFLICT","An Artboard dimension has more than one source");
+
+        ArtboardSizeEvaluation result{literal,0};
+        if(parent_driven) {
+            const auto source=artboard_size_ref(board.parent_size->artboard,width);
+            const auto upstream=visit(source,depth+1,active);
+            result={upstream.value,upstream.remaining_edges+1};
+        } else if(driver) {
+            if(const auto* link=std::get_if<Ref>(&driver->value)) {
+                require(artboard_size_ref(*link),"INVALID_ARTBOARD_REF","Artboard links require an empty-point Artboard width or height Ref");
+                require(*link!=ref,"ARTBOARD_SELF_LINK","An Artboard dimension cannot link to itself");
+                const auto upstream=visit(*link,depth+1,active);
+                result={upstream.value,upstream.remaining_edges+1};
+            } else {
+                const auto& expression=std::get<Expression>(driver->value);
+                const auto& compiled=compiled_expression(expressions_,expression);
+                validate_expression_unit(compiled,"du");
+                std::size_t max_edges=0;
+                for(const auto& source:expression_dependencies(compiled)) {
+                    require(artboard_size_ref(source),"ARTBOARD_EXPRESSION_TYPE",
+                        "Artboard size expressions may reference only Artboard width and height in the same Composition");
+                    const auto upstream=visit(source,depth+1,active);
+                    max_edges=std::max(max_edges,upstream.remaining_edges+1);
+                }
+                result.value=evaluate_expression(compiled,"du",[&](const Ref& source) {
+                    return visit(source,depth+1,active).value;
+                });
+                result.remaining_edges=max_edges;
+            }
+        }
+        require(std::isfinite(result.value)&&result.value>0&&result.value<=1e7,
+            "ARTBOARD_SIZE_RANGE","Evaluated Artboard dimensions must be in (0,10000000]");
+        active.erase(ref);
+        return cache_.emplace(ref,result).first->second;
+    }
+};
+
+struct ArtboardDimensionLocation {Composition* composition=nullptr;Artboard* board=nullptr;bool width=false;};
+ArtboardDimensionLocation artboard_dimension_location(Document& document,const Ref& ref,const char* role) {
+    require(ref.point.empty(),"INVALID_ARTBOARD_REF",std::string("Artboard ")+role+" requires an empty point ID");
+    require(ref.field=="artboard.width"||ref.field=="artboard.height","UNKNOWN_ARTBOARD_PROPERTY",ref.field);
+    identity(ref.object);
+    for(auto& composition:document.compositions)for(auto& board:composition.artboards)
+        if(board.id==ref.object)return {&composition,&board,ref.field=="artboard.width"};
+    bool another_kind=document.objects.contains(ref.object)||document.named_colors.contains(ref.object);
+    for(const auto& composition:document.compositions) {
+        another_kind=another_kind||composition.id==ref.object;
+        another_kind=another_kind||std::any_of(composition.guides.begin(),composition.guides.end(),[&](const auto& guide){return guide.id==ref.object;});
+    }
+    if(another_kind)throw Error("TYPE_MISMATCH",std::string("Artboard ")+role+" must identify an Artboard: "+ref.object);
+    throw Error("MISSING_ARTBOARD",ref.object);
+}
+CompiledExpression compile_artboard_size_expression(const Expression& expression) {
+    const auto compiled=compile_expression(expression);validate_expression_unit(compiled,"du");
+    for(const auto& source:expression_dependencies(compiled)) {
+        require(artboard_size_ref(source),"ARTBOARD_EXPRESSION_TYPE",
+            "Artboard size expressions may reference only Artboard width and height");
+    }
+    return compiled;
+}
+bool artboard_references_id(const Artboard& board,const Id& id) {
+    if(board.parent_size&&board.parent_size->artboard==id)return true;
+    for(const auto* driver:{&board.width_driver,&board.height_driver})if(*driver) {
+        if(const auto* link=std::get_if<Ref>(&(**driver).value)) {
+            if(link->object==id)return true;
+        } else {
+            for(const auto& source:expression_dependencies(std::get<Expression>((**driver).value)))
+                if(source.object==id)return true;
+        }
+    }
+    return false;
+}
+}
+
 Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
-    std::vector<const Artboard*> chain;std::set<Id> seen;auto next=artboard;
-    for(;;) {
-        require(seen.insert(next).second,"ARTBOARD_CYCLE","Parent artboard size dependency cycle");
-        require(chain.size()<256,"LIMIT","Artboard parent depth limit 256");
-        const auto found=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& a){return a.id==next;});
-        require(found!=composition.artboards.end(),"MISSING_ARTBOARD",next);
-        chain.push_back(&*found);
-        if(!found->parent_size)break;
-        next=found->parent_size->artboard;
-    }
-    Artboard result=*chain.back();
-    for(auto it=chain.rbegin()+1;it!=chain.rend();++it) {
-        auto child=**it;
-        if(child.parent_size->width)child.width=result.width;
-        if(child.parent_size->height)child.height=result.height;
-        result=std::move(child);
-    }
+    const auto found=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item){return item.id==artboard;});
+    require(found!=composition.artboards.end(),"MISSING_ARTBOARD",artboard);
+    ArtboardSizeEvaluator evaluator(composition);
+    auto result=*found;
+    result.width=evaluator.value(artboard_size_ref(artboard,true));
+    result.height=evaluator.value(artboard_size_ref(artboard,false));
     return result;
 }
 
@@ -2129,7 +2255,13 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         if(!scalar)continue;
         value_range(ref, scalar->literal);
         require(!scalar->binding||!scalar->expression,"SCALAR_SOURCE_CONFLICT","A Scalar cannot have both Binding and Expression");
-        if(scalar->expression)validate_expression_unit(compiled_expression(expressions,*scalar->expression),unit(ref));
+        if(scalar->expression) {
+            const auto& expression=compiled_expression(expressions,*scalar->expression);
+            validate_expression_unit(expression,unit(ref));
+            for(const auto& source:expression_dependencies(expression))
+                require(!artboard_size_ref(source),"CROSS_TYPE_DEPENDENCY",
+                    "Scalar expressions cannot reference Artboard dimensions; use an Artboard size expression");
+        }
         if(scalar->binding) {
             const auto& binding=*scalar->binding;
             require(binding.mode=="copy_local_value","UNSUPPORTED_BINDING","Explicit copy_local_value binding required");
@@ -3031,6 +3163,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
     std::set<Ref> geometry_mask_enabled_targets;
     std::set<Ref> point_edit_enabled_targets;
     std::set<Ref> composite_isolation_targets;
+    std::set<Ref> artboard_size_targets;
     for(const auto& command:commands)std::visit([&](const auto& value) {
         using T=std::decay_t<decltype(value)>;
         if constexpr(std::is_same_v<T,LinkFillRule>||std::is_same_v<T,UnlinkFillRule>)
@@ -3047,6 +3180,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(point_edit_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A Point Edit enabled target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkCompositeIsolated>||std::is_same_v<T,UnlinkCompositeIsolated>)
             require(composite_isolation_targets.insert(value.target).second,"DUPLICATE_TARGET","A Composite isolation target may be linked or unlinked only once per batch");
+        else if constexpr(std::is_same_v<T,LinkArtboardSize>||std::is_same_v<T,SetArtboardSizeExpression>||std::is_same_v<T,UnlinkArtboardSize>)
+            require(artboard_size_targets.insert(value.target).second,"DUPLICATE_TARGET","An Artboard size target may be changed only once per batch");
     },command);
 
     auto candidate=document;
@@ -3371,6 +3506,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);
             auto& boards=comp->artboards;
             if constexpr(std::is_same_v<T,AddArtboard>) {
+                require(!c.artboard.width_driver&&!c.artboard.height_driver,"ARTBOARD_DRIVER_SMUGGLING",
+                    "Create Artboard size drivers with link_artboard_size or set_artboard_size_expression");
                 require(c.index<=boards.size(),"INVALID_ORDER","Artboard insertion index outside range");
                 boards.insert(boards.begin()+static_cast<std::ptrdiff_t>(c.index),c.artboard);
             } else if constexpr(std::is_same_v<T,ReorderArtboards>) {
@@ -3388,15 +3525,81 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     // Legacy Artboard updates carry only frame fields. A missing
                     // layout payload must not erase authored P02 definitions.
                     if(!updated.layout)updated.layout=board->layout;
+                    auto preserve_driver=[&](bool width) {
+                        const auto& existing=width?board->width_driver:board->height_driver;
+                        auto& incoming=width?updated.width_driver:updated.height_driver;
+                        if(existing) {
+                            require(!incoming||incoming==existing,"ARTBOARD_DRIVER_SMUGGLING",
+                                "Use the dedicated Artboard size commands to replace or remove a driver");
+                            require((width?updated.width:updated.height)==(width?board->width:board->height),
+                                "DRIVEN_ARTBOARD_SIZE","Unlink or replace the Artboard size driver before editing its literal");
+                            require(!updated.parent_size||!(width?updated.parent_size->width:updated.parent_size->height),
+                                "ARTBOARD_SOURCE_CONFLICT","A typed Artboard size driver cannot be combined with parent_size inheritance");
+                            incoming=existing;
+                        } else require(!incoming,"ARTBOARD_DRIVER_SMUGGLING",
+                            "Create Artboard size drivers with link_artboard_size or set_artboard_size_expression");
+                    };
+                    preserve_driver(true);preserve_driver(false);
                     *board=std::move(updated);
                 }
                 else if constexpr(std::is_same_v<T,DeleteArtboard>) {
                     require(boards.size()>1,"LAST_ARTBOARD","Keep at least one output frame per Composition");
+                    for(const auto& dependent:boards)if(dependent.id!=id&&artboard_references_id(dependent,id))
+                        throw Error("ARTBOARD_IN_USE","Artboard "+id+" is still referenced by "+dependent.id);
                     boards.erase(board);
                 } else {
-                    auto resolved=evaluate_artboard(*comp,id);resolved.parent_size.reset();*board=std::move(resolved);
+                    auto resolved=evaluate_artboard(*comp,id);
+                    if(board->parent_size) {
+                        if(board->parent_size->width&&!board->width_driver)board->width=resolved.width;
+                        if(board->parent_size->height&&!board->height_driver)board->height=resolved.height;
+                        board->parent_size.reset();
+                    }
                 }
             }
+        } else if constexpr(std::is_same_v<T,LinkArtboardSize>) {
+            require(artboard_size_ref(c.target),"INVALID_ARTBOARD_REF","Artboard link target must be an empty-point width or height Ref");
+            require(artboard_size_ref(c.source),"INVALID_ARTBOARD_REF","Artboard link source must be an empty-point width or height Ref");
+            const auto target=artboard_dimension_location(candidate,c.target,"link target");
+            const auto source=artboard_dimension_location(candidate,c.source,"link source");
+            require(target.composition==source.composition,"WRONG_COMPOSITION","Artboard size links must stay within one Composition");
+            require(c.target!=c.source,"ARTBOARD_SELF_LINK","An Artboard dimension cannot link to itself");
+            auto& slot=target.width?target.board->width_driver:target.board->height_driver;
+            const bool parent_driven=target.board->parent_size&&
+                (target.width?target.board->parent_size->width:target.board->parent_size->height);
+            require(!(parent_driven||slot.has_value())||c.replace_driver,"DRIVEN_ARTBOARD_SIZE",
+                "Replacing an Artboard size driver requires replace_driver=true");
+            if(parent_driven) {
+                if(target.width)target.board->parent_size->width=false;
+                else target.board->parent_size->height=false;
+            }
+            slot=Artboard::SizeDriver{c.source};
+        } else if constexpr(std::is_same_v<T,SetArtboardSizeExpression>) {
+            require(artboard_size_ref(c.target),"INVALID_ARTBOARD_REF","Artboard expression target must be an empty-point width or height Ref");
+            const auto target=artboard_dimension_location(candidate,c.target,"expression target");
+            const auto compiled=compile_artboard_size_expression(c.expression);
+            for(const auto& ref:expression_dependencies(compiled)) {
+                const auto source=artboard_dimension_location(candidate,ref,"expression source");
+                require(target.composition==source.composition,"WRONG_COMPOSITION","Artboard size expressions must stay within one Composition");
+            }
+            auto& slot=target.width?target.board->width_driver:target.board->height_driver;
+            const bool parent_driven=target.board->parent_size&&
+                (target.width?target.board->parent_size->width:target.board->parent_size->height);
+            require(!(parent_driven||slot.has_value())||c.replace_driver,"DRIVEN_ARTBOARD_SIZE",
+                "Replacing an Artboard size driver requires replace_driver=true");
+            if(parent_driven) {
+                if(target.width)target.board->parent_size->width=false;
+                else target.board->parent_size->height=false;
+            }
+            slot=Artboard::SizeDriver{c.expression};
+        } else if constexpr(std::is_same_v<T,UnlinkArtboardSize>) {
+            require(artboard_size_ref(c.target),"INVALID_ARTBOARD_REF","Artboard unlink target must be an empty-point width or height Ref");
+            const auto target=artboard_dimension_location(candidate,c.target,"unlink target");
+            auto& slot=target.width?target.board->width_driver:target.board->height_driver;
+            require(slot.has_value(),"ARTBOARD_SIZE_NOT_LINKED","Artboard size has no typed link or expression to unlink");
+            const auto resolved=evaluate_artboard(*target.composition,target.board->id);
+            if(target.width)target.board->width=resolved.width;
+            else target.board->height=resolved.height;
+            slot.reset();
         } else if constexpr(std::is_same_v<T,AddGuide>||std::is_same_v<T,UpdateGuide>||std::is_same_v<T,DeleteGuide>) {
             auto comp=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),[&](const auto& item){return item.id==c.composition;});
             require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);

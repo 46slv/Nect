@@ -1295,3 +1295,33 @@ literal-only mask enable; older versions carrying this field are rejected.
 while Session validation enforces installed mask identity, same-Composition
 ownership, self/cycle and 128-edge depth. This adds no boolean expressions,
 cross-field coercion or generic property picker.
+
+## Native 0.33 — authored Artboard size sources
+
+Each Artboard retains its literal width and height. An optional `width_driver`
+or `height_driver` stores either `{link: Ref}` or `{expression: Expression}` for
+that dimension. The existing `parent_size` flags remain the only inheritance
+source. A dimension uses exactly one of its literal, its active parent flag,
+its typed link, or its typed expression. Explicit typed replacement disables
+only that dimension's parent flag and preserves the other dimension, parent
+identity and local fallback. An Artboard expression may reference only Artboard
+width/height properties in the same Composition; it uses `du` and the bounded
+numeric expression language. Scalar commands do not acquire Artboard targets.
+
+Dedicated `link_artboard_size`, `set_artboard_size_expression` and
+`unlink_artboard_size` commands use stable Artboard IDs and revisioned Session
+edits. Replacing an active parent or typed source requires `replace_driver`;
+unlink freezes the evaluated dimension into its literal. `update_artboard`
+preserves unchanged or omitted typed drivers during unrelated edits and refuses
+driver injection, silent clearing, or a direct literal edit of a typed-driven
+dimension. `detach_artboard_parent` freezes inherited dimensions and retains
+independent typed sources. Missing sources, cross-Composition refs, cycles,
+nonpositive/out-of-range results, invalid expressions and source deletion
+reject atomically.
+
+Native 0.1–0.32 Artboards reopen without typed size drivers; older versions
+carrying the new fields reject. The 0.33 schema closes each optional driver
+wrapper, while Session validation checks source identity and evaluation.
+Typed `get`/`properties` expose the retained literal, source kind, exact link
+or expression, and evaluated dimension. This is Artboard-size authoring, not
+content inheritance or a general mixed-type property graph.

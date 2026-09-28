@@ -293,12 +293,21 @@ struct ArtboardLayout {
     std::optional<Grid> grid;
     bool operator==(const ArtboardLayout&) const = default;
 };
+struct ArtboardSizeDriver {
+    std::variant<Ref,Expression> value;
+    ArtboardSizeDriver(Ref link):value(std::move(link)){}
+    ArtboardSizeDriver(Expression expression):value(std::move(expression)){}
+    bool operator==(const ArtboardSizeDriver&) const = default;
+};
 struct Artboard {
     Id id;
     std::string name;
     double x=0,y=0,width=640,height=480;
     std::optional<ArtboardParent> parent_size;
     std::optional<ArtboardLayout> layout;
+    using SizeDriver=ArtboardSizeDriver;
+    std::optional<SizeDriver> width_driver;
+    std::optional<SizeDriver> height_driver;
     bool operator==(const Artboard&) const = default;
 };
 
@@ -398,6 +407,9 @@ struct UpdateArtboard { Id composition; Artboard artboard; };
 struct DeleteArtboard { Id composition; Id artboard; };
 struct ReorderArtboards { Id composition; std::vector<Id> order; };
 struct DetachArtboardParent { Id composition; Id artboard; };
+struct LinkArtboardSize { Ref target; Ref source; bool replace_driver=false; };
+struct SetArtboardSizeExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkArtboardSize { Ref target; };
 struct AddGuide { Id composition; Guide guide; };
 struct UpdateGuide { Id composition; Guide guide; };
 struct DeleteGuide { Id composition; Id guide_id; };
@@ -484,7 +496,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,LinkPointEditEnabled,UnlinkPointEditEnabled,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,LinkOperationEnabled,UnlinkOperationEnabled,LinkGradientEnabled,UnlinkGradientEnabled,OperationOptions,LinkFillRule,UnlinkFillRule,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
-    DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
+    DeleteArtboard,ReorderArtboards,DetachArtboardParent,LinkArtboardSize,SetArtboardSizeExpression,UnlinkArtboardSize,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
@@ -703,6 +715,8 @@ std::map<Id,double> evaluate_guide_positions(const Document&,const Id& compositi
 struct ArtboardSizeProperty {
     double literal=0;
     std::optional<Ref> driver;
+    std::optional<Expression> expression;
+    std::string source_kind="literal";
     double evaluated=0;
 };
 ArtboardSizeProperty artboard_size_property(const Document&,const Ref&);

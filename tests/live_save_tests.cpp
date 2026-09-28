@@ -257,6 +257,58 @@ void point_edit_save_as(const QString& directory) {
           bytes(destination)==destination_bytes,
           "Re-enable after cold reopen restores literal and expression point overrides without changing saved bytes");
 }
+void artboard_size_save_as(const QString& directory) {
+    Host host(directory+"/artboard-size-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    const auto parent=host.session.document().compositions.front().artboards.front().id;
+    const auto source_size=evaluate_artboard(host.session.document().compositions.front(),parent);
+    const Id child="save-as-artboard-child";
+    Artboard board{child,"Dependent crop",900,0,240,180};
+    board.parent_size=ArtboardParent{parent,true,false};
+    host.session.apply({AddArtboard{composition,board,1}},host.session.revision());host.edited();
+    const Ref width{child,"","artboard.width"},height{child,"","artboard.height"};
+    const Ref parent_width{parent,"","artboard.width"};
+    const auto formula="ref(\""+parent+"\",\"\",\"artboard.height\") * 2";
+    host.session.apply({SetArtboardSizeExpression{width,{formula,1},true},
+        LinkArtboardSize{height,parent_width,false}},host.session.revision());host.edited();
+    const auto committed=host.session.document();
+    check(artboard_size_property(committed,width).evaluated==source_size.height*2&&
+          artboard_size_property(committed,height).evaluated==source_size.width,
+          "Typed Artboard expression and cross-field link evaluate before Save As");
+    const auto original=directory+"/artboard-size-source.nect";
+    host.save(original);host.recover();
+    const auto original_bytes=bytes(original),encoded=QByteArray::fromStdString(encode(committed));
+    check(original_bytes==encoded,"Original native Artboard source matches committed authorship");
+    const auto revision=host.session.revision();
+    const auto invalid=directory+"/missing-artboard-size-parent/failed.nect";
+    rejects("IO_ERROR",[&]{host.save(invalid);});
+    check(!QFile::exists(invalid)&&host.file_path==native_path(original)&&
+          host.session.revision()==revision&&host.session.document()==committed&&bytes(original)==original_bytes,
+          "Failed Artboard Save As preserves source file and live typed drivers");
+    const auto destination=directory+"/artboard-size-destination.nect";
+    host.save(destination);host.recover();
+    const auto saved=load_native(destination).document;
+    const auto& stored=saved.compositions.front().artboards.at(1);
+    check(bytes(destination)==encoded&&bytes(original)==original_bytes&&saved==committed&&
+          stored.id==child&&stored.parent_size&&stored.parent_size->artboard==parent&&
+          !stored.parent_size->width&&stored.width==240&&stored.height==180&&
+          stored.width_driver&&std::holds_alternative<Expression>(stored.width_driver->value)&&
+          std::get<Expression>(stored.width_driver->value).source==formula&&
+          stored.height_driver&&std::holds_alternative<Ref>(stored.height_driver->value)&&
+          std::get<Ref>(stored.height_driver->value)==parent_width,
+          "Save As retains Artboard identity, fallback literals, parent metadata and exact typed sources");
+    Host reopened(directory+"/artboard-size-cold-recovery");reopened.open(destination);
+    check(reopened.session.document()==committed&&reopened.session.revision()==0&&
+          artboard_size_property(reopened.session.document(),width).evaluated==source_size.height*2&&
+          artboard_size_property(reopened.session.document(),height).evaluated==source_size.width,
+          "Cold destination reopen restores both Artboard dependency evaluations");
+    auto source=reopened.session.document().compositions.front().artboards.front();
+    source.height=500;source.width=600;
+    reopened.session.apply({UpdateArtboard{composition,source}},reopened.session.revision());
+    check(artboard_size_property(reopened.session.document(),width).evaluated==1000&&
+          artboard_size_property(reopened.session.document(),height).evaluated==600,
+          "Cold-reopened Artboard sources keep evaluating after their parent dimensions change");
+}
 void linked_point_edit_save_as(const QString& directory) {
     Host host(directory+"/linked-point-edit-recovery");
     const auto composition=host.session.document().compositions.front().id;
@@ -486,7 +538,7 @@ int main(int argc,char** argv) {
     QCoreApplication app(argc,argv);
     try {
         QTemporaryDir temp;check(temp.isValid(),"Create owned live-save test folder");
-        coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());point_edit_save_as(temp.path());
+        coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());point_edit_save_as(temp.path());artboard_size_save_as(temp.path());
         linked_point_edit_save_as(temp.path());linked_mask_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
         std::cout<<"PASS asynchronous snapshots, typed, Point Edit and mask Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

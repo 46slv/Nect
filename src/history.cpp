@@ -49,6 +49,7 @@ std::size_t extra(const LayoutRect&);
 std::size_t extra(const Margin&);
 std::size_t extra(const Grid&);
 std::size_t extra(const ArtboardLayout&);
+std::size_t extra(const Artboard::SizeDriver&);
 std::size_t extra(const Artboard&);
 std::size_t extra(const Composition&);
 std::size_t extra(const Collection&);
@@ -104,7 +105,8 @@ std::size_t extra(const LayoutRect&){return 0;}
 std::size_t extra(const Margin&){return 0;}
 std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds));}
 std::size_t extra(const ArtboardLayout& v){return total(extra(v.margin),extra(v.grid));}
-std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size),extra(v.layout));}
+std::size_t extra(const Artboard::SizeDriver& v){return std::visit([](const auto& value){return extra(value);},v.value);}
+std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size),extra(v.layout),extra(v.width_driver),extra(v.height_driver));}
 std::size_t extra(const Composition& v){return total(extra(v.id),extra(v.name),extra(v.roots),extra(v.artboards),extra(v.guides));}
 std::size_t extra(const Collection& v){return total(extra(v.id),extra(v.name),extra(v.members));}
 std::size_t extra(const NamedColor& v){return total(extra(v.id),extra(v.name),extra(v.rgba));}
@@ -150,6 +152,12 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         return "Link Point Edit enabled: "+property_label(command->target);
     if(const auto* command=std::get_if<UnlinkPointEditEnabled>(&commands.front()))
         return "Unlink Point Edit enabled: "+property_label(command->target);
+    if(const auto* command=std::get_if<LinkArtboardSize>(&commands.front()))
+        return "Link Artboard size: "+property_label(command->target);
+    if(const auto* command=std::get_if<SetArtboardSizeExpression>(&commands.front()))
+        return "Artboard size expression: "+property_label(command->target);
+    if(const auto* command=std::get_if<UnlinkArtboardSize>(&commands.front()))
+        return "Unlink Artboard size: "+property_label(command->target);
     auto label=std::visit([&](const auto& c)->std::string {
         using T=std::decay_t<decltype(c)>;
         if constexpr(std::is_same_v<T,Set>)return "Set "+property_label(c.ref);

@@ -1,4 +1,5 @@
 #include "nect/io.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -8,7 +9,7 @@ using namespace nect;
 namespace {
 int checks=0;
 void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);++checks;}
-template<class F>void rejects(const char* code,F action){try{action();}catch(const Error& e){check(e.code==code,("Expected "+std::string(code)+", got "+e.code).c_str());return;}throw std::runtime_error("Expected rejection");}
+template<class F>void rejects(const char* code,F action){try{action();}catch(const Error& e){check(e.code==code,("Expected "+std::string(code)+", got "+e.code).c_str());return;}throw std::runtime_error(std::string("Expected ")+code+" rejection");}
 std::size_t replace_all(std::string& value,std::string_view from,std::string_view to) {
     std::size_t count=0;
     for(auto position=value.find(from);position!=std::string::npos;position=value.find(from,position+to.size())) {
@@ -63,8 +64,8 @@ void layout_and_guide_acceptance() {
         "Clearing Grid retains the independently authored Margin");
     apply({SetArtboardLayout{"layout-comp","layout-art",copied}});
     const auto current=encode(session.document());
-    check(current.find("\"version\":\"0.27\"")!=std::string::npos&&encode(decode(current))==current,
-        "Native 0.23 roundtrip preserves Guide/Grid/Margin definitions and IDs");
+    check(current.find("\"version\":\"0.33\"")!=std::string::npos&&encode(decode(current))==current,
+        "Native 0.33 roundtrip preserves Guide/Grid/Margin definitions and IDs");
 
     const auto readback=request(session,R"({"op":"inspect"})");
     check(readback.find("\"guides\"")!=std::string::npos&&readback.find("\"id\":\"guide-x\"")!=std::string::npos&&
@@ -152,7 +153,7 @@ void layout_and_guide_acceptance() {
         for(auto& board:comp.artboards)board.layout.reset();
     }
     auto legacy=encode(legacy_document);
-    check(replace_all(legacy,"\"version\":\"0.27\"","\"version\":\"0.13\"")==1,
+    check(replace_all(legacy,"\"version\":\"0.33\"","\"version\":\"0.13\"")==1,
         "Legacy fixture changes only its native version");
     check(replace_all(legacy,",\"guides\":[]","")==legacy_document.compositions.size(),
         "Legacy fixture removes each v0.14 Composition Guides field");
@@ -271,18 +272,18 @@ void guide_position_links() {
     session.cancel_gesture();
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.27\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.33\"")!=std::string::npos&&
         native.find("\"position_driver\":{\"link\":{\"object\":\"guide-source\",\"point\":\"\",\"field\":\"guide.position\"}}")!=std::string::npos&&
         encode(decode(native))==native,
-        "Native 0.23 preserves an optional Guide position link and its authored literal");
+        "Native 0.33 preserves an optional Guide position link and its authored literal");
     auto legacy_with_driver=native;
-    check(replace_all(legacy_with_driver,"\"version\":\"0.27\"","\"version\":\"0.22\"")==1,
+    check(replace_all(legacy_with_driver,"\"version\":\"0.33\"","\"version\":\"0.22\"")==1,
         "Legacy linked fixture downgrades only its version tag");
     rejects("INVALID_GUIDE",[&]{(void)decode(legacy_with_driver);});
     auto literal_document=session.document();
     for(auto& composition:literal_document.compositions)for(auto& guide:composition.guides)guide.position_driver.reset();
     auto legacy_literal=encode(literal_document);
-    check(replace_all(legacy_literal,"\"version\":\"0.27\"","\"version\":\"0.22\"")==1&&
+    check(replace_all(legacy_literal,"\"version\":\"0.33\"","\"version\":\"0.22\"")==1&&
         decode(legacy_literal)==literal_document,
         "Native 0.22 continues to decode literal-only Guide positions unchanged");
 
@@ -335,10 +336,208 @@ void guide_position_links() {
     }
     rejects("GUIDE_DEPTH",[&]{Session rejected(std::move(deep));});
 }
+void artboard_size_drivers() {
+    auto document=empty_document("size-driver-doc","size-driver-comp","size-parent");
+    document.compositions.front().artboards.front().width=800;
+    document.compositions.front().artboards.front().height=600;
+    document.compositions.push_back({"size-other-comp","Other plane",{},{{"size-other-art","Other frame",0,0,400,300}}});
+    Session session(document);auto apply=[&](std::vector<Command> commands){session.apply(commands,session.revision());};
+    const Ref parent_width{"size-parent","","artboard.width"};
+    const Ref parent_height{"size-parent","","artboard.height"};
+    const Ref child_width{"size-child","","artboard.width"};
+    const Ref child_height{"size-child","","artboard.height"};
+    const Ref peer_width{"size-peer","","artboard.width"};
+    const Ref other_width{"size-other-art","","artboard.width"};
+    const Ref scalar_target{"size-circle","","transform.tx"};
+    auto malformed_parent_native=encode(empty_document("parent-chain-doc","parent-chain-comp","parent-chain-art"));
+    const auto parent_height_marker=malformed_parent_native.find("\"height\":");
+    check(parent_height_marker!=std::string::npos,"Native fixture contains its default Artboard height");
+    const auto parent_height_end=malformed_parent_native.find_first_of(",}",parent_height_marker);
+    malformed_parent_native.insert(parent_height_end,
+        ",\"parent_size\":{\"artboard\":\"missing-parent\",\"width\":false,\"height\":false}");
+    check(replace_all(malformed_parent_native,"\"version\":\"0.33\"","\"version\":\"0.32\"")==1,
+        "Malformed false-false legacy parent fixture uses the preserved native 0.32 gate");
+    rejects("MISSING_ARTBOARD",[&]{(void)decode(malformed_parent_native);});
+    Artboard peer{"size-peer","Peer",50,60,200,300};
+    auto circle=default_primitive("size-circle-source","nect.shape.circle");
+    apply({AddArtboard{"size-driver-comp",peer,1},
+        CreatePrimitive{"size-driver-comp","","size-circle","Circle",circle}});
+    Artboard child{"size-child","Child",100,120,320,240};
+    child.parent_size=ArtboardParent{"size-parent",true,true};
+    const auto link_json=request(session,R"({"op":"apply","expected_revision":1,"commands":[
+      {"type":"add_artboard","composition":"size-driver-comp","index":2,"artboard":{"id":"size-child","name":"Child","x":100,"y":120,"width":320,"height":240,"parent_size":{"artboard":"size-parent","width":true,"height":true}}},
+      {"type":"link_artboard_size","target":{"object":"size-child","point":"","field":"artboard.width"},"source":{"object":"size-parent","point":"","field":"artboard.height"},"replace_driver":true}
+    ]})");
+    check(link_json.find("\"ok\":true")!=std::string::npos&&session.revision()==2,
+        "JSON Session can add an Artboard and attach its typed size source in one atomic batch");
+    auto resolved=[&](const Id& id){return evaluate_artboard(session.document().compositions.front(),id);};
+    auto child_authored=[&]() -> const Artboard& {
+        const auto& boards=session.document().compositions.front().artboards;
+        return *std::find_if(boards.begin(),boards.end(),[](const auto& board){return board.id=="size-child";});
+    };
+    const auto linked=artboard_size_property(session.document(),child_width);
+    check(linked.literal==320&&linked.driver==parent_height&&linked.source_kind=="link"&&
+        linked.evaluated==600&&child_authored().parent_size&&
+        !child_authored().parent_size->width&&child_authored().parent_size->height,
+        "Cross-field link replaces only parent-driven width and retains the literal and other parent dimension");
+    const auto typed=request(session,R"({"op":"get","ref":{"object":"size-child","point":"","field":"artboard.width"}})");
+    check(typed.find("\"source_kind\":\"link\"")!=std::string::npos&&
+        typed.find("\"driver\":{\"object\":\"size-parent\",\"point\":\"\",\"field\":\"artboard.height\"}")!=std::string::npos&&
+        typed.find("\"link\":true")!=std::string::npos&&typed.find("\"expression\":true")!=std::string::npos,
+        "Typed get reports Artboard source kind, exact stable Ref and supported link/expression capabilities");
+    const auto revision_before_replacement=session.revision();const auto bytes_before_replacement=encode(session.document());
+    rejects("DRIVEN_ARTBOARD_SIZE",[&]{apply({LinkArtboardSize{child_width,parent_width,false}});});
+    check(session.revision()==revision_before_replacement&&encode(session.document())==bytes_before_replacement,
+        "A typed Artboard driver cannot be silently replaced");
+
+    auto parent_board=session.document().compositions.front().artboards.front();
+    parent_board.name="Renamed parent";parent_board.height=660;
+    apply({UpdateArtboard{"size-driver-comp",parent_board},ReorderArtboards{"size-driver-comp",{"size-peer","size-child","size-parent"}}});
+    check(artboard_size_property(session.document(),child_width).driver==parent_height&&
+        artboard_size_property(session.document(),child_width).evaluated==660&&
+        resolve_name(session.document(),"Renamed parent","","artboard.height")==parent_height,
+        "Stable Artboard links survive source rename, reorder and source edits");
+    const auto linked_delete_state=encode(session.document());const auto linked_delete_revision=session.revision();
+    rejects("ARTBOARD_IN_USE",[&]{apply({DeleteArtboard{"size-driver-comp","size-parent"}});});
+    rejects("ARTBOARD_IN_USE",[&]{apply({DeleteArtboard{"size-driver-comp","size-parent"},
+        AddArtboard{"size-driver-comp",{"size-parent","Replacement",0,0,200,200},2}});});
+    check(session.revision()==linked_delete_revision&&encode(session.document())==linked_delete_state,
+        "A typed link and parent_size dependent cannot be retargeted by deleting and readding the source ID");
+
+    const Expression combined{"ref(\"size-parent\",\"\",\"artboard.height\") + ref(\"size-peer\",\"\",\"artboard.width\")",1};
+    const auto expression_json=request(session,R"json({"op":"apply","expected_revision":3,"commands":[
+      {"type":"set_artboard_size_expression","target":{"object":"size-child","point":"","field":"artboard.width"},"expression":{"source":"ref(\"size-parent\",\"\",\"artboard.height\") + ref(\"size-peer\",\"\",\"artboard.width\")","version":1},"replace_driver":true}
+    ]})json");
+    check(expression_json.find("\"ok\":true")!=std::string::npos&&session.revision()==4,
+        "JSON Session installs a versioned Artboard numeric expression through the dedicated command");
+    const auto expressed=artboard_size_property(session.document(),child_width);
+    check(expressed.literal==320&&!expressed.driver&&expressed.expression==combined&&
+        expressed.source_kind=="expression"&&expressed.evaluated==860,
+        "Expression evaluation retains the local fallback and exposes its exact authored source");
+    const auto expression_get=request(session,R"({"op":"get","ref":{"object":"size-child","point":"","field":"artboard.width"}})");
+    check(expression_get.find("\"source_kind\":\"expression\"")!=std::string::npos&&
+        expression_get.find("\"expression\":{\"source\":\"ref(\\\"size-parent\\\",\\\"\\\",\\\"artboard.height\\\") + ref(\\\"size-peer\\\",\\\"\\\",\\\"artboard.width\\\")\",\"version\":1}")!=std::string::npos&&
+        expression_get.find("\"driver\":null")!=std::string::npos,
+        "Typed get returns exact expression text and leaves link driver null");
+
+    const auto update_json=request(session,R"json({"op":"apply","expected_revision":4,"commands":[
+      {"type":"update_artboard","composition":"size-driver-comp","artboard":{"id":"size-child","name":"Renamed child","x":12,"y":8,"width":320,"height":240,"parent_size":{"artboard":"size-parent","width":false,"height":true},"width_driver":{"expression":{"source":"ref(\"size-parent\",\"\",\"artboard.height\") + ref(\"size-peer\",\"\",\"artboard.width\")","version":1}}}}
+    ]})json");
+    check(update_json.find("\"ok\":true")!=std::string::npos&&
+        artboard_size_property(session.document(),child_width).expression==combined&&resolved("size-child").x==12,
+        "Full-record UpdateArtboard accepts an exact existing driver and preserves it during unrelated edits");
+    const auto expression_delete_state=encode(session.document());const auto expression_delete_revision=session.revision();
+    rejects("ARTBOARD_IN_USE",[&]{apply({DeleteArtboard{"size-driver-comp","size-parent"},
+        AddArtboard{"size-driver-comp",{"size-parent","Replacement",0,0,200,200},2}});});
+    check(session.revision()==expression_delete_revision&&encode(session.document())==expression_delete_state,
+        "An expression dependent cannot silently bind to a replacement with the same Artboard ID");
+    const auto before_rejections=encode(session.document());const auto rejection_revision=session.revision();const auto history=session.history();
+    auto edited=child_authored();auto literal_edit=edited;literal_edit.width=321;
+    rejects("DRIVEN_ARTBOARD_SIZE",[&]{apply({UpdateArtboard{"size-driver-comp",literal_edit}});});
+    auto driver_smuggle=edited;driver_smuggle.width_driver=ArtboardSizeDriver{parent_width};
+    rejects("ARTBOARD_DRIVER_SMUGGLING",[&]{apply({UpdateArtboard{"size-driver-comp",driver_smuggle}});});
+    rejects("DRIVEN_ARTBOARD_SIZE",[&]{apply({SetArtboardSizeExpression{child_width,{"1",1},false}});});
+    rejects("ARTBOARD_SIZE_RANGE",[&]{apply({SetArtboardSizeExpression{child_width,{"0",1},true}});});
+    rejects("UNSUPPORTED_EXPRESSION_VERSION",[&]{apply({SetArtboardSizeExpression{child_width,{"1",2},true}});});
+    rejects("WRONG_COMPOSITION",[&]{apply({LinkArtboardSize{child_width,other_width,true}});});
+    rejects("MISSING_ARTBOARD",[&]{apply({LinkArtboardSize{child_width,{"missing","","artboard.width"},true}});});
+    rejects("TYPE_MISMATCH",[&]{apply({LinkArtboardSize{child_width,{"size-circle","","artboard.width"},true}});});
+    rejects("INVALID_ARTBOARD_REF",[&]{apply({LinkArtboardSize{Ref{"size-child","point","artboard.width"},parent_width,true}});});
+    rejects("INVALID_ARTBOARD_REF",[&]{apply({LinkArtboardSize{child_width,{"size-parent","","artboard.x"},true}});});
+    rejects("WRONG_COMPOSITION",[&]{apply({SetArtboardSizeExpression{child_width,{"ref(\"size-other-art\",\"\",\"artboard.width\")",1},true}});});
+    rejects("UNIT_MISMATCH",[&]{apply({SetArtboardSizeExpression{child_width,{"ref(\"size-circle\",\"\",\"generator.rotation\")",1},true}});});
+    rejects("ARTBOARD_SELF_LINK",[&]{apply({LinkArtboardSize{child_width,child_width,true}});});
+    rejects("MISSING_REFERENCE",[&]{apply({Set{child_width,500}});});
+    rejects("MISSING_REFERENCE",[&]{apply({Link{child_width,{{"size-parent","","artboard.width"},1,0,"copy_local_value"}}});});
+    rejects("MISSING_REFERENCE",[&]{apply({SetExpression{{child_width},{"1",1},false}});});
+    rejects("CROSS_TYPE_DEPENDENCY",[&]{apply({SetExpression{{scalar_target},{"ref(\"size-child\",\"\",\"artboard.width\")",1},false}});});
+    check(session.revision()==rejection_revision&&session.history()==history&&encode(session.document())==before_rejections,
+        "Invalid refs, units, versions, ranges, type mixing, direct edits and stale drivers reject atomically");
+
+    apply({LinkArtboardSize{child_height,child_width,true}});
+    const auto before_cycle=encode(session.document());const auto cycle_revision=session.revision();
+    rejects("ARTBOARD_CYCLE",[&]{apply({SetArtboardSizeExpression{child_width,{"ref(\"size-child\",\"\",\"artboard.height\")",1},true}});});
+    check(session.revision()==cycle_revision&&encode(session.document())==before_cycle,
+        "Mixed cross-dimension expression and link cycles leave the previous evaluation and authored state intact");
+    apply({UnlinkArtboardSize{child_height}});
+    auto child_state=child_authored();child_state.parent_size->height=true;
+    apply({UpdateArtboard{"size-driver-comp",child_state}});
+    const auto parent_cycle_before=encode(session.document());const auto parent_cycle_revision=session.revision();
+    rejects("ARTBOARD_CYCLE",[&]{apply({LinkArtboardSize{parent_height,child_height,false}});});
+    check(session.revision()==parent_cycle_revision&&encode(session.document())==parent_cycle_before,
+        "Parent-size and typed-link cycles are validated together");
+
+    auto child_override=child_authored();child_override.height=300;child_override.parent_size->height=false;
+    apply({UpdateArtboard{"size-driver-comp",child_override}});
+    check(resolved("size-child").height==300,"Legacy parent_size local override remains available through UpdateArtboard");
+    child_override=child_authored();child_override.parent_size->height=true;
+    apply({UpdateArtboard{"size-driver-comp",child_override}});
+    check(resolved("size-child").height==660,"Parent_size inheritance can be explicitly reset after a local override");
+    apply({DetachArtboardParent{"size-driver-comp","size-child"}});
+    check(!child_authored().parent_size&&child_authored().height==660&&
+        child_authored().width==320&&child_authored().width_driver&&
+        artboard_size_property(session.document(),child_width).source_kind=="expression"&&resolved("size-child").width==860,
+        "Detach freezes inherited height but retains the independent typed width expression and fallback literal");
+    parent_board=session.document().compositions.front().artboards.back();parent_board.height=900;
+    apply({UpdateArtboard{"size-driver-comp",parent_board}});
+    check(resolved("size-child").height==660&&resolved("size-child").width==1100,
+        "After detach, only the independent expression continues following its exact source");
+    apply({UnlinkArtboardSize{child_width}});
+    check(artboard_size_property(session.document(),child_width).source_kind=="literal"&&
+        artboard_size_property(session.document(),child_width).literal==1100,
+        "Typed unlink freezes the evaluated size into the authored literal");
+    session.undo(session.revision());
+    check(artboard_size_property(session.document(),child_width).source_kind=="expression"&&resolved("size-child").width==1100,
+        "Undo restores the exact typed expression and its evaluation");
+    session.redo(session.revision());
+
+    auto native_document=session.document();
+    auto native_child=std::find_if(native_document.compositions.front().artboards.begin(),native_document.compositions.front().artboards.end(),
+        [](const auto& board){return board.id=="size-child";});
+    native_child->width_driver=ArtboardSizeDriver{combined};
+    auto typed_native=encode(native_document);
+    check(typed_native.find("\"version\":\"0.33\"")!=std::string::npos&&
+        typed_native.find("\"width_driver\":{\"expression\":")!=std::string::npos&&
+        encode(decode(typed_native))==typed_native,
+        "Native 0.33 stores and cold-roundtrips the additive Artboard expression driver");
+    auto lied_version=typed_native;
+    check(replace_all(lied_version,"\"version\":\"0.33\"","\"version\":\"0.32\"")==1,
+        "Native version-lie fixture changes only the version tag");
+    rejects("UNKNOWN_FIELD",[&]{(void)decode(lied_version);});
+    auto literal_document=session.document();
+    auto literal_child=std::find_if(literal_document.compositions.front().artboards.begin(),literal_document.compositions.front().artboards.end(),
+        [](const auto& board){return board.id=="size-child";});
+    literal_child->width_driver.reset();literal_child->height_driver.reset();
+    auto legacy=encode(literal_document);
+    check(replace_all(legacy,"\"version\":\"0.33\"","\"version\":\"0.32\"")==1&&
+        decode(legacy)==literal_document,
+        "Native 0.32 still reopens literal and parent_size Artboards without driver fields");
+    auto malformed=typed_native;
+    check(replace_all(malformed,"\"width_driver\":{\"expression\":","\"width_driver\":{\"extra\":true,\"expression\":")==1,
+        "Malformed native fixture adds one unknown driver field");
+    rejects("UNKNOWN_FIELD",[&]{(void)decode(malformed);});
+    const auto malformed_driver_request=request(session,R"({"op":"apply","expected_revision":99,"commands":[
+      {"type":"link_artboard_size","target":{"object":"size-child","point":"","field":"artboard.width"},"source":{"object":"size-parent","point":"","field":"artboard.width"},"replace_driver":true,"relative":false}
+    ]})");
+    check(malformed_driver_request.find("\"code\":\"UNKNOWN_FIELD\"")!=std::string::npos,
+        "Dedicated Artboard command rejects unrecognized fields at the JSON boundary");
+
+    apply({DeleteArtboard{"size-driver-comp","size-parent"}});
+    check(std::none_of(session.document().compositions.front().artboards.begin(),session.document().compositions.front().artboards.end(),
+        [](const auto& board){return board.id=="size-parent";}),
+        "Unlinking the surviving dependent before deletion permits removing its former source atomically");
+
+    auto smuggled=Artboard{"size-smuggled","Smuggled",0,0,100,100};
+    smuggled.width_driver=ArtboardSizeDriver{Ref{"size-peer","","artboard.width"}};
+    rejects("ARTBOARD_DRIVER_SMUGGLING",[&]{apply({AddArtboard{"size-driver-comp",smuggled,2}});});
+    auto stale=Artboard{"stale","Stale",0,0,10,10};
+    rejects("REVISION_CONFLICT",[&]{session.apply({AddArtboard{"size-driver-comp",stale,2},LinkArtboardSize{{"stale","","artboard.width"},peer_width,false}},session.revision()-1);});
+}
 }
 int main(){try{
     layout_and_guide_acceptance();
     guide_position_links();
+    artboard_size_drivers();
     auto document=empty_document("doc","comp","first");
     document.compositions.push_back({"second-comp","Other coordinate plane",{},{{"other","Other frame",0,0,400,400}}});
     Session s(document);auto apply=[&](std::vector<Command> cmds){s.apply(cmds,s.revision());};
@@ -392,7 +591,7 @@ int main(){try{
     apply({ReorderArtboards{"comp",{"third","second","first"}}});
     check(s.document().compositions.front().artboards.front().id=="third"&&export_svg(s.document(),"comp","second")==crop&&evaluate(s.document())==authored_values,"Page order changes neither crops nor any artwork property");
     const auto stored=encode(s.document());
-    rejects("MISSING_ARTBOARD",[&]{apply({DeleteArtboard{"comp","first"}});});
+    rejects("ARTBOARD_IN_USE",[&]{apply({DeleteArtboard{"comp","first"}});});
     auto cycle=first;cycle.parent_size=ArtboardParent{"third",true,true};
     rejects("ARTBOARD_CYCLE",[&]{apply({UpdateArtboard{"comp",cycle}});});
     auto cross=second;cross.parent_size->artboard="other";

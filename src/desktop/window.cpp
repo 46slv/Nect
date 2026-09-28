@@ -1457,7 +1457,7 @@ void Window::add_artboard(bool duplicate) {
     const auto& comp=find_composition(host.session.document(),canvas->active_composition());
     const auto& selected=find_artboard(comp,canvas->active_artboard());
     auto board=duplicate?selected:evaluate_artboard(comp,selected.id);
-    if(!duplicate){board.parent_size.reset();board.layout.reset();}
+    if(!duplicate){board.parent_size.reset();board.layout.reset();board.width_driver.reset();board.height_driver.reset();}
     double right=board.x+board.width;
     for(const auto& entry:comp.artboards) {const auto resolved=evaluate_artboard(comp,entry.id);right=std::max(right,resolved.x+resolved.width);}
     board.id=new_id();board.name=duplicate?selected.name+" copy":"Artboard "+std::to_string(comp.artboards.size()+1);
@@ -1465,7 +1465,17 @@ void Window::add_artboard(bool duplicate) {
     board.x=right+40;
     const auto index=static_cast<std::size_t>(std::find_if(comp.artboards.begin(),comp.artboards.end(),[&](const auto& entry){return entry.id==selected.id;})-comp.artboards.begin())+1;
     const auto comp_id=comp.id,board_id=board.id;
-    host.session.apply({AddArtboard{comp_id,board,index}},host.session.revision());
+    const auto width_driver=board.width_driver,height_driver=board.height_driver;
+    board.width_driver.reset();board.height_driver.reset();
+    std::vector<Command> commands{AddArtboard{comp_id,board,index}};
+    const auto add_driver=[&](bool width,const std::optional<Artboard::SizeDriver>& driver) {
+        if(!driver)return;
+        const Ref target{board_id,"",width?"artboard.width":"artboard.height"};
+        if(const auto* link=std::get_if<Ref>(&driver->value))commands.push_back(LinkArtboardSize{target,*link,false});
+        else commands.push_back(SetArtboardSizeExpression{target,std::get<Expression>(driver->value),false});
+    };
+    add_driver(true,width_driver);add_driver(false,height_driver);
+    host.session.apply(commands,host.session.revision());
     canvas->set_selection({});artboard_editing_=true;canvas->set_active_artboard(comp_id,board_id);host.edited();
 }
 
@@ -1508,8 +1518,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto number=[&](const char* key,const QString& label,double Artboard::* member) {
         auto* input=new QLineEdit(display_value(resolved.*member));input->setObjectName(QString("artboard-")+key);
         input->setAccessibleName(label);form->addRow(label,input);
-        if(std::string(key)=="width"||std::string(key)=="height")
-            input->setToolTip("Typing a size creates a local override. Use Inherit below to reset to the parent size.");
+        if(std::string(key)=="width"||std::string(key)=="height") {
+            const bool typed_driven=std::string(key)=="width"?board.width_driver.has_value():board.height_driver.has_value();
+            input->setReadOnly(typed_driven);
+            input->setToolTip(typed_driven?"Unlink the typed source before entering a literal size.":
+                "Typing a size creates a local override. Use Inherit below to reset to the parent size.");
+        }
         else input->setToolTip("Crop position only; this does not move any artwork.");
         connect(input,&QLineEdit::editingFinished,this,[this,input,composition,read,apply,member,key=std::string(key)]{
             if(!input->isModified())return;input->setModified(false);
@@ -1526,6 +1540,70 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     };
     number("x","Frame X · crop",&Artboard::x);number("y","Frame Y · crop",&Artboard::y);
     number("width","Width",&Artboard::width);number("height","Height",&Artboard::height);
+
+    auto size_source=[&,this](bool width) {
+        const QString axis=width?"width":"height";
+        const Ref target{id,"",width?"artboard.width":"artboard.height"};
+        const auto driver=width?board.width_driver:board.height_driver;
+        const bool parent_driven=board.parent_size&&(width?board.parent_size->width:board.parent_size->height);
+        auto* source_box=new QGroupBox(axis+" source");source_box->setObjectName("artboard-"+axis+"-source");
+        auto* source_layout=new QVBoxLayout(source_box);
+        auto* status=new QLabel(source_box);status->setObjectName("artboard-"+axis+"-source-state");
+        QString kind=parent_driven?"parent_size":driver?(std::holds_alternative<Ref>(driver->value)?"link":"expression"):"literal";
+        status->setText("Source: "+kind+" · Literal: "+display_value(width?board.width:board.height)+
+            " du · Evaluated: "+display_value(width?resolved.width:resolved.height)+" du");
+        status->setWordWrap(true);source_layout->addWidget(status);
+        auto* source=new QComboBox(source_box);source->setObjectName("artboard-"+axis+"-link-source");
+        source->setAccessibleName(axis+" Artboard source");
+        std::vector<Ref> source_refs;
+        for(const auto& candidate:comp.artboards)for(const bool source_width:{true,false}) {
+            Ref ref{candidate.id,"",source_width?"artboard.width":"artboard.height"};
+            if(ref==target)continue;
+            source_refs.push_back(ref);
+            source->addItem(qs(candidate.name)+" · "+(source_width?"width":"height")+
+                " ("+qs(candidate.id)+"/"+qs(ref.field)+")");
+            source->setItemData(source->count()-1,qs(candidate.id+"/"+ref.field),Qt::ToolTipRole);
+        }
+        if(driver&&std::holds_alternative<Ref>(driver->value)) {
+            const auto it=std::find(source_refs.begin(),source_refs.end(),std::get<Ref>(driver->value));
+            if(it!=source_refs.end())source->setCurrentIndex(static_cast<int>(std::distance(source_refs.begin(),it)));
+        }
+        source_layout->addWidget(source);
+        auto* expression=new ExpressionInput;expression->setObjectName("artboard-"+axis+"-expression");
+        expression->setAccessibleName(axis+" expression");expression->setFixedHeight(58);
+        expression->setPlaceholderText("Numeric expression in du; Ctrl+Enter to apply");
+        if(driver&&std::holds_alternative<Expression>(driver->value))expression->setPlainText(qs(std::get<Expression>(driver->value).source));
+        source_layout->addWidget(expression);
+        auto* replace=new QCheckBox("Replace current source",source_box);
+        replace->setObjectName("artboard-"+axis+"-replace");replace->setEnabled(parent_driven||driver.has_value());
+        source_layout->addWidget(replace);
+        auto* actions=new QHBoxLayout;source_layout->addLayout(actions);
+        auto* link=new QPushButton("Link",source_box);link->setObjectName("artboard-"+axis+"-link");actions->addWidget(link);
+        auto* set_expression=new QPushButton("Apply expression",source_box);
+        set_expression->setObjectName("artboard-"+axis+"-apply-expression");actions->addWidget(set_expression);
+        auto* unlink=new QPushButton("Unlink · keep size",source_box);
+        unlink->setObjectName("artboard-"+axis+"-unlink");unlink->setEnabled(driver.has_value());actions->addWidget(unlink);
+        auto* cancel=new QPushButton("Cancel draft",source_box);
+        cancel->setObjectName("artboard-"+axis+"-cancel");actions->addWidget(cancel);
+        auto commit=[this,frozen_session,frozen_revision](const std::vector<Command>& commands) {
+            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Artboard source belongs to another document");
+            canvas->cancel_interaction();host.session.apply(commands,frozen_revision);host.edited();
+        };
+        connect(link,&QPushButton::clicked,this,[this,source,source_refs,target,replace,commit]{perform([&]{
+            const auto index=source->currentIndex();
+            if(index<0||static_cast<std::size_t>(index)>=source_refs.size())throw Error("NO_SOURCE","Choose an Artboard size source");
+            commit({LinkArtboardSize{target,source_refs[static_cast<std::size_t>(index)],replace->isChecked()}});
+        });});
+        auto apply_expression=[this,expression,target,replace,commit]{perform([&]{
+            commit({SetArtboardSizeExpression{target,{expression->toPlainText().toStdString(),1},replace->isChecked()}});
+        });};
+        expression->apply=apply_expression;expression->cancel=[this]{rebuild_inspector();};
+        connect(set_expression,&QPushButton::clicked,this,apply_expression);
+        connect(unlink,&QPushButton::clicked,this,[this,target,commit]{perform([&]{commit({UnlinkArtboardSize{target}});});});
+        connect(cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+        form->addRow("",source_box);
+    };
+    size_source(true);size_source(false);
 
     auto* overlays=new QGroupBox("Layout overlays · this window");auto* overlay_layout=new QVBoxLayout(overlays);
     auto* show_guides=new QCheckBox("Show Guides");show_guides->setObjectName("overlay-show-guides");show_guides->setChecked(canvas->show_guides());overlay_layout->addWidget(show_guides);
@@ -1737,7 +1815,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     for(const bool width:{true,false}) {
         auto* inherit=new QCheckBox(width?"Inherit width · reset":"Inherit height · reset");
         inherit->setObjectName(width?"artboard-inherit-width":"artboard-inherit-height");
-        inherit->setEnabled(board.parent_size.has_value());
+        inherit->setEnabled(board.parent_size.has_value()&&!(width?board.width_driver:board.height_driver).has_value());
         inherit->setChecked(board.parent_size&&(width?board.parent_size->width:board.parent_size->height));parent_form->addRow(inherit);
         inherit->setToolTip("Checked: use the parent's evaluated size. Unchecked: freeze this dimension as a local override.");
         connect(inherit,&QCheckBox::toggled,this,[this,inherit,width,composition,id,read,apply](bool checked){

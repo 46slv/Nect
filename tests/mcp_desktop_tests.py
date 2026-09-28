@@ -439,7 +439,7 @@ try:
         frozen_after=core('get',ref=target_gradient_ref)['result']
         assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.32' and core('get',ref=target_gradient_ref)['result']==frozen
+        assert mcp_native['version']=='0.33' and core('get',ref=target_gradient_ref)['result']==frozen
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -462,10 +462,20 @@ try:
         width_ref=dict(object=child['id'],point='',field='artboard.width')
         width=core('get',ref=width_ref)['result']
         assert width['type']=='number' and width['unit']=='du' and width['authored']==dict(
-            literal=160,driver=dict(object=first['id'],point='',field='artboard.width'))
-        assert width['evaluated']==700 and width['link'] is True and width['expression'] is False
+            literal=160,driver=dict(object=first['id'],point='',field='artboard.width'),
+            source_kind='parent_size',expression=None)
+        assert width['evaluated']==700 and width['link'] is True and width['expression'] is True
         assert core('resolve_name',name='Alternate crop',point='',field='artboard.width')['result']==width_ref
         assert any(entry['ref']==width_ref and entry['evaluated']==700 for entry in core('properties')['result'])
+        formula=f'ref("{first["id"]}","","artboard.height") * 2'
+        rev=apply([dict(type='set_artboard_size_expression',target=width_ref,
+            expression=dict(source=formula,version=1),replace_driver=True)],rev)
+        expressed=core('get',ref=width_ref)['result']
+        assert expressed['authored']==dict(literal=160,driver=None,source_kind='expression',
+            expression=dict(source=formula,version=1)) and expressed['evaluated']==first['height']*2
+        undone=core('undo',expected_revision=rev)
+        assert undone['ok'];rev=undone['revision']
+        assert core('get',ref=width_ref)['result']==width
         invalid=core('get',ref=dict(width_ref,point='not-empty'))
         assert not invalid['ok'] and invalid['error']['code']=='INVALID_ARTBOARD_REF'
         crop_svg=core('export_svg',composition=comp['id'],artboard=child['id'])['result']
@@ -1284,7 +1294,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.32'
+        assert native_save_as['version']=='0.33'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']

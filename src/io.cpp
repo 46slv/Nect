@@ -435,11 +435,13 @@ j::object text_weight_property_json(const Document& d,const Ref& ref,const TextW
         {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},{"evaluated",value.evaluated}};
 }
 j::object artboard_size_property_json(const Document& d,const Ref& ref,const ArtboardSizeProperty& value) {
+    j::value expression=nullptr;if(value.expression)expression=expression_json(*value.expression);
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","number"},{"unit","du"},
         {"space","composition"},{"origin","authored"},
         {"range",j::object{{"min_exclusive",0},{"max",1e7}}},
-        {"authored",j::object{{"literal",value.literal},{"driver",value.driver?j::value(ref_json(*value.driver)):j::value(nullptr)}}},
-        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+        {"authored",j::object{{"literal",value.literal},{"driver",value.driver?j::value(ref_json(*value.driver)):j::value(nullptr)},
+            {"source_kind",value.source_kind},{"expression",std::move(expression)}}},
+        {"evaluated",value.evaluated},{"link",true},{"expression",true}};
 }
 std::string guide_property_name(const Document& d,const Ref& ref) {
     for(const auto& composition:d.compositions)for(const auto& guide:composition.guides)
@@ -795,12 +797,23 @@ j::value layout_json(const ArtboardLayout& layout) {
     return result;
 }
 
-Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layout=false) {
+Artboard::SizeDriver read_artboard_size_driver(const j::value& value) {
+    const auto& driver=value.as_object();
+    if(driver.contains("link")){keys(driver,{"link"});return Artboard::SizeDriver{read_ref(driver.at("link"))};}
+    if(driver.contains("expression")){keys(driver,{"expression"});return Artboard::SizeDriver{read_expression(driver.at("expression"))};}
+    throw Error("INVALID_ARTBOARD_DRIVER","Artboard size driver requires exactly one link or expression");
+}
+j::object artboard_size_driver_json(const Artboard::SizeDriver& driver) {
+    if(const auto* link=std::get_if<Ref>(&driver.value))return {{"link",ref_json(*link)}};
+    return {{"expression",expression_json(std::get<Expression>(driver.value))}};
+}
+Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layout=false,bool allow_size_driver=false) {
     const auto& a=v.as_object();
-    if(allow_parent&&allow_layout)keys(a,{"id","name","x","y","width","height","parent_size","layout"});
-    else if(allow_parent)keys(a,{"id","name","x","y","width","height","parent_size"});
-    else if(allow_layout)keys(a,{"id","name","x","y","width","height","layout"});
-    else keys(a,{"id","name","x","y","width","height"});
+    std::vector<std::string_view> allowed{"id","name","x","y","width","height"};
+    if(allow_parent)allowed.push_back("parent_size");
+    if(allow_layout)allowed.push_back("layout");
+    if(allow_size_driver){allowed.push_back("width_driver");allowed.push_back("height_driver");}
+    keys(a,allowed);
     Artboard result{text(a.at("id")),text(a.at("name")),number(a.at("x")),number(a.at("y")),number(a.at("width")),number(a.at("height"))};
     if(const auto* p=a.if_contains("parent_size")) {
         const auto& parent=p->as_object();keys(parent,{"artboard","width","height"});
@@ -810,12 +823,18 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
         if(layout->is_null())throw Error("INVALID_LAYOUT","Artboard layout must be omitted or an object; clear it with set_artboard_layout");
         result.layout=read_layout(*layout);
     }
+    if(allow_size_driver) {
+        if(const auto* driver=a.if_contains("width_driver"))result.width_driver=read_artboard_size_driver(*driver);
+        if(const auto* driver=a.if_contains("height_driver"))result.height_driver=read_artboard_size_driver(*driver);
+    }
     return result;
 }
 j::object artboard_json(const Artboard& a) {
     j::object result{{"id",a.id},{"name",a.name},{"x",a.x},{"y",a.y},{"width",a.width},{"height",a.height}};
     if(a.parent_size)result["parent_size"]=j::object{{"artboard",a.parent_size->artboard},{"width",a.parent_size->width},{"height",a.parent_size->height}};
     if(a.layout)result["layout"]=layout_json(*a.layout);
+    if(a.width_driver)result["width_driver"]=artboard_size_driver_json(*a.width_driver);
+    if(a.height_driver)result["height_driver"]=artboard_size_driver_json(*a.height_driver);
     return result;
 }
 
@@ -963,7 +982,7 @@ Command read_command(const j::value& v) {
         return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true),j::value_to<std::size_t>(o.at("index"))};
     }
     if(type=="update_artboard") {
-        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true)};
+        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,true)};
     }
     if(type=="add_guide"||type=="update_guide") {
         keys(o,{"type","composition","guide"});
@@ -989,6 +1008,17 @@ Command read_command(const j::value& v) {
         keys(o,{"type","composition","artboard"});
         if(type=="delete_artboard")return DeleteArtboard{text(o.at("composition")),text(o.at("artboard"))};
         return DetachArtboardParent{text(o.at("composition")),text(o.at("artboard"))};
+    }
+    if(type=="link_artboard_size") {
+        keys(o,{"type","target","source","replace_driver"});
+        return LinkArtboardSize{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="set_artboard_size_expression") {
+        keys(o,{"type","target","expression","replace_driver"});
+        return SetArtboardSizeExpression{read_ref(o.at("target")),read_expression(o.at("expression")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="unlink_artboard_size") {
+        keys(o,{"type","target"});return UnlinkArtboardSize{read_ref(o.at("target"))};
     }
     if(type=="reorder_artboards") {
         keys(o,{"type","composition","order"});return ReorderArtboards{text(o.at("composition")),ids(o.at("order"))};
@@ -1193,10 +1223,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,32> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32"};
+        constexpr std::array<std::string_view,33> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.32 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.33 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1217,7 +1247,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33));
             if(minor>=14)for(const auto& gv:co.at("guides").as_array())c.guides.push_back(read_guide(gv,minor>=23));
             d.compositions.push_back(std::move(c));
         }

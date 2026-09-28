@@ -2116,7 +2116,7 @@ void artboard_authoring(Window& window) {
     select(original);input("artboard-width","800");input("artboard-height","450");
     check(resolved(child).width==800&&resolved(child).height==450,"Parent frame resizing propagates evaluated child size");
     const auto protected_revision=session.revision();button("artboard-remove");
-    check(session.revision()==protected_revision&&authored(child).parent_size&&window.statusBar()->currentMessage().contains("MISSING_ARTBOARD"),
+    check(session.revision()==protected_revision&&authored(child).parent_size&&window.statusBar()->currentMessage().contains("ARTBOARD_IN_USE"),
         "Removing a referenced parent rejects visibly without changing the document");
     select(child);input("artboard-width","900");
     check(!authored(child).parent_size->width&&authored(child).parent_size->height&&resolved(child).width==900,
@@ -2132,6 +2132,55 @@ void artboard_authoring(Window& window) {
     history_action(window,"Redo");select(original);input("artboard-width","650");input("artboard-height","400");
     check(resolved(child).width==700&&resolved(child).height==500&&evaluate(session.document())==geometry,
         "Detached dimensions and artwork stay fixed when the former parent changes");
+
+    select(child);
+    auto* source_state=visible_child<QLabel>(window,"artboard-width-source-state");
+    check(source_state->text().contains("Source: literal"),"Artboard Inspector identifies the current dimension source");
+    auto* expression=visible_child<QPlainTextEdit>(window,"artboard-width-expression");reveal(window,expression);
+    const auto expression_text="ref(\""+original+"\",\"\",\"artboard.width\") * .5";
+    const auto draft_revision=session.revision();expression->setPlainText(QString::fromStdString(expression_text));
+    check(session.revision()==draft_revision&&!authored(child).width_driver,"Expression text stays a draft until Apply");
+    button("artboard-width-apply-expression");
+    check(authored(child).width_driver&&std::holds_alternative<Expression>(authored(child).width_driver->value)&&
+        std::get<Expression>(authored(child).width_driver->value).source==expression_text&&resolved(child).width==325,
+        "Artboard Inspector commits the exact typed expression and evaluates its Artboard Ref");
+    button("artboard-duplicate");const auto typed_copy=window.canvas->active_artboard();
+    check(typed_copy!=child&&authored(typed_copy).width_driver&&
+        std::holds_alternative<Expression>(authored(typed_copy).width_driver->value)&&
+        std::get<Expression>(authored(typed_copy).width_driver->value).source==expression_text&&resolved(typed_copy).width==325,
+        "Duplicate frame preserves the exact typed expression through dedicated Session commands");
+    button("artboard-remove");
+    select(original);input("artboard-width","600");
+    check(resolved(child).width==300,"Artboard expression follows its stable source ID after an edit");
+    select(child);
+    expression=visible_child<QPlainTextEdit>(window,"artboard-width-expression");reveal(window,expression);
+    expression->setPlainText("ref(\"missing\",\"\",\"artboard.width\")");
+    const auto before_invalid=encode(session.document());const auto invalid_revision=session.revision();
+    button("artboard-width-apply-expression");
+    check(session.revision()==invalid_revision&&encode(session.document())==before_invalid,
+        "Invalid Artboard expression draft leaves the committed source and native bytes unchanged");
+    button("artboard-width-cancel");
+    auto* sources=visible_child<QComboBox>(window,"artboard-width-link-source");reveal(window,sources);
+    int source_index=-1;
+    for(int i=0;i<sources->count();++i)
+        if(sources->itemText(i).contains(QString::fromStdString(original)+"/artboard.height"))source_index=i;
+    check(source_index>=0,"Artboard Inspector offers the exact same-Composition height Ref");
+    sources->setCurrentIndex(source_index);
+    const auto before_replace=encode(session.document());const auto replace_revision=session.revision();
+    button("artboard-width-link");
+    check(session.revision()==replace_revision&&encode(session.document())==before_replace,
+        "Artboard Inspector refuses silent replacement of an expression source");
+    auto* replace=visible_child<QCheckBox>(window,"artboard-width-replace");reveal(window,replace);
+    replace->setChecked(true);button("artboard-width-link");
+    check(authored(child).width_driver&&std::holds_alternative<Ref>(authored(child).width_driver->value)&&
+        std::get<Ref>(authored(child).width_driver->value)==Ref{original,"","artboard.height"}&&resolved(child).width==400,
+        "Explicit Inspector replacement links cross-field Artboard size by stable Ref");
+    history_action(window,"Undo");
+    check(authored(child).width_driver&&std::holds_alternative<Expression>(authored(child).width_driver->value)&&resolved(child).width==300,
+        "Undo restores the prior expression instead of the retained local literal");
+    history_action(window,"Redo");select(child);button("artboard-width-unlink");
+    check(!authored(child).width_driver&&authored(child).width==400&&resolved(child).width==400,
+        "Unlink freezes the evaluated Artboard dimension as its authored literal");
 
     // Open a real native fixture with an empty leading composition and two
     // independent planes. Empty legacy compositions must not break navigation.
