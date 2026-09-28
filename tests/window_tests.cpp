@@ -2512,14 +2512,39 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     check(std::get<double>(artboard_layout_property(session.document(),grid_target_ref).evaluated)==80&&
         visible_child<QLabel>(window,"grid-bounds-x-source-state")->text().contains("Evaluated: 80"),
         "Grid Inspector status follows upstream Artboard width without changing authored x");
+    const QString grid_expression_text=QString::fromStdString("ref(\""+margin_source_id+"\",\"\",\"artboard.width\")");
+    auto* grid_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-x-expression");
+    auto* grid_expression_apply=visible_child<QPushButton>(window,"grid-bounds-x-apply-expression");
+    auto* grid_replace_source=visible_child<QCheckBox>(window,"grid-bounds-x-replace");
+    grid_expression->setPlainText(grid_expression_text);QApplication::processEvents();
+    const auto before_unapproved_grid_expression=session.revision();QTest::mouseClick(grid_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_grid_expression&&board().layout->grid->bounds_x_driver==grid_source_ref&&
+        !board().layout->grid->bounds_x_expression&&grid_expression->toPlainText()==grid_expression_text&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_X"),
+        "Grid expression replacement requires its visible explicit authorization and keeps the rejected draft");
+    grid_replace_source->setChecked(true);QTest::mouseClick(grid_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    driven_grid_x=visible_child<QLineEdit>(window,"grid-x");grid_driven_status=visible_child<QLabel>(window,"grid-bounds-x-source-state");
+    check(session.revision()==before_unapproved_grid_expression+1&&driven_grid_x->isReadOnly()&&
+        !board().layout->grid->bounds_x_driver&&
+        board().layout->grid->bounds_x_expression==Expression{grid_expression_text.toStdString(),1}&&
+        grid_driven_status->text().contains("expression")&&grid_driven_status->text().contains("Literal: 60")&&
+        grid_driven_status->text().contains("Evaluated: 80"),
+        "Grid Inspector applies an explicit du expression while retaining the literal and reporting evaluated x");
+    grid_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-x-expression");grid_expression->setPlainText("ref(");
+    const auto before_invalid_grid_expression=session.revision();grid_expression_apply=visible_child<QPushButton>(window,"grid-bounds-x-apply-expression");
+    QTest::mouseClick(grid_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_invalid_grid_expression&&grid_expression->toPlainText()=="ref("&&
+        board().layout->grid->bounds_x_expression==Expression{grid_expression_text.toStdString(),1},
+        "Invalid Grid expression remains a draft without changing committed Session state");
+    click("grid-bounds-x-cancel-expression");
     const auto before_refused_copy=session.revision();const auto document_before_refused_copy=session.document();
     click("grid-copy-margin-box");
     check(session.revision()==before_refused_copy&&session.document()==document_before_refused_copy&&
         window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_X"),
-        "Grid-to-Margin copy refuses to overwrite a driven x literal with a different inset");
+        "Grid-to-Margin copy refuses to overwrite an expression-driven x literal with a different inset");
     click("grid-bounds-x-unlink");
-    check(!board().layout->grid->bounds_x_driver&&board().layout->grid->bounds.x==80,
-        "Grid x unlink freezes the currently evaluated value into its literal");
+    check(!board().layout->grid->bounds_x_driver&&!board().layout->grid->bounds_x_expression&&board().layout->grid->bounds.x==80,
+        "Grid x unlink freezes the expression's evaluated value into its literal");
     click("grid-copy-margin-box");
     check(board().layout->grid->bounds.x==80,"Grid-to-Margin copy succeeds after explicit unlink");
     grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");

@@ -460,21 +460,24 @@ void snap_guide_grid_priority_visibility_and_controls() {
     }
     {
         auto document=grid_guide_snap_document(200);
-        const Ref source{"grid-linked-snap-source","","artboard.width"};
-        document.compositions.front().artboards.front().layout->grid->bounds_x_driver=source;
+        const Ref source{"grid-expression-snap-source","","artboard.width"};
+        document.compositions.front().artboards.front().layout->grid->bounds_x_expression=
+            Expression{R"(ref("grid-expression-snap-source","","artboard.width"))",1};
         document.compositions.front().artboards.push_back({source.object,"Evaluated Grid source",0,0,220,100});
         Fixture f(document);f.canvas.set_selection("path");
         f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);
         const auto start=f.screen(140,130),end=f.screen(176,130);
         f.press(start);f.move(end);
         near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),40,
-            "Grid Snap uses the linked evaluated Grid x rather than the authored literal");
+            "Grid Snap uses the expression-evaluated Grid x rather than the authored literal");
         check(f.canvas.last_snap_feedback().contains("Grid → grid-snap"),
-            "Linked Grid snap feedback identifies the stable Grid target");
+            "Expression-driven Grid snap feedback identifies the stable Grid target");
         f.release(end);
         const auto value=artboard_layout_property(f.session.document(),{"grid-snap","","grid.bounds.x"});
-        check(std::get<double>(value.literal)==200&&value.driver==source&&std::get<double>(value.evaluated)==220,
-            "Canvas Grid snapping preserves the authored x literal and source Ref");
+        check(std::get<double>(value.literal)==200&&!value.driver&&value.expression==
+            Expression{R"(ref("grid-expression-snap-source","","artboard.width"))",1}&&
+            std::get<double>(value.evaluated)==220,
+            "Canvas Grid snapping preserves the authored x literal and exact expression source");
         f.no_error();
     }
     {
@@ -1360,7 +1363,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     const Ref margin_source{"overlay-margin-source","","artboard.width"};
     const Ref grid_source{"overlay-grid-source","","artboard.width"};
     board.layout->margin->left_driver=margin_source;
-    board.layout->grid->bounds_x_driver=grid_source;
+    board.layout->grid->bounds_x_expression=Expression{R"(ref("overlay-grid-source","","artboard.width"))",1};
     document.compositions.front().artboards.push_back({margin_source.object,"Margin source",0,0,18,100});
     document.compositions.front().artboards.push_back({grid_source.object,"Grid source",0,0,55,100});
     document.compositions.front().guides={{"overlay-guide-x","Vertical","x",30},
@@ -1409,7 +1412,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     check(count_margin_pixels(image,18)>20&&count_margin_pixels(image,10)<20,
         "Canvas paints the linked Margin inset at its evaluated Artboard width, not its authored literal");
     check(count_grid_pixels(image,55)>20&&count_grid_pixels(image,20)<20,
-        "Canvas paints the linked Grid overlay at evaluated x, not the authored literal");
+        "Canvas paints the expression-driven Grid overlay at evaluated x, not the authored literal");
     session.begin_gesture(session.revision());
     session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
         UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,100}},

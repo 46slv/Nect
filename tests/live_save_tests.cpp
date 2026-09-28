@@ -504,7 +504,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_link=artboard_layout_property(persisted,target_ref);
     const auto persisted_grid_x=artboard_layout_property(persisted,grid_x_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.36\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.37\"")&&
         std::get<double>(persisted_link.literal)==40&&persisted_link.driver==source_ref&&std::get<double>(persisted_link.evaluated)==60&&
         std::get<double>(persisted_grid_x.literal)==40&&persisted_grid_x.driver==source_ref&&std::get<double>(persisted_grid_x.evaluated)==60,
         "Host Save As writes exact native 0.36 bytes with linked Margin and Grid sources beside authored literals");

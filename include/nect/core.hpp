@@ -289,6 +289,7 @@ struct Grid {
     std::size_t columns=1,rows=1;
     double column_gutter=0,row_gutter=0;
     std::optional<Ref> bounds_x_driver;
+    std::optional<Expression> bounds_x_expression;
     bool operator==(const Grid&) const = default;
 };
 struct ArtboardLayout {
@@ -416,12 +417,14 @@ struct UnlinkArtboardSize { Ref target; };
 struct LinkMarginLeft { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkMarginLeft { Ref target; };
 struct LinkGridBoundsX { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridBoundsXExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridBoundsX { Ref target; };
 struct LayoutDependencyCommand {
-    std::variant<LinkMarginLeft,UnlinkMarginLeft,LinkGridBoundsX,UnlinkGridBoundsX> operation;
+    std::variant<LinkMarginLeft,UnlinkMarginLeft,LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX> operation;
     LayoutDependencyCommand(LinkMarginLeft value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkMarginLeft value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkGridBoundsX value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridBoundsXExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkGridBoundsX value):operation(std::move(value)){}
 };
 using MarginLeftCommand=LayoutDependencyCommand;
@@ -743,6 +746,8 @@ struct ArtboardLayoutProperty {
     std::variant<double,std::size_t> literal;
     std::optional<Ref> driver;
     std::variant<double,std::size_t> evaluated;
+    std::optional<Expression> expression;
+    std::string source_kind="literal";
 };
 ArtboardLayoutProperty artboard_layout_property(const Document&,const Ref&);
 enum class TextPropertyKind { string, enumeration };

@@ -1395,3 +1395,26 @@ against the evaluated target Artboard width. Typed reads disclose the literal,
 exact source and evaluated x. Canvas Grid overlay, snapping and Grid-reference
 alignment/distribution use evaluated bounds; native Save As retains the authored source.
 Artboard sizes do not read Grid layout, so this edge remains one-way.
+
+## Native 0.37 — Grid bounds x expression
+
+A present Grid may now retain `bounds_x_expression: {source,version:1}` beside
+its authored `bounds.x` literal. It is mutually exclusive with the existing
+`bounds_x_driver` link. The expression uses the bounded numeric language in
+`du`; its `ref()` calls may address only width or height on distinct Artboards
+in the Grid owner's Composition. Those dimensions use the existing Artboard
+size evaluator, including parent-size, link and expression sources. Artboard
+sizes never depend on layout, so this adds a one-way source edge. Constants
+are allowed. The evaluated x must still satisfy Grid containment and cell
+constraints against the evaluated target Artboard size.
+
+`set_grid_bounds_x_expression` uses the revisioned Session path. Switching
+between a link and an expression requires explicit `replace_driver`; unlink
+freezes the evaluated x into its literal. Full layout and Artboard updates
+preserve an unchanged source for the same stable Grid ID and authored x,
+while rejecting implicit source edits and injected fields. Typed reads expose
+the literal, source kind, exact expression and evaluated x; Canvas, Snap and
+Grid-reference Align consume the evaluated layout. Native Save As retains the
+authored expression, and native 0.1–0.36 reject a version-lied expression
+field. `schemas/native-v0.37.schema.json` closes the optional field and
+rejects simultaneous Grid link and expression sources.

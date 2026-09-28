@@ -88,6 +88,16 @@ int main(){try{
  const auto evaluated_grid_property=artboard_layout_property(evaluated_grid_align.document(),{"grid","","grid.bounds.x"});
  check(std::get<double>(evaluated_grid_property.literal)==40&&std::get<double>(evaluated_grid_property.evaluated)==120,
      "Grid-reference Align consumes evaluated bounds x while retaining the authored Grid literal");
+ d=exact_fixture();d.compositions[0].artboards.push_back({"grid-expression-source","Grid expression source",0,0,120,100});
+ Session expression_grid_align(d);expression_grid_align.apply({GridBoundsXCommand{SetGridBoundsXExpression{
+     {"grid","","grid.bounds.x"},Expression{R"(ref("grid-expression-source","","artboard.width"))",1},false}}},0);
+ AlignObjects expression_grid_command{{"a"},"x","min",{}};expression_grid_command.reference="grid:grid";
+ apply(expression_grid_align,expression_grid_command);
+ near(bounds(expression_grid_align.document(),"a").left,120);
+ const auto expression_grid_property=artboard_layout_property(expression_grid_align.document(),{"grid","","grid.bounds.x"});
+ check(std::get<double>(expression_grid_property.literal)==40&&expression_grid_property.source_kind=="expression"&&
+     std::get<double>(expression_grid_property.evaluated)==120,
+     "Grid-reference Align consumes expression-evaluated x while retaining the authored Grid literal");
  d=exact_fixture();Session artboard_center(d);AlignObjects artboard_command{{"a"},"x","center","art"};apply(artboard_center,artboard_command);
  near((bounds(artboard_center.document(),"a").left+bounds(artboard_center.document(),"a").right)/2,480);
  d=exact_fixture();Session guide_align(d);AlignObjects guide_command{{"a"},"x","min",{}};guide_command.reference="guide:guide-x";apply(guide_align,guide_command);
