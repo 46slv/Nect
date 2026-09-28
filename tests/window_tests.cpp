@@ -2508,7 +2508,7 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
           visible_child<QLineEdit>(window,"margin-left")->text()=="25",
         "An untouched Inspector built at an older revision cannot overwrite current layout values");
 
-    const Id margin_source_id="margin-ui-source",margin_source_twin_id="margin-ui-source-twin";
+    const Id margin_source_id="margin-ui-source",margin_source_twin_id="margin-ui-source-twin",grid_y_source_id="grid-y-ui-source";
     session.apply({AddArtboard{composition_id,Artboard{margin_source_id,"Margin source",0,0,40,100},1},
         AddArtboard{composition_id,Artboard{margin_source_twin_id,"Margin source",0,0,45,120},2}},session.revision());
     window.host.edited();QApplication::processEvents();
@@ -2697,6 +2697,56 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     for(int i=0;i<grid_source_choice->count();++i)
         if(grid_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))grid_source_width_choice=i;
     grid_source_choice->setCurrentIndex(grid_source_width_choice);QApplication::processEvents();click("grid-bounds-x-link");
+    session.apply({AddArtboard{composition_id,Artboard{grid_y_source_id,"Grid y source",0,0,20,100},3}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    input("grid-height","400",true);
+    auto* grid_y_source_choice=visible_child<QComboBox>(window,"grid-bounds-y-link-source");
+    auto* grid_y_search=visible_child<QLineEdit>(window,"grid-bounds-y-link-source-search");
+    auto* grid_y_link_button=visible_child<QPushButton>(window,"grid-bounds-y-link");
+    auto* grid_y_replace=visible_child<QCheckBox>(window,"grid-bounds-y-replace");
+    grid_y_search->setText("grid-y-ui-source/artboard.width");QApplication::processEvents();
+    int grid_y_source_index=-1;
+    for(int i=0;i<grid_y_source_choice->count();++i)
+        if(grid_y_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(grid_y_source_id+"/artboard.width"))
+            grid_y_source_index=i;
+    check(grid_y_source_index>=0,"Grid y source search exposes the exact stable Artboard width Ref");
+    grid_y_source_choice->setCurrentIndex(grid_y_source_index);QApplication::processEvents();
+    const auto before_grid_y_link=session.revision();click("grid-bounds-y-link");
+    const Ref grid_y_target_ref{board().layout->grid->id,"","grid.bounds.y"};
+    const Ref grid_y_source_ref{grid_y_source_id,"","artboard.width"};
+    auto* driven_grid_y=visible_child<QLineEdit>(window,"grid-y");
+    auto* grid_y_status=visible_child<QLabel>(window,"grid-bounds-y-source-state");
+    check(session.revision()==before_grid_y_link+1&&driven_grid_y->isReadOnly()&&driven_grid_y->text()=="5"&&
+        artboard_layout_property(session.document(),grid_y_target_ref).driver==grid_y_source_ref&&
+        grid_y_status->text().contains("Literal: 5")&&grid_y_status->text().contains("Evaluated: 20"),
+        "Grid y Inspector links a searched stable Ref, keeps the literal read-only and shows evaluated status");
+    auto grid_y_source_artboard=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==grid_y_source_id;});
+    grid_y_source_artboard.width=25;
+    session.apply({UpdateArtboard{composition_id,grid_y_source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),grid_y_target_ref).evaluated)==25&&
+        visible_child<QLabel>(window,"grid-bounds-y-source-state")->text().contains("Evaluated: 25"),
+        "Grid y Inspector status follows an upstream Artboard width change");
+    grid_y_search=visible_child<QLineEdit>(window,"grid-bounds-y-link-source-search");
+    grid_y_source_choice=visible_child<QComboBox>(window,"grid-bounds-y-link-source");
+    grid_y_search->setText("margin-ui-source-twin/artboard.width");QApplication::processEvents();
+    int twin_grid_y_index=-1;
+    for(int i=0;i<grid_y_source_choice->count();++i)
+        if(grid_y_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_twin_id+"/artboard.width"))
+            twin_grid_y_index=i;
+    check(twin_grid_y_index>=0,"Grid y search can select a second stable source without ambiguous display names");
+    grid_y_source_choice->setCurrentIndex(twin_grid_y_index);QApplication::processEvents();
+    const auto before_unapproved_y_replace=session.revision();click("grid-bounds-y-link");
+    check(session.revision()==before_unapproved_y_replace&&
+        artboard_layout_property(session.document(),grid_y_target_ref).driver==grid_y_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_Y"),
+        "Replacing Grid y source requires visible explicit authorization");
+    grid_y_replace=visible_child<QCheckBox>(window,"grid-bounds-y-replace");grid_y_replace->setChecked(true);click("grid-bounds-y-link");
+    const Ref grid_y_twin_ref{margin_source_twin_id,"","artboard.width"};
+    check(session.revision()==before_unapproved_y_replace+1&&
+        artboard_layout_property(session.document(),grid_y_target_ref).driver==grid_y_twin_ref&&
+        std::get<double>(artboard_layout_property(session.document(),grid_y_target_ref).evaluated)==45,
+        "Grid y Inspector replaces a source only after explicit authorization");
     click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
     const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
@@ -2704,9 +2754,11 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         duplicate->layout->margin->left_expression==Expression{margin_expression_text.toStdString(),1}&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
         duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
+        duplicate->layout->grid->bounds_y_driver==grid_y_twin_ref&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==90&&
-        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.x"}).evaluated)==80,
-        "Duplicate frame replays the exact Margin expression and Grid link onto new stable target IDs");
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.x"}).evaluated)==80&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.y"}).evaluated)==45,
+        "Duplicate frame replays exact Margin expression and Grid x/y links onto new stable target IDs");
     auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
     for(int i=0;i<artboards->count();++i)
         if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);
@@ -2732,7 +2784,7 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==90,
         "Unlinked Margin remains frozen when its former source changes");
 
-    click("grid-bounds-x-unlink");
+    click("grid-bounds-x-unlink");click("grid-bounds-y-unlink");
     session.apply({SetArtboardLayout{composition_id,board_id,
                        ArtboardLayout{Margin{25,0,0,0},Grid{"recovery-grid",{25,0,100,100},2,1,10,0}}},
                    AddGuide{composition_id,{"recovery-guide","Recovery","y",25}}},session.revision());

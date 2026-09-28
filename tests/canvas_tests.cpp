@@ -481,6 +481,39 @@ void snap_guide_grid_priority_visibility_and_controls() {
         f.no_error();
     }
     {
+        auto document=grid_guide_snap_document(200);
+        const Ref source{"grid-y-snap-source","","artboard.width"};
+        document.compositions.front().artboards.push_back({source.object,"Evaluated Grid y source",0,0,220,100});
+        Fixture f(document);
+        const Ref target{"grid-snap","","grid.bounds.y"};
+        f.session.apply({GridBoundsYCommand{LinkGridBoundsY{target,source,false}}},f.session.revision());
+        f.canvas.refresh();
+        f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);f.canvas.set_selection("path");
+        auto start=f.screen(140,130),end=f.screen(140,190);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),60,
+            "Grid Snap uses a linked Grid y source's evaluated coordinate rather than its authored literal");
+        check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
+              f.canvas.last_snap_feedback().contains("row 1 boundary"),
+            "Evaluated Grid y Snap feedback identifies the stable Grid and row boundary");
+        f.release(end);
+        auto value=artboard_layout_property(f.session.document(),target);
+        check(std::get<double>(value.literal)==20&&value.driver==source&&
+              std::get<double>(value.evaluated)==220,
+            "Canvas Grid y snapping preserves its authored literal and exact stable source Ref");
+        auto updated_source=f.session.document().compositions.front().artboards.back();updated_source.width=240;
+        f.session.apply({UpdateArtboard{f.session.document().compositions.front().id,updated_source}},f.session.revision());
+        f.canvas.refresh();
+        start=f.screen(140,190);end=f.screen(140,210);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),80,
+            "Grid Snap follows upstream Artboard width changes for an evaluated y boundary");
+        check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
+              std::get<double>(artboard_layout_property(f.session.document(),target).evaluated)==240,
+            "Updated Grid y remains the active evaluated Snap target");
+        f.release(end);f.no_error();
+    }
+    {
         Fixture f(grid_guide_snap_document(202));f.canvas.set_selection("path");
         f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);
         const auto start=f.screen(140,130),end=f.screen(156,130);
@@ -1364,6 +1397,8 @@ void layout_overlays_are_view_only_and_not_exported() {
     const Ref grid_source{"overlay-grid-source","","artboard.width"};
     board.layout->margin->left_driver=margin_source;
     board.layout->grid->bounds_x_expression=Expression{R"(ref("overlay-grid-source","","artboard.width"))",1};
+    board.layout->grid->bounds.height=95;
+    board.layout->grid->bounds_y_driver=grid_source;
     document.compositions.front().artboards.push_back({margin_source.object,"Margin source",0,0,18,100});
     document.compositions.front().artboards.push_back({grid_source.object,"Grid source",0,0,55,100});
     document.compositions.front().guides={{"overlay-guide-x","Vertical","x",30},
@@ -1404,6 +1439,17 @@ void layout_overlays_are_view_only_and_not_exported() {
         }
         return pixels;
     };
+    const auto count_grid_y_pixels=[&](const QImage& source,double position) {
+        const int row_boundary= qRound((canvas.height()/2.0+(position+42.5-80)*canvas.zoom())*image_scale);int pixels=0;
+        const int left=qRound((canvas.width()/2.0+(55-100)*canvas.zoom())*image_scale);
+        const int right=qRound((canvas.width()/2.0+(185-100)*canvas.zoom())*image_scale);
+        for(int x=left+3;x<right-3;++x)for(int y=row_boundary-qMax(2,qRound(2*image_scale));
+            y<=row_boundary+qMax(2,qRound(2*image_scale));++y) {
+            const auto pixel=source.pixelColor(x,y);
+            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+        }
+        return pixels;
+    };
     const auto evaluated_guide_pixels=count_guide_pixels(linked_image,120),literal_guide_pixels=count_guide_pixels(linked_image,30);
     check(evaluated_guide_pixels>20&&literal_guide_pixels<20,
         "Canvas paints the expression-driven Guide at its evaluated coordinate, not its authored literal (evaluated="+
@@ -1412,6 +1458,10 @@ void layout_overlays_are_view_only_and_not_exported() {
         "Canvas paints the linked Margin inset at its evaluated Artboard width, not its authored literal");
     check(count_grid_pixels(linked_image,55)>20&&count_grid_pixels(linked_image,20)<20,
         "Canvas paints the expression-driven Grid overlay at evaluated x, not the authored literal");
+    check(count_grid_y_pixels(linked_image,55)>20&&count_grid_y_pixels(linked_image,25)<20,
+        "Canvas paints the linked Grid overlay at evaluated y, not its authored literal (evaluated="+
+            std::to_string(count_grid_y_pixels(linked_image,55))+", literal="+
+            std::to_string(count_grid_y_pixels(linked_image,25))+")");
     session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
         {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
     canvas.refresh();QApplication::processEvents();
@@ -1430,8 +1480,9 @@ void layout_overlays_are_view_only_and_not_exported() {
     check(count_guide_pixels(preview_image,140)>20&&count_guide_pixels(preview_image,120)<20&&
           count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,28)>20&&
           count_margin_pixels(preview_image,20)<20&&count_margin_pixels(preview_image,18)<20&&
-          count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20,
-        "Canvas Guide, linked Margin and Grid overlays follow evaluated sources in the Session preview document");
+          count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20&&
+          count_grid_y_pixels(preview_image,65)>20&&count_grid_y_pixels(preview_image,55)<20&&count_grid_y_pixels(preview_image,25)<20,
+        "Canvas Guide, linked Margin and Grid x/y overlays follow evaluated sources in the Session preview document");
     session.cancel_gesture();canvas.refresh();QApplication::processEvents();
     const auto exported=Canvas::render_artboard(session.document(),"overlay-composition","overlay-artboard",1,true);
     check(exported.pixelColor(30,70)==QColor(Qt::white),"Guide overlay is absent from the Artboard export projection");

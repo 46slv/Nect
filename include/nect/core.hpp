@@ -291,6 +291,7 @@ struct Grid {
     double column_gutter=0,row_gutter=0;
     std::optional<Ref> bounds_x_driver;
     std::optional<Expression> bounds_x_expression;
+    std::optional<Ref> bounds_y_driver;
     bool operator==(const Grid&) const = default;
 };
 struct ArtboardLayout {
@@ -421,17 +422,23 @@ struct UnlinkMarginLeft { Ref target; };
 struct LinkGridBoundsX { Ref target; Ref source; bool replace_driver=false; };
 struct SetGridBoundsXExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridBoundsX { Ref target; };
+struct LinkGridBoundsY { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkGridBoundsY { Ref target; };
 struct LayoutDependencyCommand {
-    std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX> operation;
+    std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX,
+        LinkGridBoundsY,UnlinkGridBoundsY> operation;
     LayoutDependencyCommand(LinkMarginLeft value):operation(std::move(value)){}
     LayoutDependencyCommand(SetMarginLeftExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkMarginLeft value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkGridBoundsX value):operation(std::move(value)){}
     LayoutDependencyCommand(SetGridBoundsXExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkGridBoundsX value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridBoundsY value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridBoundsY value):operation(std::move(value)){}
 };
 using MarginLeftCommand=LayoutDependencyCommand;
 using GridBoundsXCommand=LayoutDependencyCommand;
+using GridBoundsYCommand=LayoutDependencyCommand;
 struct AddGuide { Id composition; Guide guide; };
 struct UpdateGuide { Id composition; Guide guide; };
 struct DeleteGuide { Id composition; Id guide_id; };

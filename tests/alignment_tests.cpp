@@ -46,7 +46,18 @@ int main(){try{
  d=fixture();d.objects.at("b").transform_parent="a";Session follower(d);apply(follower,AlignObjects{{"b","a"},"x","min",{}});near(bounds(follower.document(),"a").left,10);near(bounds(follower.document(),"b").left,10);
  // Rotation is retained; extrema are computed in world space, not by rotating a local AABB.
  d=fixture();d.objects.at("b").transform[0].literal=0;d.objects.at("b").transform[1].literal=1;d.objects.at("b").transform[2].literal=-1;d.objects.at("b").transform[3].literal=0;
- Session rotated(d);apply(rotated,AlignObjects{{"a","b"},"y","max",{}});near(bounds(rotated.document(),"a").bottom,150);near(bounds(rotated.document(),"b").bottom,150);check(rotated.document().objects.at("b").transform[1].literal==1,"Rotation preserved");
+  Session rotated(d);apply(rotated,AlignObjects{{"a","b"},"y","max",{}});near(bounds(rotated.document(),"a").bottom,150);near(bounds(rotated.document(),"b").bottom,150);check(rotated.document().objects.at("b").transform[1].literal==1,"Rotation preserved");
+  d=exact_fixture();d.compositions.front().artboards.push_back({"grid-y-alignment-source","Grid y alignment source",0,0,60,100});
+  Session grid_y_alignment(d);
+  grid_y_alignment.apply({GridBoundsYCommand{LinkGridBoundsY{{"grid","","grid.bounds.y"},
+      {"grid-y-alignment-source","","artboard.width"},false}}},grid_y_alignment.revision());
+  apply(grid_y_alignment,AlignObjects{{"a"},"y","min",{},"grid:grid"});
+  near(bounds(grid_y_alignment.document(),"a").top,60);
+  check(std::get<double>(artboard_layout_property(grid_y_alignment.document(),
+      {"grid","","grid.bounds.y"}).evaluated)==60&&
+      grid_y_alignment.document().compositions.front().artboards.front().layout->grid->bounds_y_driver==
+          Ref{"grid-y-alignment-source","","artboard.width"},
+      "Alignment uses evaluated Grid y while retaining its stable Artboard source Ref");
  d=fixture();d.objects.at("b").transform[4].binding=Binding{{"a","","transform.tx"},1,0,"copy_local_value"};Session driven(d);rejects(driven,AlignObjects{{"a","b"},"x","min",{}},"DRIVEN_PROPERTY");
  Session bad(fixture());rejects(bad,AlignObjects{{"a","a"},"x","min",{}},"DUPLICATE_TARGET");rejects(bad,AlignObjects{{"a","b"},"z","min",{}},"INVALID_ALIGNMENT");rejects(bad,AlignObjects{{"a"},"x","min",{}},"INVALID_BATCH");rejects(bad,AlignObjects{{"a"},"x","min","missing"},"MISSING_ARTBOARD");
  d=fixture();Object group;group.id="group";group.name="Group";group.kind=Kind::group;group.children={"a"};d.objects.emplace("group",group);d.compositions[0].roots={"group","b"};Session grouped(d);apply(grouped,AlignObjects{{"group","b"},"x","max",{}});near(bounds(grouped.document(),"a").right,150);rejects(grouped,AlignObjects{{"group","a"},"x","min",{}},"OVERLAPPING_SELECTION");

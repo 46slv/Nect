@@ -1441,3 +1441,24 @@ Inspector and Grid-to-Margin copy consume the evaluated value. Native Save As
 retains the authored expression; native 0.1–0.37 reject a version-lied field.
 `schemas/native-v0.38.schema.json` closes the optional field and rejects
 simultaneous Margin link and expression sources.
+
+## Native 0.39 — Grid bounds y Artboard size link
+
+A present Grid retains its stable ID and authored `bounds.y` literal. Native
+0.39 adds an optional `bounds_y_driver: {link: Ref}` on that Grid; the writer
+omits it when y is literal. The Ref identifies a distinct Artboard width or
+height in the Grid owner's Composition, with an empty point ID and `du` units.
+Earlier supported versions decode as before; a 0.38 record carrying a
+version-lied y driver is rejected. `schemas/native-v0.39.schema.json` closes
+the optional field. Grid x sources remain independent.
+
+Dedicated `link_grid_bounds_y` and `unlink_grid_bounds_y` Session commands own
+source changes. An active source requires explicit replacement; unlink freezes
+the evaluated local y into the authored literal. Full layout and Artboard
+updates preserve an unchanged source with the same Grid ID and y literal, and
+reject an implicit clear, ID change or driven y edit. Evaluation uses the
+existing Artboard-size graph; Artboard sizes do not read Grid layout. The
+evaluated y and authored Grid height must fit within the evaluated target
+Artboard height. Typed reads expose the literal, exact source, evaluated y and
+`du`; Canvas Grid overlay, snapping and Grid-reference alignment/distribution
+consume the evaluated bounds. Native Save As preserves the authored source.
