@@ -1,5 +1,7 @@
 # R02 / P03 property and save boundary — R02-ENTRY-01
 
+The current native 0.39 authored type × surface inventory and next bounded expression packet are in [r02-typed-parameter-matrix.md](r02-typed-parameter-matrix.md). Older matrices below are historical entry-state snapshots.
+
 ## R02-GRID-Y-ARTBOARD-LINK-01 — vertical Grid offset dependency (frozen 2026-09-29)
 
 **Entry and scope:** Clean synchronized `codex/practical-alpha@5a667d77365f3367d1dfd699ed93d7dc139eed40`, native writer 0.38. The live [Completion Route R02/P03](https://app.notion.com/p/3e3fd279a6f381b4ba9dd2d1bf066e0f), [P03 §6/U02](https://app.notion.com/p/3e3fd279a6f381ee8ab0ea5ea614c006) and Confirmed [REQ-3](https://app.notion.com/p/3e0fd279a6f381aba4f0cc7601fe368d), [REQ-4](https://app.notion.com/p/3e0fd279a6f381e1b48ee5ec20a7b557), [REQ-42](https://app.notion.com/p/3e0fd279a6f381e1a793c88efe3bd07f) and [REQ-199](https://app.notion.com/p/3e0fd279a6f381f98500d22940a10d2f) remain open. Add one `du` link edge only: present `Ref{Grid ID,"","grid.bounds.y"}` to `Ref{distinct Artboard ID,"","artboard.width|artboard.height"}` in its owner's Composition. Grid y is an Artboard-local top offset. Preserve the authored `bounds.y` literal and stable Grid ID, and add optional `bounds_y_driver:{link:Ref}`. Grid x link/expression and every other Grid/Margin field retain their existing semantics. No Grid y expression, mixed Scalar/Guide graph, multi-target link, relative offset or generic property store is introduced.
