@@ -724,6 +724,10 @@ struct ArtboardSizeProperty {
     double evaluated=0;
 };
 ArtboardSizeProperty artboard_size_property(const Document&,const Ref&);
+struct ArtboardLayoutProperty {
+    std::variant<double,std::size_t> literal;
+};
+ArtboardLayoutProperty artboard_layout_property(const Document&,const Ref&);
 enum class TextPropertyKind { string, enumeration };
 struct TextPropertyValue {
     TextPropertyKind kind=TextPropertyKind::string;

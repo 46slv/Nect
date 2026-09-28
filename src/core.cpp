@@ -906,6 +906,8 @@ auto& lookup_property(D& d,const Ref& r) {
 }
 std::string unit(const Ref& r) {
     if(r.point.empty()&&r.field=="guide.position")return "du";
+    if(r.point.empty()&&(r.field=="grid.columns"||r.field=="grid.rows"))return "unitless";
+    if(r.point.empty()&&(r.field.starts_with("grid.")||r.field.starts_with("margin.")))return "du";
     if(r.point.empty()&&r.field=="text.italic")return "boolean";
     if(r.point.empty()&&r.field=="mask.enabled")return "boolean";
     if(r.point.empty()&&r.field.starts_with("mask.")&&r.field.ends_with(".enabled")) {
@@ -1174,6 +1176,14 @@ std::vector<Ref> properties(const Document& document) {
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards) {
         refs.push_back({board.id,"","artboard.width"});
         refs.push_back({board.id,"","artboard.height"});
+        if(board.layout&&board.layout->margin)
+            for(const auto* side:{"left","top","right","bottom"})refs.push_back({board.id,"",std::string("margin.")+side});
+        if(board.layout&&board.layout->grid) {
+            const auto& grid=*board.layout->grid;
+            for(const auto* field:{"grid.bounds.x","grid.bounds.y","grid.bounds.width","grid.bounds.height",
+                "grid.columns","grid.rows","grid.column_gutter","grid.row_gutter"})
+                refs.push_back({grid.id,"",field});
+        }
     }
     for(const auto& composition:document.compositions)for(const auto& guide:composition.guides)
         refs.push_back({guide.id,"","guide.position"});
@@ -1200,6 +1210,52 @@ ArtboardSizeProperty artboard_size_property(const Document& document,const Ref& 
             width?evaluated.width:evaluated.height};
     }
     throw Error("MISSING_ARTBOARD",ref.object);
+}
+
+ArtboardLayoutProperty artboard_layout_property(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_LAYOUT_REF","Artboard layout properties require an empty point ID");
+    const bool margin=ref.field=="margin.left"||ref.field=="margin.top"||
+        ref.field=="margin.right"||ref.field=="margin.bottom";
+    const bool grid_bounds=ref.field=="grid.bounds.x"||ref.field=="grid.bounds.y"||
+        ref.field=="grid.bounds.width"||ref.field=="grid.bounds.height";
+    const bool grid_count=ref.field=="grid.columns"||ref.field=="grid.rows";
+    const bool grid_gutter=ref.field=="grid.column_gutter"||ref.field=="grid.row_gutter";
+    const bool grid=grid_bounds||grid_count||grid_gutter;
+    require(margin||grid,"UNKNOWN_LAYOUT_PROPERTY",ref.field);
+
+    for(const auto& composition:document.compositions)for(const auto& board:composition.artboards) {
+        if(board.id==ref.object) {
+            if(!margin)throw Error("TYPE_MISMATCH","Grid properties must use the stable Grid ID");
+            if(!board.layout||!board.layout->margin)throw Error("MISSING_MARGIN",ref.object);
+            const auto& value=*board.layout->margin;
+            if(ref.field=="margin.left")return {value.left};
+            if(ref.field=="margin.top")return {value.top};
+            if(ref.field=="margin.right")return {value.right};
+            return {value.bottom};
+        }
+        if(board.layout&&board.layout->grid&&board.layout->grid->id==ref.object) {
+            if(!grid)throw Error("TYPE_MISMATCH","Margin properties must use the owning Artboard ID");
+            const auto& value=*board.layout->grid;
+            if(ref.field=="grid.bounds.x")return {value.bounds.x};
+            if(ref.field=="grid.bounds.y")return {value.bounds.y};
+            if(ref.field=="grid.bounds.width")return {value.bounds.width};
+            if(ref.field=="grid.bounds.height")return {value.bounds.height};
+            if(ref.field=="grid.columns")return {value.columns};
+            if(ref.field=="grid.rows")return {value.rows};
+            if(ref.field=="grid.column_gutter")return {value.column_gutter};
+            return {value.row_gutter};
+        }
+    }
+    for(const auto& composition:document.compositions) {
+        if(composition.id==ref.object)throw Error("TYPE_MISMATCH","Layout property Ref must identify an Artboard or Grid");
+        for(const auto& guide:composition.guides)if(guide.id==ref.object)
+            throw Error("TYPE_MISMATCH","Layout property Ref must identify an Artboard or Grid");
+    }
+    if(document.objects.contains(ref.object)||document.named_colors.contains(ref.object)||
+        document.raster_assets.contains(ref.object)||
+        std::any_of(document.collections.begin(),document.collections.end(),[&](const auto& item){return item.id==ref.object;}))
+        throw Error("TYPE_MISMATCH","Layout property Ref must identify an Artboard or Grid");
+    throw Error(margin?"MISSING_ARTBOARD":"MISSING_GRID",ref.object);
 }
 
 GuidePositionProperty guide_position_property(const Document& document,const Ref& ref) {
@@ -1572,6 +1628,23 @@ std::string property_unit(const Ref& r) { return unit(r); }
 
 Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std::string& f) {
     std::vector<Id> matches;
+    if(f.starts_with("margin.")) {
+        require(p.empty(),"INVALID_LAYOUT_REF","Margin properties require an empty point ID");
+        require(f=="margin.left"||f=="margin.top"||f=="margin.right"||f=="margin.bottom",
+            "UNKNOWN_LAYOUT_PROPERTY",f);
+        for(const auto& composition:d.compositions)for(const auto& board:composition.artboards)
+            if(board.name==name)matches.push_back(board.id);
+        require(!matches.empty(),"MISSING_NAME","No matching Artboard: "+name);
+        require(matches.size()==1,"AMBIGUOUS_NAME","Artboard name must resolve uniquely: "+name);
+        Ref ref{matches.front(),p,f};(void)artboard_layout_property(d,ref);return ref;
+    }
+    if(f.starts_with("grid.")) {
+        require(p.empty(),"INVALID_LAYOUT_REF","Grid properties require an empty point ID");
+        require(f=="grid.bounds.x"||f=="grid.bounds.y"||f=="grid.bounds.width"||
+            f=="grid.bounds.height"||f=="grid.columns"||f=="grid.rows"||
+            f=="grid.column_gutter"||f=="grid.row_gutter","UNKNOWN_LAYOUT_PROPERTY",f);
+        throw Error("GRID_ID_REQUIRED","Grid properties are discovered by their stable Grid ID");
+    }
     if(f=="guide.position") {
         require(p.empty(),"INVALID_GUIDE_REF","Guide position requires an empty point ID");
         for(const auto& composition:d.compositions)for(const auto& guide:composition.guides)

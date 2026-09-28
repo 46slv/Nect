@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QCryptographicHash>
 #include <QJsonDocument>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <QTest>
 #include <atomic>
@@ -309,6 +310,162 @@ void artboard_size_save_as(const QString& directory) {
           artboard_size_property(reopened.session.document(),height).evaluated==600,
           "Cold-reopened Artboard sources keep evaluating after their parent dimensions change");
 }
+void layout_save_as(const QString& directory,const QString& nect_cli) {
+    Host host(directory+"/layout-save-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    const auto artboard_id=host.session.document().compositions.front().artboards.front().id;
+    const Id grid_id="save-as-layout-grid";
+    const ArtboardLayout initial_layout{
+        Margin{12,16,20,24},Grid{grid_id,{32,28,560,420},4,3,16,12}};
+    host.session.apply({SetArtboardLayout{composition,artboard_id,initial_layout}},host.session.revision());host.edited();
+    const auto initial=host.session.document();
+    const auto source_path=directory+"/layout-save-source.nect";
+    host.save(source_path);host.recover();
+    const auto saved_revision=host.session.revision();
+    const auto initial_bytes=bytes(source_path);
+    check(initial.compositions.front().artboards.front().id==artboard_id&&
+          initial.compositions.front().artboards.front().layout&&
+          *initial.compositions.front().artboards.front().layout==initial_layout&&
+          host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(saved_revision)&&
+          host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(saved_revision)&&
+          initial_bytes==QByteArray::fromStdString(encode(initial)),
+          "Initial native source saves Margin and Grid under the stable Artboard and Grid IDs");
+
+    auto external=load_native(source_path).document;
+    external.compositions.front().artboards.front().name="External Artboard change";
+    const auto external_bytes=QByteArray::fromStdString(encode(external));
+    put(source_path,external_bytes);
+    const auto external_hash=sha256(external_bytes);
+
+    const ArtboardLayout committed_layout{
+        Margin{18,22,26,30},Grid{grid_id,{40,36,520,400},5,4,8,12}};
+    host.session.apply({SetArtboardLayout{composition,artboard_id,committed_layout}},host.session.revision());host.edited();
+    const auto committed=host.session.document();
+    const auto committed_revision=host.session.revision();
+    const auto committed_bytes=QByteArray::fromStdString(encode(committed));
+    until([&]{const auto state=host.persistence();return state["native_error"].toObject()["code"]=="FILE_CHANGED"&&
+        state["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision);},
+        "External source conflict is recorded while the revised layout reaches recovery");
+    const auto recovery_path=host.persistence()["recovery_file"].toString();
+    const auto recovery_meta=directory+"/layout-save-recovery/"+host.session_id+".recovery.json";
+    const auto protected_bytes=bytes(recovery_path);
+    const auto protected_meta_bytes=bytes(recovery_meta);
+    check(host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(saved_revision)&&host.dirty()&&
+          protected_bytes==committed_bytes&&
+          QJsonDocument::fromJson(protected_meta_bytes).object()["source_file"]==native_path(source_path),
+          "Conflict protects the committed Margin and Grid while retaining the original source binding");
+    check(bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash,
+          "External original bytes and hash survive the layout source conflict");
+
+    const auto failed_destination=directory+"/missing-layout-save-parent/failed.nect";
+    rejects("IO_ERROR",[&]{host.save(failed_destination);});
+    check(!QFile::exists(failed_destination)&&host.file_path==native_path(source_path)&&host.dirty()&&
+          host.session.revision()==committed_revision&&host.session.document()==committed&&
+          host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(saved_revision)&&
+          host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision),
+          "Failed Save As leaves destination, binding, revisions and authored layout unchanged");
+    check(bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash&&
+          bytes(recovery_path)==protected_bytes&&bytes(recovery_meta)==protected_meta_bytes,
+          "Failed Save As preserves external source and protected recovery bytes");
+
+    const auto destination=directory+"/layout-save-destination.nect";
+    host.save(destination);host.recover();
+    const auto destination_bytes=bytes(destination);
+    const auto saved=load_native(destination).document;
+    const auto& saved_board=saved.compositions.front().artboards.front();
+    check(host.file_path==native_path(destination)&&!host.dirty()&&
+          host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
+          host.persistence()["native_error"].isNull()&&saved==committed&&
+          destination_bytes==committed_bytes&&
+          destination_bytes.contains(QByteArray::fromStdString(std::string("\"version\":\"")+native_version+"\""))&&
+          saved_board.id==artboard_id&&saved_board.layout&&*saved_board.layout==committed_layout&&
+          bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash,
+          "Valid Save As writes exact native 0.34 bytes and retains all authored layout fields and IDs");
+    check(host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
+          QJsonDocument::fromJson(bytes(recovery_meta)).object()["source_file"]==native_path(destination),
+          "Recovery provenance follows the Grid and Margin Save As destination");
+
+    Host reopened(directory+"/layout-save-cold-recovery");reopened.open(destination);
+    const auto cold=reopened.session.document();
+    const auto& cold_board=cold.compositions.front().artboards.front();
+    check(cold==committed&&reopened.session.revision()==0&&reopened.file_path==native_path(destination)&&
+          cold_board.id==artboard_id&&cold_board.layout&&*cold_board.layout==committed_layout,
+          "Cold Host reopen restores every authored Margin, Grid field and stable ID");
+    const auto check_local_reads=[&](const Document& document) {
+        const auto read=[&](const Id& owner,const char* field) {
+            return artboard_layout_property(document,Ref{owner,"",field}).literal;
+        };
+        const auto left=read(artboard_id,"margin.left"),top=read(artboard_id,"margin.top");
+        const auto right=read(artboard_id,"margin.right"),bottom=read(artboard_id,"margin.bottom");
+        check(std::holds_alternative<double>(left)&&std::get<double>(left)==committed_layout.margin->left&&
+              std::holds_alternative<double>(top)&&std::get<double>(top)==committed_layout.margin->top&&
+              std::holds_alternative<double>(right)&&std::get<double>(right)==committed_layout.margin->right&&
+              std::holds_alternative<double>(bottom)&&std::get<double>(bottom)==committed_layout.margin->bottom,
+              "Typed Margin reads return the exact Artboard-local authored insets");
+        const auto x=read(grid_id,"grid.bounds.x"),y=read(grid_id,"grid.bounds.y");
+        const auto width=read(grid_id,"grid.bounds.width"),height=read(grid_id,"grid.bounds.height");
+        check(std::holds_alternative<double>(x)&&std::get<double>(x)==committed_layout.grid->bounds.x&&
+              std::holds_alternative<double>(y)&&std::get<double>(y)==committed_layout.grid->bounds.y&&
+              std::holds_alternative<double>(width)&&std::get<double>(width)==committed_layout.grid->bounds.width&&
+              std::holds_alternative<double>(height)&&std::get<double>(height)==committed_layout.grid->bounds.height,
+              "Typed Grid reads return the exact Artboard-local authored bounds");
+        const auto columns=read(grid_id,"grid.columns"),rows=read(grid_id,"grid.rows");
+        check(std::holds_alternative<std::size_t>(columns)&&std::get<std::size_t>(columns)==committed_layout.grid->columns&&
+              std::holds_alternative<std::size_t>(rows)&&std::get<std::size_t>(rows)==committed_layout.grid->rows,
+              "Typed Grid count reads remain exact integers");
+        const auto column_gutter=read(grid_id,"grid.column_gutter"),row_gutter=read(grid_id,"grid.row_gutter");
+        check(std::holds_alternative<double>(column_gutter)&&
+              std::get<double>(column_gutter)==committed_layout.grid->column_gutter&&
+              std::holds_alternative<double>(row_gutter)&&
+              std::get<double>(row_gutter)==committed_layout.grid->row_gutter,
+              "Typed Grid gutter reads return exact authored values");
+    };
+    check_local_reads(cold);
+
+    QProcess process;
+    process.start(nect_cli,{"--serve",destination});
+    check(process.waitForStarted(5000),"Start a separate Nect JSON-lines process on the Save As destination");
+    const auto get_line=[](const Id& owner,const char* field) {
+        const QJsonObject ref{{"object",QString::fromStdString(owner)},{"point",""},{"field",field}};
+        return QJsonDocument(QJsonObject{{"op","get"},{"ref",ref}}).toJson(QJsonDocument::Compact)+'\n';
+    };
+    QByteArray queries=get_line(artboard_id,"margin.left")+get_line(grid_id,"grid.columns")+
+        get_line(grid_id,"grid.bounds.x")+QByteArray("{\"op\":\"inspect\"}\n");
+    check(process.write(queries)==queries.size(),"Send exact typed reads to the cold Nect process");
+    process.closeWriteChannel();
+    check(process.waitForFinished(10000)&&process.exitStatus()==QProcess::NormalExit&&process.exitCode()==0,
+        "Cold Nect process exits after reading the Save As destination");
+    const auto output=process.readAllStandardOutput().trimmed().split('\n');
+    check(output.size()==4,"Cold Nect process returns one response per typed read and inspect request");
+    const auto margin_read=QJsonDocument::fromJson(output[0]).object()["result"].toObject();
+    const auto count_read=QJsonDocument::fromJson(output[1]).object()["result"].toObject();
+    const auto grid_read=QJsonDocument::fromJson(output[2]).object()["result"].toObject();
+    const auto inspected=QJsonDocument::fromJson(output[3]).object()["result"].toObject();
+    check(margin_read["ref"].toObject()["object"]==QString::fromStdString(artboard_id)&&
+          margin_read["authored"].toObject()["literal"].toDouble()==committed_layout.margin->left&&
+          margin_read["evaluated"].toDouble()==committed_layout.margin->left&&
+          margin_read["space"]=="artboard_local"&&count_read["ref"].toObject()["object"]==QString::fromStdString(grid_id)&&
+          count_read["type"]=="integer"&&count_read["evaluated"].toInt()==static_cast<int>(committed_layout.grid->columns)&&
+          grid_read["evaluated"].toDouble()==committed_layout.grid->bounds.x&&
+          inspected==QJsonDocument::fromJson(destination_bytes).object(),
+          "A separate Nect process cold-opens the exact Save As bytes and reads both stable layout owners");
+
+    const auto local_grid=cold_board.layout->grid->bounds;
+    const LayoutRect world_before{cold_board.x+local_grid.x,cold_board.y+local_grid.y,
+        local_grid.width,local_grid.height};
+    auto moved_board=cold_board;moved_board.x+=125;moved_board.y+=75;
+    reopened.session.apply({UpdateArtboard{composition,moved_board}},reopened.session.revision());
+    const auto moved=reopened.session.document();
+    const auto& moved_result=moved.compositions.front().artboards.front();
+    check_local_reads(moved);
+    const auto moved_local=moved_result.layout->grid->bounds;
+    const LayoutRect world_after{moved_result.x+moved_local.x,moved_result.y+moved_local.y,
+        moved_local.width,moved_local.height};
+    check(moved_result.layout&&*moved_result.layout==committed_layout&&
+          world_after==LayoutRect{world_before.x+125,world_before.y+75,world_before.width,world_before.height}&&
+          bytes(destination)==destination_bytes,
+          "Moving the reopened Artboard translates its world Grid frame without rewriting local layout");
+}
 void linked_point_edit_save_as(const QString& directory) {
     Host host(directory+"/linked-point-edit-recovery");
     const auto composition=host.session.document().compositions.front().id;
@@ -537,9 +694,11 @@ void identity_drain(const QString& directory) {
 int main(int argc,char** argv) {
     QCoreApplication app(argc,argv);
     try {
+        check(argc==2,"Live Save As test requires the matching Nect CLI path");
         QTemporaryDir temp;check(temp.isValid(),"Create owned live-save test folder");
         coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());point_edit_save_as(temp.path());artboard_size_save_as(temp.path());
+        layout_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         linked_point_edit_save_as(temp.path());linked_mask_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
-        std::cout<<"PASS asynchronous snapshots, typed, Point Edit and mask Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
+        std::cout<<"PASS asynchronous snapshots, typed, Grid/Margin, Point Edit and mask Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

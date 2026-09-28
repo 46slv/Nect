@@ -192,6 +192,156 @@ void layout_and_guide_acceptance() {
         guide_limit.history()==guide_limit_history&&encode(guide_limit.document())==guide_limit_before,
         "Document Guide limit rejects atomically without committing authored state or history");
 }
+void layout_typed_reads() {
+    auto document=empty_document("layout-read-doc","layout-read-comp","layout-read-art");
+    auto& composition=document.compositions.front();
+    composition.artboards.front().name="Primary layout";
+    composition.artboards.push_back({"layout-read-secondary","Secondary layout",0,0,200,150});
+    Session session(document);auto apply=[&](std::vector<Command> commands){session.apply(commands,session.revision());};
+
+    ArtboardLayout layout;
+    layout.margin=Margin{10,20,30,40};
+    layout.grid=Grid{"layout-read-grid",{40,20,880,600},2,3,20,10};
+    apply({SetArtboardLayout{"layout-read-comp","layout-read-art",layout}});
+
+    const std::array<Ref,12> expected{
+        Ref{"layout-read-art","","margin.left"},Ref{"layout-read-art","","margin.top"},
+        Ref{"layout-read-art","","margin.right"},Ref{"layout-read-art","","margin.bottom"},
+        Ref{"layout-read-grid","","grid.bounds.x"},Ref{"layout-read-grid","","grid.bounds.y"},
+        Ref{"layout-read-grid","","grid.bounds.width"},Ref{"layout-read-grid","","grid.bounds.height"},
+        Ref{"layout-read-grid","","grid.columns"},Ref{"layout-read-grid","","grid.rows"},
+        Ref{"layout-read-grid","","grid.column_gutter"},Ref{"layout-read-grid","","grid.row_gutter"}};
+    using LayoutLiteral=std::variant<double,std::size_t>;
+    std::array<std::pair<Ref,LayoutLiteral>,12> expected_values{{
+        {expected[0],10.0},{expected[1],20.0},{expected[2],30.0},{expected[3],40.0},
+        {expected[4],40.0},{expected[5],20.0},{expected[6],880.0},{expected[7],600.0},
+        {expected[8],std::size_t{2}},{expected[9],std::size_t{3}},
+        {expected[10],20.0},{expected[11],10.0}}};
+    const auto discovered=properties(session.document());
+    for(const auto& [ref,literal]:expected_values) {
+        check(std::find(discovered.begin(),discovered.end(),ref)!=discovered.end(),
+            "Properties discovers each present Margin and Grid field by its stable Ref");
+        const auto typed=artboard_layout_property(session.document(),ref);
+        check(typed.literal==literal,"Typed layout accessor maps each Ref to its exact authored field and value");
+    }
+    const auto list=request(session,R"({"op":"properties"})");
+    for(const auto& ref:expected) {
+        const auto ref_text="\"object\":\""+ref.object+"\",\"point\":\"\",\"field\":\""+ref.field+"\"";
+        check(list.find(ref_text)!=std::string::npos,"Properties JSON lists the exact stable layout Ref");
+    }
+    auto read=[&](const Ref& ref) {
+        return request(session,"{\"op\":\"get\",\"ref\":{\"object\":\""+ref.object+
+            "\",\"point\":\"\",\"field\":\""+ref.field+"\"}}");
+    };
+    for(const auto& ref:expected) {
+        const auto response=read(ref);
+        const bool integer=ref.field=="grid.columns"||ref.field=="grid.rows";
+        check(response.find(integer?"\"type\":\"integer\"":"\"type\":\"number\"")!=std::string::npos&&
+            response.find(integer?"\"unit\":\"unitless\"":"\"unit\":\"du\"")!=std::string::npos&&
+            response.find("\"space\":\"artboard_local\"")!=std::string::npos&&
+            response.find("\"origin\":\"authored\"")!=std::string::npos&&
+            response.find("\"link\":false")!=std::string::npos&&
+            response.find("\"expression\":false")!=std::string::npos,
+            "Typed get reports each layout field's type, unit, space and literal-only origin");
+        check(response.find("\"authored\":{\"literal\":")!=std::string::npos&&
+            response.find("\"evaluated\":")!=std::string::npos,
+            "Typed get exposes authored literal and evaluated read separately");
+        if(ref.field=="grid.columns")check(response.find("\"authored\":{\"literal\":2}")!=std::string::npos&&
+            response.find("\"evaluated\":2")!=std::string::npos&&response.find("\"evaluated\":2.0")==std::string::npos,
+            "Grid columns serialize as an integer JSON value");
+        if(ref.field=="grid.rows")check(response.find("\"authored\":{\"literal\":3}")!=std::string::npos&&
+            response.find("\"evaluated\":3")!=std::string::npos&&response.find("\"evaluated\":3.0")==std::string::npos,
+            "Grid rows serialize as an integer JSON value");
+    }
+    check(resolve_name(session.document(),"Primary layout","","margin.left")==expected[0],
+        "Margin name resolution returns its owning Artboard Ref");
+    const auto resolved=request(session,R"({"op":"resolve_name","name":"Primary layout","point":"","field":"margin.left"})");
+    check(resolved.find("\"object\":\"layout-read-art\"")!=std::string::npos&&
+        resolved.find("\"field\":\"margin.left\"")!=std::string::npos,
+        "JSON resolve_name exposes the Margin Artboard Ref");
+    auto duplicate_names=session.document();
+    duplicate_names.compositions.front().artboards.back().name="Primary layout";
+    rejects("AMBIGUOUS_NAME",[&]{(void)resolve_name(duplicate_names,"Primary layout","","margin.left");});
+    rejects("INVALID_LAYOUT_REF",[&]{(void)artboard_layout_property(session.document(),{"layout-read-grid","point","grid.columns"});});
+    rejects("UNKNOWN_LAYOUT_PROPERTY",[&]{(void)artboard_layout_property(session.document(),{"layout-read-grid","","grid.bounds.z"});});
+    rejects("TYPE_MISMATCH",[&]{(void)artboard_layout_property(session.document(),{"layout-read-art","","grid.columns"});});
+    rejects("TYPE_MISMATCH",[&]{(void)artboard_layout_property(session.document(),{"layout-read-grid","","margin.left"});});
+    rejects("GRID_ID_REQUIRED",[&]{(void)resolve_name(session.document(),"Primary layout","","grid.columns");});
+
+    auto resized=session.document().compositions.front().artboards.front();
+    resized.name="Renamed layout";resized.x=200;resized.y=80;resized.width=1000;resized.height=700;
+    apply({UpdateArtboard{"layout-read-comp",resized},ReorderArtboards{"layout-read-comp",{"layout-read-secondary","layout-read-art"}}});
+    const auto after_reorder=properties(session.document());
+    check(resolve_name(session.document(),"Renamed layout","","margin.left")==expected[0]&&
+        std::find(after_reorder.begin(),after_reorder.end(),expected[8])!=after_reorder.end(),
+        "Artboard rename, move, resize and reorder preserve stable local layout Refs");
+    for(const auto& ref:expected) {
+        const auto typed=artboard_layout_property(session.document(),ref);
+        if(ref.field=="grid.columns")check(std::get<std::size_t>(typed.literal)==2,
+            "Resizing its Artboard does not alter the authored Grid column count");
+        else if(ref.field=="grid.rows")check(std::get<std::size_t>(typed.literal)==3,
+            "Resizing its Artboard does not alter the authored Grid row count");
+        else if(ref.field=="margin.left")check(std::get<double>(typed.literal)==10,
+            "Moving or resizing its Artboard does not alter the authored Margin inset");
+        else if(ref.field=="grid.bounds.x")check(std::get<double>(typed.literal)==40,
+            "Moving its Artboard does not translate the authored Grid-local bounds");
+    }
+    check(read(expected[8]).find("\"name\":\"Renamed layout\"")!=std::string::npos&&
+        read(expected[8]).find("\"object\":\"layout-read-grid\"")!=std::string::npos,
+        "Grid property display uses its Artboard as context while the Grid ID remains the Ref owner");
+
+    auto edited=*session.document().compositions.front().artboards.back().layout;edited.margin->left=11;
+    apply({SetArtboardLayout{"layout-read-comp","layout-read-art",edited}});
+    check(std::get<double>(artboard_layout_property(session.document(),expected[0]).literal)==11,
+        "SetArtboardLayout updates the Margin literal visible through typed get");
+    session.undo(session.revision());
+    check(std::get<double>(artboard_layout_property(session.document(),expected[0]).literal)==10,
+        "Undo restores the exact authored Margin read");
+    session.redo(session.revision());
+    check(std::get<double>(artboard_layout_property(session.document(),expected[0]).literal)==11,
+        "Redo restores the exact authored Margin read");
+
+    const auto native=encode(session.document());
+    const auto cold=decode(native);
+    check(native.find("\"version\":\"0.34\"")!=std::string::npos&&encode(cold)==native,
+        "Native 0.34 cold decode/re-encode preserves existing Grid and Margin bytes");
+    auto expected_after_edit=expected_values;expected_after_edit[0].second=11.0;
+    for(const auto& [ref,literal]:expected_after_edit)
+        check(artboard_layout_property(cold,ref).literal==literal,
+            "Native 0.34 roundtrip preserves every exact typed layout literal");
+
+    const auto rejection_state=encode(session.document());const auto rejection_revision=session.revision();
+    const auto rejection_history=session.history();
+    rejects("MISSING_REFERENCE",[&]{apply({Set{expected[0],99}});});
+    rejects("MISSING_REFERENCE",[&]{apply({Link{expected[8],{{"layout-read-art","","artboard.width"},1,0,"copy_local_value"}}});});
+    rejects("MISSING_REFERENCE",[&]{apply({SetExpression{{expected[0]},{"1",1},false}});});
+    auto failed_batch=*session.document().compositions.back().artboards.back().layout;
+    failed_batch.margin->left=12;
+    rejects("INVALID_GUIDE",[&]{session.apply({SetArtboardLayout{"layout-read-comp","layout-read-art",failed_batch},
+        AddGuide{"layout-read-comp",{"bad-layout-batch-guide","Bad axis","z",0}}},session.revision());});
+    check(session.revision()==rejection_revision&&session.history()==rejection_history&&
+        encode(session.document())==rejection_state,
+        "Generic Scalar mutation and a failing second batch command preserve layout bytes, revision and Undo history");
+
+    auto no_margin=*session.document().compositions.back().artboards.back().layout;no_margin.margin.reset();
+    apply({SetArtboardLayout{"layout-read-comp","layout-read-art",no_margin}});
+    const auto without_margin=properties(session.document());
+    check(std::find(without_margin.begin(),without_margin.end(),expected[0])==without_margin.end()&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),expected[8]).literal)==2,
+        "Clearing Margin removes its Refs while preserving the Grid sibling");
+    check(read(expected[0]).find("\"code\":\"MISSING_MARGIN\"")!=std::string::npos,
+        "Exact Margin get reports MISSING_MARGIN after its component is cleared");
+    session.undo(session.revision());
+    auto no_grid=*session.document().compositions.back().artboards.back().layout;no_grid.grid.reset();
+    apply({SetArtboardLayout{"layout-read-comp","layout-read-art",no_grid}});
+    const auto without_grid=properties(session.document());
+    check(std::find(without_grid.begin(),without_grid.end(),expected[8])==without_grid.end()&&
+        std::get<double>(artboard_layout_property(session.document(),expected[0]).literal)==11,
+        "Clearing Grid removes its Refs while preserving the Margin sibling");
+    check(read(expected[8]).find("\"code\":\"MISSING_GRID\"")!=std::string::npos,
+        "Exact Grid get reports MISSING_GRID after its component is cleared");
+}
+
 void guide_position_links() {
     auto document=empty_document("guide-link-doc","guide-link-comp","guide-link-art");
     document.compositions.push_back({"guide-link-other","Other plane",{},{{"guide-link-other-art","Other frame",0,0,400,300}}});
@@ -655,6 +805,7 @@ void artboard_size_drivers() {
 }
 int main(){try{
     layout_and_guide_acceptance();
+    layout_typed_reads();
     guide_position_links();
     artboard_size_drivers();
     auto document=empty_document("doc","comp","first");

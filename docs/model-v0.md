@@ -1343,3 +1343,16 @@ freezes the evaluated coordinate into the literal. Generic Scalar and Artboard
 dependencies remain separate. Native Save As retains expression source text
 and stable Guide Refs; Canvas overlay, hit, snap and Align-to-Guide use the
 evaluated coordinate.
+
+## Native 0.34 — typed layout reads without a format change
+
+Grid and Margin retain their 0.14 authored layout representation. A present
+Margin exposes four `margin.<side>` typed reads through its owning Artboard ID;
+a present Grid exposes bounds, counts and gutters through its own stable ID.
+The eight Grid fields and four Margin fields are Artboard-local. Counts are
+unitless integers; all other layout values use `du`. `get` and `properties`
+return the stored literal as the evaluated local value with no link or
+expression capability. Artboard movement affects Canvas world placement but
+does not rewrite those literals. `SetArtboardLayout` remains the sole full
+layout mutation owner, and native Save As retains the original Grid ID and
+layout values without adding a 0.35 field.

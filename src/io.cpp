@@ -443,6 +443,15 @@ j::object artboard_size_property_json(const Document& d,const Ref& ref,const Art
             {"source_kind",value.source_kind},{"expression",std::move(expression)}}},
         {"evaluated",value.evaluated},{"link",true},{"expression",true}};
 }
+j::object artboard_layout_property_json(const Document& d,const Ref& ref,const ArtboardLayoutProperty& value) {
+    const bool integer=std::holds_alternative<std::size_t>(value.literal);
+    const auto literal=std::visit([](const auto& item){return j::value(item);},value.literal);
+    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},
+        {"type",integer?"integer":"number"},{"unit",integer?"unitless":"du"},
+        {"space","artboard_local"},{"origin","authored"},
+        {"authored",j::object{{"literal",literal}}},{"evaluated",literal},
+        {"link",false},{"expression",false}};
+}
 std::string guide_property_name(const Document& d,const Ref& ref) {
     for(const auto& composition:d.compositions)for(const auto& guide:composition.guides)
         if(guide.id==ref.object)return guide.name;
@@ -1630,7 +1639,9 @@ std::string request(Session& session,std::string_view input) {
                 if(!object->second.text->parameters.contains(r.field.substr(5)))
                     throw Error("UNKNOWN_TEXT_PROPERTY","Unsupported Text source property: "+r.field);
             }
-            if(r.field=="guide.position")result=guide_position_property_json(
+            if(r.field.starts_with("margin.")||r.field.starts_with("grid."))
+                result=artboard_layout_property_json(session.document(),r,artboard_layout_property(session.document(),r));
+            else if(r.field=="guide.position")result=guide_position_property_json(
                 guide_property_name(session.document(),r),r,guide_position_property(session.document(),r));
             else if(r.field.starts_with("artboard."))result=artboard_size_property_json(session.document(),r,artboard_size_property(session.document(),r));
             else if(r.field=="object.visible")result=object_visibility_property_json(
@@ -1698,6 +1709,11 @@ std::string request(Session& session,std::string_view input) {
                         positions.at(guide.id)}));
             }
             for(const auto& ref:properties(session.document())) {
+                if(ref.field.starts_with("margin.")||ref.field.starts_with("grid.")) {
+                    list.push_back(artboard_layout_property_json(session.document(),ref,
+                        artboard_layout_property(session.document(),ref)));
+                    continue;
+                }
                 if(ref.field=="guide.position") {
                     const auto& [name,value]=guide_values.at(ref.object);
                     list.push_back(guide_position_property_json(name,ref,value));

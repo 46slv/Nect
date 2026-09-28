@@ -7,6 +7,10 @@ std::string property_name(const Document& d,const Ref& ref) {
     if(const auto found=d.named_colors.find(ref.object);found!=d.named_colors.end())return found->second.name;
     for(const auto& composition:d.compositions)
         for(const auto& board:composition.artboards)if(board.id==ref.object)return board.name;
+    if(ref.field.starts_with("grid."))for(const auto& composition:d.compositions)
+        for(const auto& board:composition.artboards)
+            if(board.layout&&board.layout->grid&&board.layout->grid->id==ref.object)
+                return board.name;
     throw Error("MISSING_REFERENCE",ref.object);
 }
 std::vector<Ref> color_properties(const Document& d) {
