@@ -2618,11 +2618,42 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     link_direction->setEnabled(!direction_source_ids.empty());const bool replace_direction_driver=direction_state.driver.has_value();
     connect(link_direction,&QAction::triggered,this,[this,id,frozen_session,direction_revision,replace_direction_driver,direction_source_ids,direction_source_labels]{
-        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text direction","Source Text",direction_source_labels,0,false,&accepted);
-        if(!accepted)return;
-        const auto index=direction_source_labels.indexOf(choice);if(index<0)return;
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({LinkTextDirection{{id,"","text.direction"},{direction_source_ids.at(static_cast<std::size_t>(index)),"","text.direction"},replace_direction_driver}},direction_revision);host.edited();});
+        QDialog dialog(this);dialog.setObjectName("text-direction-source-dialog");dialog.setWindowTitle("Link Text direction");
+        auto* layout=new QVBoxLayout(&dialog);
+        auto* search=new QLineEdit(&dialog);search->setObjectName("text-direction-source-search");
+        search->setPlaceholderText("Search Text name, object ID or text.direction");layout->addWidget(search);
+        auto* source=new QComboBox(&dialog);source->setObjectName("text-direction-source");
+        for(int i=0;i<direction_source_labels.size();++i)source->addItem(direction_source_labels.at(i),i);
+        source->setCurrentIndex(-1);layout->addWidget(source);
+        auto* status=new QLabel("Choose a visible Text direction source. Cancel keeps the current driver.",&dialog);
+        status->setObjectName("text-direction-source-status");status->setWordWrap(true);layout->addWidget(status);
+        connect(search,&QLineEdit::textChanged,&dialog,[source,direction_source_labels,direction_source_ids](const QString& query){
+            const int selected=source->currentIndex()<0?-1:source->currentData().toInt();
+            const QSignalBlocker blocker(source);source->clear();
+            for(int i=0;i<direction_source_labels.size();++i){
+                const auto path=qs(direction_source_ids.at(static_cast<std::size_t>(i)))+" / text.direction";
+                if(direction_source_labels.at(i).contains(query,Qt::CaseInsensitive)||path.contains(query,Qt::CaseInsensitive))
+                    source->addItem(direction_source_labels.at(i),i);
+            }
+            source->setCurrentIndex(selected<0?-1:source->findData(selected));
+        });
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
+        connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
+            [this,&dialog,id,frozen_session,direction_revision,replace_direction_driver,direction_source_ids,source,status]{
+                try {
+                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                    if(host.session.revision()!=direction_revision)throw Error("STALE_CONTEXT","Text changed while the source chooser was open; reopen it");
+                    if(source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a visible Text direction source");
+                    const int index=source->currentData().toInt();
+                    if(index<0||static_cast<std::size_t>(index)>=direction_source_ids.size())
+                        throw Error("MISSING_REFERENCE","Choose a valid Text direction source");
+                    host.session.apply({LinkTextDirection{{id,"","text.direction"},
+                        {direction_source_ids.at(static_cast<std::size_t>(index)),"","text.direction"},replace_direction_driver}},direction_revision);
+                    host.edited();dialog.accept();
+                } catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+            });
+        dialog.exec();
     });
     connect(unlink_direction,&QAction::triggered,this,[this,frozen_session,direction_revision,direction_ref]{
         perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");

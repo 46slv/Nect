@@ -2004,13 +2004,39 @@ void text_authoring(Window& window) {
     auto* direction_driver_button=visible_child<QToolButton>(window,"text-direction-driver");bool chose_direction_source=false;
     check(!visible_child<QComboBox>(window,"text-direction")->isEnabled()&&direction_driver_button->menu()->actions().size()==3,
         "Text direction Inspector exposes a staged enum display and explicit edit/link/unlink menu");
-    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
-        if(auto* combo=dialog->findChild<QComboBox*>()) {
-            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
-            dialog->accept();chose_direction_source=true;return;
-        }
-    }});
+    const auto direction_before=session.document().objects.at(id);const auto direction_revision_before=session.revision();
+    bool rejected_direction_draft=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-source-dialog");if(!dialog)return;
+        auto* search=dialog->findChild<QLineEdit*>("text-direction-source-search");
+        auto* combo=dialog->findChild<QComboBox*>("text-direction-source");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!search||!combo||!buttons)return;
+        combo->setCurrentIndex(0);
+        search->setText("no matching stable ref");
+        buttons->button(QDialogButtonBox::Apply)->click();
+        rejected_direction_draft=dialog->isVisible()&&combo->currentIndex()<0&&
+            dialog->findChild<QLabel*>("text-direction-source-status")->text().contains("visible Text direction source");
+        dialog->reject();
+    });
     direction_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(rejected_direction_draft&&session.revision()==direction_revision_before&&
+        session.document().objects.at(id)==direction_before,
+        "Hidden or empty Text direction source rejects without changing authored state");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-source-dialog");if(!dialog)return;
+        auto* search=dialog->findChild<QLineEdit*>("text-direction-source-search");
+        auto* combo=dialog->findChild<QComboBox*>("text-direction-source");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!search||!combo||!buttons)return;
+        search->setText(QString::fromStdString(source_id).toUpper()+" / TEXT.DIRECTION");
+        if(combo->count()!=1||combo->itemData(0).toInt()!=0)return;
+        combo->setCurrentIndex(0);
+        window.canvas->set_selection(source_id,"");
+        buttons->button(QDialogButtonBox::Apply)->click();chose_direction_source=true;
+    });
+    direction_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    window.canvas->set_selection(id,"");window.host.edited();QApplication::processEvents();
     check(chose_direction_source&&session.document().objects.at(id).text->direction=="vertical"&&
         session.document().objects.at(id).text->direction_driver->link==Ref{source_id,"","text.direction"}&&
         evaluate_text_direction(session.document(),id)=="horizontal"&&
