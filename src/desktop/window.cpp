@@ -3918,27 +3918,34 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
 void Window::pick_source(std::vector<Ref> targets,bool relative) {
     const auto target=targets.front();const auto selection=canvas->selections();const auto expected_revision=host.session.revision();
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
-    auto* dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->resize(720,480);
+    auto* dialog=new QDialog(this);dialog->setObjectName("property-source-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->resize(720,480);
     dialog->setWindowTitle(relative?"Pick Relative Link source":"Pick property source");
     auto* layout=new QVBoxLayout(dialog);
     auto* target_note=new QLabel(targets.size()==1?"Target: "+property_label(host.session.document(),target):QString::number(targets.size())+" frozen targets · "+qs(target.field));
     target_note->setWordWrap(true);layout->addWidget(target_note);
-    auto* search=new QLineEdit;search->setPlaceholderText("Search object, point, property or unit…");layout->addWidget(search);
-    auto* list=new QListWidget;layout->addWidget(list);
+    auto* search=new QLineEdit;search->setObjectName("property-source-picker-search");search->setPlaceholderText("Search object, point, property or unit…");layout->addWidget(search);
+    auto* list=new QListWidget;list->setObjectName("property-source-picker-list");layout->addWidget(list);
     const auto values=evaluate(host.session.document());
     for(const auto& ref:properties(host.session.document())) {
         if(!values.contains(ref))continue;
         if(std::find(targets.begin(),targets.end(),ref)!=targets.end())continue;
         const auto text=property_label(host.session.document(),ref)+" ["+qs(property_unit(ref))+", local]  = "+display_value(values.at(ref));
+        const auto stable_path=qs(ref.object+" / "+ref.point+" / "+ref.field);
         auto* item=new QListWidgetItem(text,list);item->setData(Qt::UserRole,QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact));
-        item->setToolTip(qs(ref.object+" / "+ref.point+" / "+ref.field));
-        if(property_unit(target)!=property_unit(ref)) {item->setFlags(item->flags()&~Qt::ItemIsEnabled);item->setToolTip("Incompatible unit: "+qs(property_unit(ref)));}
+        item->setData(Qt::UserRole+1,stable_path);item->setToolTip(stable_path);
+        if(property_unit(target)!=property_unit(ref)) {
+            item->setFlags(item->flags()&~Qt::ItemIsEnabled);
+            item->setToolTip(stable_path+"\nIncompatible unit: "+qs(property_unit(ref)));
+        }
     }
     connect(search,&QLineEdit::textChanged,dialog,[list](const QString& text){
         const auto terms=text.split(' ',Qt::SkipEmptyParts);
         for(int i=0;i<list->count();++i) {
-            const bool matches=std::all_of(terms.begin(),terms.end(),[&](const auto& term){return list->item(i)->text().contains(term,Qt::CaseInsensitive);});
-            list->item(i)->setHidden(!matches);
+            auto* item=list->item(i);
+            const auto searchable=item->text()+" "+item->data(Qt::UserRole+1).toString();
+            const bool matches=std::all_of(terms.begin(),terms.end(),[&](const auto& term){return searchable.contains(term,Qt::CaseInsensitive);});
+            if(!matches&&list->currentItem()==item)list->setCurrentItem(nullptr);
+            item->setHidden(!matches);
         }
     });
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);layout->addWidget(buttons);
@@ -3954,7 +3961,8 @@ void Window::pick_source(std::vector<Ref> targets,bool relative) {
     auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard] {
         perform([&]{
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Source picker belongs to a different document");
-            if(!list->currentItem())throw Error("NO_SOURCE","Choose a source property");
+            if(!list->currentItem()||list->currentItem()->isHidden()||!(list->currentItem()->flags()&Qt::ItemIsEnabled))
+                throw Error("NO_SOURCE","Choose a visible compatible source property");
             const auto source=read_ref(list->currentItem()->data(Qt::UserRole).toByteArray());
             host.session.apply({LinkProperties{targets,source,relative}},expected_revision);
             canvas->set_active_artboard(composition,artboard,false);

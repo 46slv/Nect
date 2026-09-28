@@ -1155,6 +1155,104 @@ void stack_authoring(Window& window) {
         nect::property(session.document(),miter_ref).expression.has_value(),
         "Inspector line-join control preserves the evaluated miter limit");
 }
+void scalar_source_path_picker(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    Point target_point,source_point,beta_point,scale_point;
+    target_point.id="stable-target-point";target_point.x.literal=60;source_point.id="stable-source-point";source_point.x.literal=180;
+    beta_point.id="stable-beta-point";beta_point.x.literal=240;scale_point.id="stable-scale-point";scale_point.x.literal=320;
+    session.apply({CreatePath{composition,"","stable-target-object","Target",{{"target-contour",false,{target_point}}}},
+        CreatePath{composition,"","stable-source-object","Friendly Source",{{"source-contour",false,{source_point}}}},
+        CreatePath{composition,"","stable-beta-object","Other Source",{{"beta-contour",false,{beta_point}}}},
+        CreatePath{composition,"","stable-scale-object","Different Unit",{{"scale-contour",false,{scale_point}}}}},session.revision());
+    window.host.edited();
+    const Ref target{"stable-target-object","stable-target-point","x"};
+    const Ref source{"stable-source-object","stable-source-point","x"};
+    const Ref beta{"stable-beta-object","stable-beta-point","x"};
+    const Ref source_translation{"stable-source-object","","transform.tx"};
+    const Ref incompatible{"stable-scale-object","","transform.a"};
+    check(property_unit(target)==property_unit(source)&&property_unit(source)!=property_unit(incompatible),
+        "Picker fixture has two same-unit sources and a different-unit source");
+    const auto baseline=session.document();const auto baseline_revision=session.revision();
+    window.canvas->set_selection(target.object,target.point);window.host.edited();QApplication::processEvents();
+    const auto selection=window.canvas->selections();
+    auto open_picker=[&] {
+        QTest::mouseClick(field<QPushButton>(window,target),Qt::LeftButton);QApplication::processEvents();
+        auto* dialog=window.findChild<QDialog*>("property-source-picker");
+        check(dialog&&dialog->isVisible(),"Scalar property picker opens");return dialog;
+    };
+    auto find_item=[](QListWidget* list,const Ref& ref) -> QListWidgetItem* {
+        for(int i=0;i<list->count();++i) {
+            const auto value=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(value.value("object").toString().toStdString()==ref.object&&value.value("point").toString().toStdString()==ref.point&&
+                value.value("field").toString().toStdString()==ref.field)return list->item(i);
+        }
+        return nullptr;
+    };
+    auto* dialog=open_picker();auto* search=dialog->findChild<QLineEdit*>("property-source-picker-search");
+    auto* list=dialog->findChild<QListWidget*>("property-source-picker-list");auto* buttons=dialog->findChild<QDialogButtonBox*>();
+    auto* source_item=find_item(list,source);auto* beta_item=find_item(list,beta);auto* translation_item=find_item(list,source_translation);
+    check(search&&list&&buttons&&source_item&&beta_item&&translation_item,"Picker rows retain exact source Refs");
+    check(source_item->text().contains("Friendly Source")&&!source_item->text().contains(QString::fromStdString(source.object)),
+        "Friendly-label search remains available without showing stable IDs in the row label");
+    search->setText("Friendly Source");check(!source_item->isHidden()&&beta_item->isHidden(),"Friendly-label search filters rows");
+    search->setText("STABLE-SOURCE-OBJECT");check(!source_item->isHidden()&&beta_item->isHidden(),"Stable object ID search is case insensitive");
+    search->setText("STABLE-SOURCE-POINT");check(!source_item->isHidden()&&beta_item->isHidden(),"Stable point ID search works");
+    search->setText("STABLE-SOURCE-OBJECT transform.tx");check(!translation_item->isHidden(),"Stable field path search works");
+    search->setText("STABLE-SOURCE-OBJECT / STABLE-SOURCE-POINT / X");QApplication::processEvents();
+    check(!source_item->isHidden()&&beta_item->isHidden(),"Full stable object/point/field search is case insensitive");
+    list->scrollToItem(source_item);QApplication::processEvents();
+    QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(source_item).center());
+    QApplication::processEvents();
+    check(window.canvas->selected_object==source.object&&window.canvas->selected_point==source.point,
+        "Choosing a source changes browsing context while the target stays frozen");
+    buttons->button(QDialogButtonBox::Ok)->click();QApplication::processEvents();
+    check(session.revision()==baseline_revision+1&&nect::property(session.document(),target).binding&&
+        nect::property(session.document(),target).binding->source==source&&window.canvas->selections()==selection,
+        "Confirm links the exact Ref in one revision and restores target selection");
+    const auto linked=session.document();
+    session.apply({Rename{source.object,"Renamed Source"},
+        ReorderObjects{composition,"",{"stable-scale-object","stable-beta-object","stable-source-object","stable-target-object"}}},session.revision());
+    window.host.edited();
+    check(nect::property(session.document(),target).binding->source==source,"Rename/reorder preserve the linked stable Ref");
+    session.undo(session.revision());window.host.edited();
+    check(session.document()==linked,"Undo of source rename/reorder preserves the link");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==baseline&&session.revision()==baseline_revision+4,"Undo removes the link and restores the exact target state");
+
+    dialog=open_picker();search=dialog->findChild<QLineEdit*>("property-source-picker-search");
+    list=dialog->findChild<QListWidget*>("property-source-picker-list");buttons=dialog->findChild<QDialogButtonBox*>();source_item=find_item(list,source);
+    search->setText("Friendly Source");list->scrollToItem(source_item);QApplication::processEvents();
+    QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(source_item).center());QApplication::processEvents();
+    buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+    check(session.document()==baseline&&session.revision()==baseline_revision+4&&window.canvas->selections()==selection,
+        "Cancel restores the original selection without changing authored state");
+
+    dialog=open_picker();search=dialog->findChild<QLineEdit*>("property-source-picker-search");
+    list=dialog->findChild<QListWidget*>("property-source-picker-list");buttons=dialog->findChild<QDialogButtonBox*>();
+    source_item=find_item(list,source);beta_item=find_item(list,beta);auto* incompatible_item=find_item(list,incompatible);
+    const auto unchanged=session.document();const auto unchanged_revision=session.revision();
+    search->setText("Friendly Source");list->scrollToItem(source_item);QApplication::processEvents();
+    QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(source_item).center());QApplication::processEvents();
+    check(list->currentItem()==source_item&&window.canvas->selected_object==source.object,
+        "A compatible source can be selected before narrowing the search");
+    search->setText("STABLE-SCALE-OBJECT / / TRANSFORM.A");
+    check(source_item->isHidden()&&!incompatible_item->isHidden()&&!(incompatible_item->flags()&Qt::ItemIsEnabled)&&
+        list->currentItem()==nullptr&&incompatible_item->toolTip().contains("stable-scale-object /  / transform.a")&&
+        incompatible_item->toolTip().contains("Incompatible unit"),
+        "Filtering from a compatible selection to a different-unit path clears the old choice and keeps the path searchable");
+    list->scrollToItem(incompatible_item);QApplication::processEvents();
+    QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(incompatible_item).center());QApplication::processEvents();
+    check(list->currentItem()==nullptr,"Disabled incompatible source cannot become current");
+    buttons->button(QDialogButtonBox::Ok)->click();QApplication::processEvents();
+    check(dialog->isVisible()&&session.document()==unchanged&&session.revision()==unchanged_revision&&
+        window.statusBar()->currentMessage().startsWith("NO_SOURCE"),"Confirm cannot apply a disabled incompatible source");
+    search->setText("no-such-stable-path");
+    check(source_item->isHidden()&&beta_item->isHidden()&&session.document()==unchanged&&session.revision()==unchanged_revision,
+        "A nonmatching path hides sources without changing Document or revision");
+    buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+    check(session.document()==unchanged&&session.revision()==unchanged_revision&&window.canvas->selections()==selection,
+        "Cancel after incompatible-source rejection preserves the target and authored state");
+}
 void single_operation_enabled_source(Window& window) {
     auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
     Point target_point,source_point;target_point.id="single-target-point";source_point.id="single-source-point";
@@ -2572,7 +2670,9 @@ int main(int argc,char** argv) {
             "Pick-whip cancellation preserves document and restores context");
         primitive_authoring(w);
         stack_authoring(w);
-        w.hide();{Window enabled_links(temp.path()+"/enabled-links");enabled_links.show();QApplication::processEvents();
+        w.hide();Window source_picker(temp.path()+"/source-picker");source_picker.show();QApplication::processEvents();
+        scalar_source_path_picker(source_picker);source_picker.hide();
+        {Window enabled_links(temp.path()+"/enabled-links");enabled_links.show();QApplication::processEvents();
             single_operation_enabled_source(enabled_links);point_edit_enabled_source(enabled_links);enabled_links.hide();}
         Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
         gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
