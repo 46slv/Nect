@@ -12,6 +12,128 @@ template<class F> void rejects(const char* code,F action) {
 }
 Primitive circle() {return {"circle-source","nect.shape.circle",1,
     {{"center_x",{100,{}}},{"center_y",{200,{}}},{"radius",{50,{}}}}};}
+void point_edit_enabled_links() {
+    Session s(empty_document("edit-doc","edit-comp","edit-art"));
+    auto source_circle=circle();source_circle.id="source-generator";
+    s.apply({CreatePrimitive{"edit-comp","","target","Target",circle()},
+        CreatePrimitive{"edit-comp","","source","Source",source_circle}},0);
+    const Ref target_point{"target","circle-source-east","x"},source_point{"source","source-generator-east","x"};
+    s.apply({Set{target_point,210},Set{source_point,310}},1);
+    const auto target_ref=point_edit_enabled_ref("target","circle-source-point-edit");
+    const auto source_ref=point_edit_enabled_ref("source","source-generator-point-edit");
+    s.apply({EnablePointEdit{"target",false}},2);
+    s.apply({LinkPointEditEnabled{target_ref,source_ref}},3);
+    auto state=point_edit_enabled_state(s.document(),target_ref);
+    check(state.literal==false&&state.driver==source_ref&&state.evaluated&&
+        evaluate(s.document()).at(target_point)==210&&property_origin(s.document(),target_point)=="point_edit",
+        "A false-literal target follows the exact source while retaining its authored override");
+    const auto legacy_ref=Ref{"target","","point_edit.enabled"};
+    check(point_edit_enabled_property(s.document(),legacy_ref)==false,
+        "Legacy Point Edit slot read remains the authored literal");
+    const auto legacy=request(s,R"({"op":"get","ref":{"object":"target","point":"","field":"point_edit.enabled"}})");
+    const auto qualified=request(s,R"({"op":"get","ref":{"object":"target","point":"","field":"point_edit.circle-source-point-edit.enabled"}})");
+    const auto property_list=request(s,R"({"op":"properties"})");
+    check(legacy.find("\"link\":false")!=std::string::npos&&legacy.find("\"literal\":false")!=std::string::npos&&
+        qualified.find("\"link\":true")!=std::string::npos&&qualified.find("\"evaluated\":true")!=std::string::npos&&
+        qualified.find("\"object\":\"source\"")!=std::string::npos&&
+        property_list.find("point_edit.circle-source-point-edit.enabled")!=std::string::npos,
+        "Legacy and instance-qualified API reads expose their distinct authored and evaluated states");
+    check(resolve_name(s.document(),"Target","","point_edit.circle-source-point-edit.enabled")==target_ref,
+        "Unique-name resolution finds the exact retained correction Ref");
+    const auto linked_bytes=encode(s.document());
+    check(linked_bytes.find("\"version\":\"0.32\"")!=std::string::npos&&
+        linked_bytes.find("\"enabled_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"point_edit.source-generator-point-edit.enabled\"}}")!=std::string::npos&&
+        encode(decode(linked_bytes))==linked_bytes,
+        "Native 0.32 retains the optional closed driver and roundtrips without byte drift");
+    auto false_version=linked_bytes;
+    const auto version_at=false_version.find("\"version\":\"0.32\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.32\"").size(),"\"version\":\"0.31\"");
+    rejects("UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER",[&]{(void)decode(false_version);});
+    auto malformed=linked_bytes;
+    const auto ref_at=malformed.find("point_edit.source-generator-point-edit.enabled");
+    malformed.replace(ref_at,std::string("point_edit.source-generator-point-edit.enabled").size(),"point_edit.enabled");
+    rejects("INVALID_POINT_EDIT_REF",[&]{(void)decode(malformed);});
+
+    const auto prior_document=s.document();const auto prior_history=s.history();const auto prior_revision=s.revision();
+    rejects("DRIVEN_PROPERTY",[&]{s.apply({EnablePointEdit{"target",true}},prior_revision);});
+    rejects("DRIVEN_PROPERTY",[&]{s.apply({LinkPointEditEnabled{target_ref,source_ref}},prior_revision);});
+    rejects("REVISION_CONFLICT",[&]{s.apply({UnlinkPointEditEnabled{target_ref}},prior_revision-1);});
+    rejects("DRIVEN_PROPERTY",[&]{s.apply({Set{target_point,220}},prior_revision);});
+    check(s.document()==prior_document&&s.history()==prior_history&&s.revision()==prior_revision,
+        "Driven toggles, implicit replacement, stale revisions and false-literal edits leave state and history unchanged");
+    rejects("POINT_EDIT_IN_USE",[&]{s.apply({ClearPointEdit{"source"}},prior_revision);});
+    rejects("POINT_EDIT_IN_USE",[&]{s.apply({ClearPointEdit{"source"},Set{source_point,320}},prior_revision);});
+    rejects("POINT_EDIT_IN_USE",[&]{s.apply({ConvertToPath{"source"}},prior_revision);});
+    rejects("POINT_EDIT_IN_USE",[&]{s.apply({DeleteObjects{{"source"}}},prior_revision);});
+    check(s.document()==prior_document&&s.history()==prior_history&&s.revision()==prior_revision,
+        "Clear, same-batch clear/recreate, conversion and source deletion stop at the destructive command boundary");
+    rejects("MISSING_POINT_EDIT",[&]{(void)point_edit_enabled_state(s.document(),
+        Ref{"target","","point_edit.recreated-point-edit.enabled"});});
+    rejects("INVALID_POINT_EDIT_REF",[&]{(void)point_edit_enabled_state(s.document(),
+        Ref{"target","circle-source-east","point_edit.circle-source-point-edit.enabled"});});
+    rejects("USE_TYPED_COMMAND",[&]{s.apply({Set{target_ref,1}},prior_revision);});
+
+    const auto linked_before_same_id_edit=s.document();const auto same_id_revision=s.revision();
+    s.apply({Set{{"source","","generator.radius"},60},Rename{"source","Renamed source"},
+        ReorderObjects{"edit-comp","",{"source","target"}}},same_id_revision);
+    check(point_edit_enabled_state(s.document(),target_ref).driver==source_ref&&
+        point_edit_enabled_state(s.document(),target_ref).evaluated&&
+        s.document().objects.at("source").point_edit->id=="source-generator-point-edit",
+        "Same-ID source edits, rename and reorder preserve the qualified driver");
+    s.undo(s.revision());
+    check(s.document()==linked_before_same_id_edit&&point_edit_enabled_state(s.document(),target_ref).driver==source_ref,
+        "Undo restores same-ID source edits without retargeting the Point Edit link");
+    s.redo(s.revision());
+    check(point_edit_enabled_state(s.document(),target_ref).driver==source_ref,
+        "Redo preserves the exact qualified Point Edit source");
+
+    const auto same_id_redone_revision=s.revision();
+    s.apply({EnablePointEdit{"source",false}},same_id_redone_revision);
+    check(!point_edit_enabled_state(s.document(),target_ref).evaluated&&
+        evaluate(s.document()).at(target_point)==150&&
+        s.document().objects.at("target").point_edit->overrides.at(target_point.point).at("x").literal==210,
+        "False source bypasses to generator fallback without deleting target overrides");
+    s.apply({EnablePointEdit{"source",true}},same_id_redone_revision+1);
+    check(point_edit_enabled_state(s.document(),target_ref).evaluated&&evaluate(s.document()).at(target_point)==210,
+        "Restoring the source reactivates the same target override and generated point ID");
+    s.apply({UnlinkPointEditEnabled{target_ref}},same_id_redone_revision+2);
+    const auto frozen=point_edit_enabled_state(s.document(),target_ref);
+    check(!frozen.driver&&frozen.literal&&frozen.evaluated,
+        "Unlink freezes the evaluated authored bypass bit");
+    s.undo(s.revision());
+    check(s.document().objects.at("target").point_edit->enabled_driver==source_ref&&
+        point_edit_enabled_state(s.document(),target_ref).evaluated,
+        "Undo restores the exact driver and evaluated correction state");
+    s.redo(s.revision());
+    check(!s.document().objects.at("target").point_edit->enabled_driver,
+        "Redo restores the frozen literal after unlink");
+
+    auto cyclic=s.document();
+    cyclic.objects.at("target").point_edit->enabled_driver=target_ref;
+    rejects("DEPENDENCY_CYCLE",[&]{validate(cyclic);});
+    cyclic=s.document();cyclic.objects.at("target").point_edit->enabled_driver=source_ref;
+    cyclic.objects.at("source").point_edit->enabled_driver=target_ref;
+    rejects("DEPENDENCY_CYCLE",[&]{validate(cyclic);});
+    auto foreign=s.document();
+    Object foreign_object;foreign_object.id="foreign";foreign_object.name="Foreign";
+    foreign_object.source=circle();foreign_object.source->id="foreign-source";
+    foreign_object.point_edit=PointEdit{"foreign-source-point-edit",1,true,{{"foreign-source-east",{{"x",{1,{}}}}}}};
+    foreign.objects.emplace(foreign_object.id,foreign_object);
+    foreign.compositions.push_back(Composition{"foreign-comp","Foreign",{"foreign"},{},{}});
+    foreign.objects.at("target").point_edit->enabled_driver=point_edit_enabled_ref("foreign","foreign-source-point-edit");
+    rejects("CROSS_COMPOSITION",[&]{validate(foreign);});
+    auto deep=empty_document("deep-doc","deep-comp","deep-art");
+    constexpr int chain=130;
+    for(int i=0;i<chain;++i) {
+        const auto id="node"+std::to_string(i),source_id="generator"+std::to_string(i);
+        Object object;object.id=id;object.name=id;object.source=circle();object.source->id=source_id;
+        object.point_edit=PointEdit{source_id+"-point-edit",1,true,{}};
+        deep.objects.emplace(id,std::move(object));deep.compositions.front().roots.push_back(id);
+    }
+    for(int i=0;i<chain-1;++i)deep.objects.at("node"+std::to_string(i)).point_edit->enabled_driver=
+        point_edit_enabled_ref("node"+std::to_string(i+1),"generator"+std::to_string(i+1)+"-point-edit");
+    rejects("DEPENDENCY_DEPTH",[&]{validate(deep);});
+}
 }
 int main() {
     try {
@@ -99,6 +221,7 @@ int main() {
         rejects("INVALID_GENERATOR_PARAMETERS",[&]{validate(invalid);});
         invalid=decode(generated);invalid.objects.at("circle").source->parameters.emplace("future",Scalar{});
         rejects("INVALID_GENERATOR_PARAMETERS",[&]{validate(invalid);});
+        point_edit_enabled_links();
         std::cout<<"PASS "<<checks<<" primitive, correction and conversion checks\n";return 0;
     }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}
 }

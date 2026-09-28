@@ -152,6 +152,56 @@ void typed_text_layout_history() {
         session.document().objects.at("layout-history-target").text->locale=="ar-SA",
         "History Redo restores the frozen Text locale literal");
 }
+void point_edit_enabled_history() {
+    Session seed(empty_document("point-edit-history-doc","point-edit-history-comp","point-edit-history-art"));
+    const auto target_source=default_primitive("history-target-generator","nect.shape.circle");
+    const auto short_source=default_primitive("short-history-generator","nect.shape.circle");
+    const auto long_source=default_primitive("point-edit-history-source-with-a-much-longer-stable-id-generator","nect.shape.circle");
+    apply(seed,{CreatePrimitive{"point-edit-history-comp","","history-target","Target",target_source},
+        CreatePrimitive{"point-edit-history-comp","","short-source","Short source",short_source},
+        CreatePrimitive{"point-edit-history-comp","","long-source","Long source",long_source},
+        Set{{"history-target","history-target-generator-east","x"},210},
+        Set{{"short-source","short-history-generator-east","x"},320},
+        Set{{"long-source","point-edit-history-source-with-a-much-longer-stable-id-generator-east","x"},430}});
+    const auto base=seed.document();
+    const auto target=point_edit_enabled_ref("history-target","history-target-generator-point-edit");
+    const auto short_ref=point_edit_enabled_ref("short-source","short-history-generator-point-edit");
+    const auto long_ref=point_edit_enabled_ref("long-source","point-edit-history-source-with-a-much-longer-stable-id-generator-point-edit");
+    Session short_measure(base),long_measure(base);
+    apply(short_measure,{LinkPointEditEnabled{target,short_ref}});
+    apply(long_measure,{LinkPointEditEnabled{target,long_ref}});
+    const auto short_bytes=short_measure.history().states.back().estimated_bytes;
+    const auto long_bytes=long_measure.history().states.back().estimated_bytes;
+    check(long_bytes>short_bytes,
+        "Point Edit driver Ref strings contribute to the retained transition estimate");
+    Session fits(base,{10,short_bytes}),too_large(base,{10,short_bytes});
+    apply(fits,{LinkPointEditEnabled{target,short_ref}});
+    const auto before=too_large.document();const auto before_history=too_large.history();const auto before_revision=too_large.revision();
+    rejects("HISTORY_LIMIT",[&]{apply(too_large,{LinkPointEditEnabled{target,long_ref}});});
+    check(too_large.document()==before&&too_large.history()==before_history&&too_large.revision()==before_revision,
+        "A driver Ref that exceeds the byte budget is rejected without changing Document, revision or History");
+
+    Session session(base);
+    apply(session,{LinkPointEditEnabled{target,short_ref}});
+    auto linked=point_edit_enabled_state(session.document(),target);
+    check(session.history().states.back().label.find("Link Point Edit enabled")!=std::string::npos&&
+        session.history().states.back().estimated_bytes>0&&linked.driver==short_ref&&linked.literal&&linked.evaluated,
+        "Link history retains its exact Point Edit driver and readable transition label");
+    apply(session,{EnablePointEdit{"short-source",false}});
+    apply(session,{UnlinkPointEditEnabled{target}});
+    check(session.history().states.back().label.find("Unlink Point Edit enabled")!=std::string::npos&&
+        !point_edit_enabled_state(session.document(),target).driver&&
+        !point_edit_enabled_state(session.document(),target).literal,
+        "Unlink history stores the evaluated false bypass bit as the frozen literal");
+    session.undo(session.revision());
+    check(point_edit_enabled_state(session.document(),target).driver==short_ref&&
+        !point_edit_enabled_state(session.document(),target).evaluated,
+        "Undo restores the Point Edit driver and follows its current source value");
+    session.redo(session.revision());
+    check(!point_edit_enabled_state(session.document(),target).driver&&
+        !point_edit_enabled_state(session.document(),target).literal,
+        "Redo restores the frozen authored literal without its former driver");
+}
 void limits_and_gestures() {
     const auto document=demo_document();const Ref x{"path-A","point-A1","x"};
     Session limited(document,{3,64*1024*1024});
@@ -192,5 +242,5 @@ void limits_and_gestures() {
     rejects("INVALID_HISTORY_LIMITS",[&]{Session invalid(document,{0,1000});});
 }
 }
-int main(){try{long_history();authored_roundtrip();typed_text_layout_history();limits_and_gestures();std::cout<<"PASS "<<checks<<" history checks\n";return 0;}
+int main(){try{long_history();authored_roundtrip();typed_text_layout_history();point_edit_enabled_history();limits_and_gestures();std::cout<<"PASS "<<checks<<" history checks\n";return 0;}
 catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

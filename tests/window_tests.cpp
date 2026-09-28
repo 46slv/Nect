@@ -819,6 +819,11 @@ void primitive_authoring(Window& window) {
     check(evaluate(session.document()).at({object,east,"y"})==center_y,"Circle center Y follows the artboard default");
     auto* correction=visible_child<QCheckBox>(window,"point-edit-enabled");
     check(!correction->isEnabled()&&!correction->isChecked(),"A new source shows an empty correction entry without inventing overrides");
+    auto* correction_state=visible_child<QLabel>(window,"point-edit-enabled-state");
+    check(correction_state->text().contains("Correction: absent")&&
+        correction_state->text().contains("Authored literal: n/a")&&
+        correction_state->text().contains("Evaluated enabled: n/a"),
+        "Inspector marks an absent correction without presenting a fabricated authored literal");
     revision=session.revision();
     edit_number(window,radius,"150");
     check(session.revision()==revision+1&&evaluate(session.document()).at(radius)==150&&
@@ -1182,6 +1187,66 @@ void single_operation_enabled_source(Window& window) {
     check(operation_enabled_state(session.document(),target).driver==source&&
         !operation_enabled_state(session.document(),target).evaluated,
         "A single-operation target links to a same-composition source outside its Object");
+}
+void point_edit_enabled_source(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    const auto target_source=default_primitive("window-target-generator","nect.shape.circle");
+    const auto source_source=default_primitive("window-source-generator","nect.shape.circle");
+    const Ref target_point{"point-edit-target","window-target-generator-east","x"};
+    const Ref source_point{"point-edit-source","window-source-generator-east","x"};
+    session.apply({CreatePrimitive{composition,"","point-edit-target","Point Edit target",target_source},
+        CreatePrimitive{composition,"","point-edit-source","Point Edit source",source_source},
+        Set{target_point,260},Set{source_point,360},EnablePointEdit{"point-edit-target",false}},session.revision());
+    const auto target=point_edit_enabled_ref("point-edit-target","window-target-generator-point-edit");
+    const auto source=point_edit_enabled_ref("point-edit-source","window-source-generator-point-edit");
+    const auto fallback=evaluate(session.document()).at(target_point);
+    check(fallback!=260&&point_edit_enabled_state(session.document(),target).literal==false,
+        "Point Edit UI fixture retains a false target literal and a distinct generator fallback");
+    window.canvas->set_selection("point-edit-target");window.host.edited();QApplication::processEvents();
+    auto* driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    bool chose_source=false;
+    QTimer::singleShot(10,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())
+        if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+            if(auto* combo=dialog->findChild<QComboBox*>())
+                for(int index=0;index<combo->count();++index)if(combo->itemText(index).contains(QStringLiteral("window-source-generator-point-edit"))) {
+                    combo->setCurrentIndex(index);dialog->accept();chose_source=true;return;
+                }
+            dialog->reject();return;
+        }});
+    driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    auto linked=point_edit_enabled_state(session.document(),target);
+    auto* checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
+    auto* status=visible_child<QLabel>(window,"point-edit-enabled-state");
+    check(chose_source&&linked.literal==false&&linked.driver==source&&linked.evaluated&&
+        !checkbox->isEnabled()&&!checkbox->isChecked()&&status->text().contains("Correction: present")&&
+        status->text().contains("Authored literal: false")&&status->text().contains("Evaluated enabled: true")&&
+        window.canvas->evaluated_values().at(target_point)==260,
+        "Inspector links the exact same-field source, preserves the literal, disables its checkbox and Canvas applies the saved override");
+    session.apply({EnablePointEdit{"point-edit-source",false}},session.revision());window.host.edited();QApplication::processEvents();
+    linked=point_edit_enabled_state(session.document(),target);
+    check(linked.driver==source&&!linked.evaluated&&window.canvas->evaluated_values().at(target_point)==fallback,
+        "Source bypass changes Canvas to generator fallback while retaining the target correction");
+    session.apply({EnablePointEdit{"point-edit-source",true}},session.revision());window.host.edited();QApplication::processEvents();
+    check(point_edit_enabled_state(session.document(),target).evaluated&&
+        window.canvas->evaluated_values().at(target_point)==260,
+        "Re-enabling the source restores the same Point Edit override in Canvas");
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    auto frozen=point_edit_enabled_state(session.document(),target);
+    checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
+    check(!frozen.driver&&frozen.literal&&frozen.evaluated&&checkbox->isEnabled()&&checkbox->isChecked(),
+        "Inspector unlink freezes the evaluated value and returns the authored checkbox to editing");
+    history_action(window,"Undo");
+    check(point_edit_enabled_state(session.document(),target).driver==source&&
+        !point_edit_enabled_state(session.document(),target).literal&&
+        point_edit_enabled_state(session.document(),target).evaluated,
+        "Inspector history Undo restores the exact driver and authored target bit");
+    history_action(window,"Redo");
+    session.apply({EnablePointEdit{"point-edit-source",false}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!point_edit_enabled_state(session.document(),target).driver&&
+        point_edit_enabled_state(session.document(),target).literal&&
+        window.canvas->evaluated_values().at(target_point)==260,
+        "Inspector Redo keeps its frozen target independent of later source changes");
 }
 void gradient_authoring(Window& window) {
     auto& session=window.host.session;
@@ -2508,7 +2573,7 @@ int main(int argc,char** argv) {
         primitive_authoring(w);
         stack_authoring(w);
         w.hide();{Window enabled_links(temp.path()+"/enabled-links");enabled_links.show();QApplication::processEvents();
-            single_operation_enabled_source(enabled_links);enabled_links.hide();}
+            single_operation_enabled_source(enabled_links);point_edit_enabled_source(enabled_links);enabled_links.hide();}
         Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
         gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
         boards.hide();Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);

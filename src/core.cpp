@@ -221,6 +221,27 @@ const GeometryMask& geometry_mask_enabled_source(const Document& document,const 
     require(object->second.compositing.mask->id==mask_id,"MISSING_MASK","Geometry mask ID is no longer installed: "+mask_id);
     return *object->second.compositing.mask;
 }
+Id point_edit_enabled_address(const std::string& field) {
+    constexpr std::string_view prefix="point_edit.";
+    constexpr std::string_view suffix=".enabled";
+    require(field.starts_with(prefix)&&field.ends_with(suffix)&&field.size()>prefix.size()+suffix.size(),
+        "INVALID_POINT_EDIT_REF","Point Edit enabled Ref must name one correction instance");
+    const auto id=field.substr(prefix.size(),field.size()-prefix.size()-suffix.size());
+    identity(id);
+    return id;
+}
+const PointEdit& point_edit_enabled_source(const Document& document,const Ref& ref) {
+    require(ref.point.empty(),"INVALID_POINT_EDIT_REF","Point Edit enabled requires an empty point ID");
+    const auto point_edit_id=point_edit_enabled_address(ref.field);
+    const auto object=document.objects.find(ref.object);
+    require(object!=document.objects.end(),"MISSING_REFERENCE",ref.object);
+    require(object->second.kind==Kind::path&&object->second.source.has_value(),
+        "TYPE_MISMATCH","Point Edit enabled Ref must identify a procedural Path");
+    require(object->second.point_edit.has_value(),"NO_POINT_EDIT","Primitive has no authored point corrections");
+    require(object->second.point_edit->id==point_edit_id,"MISSING_POINT_EDIT",
+        "Point Edit ID is no longer retained: "+point_edit_id);
+    return *object->second.point_edit;
+}
 template<class DocumentType>
 auto& gradient_enabled_source(DocumentType& document,const Ref& ref) {
     require(ref.point.empty(),"INVALID_GRADIENT_REF","Gradient enabled requires an empty point ID");
@@ -674,6 +695,60 @@ public:
         return result;
     }
 };
+struct PointEditEnabledEvaluation { bool value=true; unsigned remaining_edges=0; };
+class PointEditEnabledEvaluator {
+    const Document& document_;
+    std::map<Id,Id> compositions_;
+    std::map<Ref,PointEditEnabledEvaluation> values_;
+    std::set<Ref> active_;
+
+    PointEditEnabledEvaluation visit(const Ref& ref,unsigned depth) {
+        require(depth<=128,"DEPENDENCY_DEPTH","Point Edit enabled dependency depth limit 128");
+        if(const auto found=values_.find(ref);found!=values_.end()) {
+            require(depth+found->second.remaining_edges<=128,"DEPENDENCY_DEPTH","Point Edit enabled dependency depth limit 128");
+            return found->second;
+        }
+        require(active_.insert(ref).second,"DEPENDENCY_CYCLE","Point Edit enabled dependency cycle");
+        const auto& point_edit=point_edit_enabled_source(document_,ref);
+        PointEditEnabledEvaluation result{point_edit.enabled,0};
+        if(point_edit.enabled_driver) {
+            (void)point_edit_enabled_source(document_,*point_edit.enabled_driver);
+            require(*point_edit.enabled_driver!=ref,"DEPENDENCY_CYCLE","Point Edit enabled cannot link to itself");
+            const auto target_owner=compositions_.find(ref.object),source_owner=compositions_.find(point_edit.enabled_driver->object);
+            require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                "ORPHAN_OBJECT","Point Edit enabled links require objects owned by a Composition");
+            require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                "Point Edit enabled links must stay in one Composition");
+            const auto upstream=visit(*point_edit.enabled_driver,depth+1);
+            result={upstream.value,upstream.remaining_edges+1};
+        }
+        require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Point Edit enabled dependency depth limit 128");
+        active_.erase(ref);values_.emplace(ref,result);return result;
+    }
+public:
+    explicit PointEditEnabledEvaluator(const Document& document):document_(document) {
+        std::set<Id> active;
+        std::function<void(const Id&,const Id&,unsigned)> own=[&](const Id& id,const Id& composition,unsigned depth) {
+            require(depth<=128,"HIERARCHY_DEPTH","Hierarchy depth limit 128");
+            require(document_.objects.contains(id),"MISSING_OBJECT",id);
+            require(active.insert(id).second,"INVALID_HIERARCHY","Repeated owner or cycle: "+id);
+            require(compositions_.emplace(id,composition).second,"INVALID_HIERARCHY","Repeated object owner: "+id);
+            for(const auto& child:document_.objects.at(id).children)own(child,composition,depth+1);
+            active.erase(id);
+        };
+        for(const auto& composition:document_.compositions)
+            for(const auto& root:composition.roots)own(root,composition.id,0);
+    }
+    bool value(const Ref& ref) { (void)point_edit_enabled_source(document_,ref);return visit(ref,0).value; }
+    std::map<Ref,bool> all() {
+        std::map<Ref,bool> result;
+        for(const auto& [id,object]:document_.objects)if(object.point_edit) {
+            const auto ref=point_edit_enabled_ref(id,object.point_edit->id);
+            result.emplace(ref,visit(ref,0).value);
+        }
+        return result;
+    }
+};
 Expression remap_text_italic_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
     const auto parsed=parse_text_italic_expression(expression);
     if(parsed.is_literal)return expression;
@@ -736,6 +811,8 @@ void prepare_point_edit(Document& d,const Ref& ref) {
     require(generated_point(o,ref.point)&&std::find(point_fields.begin(),point_fields.end(),ref.field)!=point_fields.end(),
         "MISSING_REFERENCE",ref.point+"/"+ref.field);
     if(!o.point_edit)o.point_edit=PointEdit{o.source->id+"-point-edit",1,true,{}};
+    require(!o.point_edit->enabled_driver||o.point_edit->enabled,"DRIVEN_PROPERTY",
+        "Unlink Point Edit enabled before editing generated points when its authored literal is false");
     o.point_edit->enabled=true;
     o.point_edit->overrides[ref.point].try_emplace(ref.field,Scalar{});
 }
@@ -769,6 +846,10 @@ template<class D>
 auto& lookup_property(D& d,const Ref& r) {
     if(r.point.empty()&&r.field=="guide.position")
         throw Error("TYPE_MISMATCH","Guide positions use the dedicated Guide link commands");
+    if(r.point.empty()&&r.field!="point_edit.enabled"&&r.field.starts_with("point_edit.")&&r.field.ends_with(".enabled")) {
+        (void)point_edit_enabled_address(r.field);
+        throw Error("USE_TYPED_COMMAND","Point Edit enabled uses the dedicated link_point_edit_enabled and unlink_point_edit_enabled commands");
+    }
     if(auto color=d.named_colors.find(r.object);color!=d.named_colors.end()&&r.point.empty()) {
         const std::array<std::string,4> fields{"color.r","color.g","color.b","color.a"};
         const auto found=std::find(fields.begin(),fields.end(),r.field);
@@ -830,6 +911,9 @@ std::string unit(const Ref& r) {
         (void)geometry_mask_enabled_address(r.field);return "boolean";
     }
     if(r.point.empty()&&r.field=="point_edit.enabled")return "boolean";
+    if(r.point.empty()&&r.field.starts_with("point_edit.")&&r.field.ends_with(".enabled")) {
+        (void)point_edit_enabled_address(r.field);return "boolean";
+    }
     if(r.point.empty()&&r.field=="text.weight")return "unitless";
     if(r.field=="generator.points")return "scalar";
     if(r.field=="generator.rotation")return "degree";
@@ -883,8 +967,12 @@ void value_range(const Ref& r,double v) {
     }
 }
 
-std::map<Ref, const Scalar*> property_index(const Document& document,bool include_disabled=false) {
+std::map<Ref, const Scalar*> property_index(const Document& document,bool include_disabled=false,
+    const std::map<Ref,bool>* evaluated_point_edit_enabled=nullptr) {
     std::map<Ref, const Scalar*> index;
+    const auto computed_point_edit_enabled=include_disabled||evaluated_point_edit_enabled
+        ?std::map<Ref,bool>{}:evaluate_point_edit_enableds(document);
+    const auto& point_edit_enabled=evaluated_point_edit_enabled?*evaluated_point_edit_enabled:computed_point_edit_enabled;
     static const std::array<std::string, 6> transform_fields{
         "transform.a", "transform.b", "transform.c", "transform.d", "transform.tx", "transform.ty"};
 
@@ -926,7 +1014,7 @@ std::map<Ref, const Scalar*> property_index(const Document& document,bool includ
 
         if(object.source) {
             for(const auto& [name,value]:object.source->parameters)index.emplace(Ref{id,"","generator."+name},&value);
-            if(object.point_edit&&(object.point_edit->enabled||include_disabled))
+            if(object.point_edit&&(include_disabled||point_edit_enabled.at(point_edit_enabled_ref(id,object.point_edit->id))))
                 for(const auto& [point,fields]:object.point_edit->overrides)
                     for(const auto& [field,value]:fields)index.emplace(Ref{id,point,field},&value);
         }
@@ -1012,7 +1100,7 @@ std::string property_origin(const Document& d,const Ref& r) {
     if(!edit)return "generated";
     const auto point=edit->overrides.find(r.point);
     if(point==edit->overrides.end()||!point->second.contains(r.field))return "generated";
-    return edit->enabled?"point_edit":"bypassed_point_edit";
+    return evaluate_point_edit_enabled(d,point_edit_enabled_ref(r.object,edit->id))?"point_edit":"bypassed_point_edit";
 }
 
 std::vector<Contour> path_contours(const Object& o,const std::map<Ref,double>* values) {
@@ -1037,11 +1125,13 @@ std::vector<Ref> conversion_blockers(const Document& d,const Id& object) {
     require(o.source.has_value(),"NOT_PRIMITIVE","Select a parametric primitive");
     std::vector<Ref> blockers;
     ExpressionCache expressions;
+    const bool corrections_enabled=o.point_edit&&evaluate_point_edit_enabled(
+        d,point_edit_enabled_ref(object,o.point_edit->id));
     for(const auto& [ref,scalar]:property_index(d,true)) {
         if(!scalar||!driven(*scalar))continue;
         if(ref.point.empty()&&ref.field.starts_with("stroke."))continue;
         if(ref.object==object&&ref.field.starts_with("generator."))continue;
-        if(ref.object==object&&!ref.point.empty()&&o.point_edit&&!o.point_edit->enabled)continue;
+        if(ref.object==object&&!ref.point.empty()&&o.point_edit&&!corrections_enabled)continue;
         const auto removed=[&](const Ref& source){return source.object==object&&source.point.empty()&&source.field.starts_with("generator.");};
         bool blocked=scalar->binding&&removed(scalar->binding->source);
         if(scalar->expression)for(const auto& source:expression_dependencies(compiled_expression(expressions,*scalar->expression)))blocked=blocked||removed(source);
@@ -1064,8 +1154,10 @@ std::vector<Ref> properties(const Document& document) {
             refs.push_back({id,"","mask.enabled"});
             refs.push_back(geometry_mask_enabled_ref(id,object.compositing.mask->id));
         }
-        if(object.kind==Kind::path&&object.source&&object.point_edit)
+        if(object.kind==Kind::path&&object.source&&object.point_edit) {
             refs.push_back({id,"","point_edit.enabled"});
+            refs.push_back(point_edit_enabled_ref(id,object.point_edit->id));
+        }
         if(object.kind==Kind::text&&object.text)
         {refs.push_back({id,"","text.italic"});refs.push_back({id,"","text.weight"});
             refs.push_back({id,"","text.content"});refs.push_back({id,"","text.family"});refs.push_back({id,"","text.locale"});
@@ -1433,6 +1525,20 @@ bool point_edit_enabled_property(const Document& document,const Ref& ref) {
     require(object->second.point_edit.has_value(),"NO_POINT_EDIT","Primitive has no authored point corrections");
     return object->second.point_edit->enabled;
 }
+Ref point_edit_enabled_ref(const Id& object,const Id& point_edit) {
+    identity(point_edit);
+    return {object,"","point_edit."+point_edit+".enabled"};
+}
+PointEditEnabledProperty point_edit_enabled_state(const Document& document,const Ref& ref) {
+    const auto& point_edit=point_edit_enabled_source(document,ref);
+    return {point_edit.enabled,point_edit.enabled_driver,PointEditEnabledEvaluator(document).value(ref)};
+}
+bool evaluate_point_edit_enabled(const Document& document,const Ref& ref) {
+    return PointEditEnabledEvaluator(document).value(ref);
+}
+std::map<Ref,bool> evaluate_point_edit_enableds(const Document& document) {
+    return PointEditEnabledEvaluator(document).all();
+}
 bool is_text_readonly_field(const std::string& field) {
     return field=="text.content"||field=="text.family"||field=="text.locale"||
         field=="text.layout"||field=="text.direction"||field=="text.alignment";
@@ -1495,6 +1601,10 @@ Ref resolve_name(const Document& d,const std::string& name,const Id& p,const std
         (void)point_edit_enabled_property(d,r);
         return r;
     }
+    if(f.starts_with("point_edit.")&&f.ends_with(".enabled")) {
+        (void)point_edit_enabled_state(d,r);
+        return r;
+    }
     if(f.starts_with("op.")&&f.find(".gradient.")!=std::string::npos&&f.ends_with(".enabled")) {
         (void)gradient_enabled_property(d,r);
         return r;
@@ -1541,7 +1651,8 @@ std::map<Ref,double> evaluate_properties(const Document& d,const std::vector<Ref
     // Snapshot-dependent commands may need only a few property domains. Reuse
     // the same dependency traversal without indexing or visiting unrelated data;
     // complete authored/evaluated validation still runs before any commit.
-    const auto index = requested?std::map<Ref,const Scalar*>{}:property_index(d);
+    const auto point_edit_enabled_values=evaluate_point_edit_enableds(d);
+    const auto index = requested?std::map<Ref,const Scalar*>{}:property_index(d,false,&point_edit_enabled_values);
     std::map<Ref,double> values;
     std::set<Ref> active;
     ExpressionCache expressions;
@@ -1560,7 +1671,8 @@ std::map<Ref,double> evaluate_properties(const Document& d,const std::vector<Ref
         const bool generated=object!=d.objects.end()&&object->second.source&&!r.point.empty();
         if(requested) {
             if(!generated)p=&lookup_property(d,r);
-            else if(const auto& edit=object->second.point_edit;edit&&edit->enabled) {
+            else if(const auto& edit=object->second.point_edit;edit&&
+                point_edit_enabled_values.at(point_edit_enabled_ref(object->first,edit->id))) {
                 const auto point=edit->overrides.find(r.point);
                 if(point!=edit->overrides.end()) {
                     const auto field=point->second.find(r.field);
@@ -1985,6 +2097,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     (void)evaluate_object_visibilities(d);
     (void)evaluate_composite_isolations(d);
     (void)evaluate_geometry_mask_enableds(d);
+    (void)evaluate_point_edit_enableds(d);
     for(const auto& [id,object]:d.objects)if(object.text&&object.text->path_attachment) {
         const auto& attachment=*object.text->path_attachment;
         identity(attachment.path);identity(attachment.contour);
@@ -2736,6 +2849,9 @@ Ref duplicate_ref(const Document& original,const DuplicationPlan& plan,Ref ref) 
     } else if(ref.field.starts_with("mask.")&&ref.field.ends_with(".enabled")) {
         const auto [mask_id,parameter]=geometry_mask_enabled_address(ref.field);
         if(plan.ids.contains(mask_id))ref.field="mask."+plan.ids.at(mask_id)+"."+parameter;
+    } else if(ref.field.starts_with("point_edit.")&&ref.field.ends_with(".enabled")) {
+        const auto point_edit_id=point_edit_enabled_address(ref.field);
+        if(plan.ids.contains(point_edit_id))ref.field="point_edit."+plan.ids.at(point_edit_id)+".enabled";
     }
     return ref;
 }
@@ -2777,7 +2893,9 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
             }
         }
         if(object.point_edit) {
-            auto& edit=*object.point_edit;edit.id=plan.ids.at(edit.id);
+            auto& edit=*object.point_edit;
+            if(edit.enabled_driver)edit.enabled_driver=remap(*edit.enabled_driver);
+            edit.id=plan.ids.at(edit.id);
             auto overrides=std::move(edit.overrides);edit.overrides.clear();
             for(auto& [point,fields]:overrides)edit.overrides.emplace(remap({id,point,"x"}).point,std::move(fields));
         }
@@ -2834,6 +2952,11 @@ void edit_structural_command(Document& candidate,const RemovePoint& command) {
 void edit_structural_command(Document& candidate,const CloseContour& command) {
     contour(candidate,command.object,command.contour).closed=command.closed;
 }
+void require_no_point_edit_dependents(const Document& document,const Ref& source,const std::set<Id>* departing=nullptr) {
+    for(const auto& [id,object]:document.objects)if(object.point_edit&&object.point_edit->enabled_driver==source&&
+        (!departing||!departing->contains(id)))
+        throw Error("POINT_EDIT_IN_USE","Unlink or remove dependent Point Edit before removing "+source.field);
+}
 void edit_structural_command(Document& candidate,const ReorderObjects& command) {
     auto& list=siblings(candidate,command.composition,command.parent);
     auto a=list,b=command.order;
@@ -2850,6 +2973,8 @@ void edit_structural_command(Document& candidate,const DeleteObjects& command) {
         for(const auto& child:candidate.objects.at(id).children)remove(child);
     };
     for(const auto& id:command.objects)remove(id);
+    for(const auto& id:removed)if(const auto& object=candidate.objects.at(id);object.point_edit)
+        require_no_point_edit_dependents(candidate,point_edit_enabled_ref(id,object.point_edit->id),&removed);
     auto prune=[&](std::vector<Id>& list){std::erase_if(list,[&](const Id& id){return removed.contains(id);});};
     for(auto& comp:candidate.compositions)prune(comp.roots);
     for(auto& [id,object]:candidate.objects){(void)id;prune(object.children);}
@@ -2882,6 +3007,21 @@ void edit_mask_enabled(Document& candidate,const UnlinkMaskEnabled& command) {
     auto& mask=*candidate.objects.at(command.target.object).compositing.mask;
     mask.enabled=frozen;mask.enabled_driver.reset();
 }
+void edit_point_edit_enabled(Document& candidate,const LinkPointEditEnabled& command) {
+    const auto& target=point_edit_enabled_source(candidate,command.target);
+    (void)point_edit_enabled_source(candidate,command.source);
+    require(command.target!=command.source,"DEPENDENCY_CYCLE","Point Edit enabled cannot link to itself");
+    require(!target.enabled_driver||command.replace_driver,"DRIVEN_PROPERTY",
+        "Replacing a Point Edit enabled driver requires replace_driver=true");
+    candidate.objects.at(command.target.object).point_edit->enabled_driver=command.source;
+}
+void edit_point_edit_enabled(Document& candidate,const UnlinkPointEditEnabled& command) {
+    const auto& target=point_edit_enabled_source(candidate,command.target);
+    require(target.enabled_driver.has_value(),"PROPERTY_NOT_LINKED","Point Edit enabled has no driver to unlink");
+    const auto frozen=evaluate_point_edit_enabled(candidate,command.target);
+    auto& point_edit=*candidate.objects.at(command.target.object).point_edit;
+    point_edit.enabled=frozen;point_edit.enabled_driver.reset();
+}
 Document edited(const Document& document,const std::vector<Command>& commands,std::map<Ref,double>* evaluated=nullptr) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
     std::set<Ref> fill_rule_targets;
@@ -2889,6 +3029,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
     std::set<Ref> operation_enabled_targets;
     std::set<Ref> gradient_enabled_targets;
     std::set<Ref> geometry_mask_enabled_targets;
+    std::set<Ref> point_edit_enabled_targets;
     std::set<Ref> composite_isolation_targets;
     for(const auto& command:commands)std::visit([&](const auto& value) {
         using T=std::decay_t<decltype(value)>;
@@ -2902,6 +3043,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(gradient_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A Gradient enabled target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkMaskEnabled>||std::is_same_v<T,UnlinkMaskEnabled>)
             require(geometry_mask_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A geometry mask enabled target may be linked or unlinked only once per batch");
+        else if constexpr(std::is_same_v<T,LinkPointEditEnabled>||std::is_same_v<T,UnlinkPointEditEnabled>)
+            require(point_edit_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A Point Edit enabled target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkCompositeIsolated>||std::is_same_v<T,UnlinkCompositeIsolated>)
             require(composite_isolation_targets.insert(value.target).second,"DUPLICATE_TARGET","A Composite isolation target may be linked or unlinked only once per batch");
     },command);
@@ -2971,6 +3114,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             gradient.enabled=frozen;gradient.enabled_driver.reset();
         } else if constexpr(std::is_same_v<T,LinkMaskEnabled>||std::is_same_v<T,UnlinkMaskEnabled>) {
             edit_mask_enabled(candidate,c);
+        } else if constexpr(std::is_same_v<T,LinkPointEditEnabled>||std::is_same_v<T,UnlinkPointEditEnabled>) {
+            edit_point_edit_enabled(candidate,c);
         } else if constexpr(std::is_same_v<T,UnlinkObjectVisibility>) {
             const auto& target=visibility_source(candidate,c.target);
             require(target.visibility_driver.has_value(),"PROPERTY_NOT_LINKED","Object visibility has no driver to unlink");
@@ -3501,25 +3646,31 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);
             require(o.point_edit.has_value(),"NO_POINT_EDIT","Primitive has no authored point corrections");
+            require(!o.point_edit->enabled_driver,"DRIVEN_PROPERTY","Unlink Point Edit enabled before changing its authored literal");
             o.point_edit->enabled=c.enabled;
         } else if constexpr(std::is_same_v<T,ClearPointEdit>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);
             require(o.source.has_value(),"NOT_PRIMITIVE","Point Edit reset requires a retained primitive");
+            if(o.point_edit)require_no_point_edit_dependents(candidate,point_edit_enabled_ref(c.object,o.point_edit->id));
             o.point_edit.reset();
         } else if constexpr(std::is_same_v<T,ConvertToPath>) {
             require(conversion_blockers(candidate,c.object).empty(),"CONVERSION_REFERENCE",
                 "Generator properties are referenced; explicitly unlink/freeze dependent targets before conversion");
             auto& o=candidate.objects.at(c.object);
+            if(o.point_edit)require_no_point_edit_dependents(candidate,point_edit_enabled_ref(c.object,o.point_edit->id));
             const auto values=evaluate(candidate);
             const auto authored=property_index(candidate,true);
+            const bool point_edit_enabled=o.point_edit&&evaluate_point_edit_enabled(
+                candidate,point_edit_enabled_ref(o.id,o.point_edit->id));
             auto contours=path_contours(o,&values);
             for(auto& ct:contours)for(auto& p:ct.points) {
                 const std::array<Scalar*,6> fields{&p.x,&p.y,&p.in_angle,&p.in_length,&p.out_angle,&p.out_length};
                 for(std::size_t i=0;i<fields.size();++i) {
                     const Ref ref{o.id,p.id,point_fields[i]};
                     const auto found=authored.find(ref);const auto* override_value=found==authored.end()?nullptr:found->second;
-                    *fields[i]=o.point_edit&&o.point_edit->enabled&&override_value?*override_value:Scalar{values.at(ref),{}};
+                    *fields[i]=point_edit_enabled&&override_value
+                        ?*override_value:Scalar{values.at(ref),{}};
                 }
             }
             o.contours=std::move(contours);o.source.reset();o.point_edit.reset();

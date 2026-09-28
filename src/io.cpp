@@ -546,6 +546,13 @@ j::object point_edit_enabled_property_json(const Document& d,const Ref& ref,bool
         {"authored",j::object{{"literal",enabled},{"driver",nullptr}}},
         {"evaluated",enabled},{"link",false},{"expression",false}};
 }
+j::object point_edit_enabled_state_json(const Document& d,const Ref& ref,const PointEditEnabledProperty& value) {
+    j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
+    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
+        {"unit","boolean"},{"space","local"},{"origin","authored"},
+        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
+        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+}
 j::object text_readonly_property_json(const Document& d,const Ref& ref,const TextPropertyValue& value) {
     const auto type=value.kind==TextPropertyKind::string?"string":"enum";
     j::object result{{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type",type},{"origin","authored"},
@@ -580,10 +587,17 @@ Primitive read_primitive(const j::value& v,bool allow_polystar=true,bool allow_e
         s.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
     return s;
 }
-PointEdit read_point_edit(const j::value& v,bool allow_expression=true) {
-    const auto& o=v.as_object();keys(o,{"id","type","version","enabled","overrides"});
+PointEdit read_point_edit(const j::value& v,bool allow_expression=true,bool allow_enabled_driver=false) {
+    const auto& o=v.as_object();
+    if(!allow_enabled_driver&&o.contains("enabled_driver"))
+        throw Error("UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER","Point Edit enabled drivers require native 0.32 and the dedicated link command");
+    if(allow_enabled_driver)keys(o,{"id","type","version","enabled","overrides","enabled_driver"});
+    else keys(o,{"id","type","version","enabled","overrides"});
     if(text(o.at("type"))!="nect.path.point-edit")throw Error("UNSUPPORTED_OPERATOR",text(o.at("type")));
     PointEdit edit{text(o.at("id")),j::value_to<unsigned>(o.at("version")),o.at("enabled").as_bool(),{}};
+    if(const auto* driver=o.if_contains("enabled_driver")) {
+        const auto& wrapper=driver->as_object();keys(wrapper,{"link"});edit.enabled_driver=read_ref(wrapper.at("link"));
+    }
     for(const auto& p:o.at("overrides").as_object()) {
         auto& fields=edit.overrides[std::string(p.key())];
         for(const auto& f:p.value().as_object())fields.emplace(std::string(f.key()),read_scalar(f.value(),allow_expression));
@@ -600,8 +614,10 @@ j::value point_edit_json(const PointEdit& edit) {
         j::object fields;for(const auto& [field,value]:values)fields[field]=scalar_json(value);
         overrides[point]=fields;
     }
-    return j::object{{"id",edit.id},{"type","nect.path.point-edit"},{"version",edit.version},
+    j::object result{{"id",edit.id},{"type","nect.path.point-edit"},{"version",edit.version},
         {"enabled",edit.enabled},{"overrides",overrides}};
+    if(edit.enabled_driver)result["enabled_driver"]=j::object{{"link",ref_json(*edit.enabled_driver)}};
+    return result;
 }
 
 Gradient read_gradient(const j::value& v,bool allow_expression=true,bool allow_enabled_driver=true) {
@@ -1017,6 +1033,13 @@ Command read_command(const j::value& v) {
     if(type=="clear_point_edit") {
         keys(o,{"type","object"});return ClearPointEdit{text(o.at("object"))};
     }
+    if(type=="link_point_edit_enabled") {
+        keys(o,{"type","target","source","replace_driver"});
+        return LinkPointEditEnabled{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
+    }
+    if(type=="unlink_point_edit_enabled") {
+        keys(o,{"type","target"});return UnlinkPointEditEnabled{read_ref(o.at("target"))};
+    }
     if(type=="convert_to_path") {
         keys(o,{"type","object"});return ConvertToPath{text(o.at("object"))};
     }
@@ -1170,10 +1193,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,31> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31"};
+        constexpr std::array<std::string_view,32> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.31 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.32 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1268,7 +1291,7 @@ Document decode(std::string_view input) {
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
                     obj.source=read_primitive(o.at("source"),minor>=8,minor>=10);
-                    if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"),minor>=10);
+                    if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"),minor>=10,minor>=32);
                 } else {
                     if(o.contains("point_edit"))throw Error("INVALID_POINT_EDIT","Point Edit needs a retained generator");
                     for(const auto& c:o.at("contours").as_array())obj.contours.push_back(read_contour(c,minor>=10));
@@ -1576,6 +1599,8 @@ std::string request(Session& session,std::string_view input) {
                 session.document(),r,geometry_mask_enabled_state(session.document(),r));
             else if(r.field=="point_edit.enabled")result=point_edit_enabled_property_json(
                 session.document(),r,point_edit_enabled_property(session.document(),r));
+            else if(r.field.starts_with("point_edit.")&&r.field.ends_with(".enabled"))result=point_edit_enabled_state_json(
+                session.document(),r,point_edit_enabled_state(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.find(".gradient.")!=std::string::npos&&r.field.ends_with(".enabled"))
                 result=gradient_enabled_property_json(session.document(),r,gradient_enabled_state(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.ends_with(".enabled"))result=operation_enabled_property_json(
@@ -1618,6 +1643,7 @@ std::string request(Session& session,std::string_view input) {
             const auto operation_enabled_values=evaluate_operation_enableds(session.document());
             const auto gradient_enabled_values=gradient_enabled_states(session.document());
             const auto mask_enabled_values=evaluate_geometry_mask_enableds(session.document());
+            const auto point_edit_enabled_values=evaluate_point_edit_enableds(session.document());
             std::map<Id,std::pair<std::string,GuidePositionProperty>> guide_values;
             for(const auto& composition:session.document().compositions) {
                 const auto positions=evaluate_guide_positions(session.document(),composition.id);
@@ -1660,6 +1686,12 @@ std::string request(Session& session,std::string_view input) {
                 if(ref.field=="point_edit.enabled") {
                     list.push_back(point_edit_enabled_property_json(session.document(),ref,
                         point_edit_enabled_property(session.document(),ref)));
+                    continue;
+                }
+                if(ref.field.starts_with("point_edit.")&&ref.field.ends_with(".enabled")) {
+                    const auto& point_edit=*session.document().objects.at(ref.object).point_edit;
+                    list.push_back(point_edit_enabled_state_json(session.document(),ref,
+                        {point_edit.enabled,point_edit.enabled_driver,point_edit_enabled_values.at(ref)}));
                     continue;
                 }
                 if(ref.field.starts_with("op.")&&ref.field.find(".gradient.")!=std::string::npos&&ref.field.ends_with(".enabled")) {
@@ -1770,7 +1802,8 @@ std::string request(Session& session,std::string_view input) {
             result=j::object{{"object",id},{"allowed",blockers.empty()},{"blockers",blockers},
                 {"source_instance",object.source->id},{"preserves_point_ids",true},
                 {"freezes_generator",true},{"preserves_active_point_bindings",true},
-                {"discards_bypassed_corrections",object.point_edit&&!object.point_edit->enabled}};
+                {"discards_bypassed_corrections",object.point_edit&&!evaluate_point_edit_enabled(
+                    session.document(),point_edit_enabled_ref(id,object.point_edit->id))}};
         } else if(op=="artboards") {
             keys(o,{"op","composition"});const auto id=text(o.at("composition"));
             const auto& comps=session.document().compositions;

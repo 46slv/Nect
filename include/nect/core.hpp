@@ -167,6 +167,7 @@ struct PointEdit {
     // Absolute, local-space scalar overrides of stable generated point fields.
     // Fields not present continue to evaluate from the source generator.
     std::map<Id,std::map<std::string,Scalar>> overrides;
+    std::optional<Ref> enabled_driver;
     bool operator==(const PointEdit&) const = default;
 };
 
@@ -373,6 +374,8 @@ struct ReorderObjects { Id composition; Id parent; std::vector<Id> order; };
 struct CreatePrimitive { Id composition; Id parent; Id id; std::string name; Primitive source; };
 struct EnablePointEdit { Id object; bool enabled; };
 struct ClearPointEdit { Id object; };
+struct LinkPointEditEnabled { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkPointEditEnabled { Ref target; };
 struct ConvertToPath { Id object; };
 struct AddOperation { Id object; ShapeOperation operation; std::size_t index; };
 struct RemoveOperation { Id object; Id operation; };
@@ -479,7 +482,7 @@ struct AlignObjects {
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
-    CreatePrimitive,EnablePointEdit,ClearPointEdit,ConvertToPath,AddOperation,RemoveOperation,
+    CreatePrimitive,EnablePointEdit,ClearPointEdit,LinkPointEditEnabled,UnlinkPointEditEnabled,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,LinkOperationEnabled,UnlinkOperationEnabled,LinkGradientEnabled,UnlinkGradientEnabled,OperationOptions,LinkFillRule,UnlinkFillRule,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
@@ -680,6 +683,15 @@ GeometryMaskEnabledProperty geometry_mask_enabled_state(const Document&,const Re
 bool evaluate_geometry_mask_enabled(const Document&,const Ref&);
 std::map<Ref,bool> evaluate_geometry_mask_enableds(const Document&);
 bool point_edit_enabled_property(const Document&,const Ref&);
+Ref point_edit_enabled_ref(const Id& object,const Id& point_edit);
+struct PointEditEnabledProperty {
+    bool literal=true;
+    std::optional<Ref> driver;
+    bool evaluated=true;
+};
+PointEditEnabledProperty point_edit_enabled_state(const Document&,const Ref&);
+bool evaluate_point_edit_enabled(const Document&,const Ref&);
+std::map<Ref,bool> evaluate_point_edit_enableds(const Document&);
 struct GuidePositionProperty {
     double literal=0;
     std::optional<Ref> driver;

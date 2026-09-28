@@ -1,5 +1,17 @@
 # P03-SAVE-AS-01 — typed source preservation at the native Save As boundary
 
+## P03-POINT-EDIT-SAVE-AS-03 — retained correction preservation
+
+**Freeze (2026-09-28):** Start from clean, synchronized `codex/practical-alpha@9cfc859b9628e0857dbe1b6c3f92b743e70559fd` after SHA-verified successor ACK and predecessor RELEASE. The live R02/P03 Route requires native Save As source preservation. The optional Point Edit owner-slot read is already implemented, while its persistent dependency is at `R02-POINT-EDIT-IDENTITY-01` local design gate. This packet verifies existing Host Save As with a retained, disabled correction; it introduces no link, correction identity change, or native format field.
+
+**Positive oracle:** In an owned temporary directory, create a retained Circle and edit a generated point to create a correction. Disable Point Edit, then save an original native file. The original and an explicit Save As destination must retain the same Object, source, correction and generated-point IDs, authored override and disabled bit. Evaluation must use the generator while disabled; re-enabling after a cold destination reopen must restore the authored override. Destination bytes must match the committed Document and source bytes must stay unchanged.
+
+**Negative oracle:** A Save As to an invalid owned path rejects without a destination, changed active file binding, saved revision, Session revision or authored bytes. A later valid Save As succeeds. Verify the native destination and recovery provenance, not only the method return. Existing typed Save As conflict coverage remains the separate external-write oracle. This Host/native packet is not a distinct-process or hands-on GUI acceptance; full P03/R02 and Confirmed Requirements remain open.
+
+### P03-POINT-EDIT-SAVE-AS-03 local result — 2026-09-28
+
+`live_save_contract` now covers a retained disabled Circle correction through original save, failed Save As, successful Save As, recovery provenance and cold destination reopen. It compares exact destination/source bytes, stable source/correction/generated-point IDs, retained override and evaluated generator fallback; re-enabling after reopen restores the override without changing saved bytes. The existing hard-coded writer-version assertion was replaced by `native_version`. Release `live_save_contract` passed as part of the serial **9/9** focused run. This is Host/native file evidence, not a hands-on GUI Save As or full P03/R02 acceptance. A linked Point Edit driver through Host Save As remains a separate eligible preservation slice.
+
 **Entry:** `codex/practical-alpha@81ef64149ae46f3be691a6fc0450e78f68e8ad59`, native 0.20, clean local/tracking/fresh remote parity before work. DEC-71 Mission Owner holds the single writer after the ignored `build/manual-recipes/p03-save-as-takeover-ack-20260927.json` receipt and predecessor RELEASE. The live Completion Route R02/P03 requires authored property storage and per-type acceptance; the P03 packet collection §6 and U02 retain the broader type/UI/API/native matrix. This packet covers one native Save As boundary only.
 
 ## Observed owner path

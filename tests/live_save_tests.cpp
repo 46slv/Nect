@@ -161,7 +161,7 @@ void typed_source_save_as(const QString& directory) {
     check(host.file_path==native_path(destination)&&!host.dirty()&&
           host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
           host.persistence()["native_error"].isNull()&&bytes(destination)==committed_bytes&&
-          bytes(destination).contains("\"version\":\"0.27\""),
+          bytes(destination).contains(QByteArray::fromStdString(std::string("\"version\":\"")+native_version+"\"")),
           "Valid Save As binds the committed revision only after exact destination readback");
     const auto saved=load_native(destination).document;
     const auto saved_layout=text_layout_property(saved,target_layout);
@@ -191,6 +191,62 @@ void typed_source_save_as(const QString& directory) {
           reopened.session.document().objects.at("save-as-target").text->parameters.at("frame_height").literal==48,
           "Cold reopen from destination restores native 0.23 authored sources and stable layout link");
 }
+void point_edit_save_as(const QString& directory) {
+    Host host(directory+"/point-edit-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    const Id object_id="save-as-circle",source_id="save-as-circle-source";
+    const Ref east_x{object_id,source_id+"-east","x"};
+    const Ref enabled{object_id,"","point_edit.enabled"};
+    host.session.apply({CreatePrimitive{composition,"",object_id,"Circle",default_primitive(source_id,"nect.shape.circle")}},
+                       host.session.revision());host.edited();
+    const auto generated_x=evaluate(host.session.document()).at(east_x);
+    const auto corrected_x=generated_x+24;
+    host.session.apply({Set{east_x,corrected_x},EnablePointEdit{object_id,false}},host.session.revision());host.edited();
+    const auto committed=host.session.document();
+    const auto correction=*committed.objects.at(object_id).point_edit;
+    check(!correction.enabled&&correction.overrides.at(east_x.point).at("x").literal==corrected_x&&
+          evaluate(committed).at(east_x)==generated_x&&!point_edit_enabled_property(committed,enabled),
+          "Disabled correction retains its authored override and evaluates generator fallback");
+    const auto original=directory+"/point-edit-source.nect";
+    host.save(original);host.recover();
+    const auto original_bytes=bytes(original),committed_bytes=QByteArray::fromStdString(encode(committed));
+    const auto revision=host.session.revision();
+    check(original_bytes==committed_bytes&&host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(revision),
+          "Original native file durably stores the committed disabled correction");
+
+    const auto invalid=directory+"/missing-point-edit-parent/failed.nect";
+    rejects("IO_ERROR",[&]{host.save(invalid);});
+    check(!QFile::exists(invalid)&&host.file_path==native_path(original)&&host.session.revision()==revision&&
+          host.session.document()==committed&&host.persistence()["saved_revision"].toInteger(-1)==static_cast<qint64>(revision)&&
+          bytes(original)==original_bytes,
+          "Failed correction Save As leaves binding, revision, authored Document and original bytes unchanged");
+
+    const auto destination=directory+"/point-edit-destination.nect";
+    host.save(destination);host.recover();
+    const auto destination_bytes=bytes(destination);
+    const auto saved=load_native(destination).document;
+    const auto& saved_object=saved.objects.at(object_id);
+    check(host.file_path==native_path(destination)&&!host.dirty()&&destination_bytes==committed_bytes&&
+          bytes(original)==original_bytes&&saved==committed&&saved_object.source->id==source_id&&
+          saved_object.point_edit->id==correction.id&&
+          saved_object.point_edit->overrides.at(east_x.point).at("x").literal==corrected_x&&
+          !point_edit_enabled_property(saved,enabled)&&evaluate(saved).at(east_x)==generated_x,
+          "Save As preserves source, correction identity, override, bypass and generated fallback");
+    const auto meta_path=directory+"/point-edit-recovery/"+host.session_id+".recovery.json";
+    check(QJsonDocument::fromJson(bytes(meta_path)).object()["source_file"]==native_path(destination)&&
+          host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(revision),
+          "Recovery provenance and revision follow the correction destination");
+
+    Host reopened(directory+"/point-edit-cold-recovery");reopened.open(destination);
+    check(reopened.session.document()==committed&&reopened.session.revision()==0&&
+          evaluate(reopened.session.document()).at(east_x)==generated_x,
+          "Cold destination reopen retains authored correction and generator fallback");
+    reopened.session.apply({EnablePointEdit{object_id,true}},reopened.session.revision());
+    check(evaluate(reopened.session.document()).at(east_x)==corrected_x&&
+          reopened.session.document().objects.at(object_id).point_edit->id==correction.id&&
+          bytes(destination)==destination_bytes,
+          "Re-enable after cold reopen restores the same authored point override without changing saved bytes");
+}
 void independent_failures(const QString& directory) {
     const auto blocked=directory+"/blocked-recovery";put(blocked,"not a directory");
     Host host(blocked);const auto path=directory+"/protected-native.nect";host.save(path);add(host);
@@ -219,7 +275,7 @@ int main(int argc,char** argv) {
     QCoreApplication app(argc,argv);
     try {
         QTemporaryDir temp;check(temp.isValid(),"Create owned live-save test folder");
-        coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
-        std::cout<<"PASS asynchronous snapshots, typed Save As source preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
+        coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());point_edit_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
+        std::cout<<"PASS asynchronous snapshots, typed and Point Edit Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

@@ -197,5 +197,43 @@ void geometry_mask_enabled_driver_remapping() {
         geometry_mask_enabled_ref(external_owner.id,"external-mask"),
         "Copying only the target retains its external mask source identity");
 }
+void point_edit_enabled_driver_remapping() {
+    Session s(empty_document("point-edit-duplicate-doc","point-edit-duplicate-comp","point-edit-duplicate-art"));
+    auto source_circle=default_primitive("link-source-generator","nect.shape.circle");
+    auto target_circle=default_primitive("link-target-generator","nect.shape.circle");
+    auto external_circle=default_primitive("external-target-generator","nect.shape.circle");
+    apply(s,{CreatePrimitive{"point-edit-duplicate-comp","","source","Source",source_circle},
+        CreatePrimitive{"point-edit-duplicate-comp","","target","Target",target_circle},
+        CreatePrimitive{"point-edit-duplicate-comp","","external-target","External Target",external_circle},
+        Set{{"source","link-source-generator-east","x"},360},
+        Set{{"target","link-target-generator-east","x"},240},
+        Set{{"external-target","external-target-generator-east","x"},180}});
+    const auto source_ref=point_edit_enabled_ref("source","link-source-generator-point-edit");
+    const auto target_ref=point_edit_enabled_ref("target","link-target-generator-point-edit");
+    const auto external_ref=point_edit_enabled_ref("external-target","external-target-generator-point-edit");
+    apply(s,{LinkPointEditEnabled{target_ref,source_ref},LinkPointEditEnabled{external_ref,source_ref}});
+    const auto original=s.document();
+    apply(s,{DuplicateObjects{{"target","source"},"both-copy"}});
+    const auto copied=s.document();
+    const auto source_copy=copy_of(copied,"source"),target_copy=copy_of(copied,"target");
+    const auto remapped_source=point_edit_enabled_ref(source_copy,copied.objects.at(source_copy).point_edit->id);
+    const auto remapped_target=point_edit_enabled_ref(target_copy,copied.objects.at(target_copy).point_edit->id);
+    check(copied.objects.at(target_copy).point_edit->enabled_driver==remapped_source&&
+        evaluate_point_edit_enabled(copied,remapped_target),
+        "Duplicating both Point Edit owners remaps Object and correction IDs in the Ref");
+    check(copied.objects.at("target").point_edit->enabled_driver==source_ref&&
+        copied.objects.at("external-target").point_edit->enabled_driver==source_ref&&
+        copied.objects.at("source").point_edit->enabled_driver==original.objects.at("source").point_edit->enabled_driver,
+        "Duplicating endpoints preserves every original link");
+    apply(s,{DuplicateObjects{{"external-target"},"target-copy"}});
+    const auto target_only_copy=copy_of(s.document(),"external-target");
+    const auto target_only_ref=point_edit_enabled_ref(target_only_copy,s.document().objects.at(target_only_copy).point_edit->id);
+    check(s.document().objects.at(target_only_copy).point_edit->enabled_driver==source_ref&&
+        evaluate_point_edit_enabled(s.document(),target_only_ref),
+        "Duplicating only the target keeps its source external");
+    apply(s,{EnablePointEdit{"source",false}});
+    check(evaluate_point_edit_enabled(s.document(),remapped_target)&&!evaluate_point_edit_enabled(s.document(),target_only_ref),
+        "The copied target follows its copied source while the target-only copy follows the external original");
 }
-int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();geometry_mask_enabled_driver_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}
+}
+int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();geometry_mask_enabled_driver_remapping();point_edit_enabled_driver_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

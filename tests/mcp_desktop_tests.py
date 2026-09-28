@@ -439,7 +439,7 @@ try:
         frozen_after=core('get',ref=target_gradient_ref)['result']
         assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.31' and core('get',ref=target_gradient_ref)['result']==frozen
+        assert mcp_native['version']=='0.32' and core('get',ref=target_gradient_ref)['result']==frozen
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -988,6 +988,52 @@ try:
         mask_svg=core('export_svg',composition=comp['id'],artboard=comp['artboards'][0]['id'])['result']
         assert 'id="mcp-geometry-clip"' in mask_svg and 'mix-blend-mode:screen' in mask_svg
         assert 'id="mcp-mask"' not in mask_svg
+        # Point Edit enabled links use the exact retained correction identity
+        # through both the formal MCP command and the desktop API adapter.
+        point_edit_target_ref=dict(object='mcp-mask',point='',field='point_edit.mcp-mask-source-point-edit.enabled')
+        point_edit_source=dict(primitives['nect.shape.circle']);point_edit_source['id']='mcp-point-edit-link-generator'
+        point_edit_source_ref=dict(object='mcp-point-edit-source',point='',
+            field='point_edit.mcp-point-edit-link-generator-point-edit.enabled')
+        point_edit_target_point=dict(object='mcp-mask',point='mcp-mask-source-east',field='x')
+        rev=apply([dict(type='create_primitive',composition=comp['id'],parent='',id='mcp-point-edit-source',
+                        name='Point Edit link source',source=point_edit_source),
+                   dict(type='set',ref=dict(object='mcp-point-edit-source',point='mcp-point-edit-link-generator-east',field='x'),value=360),
+                   dict(type='enable_point_edit',object='mcp-mask',enabled=False)],rev)
+        assert core('resolve_name',name='Hidden mask',point='',field=point_edit_target_ref['field'])['result']==point_edit_target_ref
+        rev=apply([dict(type='link_point_edit_enabled',target=point_edit_target_ref,
+                        source=point_edit_source_ref,replace_driver=False)],rev)
+        linked_point_edit=core('get',ref=point_edit_target_ref)['result']
+        direct_point_edit=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=point_edit_target_ref)))
+        assert linked_point_edit['authored']==dict(literal=False,driver=dict(link=point_edit_source_ref))
+        assert linked_point_edit['evaluated'] is True and linked_point_edit['link'] is True
+        assert direct_point_edit['ok'] and direct_point_edit['result']==linked_point_edit
+        assert next(value for value in core('properties')['result'] if value['ref']==point_edit_target_ref)==linked_point_edit
+        refused_point_edit=core('apply',expected_revision=rev,commands=[
+            dict(type='enable_point_edit',object='mcp-mask',enabled=True)])
+        assert not refused_point_edit['ok'] and refused_point_edit['error']['code']=='DRIVEN_PROPERTY' and refused_point_edit['revision']==rev
+        rev=apply([dict(type='enable_point_edit',object='mcp-point-edit-source',enabled=False)],rev)
+        bypassed_point_edit=core('get',ref=point_edit_target_ref)['result']
+        bypassed_point=core('get',ref=point_edit_target_point)['result']
+        assert bypassed_point_edit['authored']==dict(literal=False,driver=dict(link=point_edit_source_ref))
+        assert bypassed_point_edit['evaluated'] is False and bypassed_point['evaluated']!=123
+        rev=apply([dict(type='enable_point_edit',object='mcp-point-edit-source',enabled=True)],rev)
+        assert core('get',ref=point_edit_target_ref)['result']['evaluated'] is True
+        assert core('get',ref=point_edit_target_point)['result']['evaluated']==123
+        point_edit_unlink=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='apply',
+            expected_revision=rev,commands=[dict(type='unlink_point_edit_enabled',target=point_edit_target_ref)])))
+        assert point_edit_unlink['ok'];rev=point_edit_unlink['revision']
+        frozen_point_edit=core('get',ref=point_edit_target_ref)['result']
+        assert frozen_point_edit['authored']==dict(literal=True,driver=None) and frozen_point_edit['evaluated'] is True
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        undone_point_edit=core('get',ref=point_edit_target_ref)['result']
+        assert undone_point_edit['authored']==dict(literal=False,driver=dict(link=point_edit_source_ref))
+        assert undone_point_edit['evaluated'] is True
+        assert core('redo',expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=point_edit_target_ref)['result']['authored']==dict(literal=True,driver=None)
+        assert core('get',ref=point_edit_target_ref)['result']['evaluated'] is True
+        rev=apply([dict(type='enable_point_edit',object='mcp-point-edit-source',enabled=False)],rev)
+        assert core('get',ref=point_edit_target_ref)['result']['evaluated'] is True
+        assert core('get',ref=point_edit_target_point)['result']['evaluated']==123
         # Retained Offset also shapes a hidden mask source through formal MCP.
         offset_template=next(v['template'] for v in core('operator_types')['result'] if v['type']=='nect.shape.offset')
         offset_template['id']='mcp-offset';offset_template['line_join']='round'
@@ -1238,7 +1284,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.31'
+        assert native_save_as['version']=='0.32'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']

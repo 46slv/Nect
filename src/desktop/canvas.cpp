@@ -145,6 +145,7 @@ void Canvas::refresh() {
         if(const auto* validated=session_.preview_values())values_=*validated;
         else values_=evaluate(document);
         const auto gradient_enabled=evaluate_gradient_enableds(document);
+        const auto point_edit_enabled=evaluate_point_edit_enableds(document);
         const auto visibility=evaluate_object_visibilities(document);
         transforms_ = evaluate_transforms(document,values_);
         geometry_.clear();
@@ -281,7 +282,8 @@ void Canvas::refresh() {
                         // Generated topology contains placeholder Scalars. Only
                         // enabled authored coordinate corrections drive anchors;
                         // inspect those directly without evaluating per property.
-                        if (object.source && object.point_edit && object.point_edit->enabled) {
+                        if (object.source && object.point_edit && point_edit_enabled.at(
+                            point_edit_enabled_ref(object.id,object.point_edit->id))) {
                             const auto correction = object.point_edit->overrides.find(p.id);
                             if (correction != object.point_edit->overrides.end()) {
                                 for (const auto* field : {"x", "y"}) {
