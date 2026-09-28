@@ -4,7 +4,6 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -215,16 +214,43 @@ void mask_enabled_inspector(){
     check(!geometry_mask_enabled_state(session.document(),target).literal&&
         widget<QCheckBox>(w,"mask-enabled")->isEnabled(),
         "Mask Inspector starts with its authored bypass literal editable");
-    auto* driver=widget<QToolButton>(w,"mask-enabled-driver");bool picked=false;QTimer chooser;chooser.setInterval(0);
-    QObject::connect(&chooser,&QTimer::timeout,&w,[&]{
-        for(auto* top:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(top)) {
-            if(auto* combo=dialog->findChild<QComboBox*>();combo&&combo->count()) {
-                for(int i=0;i<combo->count();++i)if(combo->itemText(i).contains("Mask Source")){combo->setCurrentIndex(i);picked=true;break;}
-            }
-            dialog->accept();chooser.stop();return;
-        }
+    auto* driver=widget<QToolButton>(w,"mask-enabled-driver");
+    reject_empty_hidden_source(w,driver,"mask-enabled-source-dialog",source);
+    driver=widget<QToolButton>(w,"mask-enabled-driver");
+    bool stale=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("mask-enabled-source-dialog");
+        auto* combo=dialog?dialog->findChild<QComboBox*>("mask-enabled-source-dialog-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("mask-enabled-source-dialog-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!combo||!status||!buttons)return;
+        combo->setCurrentIndex(0);
+        auto changed=*session.document().objects.at("source").compositing.mask;changed.enabled=false;
+        session.apply({SetMask{"source",changed}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        stale=dialog->isVisible()&&status->text().contains("REVISION_CONFLICT")&&
+            !geometry_mask_enabled_state(session.document(),target).driver;
+        buttons->button(QDialogButtonBox::Cancel)->click();
     });
-    chooser.start();driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    driver->menu()->actions().front()->trigger();w.host.edited();QApplication::processEvents();
+    check(stale,"Mask chooser rejects a stale draft without linking the target");
+    auto restored=*session.document().objects.at("source").compositing.mask;restored.enabled=true;
+    session.apply({SetMask{"source",restored}},session.revision());w.host.edited();
+    driver=widget<QToolButton>(w,"mask-enabled-driver");bool picked=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("mask-enabled-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("mask-enabled-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("mask-enabled-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        search->setText("SOURCE / MASK.SOURCE-MASK.ENABLED");
+        if(combo->count()==1&&combo->itemText(0).contains("mask.source-mask.enabled")) {
+            combo->setCurrentIndex(0);w.canvas->set_selection("source");QApplication::processEvents();
+            buttons->button(QDialogButtonBox::Apply)->click();picked=true;
+            w.canvas->set_selection("target");QApplication::processEvents();
+        } else dialog->reject();
+    });
+    driver->menu()->actions().front()->trigger();QApplication::processEvents();
     auto state=geometry_mask_enabled_state(session.document(),target);
     check(picked&&!state.literal&&state.driver==source&&state.evaluated,
         "Inspector links an exact mask instance while preserving the false literal");

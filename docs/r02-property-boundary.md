@@ -510,6 +510,16 @@ This is an implementation audit, not R02/P03 or Requirement acceptance. The owne
 
 **Local result (2026-09-28):** Both lists now use the typed boolean chooser. Release `compositing_ui_tests` and `window_tests` built; serial `compositing_ui_interaction` and `window_interaction` passed **2/2**. The tests cover stable path search, browsing a different Object without retargeting, empty/hidden refusal, Cancel, stale revision and existing link/evaluation/unlink behavior. This is offscreen Window evidence; actual hands-on GUI, Mask's instance-qualified source chooser, R02/P03 and whole REQ-3/4/42/199 acceptance remain open.
 
+## R02-BOOLEAN-SOURCE-MASK-01 — instance-qualified Mask enabled selection (frozen 2026-09-28)
+
+**Entry and scope:** Clean synchronized `codex/practical-alpha@9cea9128b3ad354859efc9e4ecfb6bc72dea6c8b`, native 0.32, with one verified writer. Replace only the fixed Mask enabled Inspector source list. Keep `LinkMaskEnabled`, `SetMask`, the authored literal/driver, existing mask-source geometry, native persistence and Save As semantics. A durable dependency uses `Ref{Object ID,"","mask.<Mask ID>.enabled"}`; the literal-only owner slot `mask.enabled` cannot stand in for a Mask instance.
+
+**Positive oracle:** The chooser displays source Object and Mask IDs plus the exact stable `Object ID / mask.<Mask ID>.enabled` path and filters case-insensitively. Applying an explicitly selected visible source links the captured target Mask instance to the exact source Mask instance in one Session revision, even after browsing another Object. Existing source-bypass evaluation, unlink/freeze and Undo remain the consumers.
+
+**Negative oracle:** Empty or filtered-out choice, Cancel, stale revision/Session and core-invalid source must leave the target literal and driver untouched. A failed Apply remains open with a visible error. Core validation rejects the owner slot, absent/replaced Mask, wrong field, cross-Composition source and dependency cycle; source labels and list positions are never durable addresses.
+
+**Local result (2026-09-28):** Mask enabled now uses the typed boolean chooser with its exact instance-qualified Refs. Release `compositing_ui_tests` and `window_tests` built; serial `compositing_contract`, `window_interaction` and `compositing_ui_interaction` passed **3/3**. The UI test covers stable path search, browsing selection without target retargeting, empty/hidden refusal, Cancel, stale revision and exact link/evaluation/unlink; the core contract covers invalid Mask refs and dependencies. These are core/offscreen Window results; actual hands-on GUI, R02/P03 and whole REQ-3/4/42/199 acceptance remain open.
+
 ## R02-OBJECT-VISIBLE-READ-01 — authored visibility discovery (frozen 2026-09-28)
 
 **Entry and scope:** Clean local/tracking/fresh remote `codex/practical-alpha@daa667bc8ede00cdee51bb24f4fc274a4422f769`, native 0.26. A verified successor `TAKEOVER_ACK` and predecessor `SINGLE_WRITER_RELEASE` transfer one writer. This packet exposes the existing `Object.visible` literal as one typed boolean read. It adds no dependency, expression, native field, command or effective hierarchy projection.

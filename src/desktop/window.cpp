@@ -2103,16 +2103,15 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     };
     for(const auto& root:mask_composition.roots)append_mask_source(root);
     link_mask->setEnabled(!mask_sources.empty());
-    connect(link_mask,&QAction::triggered,this,[this,id,mask_ref,session,mask_revision,mask_sources,mask_source_labels,
+    connect(link_mask,&QAction::triggered,this,[this,mask_ref,session,mask_revision,mask_sources,mask_source_labels,
         replace=mask_state.driver.has_value(),apply] {
-        bool accepted=false;const auto choice=QInputDialog::getItem(this,
+        choose_boolean_source(this,"mask-enabled-source-dialog",
             replace?"Replace Geometry mask enabled link":"Link Geometry mask enabled",
-            "Source mask",mask_source_labels,0,false,&accepted);
-        if(!accepted)return;const auto index=mask_source_labels.indexOf(choice);if(index<0)return;
-        perform([&]{
+            qs(mask_ref.object)+" / "+qs(mask_ref.field),mask_sources,mask_source_labels,
+            [this,mask_ref,session,mask_revision,replace,apply](const Ref& source) {
             if(host.session_id!=session)throw Error("SESSION_CONFLICT","Geometry mask belongs to another document");
             if(host.session.revision()!=mask_revision)throw Error("REVISION_CONFLICT","Geometry mask enabled state changed while the source chooser was open");
-            apply(LinkMaskEnabled{mask_ref,mask_sources.at(static_cast<std::size_t>(index)),replace});
+            apply(LinkMaskEnabled{mask_ref,source,replace});
         });
     });
     connect(unlink_mask,&QAction::triggered,this,[this,mask_ref,session,mask_revision,apply]{perform([&]{
