@@ -1,4 +1,4 @@
-# Nect — autonomous Mission ownership / R02 typed source selection
+# Nect — autonomous Mission ownership / R02 typed properties
 
 ## Mission Brief
 
@@ -12,20 +12,20 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Advance Mask enabled's remaining instance-qualified Inspector source chooser through exact stable Ref selection and frozen target context.
+**Goal:** Establish the next bounded R02/REQ-3 contract for expressions on generated Point Edit point/handle values, including authored override identity, evaluation and persistence.
 
-**Current phase:** Point Edit correction and Gradient enabled chooser `80c1110bd0e81f517d669dc3a5fad77a4e5de6ef` and Object visibility/Composite isolation chooser `67fc5d2c6cf0cd569f877d33000c71f87ee70e37` are reviewed and remotely synchronized. Mask enabled still uses a fixed `QInputDialog::getItem` list while its typed instance-qualified Session link command exists. R02/P03 and REQ-3/4/42/199 remain open; hands-on GUI rows are `LOCAL_WAIT`.
+**Current phase:** The Point Edit/Gradient, Object/Composite and Mask enabled Inspector Boolean source choosers are implemented, reviewed and remotely synchronized through `d75350d4072336cdfc357fc9b30df089c27de5bf`. Fresh core reading shows `SetExpression` already calls `prepare_point_edit` for generated point/handle targets, so the remaining acceptance gap must be measured from actual Session/API, native and UI behavior. R02/P03 and REQ-3/4/42/199 remain open; hands-on GUI rows are `LOCAL_WAIT`.
 
-**Proven:** [R02-BOOLEAN-SOURCE-POINT-GRADIENT-01 and R02-BOOLEAN-SOURCE-OBJECT-01](docs/r02-property-boundary.md) record the exact Refs, empty/hidden/Cancel/stale refusal and offscreen evidence. The first passed Release primitive, gradient and Window tests **3/3**; the second passed serial compositing UI and Window tests **2/2**, including browsing selection without target retargeting. This Task's ignored TAKEOVER_ACK `90F789ABB600297260FE2CEF08E6EE3CD9207154B24228049AD3CC432A6539B6` and predecessor SINGLE_WRITER_RELEASE `ACADEC7FDDBDDB3DE41BA6F26902BCDEE1A03F7B97571D1BFC77C4AF6E3038C0` were verified before mutation. These are Session/core/offscreen Window results, not hands-on GUI acceptance.
+**Proven:** [R02 Boolean source packets](docs/r02-property-boundary.md) record exact stable Refs, empty/hidden/Cancel/stale refusal and offscreen evidence. Focused Release checks passed **3/3** for Point Edit/Gradient, **2/2** for Object/Composite, and **3/3** for Mask enabled. The Mask packet is `d75350d4072336cdfc357fc9b30df089c27de5bf`; fresh local/remote SHA parity and clean tree were read back. `SetExpression` reaches `prepare_point_edit` (`src/core.cpp`) and generated overrides are `Scalar`s; this is source evidence, not yet a full expression acceptance result. No hands-on GUI acceptance is claimed.
 
-**Next task:** Freeze the Mask enabled source-selection packet from live source and tests. Preserve `mask.<stable mask ID>.enabled`, the distinct literal-only `mask.enabled` slot, source eligibility and target Session/revision. Implement visible filtered selection, Cancel/empty/hidden/stale refusal, one-revision link and existing unlink/Undo. Review, validate and synchronize, then continue the next eligible Route edge.
+**Next task:** Fresh-read generated point/handle Ref authoring, evaluation, `get`/origin, native round-trip and Inspector expression controls. Run the smallest direct Session/API probe for all six point fields on a procedural Path with correction. Identify an exact missing edge before freezing a repair packet; implement and verify it if bounded by accepted product intent, otherwise record its precise gate and advance another eligible Route edge.
 
-**Approach:** Reuse the small typed boolean chooser while keeping `LinkMaskEnabled`, the authored Mask owner and instance-qualified target/source Refs. Search/display exact object/mask IDs and reject hidden or invalid draft choices. Keep the native representation, mask source geometry and Save As semantics intact.
+**Approach:** Preserve generated values as derived until an explicit Point Edit correction creates authored `Scalar` overrides. Compare direct Session, process/native cold reopen and visible Inspector behavior at one stable Ref; check type/unit/cycle errors, stale revision, atomic failure and Undo. Avoid a second property store or format change unless an exact missing contract requires it.
 
-**Done for next:** The Mask enabled chooser packet has exact positive/negative acceptance, reviewed implementation, focused real-path validation, coherent commit and non-force remote SHA parity; or a precise local gate and resume trigger is recorded while another eligible Route edge advances.
+**Done for next:** The generated point/handle expression edge has an exact positive/negative acceptance packet, reviewed implementation if needed, focused real-path validation and non-force remote SHA parity; or the evidence proves this edge already works and the next R02 gap is selected. A GUI capability wait stays local while independent work remains.
 
-**State:** Repository D:\Documents\Nect, branch `codex/practical-alpha`, native writer 0.32; local and fresh remote `67fc5d2c6cf0cd569f877d33000c71f87ee70e37`, clean after the Object boolean chooser checkpoint. This Task is the sole writer after the verified release; recheck live Git/process state before mutation.
+**State:** Repository D:\Documents\Nect, branch `codex/practical-alpha`, native writer 0.32; Boolean chooser implementation baseline `d75350d4072336cdfc357fc9b30df089c27de5bf`. The checkpoint transition commit becomes the new local/remote HEAD; the handoff receipt binds its exact SHA and worktree state. This Task is the sole writer until verified successor takeover.
 
 **Authority:** Current user instruction and DEC-71 authorize Mission continuity, technical decisions within accepted intent, reversible implementation and non-force branch sync. Completion Route R02/P03 and Confirmed Requirements govern scope. Major structure/save redesign, external dependencies, executable extensions, hands-on/subjective acceptance and destructive/public action remain protected.
 
-**Handoff:** CONTINUE_CURRENT_TASK. The next chooser work is adjacent to the completed packet and the current context remains useful.
+**Handoff:** NEW_TASK. The three adjacent Boolean chooser packets are closed; the next expression/evaluation domain is meaningfully separate, and this Task has compacted. Rotate to a fresh Sol after committing/synchronizing this checkpoint and verifying single-writer takeover.
