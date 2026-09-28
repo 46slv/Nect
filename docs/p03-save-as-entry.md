@@ -1,5 +1,17 @@
 # P03-SAVE-AS-01 — typed source preservation at the native Save As boundary
 
+## P03-POINT-EDIT-LINKED-SAVE-AS-04 — exact correction driver preservation
+
+**Freeze (2026-09-28):** Start from clean, synchronized `codex/practical-alpha@9e7e33d5296168cece9b636a584b87056032bcac`, native writer 0.32. R02-POINT-EDIT-ENABLED-LINK-01 and P03-POINT-EDIT-SAVE-AS-03 passed focused Release contracts, but the latter saved only a literal disabled correction. This packet verifies that the existing Host Save As preserves a linked correction, with no new format field or command.
+
+**Positive oracle:** In an owned temporary directory, create two retained Circle corrections with distinct generator, Point Edit and generated-point IDs. Link the target's instance-qualified `enabled` Ref to the source while the target authored literal is false. Save an original with the source enabled, then disable the source and Save As to a different destination. The original bytes stay unchanged. Destination bytes, cold Host reopen and recovery provenance retain the exact source/target IDs, target literal, driver Ref and override; target evaluation uses generator fallback while source is disabled. Re-enabling source after reopen restores the target override without changing destination bytes.
+
+**Negative oracle and exit:** A Save As to an invalid owned path after source disable rejects without creating a destination or changing active binding, Session revision, saved revision, authored Document, original bytes or current dirty state. A later valid Save As succeeds. Review the focused Release Host contract; treat interactive GUI Save As, distinct-process linked Save As, all other types and full P03/R02/Confirmed Requirement acceptance as separate obligations.
+
+### P03-POINT-EDIT-LINKED-SAVE-AS-04 local result — 2026-09-28
+
+The owned Host fixture saved a false-literal target linked to a true source correction, then disabled the source before Save As. The original file stayed byte-identical; an invalid destination preserved the active binding, dirty state, Session/saved revisions and authored Document. The valid destination's exact bytes, native readback and recovery provenance retained both correction/source identities, the target override and exact driver. A cold Host reopen evaluated generator fallback; re-enabling the source restored the override without changing destination bytes. Release `live_save_contract` passed **1/1** after the addition. This is Host/native persistence evidence; actual hands-on GUI Save As, distinct-process linked Save As and full P03/R02/Confirmed Requirement acceptance remain open.
+
 ## P03-POINT-EDIT-SAVE-AS-03 — retained correction preservation
 
 **Freeze (2026-09-28):** Start from clean, synchronized `codex/practical-alpha@9cfc859b9628e0857dbe1b6c3f92b743e70559fd` after SHA-verified successor ACK and predecessor RELEASE. The live R02/P03 Route requires native Save As source preservation. The optional Point Edit owner-slot read is already implemented, while its persistent dependency is at `R02-POINT-EDIT-IDENTITY-01` local design gate. This packet verifies existing Host Save As with a retained, disabled correction; it introduces no link, correction identity change, or native format field.

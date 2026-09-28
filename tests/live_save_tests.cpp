@@ -247,6 +247,84 @@ void point_edit_save_as(const QString& directory) {
           bytes(destination)==destination_bytes,
           "Re-enable after cold reopen restores the same authored point override without changing saved bytes");
 }
+void linked_point_edit_save_as(const QString& directory) {
+    Host host(directory+"/linked-point-edit-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    const Id source_object="linked-save-source",source_generator="linked-save-source-generator";
+    const Id target_object="linked-save-target",target_generator="linked-save-target-generator";
+    const Ref source_point{source_object,source_generator+"-east","x"};
+    const Ref target_point{target_object,target_generator+"-east","x"};
+    host.session.apply({CreatePrimitive{composition,"",source_object,"Source",default_primitive(source_generator,"nect.shape.circle")},
+        CreatePrimitive{composition,"",target_object,"Target",default_primitive(target_generator,"nect.shape.circle")}},
+        host.session.revision());host.edited();
+    const auto fallback=evaluate(host.session.document()).at(target_point);
+    const auto target_override=fallback+32;
+    host.session.apply({Set{source_point,380},Set{target_point,target_override},EnablePointEdit{target_object,false}},
+        host.session.revision());host.edited();
+    const auto source_ref=point_edit_enabled_ref(source_object,source_generator+"-point-edit");
+    const auto target_ref=point_edit_enabled_ref(target_object,target_generator+"-point-edit");
+    host.session.apply({LinkPointEditEnabled{target_ref,source_ref,false}},host.session.revision());host.edited();
+    const auto initial=host.session.document();
+    check(point_edit_enabled_state(initial,target_ref).driver==source_ref&&
+          !point_edit_enabled_state(initial,target_ref).literal&&
+          point_edit_enabled_state(initial,target_ref).evaluated&&
+          evaluate(initial).at(target_point)==target_override,
+          "Linked correction evaluates the target override while preserving its false authored literal");
+    const auto original=directory+"/linked-point-edit-source.nect";
+    host.save(original);host.recover();
+    const auto original_bytes=bytes(original);
+    check(original_bytes==QByteArray::fromStdString(encode(initial)),
+          "Original linked correction bytes match the committed Document");
+
+    host.session.apply({EnablePointEdit{source_object,false}},host.session.revision());host.edited();
+    const auto committed=host.session.document();
+    const auto committed_revision=host.session.revision();
+    const auto saved_revision=host.persistence()["saved_revision"].toInteger(-1);
+    const auto state=point_edit_enabled_state(committed,target_ref);
+    check(!state.literal&&state.driver==source_ref&&!state.evaluated&&
+          evaluate(committed).at(target_point)==fallback&&host.dirty(),
+          "Disabling the source retains the target driver and override while selecting generator fallback");
+    const auto invalid=directory+"/missing-linked-point-edit-parent/failed.nect";
+    rejects("IO_ERROR",[&]{host.save(invalid);});
+    check(!QFile::exists(invalid)&&host.file_path==native_path(original)&&host.dirty()&&
+          host.session.revision()==committed_revision&&host.session.document()==committed&&
+          host.persistence()["saved_revision"].toInteger(-1)==saved_revision&&bytes(original)==original_bytes,
+          "Failed linked correction Save As preserves binding, dirty state, revisions and authored bytes");
+
+    const auto destination=directory+"/linked-point-edit-destination.nect";
+    host.save(destination);host.recover();
+    const auto destination_bytes=bytes(destination);
+    const auto saved=load_native(destination).document;
+    const auto& saved_source=saved.objects.at(source_object);
+    const auto& saved_target=saved.objects.at(target_object);
+    const auto saved_state=point_edit_enabled_state(saved,target_ref);
+    check(host.file_path==native_path(destination)&&!host.dirty()&&saved==committed&&
+          destination_bytes==QByteArray::fromStdString(encode(committed))&&bytes(original)==original_bytes&&
+          saved_source.source->id==source_generator&&saved_target.source->id==target_generator&&
+          saved_source.point_edit->id==source_generator+"-point-edit"&&
+          saved_target.point_edit->id==target_generator+"-point-edit"&&
+          saved_target.point_edit->overrides.at(target_point.point).at("x").literal==target_override&&
+          !saved_state.literal&&saved_state.driver==source_ref&&!saved_state.evaluated&&
+          evaluate(saved).at(target_point)==fallback,
+          "Save As retains both correction IDs, exact driver, false target literal and generator fallback");
+    const auto meta_path=directory+"/linked-point-edit-recovery/"+host.session_id+".recovery.json";
+    check(QJsonDocument::fromJson(bytes(meta_path)).object()["source_file"]==native_path(destination)&&
+          host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision),
+          "Linked correction recovery provenance points to the Save As destination");
+
+    Host reopened(directory+"/linked-point-edit-cold-recovery");reopened.open(destination);
+    check(reopened.session.document()==committed&&reopened.session.revision()==0&&
+          point_edit_enabled_state(reopened.session.document(),target_ref).driver==source_ref&&
+          !point_edit_enabled_state(reopened.session.document(),target_ref).evaluated&&
+          evaluate(reopened.session.document()).at(target_point)==fallback,
+          "Cold destination reopen preserves the exact linked correction and fallback");
+    reopened.session.apply({EnablePointEdit{source_object,true}},reopened.session.revision());
+    check(point_edit_enabled_state(reopened.session.document(),target_ref).evaluated&&
+          evaluate(reopened.session.document()).at(target_point)==target_override&&
+          reopened.session.document().objects.at(target_object).point_edit->id==target_generator+"-point-edit"&&
+          bytes(destination)==destination_bytes,
+          "Re-enabling the cold-opened source restores the target override without changing destination bytes");
+}
 void independent_failures(const QString& directory) {
     const auto blocked=directory+"/blocked-recovery";put(blocked,"not a directory");
     Host host(blocked);const auto path=directory+"/protected-native.nect";host.save(path);add(host);
@@ -275,7 +353,8 @@ int main(int argc,char** argv) {
     QCoreApplication app(argc,argv);
     try {
         QTemporaryDir temp;check(temp.isValid(),"Create owned live-save test folder");
-        coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());point_edit_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
+        coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());point_edit_save_as(temp.path());
+        linked_point_edit_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
         std::cout<<"PASS asynchronous snapshots, typed and Point Edit Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
