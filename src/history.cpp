@@ -102,7 +102,7 @@ std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(
 std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
 std::size_t extra(const Guide& v){return total(extra(v.id),extra(v.name),extra(v.axis),extra(v.position_driver));}
 std::size_t extra(const LayoutRect&){return 0;}
-std::size_t extra(const Margin& v){return extra(v.left_driver);}
+std::size_t extra(const Margin& v){return total(extra(v.left_driver),extra(v.left_expression));}
 std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds),extra(v.bounds_x_driver),extra(v.bounds_x_expression));}
 std::size_t extra(const ArtboardLayout& v){return total(extra(v.margin),extra(v.grid));}
 std::size_t extra(const Artboard::SizeDriver& v){return std::visit([](const auto& value){return extra(value);},v.value);}

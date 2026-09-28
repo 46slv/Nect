@@ -1418,3 +1418,26 @@ Grid-reference Align consume the evaluated layout. Native Save As retains the
 authored expression, and native 0.1–0.36 reject a version-lied expression
 field. `schemas/native-v0.37.schema.json` closes the optional field and
 rejects simultaneous Grid link and expression sources.
+
+## Native 0.38 — Margin left expression
+
+A present Margin may retain `left_expression: {source,version:1}` beside its
+authored `left` literal. It is mutually exclusive with the existing
+`left_driver` link. The bounded numeric language evaluates to Artboard-local
+`du`; each `ref()` may address only width or height of a distinct Artboard in
+the Margin owner's Composition. Referenced dimensions use the existing
+Artboard-size graph, including parent inheritance and expressions. Artboard
+sizes do not depend on Margin layout. The evaluated left must be finite and
+nonnegative and leave positive content width with right inset and evaluated
+target width.
+
+`set_margin_left_expression` uses the revisioned Session command path.
+Replacing a link or different expression requires `replace_driver`; unlink
+freezes the evaluated inset into the authored literal. Full layout and
+Artboard updates retain an unchanged source for the same owning Artboard and
+literal while rejecting implicit source edits. Typed reads expose literal,
+source kind, exact expression and evaluated inset. Canvas Margin overlay,
+Inspector and Grid-to-Margin copy consume the evaluated value. Native Save As
+retains the authored expression; native 0.1–0.37 reject a version-lied field.
+`schemas/native-v0.38.schema.json` closes the optional field and rejects
+simultaneous Margin link and expression sources.

@@ -1372,9 +1372,8 @@ void layout_overlays_are_view_only_and_not_exported() {
         Expression{R"(ref("overlay-source-x","","guide.position"))",1};
     Session session(document);Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();canvas.fit_artboard();QApplication::processEvents();
     check(canvas.show_guides()&&canvas.show_grid()&&canvas.show_margin(),"Authored layout overlays default visible per Canvas window");
-    const auto committed=session.document();const auto revision=session.revision();
-    const auto image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    const double image_scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
+    const auto linked_image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    const double image_scale=linked_image.width()>canvas.width()?static_cast<double>(linked_image.width())/canvas.width():1.0;
     const auto count_guide_pixels=[&](const QImage& source,double position) {
         const int guide_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
         for(int y=qRound(55*image_scale);y<qRound(215*image_scale);++y)
@@ -1405,14 +1404,23 @@ void layout_overlays_are_view_only_and_not_exported() {
         }
         return pixels;
     };
-    const auto evaluated_guide_pixels=count_guide_pixels(image,120),literal_guide_pixels=count_guide_pixels(image,30);
+    const auto evaluated_guide_pixels=count_guide_pixels(linked_image,120),literal_guide_pixels=count_guide_pixels(linked_image,30);
     check(evaluated_guide_pixels>20&&literal_guide_pixels<20,
         "Canvas paints the expression-driven Guide at its evaluated coordinate, not its authored literal (evaluated="+
             std::to_string(evaluated_guide_pixels)+", literal="+std::to_string(literal_guide_pixels)+")");
-    check(count_margin_pixels(image,18)>20&&count_margin_pixels(image,10)<20,
+    check(count_margin_pixels(linked_image,18)>20&&count_margin_pixels(linked_image,10)<20,
         "Canvas paints the linked Margin inset at its evaluated Artboard width, not its authored literal");
-    check(count_grid_pixels(image,55)>20&&count_grid_pixels(image,20)<20,
+    check(count_grid_pixels(linked_image,55)>20&&count_grid_pixels(linked_image,20)<20,
         "Canvas paints the expression-driven Grid overlay at evaluated x, not the authored literal");
+    session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
+        {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
+    canvas.refresh();QApplication::processEvents();
+    const auto committed=session.document();const auto revision=session.revision();
+    const auto committed_history=session.history();
+    const auto expression_image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_margin_pixels(expression_image,20)>20&&count_margin_pixels(expression_image,18)<20&&
+        artboard_layout_property(session.document(),{"overlay-artboard","","margin.left"}).source_kind=="expression",
+        "Canvas paints Margin left at its evaluated Artboard-size expression instead of the authored literal");
     session.begin_gesture(session.revision());
     session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
         UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,100}},
@@ -1420,8 +1428,8 @@ void layout_overlays_are_view_only_and_not_exported() {
     canvas.refresh();QApplication::processEvents();
     const auto preview_image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
     check(count_guide_pixels(preview_image,140)>20&&count_guide_pixels(preview_image,120)<20&&
-          count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,26)>20&&
-          count_margin_pixels(preview_image,18)<20&&count_margin_pixels(preview_image,10)<20&&
+          count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,28)>20&&
+          count_margin_pixels(preview_image,20)<20&&count_margin_pixels(preview_image,18)<20&&
           count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20,
         "Canvas Guide, linked Margin and Grid overlays follow evaluated sources in the Session preview document");
     session.cancel_gesture();canvas.refresh();QApplication::processEvents();
@@ -1430,7 +1438,8 @@ void layout_overlays_are_view_only_and_not_exported() {
     canvas.set_show_guides(false);check(!canvas.show_guides()&&canvas.show_grid()&&canvas.show_margin(),"Guide, Grid and Margin visibility toggle independently");
     canvas.set_show_grid(false);check(!canvas.show_grid()&&canvas.show_margin(),"Grid visibility does not change Margin visibility");
     canvas.set_show_margin(false);check(!canvas.show_margin(),"Margin visibility has its own per-window toggle");
-    check(session.document()==committed&&session.revision()==revision&&!session.can_undo(),"Overlay visibility changes no authored state or history");
+    check(session.document()==committed&&session.revision()==revision&&session.history()==committed_history,
+        "Overlay visibility changes no authored state or history");
     Canvas second(session);check(second.show_guides()&&second.show_grid()&&second.show_margin(),"A second Canvas has independent default visibility state");
 }
 } // namespace

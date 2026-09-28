@@ -281,6 +281,7 @@ struct LayoutRect {
 struct Margin {
     double left=0,top=0,right=0,bottom=0;
     std::optional<Ref> left_driver;
+    std::optional<Expression> left_expression;
     bool operator==(const Margin&) const = default;
 };
 struct Grid {
@@ -415,13 +416,15 @@ struct LinkArtboardSize { Ref target; Ref source; bool replace_driver=false; };
 struct SetArtboardSizeExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkArtboardSize { Ref target; };
 struct LinkMarginLeft { Ref target; Ref source; bool replace_driver=false; };
+struct SetMarginLeftExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkMarginLeft { Ref target; };
 struct LinkGridBoundsX { Ref target; Ref source; bool replace_driver=false; };
 struct SetGridBoundsXExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridBoundsX { Ref target; };
 struct LayoutDependencyCommand {
-    std::variant<LinkMarginLeft,UnlinkMarginLeft,LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX> operation;
+    std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX> operation;
     LayoutDependencyCommand(LinkMarginLeft value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetMarginLeftExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkMarginLeft value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkGridBoundsX value):operation(std::move(value)){}
     LayoutDependencyCommand(SetGridBoundsXExpression value):operation(std::move(value)){}

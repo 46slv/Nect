@@ -2547,6 +2547,37 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         "Grid x unlink freezes the expression's evaluated value into its literal");
     click("grid-copy-margin-box");
     check(board().layout->grid->bounds.x==80,"Grid-to-Margin copy succeeds after explicit unlink");
+    const QString margin_expression_text=QString::fromStdString("ref(\""+margin_source_id+"\",\"\",\"artboard.width\") + 10");
+    auto* margin_expression=visible_child<QPlainTextEdit>(window,"margin-left-expression");
+    auto* margin_expression_apply=visible_child<QPushButton>(window,"margin-left-apply-expression");
+    auto* margin_replace_source=visible_child<QCheckBox>(window,"margin-left-replace");
+    margin_expression->setPlainText(margin_expression_text);QApplication::processEvents();
+    const auto before_unapproved_margin_expression=session.revision();
+    QTest::mouseClick(margin_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_margin_expression&&board().layout->margin->left_driver==margin_source_ref&&
+        !board().layout->margin->left_expression&&margin_expression->toPlainText()==margin_expression_text&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_LEFT"),
+        "Margin expression replacement requires visible authorization and keeps the rejected draft");
+    margin_replace_source->setChecked(true);QTest::mouseClick(margin_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    auto* driven_margin_left=visible_child<QLineEdit>(window,"margin-left");
+    auto* margin_driven_status=visible_child<QLabel>(window,"margin-left-source-state");
+    check(session.revision()==before_unapproved_margin_expression+1&&driven_margin_left->isReadOnly()&&
+        !board().layout->margin->left_driver&&
+        board().layout->margin->left_expression==Expression{margin_expression_text.toStdString(),1}&&
+        margin_driven_status->text().contains("expression")&&margin_driven_status->text().contains("Literal: 25")&&
+        margin_driven_status->text().contains("Evaluated: 90"),
+        "Margin Inspector applies a du expression, retains the literal and shows its evaluated inset");
+    margin_expression=visible_child<QPlainTextEdit>(window,"margin-left-expression");margin_expression->setPlainText("ref(");
+    const auto before_invalid_margin_expression=session.revision();
+    margin_expression_apply=visible_child<QPushButton>(window,"margin-left-apply-expression");
+    QTest::mouseClick(margin_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_invalid_margin_expression&&margin_expression->toPlainText()=="ref("&&
+        board().layout->margin->left_expression==Expression{margin_expression_text.toStdString(),1},
+        "Invalid Margin expression stays as a draft without changing committed state");
+    click("margin-left-cancel-expression");
+    click("grid-copy-margin-box");
+    check(board().layout->grid->bounds.x==90&&board().layout->grid->bounds.width==830,
+        "Grid-to-Margin copy uses the evaluated expression-driven inset once");
     grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
     for(int i=0;i<grid_source_choice->count();++i)
         if(grid_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))grid_source_width_choice=i;
@@ -2555,12 +2586,12 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
     check(duplicate!=session.document().compositions.front().artboards.end()&&duplicate->layout&&
-        duplicate->layout->margin->left_driver==margin_source_ref&&
+        duplicate->layout->margin->left_expression==Expression{margin_expression_text.toStdString(),1}&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
         duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
-        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==80&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==90&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.x"}).evaluated)==80,
-        "Duplicate frame strips drivers from AddArtboard and reapplies exact Margin and Grid sources to new stable targets");
+        "Duplicate frame replays the exact Margin expression and Grid link onto new stable target IDs");
     auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
     for(int i=0;i<artboards->count();++i)
         if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);
@@ -2576,14 +2607,14 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
             " readonly="+std::to_string(driven_left->isReadOnly())+" field="+driven_left->text().toStdString()+
             " literal="+std::to_string(board().layout->margin->left)).c_str());
     click("margin-left-unlink");
-    check(board().layout->margin->left==80&&!board().layout->margin->left_driver,
-        "Inspector Unlink freezes the currently evaluated inset into its literal");
+    check(board().layout->margin->left==90&&!board().layout->margin->left_driver&&!board().layout->margin->left_expression,
+        "Inspector Unlink freezes the expression's evaluated inset into its literal");
     source_artboard=*std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==margin_source_id;});
     source_artboard.width=100;
     session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
-    check(board().layout->margin->left==80&&!board().layout->margin->left_driver&&
-        std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==80,
+    check(board().layout->margin->left==90&&!board().layout->margin->left_driver&&!board().layout->margin->left_expression&&
+        std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==90,
         "Unlinked Margin remains frozen when its former source changes");
 
     click("grid-bounds-x-unlink");
