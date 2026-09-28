@@ -8,6 +8,7 @@
 #include <QAbstractItemView>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QEventLoop>
 #include <QDoubleSpinBox>
 #include <QEnterEvent>
 #include <QGraphicsOpacityEffect>
@@ -19,6 +20,7 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QListWidget>
+#include <QPointer>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QScreen>
@@ -41,6 +43,7 @@ using namespace nect;
 using namespace nect::desktop;
 namespace {
 void check(bool ok,const char* message) {if(!ok)throw std::runtime_error(message);}
+void check(bool ok,const std::string& message) {if(!ok)throw std::runtime_error(message);}
 QByteArray reference(const Ref& r) {
     return QJsonDocument(QJsonObject{{"object",QString::fromStdString(r.object)},
         {"point",QString::fromStdString(r.point)},{"field",QString::fromStdString(r.field)}}).toJson(QJsonDocument::Compact);
@@ -1271,6 +1274,165 @@ void scalar_source_path_picker(Window& window) {
     check(session.document()==unchanged&&session.revision()==unchanged_revision&&window.canvas->selections()==selection,
         "Cancel after incompatible-source rejection preserves the target and authored state");
 }
+struct TextPickerOutcome { bool opened=false,friendly_search=false,stable_path_search=false,browsed=false,context_changed=false,applied=false,restored_selection=false,inspector_visible=false; };
+TextPickerOutcome choose_text_source(Window& window,QToolButton* driver,const Ref& source,const QString& friendly_label,bool change_context=false) {
+    TextPickerOutcome outcome;const auto original_selection=window.canvas->selections();const auto original_object=window.canvas->selected_object;QAction* link=nullptr;
+    for(auto* action:driver->menu()->actions())if(action->text().startsWith("Link to Text ")){link=action;break;}
+    if(!link)return outcome;
+    QEventLoop loop;
+    QTimer::singleShot(0,&window,[&]{
+        auto interact=[&] {
+        TextPickerOutcome result;
+        auto* dialog=window.findChild<QDialog*>("text-string-source-picker");if(!dialog)return result;result.opened=true;
+        auto* search=dialog->findChild<QLineEdit*>("text-string-source-picker-search");
+        auto* list=dialog->findChild<QListWidget*>("text-string-source-picker-list");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();if(!search||!list||!buttons)return result;
+        QListWidgetItem* row=nullptr;
+        for(int i=0;i<list->count();++i) {
+            const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(ref.value("object").toString().toStdString()==source.object&&
+                ref.value("point").toString().toStdString()==source.point&&ref.value("field").toString().toStdString()==source.field)row=list->item(i);
+        }
+        if(!row)return result;
+        search->setText(friendly_label);QApplication::processEvents();result.friendly_search=!row->isHidden();
+        const auto stable_path=QString::fromStdString(source.object)+" / "+QString::fromStdString(source.field);
+        search->setText(stable_path.toUpper());QApplication::processEvents();result.stable_path_search=!row->isHidden();
+        list->setCurrentItem(row);QApplication::processEvents();result.browsed=window.canvas->selected_object==source.object;
+        if(buttons->button(QDialogButtonBox::Apply)->isEnabled()) {
+            if(change_context) {
+                check(window.host.session.document().objects.contains("text-string-backup"),"Browsing backup remains a document object");
+                window.canvas->set_selection("text-string-backup","");window.host.edited();QApplication::processEvents();
+                result.context_changed=dialog->isVisible()&&window.canvas->selected_object=="text-string-backup";
+            }
+            buttons->button(QDialogButtonBox::Apply)->click();QApplication::processEvents();result.applied=true;
+            result.restored_selection=window.canvas->selections()==original_selection&&window.canvas->selected_object==original_object;
+            const char* inspector_name=source.field=="text.content"?"text-preview":source.field=="text.family"?"text-family":"text-locale";
+            for(auto* inspector:window.findChildren<QWidget*>(inspector_name))result.inspector_visible|=inspector->isVisible();
+        }
+        return result;
+        };
+        outcome=interact();loop.quit();
+    });
+    link->trigger();loop.exec();return outcome;
+}
+void text_string_source_picker_contract(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    auto target=default_text("text-string-target-source","String target");target.content="Target content";target.family="Target family";target.locale="ja-JP";
+    auto source=default_text("text-string-source-data","Friendly String Source");source.content="Linked content";source.family="Linked family";source.locale="fr-FR";
+    auto backup=default_text("text-string-backup-data","Browse backup");backup.content="Backup content";backup.family="Backup family";backup.locale="en-GB";
+    session.apply({CreateText{composition,"","text-string-target","String target",target},
+        CreateText{composition,"","text-string-source","Friendly String Source",source},
+        CreateText{composition,"","text-string-backup","Browse backup",backup}},0);
+    check(session.document().objects.contains("text-string-target")&&session.document().objects.contains("text-string-source")&&
+        session.document().objects.contains("text-string-backup"),"All three Text source picker fixture objects exist");
+    window.canvas->set_selection("text-string-target","");window.host.edited();QApplication::processEvents();
+    struct FieldCase { const char* field; const char* driver; const char* typed_field; };
+    const FieldCase fields[]={{"text.content","text-content-driver","content"},
+        {"text.family","text-family-driver","family"},{"text.locale","text-locale-driver","locale"}};
+    const Ref source_refs[]={{"text-string-source","","text.content"},{"text-string-source","","text.family"},
+        {"text-string-source","","text.locale"}};
+    for(std::size_t i=0;i<std::size(fields);++i) {
+        const auto field=std::string(fields[i].field),typed=std::string(fields[i].typed_field);
+        auto open=[&]{auto* driver=visible_child<QToolButton>(window,fields[i].driver);QAction* link=nullptr;
+            for(auto* action:driver->menu()->actions())if(action->text().startsWith("Link to Text ")){link=action;break;}
+            check(link!=nullptr,"Text string link action exists");return link;};
+        const auto target_before=session.document().objects.at("text-string-target");const auto before_filter_revision=session.revision();
+        bool empty_refused=false,empty_open=false,empty_no_source=false,empty_cleared=false,empty_unchanged=false,empty_button_enabled=false;
+        QString empty_status;bool filtered_refused=false,canceled=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-string-source-picker");
+            auto* search=dialog?dialog->findChild<QLineEdit*>("text-string-source-picker-search"):nullptr;
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-string-source-picker-list"):nullptr;
+            auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-string-source-picker-status"):nullptr;
+            if(!dialog||!search||!list||!buttons||!status)return;
+            list->setCurrentItem(nullptr);
+            empty_button_enabled=buttons->button(QDialogButtonBox::Apply)->isEnabled();
+            buttons->button(QDialogButtonBox::Apply)->click();
+            empty_open=dialog->isVisible();empty_status=status->text();empty_no_source=empty_status.contains("NO_SOURCE");
+            empty_cleared=!list->currentItem();empty_unchanged=session.revision()==before_filter_revision&&
+                session.document().objects.at("text-string-target")==target_before;
+            empty_refused=empty_button_enabled&&empty_open&&empty_no_source&&empty_cleared&&empty_unchanged;
+            QListWidgetItem* row=nullptr;
+            for(int j=0;j<list->count();++j) {
+                const auto ref=QJsonDocument::fromJson(list->item(j)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-string-source"&&ref.value("field").toString()==QString::fromStdString(field))row=list->item(j);
+            }
+            if(!row)return;
+            search->setText("Friendly String Source");QApplication::processEvents();
+            const auto ref=QJsonDocument::fromJson(row->data(Qt::UserRole).toByteArray()).object();
+            const auto path=ref.value("object").toString()+" / "+ref.value("field").toString();
+            search->setText(path.toUpper());QApplication::processEvents();
+            const bool exact_ref=ref.value("object").toString()=="text-string-source"&&
+                ref.value("point").toString().isEmpty()&&ref.value("field").toString()==QString::fromStdString(field);
+            list->setCurrentItem(row);QApplication::processEvents();
+            search->setText("no matching Text source");QApplication::processEvents();
+            const auto initial=buttons->button(QDialogButtonBox::Apply)->isEnabled();
+            buttons->button(QDialogButtonBox::Apply)->click();
+            filtered_refused=exact_ref&&initial&&row->isHidden()&&!list->currentItem()&&dialog->isVisible()&&
+                status->text().contains("NO_SOURCE")&&session.revision()==before_filter_revision&&
+                session.document().objects.at("text-string-target")==target_before;
+            QPointer<QDialog> safe_dialog(dialog);buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+            canceled=(!safe_dialog||!safe_dialog->isVisible())&&session.revision()==before_filter_revision&&
+                session.document().objects.at("text-string-target")==target_before&&window.canvas->selected_object=="text-string-target";
+        });
+        open()->trigger();QApplication::processEvents();
+        check(empty_refused,"Empty Text source selection reports NO_SOURCE without mutation for "+field);
+        check(filtered_refused,"Filtered Text source is cleared and cannot Apply for "+field);
+        check(canceled,"Cancel preserves the frozen Text target and Session for "+field);
+
+        bool stale_failed=false,stale_canceled=false;const auto stale_target=session.document().objects.at("text-string-target");
+        const auto stale_revision=session.revision();
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-string-source-picker");
+            auto* search=dialog?dialog->findChild<QLineEdit*>("text-string-source-picker-search"):nullptr;
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-string-source-picker-list"):nullptr;
+            auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-string-source-picker-status"):nullptr;
+            if(!dialog||!search||!list||!buttons||!status)return;
+            QListWidgetItem* row=nullptr;
+            for(int j=0;j<list->count();++j) {
+                const auto ref=QJsonDocument::fromJson(list->item(j)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-string-source"&&ref.value("field").toString()==QString::fromStdString(field))row=list->item(j);
+            }
+            if(!row)return;
+            search->setText((QStringLiteral("TEXT-STRING-SOURCE / ")+QString::fromStdString(field)).toUpper());
+            list->setCurrentItem(row);QApplication::processEvents();
+            check(session.document().objects.contains("text-string-backup"),"Stale revision fixture object remains in the document");
+            auto changed=*(session.document().objects.at("text-string-backup").text);changed.family+=" changed";
+            session.apply({UpdateText{"text-string-backup",changed}},session.revision());window.host.edited();QApplication::processEvents();
+            buttons->button(QDialogButtonBox::Apply)->click();
+            stale_failed=dialog->isVisible()&&status->text().contains("changed while the source chooser was open")&&
+                session.revision()==stale_revision+1&&session.document().objects.at("text-string-target")==stale_target;
+            QPointer<QDialog> safe_dialog(dialog);buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+            stale_canceled=(!safe_dialog||!safe_dialog->isVisible())&&session.document().objects.at("text-string-target")==stale_target&&
+                window.canvas->selected_object=="text-string-target";
+        });
+        open()->trigger();QApplication::processEvents();
+        check(stale_failed,"Stale Text source Apply stays open with a visible error for "+field);
+        check(stale_canceled,"Cancel after a stale Text source draft preserves authored target state for "+field);
+
+        auto outcome=choose_text_source(window,visible_child<QToolButton>(window,fields[i].driver),source_refs[i],"Friendly String Source",true);
+        check(outcome.opened&&outcome.friendly_search&&outcome.stable_path_search&&outcome.browsed&&outcome.context_changed&&outcome.applied&&
+            outcome.restored_selection&&outcome.inspector_visible,
+            "Text source chooser supports friendly and case-insensitive stable Ref search for "+field+" [open="+std::to_string(outcome.opened)+
+                " friendly="+std::to_string(outcome.friendly_search)+" path="+std::to_string(outcome.stable_path_search)+
+                " browsed="+std::to_string(outcome.browsed)+" changed="+std::to_string(outcome.context_changed)+
+                " applied="+std::to_string(outcome.applied)+" restored="+std::to_string(outcome.restored_selection)+
+                " inspector="+std::to_string(outcome.inspector_visible)+"]");
+        const auto& linked=*session.document().objects.at("text-string-target").text;
+        bool exact_driver=false;std::string evaluated;
+        if(typed=="content"){exact_driver=linked.content_driver&&linked.content_driver->link==source_refs[i];evaluated=evaluate_text_content(session.document(),"text-string-target");}
+        else if(typed=="family"){exact_driver=linked.family_driver&&linked.family_driver->link==source_refs[i];evaluated=evaluate_text_family(session.document(),"text-string-target");}
+        else {exact_driver=linked.locale_driver&&linked.locale_driver->link==source_refs[i];evaluated=evaluate_text_locale(session.document(),"text-string-target");}
+        const auto expected=typed=="content"?std::string("Linked content"):typed=="family"?std::string("Linked family"):std::string("fr-FR");
+        check(exact_driver&&evaluated==expected&&session.revision()==stale_revision+2&&window.canvas->selected_object=="text-string-target",
+            "Apply links the exact frozen Text target in one revision and restores its context for "+field);
+        session.undo(session.revision());window.host.edited();QApplication::processEvents();
+        check(session.document().objects.at("text-string-target")==stale_target,
+            "Undo removes only the staged Text string link for "+field);
+    }
+}
 void single_operation_enabled_source(Window& window) {
     auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
     Point target_point,source_point,alternate_point;target_point.id="single-target-point";source_point.id="single-source-point";
@@ -2265,13 +2427,11 @@ void text_authoring(Window& window) {
     locale_driver_button=visible_child<QToolButton>(window,"text-locale-driver");locale_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
     check(session.document().objects.at(id).text->locale=="fr-FR"&&session.revision()==locale_initial_revision+1,
         "Applying a staged Text locale commits one shared Session revision");
-    bool chose_locale_source=false;
-    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget))
-        if(auto* combo=dialog->findChild<QComboBox*>()) {
-            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
-            dialog->accept();chose_locale_source=true;return;
-        }});
-    locale_driver_button=visible_child<QToolButton>(window,"text-locale-driver");locale_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    locale_driver_button=visible_child<QToolButton>(window,"text-locale-driver");
+    const auto locale_pick=choose_text_source(window,locale_driver_button,{source_id,"","text.locale"},QString::fromStdString(source_name));
+    check(locale_pick.restored_selection&&locale_pick.inspector_visible,
+        "Locale source Apply restores the target selection and rebuilds its Inspector");
+    const bool chose_locale_source=locale_pick.opened&&locale_pick.friendly_search&&locale_pick.stable_path_search&&locale_pick.browsed&&locale_pick.applied;
     check(chose_locale_source&&session.document().objects.at(id).text->locale=="fr-FR"&&
         session.document().objects.at(id).text->locale_driver->link==Ref{source_id,"","text.locale"}&&
         evaluate_text_locale(session.document(),id)=="ar-SA"&&
@@ -2313,29 +2473,24 @@ void text_authoring(Window& window) {
     visible_child<QToolButton>(window,"text-locale-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
     check(!session.document().objects.at(id).text->locale_driver&&session.document().objects.at(id).text->locale=="en-GB"&&
         session.revision()==linked_locale_revision+2,"Text locale unlink and edit commit as one atomic Session revision");
-    auto* locale_menu_button=visible_child<QToolButton>(window,"text-locale-driver");bool chose_locale_source_again=false;
-    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget))
-        if(auto* combo=dialog->findChild<QComboBox*>()) {
-            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
-            dialog->accept();chose_locale_source_again=true;return;
-        }});
-    locale_menu_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    auto* locale_menu_button=visible_child<QToolButton>(window,"text-locale-driver");
+    const auto locale_pick_again=choose_text_source(window,locale_menu_button,{source_id,"","text.locale"},QString::fromStdString(source_name));
+    check(locale_pick_again.restored_selection&&locale_pick_again.inspector_visible,
+        "Locale source Apply after unlink restores the target selection and Inspector");
+    const bool chose_locale_source_again=locale_pick_again.applied;
     locale_menu_button=visible_child<QToolButton>(window,"text-locale-driver");locale_menu_button->menu()->actions().at(2)->trigger();QApplication::processEvents();
     auto changed_locale_source=*session.document().objects.at(source_id).text;changed_locale_source.locale="ar-SA";
     session.apply({UpdateText{source_id,changed_locale_source}},session.revision());window.host.edited();QApplication::processEvents();
     check(chose_locale_source_again&&!session.document().objects.at(id).text->locale_driver&&
         session.document().objects.at(id).text->locale=="ja-JP",
         "Unlink locale freezes the evaluated value while later source changes leave it unchanged");
-    auto* family_driver=visible_child<QToolButton>(window,"text-family-driver");bool chose_family_source=false;
+    auto* family_driver=visible_child<QToolButton>(window,"text-family-driver");
     check(visible_child<QComboBox>(window,"text-family")->isEnabled()&&family_driver->menu()->actions().size()==2,
         "Text family Inspector exposes a literal control and link/edit menu");
-    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
-        if(auto* combo=dialog->findChild<QComboBox*>()) {
-            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
-            dialog->accept();chose_family_source=true;return;
-        }
-    }});
-    family_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    const auto family_pick=choose_text_source(window,family_driver,{source_id,"","text.family"},QString::fromStdString(source_name));
+    check(family_pick.restored_selection&&family_pick.inspector_visible,
+        "Family source Apply restores the target selection and Inspector");
+    const bool chose_family_source=family_pick.opened&&family_pick.friendly_search&&family_pick.stable_path_search&&family_pick.browsed&&family_pick.applied;
     check(chose_family_source&&session.document().objects.at(id).text->family==original_family.toStdString()&&
         session.document().objects.at(id).text->family_driver->link==Ref{source_id,"","text.family"}&&
         evaluate_text_family(session.document(),id)=="Linked Family A"&&
@@ -2410,14 +2565,11 @@ void text_authoring(Window& window) {
         "Inspector unlink freezes the evaluated weight and restores its literal editor");
     auto content_source=*session.document().objects.at(source_id).text;content_source.content="Linked source content";
     session.apply({UpdateText{source_id,content_source}},session.revision());window.host.edited();QApplication::processEvents();
-    auto* content_driver=visible_child<QToolButton>(window,"text-content-driver");bool chose_content_source=false;
-    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
-        if(auto* combo=dialog->findChild<QComboBox*>()) {
-            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
-            dialog->accept();chose_content_source=true;return;
-        }
-    }});
-    content_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    auto* content_driver=visible_child<QToolButton>(window,"text-content-driver");
+    const auto content_pick=choose_text_source(window,content_driver,{source_id,"","text.content"},QString::fromStdString(source_name));
+    check(content_pick.restored_selection&&content_pick.inspector_visible,
+        "Content source Apply restores the target selection and Inspector");
+    const bool chose_content_source=content_pick.opened&&content_pick.friendly_search&&content_pick.stable_path_search&&content_pick.browsed&&content_pick.applied;
     check(chose_content_source&&session.document().objects.at(id).text->content=="External edit"&&
         session.document().objects.at(id).text->content_driver->link==Ref{source_id,"","text.content"}&&
         evaluate_text_content(session.document(),id)=="Linked source content"&&
@@ -2778,7 +2930,10 @@ int main(int argc,char** argv) {
             single_operation_enabled_source(enabled_links);point_edit_enabled_source(enabled_links);enabled_links.hide();}
         Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
         gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
-        boards.hide();Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);
+        boards.hide();
+        Window text_sources(temp.path()+"/text-string-sources");text_sources.show();QApplication::processEvents();
+        text_string_source_picker_contract(text_sources);text_sources.hide();
+        Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);
         texts.hide();Window path_text(temp.path()+"/text-path");path_text.show();QApplication::processEvents();text_path_authoring(path_text);
         path_text.hide();Window layout(temp.path()+"/layout");layout.show();QApplication::processEvents();
         auto& layout_session=layout.host.session;const auto layout_comp=layout_session.document().compositions.front().id;
