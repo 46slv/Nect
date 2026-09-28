@@ -2549,11 +2549,42 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     link_layout->setEnabled(!layout_source_ids.empty());const bool replace_layout_driver=layout_state.driver.has_value();
     connect(link_layout,&QAction::triggered,this,[this,id,frozen_session,layout_revision,replace_layout_driver,layout_source_ids,layout_source_labels]{
-        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text sizing","Source Text",layout_source_labels,0,false,&accepted);
-        if(!accepted)return;
-        const auto index=layout_source_labels.indexOf(choice);if(index<0)return;
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({LinkTextLayout{{id,"","text.layout"},{layout_source_ids.at(static_cast<std::size_t>(index)),"","text.layout"},replace_layout_driver}},layout_revision);host.edited();});
+        QDialog dialog(this);dialog.setObjectName("text-layout-source-dialog");dialog.setWindowTitle("Link Text sizing");
+        auto* layout=new QVBoxLayout(&dialog);
+        auto* search=new QLineEdit(&dialog);search->setObjectName("text-layout-source-search");
+        search->setPlaceholderText("Search Text name, object ID or text.layout");layout->addWidget(search);
+        auto* source=new QComboBox(&dialog);source->setObjectName("text-layout-source");
+        for(int i=0;i<layout_source_labels.size();++i)source->addItem(layout_source_labels.at(i),i);
+        source->setCurrentIndex(-1);layout->addWidget(source);
+        auto* status=new QLabel("Choose a visible Text sizing source. Cancel keeps the current driver.",&dialog);
+        status->setObjectName("text-layout-source-status");status->setWordWrap(true);layout->addWidget(status);
+        connect(search,&QLineEdit::textChanged,&dialog,[source,layout_source_labels,layout_source_ids](const QString& query){
+            const int selected=source->currentIndex()<0?-1:source->currentData().toInt();
+            const QSignalBlocker blocker(source);source->clear();
+            for(int i=0;i<layout_source_labels.size();++i){
+                const auto path=qs(layout_source_ids.at(static_cast<std::size_t>(i)))+" / text.layout";
+                if(layout_source_labels.at(i).contains(query,Qt::CaseInsensitive)||path.contains(query,Qt::CaseInsensitive))
+                    source->addItem(layout_source_labels.at(i),i);
+            }
+            source->setCurrentIndex(selected<0?-1:source->findData(selected));
+        });
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
+        connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
+            [this,&dialog,id,frozen_session,layout_revision,replace_layout_driver,layout_source_ids,source,status]{
+                try {
+                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                    if(host.session.revision()!=layout_revision)throw Error("STALE_CONTEXT","Text changed while the source chooser was open; reopen it");
+                    if(source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a visible Text sizing source");
+                    const int index=source->currentData().toInt();
+                    if(index<0||static_cast<std::size_t>(index)>=layout_source_ids.size())
+                        throw Error("MISSING_REFERENCE","Choose a valid Text sizing source");
+                    host.session.apply({LinkTextLayout{{id,"","text.layout"},
+                        {layout_source_ids.at(static_cast<std::size_t>(index)),"","text.layout"},replace_layout_driver}},layout_revision);
+                    host.edited();dialog.accept();
+                } catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+            });
+        dialog.exec();
     });
     connect(unlink_layout,&QAction::triggered,this,[this,frozen_session,layout_revision,layout_ref]{
         perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");

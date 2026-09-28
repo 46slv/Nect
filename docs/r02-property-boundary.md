@@ -454,6 +454,16 @@ This is an implementation audit, not R02/P03 or Requirement acceptance. The owne
 
 **Local result (2026-09-28):** The Text direction chooser now searches friendly labels and exact stable ID/field paths, retains a selection only while it remains visible, and applies the existing typed Session command against captured target, Session and revision. The focused Release `window_interaction` contract passed **1/1**. It covers a selected source hidden by filtering, error without authored mutation, case-insensitive exact path search, target selection change during the chooser, same-field link and existing downstream edit/Undo behavior. This is offscreen Qt evidence; hands-on GUI, other Text source dialogs and whole R02/P03/Requirement acceptance remain open.
 
+## R02-TEXT-LAYOUT-SOURCE-01 — exact sizing source selection (frozen 2026-09-28)
+
+**Entry and scope:** Clean synchronized `codex/practical-alpha@607fc6f72337ff59b5132c67379d00c6c7e281a7`, native 0.32. Replace only the Text sizing source list with a searchable chooser. It retains the exact target `Ref{Text ID,"","text.layout"}` and existing `LinkTextLayout` Session command, `auto`/`frame` value domain, revision rules and authored/native representation.
+
+**Positive oracle:** Search by friendly Text name or case-insensitive stable `object ID / text.layout`, select a visible source, change browsing selection, then Apply. One Session revision links the original target to the exact source ID. Existing evaluation, source edits, unlink freeze and Undo/Redo continue to use the typed layout contract.
+
+**Negative oracle:** A selection removed by filtering, Cancel, stale revision/session or invalid link must not mutate the target's authored literal or prior driver. A failed Apply remains visible with an error, so the user can correct or cancel. Offscreen Window evidence does not satisfy hands-on GUI acceptance.
+
+**Local result (2026-09-28):** The sizing chooser now searches labels and stable ID/field paths and rejects a source filtered out before Apply. It sends the unchanged typed `LinkTextLayout` to Session with the captured target and expected revision. The focused Release `window_interaction` contract passed **1/1**, including failed draft atomicity, case-insensitive stable path selection, browsing selection change, evaluated layout, source change and staged unlink behavior. Hands-on GUI, other Text source lists and whole R02/P03/Requirement acceptance remain open.
+
 ## R02-OBJECT-VISIBLE-READ-01 — authored visibility discovery (frozen 2026-09-28)
 
 **Entry and scope:** Clean local/tracking/fresh remote `codex/practical-alpha@daa667bc8ede00cdee51bb24f4fc274a4422f769`, native 0.26. A verified successor `TAKEOVER_ACK` and predecessor `SINGLE_WRITER_RELEASE` transfer one writer. This packet exposes the existing `Object.visible` literal as one typed boolean read. It adds no dependency, expression, native field, command or effective hierarchy projection.

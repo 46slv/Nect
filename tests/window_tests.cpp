@@ -2084,13 +2084,36 @@ void text_authoring(Window& window) {
     auto* layout_driver_button=visible_child<QToolButton>(window,"text-layout-driver");bool chose_layout_source=false;
     check(!visible_child<QComboBox>(window,"text-layout")->isEnabled()&&layout_driver_button->menu()->actions().size()==3,
         "Text sizing Inspector exposes a staged enum display and explicit edit/link/unlink menu");
-    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
-        if(auto* combo=dialog->findChild<QComboBox*>()) {
-            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
-            dialog->accept();chose_layout_source=true;return;
-        }
-    }});
+    const auto layout_before=session.document().objects.at(id);const auto layout_revision_before=session.revision();
+    bool rejected_layout_draft=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-source-dialog");if(!dialog)return;
+        auto* search=dialog->findChild<QLineEdit*>("text-layout-source-search");
+        auto* combo=dialog->findChild<QComboBox*>("text-layout-source");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!search||!combo||!buttons)return;
+        combo->setCurrentIndex(0);search->setText("no matching stable ref");
+        buttons->button(QDialogButtonBox::Apply)->click();
+        rejected_layout_draft=dialog->isVisible()&&combo->currentIndex()<0&&
+            dialog->findChild<QLabel*>("text-layout-source-status")->text().contains("visible Text sizing source");
+        dialog->reject();
+    });
     layout_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(rejected_layout_draft&&session.revision()==layout_revision_before&&session.document().objects.at(id)==layout_before,
+        "Hidden Text sizing source rejects without changing authored state");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-source-dialog");if(!dialog)return;
+        auto* search=dialog->findChild<QLineEdit*>("text-layout-source-search");
+        auto* combo=dialog->findChild<QComboBox*>("text-layout-source");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!search||!combo||!buttons)return;
+        search->setText(QString::fromStdString(source_id).toUpper()+" / TEXT.LAYOUT");
+        if(combo->count()!=1||combo->itemData(0).toInt()!=0)return;
+        combo->setCurrentIndex(0);window.canvas->set_selection(source_id,"");
+        buttons->button(QDialogButtonBox::Apply)->click();chose_layout_source=true;
+    });
+    layout_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    window.canvas->set_selection(id,"");window.host.edited();QApplication::processEvents();
     check(chose_layout_source&&session.document().objects.at(id).text->layout=="frame"&&
         session.document().objects.at(id).text->layout_driver->link==Ref{source_id,"","text.layout"}&&
         evaluate_text_layout(session.document(),id)=="auto"&&
