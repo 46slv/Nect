@@ -196,17 +196,23 @@ void point_edit_save_as(const QString& directory) {
     const auto composition=host.session.document().compositions.front().id;
     const Id object_id="save-as-circle",source_id="save-as-circle-source";
     const Ref east_x{object_id,source_id+"-east","x"};
+    const Ref east_handle{object_id,source_id+"-east","out.length"};
     const Ref enabled{object_id,"","point_edit.enabled"};
     host.session.apply({CreatePrimitive{composition,"",object_id,"Circle",default_primitive(source_id,"nect.shape.circle")}},
                        host.session.revision());host.edited();
     const auto generated_x=evaluate(host.session.document()).at(east_x);
+    const auto generated_handle=evaluate(host.session.document()).at(east_handle);
     const auto corrected_x=generated_x+24;
-    host.session.apply({Set{east_x,corrected_x},EnablePointEdit{object_id,false}},host.session.revision());host.edited();
+    const auto formula="ref(\"save-as-circle\",\"\",\"generator.radius\")*0.5";
+    host.session.apply({Set{east_x,corrected_x},SetExpression{{east_handle},{formula,1},false},
+        EnablePointEdit{object_id,false}},host.session.revision());host.edited();
     const auto committed=host.session.document();
     const auto correction=*committed.objects.at(object_id).point_edit;
     check(!correction.enabled&&correction.overrides.at(east_x.point).at("x").literal==corrected_x&&
-          evaluate(committed).at(east_x)==generated_x&&!point_edit_enabled_property(committed,enabled),
-          "Disabled correction retains its authored override and evaluates generator fallback");
+          correction.overrides.at(east_handle.point).at(east_handle.field).expression->source==formula&&
+          evaluate(committed).at(east_x)==generated_x&&evaluate(committed).at(east_handle)==generated_handle&&
+          !point_edit_enabled_property(committed,enabled),
+          "Disabled correction retains literal and expression overrides while evaluating generator fallback");
     const auto original=directory+"/point-edit-source.nect";
     host.save(original);host.recover();
     const auto original_bytes=bytes(original),committed_bytes=QByteArray::fromStdString(encode(committed));
@@ -230,8 +236,10 @@ void point_edit_save_as(const QString& directory) {
           bytes(original)==original_bytes&&saved==committed&&saved_object.source->id==source_id&&
           saved_object.point_edit->id==correction.id&&
           saved_object.point_edit->overrides.at(east_x.point).at("x").literal==corrected_x&&
-          !point_edit_enabled_property(saved,enabled)&&evaluate(saved).at(east_x)==generated_x,
-          "Save As preserves source, correction identity, override, bypass and generated fallback");
+          saved_object.point_edit->overrides.at(east_handle.point).at(east_handle.field).expression->source==formula&&
+          !point_edit_enabled_property(saved,enabled)&&evaluate(saved).at(east_x)==generated_x&&
+          evaluate(saved).at(east_handle)==generated_handle,
+          "Save As preserves source, correction identity, literal/expression overrides, bypass and generated fallback");
     const auto meta_path=directory+"/point-edit-recovery/"+host.session_id+".recovery.json";
     check(QJsonDocument::fromJson(bytes(meta_path)).object()["source_file"]==native_path(destination)&&
           host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(revision),
@@ -243,9 +251,11 @@ void point_edit_save_as(const QString& directory) {
           "Cold destination reopen retains authored correction and generator fallback");
     reopened.session.apply({EnablePointEdit{object_id,true}},reopened.session.revision());
     check(evaluate(reopened.session.document()).at(east_x)==corrected_x&&
+          evaluate(reopened.session.document()).at(east_handle)==
+              evaluate(reopened.session.document()).at({object_id,"","generator.radius"})*0.5&&
           reopened.session.document().objects.at(object_id).point_edit->id==correction.id&&
           bytes(destination)==destination_bytes,
-          "Re-enable after cold reopen restores the same authored point override without changing saved bytes");
+          "Re-enable after cold reopen restores literal and expression point overrides without changing saved bytes");
 }
 void linked_point_edit_save_as(const QString& directory) {
     Host host(directory+"/linked-point-edit-recovery");
