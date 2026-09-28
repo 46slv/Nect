@@ -1,4 +1,4 @@
-# Nect — autonomous Mission ownership / R02 layout dependencies
+# Nect — autonomous Mission ownership / R02 typed property coverage
 
 ## Mission Brief
 
@@ -12,20 +12,20 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Implement and qualify the bounded `R02-GRID-Y-EXPRESSION-01` cell selected by the current authored type matrix, preserving the existing Grid y link and native source semantics.
+**Goal:** Qualify the existing expression path for authored and generated Point/handle Scalars across the R02/P03 surfaces, then freeze the smallest concrete residual.
 
-**Current phase:** The `R02-TYPED-PARAMETER-MATRIX-01` source and CLI/native inventory is recorded in [r02-typed-parameter-matrix.md](docs/r02-typed-parameter-matrix.md). The next bounded eligible cell is Grid y expression. Hands-on GUI rows remain `LOCAL_WAIT`.
+**Current phase:** `R02-GRID-Y-EXPRESSION-01` is implemented and synchronized at `b660bdf1560942963cee2cc82adf6ed62f8dc40c`, with native writer 0.40. The next independent R02 edge is [R02-POINT-HANDLE-EXPRESSION-SURFACE-01](docs/r02-property-boundary.md), a qualification of REQ-3's Point/handle subset. Hands-on GUI rows remain `LOCAL_WAIT`.
 
-**Proven:** [R02 property boundary](docs/r02-property-boundary.md) records Grid x, Margin left, source-search and Grid y results. Grid y at `39c4ae651c66e9968e7ebe6e4401117b5651b2ab` passed focused serial Release **7/7** and full serial CTest **43/43**; native 0.39 accepted the linked record and rejected a 0.38 version lie. At takeover, clean local/remote HEAD `97196f573b2a7d8be4ad9fbcb01b0c45d9d87f0c` and single-writer ACK/release were verified. The matrix distinguishes every `properties` family from structural authored, derived and one-shot values. Representative current CLI/native reads confirmed Text enum, Guide link/name resolution, Color channel expressions and Grid y link. No hands-on GUI acceptance is claimed.
+**Proven:** [R02 type matrix](docs/r02-typed-parameter-matrix.md) covers current authored families and Grid y expression's exact contract/result. Reviewed source, full Release build and serial CTest **43/43 PASS**, Host Save As/destination bytes/cold reopen, separate JSON-lines, desktop MCP and offscreen Inspector passed. Native 0.40 schema accepted the expression and rejected 0.39 lie and simultaneous link/expression; literal 0.39 remains readable. Commit `b660bdf1560942963cee2cc82adf6ed62f8dc40c` matches fresh remote and the tree was clean before this checkpoint update. Scratch CLI showed generated Circle `x` and `out.length` accept retained Point Edit Scalar expressions and native `inspect` preserves exact source text. No hands-on GUI acceptance is claimed.
 
-**Next task:** Implement the frozen `R02-GRID-Y-EXPRESSION-01` packet in the matrix, review the candidate against its positive/negative oracle, run focused and version-bump regression, reconcile native/API/offscreen GUI evidence, then synchronize a coherent checkpoint. Keep REQ-3/4/42/199 residuals explicit.
+**Next task:** Execute the revision-1 Point/handle qualification packet in `docs/r02-property-boundary.md`: compare generated and authored Point/handle Scalar command/read/Inspector paths, verify representative negative atomicity, Save As/cold reopen and desktop MCP without replaying Grid y acceptance. Freeze one reproducible fix only if a real gap appears; keep REQ-3/4/42/199 residuals explicit.
 
-**Approach:** Reuse the existing Grid x/Margin left bounded `du` expression patterns while keeping Grid y's Artboard-local containment and stable Grid ID. Add only its dedicated command, evaluator/codec/Inspector path and focused oracles; avoid a second property store or unrelated type coercion.
+**Approach:** Use the current `Scalar`/`PointEdit` owner and `SetExpression` path. Test a generated Circle east `x` and `out.length` alongside an ordinary authored Point; retain generator identity and separate bypass from source deletion. Prefer qualification and a focused repair over new generic property architecture.
 
-**Done for next:** Reviewed source, focused positive/negative and full version-bump regression, native old-version rejection and cold reopen, exact branch/remote readback, and a fresh next Route edge without closing unsupported Requirement rows.
+**Done for next:** Source-backed surface/evidence table for Point and handle expressions, positive and negative real-path readback, one bounded gap or an explicit verified subset, synchronized checkpoint, and the next eligible Route action without closing unsupported Requirement rows.
 
-**State:** Repository D:\Documents\Nect, branch `codex/practical-alpha`, native writer 0.39 at the matrix entry. Takeover local/remote HEAD `97196f573b2a7d8be4ad9fbcb01b0c45d9d87f0c` was clean; this file and the matrix form the next semantic checkpoint, whose final SHA must be read back after commit/push. This Task is the sole Mission writer. The ignored local build directory uses `/EHsc /bigobj` for the current VS2019/Boost build.
+**State:** Repository D:\Documents\Nect, branch `codex/practical-alpha`, native writer 0.40. Grid y implementation local/remote HEAD `b660bdf1560942963cee2cc82adf6ed62f8dc40c` was clean before this checkpoint update. Read back this checkpoint's final SHA after commit/push. This Task remains the sole Mission writer until successor ACK and explicit release. The ignored local build directory uses `/EHsc /bigobj` for the current VS2019/Boost build.
 
 **Authority:** Current user instruction and DEC-71 authorize Mission continuity, technical decisions within accepted intent, reversible implementation and non-force branch sync. Completion Route R02/P03 and Confirmed Requirements govern scope. Major structure/save redesign, external dependencies, executable extensions, hands-on/subjective acceptance and destructive/public action remain protected.
 
-**Handoff:** CONTINUE_CURRENT_TASK. The Grid y expression packet is adjacent to the just-audited matrix and existing Grid implementation; the current context is useful for review.
+**Handoff:** NEW_TASK. The completed native/API/Host version-bump review occupies this context, while the next Point/handle surface audit is an independent domain; a fresh Sol context is cheaper to load from the compact Brief and exact HEAD. Transfer one writer only after successor TAKEOVER_ACK and explicit release.
