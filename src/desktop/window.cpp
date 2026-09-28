@@ -1980,23 +1980,25 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
         });
         auto* link=menu->addAction(state.driver?"Replace visibility link…":"Link visibility…");
         auto* unlink=menu->addAction("Unlink and freeze evaluated visibility");unlink->setEnabled(state.driver.has_value());
-        std::vector<Id> source_ids;QStringList source_labels;
+        std::vector<Ref> source_refs;QStringList source_labels;
         const auto& composition=find_composition(host.session.document(),canvas->active_composition());
         std::function<void(const Id&)> append=[&](const Id& source_id) {
             const auto& source=host.session.document().objects.at(source_id);
-            if(source_id!=target){source_ids.push_back(source_id);source_labels<<qs(source.name)+" — "+qs(source_id);}
+            if(source_id!=target){source_refs.push_back({source_id,"","object.visible"});source_labels<<qs(source.name)+" — "+qs(source_id);}
             for(const auto& child:source.children)append(child);
         };
         for(const auto& root:composition.roots)append(root);
-        link->setEnabled(!source_ids.empty());
-        connect(link,&QAction::triggered,this,[this,target,session,visibility_revision,source_ids,source_labels,
+        link->setEnabled(!source_refs.empty());
+        connect(link,&QAction::triggered,this,[this,target,session,visibility_revision,source_refs,source_labels,
             replace=state.driver.has_value(),apply_visibility]{
-            bool accepted=false;const auto choice=QInputDialog::getItem(this,replace?"Replace Object visibility link":"Link Object visibility",
-                "Source Object",source_labels,0,false,&accepted);
-            if(!accepted)return;const auto index=source_labels.indexOf(choice);if(index<0)return;
-            perform([&]{if(host.session_id!=session)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
+            choose_boolean_source(this,"object-visible-source-dialog",
+                replace?"Replace Object visibility link":"Link Object visibility",
+                qs(target)+" / object.visible",source_refs,source_labels,
+                [this,target,session,visibility_revision,replace,apply_visibility](const Ref& source) {
+                if(host.session_id!=session)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
                 if(host.session.revision()!=visibility_revision)throw Error("REVISION_CONFLICT","Object visibility changed while the source chooser was open");
-                apply_visibility(LinkObjectVisibility{{target,"","object.visible"},{source_ids.at(static_cast<std::size_t>(index)),"","object.visible"},replace});});
+                apply_visibility(LinkObjectVisibility{{target,"","object.visible"},source,replace});
+            });
         });
         connect(unlink,&QAction::triggered,this,[this,target,session,visibility_revision,apply_visibility]{perform([&]{
             if(host.session_id!=session)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
@@ -2031,25 +2033,23 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     const auto unlink_isolation=isolation_menu->addAction("Unlink and freeze evaluated isolation");
     unlink_isolation->setEnabled(isolation_state.driver.has_value());
     const auto& composition=find_composition(host.session.document(),canvas->active_composition());
-    std::vector<Id> isolation_sources;QStringList isolation_source_labels;
+    std::vector<Ref> isolation_sources;QStringList isolation_source_labels;
     std::function<void(const Id&)> append_isolation_source=[&](const Id& source_id) {
         const auto& source=host.session.document().objects.at(source_id);
-        if(source_id!=id) {isolation_sources.push_back(source_id);isolation_source_labels<<qs(source.name)+" — "+qs(source_id);}
+        if(source_id!=id) {isolation_sources.push_back({source_id,"","composite.isolated"});isolation_source_labels<<qs(source.name)+" — "+qs(source_id);}
         for(const auto& child:source.children)append_isolation_source(child);
     };
     for(const auto& root:composition.roots)append_isolation_source(root);
     link_isolation->setEnabled(!isolation_sources.empty());
     connect(link_isolation,&QAction::triggered,this,[this,id,session,isolation_revision,isolation_sources,
         isolation_source_labels,replace=isolation_state.driver.has_value(),apply] {
-        bool accepted=false;const auto choice=QInputDialog::getItem(this,
+        choose_boolean_source(this,"object-isolated-source-dialog",
             replace?"Replace Composite isolation link":"Link Composite isolation",
-            "Source Object",isolation_source_labels,0,false,&accepted);
-        if(!accepted)return;const auto index=isolation_source_labels.indexOf(choice);if(index<0)return;
-        perform([&]{
+            qs(id)+" / composite.isolated",isolation_sources,isolation_source_labels,
+            [this,id,session,isolation_revision,replace,apply](const Ref& source) {
             if(host.session_id!=session)throw Error("SESSION_CONFLICT","Composite isolation belongs to another document");
             if(host.session.revision()!=isolation_revision)throw Error("REVISION_CONFLICT","Composite isolation changed while the source chooser was open");
-            apply(LinkCompositeIsolated{{id,"","composite.isolated"},
-                {isolation_sources.at(static_cast<std::size_t>(index)),"","composite.isolated"},replace});
+            apply(LinkCompositeIsolated{{id,"","composite.isolated"},source,replace});
         });
     });
     connect(unlink_isolation,&QAction::triggered,this,[this,id,session,isolation_revision,apply] {perform([&]{

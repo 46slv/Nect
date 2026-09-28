@@ -2,8 +2,11 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QPushButton>
 #include <QStatusBar>
@@ -17,6 +20,25 @@ using namespace nect::desktop;
 namespace {
 void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 template<class T>T* widget(Window& w,const char* name){QApplication::processEvents();for(auto* p:w.findChildren<T*>())if(p->isVisible()&&p->objectName()==name)return p;throw std::runtime_error(std::string("Missing ")+name);}
+void reject_empty_hidden_source(Window& w,QToolButton* driver,const char* name,const Ref& source){
+    auto& session=w.host.session;const auto before=session.document();const auto revision=session.revision();
+    bool empty=false,hidden=false,canceled=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>(name);
+        auto* search=dialog?dialog->findChild<QLineEdit*>(QString(name)+"-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>(QString(name)+"-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        buttons->button(QDialogButtonBox::Apply)->click();empty=dialog->isVisible()&&combo->currentIndex()<0;
+        search->setText(QString::fromStdString(source.object+" / "+source.field));combo->setCurrentIndex(0);
+        search->setText("no such source");buttons->button(QDialogButtonBox::Apply)->click();
+        hidden=dialog->isVisible()&&combo->count()==0&&combo->currentIndex()<0;
+        buttons->button(QDialogButtonBox::Cancel)->click();canceled=!dialog->isVisible();
+    });
+    driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(empty&&hidden&&canceled&&session.revision()==revision&&session.document()==before,
+        "Boolean chooser rejects empty/hidden sources and Cancel without authored mutation");
+}
 void context(Window& w,const QString& prefix){bool chosen=false;QTimer::singleShot(0,[&]{auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;for(auto* a:menu->actions())if(a->text().startsWith(prefix)&&a->isEnabled()){chosen=true;menu->setActiveAction(a);QTest::keyClick(menu,Qt::Key_Return);return;}menu->close();});
     QMetaObject::invokeMethod(w.canvas,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,QPoint(250,250)));QApplication::processEvents();check(chosen,"Context action is discoverable and enabled");}
 void controls(){
@@ -54,16 +76,40 @@ void visibility_inspector(){
     auto* link_button=widget<QToolButton>(w,"object-visible-driver");
     check(widget<QCheckBox>(w,"object-visible")->isChecked()&&widget<QCheckBox>(w,"object-visible")->isEnabled(),
         "Visibility Inspector starts from the authored literal");
-    bool picked=false;QTimer chooser;chooser.setInterval(0);
-    QObject::connect(&chooser,&QTimer::timeout,&w,[&]{
-        for(auto* top:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(top)) {
-            if(auto* combo=dialog->findChild<QComboBox*>();combo&&combo->count()) {
-                for(int i=0;i<combo->count();++i)if(combo->itemText(i).contains("source")){combo->setCurrentIndex(i);picked=true;break;}
-            }
-            dialog->accept();chooser.stop();return;
-        }
+    const Ref visibility_source{"source","","object.visible"};
+    reject_empty_hidden_source(w,link_button,"object-visible-source-dialog",visibility_source);
+    link_button=widget<QToolButton>(w,"object-visible-driver");
+    bool stale=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("object-visible-source-dialog");
+        auto* combo=dialog?dialog->findChild<QComboBox*>("object-visible-source-dialog-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("object-visible-source-dialog-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!combo||!status||!buttons)return;
+        combo->setCurrentIndex(0);session.apply({SetVisibility{"source",true}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        stale=dialog->isVisible()&&status->text().contains("REVISION_CONFLICT")&&
+            !object_visibility_state(session.document(),{"target","","object.visible"}).driver;
+        buttons->button(QDialogButtonBox::Cancel)->click();
     });
-    chooser.start();
+    link_button->menu()->actions().front()->trigger();w.host.edited();QApplication::processEvents();
+    check(stale,"Visibility chooser rejects a stale draft without linking the target");
+    session.apply({SetVisibility{"source",false}},session.revision());w.host.edited();
+    link_button=widget<QToolButton>(w,"object-visible-driver");
+    bool picked=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("object-visible-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("object-visible-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("object-visible-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        search->setText("SOURCE / OBJECT.VISIBLE");
+        if(combo->count()==1&&combo->itemText(0).contains("object.visible")) {
+            combo->setCurrentIndex(0);w.canvas->set_selection("source");QApplication::processEvents();
+            buttons->button(QDialogButtonBox::Apply)->click();picked=true;
+            w.canvas->set_selection("target");QApplication::processEvents();
+        } else dialog->reject();
+    });
     link_button->menu()->actions().front()->trigger();QApplication::processEvents();
     const auto linked=object_visibility_state(session.document(),{"target","","object.visible"});
     check(picked&&linked.literal&&linked.driver==Ref{"source","","object.visible"}&&!linked.evaluated,
@@ -93,16 +139,40 @@ void isolation_inspector(){
     const Ref target{"target","","composite.isolated"},source{"source","","composite.isolated"};
     auto* isolation=widget<QCheckBox>(w,"object-isolated");
     check(!isolation->isChecked()&&isolation->isEnabled(),"Isolation Inspector starts from the authored literal");
-    auto* driver=widget<QToolButton>(w,"object-isolated-driver");bool picked=false;QTimer chooser;chooser.setInterval(0);
-    QObject::connect(&chooser,&QTimer::timeout,&w,[&]{
-        for(auto* top:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(top)) {
-            if(auto* combo=dialog->findChild<QComboBox*>();combo&&combo->count()) {
-                for(int i=0;i<combo->count();++i)if(combo->itemText(i).contains("source")){combo->setCurrentIndex(i);picked=true;break;}
-            }
-            dialog->accept();chooser.stop();return;
-        }
+    auto* driver=widget<QToolButton>(w,"object-isolated-driver");
+    reject_empty_hidden_source(w,driver,"object-isolated-source-dialog",source);
+    driver=widget<QToolButton>(w,"object-isolated-driver");
+    bool stale=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("object-isolated-source-dialog");
+        auto* combo=dialog?dialog->findChild<QComboBox*>("object-isolated-source-dialog-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("object-isolated-source-dialog-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!combo||!status||!buttons)return;
+        combo->setCurrentIndex(0);session.apply({SetCompositing{"source","normal",false}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        stale=dialog->isVisible()&&status->text().contains("REVISION_CONFLICT")&&
+            !composite_isolation_state(session.document(),target).driver;
+        buttons->button(QDialogButtonBox::Cancel)->click();
     });
-    chooser.start();driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    driver->menu()->actions().front()->trigger();w.host.edited();QApplication::processEvents();
+    check(stale,"Isolation chooser rejects a stale draft without linking the target");
+    session.apply({SetCompositing{"source","normal",true}},session.revision());w.host.edited();
+    driver=widget<QToolButton>(w,"object-isolated-driver");bool picked=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("object-isolated-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("object-isolated-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("object-isolated-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        search->setText("SOURCE / COMPOSITE.ISOLATED");
+        if(combo->count()==1&&combo->itemText(0).contains("composite.isolated")) {
+            combo->setCurrentIndex(0);w.canvas->set_selection("source");QApplication::processEvents();
+            buttons->button(QDialogButtonBox::Apply)->click();picked=true;
+            w.canvas->set_selection("target");QApplication::processEvents();
+        } else dialog->reject();
+    });
+    driver->menu()->actions().front()->trigger();QApplication::processEvents();
     auto state=composite_isolation_state(session.document(),target);
     check(picked&&state.literal==false&&state.driver==source&&state.evaluated,
         "Inspector links a stable isolation source and retains the false authored literal");

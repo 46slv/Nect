@@ -500,6 +500,16 @@ This is an implementation audit, not R02/P03 or Requirement acceptance. The owne
 
 **Local result (2026-09-28):** Both fixed lists now use one small typed boolean chooser without a second property store. The focused Release `window_tests` target built and serial `window_interaction` passed **1/1**, including exact path search, empty/hidden refusal, Cancel, stale rejection, positive link/evaluation and existing Undo. Point Edit and Gradient core link contracts already cover invalid-instance and dependency rejection; the new UI path preserves their Session validation. R02/P03, general source path entry and pick-whip, expression and multi-target editing, hands-on GUI and whole REQ-3/4/42/199 acceptance remain open.
 
+## R02-BOOLEAN-SOURCE-OBJECT-01 — Object visibility and Composite isolation selection (frozen 2026-09-28)
+
+**Entry and scope:** Clean synchronized `codex/practical-alpha@91693dc301b27c59bf117ace4d4b8ca4ddeb5acc`, native 0.32, sole writer after the verified TAKEOVER_ACK and release. Replace only the fixed Inspector source lists for Object visibility and Composite isolation. Their respective same-field `LinkObjectVisibility` and `LinkCompositeIsolated` Session commands, authored literals/drivers, composition eligibility, evaluator and native representation remain unchanged. `object.visible` is an own-visibility value, not effective hierarchy visibility; `composite.isolated` is authored isolation, not the aggregate scene isolation decision.
+
+**Positive oracle:** Each chooser shows user-readable Object labels and exact `object ID / object.visible` or `object ID / composite.isolated` paths and filters case-insensitively. Apply requires an explicitly selected visible source. Captured target Ref, Session ID and revision survive browsing changes; one Session revision links the exact same-field source. Existing evaluated appearance/compositing, unlink freeze and Undo remain in the core/UI contracts.
+
+**Negative oracle:** No selection, a selected source hidden by filtering, Cancel and stale revision/Session leave the prior target literal and driver untouched. Failed Apply remains open with a visible error; core validation still rejects missing, wrong-type, cross-Composition and cyclic sources. The chooser does not reinterpret an Object name or list index as a durable address.
+
+**Local result (2026-09-28):** Both lists now use the typed boolean chooser. Release `compositing_ui_tests` and `window_tests` built; serial `compositing_ui_interaction` and `window_interaction` passed **2/2**. The tests cover stable path search, browsing a different Object without retargeting, empty/hidden refusal, Cancel, stale revision and existing link/evaluation/unlink behavior. This is offscreen Window evidence; actual hands-on GUI, Mask's instance-qualified source chooser, R02/P03 and whole REQ-3/4/42/199 acceptance remain open.
+
 ## R02-OBJECT-VISIBLE-READ-01 — authored visibility discovery (frozen 2026-09-28)
 
 **Entry and scope:** Clean local/tracking/fresh remote `codex/practical-alpha@daa667bc8ede00cdee51bb24f4fc274a4422f769`, native 0.26. A verified successor `TAKEOVER_ACK` and predecessor `SINGLE_WRITER_RELEASE` transfer one writer. This packet exposes the existing `Object.visible` literal as one typed boolean read. It adds no dependency, expression, native field, command or effective hierarchy projection.
