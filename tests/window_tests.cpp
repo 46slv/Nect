@@ -1274,18 +1274,21 @@ void scalar_source_path_picker(Window& window) {
     check(session.document()==unchanged&&session.revision()==unchanged_revision&&window.canvas->selections()==selection,
         "Cancel after incompatible-source rejection preserves the target and authored state");
 }
-struct TextPickerOutcome { bool opened=false,friendly_search=false,stable_path_search=false,browsed=false,context_changed=false,applied=false,restored_selection=false,inspector_visible=false; };
-TextPickerOutcome choose_text_source(Window& window,QToolButton* driver,const Ref& source,const QString& friendly_label,bool change_context=false) {
-    TextPickerOutcome outcome;const auto original_selection=window.canvas->selections();const auto original_object=window.canvas->selected_object;QAction* link=nullptr;
+struct TextPickerOutcome { bool opened=false,friendly_search=false,stable_id_search=false,stable_path_search=false,browsed=false,context_changed=false,
+    draft_unchanged=false,italic_expression_staged=false,applied=false,restored_selection=false,inspector_visible=false; };
+TextPickerOutcome choose_text_source(Window& window,QToolButton* driver,const Ref& source,const QString& friendly_label,
+        bool change_context=false,const Id& browse_target="text-string-backup") {
+    TextPickerOutcome outcome;const auto original_selection=window.canvas->selections();const auto original_object=window.canvas->selected_object;
+    const auto original_document=window.host.session.document();const auto original_revision=window.host.session.revision();QAction* link=nullptr;
     for(auto* action:driver->menu()->actions())if(action->text().startsWith("Link to Text ")){link=action;break;}
     if(!link)return outcome;
     QEventLoop loop;
     QTimer::singleShot(0,&window,[&]{
         auto interact=[&] {
         TextPickerOutcome result;
-        auto* dialog=window.findChild<QDialog*>("text-string-source-picker");if(!dialog)return result;result.opened=true;
-        auto* search=dialog->findChild<QLineEdit*>("text-string-source-picker-search");
-        auto* list=dialog->findChild<QListWidget*>("text-string-source-picker-list");
+        auto* dialog=window.findChild<QDialog*>("text-source-picker");if(!dialog)return result;result.opened=true;
+        auto* search=dialog->findChild<QLineEdit*>("text-source-picker-search");
+        auto* list=dialog->findChild<QListWidget*>("text-source-picker-list");
         auto* buttons=dialog->findChild<QDialogButtonBox*>();if(!search||!list||!buttons)return result;
         QListWidgetItem* row=nullptr;
         for(int i=0;i<list->count();++i) {
@@ -1295,18 +1298,27 @@ TextPickerOutcome choose_text_source(Window& window,QToolButton* driver,const Re
         }
         if(!row)return result;
         search->setText(friendly_label);QApplication::processEvents();result.friendly_search=!row->isHidden();
+        search->setText(QString::fromStdString(source.object).toUpper());QApplication::processEvents();
+        result.stable_id_search=!row->isHidden();
         const auto stable_path=QString::fromStdString(source.object)+" / "+QString::fromStdString(source.field);
         search->setText(stable_path.toUpper());QApplication::processEvents();result.stable_path_search=!row->isHidden();
         list->setCurrentItem(row);QApplication::processEvents();result.browsed=window.canvas->selected_object==source.object;
         if(buttons->button(QDialogButtonBox::Apply)->isEnabled()) {
             if(change_context) {
-                check(window.host.session.document().objects.contains("text-string-backup"),"Browsing backup remains a document object");
-                window.canvas->set_selection("text-string-backup","");window.host.edited();QApplication::processEvents();
-                result.context_changed=dialog->isVisible()&&window.canvas->selected_object=="text-string-backup";
+                check(window.host.session.document().objects.contains(browse_target),"Browsing backup remains a document object");
+                window.canvas->set_selection(browse_target,"");window.host.edited();QApplication::processEvents();
+                result.context_changed=dialog->isVisible()&&window.canvas->selected_object==browse_target;
+            }
+            result.draft_unchanged=window.host.session.revision()==original_revision&&window.host.session.document()==original_document;
+            if(source.field=="text.italic"&&original_document.objects.contains(original_object)&&original_document.objects.at(original_object).text) {
+                const auto& driver_before=original_document.objects.at(original_object).text->italic_driver;
+                result.italic_expression_staged=driver_before&&std::holds_alternative<Expression>(*driver_before);
             }
             buttons->button(QDialogButtonBox::Apply)->click();QApplication::processEvents();result.applied=true;
             result.restored_selection=window.canvas->selections()==original_selection&&window.canvas->selected_object==original_object;
-            const char* inspector_name=source.field=="text.content"?"text-preview":source.field=="text.family"?"text-family":"text-locale";
+            const char* inspector_name=source.field=="text.content"?"text-preview":
+                source.field=="text.family"?"text-family":source.field=="text.locale"?"text-locale":
+                source.field=="text.alignment"?"text-alignment":source.field=="text.weight"?"text-weight":"text-italic";
             for(auto* inspector:window.findChildren<QWidget*>(inspector_name))result.inspector_visible|=inspector->isVisible();
         }
         return result;
@@ -1340,11 +1352,11 @@ void text_string_source_picker_contract(Window& window) {
         bool empty_refused=false,empty_open=false,empty_no_source=false,empty_cleared=false,empty_unchanged=false,empty_button_enabled=false;
         QString empty_status;bool filtered_refused=false,canceled=false;
         QTimer::singleShot(0,&window,[&]{
-            auto* dialog=window.findChild<QDialog*>("text-string-source-picker");
-            auto* search=dialog?dialog->findChild<QLineEdit*>("text-string-source-picker-search"):nullptr;
-            auto* list=dialog?dialog->findChild<QListWidget*>("text-string-source-picker-list"):nullptr;
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* search=dialog?dialog->findChild<QLineEdit*>("text-source-picker-search"):nullptr;
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
             auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
-            auto* status=dialog?dialog->findChild<QLabel*>("text-string-source-picker-status"):nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-source-picker-status"):nullptr;
             if(!dialog||!search||!list||!buttons||!status)return;
             list->setCurrentItem(nullptr);
             empty_button_enabled=buttons->button(QDialogButtonBox::Apply)->isEnabled();
@@ -1384,11 +1396,11 @@ void text_string_source_picker_contract(Window& window) {
         bool stale_failed=false,stale_canceled=false;const auto stale_target=session.document().objects.at("text-string-target");
         const auto stale_revision=session.revision();
         QTimer::singleShot(0,&window,[&]{
-            auto* dialog=window.findChild<QDialog*>("text-string-source-picker");
-            auto* search=dialog?dialog->findChild<QLineEdit*>("text-string-source-picker-search"):nullptr;
-            auto* list=dialog?dialog->findChild<QListWidget*>("text-string-source-picker-list"):nullptr;
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* search=dialog?dialog->findChild<QLineEdit*>("text-source-picker-search"):nullptr;
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
             auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
-            auto* status=dialog?dialog->findChild<QLabel*>("text-string-source-picker-status"):nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-source-picker-status"):nullptr;
             if(!dialog||!search||!list||!buttons||!status)return;
             QListWidgetItem* row=nullptr;
             for(int j=0;j<list->count();++j) {
@@ -1413,10 +1425,10 @@ void text_string_source_picker_contract(Window& window) {
         check(stale_canceled,"Cancel after a stale Text source draft preserves authored target state for "+field);
 
         auto outcome=choose_text_source(window,visible_child<QToolButton>(window,fields[i].driver),source_refs[i],"Friendly String Source",true);
-        check(outcome.opened&&outcome.friendly_search&&outcome.stable_path_search&&outcome.browsed&&outcome.context_changed&&outcome.applied&&
+        check(outcome.opened&&outcome.friendly_search&&outcome.stable_id_search&&outcome.stable_path_search&&outcome.browsed&&outcome.context_changed&&outcome.applied&&
             outcome.restored_selection&&outcome.inspector_visible,
-            "Text source chooser supports friendly and case-insensitive stable Ref search for "+field+" [open="+std::to_string(outcome.opened)+
-                " friendly="+std::to_string(outcome.friendly_search)+" path="+std::to_string(outcome.stable_path_search)+
+            "Text source chooser supports friendly, stable ID and case-insensitive stable Ref search for "+field+" [open="+std::to_string(outcome.opened)+
+                " friendly="+std::to_string(outcome.friendly_search)+" id="+std::to_string(outcome.stable_id_search)+" path="+std::to_string(outcome.stable_path_search)+
                 " browsed="+std::to_string(outcome.browsed)+" changed="+std::to_string(outcome.context_changed)+
                 " applied="+std::to_string(outcome.applied)+" restored="+std::to_string(outcome.restored_selection)+
                 " inspector="+std::to_string(outcome.inspector_visible)+"]");
@@ -1431,6 +1443,175 @@ void text_string_source_picker_contract(Window& window) {
         session.undo(session.revision());window.host.edited();QApplication::processEvents();
         check(session.document().objects.at("text-string-target")==stale_target,
             "Undo removes only the staged Text string link for "+field);
+    }
+}
+void text_remaining_source_picker_contract(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    auto target=default_text("text-remaining-target-source","Enum target");
+    target.alignment="start";target.weight=400;target.italic=false;
+    auto source=default_text("text-remaining-source-data","Friendly Remaining Source");
+    source.alignment="end";source.weight=700;source.italic=true;
+    auto backup=default_text("text-remaining-backup-data","Browse backup");
+    backup.alignment="center";backup.weight=500;backup.italic=false;
+    session.apply({CreateText{composition,"","text-remaining-target","Enum target",target},
+        CreateText{composition,"","text-remaining-source","Friendly Remaining Source",source},
+        CreateText{composition,"","text-remaining-backup","Browse backup",backup}},session.revision());
+    session.apply({SetTextItalicExpression{{"text-remaining-target","","text.italic"},{"true",1},false}},session.revision());
+    window.canvas->set_selection("text-remaining-target","");window.host.edited();QApplication::processEvents();
+    struct FieldCase { const char* field; const char* driver; };
+    const FieldCase fields[]={{"text.alignment","text-alignment-driver"},
+        {"text.weight","text-weight-driver"},{"text.italic","text-italic-driver"}};
+    for(const auto& field_case:fields) {
+        const std::string field=field_case.field;
+        const Ref source_ref{"text-remaining-source","",field};
+        const auto target_before=session.document().objects.at("text-remaining-target");
+        auto link_action=[&] {
+            auto* button=visible_child<QToolButton>(window,field_case.driver);
+            for(auto* action:button->menu()->actions())if(action->text().startsWith("Link to Text "))return action;
+            check(false,"Text link action exists for "+field);return static_cast<QAction*>(nullptr);
+        };
+
+        const auto empty_revision=session.revision();bool empty_rejected=false,filtered_rejected=false,cancel_preserved=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* search=dialog?dialog->findChild<QLineEdit*>("text-source-picker-search"):nullptr;
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-source-picker-status"):nullptr;
+            auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+            if(!dialog||!search||!list||!status||!buttons)return;
+            list->setCurrentItem(nullptr);buttons->button(QDialogButtonBox::Apply)->click();
+            empty_rejected=dialog->isVisible()&&status->text().contains("NO_SOURCE")&&
+                session.revision()==empty_revision&&session.document().objects.at("text-remaining-target")==target_before;
+            QListWidgetItem* row=nullptr;
+            for(int i=0;i<list->count();++i) {
+                const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-remaining-source"&&
+                    ref.value("point").toString().isEmpty()&&ref.value("field").toString()==QString::fromStdString(field))row=list->item(i);
+            }
+            if(!row)return;
+            search->setText((QStringLiteral("TEXT-REMAINING-SOURCE / ")+QString::fromStdString(field)).toUpper());
+            QApplication::processEvents();list->setCurrentItem(row);QApplication::processEvents();
+            search->setText("no matching source");QApplication::processEvents();buttons->button(QDialogButtonBox::Apply)->click();
+            filtered_rejected=row->isHidden()&&!list->currentItem()&&dialog->isVisible()&&status->text().contains("NO_SOURCE")&&
+                session.revision()==empty_revision&&session.document().objects.at("text-remaining-target")==target_before;
+            QPointer<QDialog> safe_dialog(dialog);buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+            cancel_preserved=(!safe_dialog||!safe_dialog->isVisible())&&session.revision()==empty_revision&&
+                session.document().objects.at("text-remaining-target")==target_before&&window.canvas->selected_object=="text-remaining-target";
+        });
+        link_action()->trigger();QApplication::processEvents();
+        check(empty_rejected,"Empty "+field+" source Apply stays open with a visible error and no mutation");
+        check(filtered_rejected,"Filtering a chosen "+field+" source clears it and rejects Apply atomically");
+        check(cancel_preserved,"Cancel after a failed "+field+" draft preserves the target and selection");
+
+        bool cancel_restored=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+            if(!dialog||!list)return;
+            for(int i=0;i<list->count();++i) {
+                const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-remaining-source"&&ref.value("field").toString()==QString::fromStdString(field)) {
+                    list->setCurrentItem(list->item(i));QApplication::processEvents();
+                    const bool browsed=window.canvas->selected_object=="text-remaining-source";
+                    dialog->reject();QApplication::processEvents();
+                    cancel_restored=browsed&&window.canvas->selected_object=="text-remaining-target"&&
+                        session.revision()==empty_revision&&session.document().objects.at("text-remaining-target")==target_before;
+                    return;
+                }
+            }
+        });
+        link_action()->trigger();QApplication::processEvents();
+        check(cancel_restored,"Cancel after browsing a "+field+" source restores the frozen Inspector target");
+
+        const auto link_revision=session.revision();
+        const auto outcome=choose_text_source(window,visible_child<QToolButton>(window,field_case.driver),source_ref,
+            QStringLiteral("Friendly Remaining Source"),true,"text-remaining-backup");
+        check(outcome.opened&&outcome.friendly_search&&outcome.stable_id_search&&outcome.stable_path_search&&outcome.browsed&&outcome.context_changed&&
+            outcome.draft_unchanged&&outcome.applied&&outcome.restored_selection&&outcome.inspector_visible&&
+            (field!="text.italic"||outcome.italic_expression_staged),
+            "The "+field+" chooser searches friendly names and stable Refs, survives selection changes and restores its Inspector");
+        bool exact_driver=false;std::string evaluated;
+        const auto& linked=*session.document().objects.at("text-remaining-target").text;
+        if(field=="text.alignment") {
+            exact_driver=linked.alignment_driver&&linked.alignment_driver->link==source_ref;
+            evaluated=evaluate_text_alignment(session.document(),"text-remaining-target");
+        } else if(field=="text.weight") {
+            exact_driver=linked.weight_driver&&linked.weight_driver->link==source_ref;
+            evaluated=std::to_string(evaluate_text_weight(session.document(),"text-remaining-target"));
+        } else {
+            exact_driver=linked.italic_driver&&std::holds_alternative<Ref>(*linked.italic_driver)&&
+                std::get<Ref>(*linked.italic_driver)==source_ref;
+            evaluated=evaluate_text_italic(session.document(),"text-remaining-target")?"true":"false";
+        }
+        const std::string expected=field=="text.alignment"?"end":field=="text.weight"?"700":"true";
+        check(exact_driver&&evaluated==expected&&session.revision()==link_revision+1&&
+            window.canvas->selected_object=="text-remaining-target",
+            "Applying "+field+" sends the exact same-field Refs to its dedicated command in one revision");
+
+        // Failed replacement drafts must leave an already-authored link intact.
+        const auto linked_target=session.document().objects.at("text-remaining-target");
+        const auto stale_revision=session.revision();bool stale_failed=false,stale_preserved=false,stale_cancel_restored=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-source-picker-status"):nullptr;
+            auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+            if(!dialog||!list||!status||!buttons)return;
+            QListWidgetItem* row=nullptr;
+            for(int i=0;i<list->count();++i) {
+                const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-remaining-backup"&&ref.value("field").toString()==QString::fromStdString(field))row=list->item(i);
+            }
+            if(!row)return;
+            list->setCurrentItem(row);QApplication::processEvents();
+            auto changed=*session.document().objects.at("text-remaining-backup").text;
+            changed.family+=" stale";
+            session.apply({UpdateText{"text-remaining-backup",changed}},session.revision());window.host.edited();QApplication::processEvents();
+            buttons->button(QDialogButtonBox::Apply)->click();
+            stale_failed=dialog->isVisible()&&status->text().contains("changed while the source chooser was open");
+            stale_preserved=session.revision()==stale_revision+1&&
+                session.document().objects.at("text-remaining-target")==linked_target;
+            QPointer<QDialog> safe_dialog(dialog);buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+            stale_cancel_restored=(!safe_dialog||!safe_dialog->isVisible())&&window.canvas->selected_object=="text-remaining-target";
+        });
+        link_action()->trigger();QApplication::processEvents();
+        check(stale_failed&&stale_preserved&&stale_cancel_restored,
+            "Stale "+field+" replacement keeps its existing literal and driver and Cancel restores selection");
+        session.undo(session.revision());window.host.edited();QApplication::processEvents();
+        check(session.document().objects.at("text-remaining-target")==linked_target,
+            "Undo of the intervening "+field+" source edit leaves the target link unchanged");
+
+        const auto frozen_session=window.host.session_id;const auto session_conflict_revision=session.revision();
+        bool session_failed=false,session_preserved=false,session_cancel_restored=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-source-picker-status"):nullptr;
+            auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+            if(!dialog||!list||!status||!buttons)return;
+            QListWidgetItem* row=nullptr;
+            for(int i=0;i<list->count();++i) {
+                const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-remaining-backup"&&ref.value("field").toString()==QString::fromStdString(field))row=list->item(i);
+            }
+            if(!row)return;
+            list->setCurrentItem(row);QApplication::processEvents();
+            window.host.session_id=frozen_session+"-stale";
+            buttons->button(QDialogButtonBox::Apply)->click();
+            session_failed=dialog->isVisible()&&status->text().contains("SESSION_CONFLICT");
+            window.host.session_id=frozen_session;
+            session_preserved=session.revision()==session_conflict_revision&&
+                session.document().objects.at("text-remaining-target")==linked_target;
+            QPointer<QDialog> safe_dialog(dialog);buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+            session_cancel_restored=(!safe_dialog||!safe_dialog->isVisible())&&window.canvas->selected_object=="text-remaining-target";
+        });
+        link_action()->trigger();QApplication::processEvents();
+        check(session_failed&&session_preserved&&session_cancel_restored,
+            "Session change rejects a "+field+" draft without mutation and restores selection on Cancel");
+
+        session.undo(session.revision());window.host.edited();QApplication::processEvents();
+        check(session.document().objects.at("text-remaining-target")==target_before&&window.canvas->selected_object=="text-remaining-target",
+            "Undo restores the exact pre-link "+field+" literal and selection");
     }
 }
 void single_operation_enabled_source(Window& window) {
@@ -2341,15 +2522,11 @@ void text_authoring(Window& window) {
     alignment_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
     check(session.document().objects.at(id).text->alignment=="center"&&session.revision()==alignment_draft_revision+1,
         "Applying a staged Text alignment choice commits one Session revision");
-    bool chose_alignment_source=false;
-    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
-        if(auto* combo=dialog->findChild<QComboBox*>()) {
-            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
-            dialog->accept();chose_alignment_source=true;return;
-        }
-    }});
-    alignment_driver_button=visible_child<QToolButton>(window,"text-alignment-driver");alignment_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
-    check(chose_alignment_source&&session.document().objects.at(id).text->alignment=="center"&&
+    alignment_driver_button=visible_child<QToolButton>(window,"text-alignment-driver");
+    const auto alignment_source_pick=choose_text_source(window,alignment_driver_button,{source_id,"","text.alignment"},QString::fromStdString(source_name));
+    check(alignment_source_pick.opened&&alignment_source_pick.friendly_search&&alignment_source_pick.stable_id_search&&alignment_source_pick.stable_path_search&&
+        alignment_source_pick.draft_unchanged&&alignment_source_pick.applied&&alignment_source_pick.restored_selection&&
+        session.document().objects.at(id).text->alignment=="center"&&
         session.document().objects.at(id).text->alignment_driver->link==Ref{source_id,"","text.alignment"}&&
         evaluate_text_alignment(session.document(),id)=="start"&&
         visible_child<QLabel>(window,"text-alignment-state")->text().contains("Literal: center")&&
@@ -2540,15 +2717,10 @@ void text_authoring(Window& window) {
     auto* weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
     check(visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&weight_driver->menu()->actions().size()==2,
         "Text Weight Inspector exposes a literal control and a link/unlink menu");
-    bool chose_weight_source=false;
-    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
-        if(auto* combo=dialog->findChild<QComboBox*>()) {
-            combo->setCurrentText(QString::fromStdString(source_name)+" — "+QString::fromStdString(source_id));
-            dialog->accept();chose_weight_source=true;return;
-        }
-    }});
-    weight_driver->menu()->actions().front()->trigger();QApplication::processEvents();
-    check(chose_weight_source&&session.document().objects.at(id).text->weight_driver->link==Ref{source_id,"","text.weight"}&&
+    const auto weight_source_pick=choose_text_source(window,weight_driver,{source_id,"","text.weight"},QString::fromStdString(source_name));
+    check(weight_source_pick.opened&&weight_source_pick.friendly_search&&weight_source_pick.stable_id_search&&weight_source_pick.stable_path_search&&
+        weight_source_pick.draft_unchanged&&weight_source_pick.applied&&weight_source_pick.restored_selection&&
+        session.document().objects.at(id).text->weight_driver->link==Ref{source_id,"","text.weight"}&&
         evaluate_text_weight(session.document(),id)==700&&visible_child<QSpinBox>(window,"text-weight")->value()==700&&
         !visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&visible_child<QLabel>(window,"text-weight-state")->text().contains("Evaluated: 700"),
         "Text Weight Inspector links through Session and displays the evaluated integer");
@@ -2932,7 +3104,7 @@ int main(int argc,char** argv) {
         gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
         boards.hide();
         Window text_sources(temp.path()+"/text-string-sources");text_sources.show();QApplication::processEvents();
-        text_string_source_picker_contract(text_sources);text_sources.hide();
+        text_string_source_picker_contract(text_sources);text_remaining_source_picker_contract(text_sources);text_sources.hide();
         Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);
         texts.hide();Window path_text(temp.path()+"/text-path");path_text.show();QApplication::processEvents();text_path_authoring(path_text);
         path_text.hide();Window layout(temp.path()+"/layout");layout.show();QApplication::processEvents();

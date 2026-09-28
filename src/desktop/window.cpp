@@ -78,13 +78,13 @@ struct TextSourcePicker {
 };
 TextSourcePicker make_text_source_picker(QWidget* parent,const Document& document,const Id& target,const std::string& field,
         const std::vector<Id>& source_ids,const QString& title) {
-    auto* dialog=new QDialog(parent);dialog->setObjectName("text-string-source-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);
+    auto* dialog=new QDialog(parent);dialog->setObjectName("text-source-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle(title);dialog->resize(720,480);
     auto* layout=new QVBoxLayout(dialog);
     auto* target_note=new QLabel("Target: "+qs(target)+" / "+qs(field),dialog);target_note->setWordWrap(true);layout->addWidget(target_note);
-    auto* search=new QLineEdit(dialog);search->setObjectName("text-string-source-picker-search");
+    auto* search=new QLineEdit(dialog);search->setObjectName("text-source-picker-search");
     search->setPlaceholderText("Search Text label or stable Ref path…");layout->addWidget(search);
-    auto* list=new QListWidget(dialog);list->setObjectName("text-string-source-picker-list");list->setSelectionMode(QAbstractItemView::SingleSelection);
+    auto* list=new QListWidget(dialog);list->setObjectName("text-source-picker-list");list->setSelectionMode(QAbstractItemView::SingleSelection);
     layout->addWidget(list);
     for(const auto& source_id:source_ids) {
         const auto found=document.objects.find(source_id);if(found==document.objects.end())continue;
@@ -93,7 +93,7 @@ TextSourcePicker make_text_source_picker(QWidget* parent,const Document& documen
         const Ref ref{source_id,"",field};item->setData(Qt::UserRole,QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact));
         item->setData(Qt::UserRole+1,stable_path);item->setToolTip(stable_path);
     }
-    auto* status=new QLabel("Choose a visible source Text.",dialog);status->setObjectName("text-string-source-picker-status");
+    auto* status=new QLabel("Choose a visible source Text.",dialog);status->setObjectName("text-source-picker-status");
     status->setWordWrap(true);status->setTextFormat(Qt::PlainText);layout->addWidget(status);
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,dialog);
     buttons->button(QDialogButtonBox::Apply)->setText("Link");layout->addWidget(buttons);
@@ -2502,18 +2502,41 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* weight_menu=new QMenu(weight_driver_button);weight_driver_button->setMenu(weight_menu);weight_layout->addWidget(weight_driver_button);
     auto* link_weight=weight_menu->addAction("Link to Text weight…");
     auto* unlink_weight=weight_menu->addAction("Unlink weight");unlink_weight->setEnabled(weight_state.driver.has_value());
-    QStringList weight_source_labels;std::vector<Id> weight_source_ids;
+    std::vector<Id> weight_source_ids;
     for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
-        weight_source_ids.push_back(source_id);weight_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+        weight_source_ids.push_back(source_id);
     }
     link_weight->setEnabled(!weight_source_ids.empty());
     const bool replace_weight_driver=weight_state.driver.has_value();
-    connect(link_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision,replace_weight_driver,weight_source_ids,weight_source_labels]{
-        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text weight","Source Text",weight_source_labels,0,false,&accepted);
-        if(!accepted)return;
-        const auto index=weight_source_labels.indexOf(choice);if(index<0)return;
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({LinkTextWeight{{id,"","text.weight"},{weight_source_ids.at(static_cast<std::size_t>(index)),"","text.weight"},replace_weight_driver}},weight_revision);host.edited();});
+    connect(link_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision,replace_weight_driver,weight_source_ids]{
+        const auto target=Ref{id,"","text.weight"};const auto selection=canvas->selections();
+        const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
+        auto picker=make_text_source_picker(this,host.session.document(),id,target.field,weight_source_ids,"Link Text weight");
+        auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
+            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+        });
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
+            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        });
+        connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
+            [this,dialog,list,status,target,frozen_session,weight_revision,replace_weight_driver,selection,composition,artboard]{
+                try {
+                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    auto* item=list->currentItem();
+                    if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
+                    const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+                    if(source.field!=target.field||!source.point.empty()||source.object==target.object)
+                        throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
+                    if(host.session.revision()!=weight_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    host.session.apply({LinkTextWeight{target,source,replace_weight_driver}},weight_revision);
+                    canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
+                } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+                catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+            });
+        dialog->show();picker.search->setFocus();
     });
     connect(unlink_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision]{
         perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
@@ -2544,18 +2567,41 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* link_italic=italic_menu->addAction("Link to Text italic…");
     auto* expression_italic=italic_menu->addAction("Set expression…");
     auto* unlink_italic=italic_menu->addAction("Unlink italic");unlink_italic->setEnabled(italic_state.driver.has_value());
-    QStringList italic_source_labels;std::vector<Id> italic_source_ids;
+    std::vector<Id> italic_source_ids;
     for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
-        italic_source_ids.push_back(source_id);italic_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+        italic_source_ids.push_back(source_id);
     }
     link_italic->setEnabled(!italic_source_ids.empty());
     const bool replace_italic_driver=italic_state.driver.has_value();
-    connect(link_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision,replace_italic_driver,italic_source_ids,italic_source_labels]{
-        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text italic","Source Text",italic_source_labels,0,false,&accepted);
-        if(!accepted)return;
-        const auto index=italic_source_labels.indexOf(choice);if(index<0)return;
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({LinkTextItalic{{id,"","text.italic"},{italic_source_ids.at(static_cast<std::size_t>(index)),"","text.italic"},replace_italic_driver}},italic_revision);host.edited();});
+    connect(link_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision,replace_italic_driver,italic_source_ids]{
+        const auto target=Ref{id,"","text.italic"};const auto selection=canvas->selections();
+        const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
+        auto picker=make_text_source_picker(this,host.session.document(),id,target.field,italic_source_ids,"Link Text italic");
+        auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
+            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+        });
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
+            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        });
+        connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
+            [this,dialog,list,status,target,frozen_session,italic_revision,replace_italic_driver,selection,composition,artboard]{
+                try {
+                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    auto* item=list->currentItem();
+                    if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
+                    const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+                    if(source.field!=target.field||!source.point.empty()||source.object==target.object)
+                        throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
+                    if(host.session.revision()!=italic_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    host.session.apply({LinkTextItalic{target,source,replace_italic_driver}},italic_revision);
+                    canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
+                } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+                catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+            });
+        dialog->show();picker.search->setFocus();
     });
     const auto initial_italic_expression=italic_state.driver&&std::holds_alternative<Expression>(*italic_state.driver)?
         qs(std::get<Expression>(*italic_state.driver).source):QStringLiteral("false");
@@ -2838,17 +2884,40 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         });
         dialog.exec();
     });
-    QStringList alignment_source_labels;std::vector<Id> alignment_source_ids;
+    std::vector<Id> alignment_source_ids;
     for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
-        alignment_source_ids.push_back(source_id);alignment_source_labels<<qs(source_object.name)+" — "+qs(source_id);
+        alignment_source_ids.push_back(source_id);
     }
     link_alignment->setEnabled(!alignment_source_ids.empty());const bool replace_alignment_driver=alignment_state.driver.has_value();
-    connect(link_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_revision,replace_alignment_driver,alignment_source_ids,alignment_source_labels]{
-        bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Text alignment","Source Text",alignment_source_labels,0,false,&accepted);
-        if(!accepted)return;
-        const auto index=alignment_source_labels.indexOf(choice);if(index<0)return;
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({LinkTextAlignment{{id,"","text.alignment"},{alignment_source_ids.at(static_cast<std::size_t>(index)),"","text.alignment"},replace_alignment_driver}},alignment_revision);host.edited();});
+    connect(link_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_revision,alignment_ref,replace_alignment_driver,alignment_source_ids]{
+        const auto selection=canvas->selections();
+        const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
+        auto picker=make_text_source_picker(this,host.session.document(),id,alignment_ref.field,alignment_source_ids,"Link Text alignment");
+        auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
+            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+        });
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
+            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        });
+        connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
+            [this,dialog,list,status,alignment_ref,frozen_session,alignment_revision,replace_alignment_driver,selection,composition,artboard]{
+                try {
+                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    auto* item=list->currentItem();
+                    if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
+                    const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+                    if(source.field!=alignment_ref.field||!source.point.empty()||source.object==alignment_ref.object)
+                        throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
+                    if(host.session.revision()!=alignment_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    host.session.apply({LinkTextAlignment{alignment_ref,source,replace_alignment_driver}},alignment_revision);
+                    canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
+                } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+                catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+            });
+        dialog->show();picker.search->setFocus();
     });
     connect(unlink_alignment,&QAction::triggered,this,[this,frozen_session,alignment_revision,alignment_ref]{
         perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
