@@ -76,6 +76,48 @@ struct TextSourcePicker {
     QLabel* status=nullptr;
     QDialogButtonBox* buttons=nullptr;
 };
+void choose_boolean_source(QWidget* parent,const QString& name,const QString& title,const QString& target,
+        const std::vector<Ref>& refs,const QStringList& labels,const std::function<void(const Ref&)>& apply) {
+    QDialog dialog(parent);dialog.setObjectName(name);dialog.setWindowTitle(title);dialog.resize(700,240);
+    auto* layout=new QVBoxLayout(&dialog);
+    auto* target_label=new QLabel("Target: "+target,&dialog);target_label->setWordWrap(true);layout->addWidget(target_label);
+    auto* search=new QLineEdit(&dialog);search->setObjectName(name+"-search");
+    search->setPlaceholderText("Search label or stable Ref path…");layout->addWidget(search);
+    auto* source=new QComboBox(&dialog);source->setObjectName(name+"-source");layout->addWidget(source);
+    auto* status=new QLabel("Choose a visible source.",&dialog);status->setObjectName(name+"-status");
+    status->setWordWrap(true);status->setTextFormat(Qt::PlainText);layout->addWidget(status);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Link");layout->addWidget(buttons);
+    const auto refill=[source,refs,labels](const QString& query) {
+        const int selected=source->currentIndex()<0?-1:source->currentData().toInt();
+        const QSignalBlocker blocker(source);source->clear();
+        const auto terms=query.split(' ',Qt::SkipEmptyParts);
+        for(int i=0;i<labels.size();++i) {
+            const auto& ref=refs.at(static_cast<std::size_t>(i));
+            const auto path=qs(ref.object)+" / "+qs(ref.field);
+            const auto searchable=labels.at(i)+" "+path;
+            if(std::all_of(terms.begin(),terms.end(),[&](const auto& term){
+                    return searchable.contains(term,Qt::CaseInsensitive);}))source->addItem(labels.at(i)+"  ·  "+path,i);
+        }
+        source->setCurrentIndex(selected<0?-1:source->findData(selected));
+    };
+    refill({});
+    QObject::connect(search,&QLineEdit::textChanged,&dialog,[refill,status](const QString& query){
+        refill(query);status->setText("Choose a visible source.");
+    });
+    QObject::connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    QObject::connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
+        [source,status,refs,apply,&dialog] {
+            try {
+                const int index=source->currentIndex()<0?-1:source->currentData().toInt();
+                if(index<0||static_cast<std::size_t>(index)>=refs.size())
+                    throw Error("MISSING_REFERENCE","Choose a visible boolean source");
+                apply(refs.at(static_cast<std::size_t>(index)));dialog.accept();
+            } catch(const Error& error) {status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+              catch(const std::exception& error) {status->setText(QString::fromUtf8(error.what()));}
+        });
+    dialog.exec();
+}
 TextSourcePicker make_text_source_picker(QWidget* parent,const Document& document,const Id& target,const std::string& field,
         const std::vector<Id>& source_ids,const QString& title) {
     auto* dialog=new QDialog(parent);dialog->setObjectName("text-source-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -1841,17 +1883,16 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         enabled_driver->setEnabled(o.point_edit.has_value());
         const auto point_edit_session=host.session_id;
         const auto point_edit_revision=host.session.revision();
-        connect(link_enabled,&QAction::triggered,this,[this,id=o.id,point_edit_ref,point_edit_session,
+        connect(link_enabled,&QAction::triggered,this,[this,point_edit_ref,point_edit_session,
             point_edit_revision,point_edit_sources,point_edit_source_labels,
             replace=point_edit_state&&point_edit_state->driver.has_value()]( ) {
-            bool accepted=false;const auto choice=QInputDialog::getItem(this,
+            choose_boolean_source(this,"point-edit-enabled-source-dialog",
                 replace?"Replace Point Edit enabled link":"Link Point Edit enabled",
-                "Source correction",point_edit_source_labels,0,false,&accepted);
-            if(!accepted)return;const auto index=point_edit_source_labels.indexOf(choice);if(index<0)return;
-            perform([&]{
+                qs(point_edit_ref.object)+" / "+qs(point_edit_ref.field),point_edit_sources,point_edit_source_labels,
+                [this,point_edit_ref,point_edit_session,point_edit_revision,replace](const Ref& source) {
                 if(host.session_id!=point_edit_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
                 if(host.session.revision()!=point_edit_revision)throw Error("REVISION_CONFLICT","Point Edit enabled state changed while the source chooser was open");
-                host.session.apply({LinkPointEditEnabled{point_edit_ref,point_edit_sources.at(static_cast<std::size_t>(index)),replace}},point_edit_revision);
+                host.session.apply({LinkPointEditEnabled{point_edit_ref,source,replace}},point_edit_revision);
                 host.edited();
             });
         });
@@ -3710,13 +3751,12 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         const auto frozen_revision=host.session.revision();const auto target_ref=*gradient_ref_value;
         connect(link_enabled,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision,
             replace_driver=gradient_state->driver.has_value(),source_refs,source_labels] {
-            bool accepted=false;const auto choice=QInputDialog::getItem(this,"Link Gradient enabled","Source Gradient",source_labels,0,false,&accepted);
-            if(!accepted)return;
-            const auto index=source_labels.indexOf(choice);if(index<0)return;
-            perform([&]{
+            choose_boolean_source(this,"gradient-enabled-source-dialog","Link Gradient enabled",
+                qs(target_ref.object)+" / "+qs(target_ref.field),source_refs,source_labels,
+                [this,target_ref,frozen_session,frozen_revision,replace_driver](const Ref& source) {
                 if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Gradient belongs to another document");
                 if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","Gradient enabled source changed while its editor was open; reopen it");
-                host.session.apply({LinkGradientEnabled{target_ref,source_refs.at(static_cast<std::size_t>(index)),replace_driver}},frozen_revision);
+                host.session.apply({LinkGradientEnabled{target_ref,source,replace_driver}},frozen_revision);
                 host.edited();
             });
         });

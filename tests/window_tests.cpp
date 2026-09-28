@@ -1698,15 +1698,57 @@ void point_edit_enabled_source(Window& window) {
         "Point Edit UI fixture retains a false target literal and a distinct generator fallback");
     window.canvas->set_selection("point-edit-target");window.host.edited();QApplication::processEvents();
     auto* driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    const auto chooser_before=session.document();const auto chooser_revision=session.revision();
+    bool empty_refused=false,hidden_refused=false,canceled=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("point-edit-enabled-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("point-edit-enabled-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        buttons->button(QDialogButtonBox::Apply)->click();
+        empty_refused=dialog->isVisible()&&combo->currentIndex()<0;
+        search->setText(QString::fromStdString(source.object+" / "+source.field));combo->setCurrentIndex(0);
+        search->setText("no such correction");buttons->button(QDialogButtonBox::Apply)->click();
+        hidden_refused=dialog->isVisible()&&combo->count()==0&&combo->currentIndex()<0;
+        buttons->button(QDialogButtonBox::Cancel)->click();canceled=!dialog->isVisible();
+    });
+    driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(empty_refused&&hidden_refused&&canceled&&session.revision()==chooser_revision&&
+        session.document()==chooser_before,"Point Edit chooser rejects empty and filtered sources; Cancel leaves authorship untouched");
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    bool stale_refused=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-source-dialog");
+        auto* combo=dialog?dialog->findChild<QComboBox*>("point-edit-enabled-source-dialog-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("point-edit-enabled-source-dialog-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!combo||!status||!buttons)return;
+        combo->setCurrentIndex(0);
+        session.apply({EnablePointEdit{"point-edit-source",false}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        stale_refused=dialog->isVisible()&&status->text().contains("REVISION_CONFLICT")&&
+            !point_edit_enabled_state(session.document(),target).driver;
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    driver->menu()->actions().front()->trigger();window.host.edited();QApplication::processEvents();
+    check(stale_refused&&session.revision()==chooser_revision+1&&
+        !point_edit_enabled_state(session.document(),target).driver,
+        "Point Edit chooser rejects a stale draft without adding a target link");
+    session.apply({EnablePointEdit{"point-edit-source",true}},session.revision());window.host.edited();QApplication::processEvents();
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
     bool chose_source=false;
-    QTimer::singleShot(10,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())
-        if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
-            if(auto* combo=dialog->findChild<QComboBox*>())
-                for(int index=0;index<combo->count();++index)if(combo->itemText(index).contains(QStringLiteral("window-source-generator-point-edit"))) {
-                    combo->setCurrentIndex(index);dialog->accept();chose_source=true;return;
-                }
-            dialog->reject();return;
-        }});
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("point-edit-enabled-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("point-edit-enabled-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        search->setText(QString::fromStdString(source.object+" / "+source.field).toUpper());
+        if(combo->count()==1&&combo->itemText(0).contains(QStringLiteral("window-source-generator-point-edit"))) {
+            combo->setCurrentIndex(0);buttons->button(QDialogButtonBox::Apply)->click();chose_source=true;
+        } else dialog->reject();
+    });
     driver->menu()->actions().front()->trigger();QApplication::processEvents();
     auto linked=point_edit_enabled_state(session.document(),target);
     auto* checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
@@ -1864,14 +1906,60 @@ void gradient_authoring(Window& window) {
     const auto solid_preview=pixel(cx-55,cy+10);
     const auto source_enabled_ref=gradient_ref(object,source_fill.id,source_gradient.id,"enabled");
     bool chose_gradient_source=false;
-    QTimer::singleShot(10,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget))
-        if(auto* combo=dialog->findChild<QComboBox*>()) {
-            for(int index=0;index<combo->count();++index)if(combo->itemText(index).contains(QString::fromStdString(source_gradient.id))) {
-                combo->setCurrentIndex(index);dialog->accept();chose_gradient_source=true;return;
-            }
-            dialog->reject();
-        }});
     auto* enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    const auto gradient_chooser_before=session.document();const auto gradient_chooser_revision=session.revision();
+    bool gradient_empty_refused=false,gradient_hidden_refused=false,gradient_canceled=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("gradient-enabled-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("gradient-enabled-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        buttons->button(QDialogButtonBox::Apply)->click();
+        gradient_empty_refused=dialog->isVisible()&&combo->currentIndex()<0;
+        search->setText(QString::fromStdString(source_enabled_ref.object+" / "+source_enabled_ref.field));
+        combo->setCurrentIndex(0);search->setText("no such gradient");
+        buttons->button(QDialogButtonBox::Apply)->click();
+        gradient_hidden_refused=dialog->isVisible()&&combo->count()==0&&combo->currentIndex()<0;
+        buttons->button(QDialogButtonBox::Cancel)->click();gradient_canceled=!dialog->isVisible();
+    });
+    enabled_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(gradient_empty_refused&&gradient_hidden_refused&&gradient_canceled&&
+        session.revision()==gradient_chooser_revision&&session.document()==gradient_chooser_before,
+        "Gradient chooser rejects empty and filtered sources; Cancel leaves authorship untouched");
+    enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    bool gradient_stale_refused=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-source-dialog");
+        auto* combo=dialog?dialog->findChild<QComboBox*>("gradient-enabled-source-dialog-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("gradient-enabled-source-dialog-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!combo||!status||!buttons)return;
+        combo->setCurrentIndex(0);
+        auto changed=source_gradient;changed.enabled=false;
+        session.apply({SetGradient{object,source_fill.id,changed}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        gradient_stale_refused=dialog->isVisible()&&status->text().contains("STALE_CONTEXT")&&
+            !gradient_enabled_state(session.document(),gradient_enabled_ref).driver;
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    enabled_driver->menu()->actions().front()->trigger();window.host.edited();QApplication::processEvents();
+    check(gradient_stale_refused&&session.revision()==gradient_chooser_revision+1&&
+        !gradient_enabled_state(session.document(),gradient_enabled_ref).driver,
+        "Gradient chooser rejects a stale draft without adding a target link");
+    session.apply({SetGradient{object,source_fill.id,source_gradient}},session.revision());window.host.edited();QApplication::processEvents();
+    enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("gradient-enabled-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("gradient-enabled-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        search->setText(QString::fromStdString(source_enabled_ref.object+" / "+source_enabled_ref.field).toUpper());
+        if(combo->count()==1&&combo->itemText(0).contains(QString::fromStdString(source_gradient.id))) {
+            combo->setCurrentIndex(0);buttons->button(QDialogButtonBox::Apply)->click();chose_gradient_source=true;
+        } else dialog->reject();
+    });
     enabled_driver->menu()->actions().front()->trigger();QApplication::processEvents();
     const auto linked_state=gradient_enabled_state(session.document(),gradient_enabled_ref);
     const auto linked_preview=pixel(cx-55,cy+10);
