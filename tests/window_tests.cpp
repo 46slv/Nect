@@ -802,6 +802,47 @@ void toggle_correction(Window& window) {
     QTest::mouseClick(checkbox,Qt::LeftButton,Qt::NoModifier,QPoint(8,checkbox->height()/2));
     QApplication::processEvents();
 }
+void generated_point_expression(Window& window) {
+    auto& session=window.host.session;
+    const auto composition=session.document().compositions.front().id;
+    Primitive source{"expr-source","nect.shape.circle",1,
+        {{"center_x",{100,{}}},{"center_y",{100,{}}},{"radius",{50,{}}}}};
+    session.apply({CreatePrimitive{composition,"","expr-circle","Expression Circle",source}},session.revision());
+    window.host.edited();
+    const Ref x{"expr-circle","expr-source-east","x"};
+    const Ref length{"expr-circle","expr-source-east","out.length"};
+    window.canvas->set_selection(x.object,x.point);QApplication::processEvents();
+    check(field<QLineEdit>(window,x)->property("nect-property-origin")=="generated"&&
+        field<QLineEdit>(window,length)->property("nect-property-origin")=="generated",
+        "Inspector exposes generated point and handle fields before correction");
+    const auto before=session.revision();
+    edit_number(window,x,"=200");
+    check(session.revision()==before+1&&property_origin(session.document(),x)=="point_edit"&&
+        property(session.document(),x).expression->source=="200"&&evaluate(session.document()).at(x)==200&&
+        session.document().objects.at(x.object).source.has_value(),
+        "Inspector expression authors a Point Edit Scalar without flattening the generator");
+    edit_number(window,length,"=30");
+    check(property(session.document(),length).expression->source=="30"&&
+        evaluate(session.document()).at(length)==30&&
+        encode(decode(encode(session.document())))==encode(session.document()),
+        "Inspector handle expression evaluates and survives exact native round-trip");
+    auto* input=field<QLineEdit>(window,x);
+    const auto buttons=input->parentWidget()->findChildren<QPushButton*>();
+    const auto fx=std::find_if(buttons.begin(),buttons.end(),
+        [](QPushButton* button){return button->text()=="fx";});
+    check(fx!=buttons.end(),
+        "Generated Point Edit field retains its expression control");
+    reveal(window,*fx);QTest::mouseClick(*fx,Qt::LeftButton);QApplication::processEvents();
+    auto* panel=visible_child<QWidget>(window,"nect-expression-panel");
+    check(panel->findChild<QPlainTextEdit*>()->toPlainText()=="200",
+        "Expression editor opens the exact authored Point Edit formula");
+    for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Cancel")button->click();
+    QApplication::processEvents();
+    const auto authored=encode(session.document());const auto revision=session.revision();
+    edit_number(window,x,"=ref(\"expr-circle\",\"expr-source-east\",\"x\")");
+    check(session.revision()==revision&&encode(session.document())==authored,
+        "Self-referential generated expression fails without changing the committed Session");
+}
 void primitive_authoring(Window& window) {
     auto& session=window.host.session;
     auto revision=session.revision();
@@ -3184,7 +3225,9 @@ int main(int argc,char** argv) {
             "Pick-whip cancellation preserves document and restores context");
         primitive_authoring(w);
         stack_authoring(w);
-        w.hide();Window source_picker(temp.path()+"/source-picker");source_picker.show();QApplication::processEvents();
+        w.hide();Window point_expressions(temp.path()+"/point-expressions");point_expressions.show();QApplication::processEvents();
+        generated_point_expression(point_expressions);point_expressions.hide();
+        Window source_picker(temp.path()+"/source-picker");source_picker.show();QApplication::processEvents();
         scalar_source_path_picker(source_picker);source_picker.hide();
         {Window enabled_links(temp.path()+"/enabled-links");enabled_links.show();QApplication::processEvents();
             single_operation_enabled_source(enabled_links);point_edit_enabled_source(enabled_links);enabled_links.hide();}
