@@ -2477,18 +2477,65 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     check(std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==60&&
         visible_child<QLabel>(window,"margin-left-source-state")->text().contains("Evaluated: 60"),
         "Inspector status follows upstream Artboard width without changing authored left");
+    input("margin-right","40",true);
     click("grid-copy-margin-box");
     check(board().layout->grid&&board().layout->grid->bounds.x==60&&
-        board().layout->grid->bounds.width==evaluate_artboard(session.document().compositions.front(),board_id).width-60,
+        board().layout->grid->bounds.width==evaluate_artboard(session.document().compositions.front(),board_id).width-100,
         "Grid-to-Margin copy uses the evaluated linked inset once");
+    auto* grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
+    int grid_source_width_choice=-1;
+    for(int i=0;i<grid_source_choice->count();++i)
+        if(grid_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))grid_source_width_choice=i;
+    check(grid_source_width_choice>=0,"Grid x source list exposes the exact stable Artboard width Ref");
+    auto* grid_link_button=visible_child<QPushButton>(window,"grid-bounds-x-link");
+    check(grid_source_choice->currentIndex()==-1&&!grid_link_button->isEnabled(),
+        "An unlinked Grid x source picker has no implicit first Artboard selection");
+    const auto before_grid_cancel=session.revision();grid_source_choice->setCurrentIndex(grid_source_width_choice);QApplication::processEvents();
+    check(session.revision()==before_grid_cancel&&!board().layout->grid->bounds_x_driver&&grid_link_button->isEnabled(),
+        "Choosing a Grid x source enables explicit Link but remains a draft");
+    click("grid-bounds-x-cancel");
+    check(session.revision()==before_grid_cancel&&window.canvas->active_artboard()==board_id&&
+        !board().layout->grid->bounds_x_driver,"Cancel discards the Grid x source draft and retains the target Artboard");
+    grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
+    grid_source_choice->setCurrentIndex(grid_source_width_choice);QApplication::processEvents();
+    click("grid-bounds-x-link");
+    const Ref grid_target_ref{board().layout->grid->id,"","grid.bounds.x"};
+    const Ref grid_source_ref{margin_source_id,"","artboard.width"};
+    auto* driven_grid_x=visible_child<QLineEdit>(window,"grid-x");
+    auto* grid_driven_status=visible_child<QLabel>(window,"grid-bounds-x-source-state");
+    check(session.revision()==before_grid_cancel+1&&driven_grid_x->isReadOnly()&&driven_grid_x->text()=="60"&&
+        artboard_layout_property(session.document(),grid_target_ref).driver==grid_source_ref&&
+        grid_driven_status->text().contains("Literal: 60")&&grid_driven_status->text().contains("Evaluated: 60"),
+        "Grid Inspector links by stable Ref, keeps authored x read-only and shows evaluated status separately");
+    source_artboard=session.document().compositions.front().artboards[1];source_artboard.width=80;
+    session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),grid_target_ref).evaluated)==80&&
+        visible_child<QLabel>(window,"grid-bounds-x-source-state")->text().contains("Evaluated: 80"),
+        "Grid Inspector status follows upstream Artboard width without changing authored x");
+    const auto before_refused_copy=session.revision();const auto document_before_refused_copy=session.document();
+    click("grid-copy-margin-box");
+    check(session.revision()==before_refused_copy&&session.document()==document_before_refused_copy&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_X"),
+        "Grid-to-Margin copy refuses to overwrite a driven x literal with a different inset");
+    click("grid-bounds-x-unlink");
+    check(!board().layout->grid->bounds_x_driver&&board().layout->grid->bounds.x==80,
+        "Grid x unlink freezes the currently evaluated value into its literal");
+    click("grid-copy-margin-box");
+    check(board().layout->grid->bounds.x==80,"Grid-to-Margin copy succeeds after explicit unlink");
+    grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
+    for(int i=0;i<grid_source_choice->count();++i)
+        if(grid_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))grid_source_width_choice=i;
+    grid_source_choice->setCurrentIndex(grid_source_width_choice);QApplication::processEvents();click("grid-bounds-x-link");
     click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
     const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
     check(duplicate!=session.document().compositions.front().artboards.end()&&duplicate->layout&&
         duplicate->layout->margin->left_driver==margin_source_ref&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
-        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==60,
-        "Duplicate frame strips the driver from AddArtboard and reapplies the exact source to its new stable target");
+        duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==80&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.x"}).evaluated)==80,
+        "Duplicate frame strips drivers from AddArtboard and reapplies exact Margin and Grid sources to new stable targets");
     auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
     for(int i=0;i<artboards->count();++i)
         if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);
@@ -2504,16 +2551,17 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
             " readonly="+std::to_string(driven_left->isReadOnly())+" field="+driven_left->text().toStdString()+
             " literal="+std::to_string(board().layout->margin->left)).c_str());
     click("margin-left-unlink");
-    check(board().layout->margin->left==60&&!board().layout->margin->left_driver,
+    check(board().layout->margin->left==80&&!board().layout->margin->left_driver,
         "Inspector Unlink freezes the currently evaluated inset into its literal");
     source_artboard=*std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==margin_source_id;});
-    source_artboard.width=80;
+    source_artboard.width=100;
     session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
-    check(board().layout->margin->left==60&&!board().layout->margin->left_driver&&
-        std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==60,
+    check(board().layout->margin->left==80&&!board().layout->margin->left_driver&&
+        std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==80,
         "Unlinked Margin remains frozen when its former source changes");
 
+    click("grid-bounds-x-unlink");
     session.apply({SetArtboardLayout{composition_id,board_id,
                        ArtboardLayout{Margin{25,0,0,0},Grid{"recovery-grid",{25,0,100,100},2,1,10,0}}},
                    AddGuide{composition_id,{"recovery-guide","Recovery","y",25}}},session.revision());

@@ -1376,3 +1376,22 @@ the evaluated target width before commit. Typed reads disclose literal, exact
 source and evaluated value; Canvas and the Inspector consume the evaluated
 layout. Artboard size remains independent of layout, so this one-way edge does
 not add a mixed dependency cycle.
+
+## Native 0.36 — Grid bounds x Artboard size link
+
+A present Grid retains its stable ID and authored `bounds.x` literal. Native
+0.36 adds an optional `bounds_x_driver: {link: Ref}` on the Grid; the writer
+omits it for a literal Grid. The Ref identifies a distinct Artboard width or
+height in the Grid owner's Composition, with an empty point ID and `du` units.
+Earlier supported versions decode as before; a 0.35 record with a version-lied
+driver is rejected. `schemas/native-v0.36.schema.json` closes the optional field.
+
+Dedicated `link_grid_bounds_x` and `unlink_grid_bounds_x` commands own source
+changes. An explicit replacement changes an active source; unlink freezes the
+evaluated local x into the literal. Full layout and Artboard updates preserve
+the source with the same Grid ID and x literal and refuse an implicit clear,
+ID change or driven x edit. Validation uses the evaluated x for Grid containment
+against the evaluated target Artboard width. Typed reads disclose the literal,
+exact source and evaluated x. Canvas Grid overlay, snapping and Grid-reference
+alignment/distribution use evaluated bounds; native Save As retains the authored source.
+Artboard sizes do not read Grid layout, so this edge remains one-way.

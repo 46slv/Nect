@@ -452,7 +452,7 @@ j::object artboard_layout_property_json(const Document& d,const Ref& ref,const A
         {"space","artboard_local"},{"origin","authored"},
         {"authored",j::object{{"literal",literal}}},{"evaluated",literal},
         {"link",false},{"expression",false}};
-    if(ref.field=="margin.left") {
+    if(ref.field=="margin.left"||ref.field=="grid.bounds.x") {
         j::value driver=nullptr;if(value.driver)driver=ref_json(*value.driver);
         result["authored"]=j::object{{"literal",literal},{"driver",std::move(driver)},
             {"source_kind",value.driver?"link":"literal"}};
@@ -773,7 +773,7 @@ j::value guide_json(const Guide& guide) {
     if(guide.position_expression)result["position_expression"]=expression_json(*guide.position_expression);
     return result;
 }
-ArtboardLayout read_layout(const j::value& value,bool allow_margin_driver=false) {
+ArtboardLayout read_layout(const j::value& value,bool allow_margin_driver=false,bool allow_grid_x_driver=false) {
     try {
         if(!value.is_object())throw Error("INVALID_LAYOUT","Layout must be an object");
         const auto& object=value.as_object();keys(object,{"margin","grid"});ArtboardLayout layout;
@@ -793,7 +793,9 @@ ArtboardLayout read_layout(const j::value& value,bool allow_margin_driver=false)
         }
         if(object.contains("grid")) {
             if(!object.at("grid").is_object())throw Error("INVALID_LAYOUT","Grid must be an object");
-            const auto& grid=object.at("grid").as_object();keys(grid,{"id","bounds","columns","rows","column_gutter","row_gutter"});
+            const auto& grid=object.at("grid").as_object();
+            if(allow_grid_x_driver)keys(grid,{"id","bounds","columns","rows","column_gutter","row_gutter","bounds_x_driver"});
+            else keys(grid,{"id","bounds","columns","rows","column_gutter","row_gutter"});
             if(!grid.contains("id")||!grid.contains("bounds")||!grid.contains("columns")||!grid.contains("rows")||
                !grid.contains("column_gutter")||!grid.contains("row_gutter"))
                 throw Error("INVALID_LAYOUT","Grid requires id, bounds, counts and gutters");
@@ -806,6 +808,10 @@ ArtboardLayout read_layout(const j::value& value,bool allow_margin_driver=false)
                 {layout_number(bounds.at("x")),layout_number(bounds.at("y")),layout_number(bounds.at("width")),layout_number(bounds.at("height"))},
                 layout_count(grid.at("columns")),layout_count(grid.at("rows")),
                 layout_number(grid.at("column_gutter")),layout_number(grid.at("row_gutter"))};
+            if(allow_grid_x_driver)if(const auto* driver=grid.if_contains("bounds_x_driver")) {
+                const auto& fields=driver->as_object();keys(fields,{"link"});
+                layout.grid->bounds_x_driver=read_ref(fields.at("link"));
+            }
         }
         return layout;
     } catch(const Error& error) {
@@ -816,11 +822,13 @@ ArtboardLayout read_layout(const j::value& value,bool allow_margin_driver=false)
     }
 }
 j::value grid_json(const Grid& grid) {
-    return j::object{{"id",grid.id},
+    j::object result{{"id",grid.id},
         {"bounds",j::object{{"x",grid.bounds.x},{"y",grid.bounds.y},
             {"width",grid.bounds.width},{"height",grid.bounds.height}}},
         {"columns",grid.columns},{"rows",grid.rows},
         {"column_gutter",grid.column_gutter},{"row_gutter",grid.row_gutter}};
+    if(grid.bounds_x_driver)result["bounds_x_driver"]=j::object{{"link",ref_json(*grid.bounds_x_driver)}};
+    return result;
 }
 j::value layout_json(const ArtboardLayout& layout) {
     j::object result;
@@ -845,7 +853,7 @@ j::object artboard_size_driver_json(const Artboard::SizeDriver& driver) {
     return {{"expression",expression_json(std::get<Expression>(driver.value))}};
 }
 Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layout=false,bool allow_size_driver=false,
-    bool allow_margin_driver=false) {
+    bool allow_margin_driver=false,bool allow_grid_x_driver=false) {
     const auto& a=v.as_object();
     std::vector<std::string_view> allowed{"id","name","x","y","width","height"};
     if(allow_parent)allowed.push_back("parent_size");
@@ -859,7 +867,7 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
     }
     if(allow_layout)if(const auto* layout=a.if_contains("layout")) {
         if(layout->is_null())throw Error("INVALID_LAYOUT","Artboard layout must be omitted or an object; clear it with set_artboard_layout");
-        result.layout=read_layout(*layout,allow_margin_driver);
+        result.layout=read_layout(*layout,allow_margin_driver,allow_grid_x_driver);
     }
     if(allow_size_driver) {
         if(const auto* driver=a.if_contains("width_driver"))result.width_driver=read_artboard_size_driver(*driver);
@@ -1017,10 +1025,10 @@ Command read_command(const j::value& v) {
     }
     if(type=="add_artboard") {
         keys(o,{"type","composition","artboard","index"});
-        return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,false,true),j::value_to<std::size_t>(o.at("index"))};
+        return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,false,true,true),j::value_to<std::size_t>(o.at("index"))};
     }
     if(type=="update_artboard") {
-        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,true,true)};
+        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,true,true,true)};
     }
     if(type=="add_guide"||type=="update_guide") {
         keys(o,{"type","composition","guide"});
@@ -1043,7 +1051,7 @@ Command read_command(const j::value& v) {
     }
     if(type=="set_artboard_layout") {
         keys(o,{"type","composition","artboard_id","layout"});
-        std::optional<ArtboardLayout> layout;if(!o.at("layout").is_null())layout=read_layout(o.at("layout"),true);
+        std::optional<ArtboardLayout> layout;if(!o.at("layout").is_null())layout=read_layout(o.at("layout"),true,true);
         return SetArtboardLayout{text(o.at("composition")),text(o.at("artboard_id")),std::move(layout)};
     }
     if(type=="link_margin_left") {
@@ -1052,6 +1060,13 @@ Command read_command(const j::value& v) {
     }
     if(type=="unlink_margin_left") {
         keys(o,{"type","target"});return MarginLeftCommand{UnlinkMarginLeft{read_ref(o.at("target"))}};
+    }
+    if(type=="link_grid_bounds_x") {
+        keys(o,{"type","target","source","replace_driver"});
+        return GridBoundsXCommand{LinkGridBoundsX{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()}};
+    }
+    if(type=="unlink_grid_bounds_x") {
+        keys(o,{"type","target"});return GridBoundsXCommand{UnlinkGridBoundsX{read_ref(o.at("target"))}};
     }
     if(type=="delete_artboard"||type=="detach_artboard_parent") {
         keys(o,{"type","composition","artboard"});
@@ -1272,10 +1287,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,35> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35"};
+        constexpr std::array<std::string_view,36> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.35 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.36 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1296,7 +1311,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35,minor>=36));
             if(minor>=14)for(const auto& gv:co.at("guides").as_array())c.guides.push_back(read_guide(gv,minor>=23,minor>=34));
             d.compositions.push_back(std::move(c));
         }

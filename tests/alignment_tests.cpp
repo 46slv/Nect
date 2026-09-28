@@ -79,6 +79,15 @@ int main(){try{
  check(key_align.document().objects.at("b")==key_before,"Selected key object remains byte-identical during Align");
  d=exact_fixture();Session grid_align(d);AlignObjects grid_command{{"a"},"x","min",{}};grid_command.reference="grid:grid";apply(grid_align,grid_command);
  near(bounds(grid_align.document(),"a").left,40); // Grid coordinate includes its owning Artboard origin.
+ d=exact_fixture();d.compositions[0].artboards.push_back({"grid-source","Grid source",0,0,120,100});
+ Session evaluated_grid_align(d);evaluated_grid_align.apply({GridBoundsXCommand{LinkGridBoundsX{
+     {"grid","","grid.bounds.x"},{"grid-source","","artboard.width"},false}}},0);
+ AlignObjects evaluated_grid_command{{"a"},"x","min",{}};evaluated_grid_command.reference="grid:grid";
+ apply(evaluated_grid_align,evaluated_grid_command);
+ near(bounds(evaluated_grid_align.document(),"a").left,120);
+ const auto evaluated_grid_property=artboard_layout_property(evaluated_grid_align.document(),{"grid","","grid.bounds.x"});
+ check(std::get<double>(evaluated_grid_property.literal)==40&&std::get<double>(evaluated_grid_property.evaluated)==120,
+     "Grid-reference Align consumes evaluated bounds x while retaining the authored Grid literal");
  d=exact_fixture();Session artboard_center(d);AlignObjects artboard_command{{"a"},"x","center","art"};apply(artboard_center,artboard_command);
  near((bounds(artboard_center.document(),"a").left+bounds(artboard_center.document(),"a").right)/2,480);
  d=exact_fixture();Session guide_align(d);AlignObjects guide_command{{"a"},"x","min",{}};guide_command.reference="guide:guide-x";apply(guide_align,guide_command);

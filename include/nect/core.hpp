@@ -288,6 +288,7 @@ struct Grid {
     LayoutRect bounds;
     std::size_t columns=1,rows=1;
     double column_gutter=0,row_gutter=0;
+    std::optional<Ref> bounds_x_driver;
     bool operator==(const Grid&) const = default;
 };
 struct ArtboardLayout {
@@ -414,11 +415,17 @@ struct SetArtboardSizeExpression { Ref target; Expression expression; bool repla
 struct UnlinkArtboardSize { Ref target; };
 struct LinkMarginLeft { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkMarginLeft { Ref target; };
-struct MarginLeftCommand {
-    std::variant<LinkMarginLeft,UnlinkMarginLeft> operation;
-    MarginLeftCommand(LinkMarginLeft value):operation(std::move(value)){}
-    MarginLeftCommand(UnlinkMarginLeft value):operation(std::move(value)){}
+struct LinkGridBoundsX { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkGridBoundsX { Ref target; };
+struct LayoutDependencyCommand {
+    std::variant<LinkMarginLeft,UnlinkMarginLeft,LinkGridBoundsX,UnlinkGridBoundsX> operation;
+    LayoutDependencyCommand(LinkMarginLeft value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkMarginLeft value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridBoundsX value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridBoundsX value):operation(std::move(value)){}
 };
+using MarginLeftCommand=LayoutDependencyCommand;
+using GridBoundsXCommand=LayoutDependencyCommand;
 struct AddGuide { Id composition; Guide guide; };
 struct UpdateGuide { Id composition; Guide guide; };
 struct DeleteGuide { Id composition; Id guide_id; };
@@ -506,7 +513,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
     CreatePrimitive,EnablePointEdit,ClearPointEdit,LinkPointEditEnabled,UnlinkPointEditEnabled,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,LinkOperationEnabled,UnlinkOperationEnabled,LinkGradientEnabled,UnlinkGradientEnabled,OperationOptions,LinkFillRule,UnlinkFillRule,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
-    DeleteArtboard,ReorderArtboards,DetachArtboardParent,LinkArtboardSize,SetArtboardSizeExpression,UnlinkArtboardSize,MarginLeftCommand,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,SetGuidePositionExpression,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
+    DeleteArtboard,ReorderArtboards,DetachArtboardParent,LinkArtboardSize,SetArtboardSizeExpression,UnlinkArtboardSize,LayoutDependencyCommand,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,SetGuidePositionExpression,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,

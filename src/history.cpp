@@ -103,7 +103,7 @@ std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
 std::size_t extra(const Guide& v){return total(extra(v.id),extra(v.name),extra(v.axis),extra(v.position_driver));}
 std::size_t extra(const LayoutRect&){return 0;}
 std::size_t extra(const Margin& v){return extra(v.left_driver);}
-std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds));}
+std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds),extra(v.bounds_x_driver));}
 std::size_t extra(const ArtboardLayout& v){return total(extra(v.margin),extra(v.grid));}
 std::size_t extra(const Artboard::SizeDriver& v){return std::visit([](const auto& value){return extra(value);},v.value);}
 std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size),extra(v.layout),extra(v.width_driver),extra(v.height_driver));}
@@ -158,11 +158,13 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         return "Artboard size expression: "+property_label(command->target);
     if(const auto* command=std::get_if<UnlinkArtboardSize>(&commands.front()))
         return "Unlink Artboard size: "+property_label(command->target);
-    if(const auto* command=std::get_if<MarginLeftCommand>(&commands.front()))
+    if(const auto* command=std::get_if<LayoutDependencyCommand>(&commands.front()))
         return std::visit([&](const auto& operation) {
             using T=std::decay_t<decltype(operation)>;
             if constexpr(std::is_same_v<T,LinkMarginLeft>)return "Link Margin left: "+property_label(operation.target);
-            else return "Unlink Margin left: "+property_label(operation.target);
+            else if constexpr(std::is_same_v<T,UnlinkMarginLeft>)return "Unlink Margin left: "+property_label(operation.target);
+            else if constexpr(std::is_same_v<T,LinkGridBoundsX>)return "Link Grid bounds x: "+property_label(operation.target);
+            else return "Unlink Grid bounds x: "+property_label(operation.target);
         },command->operation);
     auto label=std::visit([&](const auto& c)->std::string {
         using T=std::decay_t<decltype(c)>;
