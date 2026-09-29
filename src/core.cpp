@@ -1298,9 +1298,10 @@ ArtboardLayoutProperty artboard_layout_property(const Document& document,const R
                     value.bounds_height_driver?"link":value.bounds_height_expression?"expression":"literal"};
             }
             if(ref.field=="grid.columns") {
-                const bool driven=value.columns_driver.has_value();
+                const bool driven=value.columns_driver.has_value()||value.columns_expression.has_value();
                 const auto evaluated=driven?evaluate_artboard(composition,board.id).layout->grid->columns:value.columns;
-                return {value.columns,value.columns_driver,evaluated,{},driven?"link":"literal"};
+                return {value.columns,value.columns_driver,evaluated,value.columns_expression,
+                    value.columns_driver?"link":value.columns_expression?"expression":"literal"};
             }
             if(ref.field=="grid.rows") {
                 const bool driven=value.rows_driver.has_value();
@@ -2105,6 +2106,7 @@ using GridBoundsHeightLocation=GridBoundsXLocation;
 using GridColumnGutterLocation=GridBoundsXLocation;
 using GridRowGutterLocation=GridBoundsXLocation;
 CompiledExpression compile_grid_bounds_x_expression(const Expression& expression);
+CompiledExpression compile_grid_columns_expression(const Expression& expression);
 CompiledExpression compile_grid_bounds_y_expression(const Expression& expression);
 CompiledExpression compile_grid_bounds_width_expression(const Expression& expression);
 CompiledExpression compile_grid_bounds_height_expression(const Expression& expression);
@@ -2278,19 +2280,40 @@ void edit_grid_columns(Document& document,const LinkGridColumns& command) {
     require(target.grid->id!=source.grid->id&&target.board->id!=source.board->id,"GRID_COLUMNS_SELF_LINK",
         "Grid columns must link to a distinct Grid on another Artboard");
     auto& slot=target.grid->columns_driver;
-    const bool same_link=slot&&*slot==command.source;
-    require(!slot||same_link||command.replace_driver,"DRIVEN_GRID_COLUMNS",
+    const bool same_link=slot&&*slot==command.source&&!target.grid->columns_expression;
+    require((!slot&&!target.grid->columns_expression)||same_link||command.replace_driver,"DRIVEN_GRID_COLUMNS",
         "Replacing a Grid columns source requires replace_driver=true");
     slot=command.source;
+    target.grid->columns_expression.reset();
+}
+void edit_grid_columns(Document& document,const SetGridColumnsExpression& command) {
+    require(command.target.point.empty()&&command.target.field=="grid.columns","INVALID_LAYOUT_REF",
+        "Grid columns expression target must be an empty-point grid.columns Ref");
+    const auto target=grid_columns_location(document,command.target,"expression target");
+    const auto compiled=compile_grid_columns_expression(command.expression);
+    for(const auto& source_ref:expression_dependencies(compiled)) {
+        const auto source=grid_columns_location(document,source_ref,"expression source");
+        require(target.composition==source.composition,"WRONG_COMPOSITION",
+            "Grid columns expressions must stay within one Composition");
+        require(target.grid->id!=source.grid->id&&target.board->id!=source.board->id,"GRID_COLUMNS_SELF_LINK",
+            "Grid columns expressions must reference a distinct Grid on another Artboard");
+    }
+    const bool same_expression=!target.grid->columns_driver&&target.grid->columns_expression==command.expression;
+    require((!target.grid->columns_driver&&!target.grid->columns_expression)||same_expression||command.replace_driver,
+        "DRIVEN_GRID_COLUMNS","Replacing a Grid columns source requires replace_driver=true");
+    target.grid->columns_driver.reset();
+    target.grid->columns_expression=command.expression;
 }
 void edit_grid_columns(Document& document,const UnlinkGridColumns& command) {
     require(command.target.point.empty()&&command.target.field=="grid.columns","INVALID_LAYOUT_REF",
         "Grid columns unlink target must be an empty-point grid.columns Ref");
     const auto target=grid_columns_location(document,command.target,"unlink target");
-    require(target.grid->columns_driver.has_value(),"GRID_COLUMNS_NOT_LINKED","Grid columns has no source to unlink");
+    require(target.grid->columns_driver.has_value()||target.grid->columns_expression.has_value(),
+        "GRID_COLUMNS_NOT_LINKED","Grid columns has no source to unlink");
     const auto resolved=evaluate_artboard(*target.composition,target.board->id);
     target.grid->columns=resolved.layout->grid->columns;
     target.grid->columns_driver.reset();
+    target.grid->columns_expression.reset();
 }
 void edit_grid_rows(Document& document,const LinkGridRows& command) {
     require(command.target.point.empty()&&command.target.field=="grid.rows","INVALID_LAYOUT_REF",
@@ -2801,6 +2824,14 @@ CompiledExpression compile_artboard_size_expression(const Expression& expression
     }
     return compiled;
 }
+CompiledExpression compile_grid_columns_expression(const Expression& expression) {
+    const auto compiled=compile_expression(expression);
+    for(const auto& source:expression_dependencies(compiled))
+        require(source.point.empty()&&source.field=="grid.columns","GRID_COLUMNS_EXPRESSION_TYPE",
+            "Grid columns expressions may reference only empty-point grid.columns properties");
+    validate_expression_unit(compiled,"unitless");
+    return compiled;
+}
 CompiledExpression compile_grid_bounds_x_expression(const Expression& expression) {
     const auto compiled=compile_expression(expression);validate_expression_unit(compiled,"du");
     for(const auto& source:expression_dependencies(compiled))
@@ -2876,6 +2907,9 @@ bool artboard_references_id(const Artboard& board,const Artboard& target) {
     if(board.parent_size&&board.parent_size->artboard==id)return true;
     if(board.layout&&board.layout->grid&&board.layout->grid->columns_driver&&target.layout&&target.layout->grid&&
         board.layout->grid->columns_driver->object==target.layout->grid->id)return true;
+    if(board.layout&&board.layout->grid&&board.layout->grid->columns_expression&&target.layout&&target.layout->grid)
+        for(const auto& source:expression_dependencies(*board.layout->grid->columns_expression))
+            if(source.object==target.layout->grid->id)return true;
     if(board.layout&&board.layout->grid&&board.layout->grid->rows_driver&&target.layout&&target.layout->grid&&
         board.layout->grid->rows_driver->object==target.layout->grid->id)return true;
     if(board.layout&&board.layout->margin&&board.layout->margin->left_driver&&
@@ -3095,8 +3129,8 @@ void preserve_grid_column_gutter_source(const Grid* existing,Grid* incoming) {
         "Create Grid column gutter sources with link_grid_column_gutter or set_grid_column_gutter_expression");
 }
 void preserve_grid_columns_source(const Grid* existing,Grid* incoming) {
-    const bool existing_source=existing&&existing->columns_driver.has_value();
-    const bool incoming_source=incoming&&incoming->columns_driver.has_value();
+    const bool existing_source=existing&&(existing->columns_driver||existing->columns_expression);
+    const bool incoming_source=incoming&&(incoming->columns_driver||incoming->columns_expression);
     if(existing_source) {
         require(incoming,"DRIVEN_GRID_COLUMNS","Unlink Grid columns before clearing its Grid");
         require(incoming->id==existing->id,"DRIVEN_GRID_COLUMNS",
@@ -3105,8 +3139,12 @@ void preserve_grid_columns_source(const Grid* existing,Grid* incoming) {
             "Unlink Grid columns before changing its authored literal");
         require(!incoming->columns_driver||incoming->columns_driver==existing->columns_driver,
             "GRID_DRIVER_SMUGGLING","Use link_grid_columns to change its source");
+        require(!incoming->columns_expression||incoming->columns_expression==existing->columns_expression,
+            "GRID_DRIVER_SMUGGLING","Use set_grid_columns_expression to change its source");
         incoming->columns_driver=existing->columns_driver;
-    } else require(!incoming_source,"GRID_DRIVER_SMUGGLING","Create Grid columns links with link_grid_columns");
+        incoming->columns_expression=existing->columns_expression;
+    } else require(!incoming_source,"GRID_DRIVER_SMUGGLING",
+        "Create Grid columns sources with link_grid_columns or set_grid_columns_expression");
 }
 void preserve_grid_rows_source(const Grid* existing,Grid* incoming) {
     const bool existing_source=existing&&existing->rows_driver.has_value();
@@ -3158,6 +3196,7 @@ private:
     const Composition& composition_;
     std::map<Id,std::size_t> values_;
     std::set<Id> active_;
+    ExpressionCache expressions_;
 
     GridColumnsOwner owner(const Id& grid_id) const {
         for(const auto& board:composition_.artboards) {
@@ -3176,6 +3215,8 @@ private:
         const auto current=owner(grid_id);
         require(current.grid->columns>=1&&current.grid->columns<=1000,"OUT_OF_RANGE",
             "Authored Grid columns must be 1..1000");
+        require(!(current.grid->columns_driver&&current.grid->columns_expression),"GRID_COLUMNS_SOURCE_CONFLICT",
+            "Grid columns may have only one active source");
         auto result=current.grid->columns;
         if(current.grid->columns_driver) {
             const auto& source=*current.grid->columns_driver;
@@ -3185,6 +3226,23 @@ private:
             require(current.grid->id!=source_owner.grid->id&&current.board->id!=source_owner.board->id,
                 "GRID_COLUMNS_SELF_LINK","Grid columns must link to a distinct Grid on another Artboard");
             result=visit(source.object,depth+1);
+        } else if(current.grid->columns_expression) {
+            const auto& compiled=compiled_expression(expressions_,*current.grid->columns_expression);
+            validate_expression_unit(compiled,"unitless");
+            for(const auto& source:expression_dependencies(compiled)) {
+                require(source.point.empty()&&source.field=="grid.columns","GRID_COLUMNS_EXPRESSION_TYPE",
+                    "Grid columns expressions may reference only empty-point grid.columns properties");
+                const auto source_owner=owner(source.object);
+                require(current.grid->id!=source_owner.grid->id&&current.board->id!=source_owner.board->id,
+                    "GRID_COLUMNS_SELF_LINK","Grid columns expressions must reference a distinct Grid on another Artboard");
+                (void)visit(source.object,depth+1);
+            }
+            const auto evaluated=evaluate_expression(compiled,"unitless",[&](const Ref& source) {
+                return static_cast<double>(visit(source.object,depth+1));
+            });
+            require(std::isfinite(evaluated)&&evaluated>=1&&evaluated<=1000&&std::trunc(evaluated)==evaluated,
+                "OUT_OF_RANGE","Evaluated Grid columns must be an exact integer from 1 to 1000");
+            result=static_cast<std::size_t>(evaluated);
         }
         require(result>=1&&result<=1000,"OUT_OF_RANGE","Evaluated Grid columns must be 1..1000");
         active_.erase(grid_id);
@@ -3326,9 +3384,7 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
     }
     if(result.layout&&result.layout->grid) {
         auto& grid=*result.layout->grid;
-        if(grid.columns_driver) {
-            require(grid.columns_driver->point.empty()&&grid.columns_driver->field=="grid.columns",
-                "INVALID_GRID_COLUMNS_REF","Grid columns source must be an empty-point grid.columns Ref");
+        if(grid.columns_driver||grid.columns_expression) {
             GridColumnsEvaluator columns(composition);
             grid.columns=columns.value(grid.id);
         }
@@ -3668,6 +3724,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             }
             if(a.layout&&a.layout->grid) {
                 const auto& grid=*a.layout->grid;
+                require(!(grid.columns_driver&&grid.columns_expression),"GRID_COLUMNS_SOURCE_CONFLICT",
+                    "Grid columns may have only one active source");
                 require(!(grid.bounds_x_driver&&grid.bounds_x_expression),"GRID_SOURCE_CONFLICT",
                     "Grid bounds x may have only one active source");
                 require(!(grid.bounds_y_driver&&grid.bounds_y_expression),"GRID_SOURCE_CONFLICT",
@@ -3729,6 +3787,35 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     }
                     require(source_board->id!=a.id&&source.object!=grid.id,"GRID_COLUMNS_SELF_LINK",
                         "Grid columns must link to a distinct Grid on another Artboard");
+                }
+                if(grid.columns_expression) {
+                    const auto compiled=compile_grid_columns_expression(*grid.columns_expression);
+                    for(const auto& source:expression_dependencies(compiled)) {
+                        const Artboard* source_board=nullptr;
+                        for(const auto& candidate:comp.artboards)
+                            if(candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==source.object)
+                                source_board=&candidate;
+                        if(!source_board) {
+                            const bool elsewhere=std::any_of(d.compositions.begin(),d.compositions.end(),[&](const Composition& other) {
+                                return other.id!=comp.id&&std::any_of(other.artboards.begin(),other.artboards.end(),[&](const Artboard& candidate) {
+                                    return candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==source.object;
+                                });
+                            });
+                            if(elsewhere)throw Error("WRONG_COMPOSITION","Grid columns expressions must stay within one Composition");
+                            const bool another_kind=d.objects.contains(source.object)||d.named_colors.contains(source.object)||
+                                std::any_of(d.compositions.begin(),d.compositions.end(),[&](const Composition& other) {
+                                    return other.id==source.object||std::any_of(other.artboards.begin(),other.artboards.end(),[&](const Artboard& candidate) {
+                                        return candidate.id==source.object;
+                                    })||std::any_of(other.guides.begin(),other.guides.end(),[&](const Guide& guide) {
+                                        return guide.id==source.object;
+                                    });
+                                });
+                            if(another_kind)throw Error("TYPE_MISMATCH","Grid columns expression source must identify a Grid: "+source.object);
+                            throw Error("MISSING_GRID",source.object);
+                        }
+                        require(source_board->id!=a.id&&source.object!=grid.id,"GRID_COLUMNS_SELF_LINK",
+                            "Grid columns expressions must reference a distinct Grid on another Artboard");
+                    }
                 }
                 if(grid.rows_driver) {
                     const auto& source=*grid.rows_driver;
@@ -5043,6 +5130,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 constexpr bool margin_bottom_operation=std::is_same_v<Operation,LinkMarginBottom>||
                     std::is_same_v<Operation,SetMarginBottomExpression>||std::is_same_v<Operation,UnlinkMarginBottom>;
                 constexpr bool grid_columns_operation=std::is_same_v<Operation,LinkGridColumns>||
+                    std::is_same_v<Operation,SetGridColumnsExpression>||
                     std::is_same_v<Operation,UnlinkGridColumns>;
                 constexpr bool grid_rows_operation=std::is_same_v<Operation,LinkGridRows>||
                     std::is_same_v<Operation,UnlinkGridRows>;
@@ -5466,6 +5554,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     "GRID_DRIVER_SMUGGLING","Create Grid column gutter expressions with set_grid_column_gutter_expression");
                 require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->columns_driver,
                     "GRID_DRIVER_SMUGGLING","Create Grid columns links with link_grid_columns");
+                require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->columns_expression,
+                    "GRID_DRIVER_SMUGGLING","Create Grid columns expressions with set_grid_columns_expression");
                 require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->rows_driver,
                     "GRID_DRIVER_SMUGGLING","Create Grid rows links with link_grid_rows");
                 require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->row_gutter_driver,
@@ -5595,7 +5685,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 else if constexpr(std::is_same_v<Operation,LinkMarginBottom>||std::is_same_v<Operation,SetMarginBottomExpression>||
                     std::is_same_v<Operation,UnlinkMarginBottom>)
                     edit_margin_bottom(candidate,operation);
-                else if constexpr(std::is_same_v<Operation,LinkGridColumns>||std::is_same_v<Operation,UnlinkGridColumns>)
+                else if constexpr(std::is_same_v<Operation,LinkGridColumns>||
+                    std::is_same_v<Operation,SetGridColumnsExpression>||std::is_same_v<Operation,UnlinkGridColumns>)
                     edit_grid_columns(candidate,operation);
                 else if constexpr(std::is_same_v<Operation,LinkGridRows>||std::is_same_v<Operation,UnlinkGridRows>)
                     edit_grid_rows(candidate,operation);
@@ -5910,7 +6001,8 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
                     std::is_same_v<T,LinkGridBoundsWidth>||std::is_same_v<T,SetGridBoundsWidthExpression>||
                     std::is_same_v<T,LinkGridBoundsHeight>||std::is_same_v<T,SetGridBoundsHeightExpression>||
                     std::is_same_v<T,LinkGridColumnGutter>||std::is_same_v<T,SetGridColumnGutterExpression>||
-                    std::is_same_v<T,LinkGridColumns>||std::is_same_v<T,LinkGridRows>||
+                    std::is_same_v<T,LinkGridColumns>||std::is_same_v<T,SetGridColumnsExpression>||
+                    std::is_same_v<T,LinkGridRows>||
                     std::is_same_v<T,LinkGridRowGutter>||
                     std::is_same_v<T,SetGridRowGutterExpression>;
             },layout_source->operation);

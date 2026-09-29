@@ -3676,6 +3676,62 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     check(session.revision()==before_unapproved_grid_columns_replace+1&&linked_grid_columns.driver==grid_columns_twin_ref&&
         std::get<std::size_t>(linked_grid_columns.evaluated)==2,
         "Grid columns Inspector replaces its source only after explicit authorization");
+    const std::string grid_columns_expression_text="ref(\""+grid_columns_twin_grid_id+
+        "\",\"\",\"grid.columns\") + 1";
+    auto* grid_columns_expression_input=visible_child<QPlainTextEdit>(window,"grid-columns-expression");
+    grid_columns_expression_input->setPlainText(QString::fromStdString(grid_columns_expression_text));
+    const auto before_grid_columns_expression_cancel=session.revision();click("grid-columns-cancel-expression");
+    check(session.revision()==before_grid_columns_expression_cancel&&
+        artboard_layout_property(session.document(),grid_columns_target_ref).driver==grid_columns_twin_ref&&
+        !artboard_layout_property(session.document(),grid_columns_target_ref).expression,
+        "Cancel discards a Grid columns expression draft without changing its linked source");
+    grid_columns_expression_input=visible_child<QPlainTextEdit>(window,"grid-columns-expression");
+    grid_columns_expression_input->setPlainText(QString::fromStdString(grid_columns_expression_text));
+    grid_columns_replace=visible_child<QCheckBox>(window,"grid-columns-replace");reveal(window,grid_columns_replace);
+    grid_columns_replace->setChecked(false);
+    const auto before_unapproved_grid_columns_expression=session.revision();click("grid-columns-apply-expression");
+    check(session.revision()==before_unapproved_grid_columns_expression&&
+        artboard_layout_property(session.document(),grid_columns_target_ref).driver==grid_columns_twin_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_COLUMNS"),
+        "Replacing a Grid columns link with an expression requires explicit Inspector authorization");
+    grid_columns_replace=visible_child<QCheckBox>(window,"grid-columns-replace");reveal(window,grid_columns_replace);
+    grid_columns_replace->setChecked(true);click("grid-columns-apply-expression");
+    auto expressed_grid_columns=artboard_layout_property(session.document(),grid_columns_target_ref);
+    grid_columns_input=visible_child<QLineEdit>(window,"grid-columns");
+    grid_columns_state=visible_child<QLabel>(window,"grid-columns-source-state");
+    check(session.revision()==before_unapproved_grid_columns_expression+1&&grid_columns_input->isReadOnly()&&
+        !expressed_grid_columns.driver&&expressed_grid_columns.expression==Expression{grid_columns_expression_text,1}&&
+        std::get<std::size_t>(expressed_grid_columns.literal)==grid_columns_literal&&
+        std::get<std::size_t>(expressed_grid_columns.evaluated)==3&&
+        grid_columns_state->text().contains("expression")&&grid_columns_state->text().contains("Evaluated: 3"),
+        "Inspector applies the exact unitless Grid columns expression and keeps its authored integer read-only");
+    click("artboard-duplicate");const auto expression_duplicate_id=window.canvas->active_artboard();
+    const auto expression_duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){
+            return value.id==expression_duplicate_id;
+        });
+    check(expression_duplicate!=session.document().compositions.front().artboards.end()&&
+        expression_duplicate->layout&&expression_duplicate->layout->grid&&
+        expression_duplicate->layout->grid->id!=grid_columns_target_ref.object&&
+        expression_duplicate->layout->grid->columns_expression==Expression{grid_columns_expression_text,1}&&
+        artboard_layout_property(session.document(),Ref{expression_duplicate->layout->grid->id,"","grid.columns"}).expression==
+            Expression{grid_columns_expression_text,1}&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),
+            Ref{expression_duplicate->layout->grid->id,"","grid.columns"}).literal)==grid_columns_literal&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),
+            Ref{expression_duplicate->layout->grid->id,"","grid.columns"}).evaluated)==3,
+        "Duplicate replays the exact Grid columns expression and authored count onto its new stable Grid ID");
+    session.apply({DeleteArtboard{composition_id,expression_duplicate_id}},session.revision());window.host.edited();
+    window.canvas->set_active_artboard(composition_id,board_id,false);QApplication::processEvents();
+    grid_columns_search=visible_child<QLineEdit>(window,"grid-columns-link-source-search");reveal(window,grid_columns_search);
+    grid_columns_picker=visible_child<QComboBox>(window,"grid-columns-link-source");reveal(window,grid_columns_picker);
+    select_grid_columns_source(grid_columns_twin_ref,grid_columns_search,grid_columns_picker);
+    grid_columns_replace=visible_child<QCheckBox>(window,"grid-columns-replace");reveal(window,grid_columns_replace);
+    grid_columns_replace->setChecked(true);click("grid-columns-link");
+    linked_grid_columns=artboard_layout_property(session.document(),grid_columns_target_ref);
+    check(linked_grid_columns.driver==grid_columns_twin_ref&&!linked_grid_columns.expression&&
+        std::get<std::size_t>(linked_grid_columns.evaluated)==2,
+        "Explicit Grid columns link replacement clears the Inspector expression source");
     const Ref grid_rows_target_ref{board().layout->grid->id,"","grid.rows"};
     const Ref grid_rows_source_ref{grid_columns_source_grid_id,"","grid.rows"};
     const Ref grid_rows_twin_ref{grid_columns_twin_grid_id,"","grid.rows"};

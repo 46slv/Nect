@@ -460,6 +460,38 @@ void snap_guide_grid_priority_visibility_and_controls() {
         f.release(end);f.no_error();
     }
     {
+        auto document=grid_guide_snap_document(500);
+        const Ref source{"grid-columns-expression-snap-source","","grid.columns"};
+        Artboard source_board{"grid-columns-expression-snap-source-board","Columns expression source",0,0,100,100};
+        ArtboardLayout source_layout;source_layout.grid=Grid{source.object,{0,0,100,100},2,1,0,0};
+        source_board.layout=source_layout;document.compositions.front().artboards.push_back(source_board);
+        Fixture f(document);const Ref target{"grid-snap","","grid.columns"};
+        const Expression expression{R"(ref("grid-columns-expression-snap-source","","grid.columns") + 1)",1};
+        f.session.apply({GridColumnsCommand{SetGridColumnsExpression{target,expression,false}}},f.session.revision());
+        f.canvas.refresh();f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);f.canvas.set_selection("path");
+        auto start=f.screen(140,130),end=f.screen(190,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),53.3333333,
+            "Horizontal Grid Snap uses the expression-evaluated three-column first boundary");
+        check(f.canvas.last_snap_feedback().contains("column 1 boundary")&&
+              std::get<std::size_t>(artboard_layout_property(f.session.document(),target).literal)==1&&
+              artboard_layout_property(f.session.document(),target).expression==expression&&
+              std::get<std::size_t>(artboard_layout_property(f.session.document(),target).evaluated)==3,
+            "Canvas Snap preserves the Grid columns literal and exact expression while using its evaluated integer");
+        f.release(end);
+        auto update=f.session.document().compositions.front().artboards.back();update.layout->grid->columns=3;
+        f.session.apply({SetArtboardLayout{f.session.document().compositions.front().id,update.id,update.layout}},
+            f.session.revision());
+        f.session.apply({Set{{"path","","transform.tx"},0}},f.session.revision());f.canvas.refresh();
+        start=f.screen(140,130);end=f.screen(181,130);f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),45,
+            "Horizontal Grid Snap follows the expression source from three to four evaluated columns");
+        check(f.canvas.last_snap_feedback().contains("column 1 boundary")&&
+              std::get<std::size_t>(artboard_layout_property(f.session.document(),target).evaluated)==4,
+            "Canvas expression Snap follows the source count change to the exact new cell boundary");
+        f.release(end);f.no_error();
+    }
+    {
         auto document=grid_guide_snap_document(200);
         document.compositions.front().guides.push_back({"guide-a","Stable ID tie winner","x",200});
         Fixture f(document);f.canvas.set_selection("path");
@@ -1967,6 +1999,27 @@ void grid_columns_overlay_tracks_evaluated_source() {
     check(count_vertical(evaluated,52.5)>20&&count_vertical(evaluated,66.6666667)<=20&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==4,
         "Canvas Grid overlay follows a source count change to the new first-column boundary");
+    const Expression expression{R"(ref("columns-overlay-source-grid","","grid.columns") + 1)",1};
+    session.apply({GridColumnsCommand{SetGridColumnsExpression{target,expression,true}}},session.revision());
+    canvas.refresh();QApplication::processEvents();
+    const auto expressed=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_vertical(expressed,44)>20&&
+        artboard_layout_property(session.document(),target).expression==expression&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),target).literal)==2&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==5,
+        "Canvas Grid overlay draws the exact first boundary for five expression-evaluated columns while retaining literal 2");
+    updated=std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[](const Artboard& value){
+            return value.id=="columns-overlay-source-board";
+        });
+    source_update=*updated;source_update.layout->grid->columns=3;
+    session.apply({SetArtboardLayout{session.document().compositions.front().id,source_update.id,source_update.layout}},
+        session.revision());
+    canvas.refresh();QApplication::processEvents();
+    const auto expression_updated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_vertical(expression_updated,52.5)>20&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==4,
+        "Canvas Grid overlay follows upstream source changes through the active columns expression");
 }
 
 void grid_rows_overlay_tracks_evaluated_source() {

@@ -309,6 +309,7 @@ struct Grid {
     std::optional<Ref> bounds_height_driver;
     std::optional<Expression> bounds_height_expression;
     std::optional<Ref> columns_driver;
+    std::optional<Expression> columns_expression;
     std::optional<Ref> rows_driver;
     bool operator==(const Grid&) const = default;
 };
@@ -450,6 +451,7 @@ struct LinkGridBoundsX { Ref target; Ref source; bool replace_driver=false; };
 struct SetGridBoundsXExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridBoundsX { Ref target; };
 struct LinkGridColumns { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridColumnsExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridColumns { Ref target; };
 struct LinkGridRows { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkGridRows { Ref target; };
@@ -472,7 +474,7 @@ struct LayoutDependencyCommand {
     std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkMarginTop,SetMarginTopExpression,UnlinkMarginTop,
         LinkMarginRight,SetMarginRightExpression,UnlinkMarginRight,
         LinkMarginBottom,SetMarginBottomExpression,UnlinkMarginBottom,
-        LinkGridColumns,UnlinkGridColumns,LinkGridRows,UnlinkGridRows,
+        LinkGridColumns,SetGridColumnsExpression,UnlinkGridColumns,LinkGridRows,UnlinkGridRows,
         LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX,
         LinkGridBoundsY,SetGridBoundsYExpression,UnlinkGridBoundsY,
         LinkGridBoundsWidth,SetGridBoundsWidthExpression,UnlinkGridBoundsWidth,
@@ -492,6 +494,7 @@ struct LayoutDependencyCommand {
     LayoutDependencyCommand(SetMarginBottomExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkMarginBottom value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkGridColumns value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridColumnsExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkGridColumns value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkGridRows value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkGridRows value):operation(std::move(value)){}
