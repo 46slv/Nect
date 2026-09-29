@@ -3515,6 +3515,50 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_width_source_ref&&
         std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).evaluated)==10,
         "Grid row gutter Inspector replaces its source only after explicit authorization");
+    const std::string grid_row_gutter_expression_text="ref(\""+grid_column_gutter_source_id+
+        "\",\"\",\"artboard.height\") + 0";
+    auto* grid_row_gutter_expression_input=visible_child<QPlainTextEdit>(window,"grid-row-gutter-expression");
+    auto* grid_row_gutter_apply_expression=visible_child<QPushButton>(window,"grid-row-gutter-apply-expression");
+    grid_row_gutter_expression_input->setPlainText(QString::fromStdString(grid_row_gutter_expression_text));
+    const auto before_grid_row_gutter_expression_cancel=session.revision();click("grid-row-gutter-cancel");
+    check(session.revision()==before_grid_row_gutter_expression_cancel&&
+        artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_width_source_ref&&
+        !artboard_layout_property(session.document(),grid_row_gutter_target_ref).expression,
+        "Cancel discards an uncommitted Grid row gutter expression draft");
+    grid_row_gutter_expression_input=visible_child<QPlainTextEdit>(window,"grid-row-gutter-expression");
+    grid_row_gutter_apply_expression=visible_child<QPushButton>(window,"grid-row-gutter-apply-expression");
+    grid_row_gutter_replace=visible_child<QCheckBox>(window,"grid-row-gutter-replace");
+    grid_row_gutter_expression_input->setPlainText(QString::fromStdString(grid_row_gutter_expression_text));
+    const auto before_unapproved_grid_row_gutter_expression=session.revision();click("grid-row-gutter-apply-expression");
+    check(session.revision()==before_unapproved_grid_row_gutter_expression&&
+        artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_width_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_ROW_GUTTER"),
+        "Replacing a Grid row gutter link with an expression requires visible explicit authorization");
+    grid_row_gutter_replace->setChecked(true);click("grid-row-gutter-apply-expression");
+    auto expressed_grid_row_gutter=artboard_layout_property(session.document(),grid_row_gutter_target_ref);
+    grid_row_gutter_input=visible_child<QLineEdit>(window,"grid-row-gutter");
+    grid_row_gutter_status=visible_child<QLabel>(window,"grid-row-gutter-source-state");
+    check(session.revision()==before_unapproved_grid_row_gutter_expression+1&&grid_row_gutter_input->isReadOnly()&&
+        !expressed_grid_row_gutter.driver&&expressed_grid_row_gutter.expression==Expression{grid_row_gutter_expression_text,1}&&
+        std::get<double>(expressed_grid_row_gutter.literal)==grid_row_gutter_literal&&
+        std::get<double>(expressed_grid_row_gutter.evaluated)==30&&
+        grid_row_gutter_status->text().contains("expression")&&grid_row_gutter_status->text().contains("Evaluated: 30"),
+        "Inspector applies the exact row gutter expression while keeping its authored numeric field read-only");
+    grid_row_gutter_picker=visible_child<QComboBox>(window,"grid-row-gutter-link-source");
+    grid_row_gutter_search=visible_child<QLineEdit>(window,"grid-row-gutter-link-source-search");
+    grid_row_gutter_replace=visible_child<QCheckBox>(window,"grid-row-gutter-replace");
+    grid_row_gutter_search->setText(QString::fromStdString(grid_column_gutter_source_id+"/artboard.width"));
+    QApplication::processEvents();grid_row_gutter_width_index=-1;
+    for(int i=0;i<grid_row_gutter_picker->count();++i)
+        if(grid_row_gutter_picker->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_column_gutter_source_id+"/artboard.width"))grid_row_gutter_width_index=i;
+    check(grid_row_gutter_width_index>=0,"Grid row gutter link draft remains available beside the expression editor");
+    grid_row_gutter_picker->setCurrentIndex(grid_row_gutter_width_index);QApplication::processEvents();
+    grid_row_gutter_replace->setChecked(true);click("grid-row-gutter-link");
+    check(artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_width_source_ref&&
+        !artboard_layout_property(session.document(),grid_row_gutter_target_ref).expression&&
+        std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).evaluated)==10,
+        "Explicit Grid row gutter link replacement clears its prior expression");
     click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
     const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});

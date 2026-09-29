@@ -581,31 +581,34 @@ void snap_guide_grid_priority_visibility_and_controls() {
         grid.bounds.height=100;grid.rows=2;grid.row_gutter=20;
         const Id grid_id=grid.id;
         const Ref source{"grid-row-gutter-snap-source","","artboard.height"};
+        const Expression expression{R"(ref("grid-row-gutter-snap-source","","artboard.height"))",1};
         document.compositions.front().artboards.push_back({source.object,"Grid row gutter source",0,0,100,20});
         Fixture f(document);const Ref target{grid_id,"","grid.row_gutter"};
-        f.session.apply({GridRowGutterCommand{LinkGridRowGutter{target,source,false}}},f.session.revision());
+        f.session.apply({GridRowGutterCommand{SetGridRowGutterExpression{target,expression,false}}},f.session.revision());
         f.canvas.refresh();f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);f.canvas.set_selection("path");
         auto start=f.screen(140,130),end=f.screen(140,60);
         f.press(start);f.move(end);
         near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),-70,
-            "Vertical Grid Snap uses the linked row gutter at the first row boundary");
+            "Vertical Grid Snap uses the expression-evaluated row gutter at the first row boundary");
         check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
               f.canvas.last_snap_feedback().contains("row 1 boundary"),
-            "Linked row gutter Snap feedback identifies the stable Grid cell boundary");
+            "Expression row gutter Snap feedback identifies the stable Grid cell boundary");
         f.release(end);
         auto value=artboard_layout_property(f.session.document(),target);
-        check(std::get<double>(value.literal)==20&&value.driver==source&&std::get<double>(value.evaluated)==20,
-            "Canvas Snap preserves the authored row gutter while using its evaluated Artboard height source");
+        check(std::get<double>(value.literal)==20&&!value.driver&&value.expression==expression&&
+              std::get<double>(value.evaluated)==20,
+            "Canvas Snap preserves the authored row gutter and exact evaluated expression source");
         auto source_board=f.session.document().compositions.front().artboards.back();source_board.height=40;
         f.session.apply({UpdateArtboard{f.session.document().compositions.front().id,source_board}},f.session.revision());
         f.canvas.refresh();
         start=f.screen(140,60);end=f.screen(140,50);
         f.press(start);f.move(end);
         near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),-80,
-            "Vertical Grid Snap follows an upstream row gutter change to the moved first-row boundary");
+            "Vertical Grid Snap follows an upstream row gutter expression change to the moved first-row boundary");
         check(f.canvas.last_snap_feedback().contains("row 1 boundary")&&
+              artboard_layout_property(f.session.document(),target).expression==expression&&
               std::get<double>(artboard_layout_property(f.session.document(),target).evaluated)==40,
-            "Updated Grid row gutter remains the active evaluated vertical Snap target");
+            "Updated Grid row gutter expression remains the active evaluated vertical Snap target");
         f.release(end);f.no_error();
     }
     {
@@ -1723,9 +1726,10 @@ void grid_row_gutter_overlay_tracks_evaluated_source() {
     const Id grid_id="row-gutter-overlay-grid";
     board.layout=ArtboardLayout{std::nullopt,Grid{grid_id,{20,20,160,100},2,2,10,10}};
     const Ref source{"row-gutter-overlay-source","","artboard.height"};
+    const Expression expression{R"(ref("row-gutter-overlay-source","","artboard.height"))",1};
     document.compositions.front().artboards.push_back({source.object,"Row gutter source",240,0,40,20});
     Session session(std::move(document));const Ref target{grid_id,"","grid.row_gutter"};
-    session.apply({GridRowGutterCommand{LinkGridRowGutter{target,source,false}}},session.revision());
+    session.apply({GridRowGutterCommand{SetGridRowGutterExpression{target,expression,false}}},session.revision());
     Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
     canvas.fit_artboard();QApplication::processEvents();
     const auto count_horizontal=[&](const QImage& image,double world_y) {
@@ -1743,8 +1747,9 @@ void grid_row_gutter_overlay_tracks_evaluated_source() {
     check(count_horizontal(linked,60)>20&&count_horizontal(linked,80)>20&&
         count_horizontal(linked,65)<=20&&count_horizontal(linked,75)<=20&&
         std::get<double>(artboard_layout_property(session.document(),target).literal)==10&&
+        artboard_layout_property(session.document(),target).expression==expression&&
         std::get<double>(artboard_layout_property(session.document(),target).evaluated)==20,
-        ("Canvas row overlay draws both evaluated Grid row gutter edges while preserving the authored literal: edges="+
+        ("Canvas row overlay draws both expression-evaluated Grid row gutter edges while preserving the authored literal: edges="+
             std::to_string(count_horizontal(linked,60))+","+std::to_string(count_horizontal(linked,80))+" literal="+
             std::to_string(count_horizontal(linked,65))+","+std::to_string(count_horizontal(linked,75))).c_str());
     auto upstream=session.document().compositions.front().artboards.back();upstream.height=30;

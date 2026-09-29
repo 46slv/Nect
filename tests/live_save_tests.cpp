@@ -318,11 +318,11 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
     const Ref grid_column_gutter_ref{grid_id,"","grid.column_gutter"};
     const Ref grid_column_gutter_source_ref{"save-as-grid-column-gutter-source","","artboard.width"};
     const Ref grid_row_gutter_ref{grid_id,"","grid.row_gutter"};
-    const Ref grid_row_gutter_source_ref{"save-as-grid-column-gutter-source","","artboard.height"};
     ArtboardLayout initial_layout{
         Margin{12,16,20,24},Grid{grid_id,{32,28,560,400},4,3,16,12}};
     const Ref grid_height_ref{grid_id,"","grid.bounds.height"};
     const Expression grid_height_expression{R"(ref("save-as-grid-height-source","","artboard.height") + 10)",1};
+    const Expression grid_row_gutter_expression{R"(ref("save-as-grid-column-gutter-source","","artboard.height"))",1};
     Artboard height_source{"save-as-grid-height-source","Grid height source",0,0,100,410};
     Artboard gutter_source{"save-as-grid-column-gutter-source","Grid column gutter source",0,0,10,20};
     host.session.apply({AddArtboard{composition,height_source,1},AddArtboard{composition,gutter_source,2},
@@ -331,11 +331,11 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
         host.session.revision());
     host.session.apply({GridColumnGutterCommand{LinkGridColumnGutter{grid_column_gutter_ref,
         grid_column_gutter_source_ref,false}}},host.session.revision());
-    host.session.apply({GridRowGutterCommand{LinkGridRowGutter{grid_row_gutter_ref,
-        grid_row_gutter_source_ref,false}}},host.session.revision());
+    host.session.apply({GridRowGutterCommand{SetGridRowGutterExpression{grid_row_gutter_ref,
+        grid_row_gutter_expression,false}}},host.session.revision());
     initial_layout.grid->bounds_height_expression=grid_height_expression;
     initial_layout.grid->column_gutter_driver=grid_column_gutter_source_ref;
-    initial_layout.grid->row_gutter_driver=grid_row_gutter_source_ref;
+    initial_layout.grid->row_gutter_expression=grid_row_gutter_expression;
     host.edited();
     const auto initial=host.session.document();
     const auto source_path=directory+"/layout-save-source.nect";
@@ -361,7 +361,7 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
     host.session.apply({SetArtboardLayout{composition,artboard_id,committed_layout}},host.session.revision());host.edited();
     committed_layout.grid->bounds_height_expression=grid_height_expression;
     committed_layout.grid->column_gutter_driver=grid_column_gutter_source_ref;
-    committed_layout.grid->row_gutter_driver=grid_row_gutter_source_ref;
+    committed_layout.grid->row_gutter_expression=grid_row_gutter_expression;
     const auto committed=host.session.document();
     const auto committed_revision=host.session.revision();
     const auto committed_bytes=QByteArray::fromStdString(encode(committed));
@@ -402,7 +402,7 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
           destination_bytes.contains(QByteArray::fromStdString(std::string("\"version\":\"")+native_version+"\""))&&
           saved_board.id==artboard_id&&saved_board.layout&&*saved_board.layout==committed_layout&&
           bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash,
-          "Valid Save As writes exact native 0.52 bytes and retains all authored layout fields, Grid height expression, both gutter sources and IDs");
+          "Valid Save As writes exact native 0.53 bytes and retains all authored layout fields, Grid height and row gutter expressions, column gutter link and IDs");
     check(host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
           QJsonDocument::fromJson(bytes(recovery_meta)).object()["source_file"]==native_path(destination),
           "Recovery provenance follows the Grid and Margin Save As destination");
@@ -451,9 +451,9 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
               "Grid column gutter typed read preserves its authored literal and exact Artboard source across Save As");
         const auto row_gutter_property=artboard_layout_property(document,grid_row_gutter_ref);
         check(std::get<double>(row_gutter_property.literal)==committed_layout.grid->row_gutter&&
-              row_gutter_property.driver==grid_row_gutter_source_ref&&
+              !row_gutter_property.driver&&row_gutter_property.expression==grid_row_gutter_expression&&
               std::get<double>(row_gutter_property.evaluated)==20,
-              "Grid row gutter typed read preserves its authored literal and exact Artboard source across Save As");
+              "Grid row gutter typed read preserves its authored literal and exact expression across Save As");
     };
     check_local_reads(cold);
 
@@ -495,12 +495,11 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
               QString::fromStdString(grid_column_gutter_source_ref.object)&&
           column_gutter_read["evaluated"].toDouble()==10&&column_gutter_read["link"].toBool()&&
           row_gutter_read["authored"].toObject()["literal"].toDouble()==committed_layout.grid->row_gutter&&
-          row_gutter_read["authored"].toObject()["driver"].toObject()["object"].toString()==
-              QString::fromStdString(grid_row_gutter_source_ref.object)&&
-          row_gutter_read["authored"].toObject()["driver"].toObject()["field"]=="artboard.height"&&
-          row_gutter_read["evaluated"].toDouble()==20&&row_gutter_read["link"].toBool()&&
+          row_gutter_read["authored"].toObject()["expression"].toObject()["source"].toString()==
+              QString::fromStdString(grid_row_gutter_expression.source)&&
+          row_gutter_read["evaluated"].toDouble()==20&&row_gutter_read["expression"].toBool()&&
           inspected==QJsonDocument::fromJson(destination_bytes).object(),
-          "A separate Nect process cold-opens the exact Save As bytes and reads the Grid height expression and both typed gutter sources");
+          "A separate Nect process cold-opens the exact Save As bytes and reads the Grid height and row gutter expressions plus the column gutter link");
 
     const auto local_grid=evaluate_artboard(cold.compositions.front(),artboard_id).layout->grid->bounds;
     const LayoutRect world_before{cold_board.x+local_grid.x,cold_board.y+local_grid.y,
@@ -608,7 +607,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_width=artboard_layout_property(persisted,grid_width_ref);
     const auto persisted_grid_height=artboard_layout_property(persisted,grid_height_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.52\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.53\"")&&
         bytes(original)==original_bytes&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&
@@ -625,7 +624,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
          persisted_grid_width.expression==grid_width_expression&&std::get<double>(persisted_grid_width.evaluated)==70&&
          std::get<double>(persisted_grid_height.literal)==560&&persisted_grid_height.driver==source_top_ref&&
          std::get<double>(persisted_grid_height.evaluated)==70,
-          "Host Save As writes native 0.52 Grid height link, width expression and Margin sources beside authored literals while preserving original bytes");
+          "Host Save As writes native 0.53 Grid height link, width expression and Margin sources beside authored literals while preserving original bytes");
 
     Host cold(directory+"/linked-margin-left-cold-recovery");cold.open(destination);
     const auto cold_value=artboard_layout_property(cold.session.document(),target_ref);
