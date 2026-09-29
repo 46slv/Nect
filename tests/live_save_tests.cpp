@@ -209,7 +209,7 @@ void text_weight_expression_save_as(const QString& directory,const QString& nect
     const auto destination=directory+"/weight-expression-destination.nect";
     host.save(destination);const auto destination_bytes=bytes(destination);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.59\"")&&
+        destination_bytes.contains("\"version\":\"0.60\"")&&
         load_native(destination).document.objects.at("weight-target").text->weight_expression==expression,
         "Host Save As retains the exact Text weight expression and leaves original bytes unchanged");
     Host reopened(directory+"/weight-expression-cold-recovery");reopened.open(destination);
@@ -231,6 +231,49 @@ void text_weight_expression_save_as(const QString& directory,const QString& nect
         reply["authored"].toObject()["source_kind"]=="expression"&&
         reply["evaluated"].toInt()==600,
         "Separate process reads exact Text weight source and integer result from Save As destination");
+}
+void object_visibility_expression_save_as(const QString& directory,const QString& nect_cli) {
+    Host host(directory+"/visibility-expression-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    host.session.apply({
+        CreatePrimitive{composition,"","visibility-source","Source",default_primitive("visibility-source-primitive","nect.shape.rectangle")},
+        CreatePrimitive{composition,"","visibility-target","Target",default_primitive("visibility-target-primitive","nect.shape.rectangle")}},
+        host.session.revision());host.edited();
+    const auto original=directory+"/visibility-expression-original.nect";
+    host.save(original);const auto original_bytes=bytes(original);
+    const Expression expression{" ! ref ( \"visibility-source\" , \"\" , \"object.visible\" ) ",1};
+    host.session.apply({SetObjectVisibilityExpression{{"visibility-target","","object.visible"},expression,false},
+        SetVisibility{"visibility-source",false}},host.session.revision());host.edited();
+    const auto committed=host.session.document();
+    const auto destination=directory+"/visibility-expression-destination.nect";
+    host.save(destination);const auto destination_bytes=bytes(destination);
+    const Ref target{"visibility-target","","object.visible"};
+    const auto saved=load_native(destination).document;
+    const auto saved_state=object_visibility_state(saved,target);
+    check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
+        destination_bytes.contains("\"version\":\"0.60\"")&&saved==committed&&
+        saved_state.literal&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated,
+        "Host Save As keeps the exact Object visibility expression and leaves original bytes unchanged");
+    Host reopened(directory+"/visibility-expression-cold-recovery");reopened.open(destination);
+    const auto cold=object_visibility_state(reopened.session.document(),target);
+    check(reopened.session.document()==committed&&reopened.session.revision()==0&&
+        cold.literal&&!cold.driver&&cold.expression==expression&&cold.evaluated&&
+        bytes(original)==original_bytes,
+        "Cold Host reopen restores authored literal, exact expression source and evaluated own visibility");
+    QProcess process;process.start(nect_cli,{"--serve",destination});
+    check(process.waitForStarted(5000),"Start a separate Nect process on Object visibility expression Save As destination");
+    const auto query=QByteArray("{\"op\":\"get\",\"ref\":{\"object\":\"visibility-target\",\"point\":\"\",\"field\":\"object.visible\"}}\n");
+    check(process.write(query)==query.size(),"Query Object visibility expression from the cold Nect process");
+    process.closeWriteChannel();
+    check(process.waitForFinished(10000)&&process.exitStatus()==QProcess::NormalExit&&process.exitCode()==0,
+        "Cold Nect process exits after Object visibility expression readback");
+    const auto reply=QJsonDocument::fromJson(process.readAllStandardOutput().trimmed()).object()["result"].toObject();
+    const auto authored=reply["authored"].toObject();
+    check(authored["literal"].toBool()&&authored["driver"].isNull()&&
+        authored["expression"].toObject()["source"].toString()==QString::fromStdString(expression.source)&&
+        authored["expression"].toObject()["version"].toInt()==1&&authored["source_kind"]=="expression"&&
+        reply["evaluated"].toBool()&&reply["expression"].toBool()&&reply["link"].toBool(),
+        "Separate process reads exact Object visibility source, source kind and evaluated value");
 }
 void point_edit_save_as(const QString& directory) {
     Host host(directory+"/point-edit-recovery");
@@ -519,7 +562,7 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
           artboard_layout_property(saved,expression_grid_column_gutter_ref).expression==column_gutter_expression&&
           std::get<double>(artboard_layout_property(saved,expression_grid_column_gutter_ref).evaluated)==20&&
           bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash,
-          "Valid Save As writes exact native 0.59 bytes and retains Grid links/expressions, authored counts and stable IDs");
+          "Valid Save As writes exact native 0.60 bytes and retains Grid links/expressions, authored counts and stable IDs");
     check(host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
           QJsonDocument::fromJson(bytes(recovery_meta)).object()["source_file"]==native_path(destination),
           "Recovery provenance follows the Grid and Margin Save As destination");
@@ -799,7 +842,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_width=artboard_layout_property(persisted,grid_width_ref);
     const auto persisted_grid_height=artboard_layout_property(persisted,grid_height_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.59\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.60\"")&&
         bytes(original)==original_bytes&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&
@@ -816,7 +859,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
          persisted_grid_width.expression==grid_width_expression&&std::get<double>(persisted_grid_width.evaluated)==70&&
          std::get<double>(persisted_grid_height.literal)==560&&persisted_grid_height.driver==source_top_ref&&
          std::get<double>(persisted_grid_height.evaluated)==70,
-          "Host Save As writes native 0.59 Grid height/width expressions and Margin sources beside authored literals while preserving original bytes");
+          "Host Save As writes native 0.60 Grid height/width expressions and Margin sources beside authored literals while preserving original bytes");
 
     Host cold(directory+"/linked-margin-left-cold-recovery");cold.open(destination);
     const auto cold_value=artboard_layout_property(cold.session.document(),target_ref);
@@ -1137,6 +1180,7 @@ int main(int argc,char** argv) {
         QTemporaryDir temp;check(temp.isValid(),"Create owned live-save test folder");
         coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());
         text_weight_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
+        object_visibility_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         point_edit_save_as(temp.path());artboard_size_save_as(temp.path());
         layout_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         linked_margin_left_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));

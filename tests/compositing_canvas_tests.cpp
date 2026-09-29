@@ -204,6 +204,24 @@ void linked_visibility_controls_canvas_pixels() {
     auto target=rectangle("linked-target",100,100,200,200,Qt::red);target.visibility_driver=Ref{"hidden-driver","","object.visible"};add(d,std::move(target));
     Fixture f(d);f.color(180,180,QColor(250,250,250),"Canvas omits artwork whose visibility driver evaluates false");f.no_error();
 }
+void expression_visibility_projects_own_value_to_canvas() {
+    auto d=document(false);
+    auto member=rectangle("visibility-member",20,20,20,20,Qt::blue);add(d,std::move(member));
+    group(d,"hidden-ancestor",{"visibility-member"});d.objects.at("hidden-ancestor").visible=false;
+    auto target=rectangle("expression-target",100,100,200,200,Qt::red);
+    target.visibility_expression=Expression{"ref(\"visibility-member\",\"\",\"object.visible\")",1};add(d,std::move(target));
+    Fixture f(d);
+    const auto own=evaluate_object_visibilities(f.session.document());
+    check(!own.at("hidden-ancestor")&&own.at("visibility-member")&&own.at("expression-target"),
+        "Object visibility expression reads the member's authored own value under a hidden ancestor");
+    f.color(180,180,Qt::red,"Canvas keeps an expression target visible when its same-Composition own source is true");
+    f.apply({SetObjectVisibilityExpression{{"expression-target","","object.visible"},
+        {"!ref(\"visibility-member\",\"\",\"object.visible\")",1},true}});
+    f.color(180,180,QColor(250,250,250),"Canvas applies negated Object visibility expression to target artwork");
+    f.apply({SetVisibility{"visibility-member",false}});
+    f.color(180,180,Qt::red,"Canvas re-evaluates a negated Object visibility expression after its source edit");
+    f.no_error();
+}
 void linked_fill_rule_projects_to_canvas_and_svg() {
     auto d=document();auto target=rectangle("target",80,80,300,280,Qt::green);
     auto inner=rectangle("inner",160,160,100,100,Qt::green);target.contours.push_back(inner.contours.front());add(d,std::move(target));
@@ -374,7 +392,7 @@ int main(int argc,char** argv) {
     try {
         group_opacity_is_applied_once();group_posterize_uses_independent_postcomposite_pixel_oracle();pass_through_and_isolation_have_distinct_backdrops();blend_alpha_and_transparent_root();
         all_supported_blends_match_independent_channel_formulas();
-        open_mask_hole_and_fill_rule();linked_visibility_controls_canvas_pixels();linked_fill_rule_projects_to_canvas_and_svg();
+        open_mask_hole_and_fill_rule();linked_visibility_controls_canvas_pixels();expression_visibility_projects_own_value_to_canvas();linked_fill_rule_projects_to_canvas_and_svg();
         linked_mask_enabled_projects_to_canvas_and_svg();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
         mask_outline_is_separate_from_inherited_selection();cropped_unmasked_scope_preserves_stroke_gradient_and_repeater();
         cropped_mask_scope_preserves_world_alignment();render_limits_remain_visible();

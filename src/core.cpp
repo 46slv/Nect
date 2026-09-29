@@ -54,19 +54,21 @@ void identity(const Id& id) {
         require((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-',"INVALID_ID",id);
 }
 std::pair<Id,std::string> operation_address(const std::string& field);
-struct ParsedTextItalicExpression {
+struct ParsedBooleanExpression {
     bool is_literal=false;
     bool literal=false;
     bool negate=false;
     Ref source;
     std::size_t object_begin=0,object_end=0;
 };
-class TextItalicExpressionParser {
+class BooleanPropertyExpressionParser {
     std::string_view source_;
+    std::string_view field_;
+    std::string_view property_;
     std::size_t cursor_=0;
     void whitespace(){while(cursor_<source_.size()&&(source_[cursor_]==' '||source_[cursor_]=='\t'||source_[cursor_]=='\n'||source_[cursor_]=='\r'))++cursor_;}
     bool take(char c){whitespace();if(cursor_<source_.size()&&source_[cursor_]==c){++cursor_;return true;}return false;}
-    void expect(char c){require(take(c),"BOOLEAN_EXPRESSION_SYNTAX","Invalid Text italic expression delimiter");}
+    void expect(char c){require(take(c),"BOOLEAN_EXPRESSION_SYNTAX","Invalid boolean property expression delimiter");}
     bool word(std::string_view expected) {
         whitespace();if(source_.substr(cursor_,expected.size())!=expected)return false;
         cursor_+=expected.size();return true;
@@ -78,36 +80,45 @@ class TextItalicExpressionParser {
             const bool valid=(c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'||(!identifier&&c=='.');
             require(valid,"BOOLEAN_EXPRESSION_SYNTAX","Stable Ref arguments use unescaped ASCII identifiers");
         }
-        require(cursor_<source_.size(),"BOOLEAN_EXPRESSION_SYNTAX","Unterminated Text italic Ref argument");
+        require(cursor_<source_.size(),"BOOLEAN_EXPRESSION_SYNTAX","Unterminated boolean property Ref argument");
         const auto finish=cursor_;++cursor_;
         if(begin)*begin=start;if(end)*end=finish;
         const auto length=finish-start;
-        require((identifier&&(length>0||allow_empty)&&length<=96)||(!identifier&&length<=512),"BOOLEAN_EXPRESSION_SYNTAX","Text italic Ref argument is out of range");
+        require((identifier&&(length>0||allow_empty)&&length<=96)||(!identifier&&length<=512),"BOOLEAN_EXPRESSION_SYNTAX","Boolean property Ref argument is out of range");
         return std::string(source_.substr(start,length));
     }
 public:
-    explicit TextItalicExpressionParser(std::string_view source):source_(source){}
-    ParsedTextItalicExpression parse() {
-        ParsedTextItalicExpression result;whitespace();
+    BooleanPropertyExpressionParser(std::string_view source,std::string_view field,std::string_view property)
+        :source_(source),field_(field),property_(property){}
+    ParsedBooleanExpression parse() {
+        ParsedBooleanExpression result;whitespace();
         if(word("true")){result.is_literal=true;result.literal=true;}
         else if(word("false")){result.is_literal=true;result.literal=false;}
         else {
             result.negate=take('!');
-            require(word("ref"),"BOOLEAN_EXPRESSION_SYNTAX","Expected true, false or a Text italic ref");
+            require(word("ref"),"BOOLEAN_EXPRESSION_SYNTAX","Expected true, false or a boolean property ref");
             expect('(');
             result.source.object=quoted(true,&result.object_begin,&result.object_end);
             expect(',');result.source.point=quoted(true,nullptr,nullptr,true);
             expect(',');result.source.field=quoted(false);expect(')');
-            require(result.source.point.empty()&&result.source.field=="text.italic","BOOLEAN_EXPRESSION_TYPE","Text italic expressions may reference only Text italic");
+            require(result.source.point.empty()&&result.source.field==field_,"BOOLEAN_EXPRESSION_TYPE",
+                std::string(property_)+" expressions may reference only "+std::string(field_));
         }
-        whitespace();require(cursor_==source_.size(),"BOOLEAN_EXPRESSION_SYNTAX","Unexpected trailing Text italic expression text");
+        whitespace();require(cursor_==source_.size(),"BOOLEAN_EXPRESSION_SYNTAX","Unexpected trailing boolean property expression text");
         return result;
     }
 };
-ParsedTextItalicExpression parse_text_italic_expression(const Expression& expression) {
-    require(expression.version==1,"UNSUPPORTED_EXPRESSION_VERSION","Only expression version 1 is supported for Text italic");
-    require(!expression.source.empty()&&expression.source.size()<=4096,"EXPRESSION_LIMIT","Text italic expression source must contain 1..4096 bytes");
-    return TextItalicExpressionParser(expression.source).parse();
+ParsedBooleanExpression parse_boolean_expression(const Expression& expression,std::string_view field,std::string_view property) {
+    require(expression.version==1,"UNSUPPORTED_EXPRESSION_VERSION",std::string("Only expression version 1 is supported for ")+std::string(property));
+    require(!expression.source.empty()&&expression.source.size()<=4096,"EXPRESSION_LIMIT",
+        std::string(property)+" expression source must contain 1..4096 bytes");
+    return BooleanPropertyExpressionParser(expression.source,field,property).parse();
+}
+ParsedBooleanExpression parse_text_italic_expression(const Expression& expression) {
+    return parse_boolean_expression(expression,"text.italic","Text italic");
+}
+ParsedBooleanExpression parse_object_visibility_expression(const Expression& expression) {
+    return parse_boolean_expression(expression,"object.visible","Object visibility");
 }
 const TextSource& text_italic_source(const Document& document,const Ref& ref) {
     require(ref.point.empty()&&ref.field=="text.italic","TYPE_MISMATCH","Only Text italic accepts a boolean property Ref");
@@ -771,6 +782,15 @@ Expression remap_text_italic_expression(const Expression& expression,const std::
     require(target.point.empty()&&target.field=="text.italic","TYPE_MISMATCH","Duplicated Text italic Ref changed type");
     auto result=expression;result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
     (void)parse_text_italic_expression(result);return result;
+}
+Expression remap_object_visibility_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
+    const auto parsed=parse_object_visibility_expression(expression);
+    if(parsed.is_literal)return expression;
+    const auto target=remap(parsed.source);if(target==parsed.source)return expression;
+    require(target.point.empty()&&target.field=="object.visible","TYPE_MISMATCH",
+        "Duplicated Object visibility Ref changed type");
+    auto result=expression;result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
+    (void)parse_object_visibility_expression(result);return result;
 }
 const std::array<std::string,6> point_fields{"x","y","in.angle","in.length","out.angle","out.length"};
 bool polystar(const Primitive& source){return source.type=="nect.shape.polygon"||source.type=="nect.shape.star";}
@@ -1515,6 +1535,8 @@ class ObjectVisibilityEvaluator {
         require(active_.insert(id).second,"DEPENDENCY_CYCLE","Object visibility dependency cycle");
         const auto& object=visibility_source(document_,{id,"","object.visible"});
         VisibilityEvaluation result{object.visible,0};
+        require(!(object.visibility_driver&&object.visibility_expression),"MULTIPLE_DRIVERS",
+            "Object visibility may have only one active source");
         if(object.visibility_driver) {
             const auto& source=visibility_source(document_,*object.visibility_driver);
             require(source.id!=id,"DEPENDENCY_CYCLE","Object visibility cannot link to itself");
@@ -1525,6 +1547,20 @@ class ObjectVisibilityEvaluator {
                 "Object visibility links must stay in one Composition");
             const auto upstream=visit(source.id,depth+1);
             result={upstream.value,upstream.remaining_edges+1};
+        } else if(object.visibility_expression) {
+            const auto parsed=parse_object_visibility_expression(*object.visibility_expression);
+            if(parsed.is_literal)result.value=parsed.literal;
+            else {
+                const auto& source=visibility_source(document_,parsed.source);
+                require(source.id!=id,"DEPENDENCY_CYCLE","Object visibility cannot reference itself");
+                const auto target_owner=compositions_.find(id),source_owner=compositions_.find(source.id);
+                require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                    "ORPHAN_OBJECT","Visibility expressions require objects owned by a Composition");
+                require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                    "Object visibility expressions must stay in one Composition");
+                const auto upstream=visit(source.id,depth+1);
+                result={parsed.negate?!upstream.value:upstream.value,upstream.remaining_edges+1};
+            }
         }
         require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Object visibility dependency depth limit 128");
         active_.erase(id);
@@ -1616,7 +1652,7 @@ public:
 ObjectVisibilityProperty object_visibility_state(const Document& document,const Ref& ref) {
     const auto& object=visibility_source(document,ref);
     ObjectVisibilityEvaluator evaluator(document);
-    return {object.visible,object.visibility_driver,evaluator.value(ref.object)};
+    return {object.visible,object.visibility_driver,object.visibility_expression,evaluator.value(ref.object)};
 }
 bool evaluate_object_visibility(const Document& document,const Id& object) {
     return ObjectVisibilityEvaluator(document).value(object);
@@ -4931,6 +4967,8 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         for(auto& child:object.children)child=plan.ids.at(child);
         if(object.transform_parent&&plan.objects.contains(*object.transform_parent))object.transform_parent=plan.ids.at(*object.transform_parent);
         if(object.visibility_driver)object.visibility_driver=remap(*object.visibility_driver);
+        if(object.visibility_expression)
+            object.visibility_expression=remap_object_visibility_expression(*object.visibility_expression,remap);
         if(object.compositing.isolated_driver)object.compositing.isolated_driver=remap(*object.compositing.isolated_driver);
         if(object.compositing.mask) {
             auto& mask=*object.compositing.mask;
@@ -5195,7 +5233,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         if constexpr(std::is_same_v<T,LinkFillRule>||std::is_same_v<T,UnlinkFillRule>)
             require(fill_rule_targets.insert(value.target).second,"DUPLICATE_TARGET","A Fill rule target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkObjectVisibility>||std::is_same_v<T,UnlinkObjectVisibility>)
-            require(visibility_targets.insert(value.target).second,"DUPLICATE_TARGET","An Object visibility target may be linked or unlinked only once per batch");
+            require(visibility_targets.insert(value.target).second,"DUPLICATE_TARGET","An Object visibility target may be changed only once per batch");
         else if constexpr(std::is_same_v<T,LinkOperationEnabled>||std::is_same_v<T,UnlinkOperationEnabled>)
             require(operation_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","An operation enabled target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkGradientEnabled>||std::is_same_v<T,UnlinkGradientEnabled>)
@@ -5277,7 +5315,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         } else if constexpr(std::is_same_v<T,SetVisibility>||std::is_same_v<T,SetCompositing>||std::is_same_v<T,SetMask>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);auto& object=candidate.objects.at(c.object);
             if constexpr(std::is_same_v<T,SetVisibility>) {
-                require(!object.visibility_driver,"DRIVEN_PROPERTY","Unlink Object visibility before changing its authored literal");
+                require(!object.visibility_driver&&!object.visibility_expression,"DRIVEN_PROPERTY",
+                    "Unlink Object visibility before changing its authored literal");
                 object.visible=c.visible;
             }
             else if constexpr(std::is_same_v<T,SetCompositing>){
@@ -5301,10 +5340,22 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             }
         } else if constexpr(std::is_same_v<T,LinkObjectVisibility>) {
             const auto& target=visibility_source(candidate,c.target);
-            (void)visibility_source(candidate,c.source);
-            require(c.target.object!=c.source.object,"DEPENDENCY_CYCLE","Object visibility cannot link to itself");
-            require(!target.visibility_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing an Object visibility driver requires replace_driver=true");
-            candidate.objects.at(c.target.object).visibility_driver=c.source;
+            auto& object=candidate.objects.at(c.target.object);
+            if(const auto* source=std::get_if<Ref>(&c.source)) {
+                (void)visibility_source(candidate,*source);
+                require(c.target.object!=source->object,"DEPENDENCY_CYCLE","Object visibility cannot link to itself");
+                const auto same_source=target.visibility_driver==std::optional<Ref>{*source}&&!target.visibility_expression;
+                require(same_source||(!target.visibility_driver&&!target.visibility_expression)||c.replace_driver,
+                    "DRIVEN_PROPERTY","Replacing an Object visibility source requires replace_driver=true");
+                object.visibility_driver=*source;object.visibility_expression.reset();
+            } else {
+                const auto& expression=std::get<Expression>(c.source);
+                (void)parse_object_visibility_expression(expression);
+                const auto same_expression=target.visibility_expression==std::optional<Expression>{expression}&&!target.visibility_driver;
+                require(same_expression||(!target.visibility_driver&&!target.visibility_expression)||c.replace_driver,
+                    "DRIVEN_PROPERTY","Replacing an Object visibility source requires replace_driver=true");
+                object.visibility_driver.reset();object.visibility_expression=expression;
+            }
         } else if constexpr(std::is_same_v<T,LinkOperationEnabled>) {
             const auto& target=operation_enabled_source(candidate,c.target);
             (void)operation_enabled_source(candidate,c.source);
@@ -5338,10 +5389,11 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             edit_point_edit_enabled(candidate,c);
         } else if constexpr(std::is_same_v<T,UnlinkObjectVisibility>) {
             const auto& target=visibility_source(candidate,c.target);
-            require(target.visibility_driver.has_value(),"PROPERTY_NOT_LINKED","Object visibility has no driver to unlink");
+            require(target.visibility_driver.has_value()||target.visibility_expression.has_value(),
+                "PROPERTY_NOT_LINKED","Object visibility has no source to unlink");
             const auto frozen=evaluate_object_visibility(candidate,c.target.object);
             auto& object=candidate.objects.at(c.target.object);
-            object.visible=frozen;object.visibility_driver.reset();
+            object.visible=frozen;object.visibility_driver.reset();object.visibility_expression.reset();
         } else if constexpr(std::is_same_v<T,LinkCompositeIsolated>) {
             const auto& target=composite_isolation_source(candidate,c.target);
             (void)composite_isolation_source(candidate,c.source);
@@ -5359,7 +5411,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(c.members.size()>=2&&c.members.size()<=1000,"INVALID_GROUP","Mask With requires 2..1000 ordered contiguous siblings");
             const auto source=c.top?c.members.back():c.members.front();
             require(candidate.objects.contains(source)&&(candidate.objects.at(source).kind==Kind::path||candidate.objects.at(source).kind==Kind::text),"INVALID_MASK_SOURCE","Mask With source must be a Path or Text");
-            require(!candidate.objects.at(source).visibility_driver,"DRIVEN_PROPERTY","Unlink the mask source visibility before Mask With changes its authored literal");
+            require(!candidate.objects.at(source).visibility_driver&&!candidate.objects.at(source).visibility_expression,
+                "DRIVEN_PROPERTY","Unlink the mask source visibility before Mask With changes its authored literal");
             group_contiguous(candidate,c.composition,c.parent,c.members,c.id,c.name);
             candidate.objects.at(c.id).compositing.mask=GeometryMask{c.mask_id,source};candidate.objects.at(source).visible=false;
         } else if constexpr(std::is_same_v<T,Ungroup>) {
@@ -6083,6 +6136,7 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
     auto candidate=edited(document_,commands);
     if(candidate==document_&&commands.size()==1) {
         if(std::holds_alternative<LinkTextWeight>(commands.front()))return;
+        if(std::holds_alternative<LinkObjectVisibility>(commands.front()))return;
         if(const auto* layout_source=std::get_if<LayoutDependencyCommand>(&commands.front())) {
             const bool source_transition=std::visit([](const auto& operation) {
                 using T=std::decay_t<decltype(operation)>;

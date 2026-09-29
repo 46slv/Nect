@@ -604,10 +604,16 @@ j::object gradient_enabled_property_json(const Document& d,const Ref& ref,const 
 }
 j::object object_visibility_property_json(const Document& d,const Ref& ref,const ObjectVisibilityProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
-    return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
+    j::object authored{{"literal",value.literal},{"driver",std::move(driver)},
+        {"source_kind",value.driver?"link":value.expression?"expression":"literal"}};
+    j::object result{{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
         {"unit","boolean"},{"space","local"},{"origin","authored"},
-        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
-        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+        {"authored",std::move(authored)},
+        {"evaluated",value.evaluated},{"link",true},{"expression",true}};
+    if(value.expression) {
+        result["authored"].as_object()["expression"]=expression_json(*value.expression);
+    }
+    return result;
 }
 j::object composite_isolated_property_json(const Document& d,const Ref& ref,const CompositeIsolationProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
@@ -1230,6 +1236,10 @@ Command read_command(const j::value& v) {
         keys(o,{"type","target","source","replace_driver"});
         return LinkObjectVisibility{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
     }
+    if(type=="set_object_visibility_expression") {
+        keys(o,{"type","target","expression","replace_driver"});
+        return SetObjectVisibilityExpression{read_ref(o.at("target")),read_expression(o.at("expression")),o.at("replace_driver").as_bool()};
+    }
     if(type=="unlink_object_visibility") {
         keys(o,{"type","target"});return UnlinkObjectVisibility{read_ref(o.at("target"))};
     }
@@ -1655,10 +1665,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,59> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59"};
+        constexpr std::array<std::string_view,60> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.59 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.60 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1688,6 +1698,7 @@ Document decode(std::string_view input) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
             else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
+            else if(minor>=60)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image","visibility_driver","visibility_expression"});
             else if(minor>=27)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image","visibility_driver"});
             else if(minor>=13)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image"});
             else if(minor>=11)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke"});
@@ -1702,6 +1713,10 @@ Document decode(std::string_view input) {
             if(minor>=27)if(const auto* driver=o.if_contains("visibility_driver")) {
                 const auto& fields=driver->as_object();keys(fields,{"link"});obj.visibility_driver=read_ref(fields.at("link"));
             }
+            if(minor>=60)if(const auto* expression=o.if_contains("visibility_expression"))
+                obj.visibility_expression=read_expression(*expression);
+            if(obj.visibility_driver&&obj.visibility_expression)
+                throw Error("INVALID_VISIBILITY_SOURCE","Object visibility link and expression are mutually exclusive");
 
             auto kind=text(o.at("kind"));
             if(kind!="group"&&kind!="path"&&!((minor>=6)&&kind=="text")&&!((minor>=13)&&kind=="image")) throw Error("UNSUPPORTED_OBJECT",kind);
@@ -1818,6 +1833,7 @@ std::string encode(const Document& d) {
         j::object out{
             {"id",id},{"name",o.name},{"visible",o.visible},{"compositing",compositing_json(o.compositing)},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":o.kind==Kind::image?"image":"path"},{"transform",tf},{"anchor",anchor},{"transform_parent",o.transform_parent?j::value(*o.transform_parent):j::value(nullptr)}};
         if(o.visibility_driver)out["visibility_driver"]=j::object{{"link",ref_json(*o.visibility_driver)}};
+        if(o.visibility_expression)out["visibility_expression"]=expression_json(*o.visibility_expression);
 
         if(o.image)out["image"]=image_json(*o.image);
         else if(o.kind==Kind::group) {

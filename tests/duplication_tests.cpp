@@ -175,21 +175,35 @@ void text_weight_drivers() {
 }
 void object_visibility_driver_remapping() {
     auto document=empty_document("visibility-doc","visibility-comp","visibility-frame");
-    Object source;source.id="source";source.name="Source";
+    Object source;source.id="source";source.name="Source";source.visible=false;
     Object target;target.id="target";target.name="Target";target.visibility_driver=Ref{"source","","object.visible"};
-    document.objects.emplace(source.id,source);document.objects.emplace(target.id,target);
-    document.compositions.front().roots={"source","target"};
-    Session session(document);apply(session,{DuplicateObjects{{"source","target"},"visibilitycopy"}});
+    Object expression;expression.id="expression-target";expression.name="Expression Target";
+    expression.visibility_expression=Expression{" ! ref ( \"source\" , \"\" , \"object.visible\" ) ",1};
+    document.objects.emplace(source.id,source);document.objects.emplace(target.id,target);document.objects.emplace(expression.id,expression);
+    document.compositions.front().roots={"source","target","expression-target"};
+    Session session(document);apply(session,{DuplicateObjects{{"source","target","expression-target"},"visibilitycopy"}});
     const auto copied=session.document();const auto source_copy=copy_of(copied,"source"),target_copy=copy_of(copied,"target");
+    const auto expression_copy=copy_of(copied,"expression-target");
     check(copied.objects.at(target_copy).visibility_driver==Ref{source_copy,"","object.visible"}&&
-        copied.objects.at(target_copy).visible&&evaluate_object_visibility(copied,target_copy),
+        copied.objects.at(target_copy).visible&&!evaluate_object_visibility(copied,target_copy),
         "Duplicating a linked target and source remaps the driver to the copied source while retaining its literal");
+    check(copied.objects.at(expression_copy).visibility_expression==Expression{
+            " ! ref ( \""+source_copy+"\" , \"\" , \"object.visible\" ) ",1}&&
+        evaluate_object_visibility(copied,expression_copy)&&
+        copied.objects.at(expression_copy).visible,
+        "Duplicating a visibility expression remaps only a copied source ID and preserves exact text formatting");
     check(copied.objects.at("target").visibility_driver==Ref{"source","","object.visible"},
         "Visibility duplication leaves the original stable link unchanged");
+    check(copied.objects.at("expression-target").visibility_expression==expression.visibility_expression,
+        "Visibility expression duplication leaves the original exact source unchanged");
     Session external(document);apply(external,{DuplicateObjects{{"target"},"externalcopy"}});
     const auto external_target=copy_of(external.document(),"target");
     check(external.document().objects.at(external_target).visibility_driver==Ref{"source","","object.visible"},
         "Duplicating only a visibility target keeps its external source Ref stable");
+    Session external_expression(document);apply(external_expression,{DuplicateObjects{{"expression-target"},"external-expression-copy"}});
+    const auto external_expression_target=copy_of(external_expression.document(),"expression-target");
+    check(external_expression.document().objects.at(external_expression_target).visibility_expression==expression.visibility_expression,
+        "Duplicating only an expression target keeps its external Ref text stable");
 }
 void geometry_mask_enabled_driver_remapping() {
     auto document=fixture();

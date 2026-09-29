@@ -92,14 +92,14 @@ void object_visibility_link_contract() {
     check(state.literal&&state.driver==source&&!state.evaluated,
         "A stable same-field link preserves the target literal while evaluating the source value");
     const auto get=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"object.visible"}})");
-    check(get.find("\"authored\":{\"literal\":true,\"driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}}}")!=std::string::npos&&
+    check(get.find("\"authored\":{\"literal\":true,\"driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}},\"source_kind\":\"link\"}")!=std::string::npos&&
         get.find("\"evaluated\":false")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos,
         "API get reports literal, stable driver Ref and evaluated own value separately");
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.59\"")!=std::string::npos&&
+    check(linked_native.find("\"version\":\"0.60\"")!=std::string::npos&&
         linked_native.find("\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}}")!=std::string::npos&&
         decode(linked_native)==session.document(),
-        "Native 0.43 roundtrip preserves the optional stable visibility driver");
+        "Native 0.60 roundtrip preserves the optional stable visibility driver");
     atomic(session,"DRIVEN_PROPERTY",{SetVisibility{"a",true}});
     atomic(session,"DRIVEN_PROPERTY",{LinkObjectVisibility{target,{"b","","object.visible"},false}});
     atomic(session,"DUPLICATE_TARGET",{LinkObjectVisibility{target,source,false},UnlinkObjectVisibility{target}});
@@ -132,11 +132,11 @@ void object_visibility_link_contract() {
         !object_visibility_state(deletion.document(),target).literal,
         "Deleting a visibility source is atomic unless the target is first unlinked and frozen in the same batch");
 
-    auto old_literal=encode(document);const auto current_version=old_literal.find("\"version\":\"0.59\"");
-    check(current_version!=std::string::npos,"Native writer emits 0.59 for the 0.27 compatibility fixture");
+    auto old_literal=encode(document);const auto current_version=old_literal.find("\"version\":\"0.60\"");
+    check(current_version!=std::string::npos,"Native writer emits 0.60 for the 0.27 compatibility fixture");
     old_literal.replace(current_version,std::string("\"version\":\"0.59\"").size(),"\"version\":\"0.27\"");
     check(decode(old_literal)==document,"Native 0.27 literal-only documents remain readable unchanged");
-    auto false_version=linked_native;const auto linked_version=false_version.find("\"version\":\"0.59\"");
+    auto false_version=linked_native;const auto linked_version=false_version.find("\"version\":\"0.60\"");
     false_version.replace(linked_version,std::string("\"version\":\"0.59\"").size(),"\"version\":\"0.26\"");
     rejects("UNKNOWN_FIELD",[&]{decode(false_version);});
 
@@ -152,6 +152,116 @@ void object_visibility_link_contract() {
         if(i<129)links.push_back(LinkObjectVisibility{{object.id,"","object.visible"},{"visibility-"+std::to_string(i+1),"","object.visible"},false});
     }
     Session depth(std::move(deep));atomic(depth,"DEPENDENCY_DEPTH",std::move(links));
+}
+void object_visibility_expression_contract() {
+    auto document=fixture();document.objects.at("source").visible=false;
+    Session session(document);const Ref target{"a","","object.visible"},source{"source","","object.visible"};
+    const Expression inverse{" ! ref ( \"source\" , \"\" , \"object.visible\" ) ",1};
+    const auto applied=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"set_object_visibility_expression","target":{"object":"a","point":"","field":"object.visible"},"expression":{"source":" ! ref ( \"source\" , \"\" , \"object.visible\" ) ","version":1},"replace_driver":false}]})");
+    check(applied.find("\"changed\":true")!=std::string::npos&&session.revision()==1,
+        "JSON-lines applies the version 1 Object visibility expression through Session");
+    auto state=object_visibility_state(session.document(),target);
+    check(state.literal&&state.expression==inverse&&!state.driver&&state.evaluated,
+        "Negated same-Composition Ref evaluates authored own visibility without replacing its literal");
+    const auto get=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"object.visible"}})");
+    check(get.find("\"source_kind\":\"expression\"")!=std::string::npos&&
+        get.find("\"expression\":{\"source\":\" ! ref ( \\\"source\\\" , \\\"\\\" , \\\"object.visible\\\" ) \",\"version\":1}")!=std::string::npos&&
+        get.find("\"evaluated\":true")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos&&
+        get.find("\"expression\":true")!=std::string::npos,
+        "Typed get exposes exact expression text, source kind, evaluated value and expression capability");
+    const auto listed=request(session,R"({"op":"properties"})");
+    check(listed.find("\"source_kind\":\"expression\"")!=std::string::npos,
+        "Typed properties exposes the exact Object visibility source kind");
+
+    const auto native=encode(session.document());
+    check(native.find("\"version\":\"0.60\"")!=std::string::npos&&
+        native.find("\"visibility_expression\":{\"source\":\" ! ref ( \\\"source\\\" , \\\"\\\" , \\\"object.visible\\\" ) \",\"version\":1}")!=std::string::npos&&
+        decode(native)==session.document(),"Native 0.60 retains the exact Object visibility expression");
+    auto conflict=native;const auto expression_at=conflict.find("\"visibility_expression\":");
+    check(expression_at!=std::string::npos,"Encoded expression has a closed native field");
+    conflict.insert(expression_at,"\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}},");
+    rejects("INVALID_VISIBILITY_SOURCE",[&]{(void)decode(conflict);});
+    auto false_version=native;const auto version_at=false_version.find("\"version\":\"0.60\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.60\"").size(),"\"version\":\"0.59\"");
+    rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
+
+    const auto before_target=session.document().objects.at("a");
+    const auto before_revision=session.revision();const auto before_history=session.history();
+    apply(session,{SetObjectVisibilityExpression{target,inverse,false}});
+    check(session.revision()==before_revision&&session.history()==before_history&&
+        object_visibility_state(session.document(),target).expression==inverse,
+        "Exact expression and same-link reapplication are idempotent");
+    atomic(session,"DRIVEN_PROPERTY",{SetObjectVisibilityExpression{target,{"false",1},false}});
+    atomic(session,"DRIVEN_PROPERTY",{LinkObjectVisibility{target,source,false}});
+    atomic(session,"DRIVEN_PROPERTY",{SetVisibility{"a",true}});
+    atomic(session,"DUPLICATE_TARGET",{SetObjectVisibilityExpression{target,inverse,false},UnlinkObjectVisibility{target}});
+    atomic(session,"MISSING_REFERENCE",{SetVisibility{"source",true},Set{{"missing","","transform.tx"},0}});
+    rejects("REVISION_CONFLICT",[&]{session.apply({SetObjectVisibilityExpression{target,inverse,false}},session.revision()+1);});
+    check(session.document().objects.at("a")==before_target&&session.revision()==before_revision&&session.history()==before_history,
+        "Stale and failed-later-batch edits preserve the exact Document, revision and history");
+
+    apply(session,{SetVisibility{"source",true}});
+    state=object_visibility_state(session.document(),target);
+    check(!state.evaluated&&state.literal&&state.expression==inverse&&
+        session.document().objects.at("a").id==before_target.id&&
+        session.document().objects.at("a").contours==before_target.contours,
+        "Changing the source updates the expression result while target literal, ID and artwork remain fixed");
+    apply(session,{UnlinkObjectVisibility{target}});
+    state=object_visibility_state(session.document(),target);
+    check(!state.literal&&!state.driver&&!state.expression&&!state.evaluated,
+        "Unlink freezes evaluated Object visibility into its authored literal in one command");
+    session.undo(session.revision());
+    check(object_visibility_state(session.document(),target).expression==inverse&&
+        object_visibility_state(session.document(),target).literal,
+        "Undo restores the exact expression and authored literal");
+    session.redo(session.revision());apply(session,{SetVisibility{"source",false}});
+    check(!object_visibility_state(session.document(),target).evaluated,
+        "Unlinked visibility remains frozen after its former source changes");
+
+    apply(session,{LinkObjectVisibility{target,source,true}});
+    const auto link_revision=session.revision();const auto link_history=session.history();
+    apply(session,{LinkObjectVisibility{target,source,false}});
+    check(session.revision()==link_revision&&session.history()==link_history,
+        "Exact link reapplication is idempotent without an explicit replacement");
+    check(object_visibility_state(session.document(),target).driver==source&&
+        !object_visibility_state(session.document(),target).expression,
+        "Explicit link replacement clears the expression source");
+    atomic(session,"DRIVEN_PROPERTY",{SetObjectVisibilityExpression{target,{"false",1},false}});
+    apply(session,{SetObjectVisibilityExpression{target,{"false",1},true}});
+    check(!object_visibility_state(session.document(),target).driver&&
+        object_visibility_state(session.document(),target).expression==Expression{"false",1}&&
+        !object_visibility_state(session.document(),target).evaluated,
+        "Explicit expression replacement clears a link and accepts a closed boolean literal");
+
+    auto rejects_expression=[&](Expression expression,const char* code) {
+        Session isolated(fixture());atomic(isolated,code,{SetObjectVisibilityExpression{target,std::move(expression),false}});
+    };
+    rejects_expression({"!false",1},"BOOLEAN_EXPRESSION_SYNTAX");
+    rejects_expression({"ref(\"source\",\"\",\"object.visible\")",2},"UNSUPPORTED_EXPRESSION_VERSION");
+    rejects_expression({"ref(\"source\",\"\",\"composite.opacity\")",1},"BOOLEAN_EXPRESSION_TYPE");
+    rejects_expression({"ref(\"source\",\"point\",\"object.visible\")",1},"BOOLEAN_EXPRESSION_TYPE");
+    rejects_expression({"ref(\"missing\",\"\",\"object.visible\")",1},"MISSING_REFERENCE");
+    rejects_expression({"ref(\"a\",\"\",\"object.visible\")",1},"DEPENDENCY_CYCLE");
+    auto cross_document=fixture();auto other=empty_document("other-doc","other-comp","other-art").compositions.front();
+    auto external=rectangle("external");cross_document.objects.emplace(external.id,external);other.roots.push_back(external.id);
+    cross_document.compositions.push_back(other);Session cross(cross_document);
+    atomic(cross,"CROSS_COMPOSITION",{SetObjectVisibilityExpression{target,{"ref(\"external\",\"\",\"object.visible\")",1},false}});
+
+    Session cycle(fixture());atomic(cycle,"DEPENDENCY_CYCLE",{
+        SetObjectVisibilityExpression{{"a","","object.visible"},{"ref(\"b\",\"\",\"object.visible\")",1},false},
+        LinkObjectVisibility{{"b","","object.visible"},{"a","","object.visible"},false}});
+    auto deep=empty_document("expr-depth-doc","expr-depth-comp","expr-depth-art");std::vector<Command> chain;
+    for(int i=0;i<130;++i) {
+        Object object;object.id="expr-visibility-"+std::to_string(i);object.name=object.id;
+        deep.objects.emplace(object.id,object);deep.compositions.front().roots.push_back(object.id);
+        if(i<129) {
+            const Id next="expr-visibility-"+std::to_string(i+1);
+            if(i%2==0)chain.push_back(SetObjectVisibilityExpression{{object.id,"","object.visible"},
+                {"ref(\""+next+"\",\"\",\"object.visible\")",1},false});
+            else chain.push_back(LinkObjectVisibility{{object.id,"","object.visible"},{next,"","object.visible"},false});
+        }
+    }
+    Session depth(std::move(deep));atomic(depth,"DEPENDENCY_DEPTH",std::move(chain));
 }
 void mask_enabled_read_contract() {
     auto document=fixture();
@@ -290,15 +400,15 @@ void mask_enabled_link_contract() {
         "Explicit replace_driver changes only the source Ref");
 
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.59\"")!=std::string::npos&&
+    check(linked_native.find("\"version\":\"0.60\"")!=std::string::npos&&
         linked_native.find("\"enabled_driver\":{\"link\":{\"object\":\"b\",\"point\":\"\",\"field\":\"mask.third-mask.enabled\"}}")!=std::string::npos&&
         decode(linked_native)==session.document()&&encode(decode(linked_native))==linked_native,
         "Native 0.43 retains the exact mask Ref and authored literal without byte drift");
-    auto old_literal=encode(document);const auto old_version=old_literal.find("\"version\":\"0.59\"");
-    old_literal.replace(old_version,std::string("\"version\":\"0.59\"").size(),"\"version\":\"0.30\"");
+    auto old_literal=encode(document);const auto old_version=old_literal.find("\"version\":\"0.60\"");
+    old_literal.replace(old_version,std::string("\"version\":\"0.60\"").size(),"\"version\":\"0.30\"");
     check(decode(old_literal)==document,"Native 0.30 remains readable with literal-only masks");
-    auto false_version=linked_native;const auto current_version=false_version.find("\"version\":\"0.59\"");
-    false_version.replace(current_version,std::string("\"version\":\"0.59\"").size(),"\"version\":\"0.30\"");
+    auto false_version=linked_native;const auto current_version=false_version.find("\"version\":\"0.60\"");
+    false_version.replace(current_version,std::string("\"version\":\"0.60\"").size(),"\"version\":\"0.30\"");
     rejects("UNSUPPORTED_MASK_ENABLED_DRIVER",[&]{decode(false_version);});
 
     auto missing_source=fixture();missing_source.objects.at("a").compositing.mask=GeometryMask{"one","source"};
@@ -592,7 +702,7 @@ void composite_isolation_link_contract() {
     check(svg.find("<g id=\"group-B\" opacity=\"1\" color-interpolation=\"sRGB\" style=\"isolation:isolate;")!=std::string::npos,
         "SVG uses the effective isolation of a linked false-literal Group");
     const auto initial_native=encode(session.document());
-    check(initial_native.find("\"version\":\"0.59\"")!=std::string::npos&&
+    check(initial_native.find("\"version\":\"0.60\"")!=std::string::npos&&
         initial_native.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}}")!=std::string::npos&&
         decode(initial_native)==session.document()&&encode(decode(initial_native))==initial_native,
         "Native 0.43 roundtrip preserves the target literal and optional closed same-field driver");
@@ -635,12 +745,12 @@ void composite_isolation_link_contract() {
 
     auto literal=document;literal.objects.at("group-B").compositing.isolated=false;
     const auto old_native=encode(literal);auto native_029=old_native;
-    auto version_at=native_029.find("\"version\":\"0.59\"");
-    check(version_at!=std::string::npos,"Native writer emits 0.59 before literal-only compatibility downgrade");
-    native_029.replace(version_at,std::string("\"version\":\"0.59\"").size(),"\"version\":\"0.29\"");
+    auto version_at=native_029.find("\"version\":\"0.60\"");
+    check(version_at!=std::string::npos,"Native writer emits 0.60 before literal-only compatibility downgrade");
+    native_029.replace(version_at,std::string("\"version\":\"0.60\"").size(),"\"version\":\"0.29\"");
     check(decode(native_029)==literal,"Native 0.29 remains readable with literal-only compositing isolation");
-    auto false_version=initial_native;version_at=false_version.find("\"version\":\"0.59\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.59\"").size(),"\"version\":\"0.29\"");
+    auto false_version=initial_native;version_at=false_version.find("\"version\":\"0.60\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.60\"").size(),"\"version\":\"0.29\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
     auto malformed=initial_native;
     const auto driver_at=malformed.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}} ");
@@ -753,7 +863,7 @@ void group_posterize_native_api_and_refusals() {
     check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({3,4}),
         "ReorderOperations changes the ordered postchildren evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.59\"")!=std::string::npos&&decode(native)==session.document()&&
+    check(native.find("\"version\":\"0.60\"")!=std::string::npos&&decode(native)==session.document()&&
         decode(native).objects.at("group").stack[0].id=="posterize-second",
         "Native 0.43 preserves Group operation IDs, levels and reordered stack");
     check(request(session,R"({"op":"operator_types"})").find("nect.group.posterize")!=std::string::npos,
@@ -788,9 +898,9 @@ void group_posterize_native_api_and_refusals() {
     rejects("UNSUPPORTED_SVG_EFFECT",[&]{(void)export_svg(session.document(),"comp","art");});
 
     auto legacy_bytes=encode(d);
-    const auto old_version=legacy_bytes.find("\"version\":\"0.59\"");
+    const auto old_version=legacy_bytes.find("\"version\":\"0.60\"");
     check(old_version!=std::string::npos,"Native fixture writer uses 0.43 before migration downgrade");
-    legacy_bytes.replace(old_version,std::string("\"version\":\"0.59\"").size(),"\"version\":\"0.24\"");
+    legacy_bytes.replace(old_version,std::string("\"version\":\"0.60\"").size(),"\"version\":\"0.24\"");
     const auto group_id=legacy_bytes.find("\"id\":\"group\"");
     check(group_id!=std::string::npos,"Native fixture contains the target Group object");
     const auto object_start=legacy_bytes.rfind('{',group_id);
@@ -818,8 +928,8 @@ void group_posterize_native_api_and_refusals() {
     else throw std::runtime_error("Could not remove Group stack member from legacy fixture");
     legacy_bytes.erase(erase_start,erase_end-erase_start);
     check(decode(legacy_bytes).objects.at("group").stack.empty(),"Native 0.24 Group migrates to an empty effect stack");
-    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.59\"");
-    smuggled.replace(old_writer,std::string("\"version\":\"0.59\"").size(),"\"version\":\"0.24\"");
+    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.60\"");
+    smuggled.replace(old_writer,std::string("\"version\":\"0.60\"").size(),"\"version\":\"0.24\"");
     rejects("INVALID_OBJECT",[&]{(void)decode(smuggled);});
 
     session.apply({EnableOperation{"group","posterize",false},EnableOperation{"group","posterize-second",false}},session.revision());
@@ -1179,6 +1289,6 @@ void previewed_folder_api() {
 
 }
 int main() {
-    try{object_visibility_read_contract();object_visibility_link_contract();mask_enabled_read_contract();mask_enabled_link_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();composite_isolation_link_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{object_visibility_read_contract();object_visibility_link_contract();object_visibility_expression_contract();mask_enabled_read_contract();mask_enabled_link_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();composite_isolation_link_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

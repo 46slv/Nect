@@ -7,11 +7,13 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QTreeWidget>
 #include <QToolButton>
 #include <iostream>
 using namespace nect;
@@ -113,18 +115,62 @@ void visibility_inspector(){
     const auto linked=object_visibility_state(session.document(),{"target","","object.visible"});
     check(picked&&linked.literal&&linked.driver==Ref{"source","","object.visible"}&&!linked.evaluated,
         "Inspector Link action selects a stable source and preserves the authored checkbox value");
+    auto* source_button=widget<QToolButton>(w,"object-visible-driver");
+    check(source_button->menu()->actions().size()==3&&source_button->menu()->actions()[1]->isEnabled(),
+        "Inspector exposes Link, expression draft, and unlink actions for Object visibility");
+    const Expression expression{" ! ref ( \"source\" , \"\" , \"object.visible\" ) ",1};
+    bool applied_expression=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("object-visible-expression-dialog");
+        auto* source=dialog?dialog->findChild<QPlainTextEdit*>("object-visible-expression-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source||!buttons)return;
+        source->setPlainText(QString::fromStdString(expression.source));
+        buttons->button(QDialogButtonBox::Apply)->click();applied_expression=!dialog->isVisible();
+    });
+    source_button->menu()->actions()[1]->trigger();QApplication::processEvents();
+    auto expressed=object_visibility_state(session.document(),{"target","","object.visible"});
+    check(applied_expression&&expressed.literal&&!expressed.driver&&expressed.expression==expression&&expressed.evaluated,
+        "Inspector Apply authors the exact expression through the shared Session command");
+    auto* tree=w.findChild<QTreeWidget*>();QTreeWidgetItem* target_row=nullptr;
+    QTreeWidgetItemIterator row_iterator(tree);
+    while(*row_iterator){if((*row_iterator)->data(0,Qt::UserRole)=="target"&&(*row_iterator)->data(0,Qt::UserRole+1).toString().isEmpty())target_row=*row_iterator;++row_iterator;}
+    check(target_row&&target_row->text(0).contains("ƒ")&&!target_row->text(0).contains("◌"),
+        "Structure tree shows expression source without a hidden marker while evaluated visibility is true");
     check(!widget<QCheckBox>(w,"object-visible")->isEnabled()&&
+        widget<QLabel>(w,"object-visible-status")->text().contains("Evaluated own visibility: true")&&
+        widget<QLabel>(w,"object-visible-status")->text().contains(QString::fromStdString(expression.source)),
+        "Expression Inspector disables direct editing and shows exact source and evaluated own visibility");
+    const auto expression_document=session.document();const auto expression_revision=session.revision();
+    source_button=widget<QToolButton>(w,"object-visible-driver");bool canceled=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("object-visible-expression-dialog");
+        auto* source=dialog?dialog->findChild<QPlainTextEdit*>("object-visible-expression-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source||!buttons)return;
+        source->setPlainText("false");buttons->button(QDialogButtonBox::Cancel)->click();canceled=!dialog->isVisible();
+    });
+    source_button->menu()->actions()[1]->trigger();QApplication::processEvents();
+    check(canceled&&session.document()==expression_document&&session.revision()==expression_revision,
+        "Cancel discards the Object visibility expression draft without changing authored state");
+    session.apply({SetVisibility{"source",true}},session.revision());w.host.edited();
+    check(!object_visibility_state(session.document(),{"target","","object.visible"}).evaluated&&
         widget<QLabel>(w,"object-visible-status")->text().contains("Evaluated own visibility: false"),
-        "Driven Inspector disables direct editing and shows evaluated own visibility");
+        "Inspector expression follows the source authored visibility after a Session edit");
+    tree=w.findChild<QTreeWidget*>();target_row=nullptr;QTreeWidgetItemIterator hidden_iterator(tree);
+    while(*hidden_iterator){if((*hidden_iterator)->data(0,Qt::UserRole)=="target"&&(*hidden_iterator)->data(0,Qt::UserRole+1).toString().isEmpty())target_row=*hidden_iterator;++hidden_iterator;}
+    check(target_row&&target_row->text(0).contains("◌")&&target_row->text(0).contains("ƒ")&&
+        target_row->toolTip(0).contains("Visibility authored: true")&&target_row->toolTip(0).contains("evaluated own: false"),
+        "Structure tree hidden marker follows evaluated own visibility while tooltip preserves authored literal");
     auto* unlink_button=widget<QToolButton>(w,"object-visible-driver");
-    check(unlink_button->menu()->actions().size()==2&&unlink_button->menu()->actions()[1]->isEnabled(),
-        "Inspector exposes unlink and freeze for a driven value");
-    unlink_button->menu()->actions()[1]->trigger();QApplication::processEvents();
+    check(unlink_button->menu()->actions().size()==3&&unlink_button->menu()->actions()[2]->isEnabled(),
+        "Inspector exposes unlink and freeze for an expression-driven value");
+    unlink_button->menu()->actions()[2]->trigger();QApplication::processEvents();
     const auto frozen=object_visibility_state(session.document(),{"target","","object.visible"});
-    check(!frozen.literal&&!frozen.driver&&widget<QCheckBox>(w,"object-visible")->isEnabled()&&
+    check(!frozen.literal&&!frozen.driver&&!frozen.expression&&widget<QCheckBox>(w,"object-visible")->isEnabled()&&
         widget<QLabel>(w,"object-visible-status")->text().contains("Evaluated own visibility: false"),
         "Inspector Unlink freezes the evaluated value and returns control to its checkbox");
-    session.apply({SetVisibility{"source",true}},session.revision());w.host.edited();
+    session.apply({SetVisibility{"source",false}},session.revision());w.host.edited();
     check(!object_visibility_state(session.document(),{"target","","object.visible"}).evaluated,
         "Unlinked Inspector value remains frozen when its former source changes");
 }

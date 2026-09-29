@@ -1151,6 +1151,7 @@ void Window::refresh(bool project_canvas) {
         signature+="("+qs(id)+":"+QString::number(o.name.size())+":"+qs(o.name)+"|visible:"+QString::number(o.visible)+
             "|evaluated-visible:"+QString::number(visibility.at(id));
         if(o.visibility_driver)signature+="|visibility-driver:"+qs(o.visibility_driver->object);
+        if(o.visibility_expression)signature+="|visibility-expression:"+qs(o.visibility_expression->source);
         if(o.compositing.mask)signature+="|mask:"+qs(o.compositing.mask->source);
         if(o.source)signature+="|source:"+qs(o.source->type)+":"+qs(o.source->id);
         if(o.transform_parent)signature+="|follow:"+qs(*o.transform_parent);
@@ -1169,7 +1170,8 @@ void Window::refresh(bool project_canvas) {
     std::function<void(const Id&,QTreeWidgetItem*)> append=[&](const Id& id,QTreeWidgetItem* parent) {
         const auto& o=d.objects.at(id);
         auto* item=parent?new QTreeWidgetItem(parent):new QTreeWidgetItem(tree_);
-        item->setText(0,qs(o.name)+(o.visible?QString{}:QString(" ◌"))+(o.visibility_driver?QString(" ⇢"):QString{})+
+        item->setText(0,qs(o.name)+(visibility.at(id)?QString{}:QString(" ◌"))+
+            (o.visibility_driver?QString(" ⇢"):o.visibility_expression?QString(" ƒ"):QString{})+
             (o.compositing.mask?QString(" [mask]"):QString{})+(o.transform_parent?QString(" ↗"):QString{}));item->setData(0,Qt::UserRole,qs(id));
         QString tooltip=(o.source?primitive_label(*o.source)+" source · ":QString{})+qs(id);
         tooltip+="\nVisibility authored: "+(o.visible?QString("true"):QString("false"));
@@ -1178,6 +1180,7 @@ void Window::refresh(bool project_canvas) {
             const auto& source=d.objects.at(o.visibility_driver->object);
             tooltip+=" · linked to "+qs(source.name)+" ("+qs(source.id)+")";
         }
+        if(o.visibility_expression)tooltip+=" · expression "+qs(o.visibility_expression->source);
         if(o.transform_parent)tooltip+="\nTransform follows "+qs(d.objects.at(*o.transform_parent).name)+" · "+qs(*o.transform_parent);
         item->setToolTip(0,tooltip);
         for(const auto& child:o.children) append(child,item);
@@ -3384,15 +3387,17 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     auto add_visibility_control=[this,session,visibility_revision,apply_visibility](QWidget* parent,QFormLayout* target_form,const Id& target,const QString& title,const QString& prefix) {
         const Ref ref{target,"","object.visible"};const auto state=object_visibility_state(host.session.document(),ref);
         auto* row=new QWidget(parent);auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
-        auto* toggle=new QCheckBox(title,row);toggle->setObjectName(prefix);toggle->setChecked(state.literal);toggle->setEnabled(!state.driver);row_layout->addWidget(toggle);
-        auto* driver=new QToolButton(row);driver->setObjectName(prefix+"-driver");driver->setText(state.driver?"Driver…":"Link…");driver->setPopupMode(QToolButton::InstantPopup);
+        const bool driven=state.driver.has_value()||state.expression.has_value();
+        auto* toggle=new QCheckBox(title,row);toggle->setObjectName(prefix);toggle->setChecked(state.literal);toggle->setEnabled(!driven);row_layout->addWidget(toggle);
+        auto* driver=new QToolButton(row);driver->setObjectName(prefix+"-driver");driver->setText(driven?"Source…":"Link…");driver->setPopupMode(QToolButton::InstantPopup);
         auto* menu=new QMenu(driver);driver->setMenu(menu);row_layout->addWidget(driver);target_form->addRow(row);
         connect(toggle,&QCheckBox::toggled,this,[this,toggle,target,apply_visibility](bool enabled){
             bool ok=false;perform([&]{apply_visibility(SetVisibility{target,enabled});ok=true;});
             if(!ok){QSignalBlocker blocker(toggle);toggle->setChecked(!enabled);}
         });
-        auto* link=menu->addAction(state.driver?"Replace visibility link…":"Link visibility…");
-        auto* unlink=menu->addAction("Unlink and freeze evaluated visibility");unlink->setEnabled(state.driver.has_value());
+        auto* link=menu->addAction(driven?"Replace visibility source with link…":"Link visibility…");
+        auto* expression=menu->addAction(driven?"Replace visibility source with expression…":"Set visibility expression…");
+        auto* unlink=menu->addAction("Unlink and freeze evaluated visibility");unlink->setEnabled(driven);
         std::vector<Ref> source_refs;QStringList source_labels;
         const auto& composition=find_composition(host.session.document(),canvas->active_composition());
         std::function<void(const Id&)> append=[&](const Id& source_id) {
@@ -3403,15 +3408,41 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
         for(const auto& root:composition.roots)append(root);
         link->setEnabled(!source_refs.empty());
         connect(link,&QAction::triggered,this,[this,target,session,visibility_revision,source_refs,source_labels,
-            replace=state.driver.has_value(),apply_visibility]{
+            replace=driven,apply_visibility]{
             choose_boolean_source(this,"object-visible-source-dialog",
-                replace?"Replace Object visibility link":"Link Object visibility",
+                replace?"Replace Object visibility source with link":"Link Object visibility",
                 qs(target)+" / object.visible",source_refs,source_labels,
                 [this,target,session,visibility_revision,replace,apply_visibility](const Ref& source) {
                 if(host.session_id!=session)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
                 if(host.session.revision()!=visibility_revision)throw Error("REVISION_CONFLICT","Object visibility changed while the source chooser was open");
                 apply_visibility(LinkObjectVisibility{{target,"","object.visible"},source,replace});
             });
+        });
+        connect(expression,&QAction::triggered,this,[this,target,session,visibility_revision,replace=driven,
+            initial=state.expression,apply_visibility]{
+            if(host.session_id!=session) {statusBar()->showMessage("SESSION_CONFLICT: Object visibility belongs to another document",12000);return;}
+            QDialog dialog(this);dialog.setObjectName("object-visible-expression-dialog");
+            dialog.setWindowTitle(replace?"Replace Object visibility source with expression":"Set Object visibility expression");
+            dialog.resize(560,210);auto* layout=new QVBoxLayout(&dialog);
+            auto* target_label=new QLabel("Target: "+qs(target)+" / object.visible",&dialog);target_label->setWordWrap(true);layout->addWidget(target_label);
+            auto* source=new QPlainTextEdit(&dialog);source->setObjectName("object-visible-expression-source");
+            source->setPlaceholderText("true, false, ref(\"id\",\"\",\"object.visible\"), or !ref(…)");
+            if(initial)source->setPlainText(qs(initial->source));else source->setPlainText("true");
+            source->setMinimumHeight(58);layout->addWidget(source);
+            auto* status=new QLabel("Version 1 accepts true, false, or an optional negation of a same-Composition object.visible Ref.",&dialog);
+            status->setObjectName("object-visible-expression-status");status->setWordWrap(true);status->setTextFormat(Qt::PlainText);layout->addWidget(status);
+            auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+            buttons->button(QDialogButtonBox::Apply)->setText("Apply");layout->addWidget(buttons);
+            connect(buttons->button(QDialogButtonBox::Cancel),&QPushButton::clicked,&dialog,&QDialog::reject);
+            connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,source,status,target,session,visibility_revision,replace,apply_visibility]{
+                try {
+                    if(host.session_id!=session)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
+                    if(host.session.revision()!=visibility_revision)throw Error("REVISION_CONFLICT","Object visibility changed while the expression draft was open");
+                    apply_visibility(SetObjectVisibilityExpression{{target,"","object.visible"},
+                        {source->toPlainText().toStdString(),1},replace});dialog.accept();
+                } catch(const Error& error) {status->setText(QString::fromLatin1(error.code.c_str())+": "+QString::fromUtf8(error.what()));}
+            });
+            dialog.exec();
         });
         connect(unlink,&QAction::triggered,this,[this,target,session,visibility_revision,apply_visibility]{perform([&]{
             if(host.session_id!=session)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
@@ -3426,6 +3457,7 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
             const auto name=source==host.session.document().objects.end()?qs(state.driver->object):qs(source->second.name)+" ("+qs(state.driver->object)+")";
             details+=" · Linked to "+name;
         }
+        if(state.expression)details+=" · Expression: "+qs(state.expression->source);
         status->setText(details);target_form->addRow("Visibility state",status);
     };
     add_visibility_control(box,form,id,"Show artwork","object-visible");

@@ -256,6 +256,8 @@ struct Object {
     bool visible=true;
     // Optional same-field link. The literal above remains authored state.
     std::optional<Ref> visibility_driver;
+    // Optional bounded boolean source. Mutually exclusive with visibility_driver.
+    std::optional<Expression> visibility_expression;
     Compositing compositing;
     std::optional<ImageSource> image;
     bool operator==(const Object&) const = default;
@@ -582,7 +584,16 @@ struct LinkProperties { std::vector<Ref> targets; Ref source; bool relative=fals
 struct UnlinkProperties { std::vector<Ref> targets; };
 struct SetExpression { std::vector<Ref> targets; Expression expression; bool replace_binding=false; };
 struct SetVisibility { Id object; bool visible; };
-struct LinkObjectVisibility { Ref target; Ref source; bool replace_driver=false; };
+struct LinkObjectVisibility {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    LinkObjectVisibility(Ref target,Ref source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+    LinkObjectVisibility(Ref target,Expression source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+};
+using SetObjectVisibilityExpression = LinkObjectVisibility;
 struct UnlinkObjectVisibility { Ref target; };
 struct LinkCompositeIsolated { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkCompositeIsolated { Ref target; };
@@ -796,6 +807,7 @@ bool object_visibility_property(const Document&,const Ref&);
 struct ObjectVisibilityProperty {
     bool literal=true;
     std::optional<Ref> driver;
+    std::optional<Expression> expression;
     bool evaluated=true;
 };
 ObjectVisibilityProperty object_visibility_state(const Document&,const Ref&);
