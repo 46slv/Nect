@@ -41,13 +41,13 @@ void point_edit_enabled_links() {
     check(resolve_name(s.document(),"Target","","point_edit.circle-source-point-edit.enabled")==target_ref,
         "Unique-name resolution finds the exact retained correction Ref");
     const auto linked_bytes=encode(s.document());
-    check(linked_bytes.find("\"version\":\"0.43\"")!=std::string::npos&&
+    check(linked_bytes.find("\"version\":\"0.44\"")!=std::string::npos&&
         linked_bytes.find("\"enabled_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"point_edit.source-generator-point-edit.enabled\"}}")!=std::string::npos&&
         encode(decode(linked_bytes))==linked_bytes,
         "Native 0.43 retains the optional closed driver and roundtrips without byte drift");
     auto false_version=linked_bytes;
-    const auto version_at=false_version.find("\"version\":\"0.43\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.43\"").size(),"\"version\":\"0.31\"");
+    const auto version_at=false_version.find("\"version\":\"0.44\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.44\"").size(),"\"version\":\"0.31\"");
     rejects("UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER",[&]{(void)decode(false_version);});
     auto malformed=linked_bytes;
     const auto ref_at=malformed.find("point_edit.source-generator-point-edit.enabled");

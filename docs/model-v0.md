@@ -1548,3 +1548,28 @@ source and evaluated right, with expression support false. Canvas Margin overlay
 and one-shot Grid-to-Margin copy use evaluated right. Native Save As retains the
 literal and source; versions 0.1–0.42 remain readable and reject a version-lied
 right driver. `schemas/native-v0.43.schema.json` closes the optional field.
+
+## Native 0.44 — Margin right expression
+
+A present Margin may retain `right_expression: {source,version:1}` beside its
+authored `right` literal, mutually exclusive with `right_driver`. The bounded
+numeric expression evaluates to Artboard-local `du`; each `ref()` may address
+only width or height on a distinct Artboard in the Margin owner's Composition,
+with an empty point ID. The existing Artboard-size evaluator resolves referenced
+dimensions, including parent, link and expression sources. Evaluated right must
+be finite and nonnegative and leave positive content width with evaluated left
+and the owner Artboard's evaluated width.
+
+The revisioned `set_margin_right_expression` command owns expression changes.
+Replacing any active link or different expression requires `replace_driver`;
+reapplying the same expression is idempotent. Existing unlink freezes evaluated
+right into the literal. Full layout and Artboard updates preserve an unchanged
+source for the same Margin and literal while rejecting direct driven edits,
+source injection and Margin clear. Duplicate Artboard replays the exact
+expression text and stable Ref; deleting a referenced source Artboard is
+refused. Typed reads expose the literal, exact expression and evaluated right.
+Canvas Margin overlay, Inspector and one-shot Grid-to-Margin copy consume the
+evaluated value. Native Save As retains the exact expression text and literal;
+versions 0.1–0.43 remain readable and reject a version-lied right expression.
+`schemas/native-v0.44.schema.json` closes the optional field and rejects
+simultaneous right link and expression sources.

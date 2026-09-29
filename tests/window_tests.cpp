@@ -2741,6 +2741,39 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
             margin_right_source_index=i;
     margin_right_source_choice->setCurrentIndex(margin_right_source_index);QApplication::processEvents();
     margin_right_replace->setChecked(true);click("margin-right-link");
+    const QString margin_right_expression_text=QString::fromStdString("ref(\""+margin_source_id+"\",\"\",\"artboard.width\") + 10");
+    auto* margin_right_expression=visible_child<QPlainTextEdit>(window,"margin-right-expression");
+    auto* margin_right_expression_apply=visible_child<QPushButton>(window,"margin-right-apply-expression");
+    margin_right_expression->setPlainText(margin_right_expression_text);QApplication::processEvents();
+    auto* margin_right_replace_expression=visible_child<QCheckBox>(window,"margin-right-replace");
+    margin_right_replace_expression->setChecked(false);
+    const auto before_unapproved_margin_right_expression=session.revision();
+    QTest::mouseClick(margin_right_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_margin_right_expression&&
+        board().layout->margin->right_driver==margin_right_source_ref&&!board().layout->margin->right_expression&&
+        margin_right_expression->toPlainText()==margin_right_expression_text&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_RIGHT"),
+        "Margin right expression draft requires explicit replacement and preserves the link on failure");
+    margin_right_replace_expression=visible_child<QCheckBox>(window,"margin-right-replace");
+    margin_right_replace_expression->setChecked(true);
+    margin_right_expression_apply=visible_child<QPushButton>(window,"margin-right-apply-expression");
+    QTest::mouseClick(margin_right_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    const Expression margin_right_expression_source{margin_right_expression_text.toStdString(),1};
+    auto* driven_margin_right_expression=visible_child<QLineEdit>(window,"margin-right");
+    auto* margin_right_expression_status=visible_child<QLabel>(window,"margin-right-source-state");
+    check(session.revision()==before_unapproved_margin_right_expression+1&&driven_margin_right_expression->isReadOnly()&&
+        !board().layout->margin->right_driver&&board().layout->margin->right_expression==margin_right_expression_source&&
+        margin_right_expression_status->text().contains("expression")&&margin_right_expression_status->text().contains("Literal: 0")&&
+        margin_right_expression_status->text().contains("Evaluated: 50"),
+        "Margin right Inspector commits the explicit du expression while preserving the authored literal");
+    margin_right_expression=visible_child<QPlainTextEdit>(window,"margin-right-expression");
+    margin_right_expression->setPlainText("ref(");QApplication::processEvents();
+    const auto before_invalid_margin_right_expression=session.revision();
+    margin_right_expression_apply=visible_child<QPushButton>(window,"margin-right-apply-expression");
+    QTest::mouseClick(margin_right_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_invalid_margin_right_expression&&margin_right_expression->toPlainText()=="ref("&&
+        board().layout->margin->right_expression==margin_right_expression_source&&window.canvas->active_artboard()==board_id,
+        "An invalid Margin right expression draft leaves committed source, revision and selection unchanged");
     const auto before_margin_top_literal_attempt=session.revision();auto* margin_top_attempt=input("margin-top","5",true);
     check(session.revision()==before_margin_top_literal_attempt&&margin_top_attempt->isReadOnly()&&
         board().layout->margin->top==0&&!board().layout->margin->top_driver&&
@@ -2751,14 +2784,16 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
     check(std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==60&&
         std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==60&&
+        std::get<double>(artboard_layout_property(session.document(),margin_right_target_ref).evaluated)==70&&
         visible_child<QLabel>(window,"margin-left-source-state")->text().contains("Evaluated: 60")&&
-        visible_child<QLabel>(window,"margin-top-source-state")->text().contains("Evaluated: 60"),
-        "Inspector statuses follow independent upstream width and height edits without changing authored insets");
+        visible_child<QLabel>(window,"margin-top-source-state")->text().contains("Evaluated: 60")&&
+        visible_child<QLabel>(window,"margin-right-source-state")->text().contains("Evaluated: 70"),
+        "Inspector statuses follow upstream width and height edits without changing authored insets");
     click("grid-copy-margin-box");
     check(board().layout->grid&&board().layout->grid->bounds.x==60&&board().layout->grid->bounds.y==60&&
-        board().layout->grid->bounds.width==evaluate_artboard(session.document().compositions.front(),board_id).width-120&&
-        board().layout->grid->bounds.height==evaluate_artboard(session.document().compositions.front(),board_id).height-60,
-        "Grid-to-Margin copy uses evaluated Margin left and top while retaining the authored bottom inset");
+        board().layout->grid->bounds.width==evaluate_artboard(session.document().compositions.front(),board_id).width-130&&
+      board().layout->grid->bounds.height==evaluate_artboard(session.document().compositions.front(),board_id).height-60,
+        "Grid-to-Margin copy uses evaluated Margin left, top and right while retaining the authored bottom inset");
     auto* grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
     auto* grid_search=visible_child<QLineEdit>(window,"grid-bounds-x-link-source-search");
     int grid_source_width_choice=-1;
@@ -2973,7 +3008,8 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     check(duplicate!=session.document().compositions.front().artboards.end()&&duplicate->layout&&
         duplicate->layout->margin->left_expression==Expression{margin_expression_text.toStdString(),1}&&
         duplicate->layout->margin->top_expression==margin_top_expression_source&&!duplicate->layout->margin->top_driver&&
-        duplicate->layout->margin->right_driver==margin_right_source_ref&&
+        !duplicate->layout->margin->right_driver&&
+        duplicate->layout->margin->right_expression==margin_right_expression_source&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
         duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
         !duplicate->layout->grid->bounds_y_driver&&
@@ -2982,10 +3018,10 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.x"}).evaluated)==80&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.y"}).evaluated)==25&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.top"}).evaluated)==60&&
-        artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.right"}).driver==margin_right_source_ref&&
+        artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.right"}).expression==margin_right_expression_source&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.right"}).evaluated)==
-            artboard_size_property(session.document(),margin_right_source_ref).evaluated,
-        "Duplicate frame replays the Margin right link and existing Margin/Grid sources onto stable target IDs");
+            artboard_size_property(session.document(),margin_right_source_ref).evaluated+10,
+        "Duplicate frame replays the Margin right expression and existing Margin/Grid sources onto stable target IDs");
     auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
     for(int i=0;i<artboards->count();++i)
         if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);
@@ -3005,7 +3041,7 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     QTest::keyClick(driven_margin_right,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(driven_margin_right,"99");
     QTest::keyClick(driven_margin_right,Qt::Key_Return);QApplication::processEvents();
     check(session.revision()==before_margin_right_literal_attempt&&driven_margin_right->isReadOnly()&&
-        board().layout->margin->right_driver==margin_right_source_ref,
+        !board().layout->margin->right_driver&&board().layout->margin->right_expression==margin_right_expression_source,
         "A driven Margin right field refuses direct Inspector edits while retaining its source and literal");
     click("margin-left-unlink");
     check(board().layout->margin->left==90&&!board().layout->margin->left_driver&&!board().layout->margin->left_expression,
