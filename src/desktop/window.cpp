@@ -1528,6 +1528,8 @@ void Window::add_artboard(bool duplicate) {
         board.layout->margin->right_expression:std::optional<Expression>{};
     const auto margin_bottom_driver=duplicate&&board.layout&&board.layout->margin?
         board.layout->margin->bottom_driver:std::optional<Ref>{};
+    const auto margin_bottom_expression=duplicate&&board.layout&&board.layout->margin?
+        board.layout->margin->bottom_expression:std::optional<Expression>{};
     const auto grid_bounds_x_driver=duplicate&&board.layout&&board.layout->grid?
         board.layout->grid->bounds_x_driver:std::optional<Ref>{};
     const auto grid_bounds_x_expression=duplicate&&board.layout&&board.layout->grid?
@@ -1541,6 +1543,7 @@ void Window::add_artboard(bool duplicate) {
         board.layout->margin->top_driver.reset();board.layout->margin->top_expression.reset();
         board.layout->margin->right_driver.reset();board.layout->margin->right_expression.reset();
         board.layout->margin->bottom_driver.reset();
+        board.layout->margin->bottom_expression.reset();
     }
     if(duplicate&&board.layout&&board.layout->grid) {
         board.layout->grid->bounds_x_driver.reset();board.layout->grid->bounds_x_expression.reset();
@@ -1566,6 +1569,8 @@ void Window::add_artboard(bool duplicate) {
         {board_id,"","margin.right"},*margin_right_expression,false}});
     if(margin_bottom_driver)commands.push_back(MarginBottomCommand{LinkMarginBottom{
         {board_id,"","margin.bottom"},*margin_bottom_driver,false}});
+    else if(margin_bottom_expression)commands.push_back(MarginBottomCommand{SetMarginBottomExpression{
+        {board_id,"","margin.bottom"},*margin_bottom_expression,false}});
     if(grid_bounds_x_driver)commands.push_back(GridBoundsXCommand{LinkGridBoundsX{{board.layout->grid->id,"","grid.bounds.x"},*grid_bounds_x_driver,false}});
     else if(grid_bounds_x_expression)commands.push_back(GridBoundsXCommand{SetGridBoundsXExpression{{board.layout->grid->id,"","grid.bounds.x"},*grid_bounds_x_expression,false}});
     if(grid_bounds_y_driver)commands.push_back(GridBoundsYCommand{LinkGridBoundsY{{board.layout->grid->id,"","grid.bounds.y"},*grid_bounds_y_driver,false}});
@@ -1789,6 +1794,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto margin_right_driver=board.layout&&board.layout->margin?board.layout->margin->right_driver:std::optional<Ref>{};
     const auto margin_right_expression=board.layout&&board.layout->margin?board.layout->margin->right_expression:std::optional<Expression>{};
     const auto margin_bottom_driver=board.layout&&board.layout->margin?board.layout->margin->bottom_driver:std::optional<Ref>{};
+    const auto margin_bottom_expression=board.layout&&board.layout->margin?board.layout->margin->bottom_expression:std::optional<Expression>{};
     const bool margin_left_is_driven=margin_left_driver.has_value()||margin_left_expression.has_value();
     margin_left->setReadOnly(margin_left_is_driven);
     margin_left->setToolTip(margin_left_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin inset in du.");
@@ -1798,7 +1804,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const bool margin_right_is_driven=margin_right_driver.has_value()||margin_right_expression.has_value();
     margin_right->setReadOnly(margin_right_is_driven);
     margin_right->setToolTip(margin_right_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin inset in du.");
-    const bool margin_bottom_is_driven=margin_bottom_driver.has_value();
+    const bool margin_bottom_is_driven=margin_bottom_driver.has_value()||margin_bottom_expression.has_value();
     margin_bottom->setReadOnly(margin_bottom_is_driven);
     margin_bottom->setToolTip(margin_bottom_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin inset in du.");
     margin_form->addRow("Left · du",margin_left);margin_form->addRow("Top · du",margin_top);
@@ -1811,7 +1817,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         margin_left_driver,margin_left_expression,margin_left_is_driven,authored_margin_left,
         margin_top_driver,margin_top_authored_expression,margin_top_is_driven,authored_margin_top,
         margin_right_driver,margin_right_expression,margin_right_is_driven,authored_margin_right,
-        margin_bottom_driver,margin_bottom_is_driven,authored_margin_bottom] {
+        margin_bottom_driver,margin_bottom_expression,margin_bottom_is_driven,authored_margin_bottom] {
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});
         value.margin=Margin{margin_left_is_driven?authored_margin_left:parse_number(margin_left),
             margin_top_is_driven?authored_margin_top:parse_number(margin_top),
@@ -1821,6 +1827,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         value.margin->top_driver=margin_top_driver;value.margin->top_expression=margin_top_authored_expression;
         value.margin->right_driver=margin_right_driver;value.margin->right_expression=margin_right_expression;
         value.margin->bottom_driver=margin_bottom_driver;
+        value.margin->bottom_expression=margin_bottom_expression;
         return set_layout_command(value);
     };
     auto* margin_source_box=new QGroupBox("Left source",margin_box);margin_source_box->setObjectName("margin-left-source");
@@ -2067,7 +2074,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         const auto source_name=source_board==comp.artboards.end()?QString("Missing Artboard"):qs(source_board->name);
         margin_bottom_source_description="link · "+source_name+" ("+qs(margin_bottom_driver->object)+"/"+
             qs(margin_bottom_driver->field)+")";
-    }
+    } else if(margin_bottom_expression)margin_bottom_source_description="expression · "+qs(margin_bottom_expression->source);
     margin_bottom_source_state->setWordWrap(true);
     margin_bottom_source_state->setText("Source: "+margin_bottom_source_description+" · Literal: "+
         display_value(initial_margin.bottom)+" du · Evaluated: "+
@@ -2109,6 +2116,21 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_bottom_unlink->setEnabled(margin_bottom_is_driven);margin_bottom_actions->addWidget(margin_bottom_unlink);
     auto* margin_bottom_cancel=new QPushButton("Cancel draft",margin_bottom_source_box);
     margin_bottom_cancel->setObjectName("margin-bottom-cancel");margin_bottom_actions->addWidget(margin_bottom_cancel);
+    auto* margin_bottom_expression_input=new ExpressionInput;
+    margin_bottom_expression_input->setObjectName("margin-bottom-expression");
+    margin_bottom_expression_input->setAccessibleName("Margin bottom expression draft");
+    margin_bottom_expression_input->setFixedHeight(58);
+    margin_bottom_expression_input->setPlaceholderText("du expression using Artboard width/height ref() values");
+    if(margin_bottom_expression)margin_bottom_expression_input->setPlainText(qs(margin_bottom_expression->source));
+    margin_bottom_source_layout->addWidget(margin_bottom_expression_input);
+    auto* margin_bottom_expression_actions=new QHBoxLayout;margin_bottom_source_layout->addLayout(margin_bottom_expression_actions);
+    auto* margin_bottom_expression_apply=new QPushButton("Apply expression",margin_bottom_source_box);
+    margin_bottom_expression_apply->setObjectName("margin-bottom-apply-expression");
+    margin_bottom_expression_apply->setEnabled(board.layout&&board.layout->margin);
+    margin_bottom_expression_actions->addWidget(margin_bottom_expression_apply);
+    auto* margin_bottom_expression_cancel=new QPushButton("Cancel expression",margin_bottom_source_box);
+    margin_bottom_expression_cancel->setObjectName("margin-bottom-cancel-expression");
+    margin_bottom_expression_actions->addWidget(margin_bottom_expression_cancel);
     margin_form->addRow(margin_bottom_source_box);
     connect(margin_bottom_link,&QPushButton::clicked,this,[this,margin_bottom_source,margin_bottom_sources,
         margin_bottom_ref,margin_bottom_replace,margin_source_commit]{perform([&]{
@@ -2123,6 +2145,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         perform([&]{margin_source_commit({MarginBottomCommand{UnlinkMarginBottom{margin_bottom_ref}}});});
     });
     connect(margin_bottom_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_bottom_expression_apply,&QPushButton::clicked,this,[this,margin_bottom_expression_input,
+        margin_bottom_replace,margin_bottom_ref,margin_source_commit]{perform([&]{
+        margin_source_commit({MarginBottomCommand{SetMarginBottomExpression{margin_bottom_ref,
+            {margin_bottom_expression_input->toPlainText().toStdString(),1},margin_bottom_replace->isChecked()}}});
+    });});
+    connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
     auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new QHBoxLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
     auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(board.layout&&board.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);

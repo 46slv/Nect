@@ -163,6 +163,9 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
             using T=std::decay_t<decltype(operation)>;
             if constexpr(std::is_same_v<T,LinkMarginLeft>)return "Link Margin left: "+property_label(operation.target);
             else if constexpr(std::is_same_v<T,UnlinkMarginLeft>)return "Unlink Margin left: "+property_label(operation.target);
+            else if constexpr(std::is_same_v<T,LinkMarginBottom>)return "Link Margin bottom: "+property_label(operation.target);
+            else if constexpr(std::is_same_v<T,SetMarginBottomExpression>)return "Margin bottom expression: "+property_label(operation.target);
+            else if constexpr(std::is_same_v<T,UnlinkMarginBottom>)return "Unlink Margin bottom: "+property_label(operation.target);
             else if constexpr(std::is_same_v<T,LinkGridBoundsX>)return "Link Grid bounds x: "+property_label(operation.target);
             else if constexpr(std::is_same_v<T,SetGridBoundsXExpression>)return "Grid bounds x expression: "+property_label(operation.target);
             else if constexpr(std::is_same_v<T,UnlinkGridBoundsX>)return "Unlink Grid bounds x: "+property_label(operation.target);
