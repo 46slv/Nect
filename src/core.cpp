@@ -1284,7 +1284,12 @@ ArtboardLayoutProperty artboard_layout_property(const Document& document,const R
             }
             if(ref.field=="grid.columns")return {value.columns,{},value.columns};
             if(ref.field=="grid.rows")return {value.rows,{},value.rows};
-            if(ref.field=="grid.column_gutter")return {value.column_gutter,{},value.column_gutter};
+            if(ref.field=="grid.column_gutter") {
+                const auto evaluated=value.column_gutter_driver?
+                    evaluate_artboard(composition,board.id).layout->grid->column_gutter:value.column_gutter;
+                return {value.column_gutter,value.column_gutter_driver,evaluated,{},
+                    value.column_gutter_driver?"link":"literal"};
+            }
             return {value.row_gutter,{},value.row_gutter};
         }
     }
@@ -2069,6 +2074,7 @@ struct GridBoundsXLocation {Composition* composition=nullptr;Artboard* board=nul
 using GridBoundsYLocation=GridBoundsXLocation;
 using GridBoundsWidthLocation=GridBoundsXLocation;
 using GridBoundsHeightLocation=GridBoundsXLocation;
+using GridColumnGutterLocation=GridBoundsXLocation;
 CompiledExpression compile_grid_bounds_x_expression(const Expression& expression);
 CompiledExpression compile_grid_bounds_y_expression(const Expression& expression);
 CompiledExpression compile_grid_bounds_width_expression(const Expression& expression);
@@ -2151,6 +2157,25 @@ GridBoundsHeightLocation grid_bounds_height_location(Document& document,const Re
     if(document.objects.contains(ref.object)||document.named_colors.contains(ref.object)||document.raster_assets.contains(ref.object)||
         std::any_of(document.collections.begin(),document.collections.end(),[&](const auto& item){return item.id==ref.object;}))
         throw Error("TYPE_MISMATCH",std::string("Grid bounds height ")+role+" must identify a stable Grid ID: "+ref.object);
+    throw Error("MISSING_GRID",ref.object);
+}
+GridColumnGutterLocation grid_column_gutter_location(Document& document,const Ref& ref,const char* role) {
+    require(ref.point.empty(),"INVALID_LAYOUT_REF",std::string("Grid column gutter ")+role+" requires an empty point ID");
+    require(ref.field=="grid.column_gutter","UNKNOWN_LAYOUT_PROPERTY",ref.field);
+    identity(ref.object);
+    for(auto& composition:document.compositions)for(auto& board:composition.artboards)
+        if(board.layout&&board.layout->grid&&board.layout->grid->id==ref.object)
+            return {&composition,&board,&*board.layout->grid};
+    for(const auto& composition:document.compositions) {
+        if(composition.id==ref.object||std::any_of(composition.artboards.begin(),composition.artboards.end(),
+            [&](const Artboard& board){return board.id==ref.object;})||
+            std::any_of(composition.guides.begin(),composition.guides.end(),
+                [&](const Guide& guide){return guide.id==ref.object;}))
+            throw Error("TYPE_MISMATCH",std::string("Grid column gutter ")+role+" must identify a stable Grid ID: "+ref.object);
+    }
+    if(document.objects.contains(ref.object)||document.named_colors.contains(ref.object)||document.raster_assets.contains(ref.object)||
+        std::any_of(document.collections.begin(),document.collections.end(),[&](const auto& item){return item.id==ref.object;}))
+        throw Error("TYPE_MISMATCH",std::string("Grid column gutter ")+role+" must identify a stable Grid ID: "+ref.object);
     throw Error("MISSING_GRID",ref.object);
 }
 void edit_grid_bounds_x(Document& document,const LinkGridBoundsX& command) {
@@ -2334,6 +2359,33 @@ void edit_grid_bounds_height(Document& document,const UnlinkGridBoundsHeight& co
     target.grid->bounds.height=resolved.layout->grid->bounds.height;
     target.grid->bounds_height_driver.reset();
     target.grid->bounds_height_expression.reset();
+}
+void edit_grid_column_gutter(Document& document,const LinkGridColumnGutter& command) {
+    require(command.target.point.empty()&&command.target.field=="grid.column_gutter","INVALID_LAYOUT_REF",
+        "Grid column gutter link target must be an empty-point grid.column_gutter Ref");
+    require(artboard_size_ref(command.source),"INVALID_ARTBOARD_REF",
+        "Grid column gutter link source must be an empty-point Artboard width or height Ref");
+    const auto target=grid_column_gutter_location(document,command.target,"link target");
+    const auto source=artboard_dimension_location(document,command.source,"link source");
+    require(target.composition==source.composition,"WRONG_COMPOSITION",
+        "Grid column gutter links must stay within one Composition");
+    require(target.board->id!=source.board->id,"GRID_SELF_LINK",
+        "Grid column gutter cannot depend on its owning Artboard size");
+    auto& slot=target.grid->column_gutter_driver;
+    const bool same_link=slot&&*slot==command.source;
+    require(!slot||same_link||command.replace_driver,"DRIVEN_GRID_COLUMN_GUTTER",
+        "Replacing a Grid column gutter source requires replace_driver=true");
+    slot=command.source;
+}
+void edit_grid_column_gutter(Document& document,const UnlinkGridColumnGutter& command) {
+    require(command.target.point.empty()&&command.target.field=="grid.column_gutter","INVALID_LAYOUT_REF",
+        "Grid column gutter unlink target must be an empty-point grid.column_gutter Ref");
+    const auto target=grid_column_gutter_location(document,command.target,"unlink target");
+    require(target.grid->column_gutter_driver.has_value(),"GRID_COLUMN_GUTTER_NOT_LINKED",
+        "Grid column gutter has no Artboard size link to unlink");
+    const auto resolved=evaluate_artboard(*target.composition,target.board->id);
+    target.grid->column_gutter=resolved.layout->grid->column_gutter;
+    target.grid->column_gutter_driver.reset();
 }
 void edit_margin_left(Document& document,const LinkMarginLeft& command) {
     require(command.target.point.empty()&&command.target.field=="margin.left","INVALID_LAYOUT_REF",
@@ -2627,6 +2679,8 @@ bool artboard_references_id(const Artboard& board,const Id& id) {
         board.layout->grid->bounds_width_driver->object==id)return true;
     if(board.layout&&board.layout->grid&&board.layout->grid->bounds_height_driver&&
         board.layout->grid->bounds_height_driver->object==id)return true;
+    if(board.layout&&board.layout->grid&&board.layout->grid->column_gutter_driver&&
+        board.layout->grid->column_gutter_driver->object==id)return true;
     if(board.layout&&board.layout->grid&&board.layout->grid->bounds_y_expression)
         for(const auto& source:expression_dependencies(*board.layout->grid->bounds_y_expression))
             if(source.object==id)return true;
@@ -2787,6 +2841,21 @@ void preserve_grid_bounds_height_source(const Grid* existing,Grid* incoming) {
     } else require(!incoming_source,"GRID_DRIVER_SMUGGLING",
         "Create Grid bounds height sources with link_grid_bounds_height or set_grid_bounds_height_expression");
 }
+void preserve_grid_column_gutter_source(const Grid* existing,Grid* incoming) {
+    const bool existing_source=existing&&existing->column_gutter_driver;
+    const bool incoming_source=incoming&&incoming->column_gutter_driver;
+    if(existing_source) {
+        require(incoming,"DRIVEN_GRID_COLUMN_GUTTER","Unlink Grid column gutter before clearing its Grid");
+        require(incoming->id==existing->id,"DRIVEN_GRID_COLUMN_GUTTER",
+            "Unlink Grid column gutter before replacing the stable Grid ID");
+        require(incoming->column_gutter==existing->column_gutter,"DRIVEN_GRID_COLUMN_GUTTER",
+            "Unlink Grid column gutter before changing its authored literal");
+        require(!incoming->column_gutter_driver||incoming->column_gutter_driver==existing->column_gutter_driver,
+            "GRID_DRIVER_SMUGGLING","Use link_grid_column_gutter to change the Grid column gutter source");
+        incoming->column_gutter_driver=existing->column_gutter_driver;
+    } else require(!incoming_source,"GRID_DRIVER_SMUGGLING",
+        "Create Grid column gutter sources with link_grid_column_gutter");
+}
 }
 
 Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
@@ -2876,6 +2945,13 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
     }
     if(result.layout&&result.layout->grid) {
         auto& grid=*result.layout->grid;
+        if(grid.column_gutter_driver) {
+            require(artboard_size_ref(*grid.column_gutter_driver),"INVALID_ARTBOARD_REF",
+                "Grid column gutter source must be an empty point Artboard width or height Ref");
+            require(grid.column_gutter_driver->object!=artboard,"GRID_SELF_LINK",
+                "Grid column gutter cannot depend on its owning Artboard size");
+            grid.column_gutter=evaluator.value(*grid.column_gutter_driver);
+        }
         require(!(grid.bounds_x_driver&&grid.bounds_x_expression),"GRID_SOURCE_CONFLICT",
             "Grid bounds x may have only one active source");
         require(!(grid.bounds_width_driver&&grid.bounds_width_expression),"GRID_SOURCE_CONFLICT",
@@ -3215,6 +3291,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     const auto compiled=compile_grid_bounds_height_expression(*grid.bounds_height_expression);
                     for(const auto& source:expression_dependencies(compiled))validate_grid_source(source);
                 }
+                if(grid.column_gutter_driver)validate_grid_source(*grid.column_gutter_driver);
             }
             const auto evaluated=evaluate_artboard(comp,a.id);
             if(a.layout) {
@@ -3246,9 +3323,11 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                         evaluated_bounds.x+evaluated_bounds.width<=evaluated.width&&evaluated_bounds.y+evaluated_bounds.height<=evaluated.height,
                         "INVALID_LAYOUT","Grid bounds must be positive and contained in the evaluated Artboard");
                     require(grid.columns>=1&&grid.columns<=1000&&grid.rows>=1&&grid.rows<=1000&&
-                        grid.column_gutter>=0&&grid.row_gutter>=0,
+                        grid.column_gutter>=0&&std::isfinite(evaluated.layout->grid->column_gutter)&&
+                        evaluated.layout->grid->column_gutter>=0&&grid.row_gutter>=0,
                         "INVALID_LAYOUT","Grid counts must be 1..1000 and gutters nonnegative");
-                    const auto cell_width=(evaluated_bounds.width-static_cast<double>(grid.columns-1)*grid.column_gutter)/static_cast<double>(grid.columns);
+                    const auto cell_width=(evaluated_bounds.width-static_cast<double>(grid.columns-1)*
+                        evaluated.layout->grid->column_gutter)/static_cast<double>(grid.columns);
                     const auto cell_height=(evaluated_bounds.height-static_cast<double>(grid.rows-1)*grid.row_gutter)/static_cast<double>(grid.rows);
                     require(cell_width>0&&cell_height>0,"INVALID_LAYOUT","Grid gutters must leave positive cell width and height");
                 }
@@ -4426,6 +4505,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
     std::set<Ref> grid_bounds_y_targets;
     std::set<Ref> grid_bounds_width_targets;
     std::set<Ref> grid_bounds_height_targets;
+    std::set<Ref> grid_column_gutter_targets;
     std::set<Ref> guide_position_targets;
     for(const auto& command:commands)std::visit([&](const auto& value) {
         using T=std::decay_t<decltype(value)>;
@@ -4464,6 +4544,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 constexpr bool grid_height_operation=std::is_same_v<Operation,LinkGridBoundsHeight>||
                     std::is_same_v<Operation,SetGridBoundsHeightExpression>||
                     std::is_same_v<Operation,UnlinkGridBoundsHeight>;
+                constexpr bool grid_column_gutter_operation=std::is_same_v<Operation,LinkGridColumnGutter>||
+                    std::is_same_v<Operation,UnlinkGridColumnGutter>;
                 std::set<Ref>* targets;
                 if constexpr(margin_operation)targets=&margin_left_targets;
                 else if constexpr(margin_top_operation)targets=&margin_top_targets;
@@ -4472,6 +4554,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 else if constexpr(grid_y_operation)targets=&grid_bounds_y_targets;
                 else if constexpr(grid_width_operation)targets=&grid_bounds_width_targets;
                 else if constexpr(grid_height_operation)targets=&grid_bounds_height_targets;
+                else if constexpr(grid_column_gutter_operation)targets=&grid_column_gutter_targets;
                 else targets=&grid_bounds_x_targets;
                 require(targets->insert(operation.target).second,"DUPLICATE_TARGET",
                         margin_operation?"A Margin left target may be changed only once per batch":
@@ -4481,7 +4564,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                             grid_y_operation?"A Grid bounds y target may be changed only once per batch":
                                 grid_width_operation?"A Grid bounds width target may be changed only once per batch":
                                     grid_height_operation?"A Grid bounds height target may be changed only once per batch":
-                                        "A Grid bounds x target may be changed only once per batch");
+                                        grid_column_gutter_operation?"A Grid column gutter target may be changed only once per batch":
+                                            "A Grid bounds x target may be changed only once per batch");
             },value.operation);
         else if constexpr(std::is_same_v<T,LinkGuidePosition>||std::is_same_v<T,SetGuidePositionExpression>||std::is_same_v<T,UnlinkGuidePosition>)
             require(guide_position_targets.insert(value.target).second,"DUPLICATE_TARGET","A Guide position target may be changed only once per batch");
@@ -4843,6 +4927,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     "GRID_DRIVER_SMUGGLING","Create Grid bounds height sources with link_grid_bounds_height");
                 require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->bounds_height_expression,
                     "GRID_DRIVER_SMUGGLING","Create Grid bounds height expressions with set_grid_bounds_height_expression");
+                require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->column_gutter_driver,
+                    "GRID_DRIVER_SMUGGLING","Create Grid column gutter sources with link_grid_column_gutter");
                 require(c.index<=boards.size(),"INVALID_ORDER","Artboard insertion index outside range");
                 boards.insert(boards.begin()+static_cast<std::ptrdiff_t>(c.index),c.artboard);
             } else if constexpr(std::is_same_v<T,ReorderArtboards>) {
@@ -4872,6 +4958,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     preserve_grid_bounds_y_source(existing_grid,incoming_grid);
                     preserve_grid_bounds_width_source(existing_grid,incoming_grid);
                     preserve_grid_bounds_height_source(existing_grid,incoming_grid);
+                    preserve_grid_column_gutter_source(existing_grid,incoming_grid);
                     auto preserve_driver=[&](bool width) {
                         const auto& existing=width?board->width_driver:board->height_driver;
                         auto& incoming=width?updated.width_driver:updated.height_driver;
@@ -4971,7 +5058,10 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 else if constexpr(std::is_same_v<Operation,LinkGridBoundsWidth>||
                     std::is_same_v<Operation,SetGridBoundsWidthExpression>||std::is_same_v<Operation,UnlinkGridBoundsWidth>)
                     edit_grid_bounds_width(candidate,operation);
-                else edit_grid_bounds_height(candidate,operation);
+                else if constexpr(std::is_same_v<Operation,LinkGridBoundsHeight>||
+                    std::is_same_v<Operation,SetGridBoundsHeightExpression>||std::is_same_v<Operation,UnlinkGridBoundsHeight>)
+                    edit_grid_bounds_height(candidate,operation);
+                else edit_grid_column_gutter(candidate,operation);
             },c.operation);
         } else if constexpr(std::is_same_v<T,AddGuide>||std::is_same_v<T,UpdateGuide>||std::is_same_v<T,DeleteGuide>) {
             auto comp=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),[&](const auto& item){return item.id==c.composition;});
@@ -5035,6 +5125,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             preserve_grid_bounds_y_source(existing_grid,incoming_grid);
             preserve_grid_bounds_width_source(existing_grid,incoming_grid);
             preserve_grid_bounds_height_source(existing_grid,incoming_grid);
+            preserve_grid_column_gutter_source(existing_grid,incoming_grid);
             board->layout=std::move(updated_layout);
         } else if constexpr(std::is_same_v<T,Set>) {
             prepare_point_edit(candidate,c.ref);
@@ -5254,7 +5345,8 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
                     std::is_same_v<T,LinkGridBoundsX>||std::is_same_v<T,SetGridBoundsXExpression>||
                     std::is_same_v<T,LinkGridBoundsY>||std::is_same_v<T,SetGridBoundsYExpression>||
                     std::is_same_v<T,LinkGridBoundsWidth>||std::is_same_v<T,SetGridBoundsWidthExpression>||
-                    std::is_same_v<T,LinkGridBoundsHeight>||std::is_same_v<T,SetGridBoundsHeightExpression>;
+                    std::is_same_v<T,LinkGridBoundsHeight>||std::is_same_v<T,SetGridBoundsHeightExpression>||
+                    std::is_same_v<T,LinkGridColumnGutter>;
             },layout_source->operation);
             if(source_transition)return;
         }

@@ -547,6 +547,35 @@ void snap_guide_grid_priority_visibility_and_controls() {
         f.release(end);f.no_error();
     }
     {
+        auto document=grid_guide_snap_document(500,2,20);
+        const Ref source{"grid-gutter-snap-source","","artboard.width"};
+        document.compositions.front().artboards.push_back({source.object,"Grid gutter source",0,0,20,100});
+        Fixture f(document);const Ref target{"grid-snap","","grid.column_gutter"};
+        f.session.apply({GridColumnGutterCommand{LinkGridColumnGutter{target,source,false}}},f.session.revision());
+        f.canvas.refresh();f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);f.canvas.set_selection("path");
+        auto start=f.screen(140,130),end=f.screen(200,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),60,
+            "Horizontal Grid Snap uses the linked column gutter at the first cell boundary");
+        check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
+              f.canvas.last_snap_feedback().contains("column 1 boundary"),
+            "Linked gutter Snap feedback identifies the stable Grid cell boundary");
+        f.release(end);
+        auto source_board=f.session.document().compositions.front().artboards.back();source_board.width=50;
+        f.session.apply({UpdateArtboard{f.session.document().compositions.front().id,source_board}},f.session.revision());
+        f.canvas.refresh();
+        start=f.screen(200,130);end=f.screen(185,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),45,
+            "Horizontal Grid Snap follows an upstream gutter change to the moved first cell boundary (feedback="+
+            f.canvas.last_snap_feedback().toStdString()+", evaluated="+
+            std::to_string(std::get<double>(artboard_layout_property(f.session.document(),target).evaluated))+")");
+        check(std::get<double>(artboard_layout_property(f.session.document(),target).literal)==20&&
+              std::get<double>(artboard_layout_property(f.session.document(),target).evaluated)==50,
+            "Canvas Snap preserves the authored gutter literal and reads the evaluated source");
+        f.release(end);f.no_error();
+    }
+    {
         auto document=grid_guide_snap_document(500);
         auto& target=*document.compositions.front().artboards.front().layout->grid;
         target.bounds.height=100;
@@ -1470,6 +1499,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     board.layout->grid->bounds_y_driver=grid_source;
     board.layout->grid->bounds_width_driver=grid_source;
     board.layout->grid->bounds_height_expression=Expression{R"(ref("overlay-grid-source","","artboard.height"))",1};
+    board.layout->grid->column_gutter_driver=margin_source;
     document.compositions.front().artboards.push_back({margin_source.object,"Margin source",0,0,18,100});
     document.compositions.front().artboards.push_back({grid_source.object,"Grid source",0,0,55,95});
     document.compositions.front().guides={{"overlay-guide-x","Vertical","x",30},
@@ -1574,6 +1604,10 @@ void layout_overlays_are_view_only_and_not_exported() {
         std::get<double>(artboard_layout_property(session.document(),{"overlay-grid","","grid.bounds.width"}).literal)==130&&
         std::get<double>(artboard_layout_property(session.document(),{"overlay-grid","","grid.bounds.width"}).evaluated)==55,
         "Canvas Grid overlay uses evaluated width at its outer horizontal boundary while preserving the authored literal");
+    check(count_grid_pixels(linked_image,73.5)>20&&count_grid_pixels(linked_image,77.5)<20&&
+        std::get<double>(artboard_layout_property(session.document(),{"overlay-grid","","grid.column_gutter"}).literal)==10&&
+        std::get<double>(artboard_layout_property(session.document(),{"overlay-grid","","grid.column_gutter"}).evaluated)==18,
+        "Canvas paints the first column boundary from the evaluated linked gutter rather than its authored literal");
     check(count_grid_y_pixels(linked_image,55)>20&&count_grid_y_pixels(linked_image,25)<20,
         "Canvas paints the linked Grid overlay at evaluated y, not its authored literal (evaluated="+
             std::to_string(count_grid_y_pixels(linked_image,55))+", literal="+
@@ -1609,13 +1643,16 @@ void layout_overlays_are_view_only_and_not_exported() {
     const auto preview_grid_width=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.width"});
     const auto preview_grid_y=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.y"});
     const auto preview_grid_height=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.height"});
+    const auto preview_grid_gutter=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.column_gutter"});
     check(preview_grid.bounds.width==65&&std::get<double>(preview_grid_width.literal)==130&&
         std::get<double>(preview_grid_width.evaluated)==65&&preview_grid_width.driver==grid_source&&
         preview_grid_y.driver==grid_source&&std::get<double>(preview_grid_y.literal)==25&&
         std::get<double>(preview_grid_y.evaluated)==65&&
         preview_grid.bounds.height==90&&std::get<double>(preview_grid_height.literal)==95&&
         std::get<double>(preview_grid_height.evaluated)==90&&preview_grid_height.expression.has_value()&&
-        !preview_grid_height.driver,
+        !preview_grid_height.driver&&preview_grid.column_gutter==26&&
+        std::get<double>(preview_grid_gutter.literal)==10&&preview_grid_gutter.driver==margin_source&&
+        std::get<double>(preview_grid_gutter.evaluated)==26,
         "Canvas preview projection follows Grid height expressions while preserving authored literals");
     check(count_guide_pixels(preview_image,140)>20&&count_guide_pixels(preview_image,120)<20&&
           count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,28)>20&&
@@ -1625,6 +1662,7 @@ void layout_overlays_are_view_only_and_not_exported() {
           count_margin_bottom_pixels(preview_image,135)<20&&
           count_margin_pixels(preview_image,174)>20&&count_margin_pixels(preview_image,180)<20&&
           count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20&&
+          count_grid_pixels(preview_image,84.5)>20&&count_grid_pixels(preview_image,73.5)<20&&
           count_grid_y_pixels(preview_image,65,90)>20&&
           count_grid_horizontal_pixels(preview_image,65)>20&&count_grid_horizontal_pixels(preview_image,25)<20&&
           count_grid_horizontal_pixels(preview_image,105)>20&&count_grid_horizontal_pixels(preview_image,97.5)<20,
