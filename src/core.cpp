@@ -1285,10 +1285,11 @@ ArtboardLayoutProperty artboard_layout_property(const Document& document,const R
             if(ref.field=="grid.columns")return {value.columns,{},value.columns};
             if(ref.field=="grid.rows")return {value.rows,{},value.rows};
             if(ref.field=="grid.column_gutter") {
-                const auto evaluated=value.column_gutter_driver?
+                const bool driven=value.column_gutter_driver||value.column_gutter_expression;
+                const auto evaluated=driven?
                     evaluate_artboard(composition,board.id).layout->grid->column_gutter:value.column_gutter;
-                return {value.column_gutter,value.column_gutter_driver,evaluated,{},
-                    value.column_gutter_driver?"link":"literal"};
+                return {value.column_gutter,value.column_gutter_driver,evaluated,value.column_gutter_expression,
+                    value.column_gutter_driver?"link":value.column_gutter_expression?"expression":"literal"};
             }
             const bool driven=value.row_gutter_driver||value.row_gutter_expression;
             const auto evaluated=driven?
@@ -2084,6 +2085,7 @@ CompiledExpression compile_grid_bounds_x_expression(const Expression& expression
 CompiledExpression compile_grid_bounds_y_expression(const Expression& expression);
 CompiledExpression compile_grid_bounds_width_expression(const Expression& expression);
 CompiledExpression compile_grid_bounds_height_expression(const Expression& expression);
+CompiledExpression compile_grid_column_gutter_expression(const Expression& expression);
 CompiledExpression compile_grid_row_gutter_expression(const Expression& expression);
 CompiledExpression compile_margin_left_expression(const Expression& expression);
 CompiledExpression compile_margin_top_expression(const Expression& expression);
@@ -2397,20 +2399,41 @@ void edit_grid_column_gutter(Document& document,const LinkGridColumnGutter& comm
     require(target.board->id!=source.board->id,"GRID_SELF_LINK",
         "Grid column gutter cannot depend on its owning Artboard size");
     auto& slot=target.grid->column_gutter_driver;
-    const bool same_link=slot&&*slot==command.source;
-    require(!slot||same_link||command.replace_driver,"DRIVEN_GRID_COLUMN_GUTTER",
+    const bool same_link=slot&&*slot==command.source&&!target.grid->column_gutter_expression;
+    require((!slot&&!target.grid->column_gutter_expression)||same_link||command.replace_driver,"DRIVEN_GRID_COLUMN_GUTTER",
         "Replacing a Grid column gutter source requires replace_driver=true");
     slot=command.source;
+    target.grid->column_gutter_expression.reset();
+}
+void edit_grid_column_gutter(Document& document,const SetGridColumnGutterExpression& command) {
+    require(command.target.point.empty()&&command.target.field=="grid.column_gutter","INVALID_LAYOUT_REF",
+        "Grid column gutter expression target must be an empty-point grid.column_gutter Ref");
+    const auto target=grid_column_gutter_location(document,command.target,"expression target");
+    const auto compiled=compile_grid_column_gutter_expression(command.expression);
+    for(const auto& source_ref:expression_dependencies(compiled)) {
+        const auto source=artboard_dimension_location(document,source_ref,"expression source");
+        require(target.composition==source.composition,"WRONG_COMPOSITION",
+            "Grid column gutter expressions must stay within one Composition");
+        require(target.board->id!=source.board->id,"GRID_SELF_LINK",
+            "Grid column gutter cannot depend on its owning Artboard size");
+    }
+    const bool same_expression=!target.grid->column_gutter_driver&&
+        target.grid->column_gutter_expression==command.expression;
+    require((!target.grid->column_gutter_driver&&!target.grid->column_gutter_expression)||same_expression||command.replace_driver,
+        "DRIVEN_GRID_COLUMN_GUTTER","Replacing a Grid column gutter source requires replace_driver=true");
+    target.grid->column_gutter_driver.reset();
+    target.grid->column_gutter_expression=command.expression;
 }
 void edit_grid_column_gutter(Document& document,const UnlinkGridColumnGutter& command) {
     require(command.target.point.empty()&&command.target.field=="grid.column_gutter","INVALID_LAYOUT_REF",
         "Grid column gutter unlink target must be an empty-point grid.column_gutter Ref");
     const auto target=grid_column_gutter_location(document,command.target,"unlink target");
-    require(target.grid->column_gutter_driver.has_value(),"GRID_COLUMN_GUTTER_NOT_LINKED",
-        "Grid column gutter has no Artboard size link to unlink");
+    require(target.grid->column_gutter_driver.has_value()||target.grid->column_gutter_expression.has_value(),"GRID_COLUMN_GUTTER_NOT_LINKED",
+        "Grid column gutter has no Artboard size link or expression to unlink");
     const auto resolved=evaluate_artboard(*target.composition,target.board->id);
     target.grid->column_gutter=resolved.layout->grid->column_gutter;
     target.grid->column_gutter_driver.reset();
+    target.grid->column_gutter_expression.reset();
 }
 void edit_grid_row_gutter(Document& document,const LinkGridRowGutter& command) {
     require(command.target.point.empty()&&command.target.field=="grid.row_gutter","INVALID_LAYOUT_REF",
@@ -2701,6 +2724,13 @@ CompiledExpression compile_grid_row_gutter_expression(const Expression& expressi
             "Grid row gutter expressions may reference only empty-point Artboard width and height properties");
     return compiled;
 }
+CompiledExpression compile_grid_column_gutter_expression(const Expression& expression) {
+    const auto compiled=compile_expression(expression);validate_expression_unit(compiled,"du");
+    for(const auto& source:expression_dependencies(compiled))
+        require(artboard_size_ref(source),"GRID_COLUMN_GUTTER_EXPRESSION_TYPE",
+            "Grid column gutter expressions may reference only empty-point Artboard width and height properties");
+    return compiled;
+}
 CompiledExpression compile_margin_left_expression(const Expression& expression) {
     const auto compiled=compile_expression(expression);validate_expression_unit(compiled,"du");
     for(const auto& source:expression_dependencies(compiled))
@@ -2761,6 +2791,9 @@ bool artboard_references_id(const Artboard& board,const Id& id) {
         board.layout->grid->bounds_height_driver->object==id)return true;
     if(board.layout&&board.layout->grid&&board.layout->grid->column_gutter_driver&&
         board.layout->grid->column_gutter_driver->object==id)return true;
+    if(board.layout&&board.layout->grid&&board.layout->grid->column_gutter_expression)
+        for(const auto& source:expression_dependencies(*board.layout->grid->column_gutter_expression))
+            if(source.object==id)return true;
     if(board.layout&&board.layout->grid&&board.layout->grid->row_gutter_driver&&
         board.layout->grid->row_gutter_driver->object==id)return true;
     if(board.layout&&board.layout->grid&&board.layout->grid->row_gutter_expression)
@@ -2927,8 +2960,8 @@ void preserve_grid_bounds_height_source(const Grid* existing,Grid* incoming) {
         "Create Grid bounds height sources with link_grid_bounds_height or set_grid_bounds_height_expression");
 }
 void preserve_grid_column_gutter_source(const Grid* existing,Grid* incoming) {
-    const bool existing_source=existing&&existing->column_gutter_driver;
-    const bool incoming_source=incoming&&incoming->column_gutter_driver;
+    const bool existing_source=existing&&(existing->column_gutter_driver||existing->column_gutter_expression);
+    const bool incoming_source=incoming&&(incoming->column_gutter_driver||incoming->column_gutter_expression);
     if(existing_source) {
         require(incoming,"DRIVEN_GRID_COLUMN_GUTTER","Unlink Grid column gutter before clearing its Grid");
         require(incoming->id==existing->id,"DRIVEN_GRID_COLUMN_GUTTER",
@@ -2937,9 +2970,12 @@ void preserve_grid_column_gutter_source(const Grid* existing,Grid* incoming) {
             "Unlink Grid column gutter before changing its authored literal");
         require(!incoming->column_gutter_driver||incoming->column_gutter_driver==existing->column_gutter_driver,
             "GRID_DRIVER_SMUGGLING","Use link_grid_column_gutter to change the Grid column gutter source");
+        require(!incoming->column_gutter_expression||incoming->column_gutter_expression==existing->column_gutter_expression,
+            "GRID_DRIVER_SMUGGLING","Use set_grid_column_gutter_expression to change the Grid column gutter source");
         incoming->column_gutter_driver=existing->column_gutter_driver;
+        incoming->column_gutter_expression=existing->column_gutter_expression;
     } else require(!incoming_source,"GRID_DRIVER_SMUGGLING",
-        "Create Grid column gutter sources with link_grid_column_gutter");
+        "Create Grid column gutter sources with link_grid_column_gutter or set_grid_column_gutter_expression");
 }
 void preserve_grid_row_gutter_source(const Grid* existing,Grid* incoming) {
     const bool existing_source=existing&&(existing->row_gutter_driver||existing->row_gutter_expression);
@@ -3048,6 +3084,8 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
     }
     if(result.layout&&result.layout->grid) {
         auto& grid=*result.layout->grid;
+        require(!(grid.column_gutter_driver&&grid.column_gutter_expression),"GRID_SOURCE_CONFLICT",
+            "Grid column gutter may have only one active source");
         require(!(grid.row_gutter_driver&&grid.row_gutter_expression),"GRID_SOURCE_CONFLICT",
             "Grid row gutter may have only one active source");
         if(grid.column_gutter_driver) {
@@ -3056,6 +3094,17 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
             require(grid.column_gutter_driver->object!=artboard,"GRID_SELF_LINK",
                 "Grid column gutter cannot depend on its owning Artboard size");
             grid.column_gutter=evaluator.value(*grid.column_gutter_driver);
+        } else if(grid.column_gutter_expression) {
+            const auto& compiled=compiled_expression(expressions,*grid.column_gutter_expression);
+            validate_expression_unit(compiled,"du");
+            for(const auto& source:expression_dependencies(compiled)) {
+                require(artboard_size_ref(source),"GRID_COLUMN_GUTTER_EXPRESSION_TYPE",
+                    "Grid column gutter expressions may reference only empty-point Artboard width and height properties");
+                require(source.object!=artboard,"GRID_SELF_LINK",
+                    "Grid column gutter cannot depend on its owning Artboard size");
+                (void)evaluator.value(source);
+            }
+            grid.column_gutter=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
         }
         if(grid.row_gutter_driver) {
             require(artboard_size_ref(*grid.row_gutter_driver),"INVALID_ARTBOARD_REF",
@@ -3373,6 +3422,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     "Grid bounds width may have only one active source");
                 require(!(grid.bounds_height_driver&&grid.bounds_height_expression),"GRID_SOURCE_CONFLICT",
                     "Grid bounds height may have only one active source");
+                require(!(grid.column_gutter_driver&&grid.column_gutter_expression),"GRID_SOURCE_CONFLICT",
+                    "Grid column gutter may have only one active source");
                 require(!(grid.row_gutter_driver&&grid.row_gutter_expression),"GRID_SOURCE_CONFLICT",
                     "Grid row gutter may have only one active source");
                 const auto validate_grid_source=[&](const Ref& source) {
@@ -3417,6 +3468,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     for(const auto& source:expression_dependencies(compiled))validate_grid_source(source);
                 }
                 if(grid.column_gutter_driver)validate_grid_source(*grid.column_gutter_driver);
+                if(grid.column_gutter_expression) {
+                    const auto compiled=compile_grid_column_gutter_expression(*grid.column_gutter_expression);
+                    for(const auto& source:expression_dependencies(compiled))validate_grid_source(source);
+                }
                 if(grid.row_gutter_driver)validate_grid_source(*grid.row_gutter_driver);
                 if(grid.row_gutter_expression) {
                     const auto compiled=compile_grid_row_gutter_expression(*grid.row_gutter_expression);
@@ -4678,6 +4733,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     std::is_same_v<Operation,SetGridBoundsHeightExpression>||
                     std::is_same_v<Operation,UnlinkGridBoundsHeight>;
                 constexpr bool grid_column_gutter_operation=std::is_same_v<Operation,LinkGridColumnGutter>||
+                    std::is_same_v<Operation,SetGridColumnGutterExpression>||
                     std::is_same_v<Operation,UnlinkGridColumnGutter>;
                 constexpr bool grid_row_gutter_operation=std::is_same_v<Operation,LinkGridRowGutter>||
                     std::is_same_v<Operation,SetGridRowGutterExpression>||
@@ -5067,6 +5123,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     "GRID_DRIVER_SMUGGLING","Create Grid bounds height expressions with set_grid_bounds_height_expression");
                 require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->column_gutter_driver,
                     "GRID_DRIVER_SMUGGLING","Create Grid column gutter sources with link_grid_column_gutter");
+                require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->column_gutter_expression,
+                    "GRID_DRIVER_SMUGGLING","Create Grid column gutter expressions with set_grid_column_gutter_expression");
                 require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->row_gutter_driver,
                     "GRID_DRIVER_SMUGGLING","Create Grid row gutter sources with link_grid_row_gutter");
                 require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->row_gutter_expression,
@@ -5204,7 +5262,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 else if constexpr(std::is_same_v<Operation,LinkGridBoundsHeight>||
                     std::is_same_v<Operation,SetGridBoundsHeightExpression>||std::is_same_v<Operation,UnlinkGridBoundsHeight>)
                     edit_grid_bounds_height(candidate,operation);
-                else if constexpr(std::is_same_v<Operation,LinkGridColumnGutter>||std::is_same_v<Operation,UnlinkGridColumnGutter>)
+                else if constexpr(std::is_same_v<Operation,LinkGridColumnGutter>||
+                    std::is_same_v<Operation,SetGridColumnGutterExpression>||std::is_same_v<Operation,UnlinkGridColumnGutter>)
                     edit_grid_column_gutter(candidate,operation);
                 else edit_grid_row_gutter(candidate,operation);
             },c.operation);
@@ -5492,7 +5551,8 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
                     std::is_same_v<T,LinkGridBoundsY>||std::is_same_v<T,SetGridBoundsYExpression>||
                     std::is_same_v<T,LinkGridBoundsWidth>||std::is_same_v<T,SetGridBoundsWidthExpression>||
                     std::is_same_v<T,LinkGridBoundsHeight>||std::is_same_v<T,SetGridBoundsHeightExpression>||
-                    std::is_same_v<T,LinkGridColumnGutter>||std::is_same_v<T,LinkGridRowGutter>||
+                    std::is_same_v<T,LinkGridColumnGutter>||std::is_same_v<T,SetGridColumnGutterExpression>||
+                    std::is_same_v<T,LinkGridRowGutter>||
                     std::is_same_v<T,SetGridRowGutterExpression>;
             },layout_source->operation);
             if(source_transition)return;

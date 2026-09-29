@@ -72,6 +72,7 @@ TOOLS = [
                      'Artboard commands: add_artboard {composition,artboard,index}, update_artboard {composition,artboard}, '
                      'delete_artboard/detach_artboard_parent {composition,artboard:id}, reorder_artboards {composition,order:[ids]}. '
                      'Artboard fields are id,name,x,y,width,height and optional parent_size:{artboard:id,width:bool,height:bool}. '
+                     'Grid column gutter targets the stable Grid Ref {object:grid_id,point:"",field:"grid.column_gutter"}. set_grid_column_gutter_expression {target,expression:{source,version:1},replace_driver:bool} accepts bounded du expressions using same-Composition distinct-Artboard width/height refs; an active link or expression requires replace_driver:true to replace. link_grid_column_gutter and unlink_grid_column_gutter use the same target, with unlink freezing the evaluated value. get/properties return the authored literal, source and evaluated gutter. '
                      'Size inheritance is same-composition; artboards readback returns authored/evaluated frames in export order. '
                      'Frame movement changes crops only; reorder changes order only; neither moves artwork. '
                      'Text: text_defaults returns a source template; text_fonts lists installed families. '

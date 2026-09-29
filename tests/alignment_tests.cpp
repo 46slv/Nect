@@ -109,6 +109,27 @@ int main(){try{
  check(std::get<double>(expression_grid_property.literal)==40&&expression_grid_property.source_kind=="expression"&&
      std::get<double>(expression_grid_property.evaluated)==120,
      "Grid-reference Align consumes expression-evaluated x while retaining the authored Grid literal");
+ d=exact_fixture();
+ auto& gutter_grid=*d.compositions[0].artboards[0].layout->grid;gutter_grid.columns=2;
+ d.compositions[0].artboards.push_back({"grid-gutter-alignment-source","Grid gutter alignment source",0,0,20,100});
+ Session gutter_grid_align(d);
+ const Ref gutter_target{"grid","","grid.column_gutter"};
+ const Expression gutter_expression{R"(ref("grid-gutter-alignment-source","","artboard.width"))",1};
+ gutter_grid_align.apply({GridColumnGutterCommand{SetGridColumnGutterExpression{gutter_target,gutter_expression,false}}},0);
+ auto gutter_resolved=evaluate_artboard(gutter_grid_align.document().compositions[0],"art");
+ double gutter_cell_width=(gutter_resolved.layout->grid->bounds.width-gutter_resolved.layout->grid->column_gutter)/2.0;
+ AlignObjects gutter_align_command{{"a"},"x","max",{}};gutter_align_command.reference="grid:grid";
+ apply(gutter_grid_align,gutter_align_command);near(bounds(gutter_grid_align.document(),"a").right,140);
+ check(gutter_cell_width==40&&std::get<double>(artboard_layout_property(gutter_grid_align.document(),gutter_target).evaluated)==20,
+     "Grid-reference Align targets the outer Grid bounds while an expression-evaluated gutter sets its cell width");
+ auto changed_gutter_source=gutter_grid_align.document().compositions[0].artboards.back();changed_gutter_source.width=30;
+ gutter_grid_align.apply({UpdateArtboard{"comp",changed_gutter_source}},gutter_grid_align.revision());
+ gutter_resolved=evaluate_artboard(gutter_grid_align.document().compositions[0],"art");
+ gutter_cell_width=(gutter_resolved.layout->grid->bounds.width-gutter_resolved.layout->grid->column_gutter)/2.0;
+ AlignObjects changed_gutter_align_command{{"b"},"x","max",{}};changed_gutter_align_command.reference="grid:grid";
+ apply(gutter_grid_align,changed_gutter_align_command);near(bounds(gutter_grid_align.document(),"b").right,140);
+ check(gutter_cell_width==35&&std::get<double>(artboard_layout_property(gutter_grid_align.document(),gutter_target).evaluated)==30,
+     "Changing the Grid column gutter changes inner cell width without moving the Grid-reference Align target");
  d=exact_fixture();Session artboard_center(d);AlignObjects artboard_command{{"a"},"x","center","art"};apply(artboard_center,artboard_command);
  near((bounds(artboard_center.document(),"a").left+bounds(artboard_center.document(),"a").right)/2,480);
  d=exact_fixture();Session guide_align(d);AlignObjects guide_command{{"a"},"x","min",{}};guide_command.reference="guide:guide-x";apply(guide_align,guide_command);

@@ -3440,6 +3440,43 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         artboard_layout_property(session.document(),grid_column_gutter_target_ref).driver==grid_column_gutter_width_source_ref&&
         std::get<double>(artboard_layout_property(session.document(),grid_column_gutter_target_ref).evaluated)==10,
         "Applying sibling Grid fields preserves the exact column gutter source");
+    const std::string grid_column_gutter_expression_text="ref(\""+grid_column_gutter_source_id+
+        "\",\"\",\"artboard.width\") + 10";
+    auto* grid_column_gutter_expression_input=visible_child<QPlainTextEdit>(window,"grid-column-gutter-expression");
+    auto* grid_column_gutter_apply_expression=visible_child<QPushButton>(window,"grid-column-gutter-apply-expression");
+    grid_column_gutter_replace=visible_child<QCheckBox>(window,"grid-column-gutter-replace");
+    grid_column_gutter_expression_input->setPlainText(QString::fromStdString(grid_column_gutter_expression_text));
+    const auto before_grid_column_gutter_expression_cancel=session.revision();click("grid-column-gutter-cancel");
+    check(session.revision()==before_grid_column_gutter_expression_cancel&&
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).driver==grid_column_gutter_width_source_ref&&
+        !artboard_layout_property(session.document(),grid_column_gutter_target_ref).expression,
+        "Cancel discards an uncommitted Grid column gutter expression draft");
+    grid_column_gutter_expression_input=visible_child<QPlainTextEdit>(window,"grid-column-gutter-expression");
+    grid_column_gutter_apply_expression=visible_child<QPushButton>(window,"grid-column-gutter-apply-expression");
+    grid_column_gutter_replace=visible_child<QCheckBox>(window,"grid-column-gutter-replace");
+    grid_column_gutter_expression_input->setPlainText(QString::fromStdString(grid_column_gutter_expression_text));
+    const auto before_unapproved_grid_column_gutter_expression=session.revision();click("grid-column-gutter-apply-expression");
+    check(session.revision()==before_unapproved_grid_column_gutter_expression&&
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).driver==grid_column_gutter_width_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_COLUMN_GUTTER"),
+        "Replacing a Grid column gutter link with an expression requires visible explicit authorization");
+    grid_column_gutter_replace->setChecked(true);click("grid-column-gutter-apply-expression");
+    auto expressed_grid_column_gutter=artboard_layout_property(session.document(),grid_column_gutter_target_ref);
+    grid_column_gutter_input=visible_child<QLineEdit>(window,"grid-column-gutter");
+    grid_column_gutter_status=visible_child<QLabel>(window,"grid-column-gutter-source-state");
+    check(session.revision()==before_unapproved_grid_column_gutter_expression+1&&grid_column_gutter_input->isReadOnly()&&
+        !expressed_grid_column_gutter.driver&&
+        expressed_grid_column_gutter.expression==Expression{grid_column_gutter_expression_text,1}&&
+        std::get<double>(expressed_grid_column_gutter.literal)==grid_column_gutter_literal&&
+        std::get<double>(expressed_grid_column_gutter.evaluated)==20&&
+        grid_column_gutter_status->text().contains("expression")&&grid_column_gutter_status->text().contains("Evaluated: 20"),
+        "Inspector applies the exact column gutter expression while keeping its authored numeric field read-only");
+    input("grid-rows","2",true);
+    check(!board().layout->grid->column_gutter_driver&&
+        board().layout->grid->column_gutter_expression==Expression{grid_column_gutter_expression_text,1}&&
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).expression==
+            Expression{grid_column_gutter_expression_text,1},
+        "Applying sibling Grid fields preserves the column gutter expression in Inspector draft state");
     const Ref grid_row_gutter_target_ref{board().layout->grid->id,"","grid.row_gutter"};
     const Ref grid_row_gutter_height_source_ref{grid_column_gutter_source_id,"","artboard.height"};
     const Ref grid_row_gutter_width_source_ref{grid_column_gutter_source_id,"","artboard.width"};
@@ -3559,6 +3596,16 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         !artboard_layout_property(session.document(),grid_row_gutter_target_ref).expression&&
         std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).evaluated)==10,
         "Explicit Grid row gutter link replacement clears its prior expression");
+    gutter_source_board=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){
+            return value.id==grid_column_gutter_source_id;
+        });
+    gutter_source_board.width=20;
+    session.apply({UpdateArtboard{composition_id,gutter_source_board}},session.revision());window.host.edited();
+    QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),grid_column_gutter_target_ref).evaluated)==30&&
+        visible_child<QLabel>(window,"grid-column-gutter-source-state")->text().contains("Evaluated: 30"),
+        "Grid column gutter Inspector readback follows its width expression after an Artboard resize");
     click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
     const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
@@ -3570,7 +3617,8 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         !duplicate->layout->margin->bottom_driver&&
         duplicate->layout->margin->bottom_expression==margin_bottom_expression_source&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
-        duplicate->layout->grid->column_gutter_driver==grid_column_gutter_width_source_ref&&
+        !duplicate->layout->grid->column_gutter_driver&&
+        duplicate->layout->grid->column_gutter_expression==Expression{grid_column_gutter_expression_text,1}&&
         duplicate->layout->grid->row_gutter_driver==grid_row_gutter_width_source_ref&&
         duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
         !duplicate->layout->grid->bounds_height_driver&&
@@ -3592,13 +3640,14 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.bottom"}).expression==margin_bottom_expression_source&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.bottom"}).evaluated)==
             artboard_size_property(session.document(),Ref{margin_source_id,"","artboard.height"}).evaluated-20,
-        "Duplicate frame replays Margin and Grid x/y/width/height expression sources onto the new stable Grid ID");
+        "Duplicate frame replays Margin and Grid x/y/width/height/column-gutter expression sources onto the new stable Grid ID");
     const Id duplicate_grid_id=duplicate->layout->grid->id;
+    const Ref duplicate_grid_column_gutter_ref{duplicate_grid_id,"","grid.column_gutter"};
     const Ref duplicate_grid_row_gutter_ref{duplicate_grid_id,"","grid.row_gutter"};
     const auto before_duplicate_row_gutter_unlink=session.revision();click("grid-row-gutter-unlink");
     check(session.revision()==before_duplicate_row_gutter_unlink+1&&
         !artboard_layout_property(session.document(),duplicate_grid_row_gutter_ref).driver&&
-        std::get<double>(artboard_layout_property(session.document(),duplicate_grid_row_gutter_ref).literal)==10&&
+        std::get<double>(artboard_layout_property(session.document(),duplicate_grid_row_gutter_ref).literal)==20&&
         !visible_child<QLineEdit>(window,"grid-row-gutter")->isReadOnly(),
         "Unlinking the duplicated Grid row gutter freezes its evaluated value into the authored literal");
     const Ref duplicate_grid_height_ref{duplicate_grid_id,"","grid.bounds.height"};
@@ -3609,13 +3658,13 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         std::get<double>(artboard_layout_property(session.document(),duplicate_grid_height_ref).literal)==120&&
         !visible_child<QLineEdit>(window,"grid-height")->isReadOnly(),
         "Unlinking the duplicated Grid height freezes its evaluated value into the authored literal");
-    const Ref duplicate_grid_column_gutter_ref{duplicate_grid_id,"","grid.column_gutter"};
     const auto before_duplicate_column_gutter_unlink=session.revision();click("grid-column-gutter-unlink");
     check(session.revision()==before_duplicate_column_gutter_unlink+1&&
         !artboard_layout_property(session.document(),duplicate_grid_column_gutter_ref).driver&&
-        std::get<double>(artboard_layout_property(session.document(),duplicate_grid_column_gutter_ref).literal)==10&&
+        !artboard_layout_property(session.document(),duplicate_grid_column_gutter_ref).expression&&
+        std::get<double>(artboard_layout_property(session.document(),duplicate_grid_column_gutter_ref).literal)==30&&
         !visible_child<QLineEdit>(window,"grid-column-gutter")->isReadOnly(),
-        "Unlinking the duplicated Grid column gutter freezes its evaluated value into the authored literal");
+        "Unlinking the duplicated Grid column gutter expression freezes its evaluated value into the authored literal");
     auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
     for(int i=0;i<artboards->count();++i)
         if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);
@@ -3684,7 +3733,7 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     click("grid-bounds-x-unlink");click("grid-bounds-y-unlink");click("grid-bounds-width-unlink");
     click("grid-bounds-height-unlink");click("grid-column-gutter-unlink");click("grid-row-gutter-unlink");
     check(!artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver&&
-        std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).literal)==10,
+        std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).literal)==20,
         "Unlink the original Grid row gutter before replacing its stable Grid ID in recovery setup");
     session.apply({SetArtboardLayout{composition_id,board_id,
                        ArtboardLayout{Margin{25,0,0,0},Grid{"recovery-grid",{25,0,100,100},2,1,10,0}}},

@@ -1548,6 +1548,8 @@ void Window::add_artboard(bool duplicate) {
         board.layout->grid->bounds_height_expression:std::optional<Expression>{};
     const auto grid_column_gutter_driver=duplicate&&board.layout&&board.layout->grid?
         board.layout->grid->column_gutter_driver:std::optional<Ref>{};
+    const auto grid_column_gutter_expression=duplicate&&board.layout&&board.layout->grid?
+        board.layout->grid->column_gutter_expression:std::optional<Expression>{};
     const auto grid_row_gutter_driver=duplicate&&board.layout&&board.layout->grid?
         board.layout->grid->row_gutter_driver:std::optional<Ref>{};
     const auto grid_row_gutter_expression=duplicate&&board.layout&&board.layout->grid?
@@ -1561,6 +1563,7 @@ void Window::add_artboard(bool duplicate) {
     }
     if(duplicate&&board.layout&&board.layout->grid) {
         board.layout->grid->column_gutter_driver.reset();
+        board.layout->grid->column_gutter_expression.reset();
         board.layout->grid->row_gutter_driver.reset();
         board.layout->grid->row_gutter_expression.reset();
         board.layout->grid->bounds_x_driver.reset();board.layout->grid->bounds_x_expression.reset();
@@ -1606,6 +1609,8 @@ void Window::add_artboard(bool duplicate) {
         {board.layout->grid->id,"","grid.bounds.height"},*grid_bounds_height_expression,false}});
     if(grid_column_gutter_driver)commands.push_back(GridColumnGutterCommand{LinkGridColumnGutter{
         {board.layout->grid->id,"","grid.column_gutter"},*grid_column_gutter_driver,false}});
+    else if(grid_column_gutter_expression)commands.push_back(GridColumnGutterCommand{SetGridColumnGutterExpression{
+        {board.layout->grid->id,"","grid.column_gutter"},*grid_column_gutter_expression,false}});
     if(grid_row_gutter_driver)commands.push_back(GridRowGutterCommand{LinkGridRowGutter{
         {board.layout->grid->id,"","grid.row_gutter"},*grid_row_gutter_driver,false}});
     else if(grid_row_gutter_expression)commands.push_back(GridRowGutterCommand{SetGridRowGutterExpression{
@@ -2215,13 +2220,14 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto grid_bounds_height_driver=board.layout&&board.layout->grid?board.layout->grid->bounds_height_driver:std::optional<Ref>{};
     const auto grid_bounds_height_expression=board.layout&&board.layout->grid?board.layout->grid->bounds_height_expression:std::optional<Expression>{};
     const auto grid_column_gutter_driver=board.layout&&board.layout->grid?board.layout->grid->column_gutter_driver:std::optional<Ref>{};
+    const auto grid_column_gutter_expression=board.layout&&board.layout->grid?board.layout->grid->column_gutter_expression:std::optional<Expression>{};
     const auto grid_row_gutter_driver=board.layout&&board.layout->grid?board.layout->grid->row_gutter_driver:std::optional<Ref>{};
     const auto grid_row_gutter_expression=board.layout&&board.layout->grid?board.layout->grid->row_gutter_expression:std::optional<Expression>{};
     const bool grid_bounds_x_is_driven=grid_bounds_x_driver.has_value()||grid_bounds_x_expression.has_value();
     const bool grid_bounds_y_is_driven=grid_bounds_y_driver.has_value()||grid_bounds_y_expression.has_value();
     const bool grid_bounds_width_is_driven=grid_bounds_width_driver.has_value()||grid_bounds_width_expression.has_value();
     const bool grid_bounds_height_is_driven=grid_bounds_height_driver.has_value()||grid_bounds_height_expression.has_value();
-    const bool grid_column_gutter_is_driven=grid_column_gutter_driver.has_value();
+    const bool grid_column_gutter_is_driven=grid_column_gutter_driver.has_value()||grid_column_gutter_expression.has_value();
     const bool grid_row_gutter_is_driven=grid_row_gutter_driver.has_value()||grid_row_gutter_expression.has_value();
     auto* grid_x=make_number(grid_box,"grid-x","Grid X",QString::number(initial_grid.bounds.x,'g',15));
     grid_x->setReadOnly(grid_bounds_x_is_driven);
@@ -2258,7 +2264,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         grid_bounds_x_driver,grid_bounds_x_expression,grid_bounds_x_is_driven,authored_grid_x,grid_bounds_y_driver,grid_bounds_y_expression,grid_bounds_y_is_driven,authored_grid_y,
         grid_bounds_width_driver,grid_bounds_width_expression,grid_bounds_width_is_driven,authored_grid_width,
         grid_bounds_height_driver,grid_bounds_height_expression,grid_bounds_height_is_driven,
-        grid_column_gutter_driver,grid_column_gutter_is_driven,authored_grid_column_gutter=initial_grid.column_gutter,
+        grid_column_gutter_driver,grid_column_gutter_expression,grid_column_gutter_is_driven,authored_grid_column_gutter=initial_grid.column_gutter,
         grid_row_gutter_driver,grid_row_gutter_expression,grid_row_gutter_is_driven,
         authored_grid_row_gutter=initial_grid.row_gutter,
         authored_grid_height=initial_grid.bounds.height] {
@@ -2270,6 +2276,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             parse_count(grid_columns),parse_count(grid_rows),grid_column_gutter_is_driven?authored_grid_column_gutter:parse_number(grid_column_gutter),
             grid_row_gutter_is_driven?authored_grid_row_gutter:parse_number(grid_row_gutter)};
         grid.column_gutter_driver=grid_column_gutter_driver;
+        grid.column_gutter_expression=grid_column_gutter_expression;
         grid.row_gutter_driver=grid_row_gutter_driver;
         grid.row_gutter_expression=grid_row_gutter_expression;
         grid.bounds_x_driver=grid_bounds_x_driver;grid.bounds_x_expression=grid_bounds_x_expression;
@@ -2627,7 +2634,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         const auto source_name=source_board==comp.artboards.end()?QString("Missing Artboard"):qs(source_board->name);
         grid_column_gutter_source_description="link · "+source_name+" ("+qs(grid_column_gutter_driver->object)+"/"+
             qs(grid_column_gutter_driver->field)+")";
-    }
+    } else if(grid_column_gutter_expression)
+        grid_column_gutter_source_description="expression · "+qs(grid_column_gutter_expression->source);
     const auto evaluated_grid_column_gutter=resolved.layout&&resolved.layout->grid?
         resolved.layout->grid->column_gutter:initial_grid.column_gutter;
     grid_column_gutter_source_state->setWordWrap(true);
@@ -2691,6 +2699,22 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         perform([&]{grid_source_commit({GridColumnGutterCommand{UnlinkGridColumnGutter{grid_column_gutter_ref}}});});
     });
     connect(grid_column_gutter_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    auto* grid_column_gutter_expression_input=new ExpressionInput;
+    grid_column_gutter_expression_input->setObjectName("grid-column-gutter-expression");
+    grid_column_gutter_expression_input->setAccessibleName("Grid column gutter expression draft");
+    grid_column_gutter_expression_input->setFixedHeight(58);
+    grid_column_gutter_expression_input->setPlaceholderText("du expression using Artboard width/height ref() values");
+    if(grid_column_gutter_expression)grid_column_gutter_expression_input->setPlainText(qs(grid_column_gutter_expression->source));
+    grid_column_gutter_source_layout->addWidget(grid_column_gutter_expression_input);
+    auto* grid_column_gutter_apply_expression=new QPushButton("Apply expression",grid_column_gutter_source_box);
+    grid_column_gutter_apply_expression->setObjectName("grid-column-gutter-apply-expression");
+    grid_column_gutter_apply_expression->setEnabled(board.layout&&board.layout->grid);
+    grid_column_gutter_source_layout->addWidget(grid_column_gutter_apply_expression);
+    connect(grid_column_gutter_apply_expression,&QPushButton::clicked,this,
+        [this,grid_column_gutter_expression_input,grid_column_gutter_ref,grid_column_gutter_replace,grid_source_commit]{perform([&]{
+            grid_source_commit({GridColumnGutterCommand{SetGridColumnGutterExpression{grid_column_gutter_ref,
+                {grid_column_gutter_expression_input->toPlainText().toStdString(),1},grid_column_gutter_replace->isChecked()}}});
+        });});
     const Ref grid_row_gutter_ref{grid_id,"","grid.row_gutter"};
     auto* grid_row_gutter_source_box=new QGroupBox("Row gutter source",grid_box);
     grid_row_gutter_source_box->setObjectName("grid-row-gutter-source");

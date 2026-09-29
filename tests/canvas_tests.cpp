@@ -576,6 +576,39 @@ void snap_guide_grid_priority_visibility_and_controls() {
         f.release(end);f.no_error();
     }
     {
+        auto document=grid_guide_snap_document(500,2,20);
+        const Ref source{"grid-column-gutter-expression-snap-source","","artboard.width"};
+        const Expression expression{R"(ref("grid-column-gutter-expression-snap-source","","artboard.width"))",1};
+        document.compositions.front().artboards.push_back({source.object,"Grid column gutter expression source",0,0,20,100});
+        Fixture f(document);const Ref target{"grid-snap","","grid.column_gutter"};
+        f.session.apply({GridColumnGutterCommand{SetGridColumnGutterExpression{target,expression,false}}},f.session.revision());
+        f.canvas.refresh();f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);f.canvas.set_selection("path");
+        auto start=f.screen(140,130),end=f.screen(200,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),60,
+            "Horizontal Grid Snap uses the expression-evaluated column gutter at the first cell boundary");
+        check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
+              f.canvas.last_snap_feedback().contains("column 1 boundary"),
+            "Expression column gutter Snap feedback identifies the stable Grid cell boundary");
+        f.release(end);
+        auto value=artboard_layout_property(f.session.document(),target);
+        check(std::get<double>(value.literal)==20&&!value.driver&&value.expression==expression&&
+              std::get<double>(value.evaluated)==20,
+            "Canvas Snap preserves the authored column gutter and exact evaluated expression source");
+        auto source_board=f.session.document().compositions.front().artboards.back();source_board.width=50;
+        f.session.apply({UpdateArtboard{f.session.document().compositions.front().id,source_board}},f.session.revision());
+        f.canvas.refresh();
+        start=f.screen(200,130);end=f.screen(185,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),45,
+            "Horizontal Grid Snap follows an upstream column gutter expression change to the moved first cell boundary");
+        check(f.canvas.last_snap_feedback().contains("column 1 boundary")&&
+              artboard_layout_property(f.session.document(),target).expression==expression&&
+              std::get<double>(artboard_layout_property(f.session.document(),target).evaluated)==50,
+            "Updated Grid column gutter expression remains the active evaluated horizontal Snap target");
+        f.release(end);f.no_error();
+    }
+    {
         auto document=grid_guide_snap_document(500);
         auto& grid=*document.compositions.front().artboards.front().layout->grid;
         grid.bounds.height=100;grid.rows=2;grid.row_gutter=20;
@@ -1763,6 +1796,51 @@ void grid_row_gutter_overlay_tracks_evaluated_source() {
             std::to_string(count_horizontal(updated,55))+","+std::to_string(count_horizontal(updated,85))+" old="+
             std::to_string(count_horizontal(updated,60))+","+std::to_string(count_horizontal(updated,80))).c_str());
 }
+
+void grid_column_gutter_overlay_tracks_evaluated_source() {
+    auto document=empty_document("column-gutter-overlay-document","column-gutter-overlay-composition","column-gutter-overlay-board");
+    auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
+    const Id grid_id="column-gutter-overlay-grid";
+    board.layout=ArtboardLayout{std::nullopt,Grid{grid_id,{20,20,160,100},2,2,10,10}};
+    const Ref source{"column-gutter-overlay-source","","artboard.width"};
+    const Expression expression{R"(ref("column-gutter-overlay-source","","artboard.width"))",1};
+    document.compositions.front().artboards.push_back({source.object,"Column gutter source",240,0,20,20});
+    Session session(std::move(document));const Ref target{grid_id,"","grid.column_gutter"};
+    session.apply({GridColumnGutterCommand{SetGridColumnGutterExpression{target,expression,false}}},session.revision());
+    Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
+    canvas.fit_artboard();QApplication::processEvents();
+    const auto count_vertical=[&](const QImage& image,double world_x) {
+        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
+        const int pixel_x=qRound((canvas.width()/2.0+(world_x-100)*canvas.zoom())*scale);int pixels=0;
+        const int top=qRound((canvas.height()/2.0+(20-80)*canvas.zoom())*scale);
+        const int bottom=qRound((canvas.height()/2.0+(120-80)*canvas.zoom())*scale);
+        for(int x=pixel_x-qMax(2,qRound(2*scale));x<=pixel_x+qMax(2,qRound(2*scale));++x)
+            for(int y=top;y<=bottom;++y) {
+                const auto pixel=image.pixelColor(x,y);
+                if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+            }
+        return pixels;
+    };
+    const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_vertical(linked,90)>20&&count_vertical(linked,110)>20&&
+        count_vertical(linked,95)<=20&&count_vertical(linked,105)<=20&&
+        std::get<double>(artboard_layout_property(session.document(),target).literal)==10&&
+        artboard_layout_property(session.document(),target).expression==expression&&
+        std::get<double>(artboard_layout_property(session.document(),target).evaluated)==20,
+        ("Canvas column overlay draws both expression-evaluated Grid column gutter edges while preserving the authored literal: edges="+
+            std::to_string(count_vertical(linked,90))+","+std::to_string(count_vertical(linked,110))+" literal="+
+            std::to_string(count_vertical(linked,95))+","+std::to_string(count_vertical(linked,105))).c_str());
+    auto upstream=session.document().compositions.front().artboards.back();upstream.width=30;
+    session.apply({UpdateArtboard{session.document().compositions.front().id,upstream}},session.revision());
+    canvas.refresh();QApplication::processEvents();
+    const auto updated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_vertical(updated,85)>20&&count_vertical(updated,115)>20&&
+        count_vertical(updated,90)<=20&&count_vertical(updated,110)<=20&&
+        std::get<double>(artboard_layout_property(session.document(),target).evaluated)==30,
+        ("Canvas column overlay moves both gutter edges when its upstream Artboard width changes: edges="+
+            std::to_string(count_vertical(updated,85))+","+std::to_string(count_vertical(updated,115))+" old="+
+            std::to_string(count_vertical(updated,90))+","+std::to_string(count_vertical(updated,110))).c_str());
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1792,6 +1870,7 @@ int main(int argc, char** argv) {
         guide_drag_uses_stable_identity_and_one_session_undo();
         layout_overlays_are_view_only_and_not_exported();
         grid_row_gutter_overlay_tracks_evaluated_source();
+        grid_column_gutter_overlay_tracks_evaluated_source();
         std::cout << "Canvas widget contract: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
