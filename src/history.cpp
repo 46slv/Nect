@@ -144,6 +144,11 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         if(owner.empty())owner=name(ref.object);
         return owner+(ref.point.empty()?"":" / "+ref.point)+" / "+ref.field;
     };
+    if(const auto* command=std::get_if<LinkTextWeight>(&commands.front());command&&command->batch) {
+        const auto action=command->batch->mode==TextWeightBatchMode::edit?"Edit":
+            command->batch->mode==TextWeightBatchMode::link?"Link":"Unlink";
+        return std::string(action)+" Text weight batch ("+std::to_string(command->batch->targets.size())+")";
+    }
     if(const auto* command=std::get_if<LinkTextWeight>(&commands.front()))
         return std::string(std::holds_alternative<Expression>(command->source)?
             "Text weight expression: ":"Link Text weight: ")+property_label(command->target);

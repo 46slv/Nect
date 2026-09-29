@@ -47,7 +47,17 @@ struct Expression {
 using TextItalicDriver = std::variant<Ref,Expression>;
 struct TextWeightDriver {
     Ref link;
+    std::int64_t offset = 0;
     bool operator==(const TextWeightDriver&) const = default;
+};
+enum class TextWeightBatchMode { edit, link, unlink };
+struct TextWeightBatch {
+    TextWeightBatchMode mode = TextWeightBatchMode::edit;
+    std::vector<Ref> targets;
+    std::int64_t value = 0;
+    std::optional<Ref> source;
+    bool relative = false;
+    bool replace_driver = false;
 };
 struct TextContentDriver {
     Ref link;
@@ -550,7 +560,23 @@ struct UpdateText { Id object; TextSource source; };
 struct LinkTextItalic { Ref target; Ref source; bool replace_driver=false; };
 struct SetTextItalicExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkTextItalic { Ref target; };
-struct LinkTextWeight { Ref target; std::variant<Ref,Expression> source; bool replace_driver=false; };
+struct LinkTextWeight {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    std::optional<TextWeightBatch> batch;
+    LinkTextWeight()=default;
+    LinkTextWeight(Ref target_value,Ref source_value,bool replace=false)
+        :target(std::move(target_value)),source(std::move(source_value)),replace_driver(replace){}
+    LinkTextWeight(Ref target_value,Expression source_value,bool replace=false)
+        :target(std::move(target_value)),source(std::move(source_value)),replace_driver(replace){}
+    LinkTextWeight(Ref target_value,std::variant<Ref,Expression> source_value,bool replace=false)
+        :target(std::move(target_value)),source(std::move(source_value)),replace_driver(replace){}
+    LinkTextWeight(TextWeightBatch value):batch(std::move(value)){}
+    static LinkTextWeight batch_command(TextWeightBatch value) {
+        LinkTextWeight result;result.batch=std::move(value);return result;
+    }
+};
 // Both typed entrypoints share one Command alternative to keep the MSVC 2019
 // visitor within its template nesting limit; JSON-lines names remain distinct.
 using SetTextWeightExpression = LinkTextWeight;

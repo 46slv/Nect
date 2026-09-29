@@ -4544,6 +4544,18 @@ void text_authoring(Window& window) {
     check(!session.document().objects.at(id).text->weight_expression&&
         session.document().objects.at(id).text->weight==600,
         "Inspector unlink freezes the evaluated Text weight expression in one step");
+    TextWeightBatch single_weight_offset;
+    single_weight_offset.mode=TextWeightBatchMode::link;single_weight_offset.targets={{id,"","text.weight"}};
+    single_weight_offset.source=Ref{source_id,"","text.weight"};single_weight_offset.relative=true;
+    single_weight_offset.replace_driver=true;
+    session.apply({LinkTextWeight::batch_command(std::move(single_weight_offset))},session.revision());
+    window.host.edited();QApplication::processEvents();
+    const auto weight_status=visible_child<QLabel>(window,"text-weight-state")->text();
+    check(weight_status.contains("link to "+QString::fromStdString(source_name)+" ("+QString::fromStdString(source_id)+")")&&
+        weight_status.contains("offset +100"),
+        "Single-Text Inspector reports the linked weight source and its signed offset");
+    session.apply({UnlinkTextWeight{{id,"","text.weight"}}},session.revision());
+    window.host.edited();QApplication::processEvents();
     auto content_source=*session.document().objects.at(source_id).text;content_source.content="Linked source content";
     session.apply({UpdateText{source_id,content_source}},session.revision());window.host.edited();QApplication::processEvents();
     auto* content_driver=visible_child<QToolButton>(window,"text-content-driver");
@@ -4602,6 +4614,124 @@ void text_authoring(Window& window) {
         evaluate_text_content(session.document(),id)=="Draft across unlink",
         "Inspector content unlink keeps the committed draft frozen after later source edits");
 }
+void text_weight_batch_inspector(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    auto source=default_text("weight-batch-ui-a-source","Source");source.weight=100;
+    auto target_b=default_text("weight-batch-ui-b-source","Target B");target_b.weight=140;
+    auto target_c=default_text("weight-batch-ui-c-source","Target C");target_c.weight=200;
+    session.apply({CreateText{composition,"","weight-batch-ui-a","Weight source",source},
+        CreateText{composition,"","weight-batch-ui-b","Weight target B",target_b},
+        CreateText{composition,"","weight-batch-ui-c","Weight target C",target_c}},session.revision());
+    window.host.edited();
+    const std::vector<Canvas::Selection> selection{{"weight-batch-ui-b",""},{"weight-batch-ui-c",""}};
+    window.canvas->set_selections(selection);QApplication::processEvents();
+    auto* input=visible_child<QLineEdit>(window,"text-weight-batch-value");
+    check(input->text().isEmpty()&&input->placeholderText().contains("+=10"),
+        "Multi-Text Inspector starts a shared weight draft for the captured target selection");
+    const auto initial=session.document();const auto initial_revision=session.revision();
+    input->setText("+=10");visible_child<QPushButton>(window,"text-weight-batch-cancel")->click();
+    check(session.document()==initial&&session.revision()==initial_revision&&input->text().isEmpty(),
+        "Cancel discards the relative weight draft without changing selected Text values");
+    input->setText("+=800");visible_child<QPushButton>(window,"text-weight-batch-apply")->click();QApplication::processEvents();
+    check(session.document()==initial&&session.revision()==initial_revision&&window.canvas->selections()==selection&&
+        visible_child<QLabel>(window,"text-weight-batch-status")->text().startsWith("OUT_OF_RANGE"),
+        "A failed multi-Text draft keeps the captured selection, authored weights and revision unchanged");
+    input->setText("400");visible_child<QPushButton>(window,"text-weight-batch-apply")->click();QApplication::processEvents();
+    check(session.revision()==initial_revision+1&&evaluate_text_weight(session.document(),"weight-batch-ui-b")==400&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-c")==400,
+        "Inspector absolute value applies one shared integer to all captured Text targets");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==initial&&window.canvas->selections()==selection,
+        "Undo restores each target's distinct literal after an absolute shared edit");
+    input=visible_child<QLineEdit>(window,"text-weight-batch-value");
+    const auto relative_edit_revision=session.revision();
+    input->setText("+=10");visible_child<QPushButton>(window,"text-weight-batch-apply")->click();QApplication::processEvents();
+    check(session.revision()==relative_edit_revision+1&&evaluate_text_weight(session.document(),"weight-batch-ui-b")==150&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-c")==210&&window.canvas->selections()==selection,
+        "Inspector applies += to each captured target in one revision and preserves the selection");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==initial&&window.canvas->selections()==selection,
+        "One Undo restores every Text weight edited by the shared Inspector draft");
+    session.redo(session.revision());window.host.edited();QApplication::processEvents();
+    check(evaluate_text_weight(session.document(),"weight-batch-ui-b")==150&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-c")==210&&window.canvas->selections()==selection,
+        "One Redo reapplies the shared Inspector weight edit to all captured Text targets");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==initial&&window.canvas->selections()==selection,
+        "A second Undo restores the draft baseline before source browsing");
+    const auto picker_revision=session.revision();
+
+    bool browsed=false,cancelled=false;
+    QTimer::singleShot(0,&window,[&] {
+        auto* dialog=window.findChild<QDialog*>("text-source-picker");if(!dialog)return;
+        auto* list=dialog->findChild<QListWidget*>("text-source-picker-list");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();if(!list||!buttons)return;
+        QListWidgetItem* source_item=nullptr;
+        for(int i=0;i<list->count();++i) {
+            const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(ref.value("object").toString()=="weight-batch-ui-a")source_item=list->item(i);
+        }
+        if(!source_item)return;list->setCurrentItem(source_item);QApplication::processEvents();
+        browsed=window.canvas->selected_object=="weight-batch-ui-a";
+        cancelled=true;buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    visible_child<QToolButton>(window,"text-weight-batch-driver")->menu()->actions().at(1)->trigger();QApplication::processEvents();QTest::qWait(25);
+    check(browsed&&cancelled&&window.canvas->selections()==selection&&session.document()==initial&&
+        session.revision()==picker_revision,
+        "Source browsing may change the visible selection, while Cancel restores the captured targets without mutation");
+
+    bool relative_linked=false;
+    QTimer::singleShot(0,&window,[&] {
+        auto* dialog=window.findChild<QDialog*>("text-source-picker");if(!dialog)return;
+        auto* list=dialog->findChild<QListWidget*>("text-source-picker-list");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();if(!list||!buttons)return;
+        QListWidgetItem* source_item=nullptr;
+        for(int i=0;i<list->count();++i) {
+            const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(ref.value("object").toString()=="weight-batch-ui-a")source_item=list->item(i);
+        }
+        if(!source_item)return;list->setCurrentItem(source_item);QApplication::processEvents();
+        buttons->button(QDialogButtonBox::Apply)->click();relative_linked=true;
+    });
+    visible_child<QToolButton>(window,"text-weight-batch-driver")->menu()->actions().at(1)->trigger();QApplication::processEvents();QTest::qWait(25);
+    check(relative_linked&&window.canvas->selections()==selection&&
+        session.document().objects.at("weight-batch-ui-b").text->weight_driver==TextWeightDriver{Ref{"weight-batch-ui-a","","text.weight"},40}&&
+        session.document().objects.at("weight-batch-ui-c").text->weight_driver==TextWeightDriver{Ref{"weight-batch-ui-a","","text.weight"},100},
+        "Relative source choice links the pre-browsing Text targets with independent offsets");
+    auto updated_source=*session.document().objects.at("weight-batch-ui-a").text;updated_source.weight=120;
+    session.apply({UpdateText{"weight-batch-ui-a",updated_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(evaluate_text_weight(session.document(),"weight-batch-ui-b")==160&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-c")==220,
+        "Shared Inspector relative links preserve each selected Text's source difference");
+    visible_child<QPushButton>(window,"text-weight-batch-unlink")->click();QApplication::processEvents();QTest::qWait(25);
+    check(session.document().objects.at("weight-batch-ui-b").text->weight==160&&
+        session.document().objects.at("weight-batch-ui-c").text->weight==220&&
+        !session.document().objects.at("weight-batch-ui-b").text->weight_driver&&
+        !session.document().objects.at("weight-batch-ui-c").text->weight_driver,
+        "Inspector Unlink freezes each selected evaluated weight in one batch");
+
+    bool absolute_linked=false;
+    QTimer::singleShot(0,&window,[&] {
+        auto* dialog=window.findChild<QDialog*>("text-source-picker");if(!dialog)return;
+        auto* list=dialog->findChild<QListWidget*>("text-source-picker-list");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();if(!list||!buttons)return;
+        QListWidgetItem* source_item=nullptr;
+        for(int i=0;i<list->count();++i) {
+            const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(ref.value("object").toString()=="weight-batch-ui-a")source_item=list->item(i);
+        }
+        if(!source_item)return;list->setCurrentItem(source_item);QApplication::processEvents();
+        buttons->button(QDialogButtonBox::Apply)->click();absolute_linked=true;
+    });
+    visible_child<QToolButton>(window,"text-weight-batch-driver")->menu()->actions().at(0)->trigger();QApplication::processEvents();QTest::qWait(25);
+    check(absolute_linked&&window.canvas->selections()==selection&&
+        session.document().objects.at("weight-batch-ui-b").text->weight_driver==TextWeightDriver{Ref{"weight-batch-ui-a","","text.weight"},0}&&
+        session.document().objects.at("weight-batch-ui-c").text->weight_driver==TextWeightDriver{Ref{"weight-batch-ui-a","","text.weight"},0}&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-b")==120&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-c")==120,
+        "Absolute source choice links all captured Text targets with zero offsets");
+}
+
 void text_path_authoring(Window& window) {
     auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
     Point start,end;start.id="ui-path-start";start.x.literal=40;start.y.literal=100;
@@ -4917,7 +5047,9 @@ int main(int argc,char** argv) {
         Window text_sources(temp.path()+"/text-string-sources");text_sources.show();QApplication::processEvents();
         text_string_source_picker_contract(text_sources);text_remaining_source_picker_contract(text_sources);text_sources.hide();
         Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);
-        texts.hide();Window path_text(temp.path()+"/text-path");path_text.show();QApplication::processEvents();text_path_authoring(path_text);
+        texts.hide();Window text_weight_batch(temp.path()+"/text-weight-batch");text_weight_batch.show();QApplication::processEvents();
+        text_weight_batch_inspector(text_weight_batch);text_weight_batch.hide();
+        Window path_text(temp.path()+"/text-path");path_text.show();QApplication::processEvents();text_path_authoring(path_text);
         path_text.hide();Window layout(temp.path()+"/layout");layout.show();QApplication::processEvents();
         auto& layout_session=layout.host.session;const auto layout_comp=layout_session.document().compositions.front().id;
         Point left,right;left.id="layout-left-point";left.x.literal=30;left.y.literal=40;right.id="layout-right-point";right.x.literal=160;right.y.literal=100;

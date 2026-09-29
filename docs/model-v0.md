@@ -1594,3 +1594,22 @@ and no expression support. Canvas Margin overlay, Inspector and one-shot
 Grid-to-Margin copy consume evaluated bottom. Native Save As retains the literal
 and source; versions 0.1–0.44 remain readable and reject a version-lied bottom
 driver. `schemas/native-v0.45.schema.json` closes the optional field.
+
+## Native 0.61 — relative Text weight links
+
+`TextSource.weight` keeps its authored integer literal and optional stable
+`weight_driver.link`. Native 0.61 adds an optional signed integer `offset` to
+that driver; evaluation is the linked Text's evaluated weight plus the offset,
+and the result must remain an integer in [1,999]. A missing offset means zero,
+and the writer omits zero to preserve the established absolute-link shape.
+Typed batch edits, links and unlinks snapshot every target before mutation so a
+relative edit adds to each evaluated starting value and a relative link records
+each target's difference from one common source. The source and target Refs are
+same-Document Text `text.weight` Refs with stable Object IDs. Driven edits
+reject unless their existing source is explicitly replaced or unlinked.
+
+The reader accepts 0.1–0.60 unchanged, including weight links without offsets;
+any `offset` under an older version is a version lie and rejects. Native 0.61
+retains the exact source Ref, signed offset and authored literal, while
+evaluation rejects results outside [1,999]. `schemas/native-v0.61.schema.json`
+closes the optional offset field.

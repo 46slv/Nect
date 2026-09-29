@@ -328,7 +328,12 @@ class TextWeightEvaluator {
         auto value=source.weight;
         if(source.weight_driver) {
             (void)text_weight_source(document_,source.weight_driver->link);
-            value=visit(source.weight_driver->link.object,depth+1);
+            const auto linked=visit(source.weight_driver->link.object,depth+1);
+            const auto minimum_offset=std::int64_t{1}-static_cast<std::int64_t>(linked);
+            const auto maximum_offset=std::int64_t{999}-static_cast<std::int64_t>(linked);
+            require(source.weight_driver->offset>=minimum_offset&&source.weight_driver->offset<=maximum_offset,
+                "OUT_OF_RANGE","Evaluated Text weight must be an integer from 1 to 999");
+            value=static_cast<unsigned>(static_cast<std::int64_t>(linked)+source.weight_driver->offset);
         } else if(source.weight_expression) {
             const auto& expression=compiled_expression(expressions_,*source.weight_expression);
             validate_expression_unit(expression,"unitless");
@@ -5205,6 +5210,76 @@ void edit_guide_position(Document& candidate,const UnlinkGuidePosition& command)
     const auto frozen=evaluate_guide_position(candidate,owner->id,target->id);
     target->position=frozen;target->position_driver.reset();target->position_expression.reset();
 }
+void edit_text_weight_batch(Document& candidate,const TextWeightBatch& command) {
+    require(!command.targets.empty()&&command.targets.size()<=1000,"INVALID_BATCH",
+        "Text weight targets must contain 1..1000 exact Refs");
+    std::set<Ref> unique_targets;
+    for(const auto& target:command.targets) {
+        (void)text_weight_source(candidate,target);
+        require(unique_targets.insert(target).second,"DUPLICATE_TARGET",
+            "Each Text weight target may occur only once");
+    }
+    const auto starting=evaluate_text_weights(candidate);
+    if(command.mode==TextWeightBatchMode::edit) {
+        require(!command.source,"INVALID_BATCH","Text weight edit does not accept a source");
+        for(const auto& target:command.targets) {
+            auto& text=*candidate.objects.at(target.object).text;
+            require(!text.weight_driver&&!text.weight_expression,"DRIVEN_PROPERTY",
+                "Unlink explicitly before editing a driven Text weight");
+            std::int64_t value=command.value;
+            if(command.relative) {
+                const auto current=static_cast<std::int64_t>(starting.at(target));
+                require(command.value>=std::int64_t{1}-current&&command.value<=std::int64_t{999}-current,
+                    "OUT_OF_RANGE","Edited Text weight must be an integer from 1 to 999");
+                value=current+command.value;
+            } else require(command.value>=1&&command.value<=999,"OUT_OF_RANGE",
+                "Edited Text weight must be an integer from 1 to 999");
+            text.weight=static_cast<unsigned>(value);
+        }
+    } else if(command.mode==TextWeightBatchMode::link) {
+        require(command.source.has_value(),"INVALID_BATCH","Text weight link requires one common source");
+        const auto& source=*command.source;
+        (void)text_weight_source(candidate,source);
+        const auto source_value=static_cast<std::int64_t>(starting.at(source));
+        for(const auto& target:command.targets) {
+            require(target!=source,"DEPENDENCY_CYCLE","A Text weight cannot link to itself");
+            auto& text=*candidate.objects.at(target.object).text;
+            const auto offset=command.relative?static_cast<std::int64_t>(starting.at(target))-source_value:0;
+            const bool same_source=text.weight_driver&&text.weight_driver->link==source&&
+                text.weight_driver->offset==offset&&!text.weight_expression;
+            require((!text.weight_driver&&!text.weight_expression)||command.replace_driver||same_source,
+                "DRIVEN_PROPERTY","Replacing a Text weight source requires replace_driver=true");
+            text.weight_driver=TextWeightDriver{source,offset};text.weight_expression.reset();
+        }
+    } else if(command.mode==TextWeightBatchMode::unlink) {
+        require(!command.source,"INVALID_BATCH","Text weight unlink does not accept a source");
+        for(const auto& target:command.targets) {
+            auto& text=*candidate.objects.at(target.object).text;
+            text.weight=starting.at(target);text.weight_driver.reset();text.weight_expression.reset();
+        }
+    } else throw Error("INVALID_BATCH","Unknown Text weight batch operation");
+}
+void edit_text_weight_command(Document& candidate,const LinkTextWeight& command) {
+    if(command.batch) {edit_text_weight_batch(candidate,*command.batch);return;}
+    const auto& current=text_weight_source(candidate,command.target);
+    auto& text=*candidate.objects.at(command.target.object).text;
+    if(const auto* link=std::get_if<Ref>(&command.source)) {
+        (void)text_weight_source(candidate,*link);
+        require((!current.weight_driver&&!current.weight_expression)||command.replace_driver||
+            (current.weight_driver&&current.weight_driver->link==*link&&current.weight_driver->offset==0),
+            "DRIVEN_PROPERTY","Replacing a Text weight source requires replace_driver=true");
+        text.weight_driver=TextWeightDriver{*link};text.weight_expression.reset();
+    } else {
+        const auto& expression=std::get<Expression>(command.source);
+        const auto compiled=compile_expression(expression);
+        validate_expression_unit(compiled,"unitless");
+        for(const auto& ref:expression_dependencies(compiled))(void)text_weight_source(candidate,ref);
+        require((!current.weight_driver&&!current.weight_expression)||command.replace_driver||
+            (current.weight_expression&&*current.weight_expression==expression),
+            "DRIVEN_PROPERTY","Replacing a Text weight source requires replace_driver=true");
+        text.weight_driver.reset();text.weight_expression=expression;
+    }
+}
 Document edited(const Document& document,const std::vector<Command>& commands,std::map<Ref,double>* evaluated=nullptr) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
     std::set<Ref> fill_rule_targets;
@@ -5448,24 +5523,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             (void)text_italic_source(candidate,c.target);
             source.italic=value;source.italic_driver.reset();
         } else if constexpr(std::is_same_v<T,LinkTextWeight>) {
-            const auto& current=text_weight_source(candidate,c.target);
-            auto& text=*candidate.objects.at(c.target.object).text;
-            if(const auto* link=std::get_if<Ref>(&c.source)) {
-                (void)text_weight_source(candidate,*link);
-                require((!current.weight_driver&&!current.weight_expression)||c.replace_driver||
-                    (current.weight_driver&&current.weight_driver->link==*link),
-                    "DRIVEN_PROPERTY","Replacing a Text weight source requires replace_driver=true");
-                text.weight_driver=TextWeightDriver{*link};text.weight_expression.reset();
-            } else {
-                const auto& expression=std::get<Expression>(c.source);
-                const auto compiled=compile_expression(expression);
-                validate_expression_unit(compiled,"unitless");
-                for(const auto& ref:expression_dependencies(compiled))(void)text_weight_source(candidate,ref);
-                require((!current.weight_driver&&!current.weight_expression)||c.replace_driver||
-                    (current.weight_expression&&*current.weight_expression==expression),
-                    "DRIVEN_PROPERTY","Replacing a Text weight source requires replace_driver=true");
-                text.weight_driver.reset();text.weight_expression=expression;
-            }
+            edit_text_weight_command(candidate,c);
         } else if constexpr(std::is_same_v<T,UnlinkTextWeight>) {
             (void)text_weight_source(candidate,c.target);
             const auto value=evaluate_text_weight(candidate,c.target.object);
@@ -6135,7 +6193,8 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
     check_revision(expected);
     auto candidate=edited(document_,commands);
     if(candidate==document_&&commands.size()==1) {
-        if(std::holds_alternative<LinkTextWeight>(commands.front()))return;
+        if(const auto* text_weight=std::get_if<LinkTextWeight>(&commands.front());
+            text_weight&&(!text_weight->batch||text_weight->batch->mode==TextWeightBatchMode::link))return;
         if(std::holds_alternative<LinkObjectVisibility>(commands.front()))return;
         if(const auto* layout_source=std::get_if<LayoutDependencyCommand>(&commands.front())) {
             const bool source_transition=std::visit([](const auto& operation) {

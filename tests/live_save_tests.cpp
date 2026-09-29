@@ -197,40 +197,61 @@ void text_weight_expression_save_as(const QString& directory,const QString& nect
     const auto composition=host.session.document().compositions.front().id;
     auto source=default_text("weight-source-text","A");source.weight=300;
     auto target=default_text("weight-target-text","B");target.weight=400;
+    auto relative_target=default_text("weight-relative-text","C");relative_target.weight=500;
     host.session.apply({CreateText{composition,"","weight-source","Weight A",source},
-        CreateText{composition,"","weight-target","Weight B",target}},host.session.revision());host.edited();
+        CreateText{composition,"","weight-target","Weight B",target},
+        CreateText{composition,"","weight-relative-target","Weight C",relative_target}},host.session.revision());host.edited();
     const auto original=directory+"/weight-expression-original.nect";
     host.save(original);const auto original_bytes=bytes(original);
     const Expression expression{"ref(\"weight-source\",\"\",\"text.weight\") + 100",1};
-    host.session.apply({SetTextWeightExpression{{"weight-target","","text.weight"},expression,false}},host.session.revision());host.edited();
+    host.session.apply({SetTextWeightExpression{{"weight-target","","text.weight"},expression,false},
+        LinkTextWeight::batch_command(TextWeightBatch{TextWeightBatchMode::link,
+            {Ref{"weight-relative-target","","text.weight"}},0,Ref{"weight-source","","text.weight"},true,false})},
+        host.session.revision());host.edited();
     auto revised=*host.session.document().objects.at("weight-source").text;revised.weight=500;
     host.session.apply({UpdateText{"weight-source",revised}},host.session.revision());host.edited();
     const auto committed=host.session.document();
     const auto destination=directory+"/weight-expression-destination.nect";
     host.save(destination);const auto destination_bytes=bytes(destination);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.60\"")&&
-        load_native(destination).document.objects.at("weight-target").text->weight_expression==expression,
-        "Host Save As retains the exact Text weight expression and leaves original bytes unchanged");
+        destination_bytes.contains("\"version\":\"0.61\"")&&
+        destination_bytes.contains("\"offset\":200")&&
+        load_native(destination).document.objects.at("weight-target").text->weight_expression==expression&&
+        load_native(destination).document.objects.at("weight-relative-target").text->weight_driver==
+            TextWeightDriver{Ref{"weight-source","","text.weight"},200},
+        "Host Save As retains the exact Text weight expression and relative offset without changing original bytes");
     Host reopened(directory+"/weight-expression-cold-recovery");reopened.open(destination);
     const Ref weight_ref{"weight-target","","text.weight"};
     const auto cold=text_weight_property(reopened.session.document(),weight_ref);
     check(reopened.session.document()==committed&&reopened.session.revision()==0&&
         cold.literal==400&&cold.expression==expression&&cold.evaluated==600,
         "Cold Host reopen preserves Text weight literal, exact expression and evaluated integer");
+    const Ref relative_weight_ref{"weight-relative-target","","text.weight"};
+    const auto cold_relative=text_weight_property(reopened.session.document(),relative_weight_ref);
+    check(cold_relative.literal==500&&cold_relative.driver==TextWeightDriver{Ref{"weight-source","","text.weight"},200}&&
+        cold_relative.evaluated==700,
+        "Cold Host reopen preserves the authored Text weight literal, exact source and signed offset");
     QProcess process;process.start(nect_cli,{"--serve",destination});
     check(process.waitForStarted(5000),"Start a separate Nect process on Text weight Save As destination");
-    const auto query=QByteArray("{\"op\":\"get\",\"ref\":{\"object\":\"weight-target\",\"point\":\"\",\"field\":\"text.weight\"}}\n");
+    const auto query=QByteArray("{\"op\":\"get\",\"ref\":{\"object\":\"weight-target\",\"point\":\"\",\"field\":\"text.weight\"}}\n"
+        "{\"op\":\"get\",\"ref\":{\"object\":\"weight-relative-target\",\"point\":\"\",\"field\":\"text.weight\"}}\n");
     check(process.write(query)==query.size(),"Query Text weight from the cold Nect process");
     process.closeWriteChannel();
     check(process.waitForFinished(10000)&&process.exitStatus()==QProcess::NormalExit&&process.exitCode()==0,
         "Cold Nect process exits after Text weight readback");
-    const auto reply=QJsonDocument::fromJson(process.readAllStandardOutput().trimmed()).object()["result"].toObject();
+    const auto replies=process.readAllStandardOutput().trimmed().split('\n');
+    const auto reply=QJsonDocument::fromJson(replies.front()).object()["result"].toObject();
     check(reply["authored"].toObject()["literal"].toInt()==400&&
         reply["authored"].toObject()["expression"].toObject()["source"].toString()==QString::fromStdString(expression.source)&&
         reply["authored"].toObject()["source_kind"]=="expression"&&
         reply["evaluated"].toInt()==600,
         "Separate process reads exact Text weight source and integer result from Save As destination");
+    const auto relative_reply=QJsonDocument::fromJson(replies.back()).object()["result"].toObject();
+    check(relative_reply["authored"].toObject()["literal"].toInt()==500&&
+        relative_reply["authored"].toObject()["driver"].toObject()["link"].toObject()["object"]=="weight-source"&&
+        relative_reply["authored"].toObject()["driver"].toObject()["offset"].toInt()==200&&
+        relative_reply["authored"].toObject()["source_kind"]=="link"&&relative_reply["evaluated"].toInt()==700,
+        "Separate process reads the exact relative Text weight source, signed offset and evaluated value");
 }
 void object_visibility_expression_save_as(const QString& directory,const QString& nect_cli) {
     Host host(directory+"/visibility-expression-recovery");
@@ -251,7 +272,7 @@ void object_visibility_expression_save_as(const QString& directory,const QString
     const auto saved=load_native(destination).document;
     const auto saved_state=object_visibility_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.60\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.61\"")&&saved==committed&&
         saved_state.literal&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated,
         "Host Save As keeps the exact Object visibility expression and leaves original bytes unchanged");
     Host reopened(directory+"/visibility-expression-cold-recovery");reopened.open(destination);
@@ -842,7 +863,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_width=artboard_layout_property(persisted,grid_width_ref);
     const auto persisted_grid_height=artboard_layout_property(persisted,grid_height_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.60\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.61\"")&&
         bytes(original)==original_bytes&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&

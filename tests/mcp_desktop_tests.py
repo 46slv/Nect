@@ -447,7 +447,7 @@ try:
         frozen_after=core('get',ref=target_gradient_ref)['result']
         assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.60' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
+        assert mcp_native['version']=='0.61' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -598,7 +598,7 @@ try:
         grid_columns_native=core('inspect')['result']
         grid_columns_layout=next(board for board in grid_columns_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert grid_columns_native['version']=='0.60' and grid_columns_layout['columns']==2 and \
+        assert grid_columns_native['version']=='0.61' and grid_columns_layout['columns']==2 and \
             grid_columns_layout['columns_driver']==dict(link=grid_columns_source_ref) and \
             grid_columns_layout['rows']==1 and grid_columns_layout['rows_driver']==dict(link=grid_rows_source_ref)
         source_grid_layout=dict(grid=dict(id='mcp-grid-columns-source',bounds=dict(x=0,y=0,width=10,height=20),
@@ -619,7 +619,7 @@ try:
         assert grid_columns_expressed['authored']==dict(literal=2,driver=None,expression=grid_columns_expression,
             source_kind='expression') and grid_columns_expressed['evaluated']==4 and \
             next(item for item in core('properties')['result'] if item['ref']==target_grid_columns_ref)==grid_columns_expressed and \
-            grid_columns_expression_native['version']=='0.60' and \
+            grid_columns_expression_native['version']=='0.61' and \
             grid_columns_expression_layout['columns_expression']==grid_columns_expression and \
             'columns_driver' not in grid_columns_expression_layout
         rows_source_layout=dict(grid=dict(id='mcp-grid-rows-source',bounds=dict(x=0,y=0,width=100,height=100),
@@ -640,7 +640,7 @@ try:
         assert grid_rows_expressed['authored']==dict(literal=1,driver=None,expression=grid_rows_expression,
             source_kind='expression') and grid_rows_expressed['evaluated']==4 and \
             next(item for item in core('properties')['result'] if item['ref']==target_grid_rows_ref)==grid_rows_expressed and \
-            grid_rows_expression_native['version']=='0.60' and \
+            grid_rows_expression_native['version']=='0.61' and \
             grid_rows_expression_layout['rows_expression']==grid_rows_expression and 'rows_driver' not in grid_rows_expression_layout
         rows_source_layout['grid']['rows']=2
         rev=apply([dict(type='set_artboard_layout',composition=comp['id'],
@@ -746,7 +746,7 @@ try:
             if board['id']==first['id'])['layout']['grid']
         margin_top_native=next(board for board in grid_y_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert grid_y_native['version']=='0.60' and grid_y_layout['bounds_y_expression']==dict(
+        assert grid_y_native['version']=='0.61' and grid_y_layout['bounds_y_expression']==dict(
             source=grid_y_expression,version=1) and 'bounds_y_driver' not in grid_y_layout and \
             grid_y_layout['bounds_width_expression']==dict(source=grid_width_expression,version=1) and \
             'bounds_width_driver' not in grid_y_layout and \
@@ -793,7 +793,7 @@ try:
         row_gutter_expression_native=core('inspect')['result']
         row_gutter_expression_layout=next(board for board in row_gutter_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert row_gutter_expression_native['version']=='0.60' and \
+        assert row_gutter_expression_native['version']=='0.61' and \
             row_gutter_expression_layout['row_gutter_expression']==dict(source=grid_row_gutter_expression,version=1) and \
             'row_gutter_driver' not in row_gutter_expression_layout
         blocked_row_gutter_replacement=core('apply',expected_revision=rev,commands=[
@@ -820,7 +820,7 @@ try:
         column_gutter_expression_native=core('inspect')['result']
         column_gutter_expression_layout=next(board for board in column_gutter_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert column_gutter_expression_native['version']=='0.60' and \
+        assert column_gutter_expression_native['version']=='0.61' and \
             column_gutter_expression_layout['column_gutter_expression']==dict(source=grid_column_gutter_expression,version=1) and \
             'column_gutter_driver' not in column_gutter_expression_layout
         blocked_column_gutter_replacement=core('apply',expected_revision=rev,commands=[
@@ -844,7 +844,7 @@ try:
         expression_native=core('inspect')['result']
         expression_layout=next(board for board in expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert expression_native['version']=='0.60' and expression_layout['bounds_x_expression']==dict(
+        assert expression_native['version']=='0.61' and expression_layout['bounds_x_expression']==dict(
             source=grid_expression,version=1) and 'bounds_x_driver' not in expression_layout
         margin_expression='ref("mcp-margin-upstream","","artboard.width") + 10'
         rev=apply([dict(type='set_margin_left_expression',target=target_margin_ref,
@@ -856,7 +856,7 @@ try:
         margin_expression_native=core('inspect')['result']
         margin_expression_layout=next(board for board in margin_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']
-        assert margin_expression_native['version']=='0.60' and margin_expression_layout['margin']['left_expression']==dict(
+        assert margin_expression_native['version']=='0.61' and margin_expression_layout['margin']['left_expression']==dict(
             source=margin_expression,version=1) and 'left_driver' not in margin_expression_layout['margin'] and \
             margin_expression_layout['margin']['top_driver']==dict(link=margin_top_source_ref)
         margin_top_expression='ref("mcp-margin-upstream","","artboard.height") + 10'
@@ -870,7 +870,7 @@ try:
         margin_top_expression_native=core('inspect')['result']
         margin_top_expression_layout=next(board for board in margin_top_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert margin_top_expression_native['version']=='0.60' and margin_top_expression_layout['top_expression']==dict(
+        assert margin_top_expression_native['version']=='0.61' and margin_top_expression_layout['top_expression']==dict(
             source=margin_top_expression,version=1) and 'top_driver' not in margin_top_expression_layout
         margin_right_expression='ref("mcp-margin-source","","artboard.width") + 10'
         rev=apply([dict(type='set_margin_right_expression',target=target_margin_right_ref,
@@ -883,7 +883,7 @@ try:
         margin_right_expression_native=core('inspect')['result']
         margin_right_expression_layout=next(board for board in margin_right_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert margin_right_expression_native['version']=='0.60' and margin_right_expression_layout['right_expression']==dict(
+        assert margin_right_expression_native['version']=='0.61' and margin_right_expression_layout['right_expression']==dict(
             source=margin_right_expression,version=1) and 'right_driver' not in margin_right_expression_layout
         rev=apply([dict(type='unlink_margin_right',target=target_margin_right_ref)],rev)
         margin_right_frozen=core('get',ref=target_margin_right_ref)['result']
@@ -964,6 +964,64 @@ try:
         text_source['weight']=400;peer_source['weight']=300
         rev=apply([dict(type='update_text',object='title',source=text_source),
             dict(type='update_text',object='typed-peer',source=peer_source)],rev)
+        batch_weight_source=core('text_defaults')['result'];batch_weight_source.update(
+            id='typed-batch-weight-source-data',content='Batch weight source',weight=100)
+        rev=apply([dict(type='create_text',composition=comp['id'],parent='',id='typed-batch-weight-source',
+                        name='Batch weight source',source=batch_weight_source)],rev)
+        expected_svg_paths+=1  # The new visible Text source contributes one exported path.
+        batch_weight_source_ref=dict(object='typed-batch-weight-source',point='',field='text.weight')
+        batch_weight_targets=[title_weight,peer_weight]
+        batch_relative_link=dict(type='link_text_weights',targets=batch_weight_targets,
+            source=batch_weight_source_ref,relative=True,replace_driver=False)
+        rev=apply([batch_relative_link],rev)
+        linked_title_weight=core('get',ref=title_weight)['result']
+        linked_peer_weight=core('get',ref=peer_weight)['result']
+        assert linked_title_weight['authored']==dict(literal=400,driver=dict(link=batch_weight_source_ref,offset=300),
+            expression=None,source_kind='link') and \
+            linked_title_weight['evaluated']==400 and linked_peer_weight['authored']==dict(
+                literal=300,driver=dict(link=batch_weight_source_ref,offset=200),expression=None,source_kind='link') and \
+            linked_peer_weight['evaluated']==300, (linked_title_weight,linked_peer_weight)
+        assert linked_title_weight==desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=title_weight)))['result']
+        batch_weight_properties=core('properties')['result']
+        assert next(item for item in batch_weight_properties if item['ref']==title_weight)==linked_title_weight and \
+            next(item for item in batch_weight_properties if item['ref']==peer_weight)==linked_peer_weight
+        same_batch_link=core('apply',expected_revision=rev,commands=[batch_relative_link])
+        assert same_batch_link['ok'] and same_batch_link['revision']==rev and not same_batch_link['result']['changed_ids']
+        weight_roots=next(item for item in core('inspect')['result']['compositions'] if item['id']==comp['id'])['roots']
+        rev=apply([dict(type='rename',object='typed-batch-weight-source',name='Renamed batch source'),
+            dict(type='reorder_objects',composition=comp['id'],parent='',
+                 order=[object_id for object_id in weight_roots if object_id!='typed-batch-weight-source']+
+                    ['typed-batch-weight-source'])],rev)
+        assert core('get',ref=title_weight)['result']['authored']['driver']['link']==batch_weight_source_ref and \
+            core('get',ref=peer_weight)['result']['authored']['driver']['link']==batch_weight_source_ref
+        batch_weight_source['weight']=120
+        rev=apply([dict(type='update_text',object='typed-batch-weight-source',source=batch_weight_source)],rev)
+        assert core('get',ref=title_weight)['result']['evaluated']==420 and \
+            core('get',ref=peer_weight)['result']['evaluated']==320
+        before_driven_batch_edit=core('inspect')['result']
+        refused_batch_edit=core('apply',expected_revision=rev,commands=[dict(type='edit_text_weights',
+            targets=batch_weight_targets,value=10,relative=True)])
+        assert not refused_batch_edit['ok'] and refused_batch_edit['error']['code']=='DRIVEN_PROPERTY' and \
+            refused_batch_edit['revision']==rev and core('inspect')['result']==before_driven_batch_edit
+        rev=apply([dict(type='unlink_text_weights',targets=batch_weight_targets)],rev)
+        frozen_batch_title=core('get',ref=title_weight)['result'];frozen_batch_peer=core('get',ref=peer_weight)['result']
+        assert frozen_batch_title['authored']==dict(literal=420,driver=None,expression=None,source_kind='literal') and \
+            frozen_batch_peer['authored']==dict(literal=320,driver=None,expression=None,source_kind='literal')
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=title_weight)['result']['authored']['driver']==dict(link=batch_weight_source_ref,offset=300) and \
+            core('get',ref=peer_weight)['result']['authored']['driver']==dict(link=batch_weight_source_ref,offset=200)
+        assert core('redo',expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=title_weight)['result']['authored']['literal']==420 and \
+            core('get',ref=peer_weight)['result']['authored']['literal']==320
+        rev=apply([dict(type='edit_text_weights',targets=batch_weight_targets,value=10,relative=True)],rev)
+        assert core('get',ref=title_weight)['result']['evaluated']==430 and core('get',ref=peer_weight)['result']['evaluated']==330
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=title_weight)['result']['evaluated']==420 and core('get',ref=peer_weight)['result']['evaluated']==320
+        assert core('redo',expected_revision=rev)['ok'];rev+=1
+        rev=apply([dict(type='edit_text_weights',targets=batch_weight_targets,value=400,relative=False)],rev)
+        assert core('get',ref=title_weight)['result']['evaluated']==400 and core('get',ref=peer_weight)['result']['evaluated']==400
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=title_weight)['result']['evaluated']==430 and core('get',ref=peer_weight)['result']['evaluated']==330
         text_fields=['text.content','text.family','text.locale','text.layout','text.direction','text.alignment']
         text_values={
             'title':[text_source['content'],text_source['family'],text_source['locale'],text_source['layout'],text_source['direction'],text_source['alignment']],
@@ -1302,7 +1360,8 @@ try:
         assert png_bytes[:8]==b'\x89PNG\r\n\x1a\n'
         assert struct.unpack('>II',png_bytes[16:24])==(png['result']['width'],png['result']['height'])
         svg = core('export_svg', composition=comp['id'], artboard=comp['artboards'][0]['id'])['result']
-        assert len(ET.fromstring(svg).findall('.//{http://www.w3.org/2000/svg}path')) == expected_svg_paths
+        actual_svg_paths=len(ET.fromstring(svg).findall('.//{http://www.w3.org/2000/svg}path'))
+        assert actual_svg_paths==expected_svg_paths,(actual_svg_paths,expected_svg_paths)
         svg_root=ET.fromstring(svg);ns='{http://www.w3.org/2000/svg}'
         exported_follower=next(g for g in svg_root.iter(ns+'g') if g.attrib.get('id')=='path-2')
         matrix=[float(v) for v in exported_follower.attrib['transform'].removeprefix('matrix(').removesuffix(')').split()]
@@ -1791,7 +1850,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.60'
+        assert native_save_as['version']=='0.61'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']

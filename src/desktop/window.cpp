@@ -4063,7 +4063,10 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     QString weight_driver_description="none";
     if(weight_state.driver) {
         const auto& link=weight_state.driver->link;const auto found=host.session.document().objects.find(link.object);
-        weight_driver_description="link to "+(found==host.session.document().objects.end()?qs(link.object):qs(found->second.name)+" ("+qs(link.object)+")");
+        const auto offset=weight_state.driver->offset;
+        const auto signed_offset=(offset>=0?QString("+"):QString())+QString::number(static_cast<qlonglong>(offset));
+        weight_driver_description="link to "+(found==host.session.document().objects.end()?qs(link.object):qs(found->second.name)+" ("+qs(link.object)+")")+
+            " · offset "+signed_offset;
     }
     else if(weight_state.expression)weight_driver_description="expression · "+qs(weight_state.expression->source);
     weight_status->setText(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
@@ -5515,6 +5518,7 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})common(form,field,QString::fromLatin1(field));
         layout->addStretch();return;
     }
+    add_multi_text_weight(layout,selected);
     add_alignment_controls(layout,selected);
     auto* selection_transform=new QPushButton("Rotate / scale selection…");selection_transform->setObjectName("selection-transform-open");
     layout->addWidget(selection_transform);connect(selection_transform,&QPushButton::clicked,this,[this]{perform([&]{transform_selection();});});
@@ -5552,6 +5556,124 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     }
     auto* hint=new QLabel("↗ freezes all these targets while you choose a source. Paint rows match the same operation type at the same stack position.");
     hint->setWordWrap(true);layout->addWidget(hint);layout->addStretch();
+}
+
+void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected) {
+    const auto& document=host.session.document();
+    if(selected.size()<2||std::any_of(selected.begin(),selected.end(),[&](const auto& item) {
+        const auto found=document.objects.find(item.object);
+        return !item.point.empty()||found==document.objects.end()||found->second.kind!=Kind::text||!found->second.text;
+    }))return;
+
+    std::vector<Ref> targets;std::set<Id> target_ids;std::vector<unsigned> evaluated;
+    bool any_driven=false;
+    for(const auto& item:selected) {
+        const Ref ref{item.object,"","text.weight"};targets.push_back(ref);target_ids.insert(item.object);
+        const auto state=text_weight_property(document,ref);evaluated.push_back(state.evaluated);
+        any_driven=any_driven||state.driver.has_value()||state.expression.has_value();
+    }
+    const auto frozen_session=host.session_id;const auto frozen_revision=host.session.revision();
+    const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
+    auto* group=new QGroupBox(QString("Text weight · %1 selected Text objects").arg(targets.size()));
+    group->setObjectName("text-weight-batch-panel");auto* column=new QVBoxLayout(group);
+    auto* note=new QLabel("Enter one absolute value or += / -= to preserve each selected Text's weight difference.");
+    note->setWordWrap(true);column->addWidget(note);
+    auto* edit_row=new QHBoxLayout;auto* value=new QLineEdit(group);value->setObjectName("text-weight-batch-value");
+    value->setAccessibleName("Shared Text weight draft");value->setPlaceholderText("400, +=10, or -=10");
+    if(std::all_of(evaluated.begin(),evaluated.end(),[&](unsigned current){return current==evaluated.front();}))
+        value->setText(QString::number(evaluated.front()));
+    edit_row->addWidget(value);
+    auto* apply=new QPushButton("Apply",group);apply->setObjectName("text-weight-batch-apply");
+    apply->setEnabled(!any_driven);if(any_driven)apply->setToolTip("Unlink driven Text weights before editing the batch.");
+    edit_row->addWidget(apply);
+    auto* cancel=new QPushButton("Cancel",group);cancel->setObjectName("text-weight-batch-cancel");edit_row->addWidget(cancel);
+    column->addLayout(edit_row);
+
+    auto* source_row=new QHBoxLayout;
+    auto* drive=new QToolButton(group);drive->setObjectName("text-weight-batch-driver");drive->setText(any_driven?"Source…":"Drive…");
+    drive->setPopupMode(QToolButton::InstantPopup);auto* menu=new QMenu(drive);drive->setMenu(menu);
+    auto* absolute_link=menu->addAction("Link absolute source…");
+    auto* relative_link=menu->addAction("Link relative source…");source_row->addWidget(drive);
+    auto* replace=new QCheckBox("Replace current sources",group);replace->setObjectName("text-weight-batch-replace");
+    replace->setVisible(any_driven);source_row->addWidget(replace);
+    auto* unlink=new QPushButton("Unlink",group);unlink->setObjectName("text-weight-batch-unlink");
+    unlink->setEnabled(any_driven);source_row->addWidget(unlink);source_row->addStretch();column->addLayout(source_row);
+    auto* status=new QLabel("The target Refs, Session and revision are captured for this draft.",group);
+    status->setObjectName("text-weight-batch-status");status->setWordWrap(true);column->addWidget(status);
+    layout->addWidget(group);
+
+    const auto parse_draft=[](const QString& raw)->std::pair<std::int64_t,bool> {
+        const auto text=raw.trimmed();
+        const bool relative=text.startsWith("+=")||text.startsWith("-=");
+        const auto digits=relative?text.mid(2):text;
+        if(digits.isEmpty()||std::any_of(digits.begin(),digits.end(),[](QChar ch){return ch<'0'||ch>'9';}))
+            throw Error("INVALID_INTEGER","Enter an integer weight, +=integer or -=integer");
+        bool ok=false;const auto magnitude=digits.toLongLong(&ok,10);
+        if(!ok)throw Error("OUT_OF_RANGE","Text weight edit amount must fit a signed 64-bit integer");
+        const auto amount=relative&&text.startsWith("-=")?-magnitude:magnitude;
+        if(!relative&&(amount<1||amount>999))throw Error("OUT_OF_RANGE","Font weight must be 1..999");
+        return {static_cast<std::int64_t>(amount),relative};
+    };
+    connect(apply,&QPushButton::clicked,this,[this,value,status,targets,frozen_session,frozen_revision,parse_draft] {
+        try {
+            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text weight draft belongs to another document");
+            if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text weights changed while the draft was open");
+            const auto [amount,relative]=parse_draft(value->text());canvas->cancel_interaction();
+            host.session.apply({TextWeightBatch{TextWeightBatchMode::edit,targets,amount,{},relative,false}},frozen_revision);
+            host.edited();
+        } catch(const Error& error) {status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+          catch(const std::exception& error) {status->setText(QString::fromUtf8(error.what()));}
+    });
+    connect(cancel,&QPushButton::clicked,this,[value,evaluated,status] {
+        value->clear();QStringList values;for(const auto item:evaluated)values.push_back(QString::number(item));
+        status->setText("Draft cancelled; committed weights remain "+values.join(", ")+".");
+    });
+    connect(unlink,&QPushButton::clicked,this,[this,targets,frozen_session,frozen_revision,status] {
+        try {
+            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text weights belong to another document");
+            if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text weights changed while the Inspector was open");
+            canvas->cancel_interaction();host.session.apply({TextWeightBatch{TextWeightBatchMode::unlink,targets}},frozen_revision);host.edited();
+        } catch(const Error& error) {status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+          catch(const std::exception& error) {status->setText(QString::fromUtf8(error.what()));}
+    });
+
+    std::vector<Id> source_ids;
+    for(const auto& [id,object]:document.objects)
+        if(object.kind==Kind::text&&object.text&&!target_ids.contains(id))source_ids.push_back(id);
+    absolute_link->setEnabled(!source_ids.empty());relative_link->setEnabled(!source_ids.empty());
+    const auto open_picker=[this,targets,target_ids,source_ids,selected,frozen_session,frozen_revision,composition,artboard](bool relative,bool replace_driver) {
+        auto picker=make_text_source_picker(this,host.session.document(),targets.front().object,"text.weight",source_ids,
+            relative?"Link relative Text weights":"Link absolute Text weights");
+        auto* dialog=picker.dialog;auto* list=picker.list;auto* picker_status=picker.status;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*) {
+            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+        });
+        connect(dialog,&QDialog::rejected,this,[this,selected,frozen_session,composition,artboard] {
+            if(host.session_id==frozen_session) {
+                perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selected);
+            }
+        });
+        connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
+            [this,dialog,list,picker_status,targets,target_ids,frozen_session,frozen_revision,relative,replace_driver,selected,composition,artboard] {
+                try {
+                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to another document");
+                    if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text weights changed while the source chooser was open");
+                    auto* item=list->currentItem();if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
+                    const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+                    if(source.point!=""||source.field!="text.weight"||target_ids.contains(source.object))
+                        throw Error("INVALID_REFERENCE","Choose a distinct Text weight source for every target");
+                    canvas->cancel_interaction();
+                    host.session.apply({TextWeightBatch{TextWeightBatchMode::link,targets,0,source,relative,replace_driver}},frozen_revision);
+                    canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selected);host.edited();dialog->accept();
+                } catch(const Error& error) {picker_status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+                  catch(const std::exception& error) {picker_status->setText(QString::fromUtf8(error.what()));}
+            });
+        dialog->show();picker.search->setFocus();
+    };
+    connect(absolute_link,&QAction::triggered,this,[open_picker,replace]{open_picker(false,replace->isChecked());});
+    connect(relative_link,&QAction::triggered,this,[open_picker,replace]{open_picker(true,replace->isChecked());});
 }
 
 void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label) {

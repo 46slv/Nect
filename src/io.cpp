@@ -75,6 +75,9 @@ std::string text(const j::value& v) {
 double number(const j::value& v) {
     return j::value_to<double>(v);
 }
+std::int64_t signed_integer(const j::value& v) {
+    return j::value_to<std::int64_t>(v);
+}
 Ref read_ref(const j::value& v) {
     const auto& o=v.as_object();
     keys(o,{"object","point","field"});
@@ -275,13 +278,18 @@ j::object text_italic_driver_json(const TextItalicDriver& driver) {
     if(const auto* link=std::get_if<Ref>(&driver))return {{"link",ref_json(*link)}};
     return {{"expression",expression_json(std::get<Expression>(driver))}};
 }
-TextWeightDriver read_text_weight_driver(const j::value& value) {
+TextWeightDriver read_text_weight_driver(const j::value& value,bool allow_offset=true) {
     const auto& driver=value.as_object();
-    if(driver.contains("link")){keys(driver,{"link"});return TextWeightDriver{read_ref(driver.at("link"))};}
+    if(driver.contains("link")) {
+        if(allow_offset)keys(driver,{"link","offset"});else keys(driver,{"link"});
+        return TextWeightDriver{read_ref(driver.at("link")),driver.contains("offset")?signed_integer(driver.at("offset")):0};
+    }
     throw Error("INVALID_TEXT_WEIGHT_DRIVER","Text weight driver requires one link");
 }
 j::object text_weight_driver_json(const TextWeightDriver& driver) {
-    return {{"link",ref_json(driver.link)}};
+    j::object result{{"link",ref_json(driver.link)}};
+    if(driver.offset!=0)result["offset"]=driver.offset;
+    return result;
 }
 TextContentDriver read_text_content_driver(const j::value& value) {
     const auto& driver=value.as_object();
@@ -348,11 +356,13 @@ j::object text_path_attachment_json(const TextPathAttachment& attachment) {
     return {{"path",attachment.path},{"contour",attachment.contour},{"start_mode",attachment.start_mode},
         {"start",attachment.start},{"spacing",attachment.spacing},{"reversed",attachment.reversed}};
 }
-TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true,bool allow_locale_driver=true,bool allow_direction_driver=true,bool allow_layout_driver=true,bool allow_alignment_driver=true,bool allow_path_attachment=true,bool allow_weight_expression=true) {
+TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true,bool allow_locale_driver=true,bool allow_direction_driver=true,bool allow_layout_driver=true,bool allow_alignment_driver=true,bool allow_path_attachment=true,bool allow_weight_expression=true,bool allow_weight_offset=true) {
     const auto& o=v.as_object();
     if(!allow_italic_driver&&o.contains("italic_driver"))throw Error("UNSUPPORTED_TEXT_ITALIC_DRIVER","Text italic drivers require native 0.15");
     if(!allow_weight_driver&&o.contains("weight_driver"))throw Error("UNSUPPORTED_TEXT_WEIGHT_DRIVER","Text weight drivers require native 0.16");
     if(!allow_weight_expression&&o.contains("weight_expression"))throw Error("UNSUPPORTED_TEXT_WEIGHT_EXPRESSION","Text weight expressions require native 0.55");
+    if(!allow_weight_offset&&o.contains("weight_driver")&&o.at("weight_driver").as_object().contains("offset"))
+        throw Error("UNSUPPORTED_TEXT_WEIGHT_OFFSET","Text weight offsets require native 0.61");
     if(!allow_content_driver&&o.contains("content_driver"))throw Error("UNSUPPORTED_TEXT_CONTENT_DRIVER","Text content drivers require native 0.17");
     if(!allow_family_driver&&o.contains("family_driver"))throw Error("UNSUPPORTED_TEXT_FAMILY_DRIVER","Text family drivers require native 0.18");
     if(!allow_locale_driver&&o.contains("locale_driver"))throw Error("UNSUPPORTED_TEXT_LOCALE_DRIVER","Text locale drivers require native 0.22");
@@ -366,7 +376,7 @@ TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_ita
     s.layout=text(o.at("layout"));s.direction=text(o.at("direction"));s.alignment=text(o.at("alignment"));
     s.weight=j::value_to<unsigned>(o.at("weight"));s.italic=o.at("italic").as_bool();
     if(const auto* driver=o.if_contains("italic_driver"))s.italic_driver=read_text_italic_driver(*driver);
-    if(const auto* driver=o.if_contains("weight_driver"))s.weight_driver=read_text_weight_driver(*driver);
+    if(const auto* driver=o.if_contains("weight_driver"))s.weight_driver=read_text_weight_driver(*driver,allow_weight_offset);
     if(const auto* expression=o.if_contains("weight_expression"))s.weight_expression=read_expression(*expression);
     if(s.weight_driver&&s.weight_expression)throw Error("TEXT_WEIGHT_SOURCE_CONFLICT","Text weight link and expression are mutually exclusive");
     if(const auto* driver=o.if_contains("content_driver"))s.content_driver=read_text_content_driver(*driver);
@@ -433,7 +443,8 @@ j::object text_italic_property_json(const Document& d,const Ref& ref,const TextI
         {"origin","authored"},{"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},{"evaluated",value.evaluated}};
 }
 j::object text_weight_property_json(const Document& d,const Ref& ref,const TextWeightProperty& value) {
-    j::value driver=nullptr;if(value.driver)driver=text_weight_driver_json(*value.driver);
+    j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(value.driver->link)},
+        {"offset",value.driver->offset}};
     j::value expression=nullptr;if(value.expression)expression=expression_json(*value.expression);
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","integer"},{"unit","unitless"},{"space","local"},
         {"origin","authored"},{"range",j::object{{"min",1},{"max",999}}},
@@ -1190,6 +1201,22 @@ Command read_command(const j::value& v) {
     if(type=="unlink_text_weight") {
         keys(o,{"type","target"});return UnlinkTextWeight{read_ref(o.at("target"))};
     }
+    if(type=="edit_text_weights") {
+        keys(o,{"type","targets","value","relative"});
+        std::vector<Ref> targets;for(const auto& target:o.at("targets").as_array())targets.push_back(read_ref(target));
+        return TextWeightBatch{TextWeightBatchMode::edit,std::move(targets),signed_integer(o.at("value")),{},o.at("relative").as_bool(),false};
+    }
+    if(type=="link_text_weights") {
+        keys(o,{"type","targets","source","relative","replace_driver"});
+        std::vector<Ref> targets;for(const auto& target:o.at("targets").as_array())targets.push_back(read_ref(target));
+        return TextWeightBatch{TextWeightBatchMode::link,std::move(targets),0,read_ref(o.at("source")),
+            o.at("relative").as_bool(),o.at("replace_driver").as_bool()};
+    }
+    if(type=="unlink_text_weights") {
+        keys(o,{"type","targets"});
+        std::vector<Ref> targets;for(const auto& target:o.at("targets").as_array())targets.push_back(read_ref(target));
+        return TextWeightBatch{TextWeightBatchMode::unlink,std::move(targets),0,{},false,false};
+    }
     if(type=="link_text_content") {
         keys(o,{"type","target","source","replace_driver"});
         return LinkTextContent{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
@@ -1665,10 +1692,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,60> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60"};
+        constexpr std::array<std::string_view,61> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.60 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.61 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1764,7 +1791,7 @@ Document decode(std::string_view input) {
 
                 if(obj.kind==Kind::text) {
                     if(o.contains("source")||o.contains("point_edit")||o.contains("contours"))throw Error("INVALID_OBJECT","Text has incompatible geometry fields");
-                    obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17,minor>=18,minor>=22,minor>=19,minor>=20,minor>=21,minor>=24,minor>=55);
+                    obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17,minor>=18,minor>=22,minor>=19,minor>=20,minor>=21,minor>=24,minor>=55,minor>=61);
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
                     obj.source=read_primitive(o.at("source"),minor>=8,minor>=10);
