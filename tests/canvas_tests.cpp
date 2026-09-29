@@ -1397,6 +1397,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     const Ref grid_source{"overlay-grid-source","","artboard.width"};
     board.layout->margin->left_driver=margin_source;
     board.layout->margin->right_driver=margin_source;
+    board.layout->margin->bottom_driver=margin_source;
     board.layout->grid->bounds_x_expression=Expression{R"(ref("overlay-grid-source","","artboard.width"))",1};
     board.layout->grid->bounds.height=95;
     board.layout->grid->bounds_y_driver=grid_source;
@@ -1439,6 +1440,17 @@ void layout_overlays_are_view_only_and_not_exported() {
         }
         return pixels;
     };
+    const auto count_margin_bottom_pixels=[&](const QImage& source,double position) {
+        const int margin_y=qRound((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale);
+        const int margin_x=qRound((canvas.width()/2.0+(70-100)*canvas.zoom())*image_scale);
+        const int right=qRound((canvas.width()/2.0+(130-100)*canvas.zoom())*image_scale);int pixels=0;
+        for(int x=margin_x;x<=right;++x)for(int y=margin_y-qMax(2,qRound(2*image_scale));
+            y<=margin_y+qMax(2,qRound(2*image_scale));++y) {
+            const auto pixel=source.pixelColor(x,y);
+            if(pixel.red()>pixel.green()+20&&pixel.blue()>pixel.green()+30)++pixels;
+        }
+        return pixels;
+    };
     const auto count_grid_pixels=[&](const QImage& source,double position) {
         const int grid_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
         const int top=qRound((canvas.height()/2.0+(25-80)*canvas.zoom())*image_scale);
@@ -1465,12 +1477,17 @@ void layout_overlays_are_view_only_and_not_exported() {
     check(evaluated_guide_pixels>20&&literal_guide_pixels<20,
         "Canvas paints the expression-driven Guide at its evaluated coordinate, not its authored literal (evaluated="+
             std::to_string(evaluated_guide_pixels)+", literal="+std::to_string(literal_guide_pixels)+")");
-    check(count_margin_pixels(linked_image,18)>20&&count_margin_pixels(linked_image,10)<20,
-        "Canvas paints the linked Margin inset at its evaluated Artboard width, not its authored literal");
+    const auto linked_margin_left_pixels=count_margin_pixels(linked_image,18);
+    const auto literal_margin_left_pixels=count_margin_pixels(linked_image,10);
+    check(linked_margin_left_pixels>20&&literal_margin_left_pixels<20,
+        "Canvas paints the linked Margin inset at its evaluated Artboard width, not its authored literal (evaluated="+
+            std::to_string(linked_margin_left_pixels)+", literal="+std::to_string(literal_margin_left_pixels)+")");
     check(count_margin_pixels(linked_image,182)>20&&count_margin_pixels(linked_image,180)<20,
         "Canvas paints the linked right inset at its evaluated Artboard width, not its authored literal");
     check(count_margin_top_pixels(linked_image,15)>20,
         "Canvas paints the literal Margin top inset on the active Artboard");
+    check(count_margin_bottom_pixels(linked_image,142)>20&&count_margin_bottom_pixels(linked_image,135)<20,
+        "Canvas paints the linked Margin bottom at its evaluated Artboard width, not its authored literal");
     check(count_grid_pixels(linked_image,55)>20&&count_grid_pixels(linked_image,20)<20,
         "Canvas paints the expression-driven Grid overlay at evaluated x, not the authored literal");
     check(count_grid_y_pixels(linked_image,55)>20&&count_grid_y_pixels(linked_image,25)<20,
@@ -1504,6 +1521,8 @@ void layout_overlays_are_view_only_and_not_exported() {
           count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,28)>20&&
           count_margin_pixels(preview_image,20)<20&&count_margin_pixels(preview_image,18)<20&&
           count_margin_top_pixels(preview_image,40)>20&&count_margin_top_pixels(preview_image,20)<20&&
+          count_margin_bottom_pixels(preview_image,134)>20&&count_margin_bottom_pixels(preview_image,142)<20&&
+          count_margin_bottom_pixels(preview_image,135)<20&&
           count_margin_pixels(preview_image,174)>20&&count_margin_pixels(preview_image,180)<20&&
           count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20&&
           count_grid_y_pixels(preview_image,65)>20&&count_grid_y_pixels(preview_image,55)<20&&count_grid_y_pixels(preview_image,25)<20,

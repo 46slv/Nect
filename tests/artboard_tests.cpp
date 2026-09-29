@@ -64,7 +64,7 @@ void layout_and_guide_acceptance() {
         "Clearing Grid retains the independently authored Margin");
     apply({SetArtboardLayout{"layout-comp","layout-art",copied}});
     const auto current=encode(session.document());
-    check(current.find("\"version\":\"0.44\"")!=std::string::npos&&encode(decode(current))==current,
+    check(current.find("\"version\":\"0.45\"")!=std::string::npos&&encode(decode(current))==current,
         "Native 0.43 roundtrip preserves Guide/Grid/Margin definitions and IDs");
 
     const auto readback=request(session,R"({"op":"inspect"})");
@@ -153,7 +153,7 @@ void layout_and_guide_acceptance() {
         for(auto& board:comp.artboards)board.layout.reset();
     }
     auto legacy=encode(legacy_document);
-    check(replace_all(legacy,"\"version\":\"0.44\"","\"version\":\"0.13\"")==1,
+    check(replace_all(legacy,"\"version\":\"0.45\"","\"version\":\"0.13\"")==1,
         "Legacy fixture changes only its native version");
     check(replace_all(legacy,",\"guides\":[]","")==legacy_document.compositions.size(),
         "Legacy fixture removes each v0.14 Composition Guides field");
@@ -240,7 +240,7 @@ void layout_typed_reads() {
             response.find(integer?"\"unit\":\"unitless\"":"\"unit\":\"du\"")!=std::string::npos&&
             response.find("\"space\":\"artboard_local\"")!=std::string::npos&&
             response.find("\"origin\":\"authored\"")!=std::string::npos&&
-            response.find(ref.field=="margin.left"||ref.field=="margin.top"||ref.field=="margin.right"||ref.field=="grid.bounds.x"||ref.field=="grid.bounds.y"?"\"link\":true":"\"link\":false")!=std::string::npos&&
+            response.find(ref.field=="margin.left"||ref.field=="margin.top"||ref.field=="margin.right"||ref.field=="margin.bottom"||ref.field=="grid.bounds.x"||ref.field=="grid.bounds.y"?"\"link\":true":"\"link\":false")!=std::string::npos&&
             response.find(ref.field=="margin.left"||ref.field=="margin.top"||ref.field=="margin.right"||ref.field=="grid.bounds.x"||ref.field=="grid.bounds.y"?"\"expression\":true":"\"expression\":false")!=std::string::npos,
             "Typed get reports each layout field's type, unit, space and link capability");
         check(response.find("\"authored\":{\"literal\":")!=std::string::npos&&
@@ -305,7 +305,7 @@ void layout_typed_reads() {
 
     const auto native=encode(session.document());
     const auto cold=decode(native);
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&encode(cold)==native,
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&encode(cold)==native,
         "Native 0.43 cold decode/re-encode preserves existing Grid and Margin bytes");
     auto expected_after_edit=expected_values;expected_after_edit[0].second=11.0;
     for(const auto& [ref,literal]:expected_after_edit)
@@ -477,11 +477,11 @@ void margin_left_artboard_driver() {
         "Invalid upstream width leaves the last valid link evaluation and Session state intact");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&
         native.find("\"left_driver\"")!=std::string::npos&&native.find("margin-left-source")!=std::string::npos&&
         encode(decode(native))==native,
         "Native 0.43 stores the exact Margin source beside the authored literal and roundtrips bytes");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.44\"","\"version\":\"0.34\"")==1,
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.34\"")==1,
         "Version-lie fixture changes only native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto literal_document=empty_document("margin-left-legacy-doc","margin-left-legacy-comp","margin-left-legacy-art");
@@ -489,7 +489,7 @@ void margin_left_artboard_driver() {
     Session literal_session(literal_document);literal_session.apply({SetArtboardLayout{"margin-left-legacy-comp",
         "margin-left-legacy-art",literal_layout}},0);
     auto legacy=encode(literal_session.document());
-    check(replace_all(legacy,"\"version\":\"0.44\"","\"version\":\"0.35\"")==1&&
+    check(replace_all(legacy,"\"version\":\"0.45\"","\"version\":\"0.35\"")==1&&
         decode(legacy)==literal_session.document(),"Native 0.35 literal-only layout remains readable by the current decoder");
 
     apply({MarginLeftCommand{UnlinkMarginLeft{target}}});
@@ -605,9 +605,9 @@ void margin_top_artboard_driver() {
         std::get<double>(artboard_layout_property(session.document(),target).evaluated)==60,
         "Rejected source, payload and invalid upstream edits preserve the last valid Margin top evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&native.find("\"top_driver\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&native.find("\"top_driver\"")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 stores the closed Margin top source and byte-roundtrips");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.44\"","\"version\":\"0.40\"")==1,
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.40\"")==1,
         "Version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     apply({MarginTopCommand{UnlinkMarginTop{target}}});typed=artboard_layout_property(session.document(),target);
@@ -737,10 +737,10 @@ void margin_right_artboard_driver() {
         "Rejected source deletion and width-containment violations preserve the linked Margin right");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&native.find("\"right_driver\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&native.find("\"right_driver\"")!=std::string::npos&&
         native.find("margin-right-source")!=std::string::npos&&encode(decode(native))==native,
         "Native 0.43 preserves the exact Margin right source beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.44\"","\"version\":\"0.42\"")==1,
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.42\"")==1,
         "Margin right version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"right_driver\":{","\"right_driver\":{\"extra\":1,")==1,
@@ -750,7 +750,7 @@ void margin_right_artboard_driver() {
     std::find_if(legacy_document.compositions.front().artboards.begin(),legacy_document.compositions.front().artboards.end(),
         [&](const Artboard& value){return value.id==target.object;})->layout->margin->right_driver.reset();
     auto native_042=encode(legacy_document);
-    check(replace_all(native_042,"\"version\":\"0.44\"","\"version\":\"0.42\"")==1&&
+    check(replace_all(native_042,"\"version\":\"0.45\"","\"version\":\"0.42\"")==1&&
         decode(native_042)==legacy_document,"Native 0.43 remains readable when the optional Margin right source is absent");
 
     apply({MarginRightCommand{UnlinkMarginRight{target}}});typed=artboard_layout_property(session.document(),target);
@@ -763,6 +763,151 @@ void margin_right_artboard_driver() {
     apply({UpdateArtboard{composition,upstream_board}});typed=artboard_layout_property(session.document(),target);
     check(!typed.driver&&std::get<double>(typed.literal)==60&&std::get<double>(typed.evaluated)==60,
         "Redo keeps frozen Margin right independent of later Artboard-size changes");
+}
+
+void margin_bottom_artboard_driver() {
+    auto document=empty_document("margin-bottom-doc","margin-bottom-comp","margin-bottom-target");
+    auto& target_board=document.compositions.front().artboards.front();target_board.width=960;target_board.height=640;
+    target_board.layout=ArtboardLayout{Margin{40,40,40,40},Grid{"margin-bottom-grid",{40,40,880,560},2,1,20,0}};
+    document.compositions.push_back({"margin-bottom-other-comp","Other plane",{},{{"margin-bottom-other","Other frame",0,0,400,300}}});
+    const auto composition="margin-bottom-comp";
+    const Ref target{"margin-bottom-target","","margin.bottom"};
+    const Ref source{"margin-bottom-source","","artboard.height"};
+    const Ref alternate{"margin-bottom-alternate","","artboard.width"};
+    const Ref upstream{"margin-bottom-upstream","","artboard.height"};
+    Artboard source_board{"margin-bottom-source","Source",0,0,100,50};
+    source_board.parent_size=ArtboardParent{"margin-bottom-upstream",false,true};
+    Session session(document);auto apply=[&](std::vector<Command> commands){session.apply(commands,session.revision());};
+    auto find_board=[&](const Id& id)->const Artboard& {
+        const auto& comp=*std::find_if(session.document().compositions.begin(),session.document().compositions.end(),
+            [&](const Composition& value){return value.id==composition;});
+        return *std::find_if(comp.artboards.begin(),comp.artboards.end(),[&](const Artboard& value){return value.id==id;});
+    };
+    apply({AddArtboard{composition,source_board,1},
+        AddArtboard{composition,{"margin-bottom-alternate","Alternate",0,0,100,60},2},
+        AddArtboard{composition,{"margin-bottom-upstream","Upstream",0,0,50,50},3}});
+    const auto linked=request(session,R"({"op":"apply","expected_revision":1,"commands":[
+      {"type":"link_margin_bottom","target":{"object":"margin-bottom-target","point":"","field":"margin.bottom"},
+       "source":{"object":"margin-bottom-source","point":"","field":"artboard.height"},"replace_driver":false}
+    ]})");
+    check(linked.find("\"ok\":true")!=std::string::npos&&session.revision()==2,
+        "JSON Session authors a revisioned Margin bottom Artboard-size link");
+    const auto linked_revision=session.revision();const auto linked_history=session.history();
+    apply({MarginBottomCommand{LinkMarginBottom{target,source,false}}});
+    check(session.revision()==linked_revision&&session.history()==linked_history,
+        "Repeating the same Margin bottom source is idempotent without a revision or Undo entry");
+    auto typed=artboard_layout_property(session.document(),target);
+    check(std::get<double>(typed.literal)==40&&typed.driver==source&&!typed.expression&&typed.source_kind=="link"&&
+        std::get<double>(typed.evaluated)==50&&evaluate_artboard(session.document().compositions.front(),target.object).layout->margin->bottom==50,
+        "Pure Artboard evaluation retains the bottom literal and follows a parent-size source chain");
+    const auto typed_json=request(session,R"({"op":"get","ref":{"object":"margin-bottom-target","point":"","field":"margin.bottom"}})");
+    check(typed_json.find("\"source_kind\":\"link\"")!=std::string::npos&&
+        typed_json.find("margin-bottom-source")!=std::string::npos&&typed_json.find("\"unit\":\"du\"")!=std::string::npos&&
+        typed_json.find("\"link\":true")!=std::string::npos&&typed_json.find("\"expression\":false")!=std::string::npos&&
+        typed_json.find("\"evaluated\":5E1")!=std::string::npos,
+        ("Typed Margin bottom get exposes exact source and evaluated du while disabling expression support: "+typed_json).c_str());
+    const auto properties_json=request(session,R"({"op":"properties"})");
+    check(properties_json.find("margin-bottom-target")!=std::string::npos&&properties_json.find("margin.bottom")!=std::string::npos,
+        "Properties enumeration includes the typed Margin bottom source read");
+    rejects("MISSING_REFERENCE",[&]{apply({Set{target,10}});});
+    rejects("MISSING_REFERENCE",[&]{apply({Link{target,Binding{source,1,0,"copy_local_value"}}});});
+    rejects("MISSING_REFERENCE",[&]{apply({SetExpression{{target},{"1",1},false}});});
+
+    auto upstream_board=find_board("margin-bottom-upstream");upstream_board.height=60;
+    apply({UpdateArtboard{composition,upstream_board}});typed=artboard_layout_property(session.document(),target);
+    check(std::get<double>(typed.literal)==40&&typed.driver==source&&std::get<double>(typed.evaluated)==60,
+        "An upstream size edit reevaluates Margin bottom without replacing its literal or stable source Ref");
+    auto sibling=*find_board(target.object).layout;sibling.margin->top=45;sibling.margin->right=45;sibling.grid->bounds.y=45;
+    apply({SetArtboardLayout{composition,target.object,sibling}});
+    auto renamed=find_board(target.object);renamed.name="Renamed target";renamed.x=120;
+    auto renamed_source=find_board(source.object);renamed_source.name="Renamed source";renamed_source.x=50;
+    apply({UpdateArtboard{composition,renamed},UpdateArtboard{composition,renamed_source},
+        ReorderArtboards{composition,{"margin-bottom-alternate",target.object,source.object,"margin-bottom-upstream"}}});
+    typed=artboard_layout_property(session.document(),target);
+    check(typed.driver==source&&std::get<double>(typed.literal)==40&&std::get<double>(typed.evaluated)==60&&
+        find_board(target.object).layout->margin->top==45&&find_board(target.object).layout->grid->id=="margin-bottom-grid"&&
+        find_board(target.object).x==120&&find_board(source.object).name=="Renamed source"&&find_board(source.object).x==50,
+        "Full-layout sibling edits and Artboard rename, move and reorder preserve Margin bottom identity and evaluation");
+
+    const auto stable_document=encode(session.document());const auto stable_revision=session.revision();const auto stable_history=session.history();
+    auto changed=*find_board(target.object).layout;changed.margin->bottom=41;
+    rejects("DRIVEN_MARGIN_BOTTOM",[&]{apply({SetArtboardLayout{composition,target.object,changed}});});
+    changed=*find_board(target.object).layout;changed.margin.reset();
+    rejects("DRIVEN_MARGIN_BOTTOM",[&]{apply({SetArtboardLayout{composition,target.object,changed}});});
+    auto direct=find_board(target.object);direct.layout->margin->bottom=41;
+    rejects("DRIVEN_MARGIN_BOTTOM",[&]{apply({UpdateArtboard{composition,direct}});});
+    changed=*find_board(target.object).layout;changed.margin->bottom_driver=alternate;
+    rejects("MARGIN_DRIVER_SMUGGLING",[&]{apply({SetArtboardLayout{composition,target.object,changed}});});
+    auto smuggled=Artboard{"margin-bottom-smuggled","Smuggled",0,0,100,100};
+    ArtboardLayout injected;injected.margin=Margin{10,10,10,10};injected.margin->bottom_driver=source;smuggled.layout=injected;
+    rejects("MARGIN_DRIVER_SMUGGLING",[&]{apply({AddArtboard{composition,smuggled,4}});});
+    rejects("DUPLICATE_TARGET",[&]{apply({MarginBottomCommand{LinkMarginBottom{target,source,false}},
+        MarginBottomCommand{UnlinkMarginBottom{target}}});});
+    rejects("REVISION_CONFLICT",[&]{session.apply({MarginBottomCommand{UnlinkMarginBottom{target}}},stable_revision-1);});
+    for(const auto& bad:std::vector<std::pair<Ref,std::string>>{
+            {{source.object,"point","artboard.height"},"INVALID_ARTBOARD_REF"},
+            {{source.object,"","margin.bottom"},"INVALID_ARTBOARD_REF"},
+            {{target.object,"","artboard.height"},"ARTBOARD_SELF_LINK"},
+            {{composition,"","artboard.height"},"TYPE_MISMATCH"},
+            {{"margin-bottom-other","","artboard.height"},"WRONG_COMPOSITION"},
+            {{"margin-bottom-missing","","artboard.height"},"MISSING_ARTBOARD"}})
+        rejects(bad.second.c_str(),[&]{apply({MarginBottomCommand{LinkMarginBottom{target,bad.first,true}}});});
+    rejects("INVALID_LAYOUT_REF",[&]{apply({MarginBottomCommand{LinkMarginBottom{{target.object,"point","margin.bottom"},source,true}}});});
+    rejects("MISSING_MARGIN",[&]{apply({MarginBottomCommand{LinkMarginBottom{{source.object,"","margin.bottom"},upstream,false}}});});
+    rejects("DRIVEN_MARGIN_BOTTOM",[&]{apply({MarginBottomCommand{LinkMarginBottom{target,alternate,false}}});});
+    check(session.revision()==stable_revision&&session.history()==stable_history&&encode(session.document())==stable_document,
+        "Rejected driven edits, source injection, invalid refs and unapproved replacement preserve bytes, revision and history");
+
+    apply({MarginBottomCommand{LinkMarginBottom{target,alternate,true}}});
+    check(artboard_layout_property(session.document(),target).driver==alternate&&
+        std::get<double>(artboard_layout_property(session.document(),target).evaluated)==100,
+        "Explicit replacement changes bottom to a distinct Artboard width source");
+    apply({MarginBottomCommand{LinkMarginBottom{target,source,true}}});
+    const auto after_relink_document=encode(session.document());const auto after_relink_revision=session.revision();
+    const auto after_relink_history=session.history();
+    rejects("ARTBOARD_IN_USE",[&]{apply({DeleteArtboard{composition,source.object}});});
+    upstream_board=find_board("margin-bottom-upstream");upstream_board.height=1000;
+    rejects("INVALID_LAYOUT",[&]{apply({UpdateArtboard{composition,upstream_board}});});
+    auto smaller_target=find_board(target.object);smaller_target.height=90;
+    rejects("INVALID_LAYOUT",[&]{apply({UpdateArtboard{composition,smaller_target}});});
+    const auto batch_bytes=encode(session.document());const auto batch_revision=session.revision();const auto batch_history=session.history();
+    rejects("INVALID_GUIDE",[&]{apply({MarginBottomCommand{UnlinkMarginBottom{target}},
+        AddGuide{composition,{"margin-bottom-bad-guide","Bad axis","z",0}}});});
+    check(session.revision()==batch_revision&&session.history()==batch_history&&encode(session.document())==batch_bytes&&
+        std::get<double>(artboard_layout_property(session.document(),target).evaluated)==60,
+        "A failing later batch command cannot partially unlink Margin bottom");
+    check(session.revision()==after_relink_revision&&session.history()==after_relink_history&&
+        encode(session.document())==after_relink_document&&
+        std::get<double>(artboard_layout_property(session.document(),target).evaluated)==60,
+        "Rejected source deletion and vertical-containment edits preserve the linked Margin bottom");
+
+    const auto native=encode(session.document());
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&native.find("\"bottom_driver\"")!=std::string::npos&&
+        native.find("margin-bottom-source")!=std::string::npos&&encode(decode(native))==native,
+        "Native 0.45 preserves the exact Margin bottom source beside its authored literal");
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.44\"")==1,
+        "Margin bottom version-lie fixture changes only the native writer version");
+    rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
+    auto malformed=native;check(replace_all(malformed,"\"bottom_driver\":{","\"bottom_driver\":{\"extra\":1,")==1,
+        "Malformed Margin bottom driver fixture adds one unknown property");
+    rejects("INVALID_LAYOUT",[&]{(void)decode(malformed);});
+    auto legacy_document=session.document();
+    std::find_if(legacy_document.compositions.front().artboards.begin(),legacy_document.compositions.front().artboards.end(),
+        [&](const Artboard& value){return value.id==target.object;})->layout->margin->bottom_driver.reset();
+    auto native_044=encode(legacy_document);
+    check(replace_all(native_044,"\"version\":\"0.45\"","\"version\":\"0.44\"")==1&&
+        decode(native_044)==legacy_document,"Native 0.44 remains readable when the optional Margin bottom source is absent");
+
+    apply({MarginBottomCommand{UnlinkMarginBottom{target}}});typed=artboard_layout_property(session.document(),target);
+    check(std::get<double>(typed.literal)==60&&!typed.driver&&typed.source_kind=="literal"&&std::get<double>(typed.evaluated)==60,
+        "Unlink freezes evaluated Margin bottom into its authored literal in one revision");
+    session.undo(session.revision());typed=artboard_layout_property(session.document(),target);
+    check(typed.driver==source&&std::get<double>(typed.literal)==40&&std::get<double>(typed.evaluated)==60,
+        "Undo restores the exact Margin bottom source and retained literal");
+    session.redo(session.revision());upstream_board=find_board("margin-bottom-upstream");upstream_board.height=80;
+    apply({UpdateArtboard{composition,upstream_board}});typed=artboard_layout_property(session.document(),target);
+    check(!typed.driver&&std::get<double>(typed.literal)==60&&std::get<double>(typed.evaluated)==60,
+        "Redo keeps frozen Margin bottom independent of later Artboard-size changes");
 }
 
 void margin_top_expression() {
@@ -908,10 +1053,10 @@ void margin_top_expression() {
         "Stale Margin top expression commands preserve the exact Session state");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&
         native.find("\"top_expression\":{\"source\":\"ref(\\\"margin-top-expression-source\\\",\\\"\\\",\\\"artboard.height\\\") + 10\",\"version\":1}")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 preserves exact Margin top expression source and byte-roundtrips");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.44\"","\"version\":\"0.41\"")==1,
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.41\"")==1,
         "Version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto legacy_document=session.document();
@@ -919,7 +1064,7 @@ void margin_top_expression() {
         legacy_document.compositions.front().artboards.end(),[&](const Artboard& value){return value.id==target.object;});
     legacy_target.layout->margin->top_expression.reset();legacy_target.layout->margin->top=40;
     auto legacy=encode(legacy_document);
-    check(replace_all(legacy,"\"version\":\"0.44\"","\"version\":\"0.41\"")==1&&decode(legacy)==legacy_document,
+    check(replace_all(legacy,"\"version\":\"0.45\"","\"version\":\"0.41\"")==1&&decode(legacy)==legacy_document,
         "Native 0.41 remains readable for literal-only Margin top documents");
 
     apply({MarginTopCommand{UnlinkMarginTop{target}}});typed=artboard_layout_property(session.document(),target);
@@ -1076,10 +1221,10 @@ void margin_right_expression() {
         "Stale Margin right expression commands preserve the exact Session state");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&
         native.find("\"right_expression\":{\"source\":\"ref(\\\"margin-right-expression-source\\\",\\\"\\\",\\\"artboard.width\\\") + 10\",\"version\":1}")!=std::string::npos&&
-        encode(decode(native))==native,"Native 0.44 preserves exact Margin right expression source and byte-roundtrips");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.44\"","\"version\":\"0.43\"")==1,
+        encode(decode(native))==native,"Native 0.45 preserves exact Margin right expression source and byte-roundtrips");
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.43\"")==1,
         "Margin right expression version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"right_expression\":{","\"right_expression\":{\"extra\":1,")==1,
@@ -1093,7 +1238,7 @@ void margin_right_expression() {
         legacy_document.compositions.front().artboards.end(),[&](const Artboard& value){return value.id==target.object;});
     legacy_target.layout->margin->right_expression.reset();legacy_target.layout->margin->right=40;
     auto legacy=encode(legacy_document);
-    check(replace_all(legacy,"\"version\":\"0.44\"","\"version\":\"0.43\"")==1&&decode(legacy)==legacy_document,
+    check(replace_all(legacy,"\"version\":\"0.45\"","\"version\":\"0.43\"")==1&&decode(legacy)==legacy_document,
         "Native 0.43 remains readable when the optional Margin right expression is absent");
 
     apply({MarginRightCommand{UnlinkMarginRight{target}}});typed=artboard_layout_property(session.document(),target);
@@ -1244,10 +1389,10 @@ void margin_left_expression() {
         "A cyclic Artboard-size source graph rejects atomically while Margin depends on it");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&
         native.find("\"left_expression\"")!=std::string::npos&&native.find("margin-expression-source-a")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 preserves the exact Margin expression beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.44\"","\"version\":\"0.37\"")==1,
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.37\"")==1,
         "Margin expression version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     apply({MarginLeftCommand{UnlinkMarginLeft{target}}});
@@ -1395,14 +1540,14 @@ void grid_bounds_x_artboard_driver() {
         "Invalid upstream width leaves the prior valid evaluated Grid x and all Session state intact");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&
         native.find("\"bounds_x_driver\"")!=std::string::npos&&native.find("grid-x-source")!=std::string::npos&&
         encode(decode(native))==native,
         "Native 0.43 stores the closed Grid source beside its authored literal and roundtrips bytes");
-    auto native_036=native;check(replace_all(native_036,"\"version\":\"0.44\"","\"version\":\"0.36\"")==1&&
+    auto native_036=native;check(replace_all(native_036,"\"version\":\"0.45\"","\"version\":\"0.36\"")==1&&
         decode(native_036)==session.document(),
         "Native 0.36 remains readable with its existing Grid x link and no expression field");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.44\"","\"version\":\"0.35\"")==1,
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.35\"")==1,
         "Grid version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto literal_document=empty_document("grid-x-legacy-doc","grid-x-legacy-comp","grid-x-legacy-art");
@@ -1410,7 +1555,7 @@ void grid_bounds_x_artboard_driver() {
     Session literal_session(literal_document);literal_session.apply({SetArtboardLayout{"grid-x-legacy-comp",
         "grid-x-legacy-art",literal_layout}},0);
     auto legacy=encode(literal_session.document());
-    check(replace_all(legacy,"\"version\":\"0.44\"","\"version\":\"0.35\"")==1&&
+    check(replace_all(legacy,"\"version\":\"0.45\"","\"version\":\"0.35\"")==1&&
         decode(legacy)==literal_session.document(),"Native 0.35 literal-only Grid remains readable by the current decoder");
 
     apply({GridBoundsXCommand{UnlinkGridBoundsX{target}}});
@@ -1558,10 +1703,10 @@ void grid_bounds_y_artboard_driver() {
         "Upstream y plus Grid height and target-height violations leave bytes, revision, history and prior evaluation unchanged");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&
         native.find("\"bounds_y_driver\"")!=std::string::npos&&native.find("grid-y-source")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 preserves the exact optional Grid y link beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.44\"","\"version\":\"0.38\"")==1,
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.38\"")==1,
         "Grid y version-lie fixture changes only the writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"bounds_y_driver\":{","\"bounds_y_driver\":{\"extra\":1,")==1,
@@ -1572,7 +1717,7 @@ void grid_bounds_y_artboard_driver() {
         [](const Artboard& value){return value.id=="grid-y-target";})->layout->grid;
     legacy_grid.bounds_y_driver.reset();
     auto native_038=encode(legacy_document);
-    check(replace_all(native_038,"\"version\":\"0.44\"","\"version\":\"0.38\"")==1&&decode(native_038)==legacy_document,
+    check(replace_all(native_038,"\"version\":\"0.45\"","\"version\":\"0.38\"")==1&&decode(native_038)==legacy_document,
         "Native 0.38 remains readable when the optional Grid y link is absent");
 
     apply({GridBoundsYCommand{UnlinkGridBoundsY{target}}});typed=artboard_layout_property(session.document(),target);
@@ -1694,10 +1839,10 @@ void grid_bounds_x_expression() {
         "Failing source edits and second batch commands preserve the prior expression evaluation atomically");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&
         native.find("\"bounds_x_expression\"")!=std::string::npos&&native.find("grid-expression-source-a")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 preserves exact Grid expression source and roundtrips bytes");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.44\"","\"version\":\"0.36\"")==1,
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.36\"")==1,
         "Grid expression version-lie fixture changes only native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     apply({GridBoundsXCommand{UnlinkGridBoundsX{target}}});
@@ -1834,17 +1979,17 @@ void grid_bounds_y_expression() {
         "Cycle, bad source edits and failed later batch commands preserve prior y expression state atomically");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&
         native.find("\"bounds_y_expression\"")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 preserves the exact Grid y expression and stable source text");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.44\"","\"version\":\"0.39\"")==1,
+    auto lied=native;check(replace_all(lied,"\"version\":\"0.45\"","\"version\":\"0.39\"")==1,
         "Grid y expression version-lie fixture changes only native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     apply({GridBoundsYCommand{UnlinkGridBoundsY{target}}});typed=artboard_layout_property(session.document(),target);
     check(std::get<double>(typed.literal)==60&&!typed.driver&&!typed.expression&&typed.source_kind=="literal"&&
         std::get<double>(typed.evaluated)==60,"Unlink freezes evaluated Grid y and clears its expression in one step");
     const auto literal_document=session.document();auto legacy_039=encode(literal_document);
-    check(replace_all(legacy_039,"\"version\":\"0.44\"","\"version\":\"0.39\"")==1&&decode(legacy_039)==literal_document,
+    check(replace_all(legacy_039,"\"version\":\"0.45\"","\"version\":\"0.39\"")==1&&decode(legacy_039)==literal_document,
         "Native 0.39 literal-only Grid y remains readable after the format bump");
     session.undo(session.revision());typed=artboard_layout_property(session.document(),target);
     check(typed.expression==expression&&std::get<double>(typed.literal)==40&&std::get<double>(typed.evaluated)==60,
@@ -1947,22 +2092,22 @@ void guide_position_links() {
     session.cancel_gesture();
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.45\"")!=std::string::npos&&
         native.find("\"position_driver\":{\"link\":{\"object\":\"guide-source\",\"point\":\"\",\"field\":\"guide.position\"}}")!=std::string::npos&&
         encode(decode(native))==native,
         "Native 0.43 preserves the existing optional Guide position link and authored literal");
     auto legacy_with_driver=native;
-    check(replace_all(legacy_with_driver,"\"version\":\"0.44\"","\"version\":\"0.22\"")==1,
+    check(replace_all(legacy_with_driver,"\"version\":\"0.45\"","\"version\":\"0.22\"")==1,
         "Legacy linked fixture downgrades only its version tag");
     rejects("INVALID_GUIDE",[&]{(void)decode(legacy_with_driver);});
     auto native_033_link=encode(session.document());
-    check(replace_all(native_033_link,"\"version\":\"0.44\"","\"version\":\"0.33\"")==1&&
+    check(replace_all(native_033_link,"\"version\":\"0.45\"","\"version\":\"0.33\"")==1&&
         decode(native_033_link)==session.document(),
         "Native 0.33 still decodes the existing Guide link representation unchanged");
     auto literal_document=session.document();
     for(auto& composition:literal_document.compositions)for(auto& guide:composition.guides)guide.position_driver.reset();
     auto legacy_literal=encode(literal_document);
-    check(replace_all(legacy_literal,"\"version\":\"0.44\"","\"version\":\"0.22\"")==1&&
+    check(replace_all(legacy_literal,"\"version\":\"0.45\"","\"version\":\"0.22\"")==1&&
         decode(legacy_literal)==literal_document,
         "Native 0.22 continues to decode literal-only Guide positions unchanged");
 
@@ -2020,12 +2165,12 @@ void guide_position_links() {
         "Undo restores the exact Guide expression and its evaluated value after link replacement");
     session.redo(session.revision());session.undo(session.revision());
     const auto expression_native=encode(session.document());
-    check(expression_native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(expression_native.find("\"version\":\"0.45\"")!=std::string::npos&&
         expression_native.find("\"position_expression\":{\"source\":\"ref(\\\"guide-source\\\",\\\"\\\",\\\"guide.position\\\") + 20\",\"version\":1}")!=std::string::npos&&
         encode(decode(expression_native))==expression_native,
         "Native 0.43 stores and byte-roundtrips the exact Guide expression while omitting an absent link");
     auto expression_lied_version=expression_native;
-    check(replace_all(expression_lied_version,"\"version\":\"0.44\"","\"version\":\"0.33\"")==1,
+    check(replace_all(expression_lied_version,"\"version\":\"0.45\"","\"version\":\"0.33\"")==1,
         "Native Guide expression version-lie fixture changes only its version tag");
     rejects("INVALID_GUIDE",[&]{(void)decode(expression_lied_version);});
     auto both_sources=session.document();
@@ -2137,7 +2282,7 @@ void artboard_size_drivers() {
     const auto parent_height_end=malformed_parent_native.find_first_of(",}",parent_height_marker);
     malformed_parent_native.insert(parent_height_end,
         ",\"parent_size\":{\"artboard\":\"missing-parent\",\"width\":false,\"height\":false}");
-    check(replace_all(malformed_parent_native,"\"version\":\"0.44\"","\"version\":\"0.32\"")==1,
+    check(replace_all(malformed_parent_native,"\"version\":\"0.45\"","\"version\":\"0.32\"")==1,
         "Malformed false-false legacy parent fixture uses the preserved native 0.32 gate");
     rejects("MISSING_ARTBOARD",[&]{(void)decode(malformed_parent_native);});
     Artboard peer{"size-peer","Peer",50,60,200,300};
@@ -2278,12 +2423,12 @@ void artboard_size_drivers() {
         [](const auto& board){return board.id=="size-child";});
     native_child->width_driver=ArtboardSizeDriver{combined};
     auto typed_native=encode(native_document);
-    check(typed_native.find("\"version\":\"0.44\"")!=std::string::npos&&
+    check(typed_native.find("\"version\":\"0.45\"")!=std::string::npos&&
         typed_native.find("\"width_driver\":{\"expression\":")!=std::string::npos&&
         encode(decode(typed_native))==typed_native,
         "Native 0.43 stores and cold-roundtrips the additive Artboard expression driver");
     auto lied_version=typed_native;
-    check(replace_all(lied_version,"\"version\":\"0.44\"","\"version\":\"0.32\"")==1,
+    check(replace_all(lied_version,"\"version\":\"0.45\"","\"version\":\"0.32\"")==1,
         "Native version-lie fixture changes only the version tag");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(lied_version);});
     auto literal_document=session.document();
@@ -2291,7 +2436,7 @@ void artboard_size_drivers() {
         [](const auto& board){return board.id=="size-child";});
     literal_child->width_driver.reset();literal_child->height_driver.reset();
     auto legacy=encode(literal_document);
-    check(replace_all(legacy,"\"version\":\"0.44\"","\"version\":\"0.32\"")==1&&
+    check(replace_all(legacy,"\"version\":\"0.45\"","\"version\":\"0.32\"")==1&&
         decode(legacy)==literal_document,
         "Native 0.32 still reopens literal and parent_size Artboards without driver fields");
     auto malformed=typed_native;
@@ -2322,6 +2467,7 @@ int main(){try{
     margin_left_artboard_driver();
     margin_top_artboard_driver();
     margin_right_artboard_driver();
+    margin_bottom_artboard_driver();
     margin_top_expression();
     margin_right_expression();
     margin_left_expression();

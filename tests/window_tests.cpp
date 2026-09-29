@@ -2789,11 +2789,79 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         visible_child<QLabel>(window,"margin-top-source-state")->text().contains("Evaluated: 60")&&
         visible_child<QLabel>(window,"margin-right-source-state")->text().contains("Evaluated: 70"),
         "Inspector statuses follow upstream width and height edits without changing authored insets");
+    auto* margin_bottom_source_choice=visible_child<QComboBox>(window,"margin-bottom-link-source");
+    auto* margin_bottom_search=visible_child<QLineEdit>(window,"margin-bottom-link-source-search");
+    auto* margin_bottom_link_button=visible_child<QPushButton>(window,"margin-bottom-link");
+    check(margin_bottom_source_choice->currentIndex()==-1&&!margin_bottom_link_button->isEnabled(),
+        "An unlinked Margin bottom source picker has no implicit first Artboard selection");
+    margin_bottom_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    int margin_bottom_source_index=-1;
+    for(int i=0;i<margin_bottom_source_choice->count();++i)
+        if(margin_bottom_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_id+"/artboard.width"))margin_bottom_source_index=i;
+    check(margin_bottom_source_index>=0,"Margin bottom search exposes the exact stable Artboard width Ref");
+    margin_bottom_source_choice->setCurrentIndex(margin_bottom_source_index);QApplication::processEvents();
+    const auto before_margin_bottom_cancel=session.revision();click("margin-bottom-cancel");
+    check(session.revision()==before_margin_bottom_cancel&&!board().layout->margin->bottom_driver&&
+        window.canvas->active_artboard()==board_id,
+        "Cancel discards the Margin bottom source draft without changing the target Artboard");
+    margin_bottom_source_choice=visible_child<QComboBox>(window,"margin-bottom-link-source");
+    margin_bottom_search=visible_child<QLineEdit>(window,"margin-bottom-link-source-search");
+    margin_bottom_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    margin_bottom_source_index=-1;
+    for(int i=0;i<margin_bottom_source_choice->count();++i)
+        if(margin_bottom_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_id+"/artboard.width"))margin_bottom_source_index=i;
+    margin_bottom_source_choice->setCurrentIndex(margin_bottom_source_index);QApplication::processEvents();
+    const Ref margin_bottom_target_ref{board_id,"","margin.bottom"};
+    const Ref margin_bottom_source_ref{margin_source_id,"","artboard.width"};
+    click("margin-bottom-link");
+    auto* driven_margin_bottom=visible_child<QLineEdit>(window,"margin-bottom");
+    auto* margin_bottom_status=visible_child<QLabel>(window,"margin-bottom-source-state");
+    check(driven_margin_bottom->isReadOnly()&&board().layout->margin->bottom==0&&
+        artboard_layout_property(session.document(),margin_bottom_target_ref).driver==margin_bottom_source_ref&&
+        std::get<double>(artboard_layout_property(session.document(),margin_bottom_target_ref).evaluated)==60&&
+        margin_bottom_status->text().contains("link")&&margin_bottom_status->text().contains("Literal: 0")&&
+        margin_bottom_status->text().contains("Evaluated: 60"),
+        "Margin bottom Inspector links by exact stable Ref, keeps its literal read-only and reports evaluation separately");
+    margin_bottom_source_choice=visible_child<QComboBox>(window,"margin-bottom-link-source");
+    margin_bottom_search=visible_child<QLineEdit>(window,"margin-bottom-link-source-search");
+    auto* margin_bottom_replace=visible_child<QCheckBox>(window,"margin-bottom-replace");
+    margin_bottom_search->setText(QString::fromStdString(margin_source_twin_id+"/artboard.width"));QApplication::processEvents();
+    margin_bottom_source_index=-1;
+    for(int i=0;i<margin_bottom_source_choice->count();++i)
+        if(margin_bottom_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_twin_id+"/artboard.width"))margin_bottom_source_index=i;
+    check(margin_bottom_source_index>=0,"Margin bottom picker finds a second stable source with the same display name");
+    margin_bottom_source_choice->setCurrentIndex(margin_bottom_source_index);QApplication::processEvents();
+    const auto before_unapproved_margin_bottom_replace=session.revision();click("margin-bottom-link");
+    check(session.revision()==before_unapproved_margin_bottom_replace&&
+        artboard_layout_property(session.document(),margin_bottom_target_ref).driver==margin_bottom_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_BOTTOM"),
+        "Replacing a Margin bottom source requires explicit Inspector authorization");
+    margin_bottom_replace=visible_child<QCheckBox>(window,"margin-bottom-replace");margin_bottom_replace->setChecked(true);
+    click("margin-bottom-link");
+    const Ref margin_bottom_twin_ref{margin_source_twin_id,"","artboard.width"};
+    check(session.revision()==before_unapproved_margin_bottom_replace+1&&
+        artboard_layout_property(session.document(),margin_bottom_target_ref).driver==margin_bottom_twin_ref&&
+        std::get<double>(artboard_layout_property(session.document(),margin_bottom_target_ref).evaluated)==45,
+        "Margin bottom Inspector replaces its source only after explicit authorization");
+    margin_bottom_source_choice=visible_child<QComboBox>(window,"margin-bottom-link-source");
+    margin_bottom_search=visible_child<QLineEdit>(window,"margin-bottom-link-source-search");
+    margin_bottom_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    margin_bottom_source_index=-1;
+    for(int i=0;i<margin_bottom_source_choice->count();++i)
+        if(margin_bottom_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_id+"/artboard.width"))margin_bottom_source_index=i;
+    margin_bottom_source_choice->setCurrentIndex(margin_bottom_source_index);QApplication::processEvents();
+    margin_bottom_replace=visible_child<QCheckBox>(window,"margin-bottom-replace");margin_bottom_replace->setChecked(true);
+    click("margin-bottom-link");
+    margin_bottom_replace=visible_child<QCheckBox>(window,"margin-bottom-replace");margin_bottom_replace->setChecked(false);
     click("grid-copy-margin-box");
     check(board().layout->grid&&board().layout->grid->bounds.x==60&&board().layout->grid->bounds.y==60&&
         board().layout->grid->bounds.width==evaluate_artboard(session.document().compositions.front(),board_id).width-130&&
-      board().layout->grid->bounds.height==evaluate_artboard(session.document().compositions.front(),board_id).height-60,
-        "Grid-to-Margin copy uses evaluated Margin left, top and right while retaining the authored bottom inset");
+        board().layout->grid->bounds.height==evaluate_artboard(session.document().compositions.front(),board_id).height-120,
+        "Grid-to-Margin copy uses evaluated Margin left, top, right and bottom insets");
     auto* grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
     auto* grid_search=visible_child<QLineEdit>(window,"grid-bounds-x-link-source-search");
     int grid_source_width_choice=-1;
@@ -3010,6 +3078,7 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         duplicate->layout->margin->top_expression==margin_top_expression_source&&!duplicate->layout->margin->top_driver&&
         !duplicate->layout->margin->right_driver&&
         duplicate->layout->margin->right_expression==margin_right_expression_source&&
+        duplicate->layout->margin->bottom_driver==margin_bottom_source_ref&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
         duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
         !duplicate->layout->grid->bounds_y_driver&&
@@ -3020,8 +3089,10 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.top"}).evaluated)==60&&
         artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.right"}).expression==margin_right_expression_source&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.right"}).evaluated)==
-            artboard_size_property(session.document(),margin_right_source_ref).evaluated+10,
-        "Duplicate frame replays the Margin right expression and existing Margin/Grid sources onto stable target IDs");
+            artboard_size_property(session.document(),margin_right_source_ref).evaluated+10&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.bottom"}).evaluated)==
+            artboard_size_property(session.document(),margin_bottom_source_ref).evaluated,
+        "Duplicate frame replays Margin bottom, right, expression and Grid sources onto stable target IDs");
     auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
     for(int i=0;i<artboards->count();++i)
         if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);
@@ -3043,6 +3114,13 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     check(session.revision()==before_margin_right_literal_attempt&&driven_margin_right->isReadOnly()&&
         !board().layout->margin->right_driver&&board().layout->margin->right_expression==margin_right_expression_source,
         "A driven Margin right field refuses direct Inspector edits while retaining its source and literal");
+    driven_margin_bottom=visible_child<QLineEdit>(window,"margin-bottom");
+    const auto before_margin_bottom_literal_attempt=session.revision();driven_margin_bottom->setFocus();
+    QTest::keyClick(driven_margin_bottom,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(driven_margin_bottom,"99");
+    QTest::keyClick(driven_margin_bottom,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==before_margin_bottom_literal_attempt&&driven_margin_bottom->isReadOnly()&&
+        board().layout->margin->bottom==0&&board().layout->margin->bottom_driver==margin_bottom_source_ref,
+        "A driven Margin bottom field refuses direct Inspector edits while retaining its source and literal");
     click("margin-left-unlink");
     check(board().layout->margin->left==90&&!board().layout->margin->left_driver&&!board().layout->margin->left_expression,
         "Inspector Unlink freezes the expression's evaluated inset into its literal");
@@ -3056,6 +3134,12 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     check(!frozen_margin_right.driver&&std::get<double>(frozen_margin_right.literal)==std::get<double>(frozen_margin_right.evaluated)&&
         frozen_margin_right.source_kind=="literal",
         "Margin right Inspector Unlink freezes the evaluated source into its authored literal");
+    click("margin-bottom-unlink");
+    const auto frozen_margin_bottom=artboard_layout_property(session.document(),margin_bottom_target_ref);
+    check(!frozen_margin_bottom.driver&&std::get<double>(frozen_margin_bottom.literal)==
+        std::get<double>(frozen_margin_bottom.evaluated)&&frozen_margin_bottom.source_kind=="literal"&&
+        std::get<double>(frozen_margin_bottom.evaluated)==80,
+        "Margin bottom Inspector Unlink freezes the evaluated source into its authored literal");
     source_artboard=*std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==margin_source_id;});
     source_artboard.width=100;source_artboard.height=95;
@@ -3066,8 +3150,12 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         std::get<double>(artboard_layout_property(session.document(),margin_right_target_ref).literal)==
             std::get<double>(frozen_margin_right.evaluated)&&
         std::get<double>(artboard_layout_property(session.document(),margin_right_target_ref).evaluated)==
-            std::get<double>(frozen_margin_right.evaluated),
-        "Unlinked Margin left, top and right remain frozen when their former sources change");
+            std::get<double>(frozen_margin_right.evaluated)&&
+        std::get<double>(artboard_layout_property(session.document(),margin_bottom_target_ref).literal)==
+            std::get<double>(frozen_margin_bottom.evaluated)&&
+        std::get<double>(artboard_layout_property(session.document(),margin_bottom_target_ref).evaluated)==
+            std::get<double>(frozen_margin_bottom.evaluated),
+        "Unlinked Margin left, top, right and bottom remain frozen when their former sources change");
 
     click("grid-bounds-x-unlink");click("grid-bounds-y-unlink");
     session.apply({SetArtboardLayout{composition_id,board_id,

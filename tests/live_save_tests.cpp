@@ -532,7 +532,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_x=artboard_layout_property(persisted,grid_x_ref);
     const auto persisted_grid_y=artboard_layout_property(persisted,grid_y_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.44\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.45\"")&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&
         std::get<double>(persisted_top.literal)==20&&!persisted_top.driver&&persisted_top.expression==margin_top_expression&&
@@ -542,7 +542,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
         std::get<double>(persisted_grid_x.literal)==40&&persisted_grid_x.driver==source_ref&&std::get<double>(persisted_grid_x.evaluated)==60&&
         std::get<double>(persisted_grid_y.literal)==20&&!persisted_grid_y.driver&&
         persisted_grid_y.expression==y_expression&&std::get<double>(persisted_grid_y.evaluated)==60,
-         "Host Save As writes exact native 0.44 Margin left/top/right and Grid y expressions beside authored literals");
+         "Host Save As writes exact native 0.45 Margin left/top/right and Grid y expressions beside authored literals");
 
     Host cold(directory+"/linked-margin-left-cold-recovery");cold.open(destination);
     const auto cold_value=artboard_layout_property(cold.session.document(),target_ref);

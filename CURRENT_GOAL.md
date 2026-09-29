@@ -12,20 +12,20 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Qualify the next exact R02 typed layout-property cell, starting with `Margin.bottom`, without widening source semantics by analogy alone.
+**Goal:** Qualify the next exact R02 typed layout-property cell, starting with `Margin.bottom` expression, without widening source semantics by analogy alone.
 
-**Current phase:** [R02-MARGIN-RIGHT-LINK-01](docs/r02-property-boundary.md) is synchronized at `3b41e1439f55dc5df94ec54578f16a1877a3fa64`; [R02-MARGIN-RIGHT-EXPRESSION-01](docs/r02-property-boundary.md) is implemented and reviewed through native writer 0.44. Select the next cell after exact branch/Route readback. Hands-on GUI rows remain `LOCAL_WAIT`.
+**Current phase:** [R02-MARGIN-BOTTOM-LINK-01](docs/r02-property-boundary.md) is implemented and reviewed through native writer 0.45. Commit and remote SHA readback are the current checkpoint closeout; then fresh-read Route and source consumers for the next cell. Hands-on GUI rows remain `LOCAL_WAIT`.
 
-**Proven:** [R02 property boundary](docs/r02-property-boundary.md) records top/right link and expression on the owning Artboard, exact authored/source/evaluated readback, positive content extents, atomic negatives, closed native 0.44 with 0.43 version-lie rejection, Host Save As/cold reopen, Inspector and Canvas/Grid-copy use. Right-expression focused Release CTest passed 6/6; Sol independently built all Release targets and ran serial CTest **43/43 PASS**. A separate JSON-lines writer/reader retained right literal40, exact expression text and evaluated70 with native bytes unchanged after cold open. [Typed coverage matrix](docs/r02-typed-parameter-matrix.md) keeps bottom/Grid and wider type residuals open. No hands-on GUI acceptance is claimed.
+**Proven:** [R02 property boundary](docs/r02-property-boundary.md) records top/right link and expression plus bottom link on the owning Artboard, exact authored/source/evaluated readback, positive content extents, atomic negatives, closed native 0.45 with 0.44 compatibility, Host Save As/cold reopen, Inspector and Canvas/Grid-copy use. Bottom-link focused Release CTest passed 5/5; Sol independently built all Release targets and ran serial CTest **43/43 PASS**. A separate JSON-lines writer/reader retained bottom literal40, exact source and evaluated60 with native bytes unchanged after cold open. [Typed coverage matrix](docs/r02-typed-parameter-matrix.md) keeps bottom expression, Grid and wider type residuals open. No hands-on GUI acceptance is claimed.
 
-**Next task:** After exact checkpoint sync readback, compare `Margin.bottom` with left/top/right owner, evaluator, Canvas/Inspector/Grid-copy, save schema and direct-edit/duplicate/delete/Undo paths. Record a bounded source and lifecycle decision before freezing implementation. Keep REQ-3/4/42/199 and other matrix residuals open.
+**Next task:** After exact checkpoint sync readback, compare `Margin.bottom` expression with top/right owner, evaluator, Canvas/Inspector/Grid-copy, save schema and direct-edit/duplicate/delete/Undo paths. Record a bounded source and lifecycle decision before freezing implementation. Keep REQ-3/4/42/199 and other matrix residuals open.
 
-**Approach:** Check bottom's vertical content-height invariant and exact Artboard-local source eligibility against existing top and right policies. Resolve ordinary technical ambiguity within accepted intent, retaining one Margin owner and exact source preservation.
+**Approach:** Check bottom's vertical content-height invariant, mutually exclusive driver source policy and exact Artboard-local expression eligibility against existing top/right policies. Resolve ordinary technical ambiguity within accepted intent, retaining one Margin owner and exact source preservation.
 
-**Done for next:** Durable bottom qualification with one bounded packet or concrete local blocker, exact owner/source/negative/acceptance policy and an updated single active checkpoint. Do not claim a whole Route or Requirement complete from one cell.
+**Done for next:** Durable bottom-expression qualification with one bounded packet or concrete local blocker, exact owner/source/negative/acceptance policy and an updated single active checkpoint. Do not claim a whole Route or Requirement complete from one cell.
 
-**State:** Repository D:\Documents\Nect, branch `codex/practical-alpha`, native writer 0.44, all-target Release build and serial CTest 43/43 PASS. The exact synchronized checkpoint HEAD must be read from Git after push. This Task holds the sole Mission writer. The ignored local build directory uses `/EHsc /bigobj` for the current VS2019/Boost build.
+**State:** Repository D:\Documents\Nect, branch `codex/practical-alpha`, native writer 0.45, all-target Release build and serial CTest 43/43 PASS. Exact synchronized checkpoint HEAD must be read from Git after push. This Task holds the sole Mission writer. The ignored local build directory uses `/EHsc /bigobj` for the current VS2019/Boost build.
 
 **Authority:** Current user instruction and DEC-71 authorize Mission continuity, technical decisions within accepted intent, reversible implementation and non-force branch sync. Completion Route R02/P03 and Confirmed Requirements govern scope. Major structure/save redesign, external dependencies, executable extensions, hands-on/subjective acceptance and destructive/public action remain protected.
 
-**Handoff:** CONTINUE_CURRENT_TASK. Bottom qualification is adjacent and the current context remains useful.
+**Handoff:** CONTINUE_CURRENT_TASK. Assess fresh Sol rollover at this semantic checkpoint after exact remote readback, considering context pressure and nearby source-policy reuse.

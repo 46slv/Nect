@@ -1573,3 +1573,24 @@ evaluated value. Native Save As retains the exact expression text and literal;
 versions 0.1–0.43 remain readable and reject a version-lied right expression.
 `schemas/native-v0.44.schema.json` closes the optional field and rejects
 simultaneous right link and expression sources.
+
+## Native 0.45 — Margin bottom Artboard size link
+
+A present Margin retains its authored `bottom` literal and may add an optional
+`bottom_driver: {link: Ref}`. The Ref identifies the width or height of a
+different Artboard in the owning Composition, with an empty point ID. The
+existing Artboard-size evaluator resolves the source, including its parent,
+link or expression chain. Evaluated top plus evaluated bottom must leave
+positive content height on the owner Artboard.
+
+Dedicated revisioned `link_margin_bottom` and `unlink_margin_bottom` commands
+own source changes. Replacing a different source requires `replace_driver`;
+unlink freezes evaluated bottom into the authored literal. Full layout and
+Artboard updates preserve an unchanged source while rejecting direct driven
+edits, Margin clear and source injection. Duplicate Artboard replays the exact
+stable source Ref; deleting a referenced source Artboard is refused. Typed reads
+expose the authored literal, exact link and evaluated bottom, with link support
+and no expression support. Canvas Margin overlay, Inspector and one-shot
+Grid-to-Margin copy consume evaluated bottom. Native Save As retains the literal
+and source; versions 0.1–0.44 remain readable and reject a version-lied bottom
+driver. `schemas/native-v0.45.schema.json` closes the optional field.
