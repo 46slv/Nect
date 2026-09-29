@@ -3808,6 +3808,34 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     check(std::get<std::size_t>(artboard_layout_property(session.document(),grid_rows_target_ref).evaluated)==4&&
         visible_child<QLabel>(window,"grid-rows-source-state")->text().contains("Evaluated: 4"),
         "Grid rows Inspector readback follows source count changes while preserving the target literal");
+    const std::string grid_rows_expression_text="ref(\""+grid_rows_twin_ref.object+"\",\"\",\"grid.rows\") + 1";
+    auto* grid_rows_expression_input=visible_child<QPlainTextEdit>(window,"grid-rows-expression");
+    grid_rows_expression_input->setPlainText(QString::fromStdString(grid_rows_expression_text));
+    const auto before_grid_rows_expression_cancel=session.revision();click("grid-rows-cancel-expression");
+    check(session.revision()==before_grid_rows_expression_cancel&&
+        artboard_layout_property(session.document(),grid_rows_target_ref).driver==grid_rows_twin_ref&&
+        !artboard_layout_property(session.document(),grid_rows_target_ref).expression,
+        "Cancel discards a Grid rows expression draft without changing its linked source");
+    grid_rows_expression_input=visible_child<QPlainTextEdit>(window,"grid-rows-expression");
+    grid_rows_expression_input->setPlainText(QString::fromStdString(grid_rows_expression_text));
+    grid_rows_replace=visible_child<QCheckBox>(window,"grid-rows-replace");reveal(window,grid_rows_replace);
+    grid_rows_replace->setChecked(false);
+    const auto before_unapproved_grid_rows_expression=session.revision();click("grid-rows-apply-expression");
+    check(session.revision()==before_unapproved_grid_rows_expression&&
+        artboard_layout_property(session.document(),grid_rows_target_ref).driver==grid_rows_twin_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_ROWS"),
+        "Replacing a Grid rows link with an expression requires explicit Inspector authorization");
+    grid_rows_replace=visible_child<QCheckBox>(window,"grid-rows-replace");reveal(window,grid_rows_replace);
+    grid_rows_replace->setChecked(true);click("grid-rows-apply-expression");
+    auto expressed_grid_rows=artboard_layout_property(session.document(),grid_rows_target_ref);
+    grid_rows_input=visible_child<QLineEdit>(window,"grid-rows");
+    grid_rows_state=visible_child<QLabel>(window,"grid-rows-source-state");
+    check(session.revision()==before_unapproved_grid_rows_expression+1&&grid_rows_input->isReadOnly()&&
+        !expressed_grid_rows.driver&&expressed_grid_rows.expression==Expression{grid_rows_expression_text,1}&&
+        std::get<std::size_t>(expressed_grid_rows.literal)==grid_rows_literal&&
+        std::get<std::size_t>(expressed_grid_rows.evaluated)==5&&
+        grid_rows_state->text().contains("expression")&&grid_rows_state->text().contains("Evaluated: 5"),
+        "Inspector applies the exact Grid rows expression and keeps its authored integer read-only");
     click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
     const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
@@ -3820,11 +3848,12 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         duplicate->layout->margin->bottom_expression==margin_bottom_expression_source&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
         duplicate->layout->grid->columns_driver==grid_columns_twin_ref&&
-        duplicate->layout->grid->rows_driver==grid_rows_twin_ref&&
+        !duplicate->layout->grid->rows_driver&&
+        duplicate->layout->grid->rows_expression==Expression{grid_rows_expression_text,1}&&
         std::get<std::size_t>(artboard_layout_property(session.document(),
             Ref{duplicate->layout->grid->id,"","grid.rows"}).literal)==grid_rows_literal&&
         std::get<std::size_t>(artboard_layout_property(session.document(),
-            Ref{duplicate->layout->grid->id,"","grid.rows"}).evaluated)==4&&
+            Ref{duplicate->layout->grid->id,"","grid.rows"}).evaluated)==5&&
         std::get<std::size_t>(artboard_layout_property(session.document(),
             Ref{duplicate->layout->grid->id,"","grid.columns"}).literal)==grid_columns_literal&&
         !duplicate->layout->grid->column_gutter_driver&&
@@ -3865,9 +3894,10 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     const auto before_duplicate_grid_rows_unlink=session.revision();click("grid-rows-unlink");
     check(session.revision()==before_duplicate_grid_rows_unlink+1&&
         !artboard_layout_property(session.document(),duplicate_grid_rows_ref).driver&&
-        std::get<std::size_t>(artboard_layout_property(session.document(),duplicate_grid_rows_ref).literal)==4&&
+        !artboard_layout_property(session.document(),duplicate_grid_rows_ref).expression&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),duplicate_grid_rows_ref).literal)==5&&
         !visible_child<QLineEdit>(window,"grid-rows")->isReadOnly(),
-        "Unlinking duplicated Grid rows freezes its evaluated count into the copied literal");
+        "Unlinking duplicated Grid rows freezes its expression-evaluated count into the copied literal");
     const auto before_duplicate_row_gutter_unlink=session.revision();click("grid-row-gutter-unlink");
     check(session.revision()==before_duplicate_row_gutter_unlink+1&&
         !artboard_layout_property(session.document(),duplicate_grid_row_gutter_ref).driver&&
@@ -3960,8 +3990,9 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     const auto unlinked_original_grid_rows=artboard_layout_property(session.document(),grid_rows_target_ref);
     check(!artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver&&
         std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).literal)==20&&
-        !unlinked_original_grid_rows.driver&&std::get<std::size_t>(unlinked_original_grid_rows.literal)==4,
-        "Unlink the original Grid rows and row gutter before replacing its stable Grid ID in recovery setup");
+        !unlinked_original_grid_rows.driver&&!unlinked_original_grid_rows.expression&&
+        std::get<std::size_t>(unlinked_original_grid_rows.literal)==5,
+        "Unlink the original expression-driven Grid rows and row gutter before replacing its stable Grid ID in recovery setup");
     session.apply({SetArtboardLayout{composition_id,board_id,
                        ArtboardLayout{Margin{25,0,0,0},Grid{"recovery-grid",{25,0,100,100},2,1,10,0}}},
                    AddGuide{composition_id,{"recovery-guide","Recovery","y",25}}},session.revision());

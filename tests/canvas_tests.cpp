@@ -492,6 +492,43 @@ void snap_guide_grid_priority_visibility_and_controls() {
         f.release(end);f.no_error();
     }
     {
+        auto document=grid_guide_snap_document(500);
+        auto& target_grid=*document.compositions.front().artboards.front().layout->grid;
+        target_grid.rows=1;
+        const Ref source{"grid-rows-expression-snap-source","","grid.rows"};
+        Artboard source_board{"grid-rows-expression-snap-source-board","Rows expression source",0,0,100,100};
+        ArtboardLayout source_layout;source_layout.grid=Grid{source.object,{0,0,100,100},1,3,0,0};
+        source_board.layout=source_layout;document.compositions.front().artboards.push_back(source_board);
+        Fixture f(document);const Ref target{"grid-snap","","grid.rows"};
+        const Expression expression{R"(ref("grid-rows-expression-snap-source","","grid.rows") + 1)",1};
+        f.session.apply({GridRowsCommand{SetGridRowsExpression{target,expression,false}}},f.session.revision());
+        f.canvas.refresh();f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);f.canvas.set_selection("path");
+        auto start=f.screen(140,130),end=f.screen(140,75);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),-55,
+            "Vertical Grid Snap uses the expression-evaluated four-row first boundary");
+        check(f.canvas.last_snap_feedback().contains("row 1 boundary")&&
+              std::get<std::size_t>(artboard_layout_property(f.session.document(),target).literal)==1&&
+              artboard_layout_property(f.session.document(),target).expression==expression&&
+              std::get<std::size_t>(artboard_layout_property(f.session.document(),target).evaluated)==4,
+            "Canvas Snap preserves the authored row count and exact expression while using its evaluated integer");
+        f.release(end);
+        auto update=f.session.document().compositions.front().artboards.back();update.layout->grid->rows=4;
+        f.session.apply({SetArtboardLayout{f.session.document().compositions.front().id,update.id,update.layout}},
+            f.session.revision());
+        f.session.apply({Set{{"path","","transform.ty"},0}},f.session.revision());f.canvas.refresh();
+        start=f.screen(140,130);end=f.screen(140,70);f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),-60,
+            "Vertical Grid Snap follows the expression source from four to five evaluated rows");
+        const auto updated_rows=artboard_layout_property(f.session.document(),target);
+        check(f.canvas.last_snap_feedback().contains("row 4 boundary")&&
+              std::get<std::size_t>(updated_rows.evaluated)==5,
+            ("Canvas expression Snap follows a source count change to the exact new row boundary: feedback="+
+                f.canvas.last_snap_feedback().toStdString()+" evaluated="+
+                std::to_string(std::get<std::size_t>(updated_rows.evaluated))).c_str());
+        f.release(end);f.no_error();
+    }
+    {
         auto document=grid_guide_snap_document(200);
         document.compositions.front().guides.push_back({"guide-a","Stable ID tie winner","x",200});
         Fixture f(document);f.canvas.set_selection("path");
@@ -2071,6 +2108,26 @@ void grid_rows_overlay_tracks_evaluated_source() {
         ("Canvas Grid overlay follows evaluated rows: new_boundary_pixels="+std::to_string(updated_count)+
             " old_boundary_pixels="+std::to_string(old_count)+" evaluated="+
             std::to_string(std::get<std::size_t>(updated_rows.evaluated))).c_str());
+    const Expression expression{R"(ref("rows-overlay-source-grid","","grid.rows") + 1)",1};
+    session.apply({GridRowsCommand{SetGridRowsExpression{target,expression,true}}},session.revision());
+    canvas.refresh();QApplication::processEvents();
+    const auto expressed=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    const auto expression_rows=artboard_layout_property(session.document(),target);
+    check(count_horizontal(expressed,44)>20&&expression_rows.expression==expression&&
+        std::get<std::size_t>(expression_rows.literal)==2&&std::get<std::size_t>(expression_rows.evaluated)==5,
+        "Canvas Grid overlay draws the first boundary for five expression-evaluated rows while retaining literal 2");
+    updated=std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[](const Artboard& value){
+            return value.id=="rows-overlay-source-board";
+        });
+    source_update=*updated;source_update.layout->grid->rows=3;
+    session.apply({SetArtboardLayout{session.document().compositions.front().id,source_update.id,source_update.layout}},
+        session.revision());
+    canvas.refresh();QApplication::processEvents();
+    const auto expression_updated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_horizontal(expression_updated,52.5)>20&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==4,
+        "Canvas Grid overlay follows upstream source changes through the active rows expression");
 }
 } // namespace
 

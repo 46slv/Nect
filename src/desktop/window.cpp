@@ -1556,6 +1556,8 @@ void Window::add_artboard(bool duplicate) {
         board.layout->grid->columns_expression:std::optional<Expression>{};
     const auto grid_rows_driver=duplicate&&board.layout&&board.layout->grid?
         board.layout->grid->rows_driver:std::optional<Ref>{};
+    const auto grid_rows_expression=duplicate&&board.layout&&board.layout->grid?
+        board.layout->grid->rows_expression:std::optional<Expression>{};
     const auto grid_row_gutter_driver=duplicate&&board.layout&&board.layout->grid?
         board.layout->grid->row_gutter_driver:std::optional<Ref>{};
     const auto grid_row_gutter_expression=duplicate&&board.layout&&board.layout->grid?
@@ -1571,6 +1573,7 @@ void Window::add_artboard(bool duplicate) {
         board.layout->grid->columns_driver.reset();
         board.layout->grid->columns_expression.reset();
         board.layout->grid->rows_driver.reset();
+        board.layout->grid->rows_expression.reset();
         board.layout->grid->column_gutter_driver.reset();
         board.layout->grid->column_gutter_expression.reset();
         board.layout->grid->row_gutter_driver.reset();
@@ -1610,6 +1613,8 @@ void Window::add_artboard(bool duplicate) {
         {board.layout->grid->id,"","grid.columns"},*grid_columns_expression,false}});
     if(grid_rows_driver)commands.push_back(GridRowsCommand{LinkGridRows{
         {board.layout->grid->id,"","grid.rows"},*grid_rows_driver,false}});
+    else if(grid_rows_expression)commands.push_back(GridRowsCommand{SetGridRowsExpression{
+        {board.layout->grid->id,"","grid.rows"},*grid_rows_expression,false}});
     if(grid_bounds_x_driver)commands.push_back(GridBoundsXCommand{LinkGridBoundsX{{board.layout->grid->id,"","grid.bounds.x"},*grid_bounds_x_driver,false}});
     else if(grid_bounds_x_expression)commands.push_back(GridBoundsXCommand{SetGridBoundsXExpression{{board.layout->grid->id,"","grid.bounds.x"},*grid_bounds_x_expression,false}});
     if(grid_bounds_y_driver)commands.push_back(GridBoundsYCommand{LinkGridBoundsY{{board.layout->grid->id,"","grid.bounds.y"},*grid_bounds_y_driver,false}});
@@ -2239,6 +2244,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto grid_columns_driver=board.layout&&board.layout->grid?board.layout->grid->columns_driver:std::optional<Ref>{};
     const auto grid_columns_expression=board.layout&&board.layout->grid?board.layout->grid->columns_expression:std::optional<Expression>{};
     const auto grid_rows_driver=board.layout&&board.layout->grid?board.layout->grid->rows_driver:std::optional<Ref>{};
+    const auto grid_rows_expression=board.layout&&board.layout->grid?board.layout->grid->rows_expression:std::optional<Expression>{};
     const auto grid_row_gutter_driver=board.layout&&board.layout->grid?board.layout->grid->row_gutter_driver:std::optional<Ref>{};
     const auto grid_row_gutter_expression=board.layout&&board.layout->grid?board.layout->grid->row_gutter_expression:std::optional<Expression>{};
     const bool grid_bounds_x_is_driven=grid_bounds_x_driver.has_value()||grid_bounds_x_expression.has_value();
@@ -2246,7 +2252,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const bool grid_bounds_width_is_driven=grid_bounds_width_driver.has_value()||grid_bounds_width_expression.has_value();
     const bool grid_bounds_height_is_driven=grid_bounds_height_driver.has_value()||grid_bounds_height_expression.has_value();
     const bool grid_columns_is_driven=grid_columns_driver.has_value()||grid_columns_expression.has_value();
-    const bool grid_rows_is_driven=grid_rows_driver.has_value();
+    const bool grid_rows_is_driven=grid_rows_driver.has_value()||grid_rows_expression.has_value();
     const bool grid_column_gutter_is_driven=grid_column_gutter_driver.has_value()||grid_column_gutter_expression.has_value();
     const bool grid_row_gutter_is_driven=grid_row_gutter_driver.has_value()||grid_row_gutter_expression.has_value();
     auto* grid_x=make_number(grid_box,"grid-x","Grid X",QString::number(initial_grid.bounds.x,'g',15));
@@ -2292,7 +2298,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto authored_grid_width=initial_grid.bounds.width;
     const LayoutBuilder grid_builder=[read,composition,id,parse_number,parse_count,set_layout_command,grid_id,grid_x,grid_y,grid_width,grid_height,grid_columns,grid_rows,grid_column_gutter,grid_row_gutter,
         grid_columns_driver,grid_columns_expression,grid_columns_is_driven,authored_grid_columns=initial_grid.columns,
-        grid_rows_driver,grid_rows_is_driven,authored_grid_rows=initial_grid.rows,
+        grid_rows_driver,grid_rows_expression,grid_rows_is_driven,authored_grid_rows=initial_grid.rows,
         grid_bounds_x_driver,grid_bounds_x_expression,grid_bounds_x_is_driven,authored_grid_x,grid_bounds_y_driver,grid_bounds_y_expression,grid_bounds_y_is_driven,authored_grid_y,
         grid_bounds_width_driver,grid_bounds_width_expression,grid_bounds_width_is_driven,authored_grid_width,
         grid_bounds_height_driver,grid_bounds_height_expression,grid_bounds_height_is_driven,
@@ -2311,6 +2317,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         grid.columns_driver=grid_columns_driver;
         grid.columns_expression=grid_columns_expression;
         grid.rows_driver=grid_rows_driver;
+        grid.rows_expression=grid_rows_expression;
         grid.column_gutter_driver=grid_column_gutter_driver;
         grid.column_gutter_expression=grid_column_gutter_expression;
         grid.row_gutter_driver=grid_row_gutter_driver;
@@ -2487,7 +2494,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         const auto source_name=source_board==comp.artboards.end()?QString("Missing Grid"):
             qs(source_board->name)+" · Grid";
         grid_rows_source_description="link · "+source_name+" ("+qs(grid_rows_driver->object)+"/grid.rows)";
-    }
+    } else if(grid_rows_expression)grid_rows_source_description="expression · "+qs(grid_rows_expression->source);
     grid_rows_source_state->setWordWrap(true);
     grid_rows_source_state->setText("Source: "+grid_rows_source_description+
         " · Literal: "+QString::number(static_cast<qulonglong>(initial_grid.rows))+" · Evaluated: "+
@@ -2541,6 +2548,27 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         perform([&]{grid_source_commit({GridRowsCommand{UnlinkGridRows{grid_rows_ref}}});});
     });
     connect(grid_rows_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    auto* grid_rows_expression_input=new ExpressionInput;
+    grid_rows_expression_input->setParent(grid_rows_source_box);
+    grid_rows_expression_input->setObjectName("grid-rows-expression");
+    grid_rows_expression_input->setAccessibleName("Grid rows expression draft");
+    grid_rows_expression_input->setPlaceholderText("unitless expression using Grid rows ref() values");
+    if(grid_rows_expression)grid_rows_expression_input->setPlainText(qs(grid_rows_expression->source));
+    grid_rows_source_layout->addWidget(grid_rows_expression_input);
+    auto* grid_rows_expression_actions=new QHBoxLayout;grid_rows_source_layout->addLayout(grid_rows_expression_actions);
+    auto* grid_rows_expression_apply=new QPushButton("Apply expression",grid_rows_source_box);
+    grid_rows_expression_apply->setObjectName("grid-rows-apply-expression");
+    grid_rows_expression_apply->setEnabled(board.layout&&board.layout->grid);
+    grid_rows_expression_actions->addWidget(grid_rows_expression_apply);
+    auto* grid_rows_expression_cancel=new QPushButton("Cancel expression",grid_rows_source_box);
+    grid_rows_expression_cancel->setObjectName("grid-rows-cancel-expression");
+    grid_rows_expression_actions->addWidget(grid_rows_expression_cancel);
+    connect(grid_rows_expression_apply,&QPushButton::clicked,this,
+        [this,grid_rows_expression_input,grid_rows_replace,grid_rows_ref,grid_source_commit]{perform([&]{
+        grid_source_commit({GridRowsCommand{SetGridRowsExpression{grid_rows_ref,
+            {grid_rows_expression_input->toPlainText().toStdString(),1},grid_rows_replace->isChecked()}}});
+    });});
+    connect(grid_rows_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
     const Ref grid_bounds_x_ref{grid_id,"","grid.bounds.x"};
     const Ref grid_bounds_y_ref{grid_id,"","grid.bounds.y"};
     auto* grid_y_source_box=new QGroupBox("Y source",grid_box);grid_y_source_box->setObjectName("grid-bounds-y-source");
