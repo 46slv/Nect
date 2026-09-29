@@ -296,6 +296,7 @@ struct Grid {
     std::size_t columns=1,rows=1;
     double column_gutter=0,row_gutter=0;
     std::optional<Ref> column_gutter_driver;
+    std::optional<Ref> row_gutter_driver;
     std::optional<Ref> bounds_x_driver;
     std::optional<Expression> bounds_x_expression;
     std::optional<Ref> bounds_y_driver;
@@ -454,6 +455,8 @@ struct SetGridBoundsHeightExpression { Ref target; Expression expression; bool r
 struct UnlinkGridBoundsHeight { Ref target; };
 struct LinkGridColumnGutter { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkGridColumnGutter { Ref target; };
+struct LinkGridRowGutter { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkGridRowGutter { Ref target; };
 struct LayoutDependencyCommand {
     std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkMarginTop,SetMarginTopExpression,UnlinkMarginTop,
         LinkMarginRight,SetMarginRightExpression,UnlinkMarginRight,
@@ -462,7 +465,7 @@ struct LayoutDependencyCommand {
         LinkGridBoundsY,SetGridBoundsYExpression,UnlinkGridBoundsY,
         LinkGridBoundsWidth,SetGridBoundsWidthExpression,UnlinkGridBoundsWidth,
         LinkGridBoundsHeight,SetGridBoundsHeightExpression,UnlinkGridBoundsHeight,
-        LinkGridColumnGutter,UnlinkGridColumnGutter> operation;
+        LinkGridColumnGutter,UnlinkGridColumnGutter,LinkGridRowGutter,UnlinkGridRowGutter> operation;
     LayoutDependencyCommand(LinkMarginLeft value):operation(std::move(value)){}
     LayoutDependencyCommand(SetMarginLeftExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkMarginLeft value):operation(std::move(value)){}
@@ -489,6 +492,8 @@ struct LayoutDependencyCommand {
     LayoutDependencyCommand(UnlinkGridBoundsHeight value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkGridColumnGutter value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkGridColumnGutter value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridRowGutter value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridRowGutter value):operation(std::move(value)){}
 };
 using MarginLeftCommand=LayoutDependencyCommand;
 using MarginTopCommand=LayoutDependencyCommand;
@@ -499,6 +504,7 @@ using GridBoundsYCommand=LayoutDependencyCommand;
 using GridBoundsWidthCommand=LayoutDependencyCommand;
 using GridBoundsHeightCommand=LayoutDependencyCommand;
 using GridColumnGutterCommand=LayoutDependencyCommand;
+using GridRowGutterCommand=LayoutDependencyCommand;
 struct AddGuide { Id composition; Guide guide; };
 struct UpdateGuide { Id composition; Guide guide; };
 struct DeleteGuide { Id composition; Id guide_id; };

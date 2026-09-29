@@ -577,6 +577,39 @@ void snap_guide_grid_priority_visibility_and_controls() {
     }
     {
         auto document=grid_guide_snap_document(500);
+        auto& grid=*document.compositions.front().artboards.front().layout->grid;
+        grid.bounds.height=100;grid.rows=2;grid.row_gutter=20;
+        const Id grid_id=grid.id;
+        const Ref source{"grid-row-gutter-snap-source","","artboard.height"};
+        document.compositions.front().artboards.push_back({source.object,"Grid row gutter source",0,0,100,20});
+        Fixture f(document);const Ref target{grid_id,"","grid.row_gutter"};
+        f.session.apply({GridRowGutterCommand{LinkGridRowGutter{target,source,false}}},f.session.revision());
+        f.canvas.refresh();f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);f.canvas.set_selection("path");
+        auto start=f.screen(140,130),end=f.screen(140,60);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),-70,
+            "Vertical Grid Snap uses the linked row gutter at the first row boundary");
+        check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
+              f.canvas.last_snap_feedback().contains("row 1 boundary"),
+            "Linked row gutter Snap feedback identifies the stable Grid cell boundary");
+        f.release(end);
+        auto value=artboard_layout_property(f.session.document(),target);
+        check(std::get<double>(value.literal)==20&&value.driver==source&&std::get<double>(value.evaluated)==20,
+            "Canvas Snap preserves the authored row gutter while using its evaluated Artboard height source");
+        auto source_board=f.session.document().compositions.front().artboards.back();source_board.height=40;
+        f.session.apply({UpdateArtboard{f.session.document().compositions.front().id,source_board}},f.session.revision());
+        f.canvas.refresh();
+        start=f.screen(140,60);end=f.screen(140,50);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),-80,
+            "Vertical Grid Snap follows an upstream row gutter change to the moved first-row boundary");
+        check(f.canvas.last_snap_feedback().contains("row 1 boundary")&&
+              std::get<double>(artboard_layout_property(f.session.document(),target).evaluated)==40,
+            "Updated Grid row gutter remains the active evaluated vertical Snap target");
+        f.release(end);f.no_error();
+    }
+    {
+        auto document=grid_guide_snap_document(500);
         auto& target=*document.compositions.front().artboards.front().layout->grid;
         target.bounds.height=100;
         const Id grid_id=target.id;
@@ -1683,6 +1716,48 @@ void layout_overlays_are_view_only_and_not_exported() {
         "Overlay visibility changes no authored state or history");
     Canvas second(session);check(second.show_guides()&&second.show_grid()&&second.show_margin(),"A second Canvas has independent default visibility state");
 }
+
+void grid_row_gutter_overlay_tracks_evaluated_source() {
+    auto document=empty_document("row-gutter-overlay-document","row-gutter-overlay-composition","row-gutter-overlay-board");
+    auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
+    const Id grid_id="row-gutter-overlay-grid";
+    board.layout=ArtboardLayout{std::nullopt,Grid{grid_id,{20,20,160,100},2,2,10,10}};
+    const Ref source{"row-gutter-overlay-source","","artboard.height"};
+    document.compositions.front().artboards.push_back({source.object,"Row gutter source",240,0,40,20});
+    Session session(std::move(document));const Ref target{grid_id,"","grid.row_gutter"};
+    session.apply({GridRowGutterCommand{LinkGridRowGutter{target,source,false}}},session.revision());
+    Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
+    canvas.fit_artboard();QApplication::processEvents();
+    const auto count_horizontal=[&](const QImage& image,double world_y) {
+        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
+        const int pixel_y=qRound((canvas.height()/2.0+(world_y-80)*canvas.zoom())*scale);int pixels=0;
+        const int left=qRound((canvas.width()/2.0+(20-100)*canvas.zoom())*scale);
+        const int right=qRound((canvas.width()/2.0+(180-100)*canvas.zoom())*scale);
+        for(int x=left;x<=right;++x)for(int y=pixel_y-qMax(2,qRound(2*scale));y<=pixel_y+qMax(2,qRound(2*scale));++y) {
+            const auto pixel=image.pixelColor(x,y);
+            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+        }
+        return pixels;
+    };
+    const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_horizontal(linked,60)>20&&count_horizontal(linked,80)>20&&
+        count_horizontal(linked,65)<=20&&count_horizontal(linked,75)<=20&&
+        std::get<double>(artboard_layout_property(session.document(),target).literal)==10&&
+        std::get<double>(artboard_layout_property(session.document(),target).evaluated)==20,
+        ("Canvas row overlay draws both evaluated Grid row gutter edges while preserving the authored literal: edges="+
+            std::to_string(count_horizontal(linked,60))+","+std::to_string(count_horizontal(linked,80))+" literal="+
+            std::to_string(count_horizontal(linked,65))+","+std::to_string(count_horizontal(linked,75))).c_str());
+    auto upstream=session.document().compositions.front().artboards.back();upstream.height=30;
+    session.apply({UpdateArtboard{session.document().compositions.front().id,upstream}},session.revision());
+    canvas.refresh();QApplication::processEvents();
+    const auto updated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_horizontal(updated,55)>20&&count_horizontal(updated,85)>20&&
+        count_horizontal(updated,60)<=20&&count_horizontal(updated,80)<=20&&
+        std::get<double>(artboard_layout_property(session.document(),target).evaluated)==30,
+        ("Canvas row overlay moves both gutter edges when its upstream Artboard height changes: edges="+
+            std::to_string(count_horizontal(updated,55))+","+std::to_string(count_horizontal(updated,85))+" old="+
+            std::to_string(count_horizontal(updated,60))+","+std::to_string(count_horizontal(updated,80))).c_str());
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1711,6 +1786,7 @@ int main(int argc, char** argv) {
         snap_visibility_and_parent_coordinates();
         guide_drag_uses_stable_identity_and_one_session_undo();
         layout_overlays_are_view_only_and_not_exported();
+        grid_row_gutter_overlay_tracks_evaluated_source();
         std::cout << "Canvas widget contract: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
