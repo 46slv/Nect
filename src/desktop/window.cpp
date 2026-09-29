@@ -1522,6 +1522,8 @@ void Window::add_artboard(bool duplicate) {
         board.layout->margin->top_driver:std::optional<Ref>{};
     const auto margin_top_expression=duplicate&&board.layout&&board.layout->margin?
         board.layout->margin->top_expression:std::optional<Expression>{};
+    const auto margin_right_driver=duplicate&&board.layout&&board.layout->margin?
+        board.layout->margin->right_driver:std::optional<Ref>{};
     const auto grid_bounds_x_driver=duplicate&&board.layout&&board.layout->grid?
         board.layout->grid->bounds_x_driver:std::optional<Ref>{};
     const auto grid_bounds_x_expression=duplicate&&board.layout&&board.layout->grid?
@@ -1533,6 +1535,7 @@ void Window::add_artboard(bool duplicate) {
     if(duplicate&&board.layout&&board.layout->margin) {
         board.layout->margin->left_driver.reset();board.layout->margin->left_expression.reset();
         board.layout->margin->top_driver.reset();board.layout->margin->top_expression.reset();
+        board.layout->margin->right_driver.reset();
     }
     if(duplicate&&board.layout&&board.layout->grid) {
         board.layout->grid->bounds_x_driver.reset();board.layout->grid->bounds_x_expression.reset();
@@ -1553,6 +1556,7 @@ void Window::add_artboard(bool duplicate) {
     if(margin_top_driver)commands.push_back(MarginTopCommand{LinkMarginTop{{board_id,"","margin.top"},*margin_top_driver,false}});
     else if(margin_top_expression)commands.push_back(MarginTopCommand{SetMarginTopExpression{
         {board_id,"","margin.top"},*margin_top_expression,false}});
+    if(margin_right_driver)commands.push_back(MarginRightCommand{LinkMarginRight{{board_id,"","margin.right"},*margin_right_driver,false}});
     if(grid_bounds_x_driver)commands.push_back(GridBoundsXCommand{LinkGridBoundsX{{board.layout->grid->id,"","grid.bounds.x"},*grid_bounds_x_driver,false}});
     else if(grid_bounds_x_expression)commands.push_back(GridBoundsXCommand{SetGridBoundsXExpression{{board.layout->grid->id,"","grid.bounds.x"},*grid_bounds_x_expression,false}});
     if(grid_bounds_y_driver)commands.push_back(GridBoundsYCommand{LinkGridBoundsY{{board.layout->grid->id,"","grid.bounds.y"},*grid_bounds_y_driver,false}});
@@ -1773,25 +1777,32 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto margin_left_expression=board.layout&&board.layout->margin?board.layout->margin->left_expression:std::optional<Expression>{};
     const auto margin_top_driver=board.layout&&board.layout->margin?board.layout->margin->top_driver:std::optional<Ref>{};
     const auto margin_top_authored_expression=board.layout&&board.layout->margin?board.layout->margin->top_expression:std::optional<Expression>{};
+    const auto margin_right_driver=board.layout&&board.layout->margin?board.layout->margin->right_driver:std::optional<Ref>{};
     const bool margin_left_is_driven=margin_left_driver.has_value()||margin_left_expression.has_value();
     margin_left->setReadOnly(margin_left_is_driven);
     margin_left->setToolTip(margin_left_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin inset in du.");
     const bool margin_top_is_driven=margin_top_driver.has_value()||margin_top_authored_expression.has_value();
     margin_top->setReadOnly(margin_top_is_driven);
     margin_top->setToolTip(margin_top_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin inset in du.");
+    const bool margin_right_is_driven=margin_right_driver.has_value();
+    margin_right->setReadOnly(margin_right_is_driven);
+    margin_right->setToolTip(margin_right_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin inset in du.");
     margin_form->addRow("Left · du",margin_left);margin_form->addRow("Top · du",margin_top);
     margin_form->addRow("Right · du",margin_right);margin_form->addRow("Bottom · du",margin_bottom);
     const auto authored_margin_left=initial_margin.left;
     const auto authored_margin_top=initial_margin.top;
+    const auto authored_margin_right=initial_margin.right;
     const LayoutBuilder margin_builder=[read,composition,id,parse_number,set_layout_command,margin_left,margin_top,margin_right,margin_bottom,
         margin_left_driver,margin_left_expression,margin_left_is_driven,authored_margin_left,
-        margin_top_driver,margin_top_authored_expression,margin_top_is_driven,authored_margin_top] {
+        margin_top_driver,margin_top_authored_expression,margin_top_is_driven,authored_margin_top,
+        margin_right_driver,margin_right_is_driven,authored_margin_right] {
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});
         value.margin=Margin{margin_left_is_driven?authored_margin_left:parse_number(margin_left),
             margin_top_is_driven?authored_margin_top:parse_number(margin_top),
-            parse_number(margin_right),parse_number(margin_bottom)};
+            margin_right_is_driven?authored_margin_right:parse_number(margin_right),parse_number(margin_bottom)};
         value.margin->left_driver=margin_left_driver;value.margin->left_expression=margin_left_expression;
         value.margin->top_driver=margin_top_driver;value.margin->top_expression=margin_top_authored_expression;
+        value.margin->right_driver=margin_right_driver;
         return set_layout_command(value);
     };
     auto* margin_source_box=new QGroupBox("Left source",margin_box);margin_source_box->setObjectName("margin-left-source");
@@ -1945,12 +1956,73 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             {margin_top_expression->toPlainText().toStdString(),1},margin_top_replace->isChecked()}}});
     });});
     connect(margin_top_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    const Ref margin_right_ref{id,"","margin.right"};
+    auto* margin_right_source_box=new QGroupBox("Right source",margin_box);margin_right_source_box->setObjectName("margin-right-source");
+    auto* margin_right_source_layout=new QVBoxLayout(margin_right_source_box);
+    auto* margin_right_source_state=new QLabel(margin_right_source_box);margin_right_source_state->setObjectName("margin-right-source-state");
+    QString margin_right_source_description="literal";
+    if(margin_right_driver) {
+        const auto source_board=std::find_if(comp.artboards.begin(),comp.artboards.end(),[&](const Artboard& candidate) {
+            return candidate.id==margin_right_driver->object;
+        });
+        const auto source_name=source_board==comp.artboards.end()?QString("Missing Artboard"):qs(source_board->name);
+        margin_right_source_description="link · "+source_name+" ("+qs(margin_right_driver->object)+"/"+qs(margin_right_driver->field)+")";
+    }
+    margin_right_source_state->setWordWrap(true);
+    margin_right_source_state->setText("Source: "+margin_right_source_description+" · Literal: "+display_value(initial_margin.right)+
+        " du · Evaluated: "+display_value(resolved.layout&&resolved.layout->margin?resolved.layout->margin->right:initial_margin.right)+" du");
+    margin_right_source_layout->addWidget(margin_right_source_state);
+    auto* margin_right_source=new QComboBox(margin_right_source_box);margin_right_source->setObjectName("margin-right-link-source");
+    margin_right_source->setAccessibleName("Margin right Artboard size source");
+    std::vector<Ref> margin_right_sources;QStringList margin_right_source_labels;
+    for(const auto& candidate:comp.artboards)for(const bool source_width:{true,false}) {
+        if(candidate.id==id)continue;
+        Ref source{candidate.id,"",source_width?"artboard.width":"artboard.height"};
+        margin_right_sources.push_back(source);
+        margin_right_source_labels.push_back(qs(candidate.name)+" · "+(source_width?"width":"height")+
+            " ("+qs(candidate.id)+"/"+qs(source.field)+")");
+    }
+    auto* margin_right_search=add_artboard_source_search(margin_right_source_box,margin_right_source_layout,
+        margin_right_source,margin_right_sources,margin_right_source_labels,margin_right_driver);
+    margin_right_source_layout->addWidget(margin_right_source);
+    auto* margin_right_replace=new QCheckBox("Replace current right source",margin_right_source_box);
+    margin_right_replace->setObjectName("margin-right-replace");margin_right_replace->setEnabled(margin_right_is_driven);
+    margin_right_source_layout->addWidget(margin_right_replace);
+    auto* margin_right_actions=new QHBoxLayout;margin_right_source_layout->addLayout(margin_right_actions);
+    auto* margin_right_link=new QPushButton("Link",margin_right_source_box);margin_right_link->setObjectName("margin-right-link");
+    const bool margin_right_link_available=board.layout&&board.layout->margin&&!margin_right_sources.empty();
+    margin_right_link->setEnabled(margin_right_link_available&&margin_right_source->currentIndex()>=0);
+    margin_right_actions->addWidget(margin_right_link);
+    connect(margin_right_source,qOverload<int>(&QComboBox::currentIndexChanged),this,
+        [margin_right_link,margin_right_link_available](int index){margin_right_link->setEnabled(margin_right_link_available&&index>=0);});
+    connect(margin_right_search,&QLineEdit::textChanged,this,[margin_right_source,margin_right_link,margin_right_link_available](const QString&){
+        margin_right_link->setEnabled(margin_right_link_available&&margin_right_source->currentIndex()>=0);
+    });
+    auto* margin_right_unlink=new QPushButton("Unlink · keep value",margin_right_source_box);
+    margin_right_unlink->setObjectName("margin-right-unlink");margin_right_unlink->setEnabled(margin_right_is_driven);
+    margin_right_actions->addWidget(margin_right_unlink);
+    auto* margin_right_cancel=new QPushButton("Cancel draft",margin_right_source_box);
+    margin_right_cancel->setObjectName("margin-right-cancel");margin_right_actions->addWidget(margin_right_cancel);
+    margin_form->addRow(margin_right_source_box);
+    connect(margin_right_link,&QPushButton::clicked,this,[this,margin_right_source,margin_right_sources,margin_right_ref,
+        margin_right_replace,margin_source_commit]{perform([&]{
+        bool valid=false;const auto candidate=margin_right_source->currentData(Qt::UserRole).toInt(&valid);
+        if(margin_right_source->currentIndex()<0||!valid||candidate<0||static_cast<std::size_t>(candidate)>=margin_right_sources.size())
+            throw Error("NO_SOURCE","Choose an Artboard size source");
+        margin_source_commit({MarginRightCommand{LinkMarginRight{margin_right_ref,
+            margin_right_sources[static_cast<std::size_t>(candidate)],margin_right_replace->isChecked()}}});
+    });});
+    connect(margin_right_unlink,&QPushButton::clicked,this,[this,margin_right_ref,margin_source_commit]{
+        perform([&]{margin_source_commit({MarginRightCommand{UnlinkMarginRight{margin_right_ref}}});});
+    });
+    connect(margin_right_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
     auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new QHBoxLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
     auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(board.layout&&board.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
     if(!margin_left_is_driven)bind_number(margin_left,margin_box,margin_builder);
     if(!margin_top_is_driven)bind_number(margin_top,margin_box,margin_builder);
-    for(auto* input:{margin_right,margin_bottom})bind_number(input,margin_box,margin_builder);
+    if(!margin_right_is_driven)bind_number(margin_right,margin_box,margin_builder);
+    bind_number(margin_bottom,margin_box,margin_builder);
     connect(margin_apply,&QPushButton::clicked,this,[commit_from,margin_box,margin_builder]{commit_from(margin_box,margin_builder);});
     connect(margin_clear,&QPushButton::clicked,this,[this,read,composition,id,commit_explicit,margin_box] {
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});value.margin.reset();
@@ -2163,10 +2235,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         const auto current=read();
         if(!current.layout||!current.layout->margin) {statusBar()->showMessage("INVALID_LAYOUT: Add an authored Margin before copying its box",12000);return;}
         const auto board_now=evaluate_artboard(find_composition(host.session.document(),composition),id);
-        const auto& authored_margin=*current.layout->margin;const auto& margin=*board_now.layout->margin;auto value=current.layout.value();
+        const auto& margin=*board_now.layout->margin;auto value=current.layout.value();
         auto grid=value.grid.value_or(Grid{grid_id,{},1,1,0,0});
-        grid.bounds={margin.left,margin.top,board_now.width-margin.left-authored_margin.right,
-            board_now.height-margin.top-authored_margin.bottom};
+        grid.bounds={margin.left,margin.top,board_now.width-margin.left-margin.right,
+            board_now.height-margin.top-current.layout->margin->bottom};
         value.grid=std::move(grid);
         commit_explicit(grid_box,[composition,id,value]{return std::vector<Command>{SetArtboardLayout{composition,id,value}};});
     });

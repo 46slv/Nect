@@ -1396,6 +1396,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     const Ref margin_source{"overlay-margin-source","","artboard.width"};
     const Ref grid_source{"overlay-grid-source","","artboard.width"};
     board.layout->margin->left_driver=margin_source;
+    board.layout->margin->right_driver=margin_source;
     board.layout->grid->bounds_x_expression=Expression{R"(ref("overlay-grid-source","","artboard.width"))",1};
     board.layout->grid->bounds.height=95;
     board.layout->grid->bounds_y_driver=grid_source;
@@ -1466,6 +1467,8 @@ void layout_overlays_are_view_only_and_not_exported() {
             std::to_string(evaluated_guide_pixels)+", literal="+std::to_string(literal_guide_pixels)+")");
     check(count_margin_pixels(linked_image,18)>20&&count_margin_pixels(linked_image,10)<20,
         "Canvas paints the linked Margin inset at its evaluated Artboard width, not its authored literal");
+    check(count_margin_pixels(linked_image,182)>20&&count_margin_pixels(linked_image,180)<20,
+        "Canvas paints the linked right inset at its evaluated Artboard width, not its authored literal");
     check(count_margin_top_pixels(linked_image,15)>20,
         "Canvas paints the literal Margin top inset on the active Artboard");
     check(count_grid_pixels(linked_image,55)>20&&count_grid_pixels(linked_image,20)<20,
@@ -1485,6 +1488,9 @@ void layout_overlays_are_view_only_and_not_exported() {
     check(count_margin_pixels(expression_image,20)>20&&count_margin_pixels(expression_image,18)<20&&
         artboard_layout_property(session.document(),{"overlay-artboard","","margin.left"}).source_kind=="expression",
         "Canvas paints Margin left at its evaluated Artboard-size expression instead of the authored literal");
+    check(count_margin_pixels(expression_image,182)>20&&count_margin_pixels(expression_image,180)<20&&
+        artboard_layout_property(session.document(),{"overlay-artboard","","margin.right"}).source_kind=="link",
+        "Canvas paints Margin right from its evaluated Artboard-size source rather than the authored literal");
     check(count_margin_top_pixels(expression_image,20)>20&&count_margin_top_pixels(expression_image,15)<20&&
         artboard_layout_property(session.document(),{"overlay-artboard","","margin.top"}).source_kind=="expression",
         "Canvas paints Margin top at its evaluated Artboard-size expression instead of the authored literal");
@@ -1498,6 +1504,7 @@ void layout_overlays_are_view_only_and_not_exported() {
           count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,28)>20&&
           count_margin_pixels(preview_image,20)<20&&count_margin_pixels(preview_image,18)<20&&
           count_margin_top_pixels(preview_image,40)>20&&count_margin_top_pixels(preview_image,20)<20&&
+          count_margin_pixels(preview_image,174)>20&&count_margin_pixels(preview_image,180)<20&&
           count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20&&
           count_grid_y_pixels(preview_image,65)>20&&count_grid_y_pixels(preview_image,55)<20&&count_grid_y_pixels(preview_image,25)<20,
         "Canvas Guide, expression Margin and Grid x/y overlays follow evaluated sources in the Session preview document");

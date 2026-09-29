@@ -284,6 +284,7 @@ struct Margin {
     std::optional<Expression> left_expression;
     std::optional<Ref> top_driver;
     std::optional<Expression> top_expression;
+    std::optional<Ref> right_driver;
     bool operator==(const Margin&) const = default;
 };
 struct Grid {
@@ -425,6 +426,8 @@ struct UnlinkMarginLeft { Ref target; };
 struct LinkMarginTop { Ref target; Ref source; bool replace_driver=false; };
 struct SetMarginTopExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkMarginTop { Ref target; };
+struct LinkMarginRight { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkMarginRight { Ref target; };
 struct LinkGridBoundsX { Ref target; Ref source; bool replace_driver=false; };
 struct SetGridBoundsXExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridBoundsX { Ref target; };
@@ -433,6 +436,7 @@ struct SetGridBoundsYExpression { Ref target; Expression expression; bool replac
 struct UnlinkGridBoundsY { Ref target; };
 struct LayoutDependencyCommand {
     std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkMarginTop,SetMarginTopExpression,UnlinkMarginTop,
+        LinkMarginRight,UnlinkMarginRight,
         LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX,
         LinkGridBoundsY,SetGridBoundsYExpression,UnlinkGridBoundsY> operation;
     LayoutDependencyCommand(LinkMarginLeft value):operation(std::move(value)){}
@@ -441,6 +445,8 @@ struct LayoutDependencyCommand {
     LayoutDependencyCommand(LinkMarginTop value):operation(std::move(value)){}
     LayoutDependencyCommand(SetMarginTopExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkMarginTop value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkMarginRight value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkMarginRight value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkGridBoundsX value):operation(std::move(value)){}
     LayoutDependencyCommand(SetGridBoundsXExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkGridBoundsX value):operation(std::move(value)){}
@@ -450,6 +456,7 @@ struct LayoutDependencyCommand {
 };
 using MarginLeftCommand=LayoutDependencyCommand;
 using MarginTopCommand=LayoutDependencyCommand;
+using MarginRightCommand=LayoutDependencyCommand;
 using GridBoundsXCommand=LayoutDependencyCommand;
 using GridBoundsYCommand=LayoutDependencyCommand;
 struct AddGuide { Id composition; Guide guide; };

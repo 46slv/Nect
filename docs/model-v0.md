@@ -1528,3 +1528,23 @@ Grid-to-Margin copy consume evaluated top. Native Save As retains source text
 and literal; versions 0.1–0.41 remain readable and reject a version-lied top
 expression. `schemas/native-v0.42.schema.json` closes the optional field and
 rejects simultaneous top link and expression sources.
+
+## Native 0.43 — Margin right Artboard size link
+
+A present Margin retains its authored `right` literal and may add an optional
+`right_driver: {link: Ref}`. The Ref identifies the width or height of a
+different Artboard in the owning Composition. The existing Artboard-size
+evaluator resolves the source, including its existing parent, link or
+expression chain. Evaluated left plus evaluated right must leave positive
+content width on the evaluated owner Artboard.
+
+Dedicated revisioned `link_margin_right` and `unlink_margin_right` commands own
+source changes. Replacing a different source requires `replace_driver`; unlink
+freezes evaluated right into the literal. Full layout and Artboard updates
+preserve an unchanged source while rejecting direct driven edits, Margin clear
+and source injection. Duplicate Artboard replays the exact stable source Ref;
+deleting a referenced source Artboard is refused. Typed reads expose literal,
+source and evaluated right, with expression support false. Canvas Margin overlay
+and one-shot Grid-to-Margin copy use evaluated right. Native Save As retains the
+literal and source; versions 0.1–0.42 remain readable and reject a version-lied
+right driver. `schemas/native-v0.43.schema.json` closes the optional field.
