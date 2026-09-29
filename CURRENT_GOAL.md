@@ -24,8 +24,8 @@
 
 **Done for next:** Durable bottom-expression qualification with one bounded packet or concrete local blocker, exact owner/source/negative/acceptance policy and an updated single active checkpoint. Do not claim a whole Route or Requirement complete from one cell.
 
-**State:** Repository D:\Documents\Nect, branch `codex/practical-alpha`, native writer 0.45, all-target Release build and serial CTest 43/43 PASS. Exact synchronized checkpoint HEAD must be read from Git after push. This Task holds the sole Mission writer. The ignored local build directory uses `/EHsc /bigobj` for the current VS2019/Boost build.
+**State:** Repository D:\Documents\Nect, branch `codex/practical-alpha`, bottom-link implementation commit `b0d80439c866e0efb830f012dde1a623b9905419` synchronized to origin with a clean tree at readback; native writer 0.45, all-target Release build and serial CTest 43/43 PASS. The final handoff HEAD must be read from Git after this document's sync. This Task holds the sole Mission writer until successor ACK and explicit release. The ignored local build directory uses `/EHsc /bigobj` for the current VS2019/Boost build.
 
 **Authority:** Current user instruction and DEC-71 authorize Mission continuity, technical decisions within accepted intent, reversible implementation and non-force branch sync. Completion Route R02/P03 and Confirmed Requirements govern scope. Major structure/save redesign, external dependencies, executable extensions, hands-on/subjective acceptance and destructive/public action remain protected.
 
-**Handoff:** CONTINUE_CURRENT_TASK. Assess fresh Sol rollover at this semantic checkpoint after exact remote readback, considering context pressure and nearby source-policy reuse.
+**Handoff:** NEW_TASK. Three adjacent right/right/bottom checkpoints and a context compaction make a fresh Sol cheaper for the next bottom-expression qualification. Transfer the sole writer only after the successor verifies exact HEAD, effective authority, no active writer/process and records `TAKEOVER_ACK`; the old Task then records explicit release.
