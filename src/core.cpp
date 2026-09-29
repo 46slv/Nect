@@ -1269,10 +1269,11 @@ ArtboardLayoutProperty artboard_layout_property(const Document& document,const R
                     value.bounds_y_driver?"link":value.bounds_y_expression?"expression":"literal"};
             }
             if(ref.field=="grid.bounds.width") {
-                const auto evaluated=value.bounds_width_driver?
+                const bool driven=value.bounds_width_driver||value.bounds_width_expression;
+                const auto evaluated=driven?
                     evaluate_artboard(composition,board.id).layout->grid->bounds.width:value.bounds.width;
-                return {value.bounds.width,value.bounds_width_driver,evaluated,{},
-                    value.bounds_width_driver?"link":"literal"};
+                return {value.bounds.width,value.bounds_width_driver,evaluated,value.bounds_width_expression,
+                    value.bounds_width_driver?"link":value.bounds_width_expression?"expression":"literal"};
             }
             if(ref.field=="grid.bounds.height")return {value.bounds.height,{},value.bounds.height};
             if(ref.field=="grid.columns")return {value.columns,{},value.columns};
@@ -2063,6 +2064,7 @@ using GridBoundsYLocation=GridBoundsXLocation;
 using GridBoundsWidthLocation=GridBoundsXLocation;
 CompiledExpression compile_grid_bounds_x_expression(const Expression& expression);
 CompiledExpression compile_grid_bounds_y_expression(const Expression& expression);
+CompiledExpression compile_grid_bounds_width_expression(const Expression& expression);
 CompiledExpression compile_margin_left_expression(const Expression& expression);
 CompiledExpression compile_margin_top_expression(const Expression& expression);
 CompiledExpression compile_margin_right_expression(const Expression& expression);
@@ -2224,20 +2226,41 @@ void edit_grid_bounds_width(Document& document,const LinkGridBoundsWidth& comman
     require(target.composition==source.composition,"WRONG_COMPOSITION","Grid bounds width links must stay within one Composition");
     require(target.board->id!=source.board->id,"GRID_SELF_LINK","Grid bounds width cannot depend on its owning Artboard size");
     auto& slot=target.grid->bounds_width_driver;
-    const bool same_link=slot&&*slot==command.source;
-    require(!slot||same_link||command.replace_driver,"DRIVEN_GRID_BOUNDS_WIDTH",
+    const bool same_link=slot&&*slot==command.source&&!target.grid->bounds_width_expression;
+    require((!slot&&!target.grid->bounds_width_expression)||same_link||command.replace_driver,"DRIVEN_GRID_BOUNDS_WIDTH",
         "Replacing a Grid bounds width source requires replace_driver=true");
     slot=command.source;
+    target.grid->bounds_width_expression.reset();
+}
+void edit_grid_bounds_width(Document& document,const SetGridBoundsWidthExpression& command) {
+    require(command.target.point.empty()&&command.target.field=="grid.bounds.width","INVALID_LAYOUT_REF",
+        "Grid bounds width expression target must be an empty-point grid.bounds.width Ref");
+    const auto target=grid_bounds_width_location(document,command.target,"expression target");
+    const auto compiled=compile_grid_bounds_width_expression(command.expression);
+    for(const auto& source_ref:expression_dependencies(compiled)) {
+        const auto source=artboard_dimension_location(document,source_ref,"expression source");
+        require(target.composition==source.composition,"WRONG_COMPOSITION",
+            "Grid bounds width expressions must stay within one Composition");
+        require(target.board->id!=source.board->id,"GRID_SELF_LINK",
+            "Grid bounds width cannot depend on its owning Artboard size");
+    }
+    const bool same_expression=!target.grid->bounds_width_driver&&
+        target.grid->bounds_width_expression==command.expression;
+    require((!target.grid->bounds_width_driver&&!target.grid->bounds_width_expression)||same_expression||command.replace_driver,
+        "DRIVEN_GRID_BOUNDS_WIDTH","Replacing a Grid bounds width source requires replace_driver=true");
+    target.grid->bounds_width_driver.reset();
+    target.grid->bounds_width_expression=command.expression;
 }
 void edit_grid_bounds_width(Document& document,const UnlinkGridBoundsWidth& command) {
     require(command.target.point.empty()&&command.target.field=="grid.bounds.width","INVALID_LAYOUT_REF",
         "Grid bounds width unlink target must be an empty-point grid.bounds.width Ref");
     const auto target=grid_bounds_width_location(document,command.target,"unlink target");
-    require(target.grid->bounds_width_driver.has_value(),"GRID_BOUNDS_WIDTH_NOT_LINKED",
-        "Grid bounds width has no Artboard size link to unlink");
+    require(target.grid->bounds_width_driver.has_value()||target.grid->bounds_width_expression.has_value(),"GRID_BOUNDS_WIDTH_NOT_LINKED",
+        "Grid bounds width has no Artboard size link or expression to unlink");
     const auto resolved=evaluate_artboard(*target.composition,target.board->id);
     target.grid->bounds.width=resolved.layout->grid->bounds.width;
     target.grid->bounds_width_driver.reset();
+    target.grid->bounds_width_expression.reset();
 }
 void edit_margin_left(Document& document,const LinkMarginLeft& command) {
     require(command.target.point.empty()&&command.target.field=="margin.left","INVALID_LAYOUT_REF",
@@ -2459,6 +2482,13 @@ CompiledExpression compile_grid_bounds_y_expression(const Expression& expression
             "Grid bounds y expressions may reference only empty-point Artboard width and height properties");
     return compiled;
 }
+CompiledExpression compile_grid_bounds_width_expression(const Expression& expression) {
+    const auto compiled=compile_expression(expression);validate_expression_unit(compiled,"du");
+    for(const auto& source:expression_dependencies(compiled))
+        require(artboard_size_ref(source),"GRID_BOUNDS_WIDTH_EXPRESSION_TYPE",
+            "Grid bounds width expressions may reference only empty-point Artboard width and height properties");
+    return compiled;
+}
 CompiledExpression compile_margin_left_expression(const Expression& expression) {
     const auto compiled=compile_expression(expression);validate_expression_unit(compiled,"du");
     for(const auto& source:expression_dependencies(compiled))
@@ -2520,6 +2550,9 @@ bool artboard_references_id(const Artboard& board,const Id& id) {
             if(source.object==id)return true;
     if(board.layout&&board.layout->grid&&board.layout->grid->bounds_x_expression)
         for(const auto& source:expression_dependencies(*board.layout->grid->bounds_x_expression))
+            if(source.object==id)return true;
+    if(board.layout&&board.layout->grid&&board.layout->grid->bounds_width_expression)
+        for(const auto& source:expression_dependencies(*board.layout->grid->bounds_width_expression))
             if(source.object==id)return true;
     for(const auto* driver:{&board.width_driver,&board.height_driver})if(*driver) {
         if(const auto* link=std::get_if<Ref>(&(**driver).value)) {
@@ -2634,8 +2667,8 @@ void preserve_grid_bounds_y_source(const Grid* existing,Grid* incoming) {
         "Create Grid bounds y sources with link_grid_bounds_y or set_grid_bounds_y_expression");
 }
 void preserve_grid_bounds_width_source(const Grid* existing,Grid* incoming) {
-    const bool existing_source=existing&&existing->bounds_width_driver.has_value();
-    const bool incoming_source=incoming&&incoming->bounds_width_driver.has_value();
+    const bool existing_source=existing&&(existing->bounds_width_driver||existing->bounds_width_expression);
+    const bool incoming_source=incoming&&(incoming->bounds_width_driver||incoming->bounds_width_expression);
     if(existing_source) {
         require(incoming,"DRIVEN_GRID_BOUNDS_WIDTH","Unlink Grid bounds width before clearing its Grid");
         require(incoming->id==existing->id,"DRIVEN_GRID_BOUNDS_WIDTH",
@@ -2644,9 +2677,12 @@ void preserve_grid_bounds_width_source(const Grid* existing,Grid* incoming) {
             "Unlink Grid bounds width before changing its authored literal");
         require(!incoming->bounds_width_driver||incoming->bounds_width_driver==existing->bounds_width_driver,
             "GRID_DRIVER_SMUGGLING","Use link_grid_bounds_width to change the Grid bounds width source");
+        require(!incoming->bounds_width_expression||incoming->bounds_width_expression==existing->bounds_width_expression,
+            "GRID_DRIVER_SMUGGLING","Use set_grid_bounds_width_expression to change the Grid bounds width source");
         incoming->bounds_width_driver=existing->bounds_width_driver;
+        incoming->bounds_width_expression=existing->bounds_width_expression;
     } else require(!incoming_source,"GRID_DRIVER_SMUGGLING",
-        "Create Grid bounds width sources with link_grid_bounds_width");
+        "Create Grid bounds width sources with link_grid_bounds_width or set_grid_bounds_width_expression");
 }
 }
 
@@ -2739,6 +2775,8 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
         auto& grid=*result.layout->grid;
         require(!(grid.bounds_x_driver&&grid.bounds_x_expression),"GRID_SOURCE_CONFLICT",
             "Grid bounds x may have only one active source");
+        require(!(grid.bounds_width_driver&&grid.bounds_width_expression),"GRID_SOURCE_CONFLICT",
+            "Grid bounds width may have only one active source");
         if(grid.bounds_x_driver) {
             const auto& driver=*grid.bounds_x_driver;
             require(driver.object!=artboard,"GRID_SELF_LINK","Grid bounds x cannot depend on its owning Artboard size");
@@ -2770,11 +2808,24 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
             grid.bounds.y=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
         }
         if(grid.bounds_width_driver) {
+            require(!grid.bounds_width_expression,"GRID_SOURCE_CONFLICT",
+                "Grid bounds width may have only one active source");
             require(artboard_size_ref(*grid.bounds_width_driver),"INVALID_ARTBOARD_REF",
                 "Grid bounds width source must be an empty-point Artboard width or height Ref");
             require(grid.bounds_width_driver->object!=artboard,"GRID_SELF_LINK",
                 "Grid bounds width cannot depend on its owning Artboard size");
             grid.bounds.width=evaluator.value(*grid.bounds_width_driver);
+        } else if(grid.bounds_width_expression) {
+            const auto& compiled=compiled_expression(expressions,*grid.bounds_width_expression);
+            validate_expression_unit(compiled,"du");
+            for(const auto& source:expression_dependencies(compiled)) {
+                require(artboard_size_ref(source),"GRID_BOUNDS_WIDTH_EXPRESSION_TYPE",
+                    "Grid bounds width expressions may reference only empty-point Artboard width and height properties");
+                require(source.object!=artboard,"GRID_SELF_LINK",
+                    "Grid bounds width cannot depend on its owning Artboard size");
+                (void)evaluator.value(source);
+            }
+            grid.bounds.width=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
         }
     }
     return result;
@@ -2996,6 +3047,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     "Grid bounds x may have only one active source");
                 require(!(grid.bounds_y_driver&&grid.bounds_y_expression),"GRID_SOURCE_CONFLICT",
                     "Grid bounds y may have only one active source");
+                require(!(grid.bounds_width_driver&&grid.bounds_width_expression),"GRID_SOURCE_CONFLICT",
+                    "Grid bounds width may have only one active source");
                 const auto validate_grid_source=[&](const Ref& source) {
                     require(artboard_size_ref(source),"INVALID_ARTBOARD_REF",
                         "Grid sources require an empty-point Artboard width or height Ref");
@@ -3028,6 +3081,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     for(const auto& source:expression_dependencies(compiled))validate_grid_source(source);
                 }
                 if(grid.bounds_width_driver)validate_grid_source(*grid.bounds_width_driver);
+                if(grid.bounds_width_expression) {
+                    const auto compiled=compile_grid_bounds_width_expression(*grid.bounds_width_expression);
+                    for(const auto& source:expression_dependencies(compiled))validate_grid_source(source);
+                }
             }
             const auto evaluated=evaluate_artboard(comp,a.id);
             if(a.layout) {
@@ -4270,6 +4327,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     std::is_same_v<Operation,SetMarginBottomExpression>||std::is_same_v<Operation,UnlinkMarginBottom>;
                 constexpr bool grid_y_operation=std::is_same_v<Operation,LinkGridBoundsY>||std::is_same_v<Operation,UnlinkGridBoundsY>;
                 constexpr bool grid_width_operation=std::is_same_v<Operation,LinkGridBoundsWidth>||
+                    std::is_same_v<Operation,SetGridBoundsWidthExpression>||
                     std::is_same_v<Operation,UnlinkGridBoundsWidth>;
                 std::set<Ref>* targets;
                 if constexpr(margin_operation)targets=&margin_left_targets;
@@ -4642,6 +4700,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     "GRID_DRIVER_SMUGGLING","Create Grid bounds y expressions with set_grid_bounds_y_expression");
                 require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->bounds_width_driver,
                     "GRID_DRIVER_SMUGGLING","Create Grid bounds width sources with link_grid_bounds_width");
+                require(!c.artboard.layout||!c.artboard.layout->grid||!c.artboard.layout->grid->bounds_width_expression,
+                    "GRID_DRIVER_SMUGGLING","Create Grid bounds width expressions with set_grid_bounds_width_expression");
                 require(c.index<=boards.size(),"INVALID_ORDER","Artboard insertion index outside range");
                 boards.insert(boards.begin()+static_cast<std::ptrdiff_t>(c.index),c.artboard);
             } else if constexpr(std::is_same_v<T,ReorderArtboards>) {
@@ -5047,7 +5107,7 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
                     std::is_same_v<T,LinkMarginBottom>||std::is_same_v<T,SetMarginBottomExpression>||
                     std::is_same_v<T,LinkGridBoundsX>||std::is_same_v<T,SetGridBoundsXExpression>||
                     std::is_same_v<T,LinkGridBoundsY>||std::is_same_v<T,SetGridBoundsYExpression>||
-                    std::is_same_v<T,LinkGridBoundsWidth>;
+                    std::is_same_v<T,LinkGridBoundsWidth>||std::is_same_v<T,SetGridBoundsWidthExpression>;
             },layout_source->operation);
             if(source_transition)return;
         }

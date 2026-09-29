@@ -3146,6 +3146,32 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         replaced_grid_width.driver==primary_grid_width_source_ref&&
         std::get<double>(replaced_grid_width.evaluated)==80,
         "Grid width Inspector replaces its source only after explicit authorization: "+grid_width_replace_details);
+    auto* grid_width_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-width-expression");
+    const auto grid_width_expression_text="ref(\""+margin_source_id+"\",\"\",\"artboard.width\") + 10";
+    grid_width_expression->setPlainText(QString::fromStdString(grid_width_expression_text));
+    const auto before_width_expression=session.revision();
+    check(session.revision()==before_width_expression&&
+        artboard_layout_property(session.document(),grid_width_target_ref).driver==primary_grid_width_source_ref,
+        "Grid width expression remains a separate draft until Apply");
+    click("grid-bounds-width-cancel-expression");
+    grid_width_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-width-expression");
+    grid_width_expression->setPlainText(QString::fromStdString(grid_width_expression_text));
+    grid_width_replace=visible_child<QCheckBox>(window,"grid-bounds-width-replace");grid_width_replace->setChecked(false);
+    click("grid-bounds-width-apply-expression");
+    check(session.revision()==before_width_expression&&
+        artboard_layout_property(session.document(),grid_width_target_ref).driver==primary_grid_width_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_WIDTH"),
+        "Replacing a Grid width link with an expression requires explicit Inspector authorization");
+    grid_width_replace=visible_child<QCheckBox>(window,"grid-bounds-width-replace");grid_width_replace->setChecked(true);
+    click("grid-bounds-width-apply-expression");
+    auto width_expression_state=artboard_layout_property(session.document(),grid_width_target_ref);
+    check(session.revision()==before_width_expression+1&&!width_expression_state.driver&&
+        width_expression_state.expression==Expression{grid_width_expression_text,1}&&
+        std::get<double>(width_expression_state.literal)==grid_width_literal&&
+        std::get<double>(width_expression_state.evaluated)==90&&
+        visible_child<QLabel>(window,"grid-bounds-width-source-state")->text().contains("expression")&&
+        visible_child<QLabel>(window,"grid-bounds-width-source-state")->text().contains("Evaluated: 90"),
+        "Grid width Inspector applies an authorized expression and shows its exact source and evaluated value");
     const auto before_width_edit=session.revision();grid_width_input=visible_child<QLineEdit>(window,"grid-width");
     grid_width_input->setFocus();QTest::keyClick(grid_width_input,Qt::Key_A,Qt::ControlModifier);
     QTest::keyClicks(grid_width_input,"99");QTest::keyClick(grid_width_input,Qt::Key_Return);QApplication::processEvents();
@@ -3154,11 +3180,10 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         std::to_string(before_width_edit)+", readonly="+std::to_string(grid_width_input->isReadOnly())+
         ", text="+grid_width_input->text().toStdString()+", literal="+
         std::to_string(std::get<double>(width_after_readonly.literal))+", expected literal="+
-        std::to_string(grid_width_literal)+", driver="+
-        (width_after_readonly.driver?width_after_readonly.driver->object+"/"+width_after_readonly.driver->field:"none");
+        std::to_string(grid_width_literal)+", source="+width_after_readonly.source_kind;
     check(session.revision()==before_width_edit&&grid_width_input->isReadOnly()&&
         std::get<double>(width_after_readonly.literal)==grid_width_literal&&
-        width_after_readonly.driver==primary_grid_width_source_ref,
+        width_after_readonly.expression==Expression{grid_width_expression_text,1},
         "A driven Grid width field refuses direct edits without changing its source or authored literal: "+width_readonly_details);
     grid_y_search=visible_child<QLineEdit>(window,"grid-bounds-y-link-source-search");
     grid_y_source_choice=visible_child<QComboBox>(window,"grid-bounds-y-link-source");
@@ -3212,11 +3237,12 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         duplicate->layout->margin->bottom_expression==margin_bottom_expression_source&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
         duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
-        duplicate->layout->grid->bounds_width_driver==primary_grid_width_source_ref&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.width"}).literal)==grid_width_literal&&
-        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.width"}).evaluated)==80&&
         !duplicate->layout->grid->bounds_y_driver&&
         duplicate->layout->grid->bounds_y_expression==Expression{grid_y_expression_text.toStdString(),1}&&
+        !duplicate->layout->grid->bounds_width_driver&&
+        duplicate->layout->grid->bounds_width_expression==Expression{grid_width_expression_text,1}&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.width"}).evaluated)==90&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==90&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.x"}).evaluated)==80&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.y"}).evaluated)==25&&
