@@ -3727,20 +3727,23 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const auto weight_revision=host.session.revision();
     auto* weight_row=new QWidget(box);auto* weight_layout=new QHBoxLayout(weight_row);weight_layout->setContentsMargins(0,0,0,0);
     auto* weight=new QSpinBox;weight->setObjectName("text-weight");weight->setRange(1,999);weight->setSingleStep(100);
-    weight->setValue(static_cast<int>(weight_state.evaluated));weight->setKeyboardTracking(false);weight->setEnabled(!weight_state.driver);
-    if(weight_state.driver)weight->setToolTip("Unlink the driver before editing the authored weight.");
+    weight->setValue(static_cast<int>(weight_state.evaluated));weight->setKeyboardTracking(false);
+    const bool weight_is_driven=weight_state.driver.has_value()||weight_state.expression.has_value();
+    weight->setEnabled(!weight_is_driven);
+    if(weight_is_driven)weight->setToolTip("Unlink the source before editing the authored weight.");
     weight_layout->addWidget(weight);
     auto* weight_driver_button=new QToolButton(weight_row);weight_driver_button->setObjectName("text-weight-driver");
-    weight_driver_button->setText(weight_state.driver?"Driver…":"Drive…");weight_driver_button->setPopupMode(QToolButton::InstantPopup);
+    weight_driver_button->setText(weight_is_driven?"Source…":"Drive…");weight_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* weight_menu=new QMenu(weight_driver_button);weight_driver_button->setMenu(weight_menu);weight_layout->addWidget(weight_driver_button);
     auto* link_weight=weight_menu->addAction("Link to Text weight…");
-    auto* unlink_weight=weight_menu->addAction("Unlink weight");unlink_weight->setEnabled(weight_state.driver.has_value());
+    auto* expression_weight=weight_menu->addAction("Set expression…");
+    auto* unlink_weight=weight_menu->addAction("Unlink weight");unlink_weight->setEnabled(weight_is_driven);
     std::vector<Id> weight_source_ids;
     for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
         weight_source_ids.push_back(source_id);
     }
     link_weight->setEnabled(!weight_source_ids.empty());
-    const bool replace_weight_driver=weight_state.driver.has_value();
+    const bool replace_weight_driver=weight_is_driven;
     connect(link_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision,replace_weight_driver,weight_source_ids]{
         const auto target=Ref{id,"","text.weight"};const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
@@ -3771,6 +3774,34 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
+    connect(expression_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision,weight_state,weight_is_driven]{
+        QDialog dialog(this);dialog.setObjectName("text-weight-expression-dialog");dialog.setWindowTitle("Text weight expression");
+        auto* layout=new QVBoxLayout(&dialog);
+        auto* editor=new ExpressionInput;editor->setObjectName("text-weight-expression-draft");
+        editor->setAccessibleName("Text weight expression draft");editor->setFixedHeight(68);
+        editor->setPlaceholderText("Unitless expression using ref(\"Text ID\",\"\",\"text.weight\")");
+        if(weight_state.expression)editor->setPlainText(qs(weight_state.expression->source));
+        layout->addWidget(editor);
+        auto* replace=new QCheckBox("Replace the current weight source",&dialog);
+        replace->setObjectName("text-weight-expression-replace");replace->setVisible(weight_is_driven);
+        layout->addWidget(replace);
+        auto* status=new QLabel("Apply commits; Cancel keeps the current weight source.",&dialog);
+        status->setObjectName("text-weight-expression-status");status->setWordWrap(true);layout->addWidget(status);
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+        layout->addWidget(buttons);
+        connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
+            [this,&dialog,id,frozen_session,weight_revision,editor,replace,status]{
+                try {
+                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                    host.session.apply({SetTextWeightExpression{{id,"","text.weight"},
+                        Expression{editor->toPlainText().toStdString(),1},replace->isChecked()}},weight_revision);
+                    host.edited();dialog.accept();
+                } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+                catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+            });
+        dialog.exec();
+    });
     connect(unlink_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision]{
         perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
             host.session.apply({UnlinkTextWeight{{id,"","text.weight"}}},weight_revision);host.edited();});
@@ -3782,11 +3813,12 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         const auto& link=weight_state.driver->link;const auto found=host.session.document().objects.find(link.object);
         weight_driver_description="link to "+(found==host.session.document().objects.end()?qs(link.object):qs(found->second.name)+" ("+qs(link.object)+")");
     }
+    else if(weight_state.expression)weight_driver_description="expression · "+qs(weight_state.expression->source);
     weight_status->setText(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(weight_state.literal).arg(weight_driver_description).arg(weight_state.evaluated));
     weight_status->setWordWrap(true);form->addRow("",weight_status);
     connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,weight_state]{
-        if(weight_state.driver)return;
+        if(weight_state.driver||weight_state.expression)return;
         if(static_cast<unsigned>(weight->value())!=weight_state.literal)perform([&]{update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});});});
     const Ref italic_ref{id,"","text.italic"};const auto italic_state=text_italic_property(host.session.document(),italic_ref);
     const auto italic_revision=host.session.revision();

@@ -305,16 +305,31 @@ class TextWeightEvaluator {
     const Document& document_;
     std::map<Id,unsigned> values_;
     std::set<Id> active_;
+    ExpressionCache expressions_;
     unsigned visit(const Id& id,unsigned depth) {
         require(depth<=128,"DEPENDENCY_DEPTH","Text weight dependency depth limit 128");
         if(const auto found=values_.find(id);found!=values_.end())return found->second;
         require(active_.insert(id).second,"DEPENDENCY_CYCLE","Text weight dependency cycle");
         const auto& source=text_weight_source(document_,{id,"","text.weight"});
         require(source.weight>=1&&source.weight<=999,"OUT_OF_RANGE","Font weight must be 1..999");
+        require(!source.weight_driver||!source.weight_expression,"TEXT_WEIGHT_SOURCE_CONFLICT",
+            "Text weight link and expression are mutually exclusive");
         auto value=source.weight;
         if(source.weight_driver) {
             (void)text_weight_source(document_,source.weight_driver->link);
             value=visit(source.weight_driver->link.object,depth+1);
+        } else if(source.weight_expression) {
+            const auto& expression=compiled_expression(expressions_,*source.weight_expression);
+            validate_expression_unit(expression,"unitless");
+            for(const auto& ref:expression_dependencies(expression))
+                (void)text_weight_source(document_,ref);
+            const auto evaluated=evaluate_expression(expression,"unitless",[&](const Ref& ref) {
+                (void)text_weight_source(document_,ref);
+                return static_cast<double>(visit(ref.object,depth+1));
+            });
+            require(std::isfinite(evaluated)&&evaluated>=1&&evaluated<=999&&std::trunc(evaluated)==evaluated,
+                "OUT_OF_RANGE","Evaluated Text weight must be an exact integer from 1 to 999");
+            value=static_cast<unsigned>(evaluated);
         }
         active_.erase(id);values_.emplace(id,value);return value;
     }
@@ -1336,7 +1351,7 @@ std::map<Ref,bool> evaluate_text_italics(const Document& document) {
 }
 TextWeightProperty text_weight_property(const Document& document,const Ref& ref) {
     const auto& source=text_weight_source(document,ref);
-    return {source.weight,source.weight_driver,evaluate_text_weight(document,ref.object)};
+    return {source.weight,source.weight_driver,source.weight_expression,evaluate_text_weight(document,ref.object)};
 }
 unsigned evaluate_text_weight(const Document& document,const Id& object) {
     return TextWeightEvaluator(document).value(object);
@@ -4460,6 +4475,7 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
             if(object.text->layout_driver)object.text->layout_driver->link=remap(object.text->layout_driver->link);
             if(object.text->alignment_driver)object.text->alignment_driver->link=remap(object.text->alignment_driver->link);
             if(object.text->weight_driver)object.text->weight_driver->link=remap(object.text->weight_driver->link);
+            if(object.text->weight_expression)object.text->weight_expression=remap_expression(*object.text->weight_expression,remap);
             if(object.text->italic_driver) {
                 if(auto link=std::get_if<Ref>(&*object.text->italic_driver))*link=remap(*link);
                 else object.text->italic_driver=remap_text_italic_expression(std::get<Expression>(*object.text->italic_driver),remap);
@@ -4892,14 +4908,28 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             source.italic=value;source.italic_driver.reset();
         } else if constexpr(std::is_same_v<T,LinkTextWeight>) {
             const auto& current=text_weight_source(candidate,c.target);
-            (void)text_weight_source(candidate,c.source);
-            require(!current.weight_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing a Text weight driver requires replace_driver=true");
-            candidate.objects.at(c.target.object).text->weight_driver=TextWeightDriver{c.source};
+            auto& text=*candidate.objects.at(c.target.object).text;
+            if(const auto* link=std::get_if<Ref>(&c.source)) {
+                (void)text_weight_source(candidate,*link);
+                require((!current.weight_driver&&!current.weight_expression)||c.replace_driver||
+                    (current.weight_driver&&current.weight_driver->link==*link),
+                    "DRIVEN_PROPERTY","Replacing a Text weight source requires replace_driver=true");
+                text.weight_driver=TextWeightDriver{*link};text.weight_expression.reset();
+            } else {
+                const auto& expression=std::get<Expression>(c.source);
+                const auto compiled=compile_expression(expression);
+                validate_expression_unit(compiled,"unitless");
+                for(const auto& ref:expression_dependencies(compiled))(void)text_weight_source(candidate,ref);
+                require((!current.weight_driver&&!current.weight_expression)||c.replace_driver||
+                    (current.weight_expression&&*current.weight_expression==expression),
+                    "DRIVEN_PROPERTY","Replacing a Text weight source requires replace_driver=true");
+                text.weight_driver.reset();text.weight_expression=expression;
+            }
         } else if constexpr(std::is_same_v<T,UnlinkTextWeight>) {
             (void)text_weight_source(candidate,c.target);
             const auto value=evaluate_text_weight(candidate,c.target.object);
             auto& source=*candidate.objects.at(c.target.object).text;
-            source.weight=value;source.weight_driver.reset();
+            source.weight=value;source.weight_driver.reset();source.weight_expression.reset();
         } else if constexpr(std::is_same_v<T,LinkTextContent>) {
             const auto& current=text_content_source(candidate,c.target);
             (void)text_content_source(candidate,c.source);
@@ -5369,6 +5399,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
             require(!c.source.italic_driver,"USE_TYPED_COMMAND","Create Text Italic links with link_text_italic or set_text_italic_expression");
             require(!c.source.weight_driver,"USE_TYPED_COMMAND","Create Text weight links with link_text_weight");
+            require(!c.source.weight_expression,"USE_TYPED_COMMAND","Create Text weight expressions with set_text_weight_expression");
             require(!c.source.content_driver,"USE_TYPED_COMMAND","Create Text content links with link_text_content");
             require(!c.source.family_driver,"USE_TYPED_COMMAND","Create Text family links with link_text_family");
             require(!c.source.locale_driver,"USE_TYPED_COMMAND","Create Text locale links with link_text_locale");
@@ -5388,11 +5419,16 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 require(next.italic==o.text->italic,"DRIVEN_PROPERTY","Unlink or replace the Text italic driver before changing its authored literal");
                 next.italic_driver=o.text->italic_driver;
             } else require(!next.italic_driver,"USE_TYPED_COMMAND","Create Text Italic links with link_text_italic or set_text_italic_expression");
-            if(o.text->weight_driver) {
+            if(o.text->weight_driver||o.text->weight_expression) {
                 require(!next.weight_driver||next.weight_driver==o.text->weight_driver,"DRIVEN_PROPERTY","UpdateText cannot replace or remove a Text weight driver");
+                require(!next.weight_expression||next.weight_expression==o.text->weight_expression,"DRIVEN_PROPERTY","UpdateText cannot replace or remove a Text weight expression");
                 require(next.weight==o.text->weight,"DRIVEN_PROPERTY","Unlink the Text weight driver before changing its authored literal");
                 next.weight_driver=o.text->weight_driver;
-            } else require(!next.weight_driver,"USE_TYPED_COMMAND","Create Text weight links with link_text_weight");
+                next.weight_expression=o.text->weight_expression;
+            } else {
+                require(!next.weight_driver,"USE_TYPED_COMMAND","Create Text weight links with link_text_weight");
+                require(!next.weight_expression,"USE_TYPED_COMMAND","Create Text weight expressions with set_text_weight_expression");
+            }
             if(o.text->content_driver) {
                 require(!next.content_driver||next.content_driver==o.text->content_driver,"DRIVEN_PROPERTY","UpdateText cannot replace or remove a Text content driver");
                 require(next.content==o.text->content,"DRIVEN_PROPERTY","Unlink the Text content driver before changing its authored literal");
@@ -5540,6 +5576,7 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
     check_revision(expected);
     auto candidate=edited(document_,commands);
     if(candidate==document_&&commands.size()==1) {
+        if(std::holds_alternative<LinkTextWeight>(commands.front()))return;
         if(const auto* layout_source=std::get_if<LayoutDependencyCommand>(&commands.front())) {
             const bool source_transition=std::visit([](const auto& operation) {
                 using T=std::decay_t<decltype(operation)>;

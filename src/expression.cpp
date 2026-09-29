@@ -7,7 +7,7 @@
 
 namespace nect {
 namespace {
-enum class Unit { literal,scalar,distance,degree };
+enum class Unit { literal,scalar,unitless,distance,degree };
 enum class Op { number,reference,positive,negative,add,subtract,multiply,divide,
     absolute,minimum,maximum,clamp,floor,ceil,round,sine,cosine,square_root };
 struct Node {
@@ -18,13 +18,14 @@ struct Node {
 void require(bool value,const char* code,const char* message) {if(!value)throw Error(code,message);}
 Unit unit_of(const std::string& name) {
     if(name=="du")return Unit::distance;if(name=="degree")return Unit::degree;
+    if(name=="unitless")return Unit::unitless;
     require(name=="scalar","UNIT_MISMATCH","Unsupported expression unit");return Unit::scalar;
 }
 Unit additive(Unit a,Unit b) {
     if(a==Unit::literal)return b;if(b==Unit::literal)return a;
     require(a==b,"UNIT_MISMATCH","Expression operands require the same unit");return a;
 }
-bool dimensionless(Unit unit){return unit==Unit::literal||unit==Unit::scalar;}
+bool dimensionless(Unit unit){return unit==Unit::literal||unit==Unit::scalar||unit==Unit::unitless;}
 bool letter(char c){return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||c=='_';}
 bool digit(char c){return c>='0'&&c<='9';}
 bool id_character(char c){return letter(c)||digit(c)||c=='-';}

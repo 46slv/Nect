@@ -143,6 +143,7 @@ struct TextSource {
     std::string layout="auto",direction="horizontal",alignment="start";
     unsigned weight=400;
     std::optional<TextWeightDriver> weight_driver;
+    std::optional<Expression> weight_expression;
     bool italic=false;
     std::optional<TextItalicDriver> italic_driver;
     std::map<std::string,Scalar> parameters;
@@ -528,7 +529,10 @@ struct UpdateText { Id object; TextSource source; };
 struct LinkTextItalic { Ref target; Ref source; bool replace_driver=false; };
 struct SetTextItalicExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkTextItalic { Ref target; };
-struct LinkTextWeight { Ref target; Ref source; bool replace_driver=false; };
+struct LinkTextWeight { Ref target; std::variant<Ref,Expression> source; bool replace_driver=false; };
+// Both typed entrypoints share one Command alternative to keep the MSVC 2019
+// visitor within its template nesting limit; JSON-lines names remain distinct.
+using SetTextWeightExpression = LinkTextWeight;
 struct UnlinkTextWeight { Ref target; };
 struct LinkTextContent { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkTextContent { Ref target; };
@@ -850,6 +854,7 @@ struct TextItalicProperty {
 struct TextWeightProperty {
     unsigned literal=400;
     std::optional<TextWeightDriver> driver;
+    std::optional<Expression> expression;
     unsigned evaluated=400;
 };
 TextItalicProperty text_italic_property(const Document&,const Ref&);

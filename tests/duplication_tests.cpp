@@ -142,7 +142,7 @@ void text_weight_drivers() {
     auto target=default_text("target-text","Target");target.weight=400;
     apply(s,{CreateText{"weight-comp","","source","Source",source},
         CreateText{"weight-comp","","target","Target",target},
-        LinkTextWeight{{"target","","text.weight"},{"source","","text.weight"},false}});
+        LinkTextWeight{{"target","","text.weight"},Ref{"source","","text.weight"},false}});
     const auto original=s.document();
     apply(s,{DuplicateObjects{{"source","target"},"weightcopy"}});
     const auto copied=s.document();const auto source_copy=copy_of(copied,"source"),target_copy=copy_of(copied,"target");
@@ -152,6 +152,26 @@ void text_weight_drivers() {
     check(s.document().objects.at("target").text->weight_driver==original.objects.at("target").text->weight_driver&&
         evaluate_text_weight(s.document(),"target")==700,
         "Text weight duplication leaves the original link unchanged");
+    Session expressions(empty_document("weight-expression-doc","weight-expression-comp","weight-expression-frame"));
+    auto expression_source=default_text("weight-expression-source","Source");expression_source.weight=500;
+    auto expression_target=default_text("weight-expression-target","Target");expression_target.weight=400;
+    const Expression exact{"ref(\"source\",\"\",\"text.weight\") + 100",1};
+    apply(expressions,{CreateText{"weight-expression-comp","","source","Source",expression_source},
+        CreateText{"weight-expression-comp","","target","Target",expression_target},
+        SetTextWeightExpression{{"target","","text.weight"},exact,false}});
+    const auto before_expression_copy=expressions.document();
+    apply(expressions,{DuplicateObjects{{"source","target"},"weightexprcopy"}});
+    const auto& expression_copy=expressions.document();
+    const auto source_id=copy_of(expression_copy,"source"),target_id=copy_of(expression_copy,"target");
+    check(expression_copy.objects.at(target_id).text->weight_expression.has_value()&&
+        expression_copy.objects.at(target_id).text->weight_expression->source==
+            "ref(\""+source_id+"\",\"\",\"text.weight\") + 100"&&
+        evaluate_text_weight(expression_copy,target_id)==600&&
+        expression_copy.objects.at(target_id).text->weight==400,
+        "Duplicated Text weight expression remaps copied IDs and keeps its authored integer");
+    check(expression_copy.objects.at("target").text->weight_expression==
+        before_expression_copy.objects.at("target").text->weight_expression,
+        "Text weight expression duplication leaves the original source text unchanged");
 }
 void object_visibility_driver_remapping() {
     auto document=empty_document("visibility-doc","visibility-comp","visibility-frame");

@@ -4225,7 +4225,7 @@ void text_authoring(Window& window) {
         "Inspector family unlink freezes the chosen family after later source changes");
     auto weight_source=*session.document().objects.at(source_id).text;
     auto* weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
-    check(visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&weight_driver->menu()->actions().size()==2,
+    check(visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&weight_driver->menu()->actions().size()==3,
         "Text Weight Inspector exposes a literal control and a link/unlink menu");
     const auto weight_source_pick=choose_text_source(window,weight_driver,{source_id,"","text.weight"},QString::fromStdString(source_name));
     check(weight_source_pick.opened&&weight_source_pick.friendly_search&&weight_source_pick.stable_id_search&&weight_source_pick.stable_path_search&&
@@ -4245,6 +4245,47 @@ void text_authoring(Window& window) {
     check(!session.document().objects.at(id).text->weight_driver&&session.document().objects.at(id).text->weight==300&&
         evaluate_text_weight(session.document(),id)==300&&visible_child<QSpinBox>(window,"text-weight")->isEnabled(),
         "Inspector unlink freezes the evaluated weight and restores its literal editor");
+    bool weight_expression_applied=false;
+    const auto weight_expression_source="ref(\""+source_id+"\",\"\",\"text.weight\") + 100";
+    const auto before_weight_expression=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-weight-expression-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-weight-expression-draft");if(!editor)return;
+        editor->setPlainText(QString::fromStdString(weight_expression_source));
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        weight_expression_applied=!dialog->isVisible()&&session.revision()==before_weight_expression+1;
+    });
+    weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
+    weight_driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(weight_expression_applied&&
+        session.document().objects.at(id).text->weight_expression==Expression{weight_expression_source,1}&&
+        session.document().objects.at(id).text->weight==300&&evaluate_text_weight(session.document(),id)==600&&
+        !visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&
+        visible_child<QLabel>(window,"text-weight-state")->text().contains("Evaluated: 600"),
+        "Inspector Apply commits exact Text weight expression while preserving the authored integer");
+    bool weight_invalid_rejected=false;
+    const auto weight_expression_bytes=encode(session.document());const auto weight_expression_revision=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-weight-expression-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-weight-expression-draft");
+        auto* replace=dialog->findChild<QCheckBox*>("text-weight-expression-replace");
+        if(!editor||!replace)return;
+        editor->setPlainText("1.5");replace->click();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        weight_invalid_rejected=dialog->isVisible()&&session.revision()==weight_expression_revision&&
+            dialog->findChild<QLabel*>("text-weight-expression-status")->text().contains("OUT_OF_RANGE");
+        dialog->reject();
+    });
+    weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
+    weight_driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(weight_invalid_rejected&&session.revision()==weight_expression_revision&&
+        encode(session.document())==weight_expression_bytes,
+        "Invalid Text weight expression Apply and Cancel preserve the prior source and Session revision");
+    weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
+    weight_driver->menu()->actions().back()->trigger();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->weight_expression&&
+        session.document().objects.at(id).text->weight==600,
+        "Inspector unlink freezes the evaluated Text weight expression in one step");
     auto content_source=*session.document().objects.at(source_id).text;content_source.content="Linked source content";
     session.apply({UpdateText{source_id,content_source}},session.revision());window.host.edited();QApplication::processEvents();
     auto* content_driver=visible_child<QToolButton>(window,"text-content-driver");

@@ -88,7 +88,7 @@ std::size_t extra(const FillRuleDriver& v){return extra(v.link);}
 std::size_t extra(const Scalar& v){return total(extra(v.binding),extra(v.expression));}
 std::size_t extra(const Point& v){return total(extra(v.id),extra(v.x),extra(v.y),extra(v.in_angle),extra(v.in_length),extra(v.out_angle),extra(v.out_length));}
 std::size_t extra(const Contour& v){return total(extra(v.id),extra(v.points));}
-std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content),extra(v.family),extra(v.locale),extra(v.layout),extra(v.direction),extra(v.alignment),extra(v.content_driver),extra(v.family_driver),extra(v.locale_driver),extra(v.direction_driver),extra(v.layout_driver),extra(v.alignment_driver),extra(v.weight_driver),extra(v.italic_driver),extra(v.parameters));}
+std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content),extra(v.family),extra(v.locale),extra(v.layout),extra(v.direction),extra(v.alignment),extra(v.content_driver),extra(v.family_driver),extra(v.locale_driver),extra(v.direction_driver),extra(v.layout_driver),extra(v.alignment_driver),extra(v.weight_driver),extra(v.weight_expression),extra(v.italic_driver),extra(v.parameters));}
 std::size_t extra(const Primitive& v){return total(extra(v.id),extra(v.type),extra(v.parameters));}
 std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides),extra(v.enabled_driver));}
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
@@ -144,6 +144,11 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         if(owner.empty())owner=name(ref.object);
         return owner+(ref.point.empty()?"":" / "+ref.point)+" / "+ref.field;
     };
+    if(const auto* command=std::get_if<LinkTextWeight>(&commands.front()))
+        return std::string(std::holds_alternative<Expression>(command->source)?
+            "Text weight expression: ":"Link Text weight: ")+property_label(command->target);
+    if(const auto* command=std::get_if<UnlinkTextWeight>(&commands.front()))
+        return "Unlink Text weight: "+property_label(command->target);
     if(const auto* command=std::get_if<LinkGradientEnabled>(&commands.front()))
         return "Link Gradient enabled: "+property_label(command->target);
     if(const auto* command=std::get_if<UnlinkGradientEnabled>(&commands.front()))

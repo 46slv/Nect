@@ -192,6 +192,46 @@ void typed_source_save_as(const QString& directory) {
           reopened.session.document().objects.at("save-as-target").text->parameters.at("frame_height").literal==48,
           "Cold reopen from destination restores native 0.23 authored sources and stable layout link");
 }
+void text_weight_expression_save_as(const QString& directory,const QString& nect_cli) {
+    Host host(directory+"/weight-expression-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    auto source=default_text("weight-source-text","A");source.weight=300;
+    auto target=default_text("weight-target-text","B");target.weight=400;
+    host.session.apply({CreateText{composition,"","weight-source","Weight A",source},
+        CreateText{composition,"","weight-target","Weight B",target}},host.session.revision());host.edited();
+    const auto original=directory+"/weight-expression-original.nect";
+    host.save(original);const auto original_bytes=bytes(original);
+    const Expression expression{"ref(\"weight-source\",\"\",\"text.weight\") + 100",1};
+    host.session.apply({SetTextWeightExpression{{"weight-target","","text.weight"},expression,false}},host.session.revision());host.edited();
+    auto revised=*host.session.document().objects.at("weight-source").text;revised.weight=500;
+    host.session.apply({UpdateText{"weight-source",revised}},host.session.revision());host.edited();
+    const auto committed=host.session.document();
+    const auto destination=directory+"/weight-expression-destination.nect";
+    host.save(destination);const auto destination_bytes=bytes(destination);
+    check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
+        destination_bytes.contains("\"version\":\"0.55\"")&&
+        load_native(destination).document.objects.at("weight-target").text->weight_expression==expression,
+        "Host Save As retains the exact Text weight expression and leaves original bytes unchanged");
+    Host reopened(directory+"/weight-expression-cold-recovery");reopened.open(destination);
+    const Ref weight_ref{"weight-target","","text.weight"};
+    const auto cold=text_weight_property(reopened.session.document(),weight_ref);
+    check(reopened.session.document()==committed&&reopened.session.revision()==0&&
+        cold.literal==400&&cold.expression==expression&&cold.evaluated==600,
+        "Cold Host reopen preserves Text weight literal, exact expression and evaluated integer");
+    QProcess process;process.start(nect_cli,{"--serve",destination});
+    check(process.waitForStarted(5000),"Start a separate Nect process on Text weight Save As destination");
+    const auto query=QByteArray("{\"op\":\"get\",\"ref\":{\"object\":\"weight-target\",\"point\":\"\",\"field\":\"text.weight\"}}\n");
+    check(process.write(query)==query.size(),"Query Text weight from the cold Nect process");
+    process.closeWriteChannel();
+    check(process.waitForFinished(10000)&&process.exitStatus()==QProcess::NormalExit&&process.exitCode()==0,
+        "Cold Nect process exits after Text weight readback");
+    const auto reply=QJsonDocument::fromJson(process.readAllStandardOutput().trimmed()).object()["result"].toObject();
+    check(reply["authored"].toObject()["literal"].toInt()==400&&
+        reply["authored"].toObject()["expression"].toObject()["source"].toString()==QString::fromStdString(expression.source)&&
+        reply["authored"].toObject()["source_kind"]=="expression"&&
+        reply["evaluated"].toInt()==600,
+        "Separate process reads exact Text weight source and integer result from Save As destination");
+}
 void point_edit_save_as(const QString& directory) {
     Host host(directory+"/point-edit-recovery");
     const auto composition=host.session.document().compositions.front().id;
@@ -421,7 +461,7 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
           artboard_layout_property(saved,expression_grid_column_gutter_ref).expression==column_gutter_expression&&
           std::get<double>(artboard_layout_property(saved,expression_grid_column_gutter_ref).evaluated)==20&&
           bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash,
-          "Valid Save As writes exact native 0.54 bytes and retains Grid expressions, column link, stable IDs and the new column gutter expression");
+          "Valid Save As writes exact native 0.55 bytes and retains Grid expressions, column link, stable IDs and the new column gutter expression");
     check(host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
           QJsonDocument::fromJson(bytes(recovery_meta)).object()["source_file"]==native_path(destination),
           "Recovery provenance follows the Grid and Margin Save As destination");
@@ -643,7 +683,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_width=artboard_layout_property(persisted,grid_width_ref);
     const auto persisted_grid_height=artboard_layout_property(persisted,grid_height_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.54\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.55\"")&&
         bytes(original)==original_bytes&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&
@@ -660,7 +700,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
          persisted_grid_width.expression==grid_width_expression&&std::get<double>(persisted_grid_width.evaluated)==70&&
          std::get<double>(persisted_grid_height.literal)==560&&persisted_grid_height.driver==source_top_ref&&
          std::get<double>(persisted_grid_height.evaluated)==70,
-          "Host Save As writes native 0.54 Grid height link, width expression and Margin sources beside authored literals while preserving original bytes");
+          "Host Save As writes native 0.55 Grid height link, width expression and Margin sources beside authored literals while preserving original bytes");
 
     Host cold(directory+"/linked-margin-left-cold-recovery");cold.open(destination);
     const auto cold_value=artboard_layout_property(cold.session.document(),target_ref);
@@ -979,7 +1019,9 @@ int main(int argc,char** argv) {
     try {
         check(argc==2,"Live Save As test requires the matching Nect CLI path");
         QTemporaryDir temp;check(temp.isValid(),"Create owned live-save test folder");
-        coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());point_edit_save_as(temp.path());artboard_size_save_as(temp.path());
+        coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());
+        text_weight_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
+        point_edit_save_as(temp.path());artboard_size_save_as(temp.path());
         layout_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         linked_margin_left_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         linked_point_edit_save_as(temp.path());linked_mask_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
