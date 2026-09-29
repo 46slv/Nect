@@ -96,7 +96,7 @@ void object_visibility_link_contract() {
         get.find("\"evaluated\":false")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos,
         "API get reports literal, stable driver Ref and evaluated own value separately");
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.61\"")!=std::string::npos&&
+    check(linked_native.find("\"version\":\"0.62\"")!=std::string::npos&&
         linked_native.find("\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}}")!=std::string::npos&&
         decode(linked_native)==session.document(),
         "Native 0.60 roundtrip preserves the optional stable visibility driver");
@@ -132,11 +132,11 @@ void object_visibility_link_contract() {
         !object_visibility_state(deletion.document(),target).literal,
         "Deleting a visibility source is atomic unless the target is first unlinked and frozen in the same batch");
 
-    auto old_literal=encode(document);const auto current_version=old_literal.find("\"version\":\"0.61\"");
-    check(current_version!=std::string::npos,"Native writer emits 0.61 for the 0.27 compatibility fixture");
+    auto old_literal=encode(document);const auto current_version=old_literal.find("\"version\":\"0.62\"");
+    check(current_version!=std::string::npos,"Native writer emits 0.62 before a 0.27 compatibility downgrade");
     old_literal.replace(current_version,std::string("\"version\":\"0.59\"").size(),"\"version\":\"0.27\"");
     check(decode(old_literal)==document,"Native 0.27 literal-only documents remain readable unchanged");
-    auto false_version=linked_native;const auto linked_version=false_version.find("\"version\":\"0.61\"");
+    auto false_version=linked_native;const auto linked_version=false_version.find("\"version\":\"0.62\"");
     false_version.replace(linked_version,std::string("\"version\":\"0.59\"").size(),"\"version\":\"0.26\"");
     rejects("UNKNOWN_FIELD",[&]{decode(false_version);});
 
@@ -174,15 +174,15 @@ void object_visibility_expression_contract() {
         "Typed properties exposes the exact Object visibility source kind");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.61\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
         native.find("\"visibility_expression\":{\"source\":\" ! ref ( \\\"source\\\" , \\\"\\\" , \\\"object.visible\\\" ) \",\"version\":1}")!=std::string::npos&&
         decode(native)==session.document(),"Native 0.60 retains the exact Object visibility expression");
     auto conflict=native;const auto expression_at=conflict.find("\"visibility_expression\":");
     check(expression_at!=std::string::npos,"Encoded expression has a closed native field");
     conflict.insert(expression_at,"\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}},");
     rejects("INVALID_VISIBILITY_SOURCE",[&]{(void)decode(conflict);});
-    auto false_version=native;const auto version_at=false_version.find("\"version\":\"0.61\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.61\"").size(),"\"version\":\"0.59\"");
+    auto false_version=native;const auto version_at=false_version.find("\"version\":\"0.62\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.62\"").size(),"\"version\":\"0.59\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
 
     const auto before_target=session.document().objects.at("a");
@@ -400,15 +400,15 @@ void mask_enabled_link_contract() {
         "Explicit replace_driver changes only the source Ref");
 
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.61\"")!=std::string::npos&&
+    check(linked_native.find("\"version\":\"0.62\"")!=std::string::npos&&
         linked_native.find("\"enabled_driver\":{\"link\":{\"object\":\"b\",\"point\":\"\",\"field\":\"mask.third-mask.enabled\"}}")!=std::string::npos&&
         decode(linked_native)==session.document()&&encode(decode(linked_native))==linked_native,
         "Native 0.43 retains the exact mask Ref and authored literal without byte drift");
-    auto old_literal=encode(document);const auto old_version=old_literal.find("\"version\":\"0.61\"");
-    old_literal.replace(old_version,std::string("\"version\":\"0.61\"").size(),"\"version\":\"0.30\"");
+    auto old_literal=encode(document);const auto old_version=old_literal.find("\"version\":\"0.62\"");
+    old_literal.replace(old_version,std::string("\"version\":\"0.62\"").size(),"\"version\":\"0.30\"");
     check(decode(old_literal)==document,"Native 0.30 remains readable with literal-only masks");
-    auto false_version=linked_native;const auto current_version=false_version.find("\"version\":\"0.61\"");
-    false_version.replace(current_version,std::string("\"version\":\"0.61\"").size(),"\"version\":\"0.30\"");
+    auto false_version=linked_native;const auto current_version=false_version.find("\"version\":\"0.62\"");
+    false_version.replace(current_version,std::string("\"version\":\"0.62\"").size(),"\"version\":\"0.30\"");
     rejects("UNSUPPORTED_MASK_ENABLED_DRIVER",[&]{decode(false_version);});
 
     auto missing_source=fixture();missing_source.objects.at("a").compositing.mask=GeometryMask{"one","source"};
@@ -680,9 +680,10 @@ void composite_isolation_link_contract() {
     check(!state.literal&&state.driver==source&&state.evaluated,
         "A false target literal follows a true same-field source without becoming authored true");
     const auto get=request(session,R"({"op":"get","ref":{"object":"group-B","point":"","field":"composite.isolated"}})");
-    check(get.find("\"authored\":{\"literal\":false,\"driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}}}")!=std::string::npos&&
+    check(get.find("\"literal\":false,\"driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}}")!=std::string::npos&&
+        get.find("\"source_kind\":\"link\"")!=std::string::npos&&
         get.find("\"evaluated\":true")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos&&
-        get.find("\"expression\":false")!=std::string::npos,
+        get.find("\"expression\":true")!=std::string::npos,
         "API get reports literal, stable driver, evaluated authored value and link capability separately");
     const auto listed=request(session,R"({"op":"properties"})");
     check(listed.find("\"field\":\"composite.isolated\"")!=std::string::npos&&
@@ -702,7 +703,7 @@ void composite_isolation_link_contract() {
     check(svg.find("<g id=\"group-B\" opacity=\"1\" color-interpolation=\"sRGB\" style=\"isolation:isolate;")!=std::string::npos,
         "SVG uses the effective isolation of a linked false-literal Group");
     const auto initial_native=encode(session.document());
-    check(initial_native.find("\"version\":\"0.61\"")!=std::string::npos&&
+    check(initial_native.find("\"version\":\"0.62\"")!=std::string::npos&&
         initial_native.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}}")!=std::string::npos&&
         decode(initial_native)==session.document()&&encode(decode(initial_native))==initial_native,
         "Native 0.43 roundtrip preserves the target literal and optional closed same-field driver");
@@ -745,12 +746,12 @@ void composite_isolation_link_contract() {
 
     auto literal=document;literal.objects.at("group-B").compositing.isolated=false;
     const auto old_native=encode(literal);auto native_029=old_native;
-    auto version_at=native_029.find("\"version\":\"0.61\"");
-    check(version_at!=std::string::npos,"Native writer emits 0.61 before literal-only compatibility downgrade");
-    native_029.replace(version_at,std::string("\"version\":\"0.61\"").size(),"\"version\":\"0.29\"");
+    auto version_at=native_029.find("\"version\":\"0.62\"");
+    check(version_at!=std::string::npos,"Native writer emits 0.62 before literal-only compatibility downgrade");
+    native_029.replace(version_at,std::string("\"version\":\"0.62\"").size(),"\"version\":\"0.29\"");
     check(decode(native_029)==literal,"Native 0.29 remains readable with literal-only compositing isolation");
-    auto false_version=initial_native;version_at=false_version.find("\"version\":\"0.61\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.61\"").size(),"\"version\":\"0.29\"");
+    auto false_version=initial_native;version_at=false_version.find("\"version\":\"0.62\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.62\"").size(),"\"version\":\"0.29\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
     auto malformed=initial_native;
     const auto driver_at=malformed.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}} ");
@@ -838,6 +839,155 @@ void composite_isolation_link_contract() {
     atomic(put_inside_session,"PUT_INSIDE_APPEARANCE",{PutInside{"comp","","destination",{"a","b"}}});
 }
 
+void composite_isolation_expression_contract() {
+    auto document=empty_document("isolation-expression-doc","comp","art");
+    Object source_leaf=rectangle("source-leaf"),target_leaf=rectangle("target-leaf");
+    Object source;source.id="group-A";source.name="Group A";source.kind=Kind::group;source.children={source_leaf.id};
+    Object target;target.id="group-B";target.name="Group B";target.kind=Kind::group;target.children={target_leaf.id};
+    document.objects.emplace(source_leaf.id,std::move(source_leaf));document.objects.emplace(target_leaf.id,std::move(target_leaf));
+    document.objects.emplace(source.id,std::move(source));document.objects.emplace(target.id,std::move(target));
+    document.compositions[0].roots={"group-A","group-B"};
+    Session session(document);
+    const Ref target_ref{"group-B","","composite.isolated"},source_ref{"group-A","","composite.isolated"};
+    const Expression expression{" ! ref ( \"group-A\" , \"\" , \"composite.isolated\" ) ",1};
+    const auto set=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"set_composite_isolated_expression","target":{"object":"group-B","point":"","field":"composite.isolated"},"expression":{"source":" ! ref ( \"group-A\" , \"\" , \"composite.isolated\" ) ","version":1},"replace_driver":false}]})");
+    check(set.find("\"changed\":true")!=std::string::npos&&session.revision()==1,
+        "JSON-lines sets Composite isolation expression through the shared revisioned Session command");
+    auto state=composite_isolation_state(session.document(),target_ref);
+    check(!state.literal&&!state.driver&&state.expression==expression&&state.evaluated,
+        "Negated source evaluates authored isolation while retaining the false literal and exact expression");
+    const auto get=request(session,R"({"op":"get","ref":{"object":"group-B","point":"","field":"composite.isolated"}})");
+    check(get.find("\"source_kind\":\"expression\"")!=std::string::npos&&
+        get.find("\"expression\":{\"source\":\" ! ref ( \\\"group-A\\\" , \\\"\\\" , \\\"composite.isolated\\\" ) \",\"version\":1}")!=std::string::npos&&
+        get.find("\"evaluated\":true")!=std::string::npos&&get.find("\"expression\":true")!=std::string::npos,
+        "Typed API exposes exact source text, expression source kind and evaluated authored value");
+    const auto listed=request(session,R"({"op":"properties"})");
+    check(listed.find("\"field\":\"composite.isolated\"")!=std::string::npos&&
+        listed.find("\"source_kind\":\"expression\"")!=std::string::npos,
+        "Typed properties exposes the same authored expression state");
+    const auto revision=session.revision();const auto history=session.history();
+    const auto replay=request(session,R"({"op":"apply","expected_revision":1,"commands":[{"type":"set_composite_isolated_expression","target":{"object":"group-B","point":"","field":"composite.isolated"},"expression":{"source":" ! ref ( \"group-A\" , \"\" , \"composite.isolated\" ) ","version":1},"replace_driver":false}]})");
+    check(replay.find("\"ok\":true")!=std::string::npos&&session.revision()==revision&&session.history()==history,
+        "Reapplying exact Composite isolation expression is idempotent without a history entry");
+
+    auto evaluated=scene(session.document());
+    check(evaluated.roots[1].isolated&&evaluate_composite_isolation(session.document(),target_ref),
+        "Compositing plan applies true expression result as authored isolation");
+    const auto svg=export_svg(session.document(),"comp","art");
+    check(svg.find("<g id=\"group-B\"")!=std::string::npos&&svg.find("isolation:isolate;")!=std::string::npos,
+        "SVG export consumes the expression-driven authored isolation");
+    apply(session,{SetCompositing{"group-A","normal",true}});
+    state=composite_isolation_state(session.document(),target_ref);
+    check(!state.literal&&state.expression==expression&&!state.evaluated&&
+        session.document().objects.at("group-B").compositing.isolated==false&&
+        !scene(session.document()).roots[1].isolated,
+        "Source false-to-true changes only the evaluated authored value while IDs, literal and source stay fixed");
+    apply(session,{SetCompositing{"group-B","multiply",false}});
+    check(!composite_isolation_state(session.document(),target_ref).evaluated&&scene(session.document()).roots[1].isolated,
+        "A false expression does not disable effective isolation required by non-normal blend");
+    apply(session,{SetCompositing{"group-B","normal",false}});
+    check(!scene(session.document()).roots[1].isolated,
+        "Restoring normal blend permits pass-through when authored expression is false");
+    apply(session,{Rename{"group-A","Renamed Group A"}});
+    check(composite_isolation_state(session.document(),target_ref).expression==expression&&
+        !composite_isolation_state(session.document(),target_ref).evaluated,
+        "Source rename preserves stable expression target identity");
+    apply(session,{UnlinkCompositeIsolated{target_ref}});
+    state=composite_isolation_state(session.document(),target_ref);
+    check(!state.literal&&!state.driver&&!state.expression&&!state.evaluated,
+        "Unlink freezes the current evaluated authored isolation into its literal");
+    session.undo(session.revision());
+    check(composite_isolation_state(session.document(),target_ref).expression==expression,
+        "Undo restores exact expression source and literal");
+    session.redo(session.revision());
+    check(!composite_isolation_state(session.document(),target_ref).expression,
+        "Redo restores the frozen literal state");
+
+    auto driven=Session(document);
+    apply(driven,{SetCompositeIsolatedExpression{target_ref,expression,false}});
+    atomic(driven,"DRIVEN_PROPERTY",{LinkCompositeIsolated{target_ref,source_ref,false}});
+    apply(driven,{LinkCompositeIsolated{target_ref,source_ref,true}});
+    state=composite_isolation_state(driven.document(),target_ref);
+    check(state.driver==source_ref&&!state.expression,
+        "Explicit link replacement clears the expression and retains the authored literal");
+    atomic(driven,"DRIVEN_PROPERTY",{SetCompositeIsolatedExpression{target_ref,expression,false}});
+    apply(driven,{SetCompositeIsolatedExpression{target_ref,expression,true}});
+    check(composite_isolation_state(driven.document(),target_ref).expression==expression&&
+        !composite_isolation_state(driven.document(),target_ref).driver,
+        "Explicit expression replacement clears an active link");
+    atomic(driven,"DRIVEN_PROPERTY",{SetCompositing{"group-B","normal",true}});
+    atomic(driven,"MISSING_REFERENCE",{DeleteObjects{{"group-A"}}});
+    atomic(driven,"DEPENDENCY_CYCLE",{SetCompositeIsolatedExpression{target_ref,
+        {"ref(\"group-B\",\"\",\"composite.isolated\")",1},true}});
+    atomic(driven,"BOOLEAN_EXPRESSION_TYPE",{SetCompositeIsolatedExpression{target_ref,
+        {"ref(\"group-A\",\"\",\"composite.opacity\")",1},true}});
+    atomic(driven,"BOOLEAN_EXPRESSION_SYNTAX",{SetCompositeIsolatedExpression{target_ref,{"true && false",1},true}});
+    atomic(driven,"UNSUPPORTED_EXPRESSION_VERSION",{SetCompositeIsolatedExpression{target_ref,{"true",2},true}});
+    atomic(driven,"DRIVEN_PROPERTY",{SetCompositeIsolatedExpression{target_ref,{"false",1},false}});
+    atomic(driven,"INVALID_OBJECT_REF",{SetCompositeIsolatedExpression{{"group-B","point","composite.isolated"},expression,true}});
+    const auto before_batch=driven.document();const auto batch_revision=driven.revision();const auto batch_history=driven.history();
+    const auto failed_batch=request(driven,R"json({"op":"apply","expected_revision":3,"commands":[{"type":"set_compositing","object":"group-B","blend":"multiply","isolated":false},{"type":"set_composite_isolated_expression","target":{"object":"group-B","point":"","field":"composite.isolated"},"expression":{"source":"ref(\"group-B\",\"\",\"composite.isolated\")","version":1},"replace_driver":true}]})json");
+    check(failed_batch.find("\"code\":\"DEPENDENCY_CYCLE\"")!=std::string::npos&&driven.document()==before_batch&&
+        driven.revision()==batch_revision&&driven.history()==batch_history,
+        "A failed later JSON-lines expression command rolls back earlier blend mutation, revision and history");
+    rejects("REVISION_CONFLICT",[&]{driven.apply({UnlinkCompositeIsolated{target_ref}},driven.revision()+1);});
+
+    auto cross_document=document;auto foreign=empty_document("foreign-doc","foreign-comp","foreign-art").compositions.front();
+    foreign.roots={"foreign"};cross_document.compositions.push_back(foreign);cross_document.objects.emplace("foreign",rectangle("foreign"));
+    Session cross(cross_document);
+    atomic(cross,"CROSS_COMPOSITION",{SetCompositeIsolatedExpression{target_ref,
+        {"ref(\"foreign\",\"\",\"composite.isolated\")",1},false}});
+    auto cycle=document;cycle.objects.at("group-A").compositing.isolated_driver=target_ref;
+    cycle.objects.at("group-B").compositing.isolated_expression=Expression{"ref(\"group-A\",\"\",\"composite.isolated\")",1};
+    rejects("DEPENDENCY_CYCLE",[&]{Session invalid(cycle);});
+    auto depth=empty_document("isolation-depth-doc","depth-comp","depth-art");
+    for(unsigned index=0;index<130;++index) {
+        Object object;object.id="depth-"+std::to_string(index);object.name=object.id;
+        if(index+1<130) {
+            if(index%2==0)object.compositing.isolated_expression=Expression{
+                "ref(\"depth-"+std::to_string(index+1)+"\",\"\",\"composite.isolated\")",1};
+            else object.compositing.isolated_driver=Ref{"depth-"+std::to_string(index+1),"","composite.isolated"};
+        }
+        depth.objects.emplace(object.id,std::move(object));depth.compositions[0].roots.push_back("depth-"+std::to_string(index));
+    }
+    rejects("DEPENDENCY_DEPTH",[&]{Session invalid(depth);});
+
+    auto duplicate_session=Session(document);
+    const DuplicateObjects duplicate{{"group-A","group-B"},"expr-copy"};
+    const auto copied_ids=duplicated_roots(duplicate_session.document(),duplicate);
+    apply(duplicate_session,{SetCompositeIsolatedExpression{target_ref,expression,false},duplicate});
+    const auto copied_source=std::find_if(copied_ids.begin(),copied_ids.end(),[&](const auto& id){return duplicate_session.document().objects.at(id).name=="Group A copy";});
+    const auto copied_target=std::find_if(copied_ids.begin(),copied_ids.end(),[&](const auto& id){return duplicate_session.document().objects.at(id).name=="Group B copy";});
+    check(copied_source!=copied_ids.end()&&copied_target!=copied_ids.end()&&
+        composite_isolation_state(duplicate_session.document(),{*copied_target,"","composite.isolated"}).expression==
+            Expression{" ! ref ( \""+*copied_source+"\" , \"\" , \"composite.isolated\" ) ",1},
+        "Duplicate batch remaps only the copied expression source ID and retains formatting");
+    auto external=document;external.objects.at("group-B").compositing.isolated_expression=expression;
+    Session external_session(external);const DuplicateObjects copy_target{{"group-B"},"external"};
+    const auto external_ids=duplicated_roots(external_session.document(),copy_target);apply(external_session,{copy_target});
+    check(composite_isolation_state(external_session.document(),{external_ids.front(),"","composite.isolated"}).expression==expression,
+        "Duplicating only a target preserves its external same-Composition expression source and exact text");
+
+    auto native_document=document;native_document.objects.at("group-A").compositing.isolated=false;
+    native_document.objects.at("group-B").compositing.isolated_expression=expression;
+    Session native_session(native_document);const auto native=encode(native_session.document());
+    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+        native.find("\"isolated_expression\":{\"source\":\" ! ref ( \\\"group-A\\\" , \\\"\\\" , \\\"composite.isolated\\\" ) \",\"version\":1}")!=std::string::npos&&
+        decode(native)==native_session.document()&&encode(decode(native))==native,
+        "Native 0.62 roundtrip retains the exact closed expression and authored isolation literal");
+    auto version_lie=native;const auto writer=version_lie.find("\"version\":\"0.62\"");
+    check(writer!=std::string::npos,"Native writer emits 0.62 for composite isolation expressions");
+    version_lie.replace(writer,std::string("\"version\":\"0.62\"").size(),"\"version\":\"0.61\"");
+    rejects("UNKNOWN_FIELD",[&]{(void)decode(version_lie);});
+    auto legacy=encode(document);const auto legacy_writer=legacy.find("\"version\":\"0.62\"");
+    legacy.replace(legacy_writer,std::string("\"version\":\"0.62\"").size(),"\"version\":\"0.61\"");
+    check(decode(legacy)==document,"Native 0.61 remains readable when no Composite isolation expression is present");
+
+    auto structure=document;structure.objects.at("group-B").compositing.isolated_expression=Expression{"true",1};
+    Session structure_session(structure);
+    atomic(structure_session,"UNGROUP_APPEARANCE",{Ungroup{"comp","","group-B"}});
+}
+
 void group_posterize_native_api_and_refusals() {
     auto d=empty_document("posterize-doc","comp","art");
     Object child;child.id="child";child.name="Child";
@@ -863,7 +1013,7 @@ void group_posterize_native_api_and_refusals() {
     check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({3,4}),
         "ReorderOperations changes the ordered postchildren evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.61\"")!=std::string::npos&&decode(native)==session.document()&&
+    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&decode(native)==session.document()&&
         decode(native).objects.at("group").stack[0].id=="posterize-second",
         "Native 0.43 preserves Group operation IDs, levels and reordered stack");
     check(request(session,R"({"op":"operator_types"})").find("nect.group.posterize")!=std::string::npos,
@@ -898,9 +1048,9 @@ void group_posterize_native_api_and_refusals() {
     rejects("UNSUPPORTED_SVG_EFFECT",[&]{(void)export_svg(session.document(),"comp","art");});
 
     auto legacy_bytes=encode(d);
-    const auto old_version=legacy_bytes.find("\"version\":\"0.61\"");
+    const auto old_version=legacy_bytes.find("\"version\":\"0.62\"");
     check(old_version!=std::string::npos,"Native fixture writer uses 0.43 before migration downgrade");
-    legacy_bytes.replace(old_version,std::string("\"version\":\"0.61\"").size(),"\"version\":\"0.24\"");
+    legacy_bytes.replace(old_version,std::string("\"version\":\"0.62\"").size(),"\"version\":\"0.24\"");
     const auto group_id=legacy_bytes.find("\"id\":\"group\"");
     check(group_id!=std::string::npos,"Native fixture contains the target Group object");
     const auto object_start=legacy_bytes.rfind('{',group_id);
@@ -928,8 +1078,8 @@ void group_posterize_native_api_and_refusals() {
     else throw std::runtime_error("Could not remove Group stack member from legacy fixture");
     legacy_bytes.erase(erase_start,erase_end-erase_start);
     check(decode(legacy_bytes).objects.at("group").stack.empty(),"Native 0.24 Group migrates to an empty effect stack");
-    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.61\"");
-    smuggled.replace(old_writer,std::string("\"version\":\"0.61\"").size(),"\"version\":\"0.24\"");
+    auto smuggled=native;const auto old_writer=smuggled.find("\"version\":\"0.62\"");
+    smuggled.replace(old_writer,std::string("\"version\":\"0.62\"").size(),"\"version\":\"0.24\"");
     rejects("INVALID_OBJECT",[&]{(void)decode(smuggled);});
 
     session.apply({EnableOperation{"group","posterize",false},EnableOperation{"group","posterize-second",false}},session.revision());
@@ -1289,6 +1439,6 @@ void previewed_folder_api() {
 
 }
 int main() {
-    try{object_visibility_read_contract();object_visibility_link_contract();object_visibility_expression_contract();mask_enabled_read_contract();mask_enabled_link_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();composite_isolation_link_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{object_visibility_read_contract();object_visibility_link_contract();object_visibility_expression_contract();mask_enabled_read_contract();mask_enabled_link_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();composite_isolation_link_contract();composite_isolation_expression_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

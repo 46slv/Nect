@@ -241,6 +241,8 @@ struct Compositing {
     std::string blend="normal";
     bool isolated=false;
     std::optional<Ref> isolated_driver;
+    // Optional bounded same-field boolean source. Mutually exclusive with isolated_driver.
+    std::optional<Expression> isolated_expression;
     std::optional<GeometryMask> mask;
     bool operator==(const Compositing&) const = default;
 };
@@ -621,7 +623,16 @@ struct LinkObjectVisibility {
 };
 using SetObjectVisibilityExpression = LinkObjectVisibility;
 struct UnlinkObjectVisibility { Ref target; };
-struct LinkCompositeIsolated { Ref target; Ref source; bool replace_driver=false; };
+struct LinkCompositeIsolated {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    LinkCompositeIsolated(Ref target,Ref source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+    LinkCompositeIsolated(Ref target,Expression source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+};
+using SetCompositeIsolatedExpression = LinkCompositeIsolated;
 struct UnlinkCompositeIsolated { Ref target; };
 struct SetCompositing { Id object; std::string blend; bool isolated; };
 struct SetMask { Id object; std::optional<GeometryMask> mask; };
@@ -843,6 +854,7 @@ bool composite_isolated_property(const Document&,const Ref&);
 struct CompositeIsolationProperty {
     bool literal=false;
     std::optional<Ref> driver;
+    std::optional<Expression> expression;
     bool evaluated=false;
 };
 CompositeIsolationProperty composite_isolation_state(const Document&,const Ref&);

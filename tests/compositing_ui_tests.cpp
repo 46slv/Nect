@@ -235,13 +235,61 @@ void isolation_inspector(){
     check(!state.evaluated&&widget<QLabel>(w,"object-isolated-status")->text().contains("Evaluated authored isolation: false"),
         "Inspector follows a source edit without changing the target literal");
     driver=widget<QToolButton>(w,"object-isolated-driver");
-    check(driver->menu()->actions().size()==2&&driver->menu()->actions()[1]->isEnabled(),
-        "Inspector offers explicit unlink for a driven isolation value");
+    check(driver->menu()->actions().size()==3&&driver->menu()->actions()[1]->isEnabled()&&driver->menu()->actions()[2]->isEnabled(),
+        "Inspector offers expression replacement and explicit unlink for a driven isolation value");
+    const Expression expression{" ! ref ( \"source\" , \"\" , \"composite.isolated\" ) ",1};
+    bool applied_expression=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("composite-isolated-expression-dialog");
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>("composite-isolated-expression-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_editor||!buttons)return;
+        source_editor->setPlainText(QString::fromStdString(expression.source));
+        buttons->button(QDialogButtonBox::Apply)->click();applied_expression=!dialog->isVisible();
+    });
     driver->menu()->actions()[1]->trigger();QApplication::processEvents();
     state=composite_isolation_state(session.document(),target);
-    check(!state.literal&&!state.driver&&!widget<QCheckBox>(w,"object-isolated")->isChecked()&&
+    check(applied_expression&&state.literal==false&&!state.driver&&state.expression==expression&&state.evaluated&&
+        !widget<QCheckBox>(w,"object-isolated")->isEnabled()&&
+        widget<QLabel>(w,"object-isolated-status")->text().contains(QString::fromStdString(expression.source)),
+        "Inspector Apply replaces the link with exact expression text and keeps the driven checkbox read-only");
+    const auto expression_document=session.document();const auto expression_revision=session.revision();
+    driver=widget<QToolButton>(w,"object-isolated-driver");bool canceled=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("composite-isolated-expression-dialog");
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>("composite-isolated-expression-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_editor||!buttons)return;
+        source_editor->setPlainText("false");buttons->button(QDialogButtonBox::Cancel)->click();canceled=!dialog->isVisible();
+    });
+    driver->menu()->actions()[1]->trigger();QApplication::processEvents();
+    check(canceled&&session.document()==expression_document&&session.revision()==expression_revision,
+        "Cancel discards the Composite isolation expression draft without changing authored state");
+    driver=widget<QToolButton>(w,"object-isolated-driver");bool stale_expression=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("composite-isolated-expression-dialog");
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>("composite-isolated-expression-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("composite-isolated-expression-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_editor||!status||!buttons)return;
+        session.apply({SetCompositing{"source","normal",true}},session.revision());
+        source_editor->setPlainText(QString::fromStdString(expression.source));buttons->button(QDialogButtonBox::Apply)->click();
+        stale_expression=dialog->isVisible()&&status->text().contains("REVISION_CONFLICT")&&
+            composite_isolation_state(session.document(),target).expression==expression;
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    driver->menu()->actions()[1]->trigger();QApplication::processEvents();
+    check(stale_expression,"Inspector rejects a stale expression draft after source state changes");
+    w.host.edited();
+    check(!composite_isolation_state(session.document(),target).evaluated&&
+        session.document().objects.at("target").compositing.blend=="multiply",
+        "Expression reads authored isolation while another term still keeps effective scene isolation");
+    driver=widget<QToolButton>(w,"object-isolated-driver");
+    driver->menu()->actions()[2]->trigger();QApplication::processEvents();
+    state=composite_isolation_state(session.document(),target);
+    check(!state.literal&&!state.driver&&!state.expression&&!widget<QCheckBox>(w,"object-isolated")->isChecked()&&
         widget<QCheckBox>(w,"object-isolated")->isEnabled(),
-        "Inspector unlink freezes evaluated isolation and re-enables its literal toggle");
+        "Inspector unlink freezes evaluated expression value and re-enables its literal toggle");
     session.apply({SetCompositing{"source","normal",true}},session.revision());w.host.edited();
     check(!composite_isolation_state(session.document(),target).evaluated,
         "Unlinked Inspector value stays frozen when its former source changes");

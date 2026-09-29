@@ -3467,16 +3467,18 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     blend->setCurrentIndex(blend->findData(qs(object.compositing.blend)));form->addRow("Blend",blend);
     connect(blend,&QComboBox::currentIndexChanged,this,[this,blend,id,apply](int){perform([&]{const auto& current=host.session.document().objects.at(id).compositing;apply(SetCompositing{id,blend->currentData().toString().toStdString(),current.isolated});});});
     const Ref isolation_ref{id,"","composite.isolated"};const auto isolation_state=composite_isolation_state(host.session.document(),isolation_ref);
+    const bool isolation_driven=isolation_state.driver.has_value()||isolation_state.expression.has_value();
     auto* isolation_row=new QWidget(box);auto* isolation_layout=new QHBoxLayout(isolation_row);isolation_layout->setContentsMargins(0,0,0,0);
     auto* isolate=new QCheckBox("Isolate from backdrop",isolation_row);isolate->setObjectName("object-isolated");
-    isolate->setChecked(isolation_state.literal);isolate->setEnabled(!isolation_state.driver);isolation_layout->addWidget(isolate);
+    isolate->setChecked(isolation_state.literal);isolate->setEnabled(!isolation_driven);isolation_layout->addWidget(isolate);
     auto* isolation_driver=new QToolButton(isolation_row);isolation_driver->setObjectName("object-isolated-driver");
-    isolation_driver->setText(isolation_state.driver?"Driver…":"Link…");isolation_driver->setPopupMode(QToolButton::InstantPopup);
+    isolation_driver->setText(isolation_driven?"Source…":"Link…");isolation_driver->setPopupMode(QToolButton::InstantPopup);
     auto* isolation_menu=new QMenu(isolation_driver);isolation_driver->setMenu(isolation_menu);isolation_layout->addWidget(isolation_driver);form->addRow(isolation_row);
     const auto isolation_revision=host.session.revision();
-    const auto link_isolation=isolation_menu->addAction(isolation_state.driver?"Replace isolation link…":"Link isolation…");
+    const auto link_isolation=isolation_menu->addAction(isolation_driven?"Replace isolation source with link…":"Link isolation…");
+    const auto expression_isolation=isolation_menu->addAction(isolation_driven?"Replace isolation source with expression…":"Set isolation expression…");
     const auto unlink_isolation=isolation_menu->addAction("Unlink and freeze evaluated isolation");
-    unlink_isolation->setEnabled(isolation_state.driver.has_value());
+    unlink_isolation->setEnabled(isolation_driven);
     const auto& composition=find_composition(host.session.document(),canvas->active_composition());
     std::vector<Ref> isolation_sources;QStringList isolation_source_labels;
     std::function<void(const Id&)> append_isolation_source=[&](const Id& source_id) {
@@ -3487,15 +3489,41 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     for(const auto& root:composition.roots)append_isolation_source(root);
     link_isolation->setEnabled(!isolation_sources.empty());
     connect(link_isolation,&QAction::triggered,this,[this,id,session,isolation_revision,isolation_sources,
-        isolation_source_labels,replace=isolation_state.driver.has_value(),apply] {
+        isolation_source_labels,replace=isolation_driven,apply] {
         choose_boolean_source(this,"object-isolated-source-dialog",
-            replace?"Replace Composite isolation link":"Link Composite isolation",
+            replace?"Replace Composite isolation source with link":"Link Composite isolation",
             qs(id)+" / composite.isolated",isolation_sources,isolation_source_labels,
             [this,id,session,isolation_revision,replace,apply](const Ref& source) {
             if(host.session_id!=session)throw Error("SESSION_CONFLICT","Composite isolation belongs to another document");
             if(host.session.revision()!=isolation_revision)throw Error("REVISION_CONFLICT","Composite isolation changed while the source chooser was open");
             apply(LinkCompositeIsolated{{id,"","composite.isolated"},source,replace});
         });
+    });
+    connect(expression_isolation,&QAction::triggered,this,[this,id,session,isolation_revision,
+        replace=isolation_driven,initial=isolation_state.expression,apply] {
+        if(host.session_id!=session) {statusBar()->showMessage("SESSION_CONFLICT: Composite isolation belongs to another document",12000);return;}
+        QDialog dialog(this);dialog.setObjectName("composite-isolated-expression-dialog");
+        dialog.setWindowTitle(replace?"Replace Composite isolation source with expression":"Set Composite isolation expression");
+        dialog.resize(560,210);auto* draft_layout=new QVBoxLayout(&dialog);
+        auto* target_label=new QLabel("Target: "+qs(id)+" / composite.isolated",&dialog);target_label->setWordWrap(true);draft_layout->addWidget(target_label);
+        auto* source=new QPlainTextEdit(&dialog);source->setObjectName("composite-isolated-expression-source");
+        source->setPlaceholderText("true, false, ref(\"id\",\"\",\"composite.isolated\"), or !ref(…)");
+        if(initial)source->setPlainText(qs(initial->source));else source->setPlainText("true");
+        source->setMinimumHeight(58);draft_layout->addWidget(source);
+        auto* status=new QLabel("Version 1 accepts true, false, or an optional negation of a same-Composition composite.isolated Ref.",&dialog);
+        status->setObjectName("composite-isolated-expression-status");status->setWordWrap(true);status->setTextFormat(Qt::PlainText);draft_layout->addWidget(status);
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+        buttons->button(QDialogButtonBox::Apply)->setText("Apply");draft_layout->addWidget(buttons);
+        connect(buttons->button(QDialogButtonBox::Cancel),&QPushButton::clicked,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,source,status,id,session,isolation_revision,replace,apply] {
+            try {
+                if(host.session_id!=session)throw Error("SESSION_CONFLICT","Composite isolation belongs to another document");
+                if(host.session.revision()!=isolation_revision)throw Error("REVISION_CONFLICT","Composite isolation changed while the expression draft was open");
+                apply(SetCompositeIsolatedExpression{{id,"","composite.isolated"},
+                    {source->toPlainText().toStdString(),1},replace});dialog.accept();
+            } catch(const Error& error) {status->setText(QString::fromLatin1(error.code.c_str())+": "+QString::fromUtf8(error.what()));}
+        });
+        dialog.exec();
     });
     connect(unlink_isolation,&QAction::triggered,this,[this,id,session,isolation_revision,apply] {perform([&]{
         if(host.session_id!=session)throw Error("SESSION_CONFLICT","Composite isolation belongs to another document");
@@ -3515,6 +3543,7 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
             qs(source->second.name)+" ("+qs(isolation_state.driver->object)+")";
         isolation_details+=" · Linked to "+name;
     }
+    if(isolation_state.expression)isolation_details+=" · Expression: "+qs(isolation_state.expression->source);
     isolation_status->setText(isolation_details);form->addRow("Isolation state",isolation_status);
     auto* scope=new QLabel("Opacity, masks and blending apply to the composed result. Neutral Groups pass through.");scope->setWordWrap(true);scope->setStyleSheet("color:#9ea7b4;");form->addRow(scope);
     if(!object.compositing.mask)return;

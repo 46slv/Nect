@@ -161,20 +161,27 @@ j::value mask_json(const std::optional<GeometryMask>& mask) {
     if(mask->enabled_driver)result["enabled_driver"]=j::object{{"link",ref_json(*mask->enabled_driver)}};
     return result;
 }
-Compositing read_compositing(const j::value& value,bool allow_isolated_driver,bool allow_mask_enabled_driver=false) {
+Compositing read_compositing(const j::value& value,bool allow_isolated_driver,bool allow_mask_enabled_driver=false,
+    bool allow_isolated_expression=false) {
     const auto& o=value.as_object();
-    if(allow_isolated_driver)keys(o,{"version","opacity","blend","isolated","mask","isolated_driver"});
+    if(allow_isolated_expression)keys(o,{"version","opacity","blend","isolated","mask","isolated_driver","isolated_expression"});
+    else if(allow_isolated_driver)keys(o,{"version","opacity","blend","isolated","mask","isolated_driver"});
     else keys(o,{"version","opacity","blend","isolated","mask"});
     Compositing c;c.version=j::value_to<unsigned>(o.at("version"));c.opacity=read_scalar(o.at("opacity"));
     c.blend=text(o.at("blend"));c.isolated=o.at("isolated").as_bool();if(!o.at("mask").is_null())c.mask=read_mask(o.at("mask"),allow_mask_enabled_driver);
     if(const auto* driver=o.if_contains("isolated_driver")) {
         const auto& wrapper=driver->as_object();keys(wrapper,{"link"});c.isolated_driver=read_ref(wrapper.at("link"));
     }
+    if(allow_isolated_expression)if(const auto* expression=o.if_contains("isolated_expression"))
+        c.isolated_expression=read_expression(*expression);
+    if(c.isolated_driver&&c.isolated_expression)
+        throw Error("INVALID_COMPOSITE_ISOLATION_SOURCE","Composite isolation link and expression are mutually exclusive");
     return c;
 }
 j::object compositing_json(const Compositing& c) {
     j::object result{{"version",c.version},{"opacity",scalar_json(c.opacity)},{"blend",c.blend},{"isolated",c.isolated},{"mask",mask_json(c.mask)}};
     if(c.isolated_driver)result["isolated_driver"]=j::object{{"link",ref_json(*c.isolated_driver)}};
+    if(c.isolated_expression)result["isolated_expression"]=expression_json(*c.isolated_expression);
     return result;
 }
 std::vector<Id> ids(const j::value& v) {
@@ -628,10 +635,13 @@ j::object object_visibility_property_json(const Document& d,const Ref& ref,const
 }
 j::object composite_isolated_property_json(const Document& d,const Ref& ref,const CompositeIsolationProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
+    j::object authored{{"literal",value.literal},{"driver",std::move(driver)},
+        {"source_kind",value.driver?"link":value.expression?"expression":"literal"}};
+    if(value.expression)authored["expression"]=expression_json(*value.expression);
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
         {"unit","boolean"},{"space","local"},{"origin","authored"},
-        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
-        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+        {"authored",std::move(authored)},
+        {"evaluated",value.evaluated},{"link",true},{"expression",true}};
 }
 j::object geometry_mask_enabled_property_json(const Document& d,const Ref& ref,bool enabled) {
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
@@ -1277,6 +1287,10 @@ Command read_command(const j::value& v) {
     if(type=="unlink_composite_isolated") {
         keys(o,{"type","target"});return UnlinkCompositeIsolated{read_ref(o.at("target"))};
     }
+    if(type=="set_composite_isolated_expression") {
+        keys(o,{"type","target","expression","replace_driver"});
+        return SetCompositeIsolatedExpression{read_ref(o.at("target")),read_expression(o.at("expression")),o.at("replace_driver").as_bool()};
+    }
     if(type=="link_operation_enabled") {
         keys(o,{"type","target","source","replace_driver"});
         return LinkOperationEnabled{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
@@ -1692,10 +1706,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,61> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61"};
+        constexpr std::array<std::string_view,62> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.61 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.62 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1736,7 +1750,7 @@ Document decode(std::string_view input) {
             Object obj;
             obj.id=text(o.at("id"));
             obj.name=text(o.at("name"));
-            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"),minor>=30,minor>=31);}
+            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"),minor>=30,minor>=31,minor>=62);}
             if(minor>=27)if(const auto* driver=o.if_contains("visibility_driver")) {
                 const auto& fields=driver->as_object();keys(fields,{"link"});obj.visibility_driver=read_ref(fields.at("link"));
             }
@@ -1990,9 +2004,10 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     // Neutral legacy scenes keep their original local-transform projection.
     // Appearance scopes use world-space clip wrappers, never inverse matrices.
     const auto visibility=evaluate_object_visibilities(d);
+    const auto authored_isolation=evaluate_composite_isolations(d);
     bool modern=false;
     std::function<void(const Id&)> detect=[&](const Id& id){const auto& object=d.objects.at(id);const auto& c=object.compositing;
-        modern=modern||object.image.has_value()||!visibility.at(id)||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||c.isolated||
+        modern=modern||object.image.has_value()||!visibility.at(id)||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||authored_isolation.at(id)||
             (c.mask&&mask_enabled.at(geometry_mask_enabled_ref(id,c.mask->id)));
         for(const auto& child:object.children)detect(child);};
     for(const auto& id:comp->roots)detect(id);

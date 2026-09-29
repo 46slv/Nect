@@ -1613,3 +1613,25 @@ any `offset` under an older version is a version lie and rejects. Native 0.61
 retains the exact source Ref, signed offset and authored literal, while
 evaluation rejects results outside [1,999]. `schemas/native-v0.61.schema.json`
 closes the optional offset field.
+
+## Native 0.62 — Composite isolation expressions
+
+`Object.compositing.isolated` retains its authored boolean literal and may add
+one optional `isolated_expression: {source,version:1}`, mutually exclusive with
+`isolated_driver`. The closed boolean grammar accepts `true`, `false`, or a
+qualified same-Composition `ref("object-id","","composite.isolated")` with
+optional negation. Evaluation reads the referenced authored isolation value;
+it does not feed back from effective scene compositing. Self references,
+cycles, missing or cross-Composition sources, and other fields are rejected.
+
+The revisioned `set_composite_isolated_expression` command owns source changes.
+Replacing an active link or different expression requires `replace_driver`;
+reapplying the exact expression is idempotent. Existing unlink freezes the
+evaluated authored isolation into the literal, and direct literal edits while
+driven are rejected. Duplicate remaps an expression Ref only when its source
+is duplicated in the same operation. Typed reads expose the authored literal,
+exact expression and evaluated isolation. Scene rendering and SVG export use
+the evaluated value while preserving the authored source. Native Save As keeps
+the exact expression and literal; versions 0.1–0.61 remain readable and reject
+a version-lied expression. `schemas/native-v0.62.schema.json` closes the
+optional field and rejects simultaneous link and expression sources.

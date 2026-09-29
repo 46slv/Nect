@@ -214,7 +214,7 @@ void text_weight_expression_save_as(const QString& directory,const QString& nect
     const auto destination=directory+"/weight-expression-destination.nect";
     host.save(destination);const auto destination_bytes=bytes(destination);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.61\"")&&
+        destination_bytes.contains("\"version\":\"0.62\"")&&
         destination_bytes.contains("\"offset\":200")&&
         load_native(destination).document.objects.at("weight-target").text->weight_expression==expression&&
         load_native(destination).document.objects.at("weight-relative-target").text->weight_driver==
@@ -272,7 +272,7 @@ void object_visibility_expression_save_as(const QString& directory,const QString
     const auto saved=load_native(destination).document;
     const auto saved_state=object_visibility_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.61\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.62\"")&&saved==committed&&
         saved_state.literal&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated,
         "Host Save As keeps the exact Object visibility expression and leaves original bytes unchanged");
     Host reopened(directory+"/visibility-expression-cold-recovery");reopened.open(destination);
@@ -295,6 +295,49 @@ void object_visibility_expression_save_as(const QString& directory,const QString
         authored["expression"].toObject()["version"].toInt()==1&&authored["source_kind"]=="expression"&&
         reply["evaluated"].toBool()&&reply["expression"].toBool()&&reply["link"].toBool(),
         "Separate process reads exact Object visibility source, source kind and evaluated value");
+}
+void composite_isolation_expression_save_as(const QString& directory,const QString& nect_cli) {
+    Host host(directory+"/composite-isolation-expression-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    host.session.apply({
+        CreatePrimitive{composition,"","composite-isolation-source","Source",default_primitive("composite-isolation-source-primitive","nect.shape.rectangle")},
+        CreatePrimitive{composition,"","composite-isolation-target","Target",default_primitive("composite-isolation-target-primitive","nect.shape.rectangle")}},
+        host.session.revision());host.edited();
+    const auto original=directory+"/composite-isolation-expression-original.nect";
+    host.save(original);const auto original_bytes=bytes(original);
+    const Expression expression{" ! ref ( \"composite-isolation-source\" , \"\" , \"composite.isolated\" ) ",1};
+    const Ref target{"composite-isolation-target","","composite.isolated"};
+    host.session.apply({SetCompositeIsolatedExpression{target,expression,false}},host.session.revision());host.edited();
+    const auto committed=host.session.document();
+    const auto destination=directory+"/composite-isolation-expression-destination.nect";
+    host.save(destination);const auto destination_bytes=bytes(destination);
+    const auto saved=load_native(destination).document;
+    const auto saved_state=composite_isolation_state(saved,target);
+    check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
+        destination_bytes.contains("\"version\":\"0.62\"")&&saved==committed&&
+        saved_state.literal==false&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated&&
+        saved.objects.at("composite-isolation-target").compositing.isolated_expression==expression,
+        "Host Save As keeps exact Composite isolation expression and leaves original bytes unchanged");
+    Host reopened(directory+"/composite-isolation-expression-cold-recovery");reopened.open(destination);
+    const auto cold=composite_isolation_state(reopened.session.document(),target);
+    check(reopened.session.document()==committed&&reopened.session.revision()==0&&
+        cold.literal==false&&!cold.driver&&cold.expression==expression&&cold.evaluated&&
+        bytes(original)==original_bytes,
+        "Cold Host reopen restores authored isolation, exact expression and evaluated value");
+    QProcess process;process.start(nect_cli,{"--serve",destination});
+    check(process.waitForStarted(5000),"Start a separate Nect process on Composite isolation expression Save As destination");
+    const auto query=QByteArray("{\"op\":\"get\",\"ref\":{\"object\":\"composite-isolation-target\",\"point\":\"\",\"field\":\"composite.isolated\"}}\n");
+    check(process.write(query)==query.size(),"Query Composite isolation expression from the cold Nect process");
+    process.closeWriteChannel();
+    check(process.waitForFinished(10000)&&process.exitStatus()==QProcess::NormalExit&&process.exitCode()==0,
+        "Cold Nect process exits after Composite isolation expression readback");
+    const auto reply=QJsonDocument::fromJson(process.readAllStandardOutput().trimmed()).object()["result"].toObject();
+    const auto authored=reply["authored"].toObject();
+    check(authored["literal"].toBool()==false&&authored["driver"].isNull()&&
+        authored["expression"].toObject()["source"].toString()==QString::fromStdString(expression.source)&&
+        authored["expression"].toObject()["version"].toInt()==1&&authored["source_kind"]=="expression"&&
+        reply["evaluated"].toBool()&&reply["expression"].toBool()&&reply["link"].toBool(),
+        "Separate process reads exact Composite isolation source, source kind and evaluated value");
 }
 void point_edit_save_as(const QString& directory) {
     Host host(directory+"/point-edit-recovery");
@@ -863,7 +906,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_width=artboard_layout_property(persisted,grid_width_ref);
     const auto persisted_grid_height=artboard_layout_property(persisted,grid_height_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.61\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.62\"")&&
         bytes(original)==original_bytes&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&
@@ -1202,6 +1245,7 @@ int main(int argc,char** argv) {
         coalescing_and_conflict(temp.path());typed_source_save_as(temp.path());
         text_weight_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         object_visibility_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
+        composite_isolation_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         point_edit_save_as(temp.path());artboard_size_save_as(temp.path());
         layout_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         linked_margin_left_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));

@@ -120,6 +120,9 @@ ParsedBooleanExpression parse_text_italic_expression(const Expression& expressio
 ParsedBooleanExpression parse_object_visibility_expression(const Expression& expression) {
     return parse_boolean_expression(expression,"object.visible","Object visibility");
 }
+ParsedBooleanExpression parse_composite_isolation_expression(const Expression& expression) {
+    return parse_boolean_expression(expression,"composite.isolated","Composite isolation");
+}
 const TextSource& text_italic_source(const Document& document,const Ref& ref) {
     require(ref.point.empty()&&ref.field=="text.italic","TYPE_MISMATCH","Only Text italic accepts a boolean property Ref");
     const auto object=document.objects.find(ref.object);
@@ -796,6 +799,15 @@ Expression remap_object_visibility_expression(const Expression& expression,const
         "Duplicated Object visibility Ref changed type");
     auto result=expression;result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
     (void)parse_object_visibility_expression(result);return result;
+}
+Expression remap_composite_isolation_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
+    const auto parsed=parse_composite_isolation_expression(expression);
+    if(parsed.is_literal)return expression;
+    const auto target=remap(parsed.source);if(target==parsed.source)return expression;
+    require(target.point.empty()&&target.field=="composite.isolated","TYPE_MISMATCH",
+        "Duplicated Composite isolation Ref changed type");
+    auto result=expression;result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
+    (void)parse_composite_isolation_expression(result);return result;
 }
 const std::array<std::string,6> point_fields{"x","y","in.angle","in.length","out.angle","out.length"};
 bool polystar(const Primitive& source){return source.type=="nect.shape.polygon"||source.type=="nect.shape.star";}
@@ -1616,6 +1628,8 @@ class CompositeIsolationEvaluator {
         require(active_.insert(id).second,"DEPENDENCY_CYCLE","Composite isolation dependency cycle");
         const auto& compositing=composite_isolation_source(document_,{id,"","composite.isolated"});
         CompositeIsolationEvaluation result{compositing.isolated,0};
+        require(!(compositing.isolated_driver&&compositing.isolated_expression),"MULTIPLE_DRIVERS",
+            "Composite isolation may have only one active source");
         if(compositing.isolated_driver) {
             const auto& source=composite_isolation_source(document_,*compositing.isolated_driver);
             (void)source;
@@ -1628,6 +1642,20 @@ class CompositeIsolationEvaluator {
                 "Composite isolation links must stay in one Composition");
             const auto upstream=visit(compositing.isolated_driver->object,depth+1);
             result={upstream.value,upstream.remaining_edges+1};
+        } else if(compositing.isolated_expression) {
+            const auto parsed=parse_composite_isolation_expression(*compositing.isolated_expression);
+            if(parsed.is_literal)result.value=parsed.literal;
+            else {
+                (void)composite_isolation_source(document_,parsed.source);
+                require(parsed.source.object!=id,"DEPENDENCY_CYCLE","Composite isolation cannot reference itself");
+                const auto target_owner=compositions_.find(id),source_owner=compositions_.find(parsed.source.object);
+                require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                    "ORPHAN_OBJECT","Composite isolation expressions require objects owned by a Composition");
+                require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                    "Composite isolation expressions must stay in one Composition");
+                const auto upstream=visit(parsed.source.object,depth+1);
+                result={parsed.negate?!upstream.value:upstream.value,upstream.remaining_edges+1};
+            }
         }
         require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Composite isolation dependency depth limit 128");
         active_.erase(id);values_.emplace(id,result);return result;
@@ -1670,7 +1698,8 @@ bool composite_isolated_property(const Document& document,const Ref& ref) {
 }
 CompositeIsolationProperty composite_isolation_state(const Document& document,const Ref& ref) {
     const auto& compositing=composite_isolation_source(document,ref);
-    return {compositing.isolated,compositing.isolated_driver,CompositeIsolationEvaluator(document).value(ref)};
+    return {compositing.isolated,compositing.isolated_driver,compositing.isolated_expression,
+        CompositeIsolationEvaluator(document).value(ref)};
 }
 bool evaluate_composite_isolation(const Document& document,const Ref& ref) {
     return CompositeIsolationEvaluator(document).value(ref);
@@ -4975,6 +5004,8 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         if(object.visibility_expression)
             object.visibility_expression=remap_object_visibility_expression(*object.visibility_expression,remap);
         if(object.compositing.isolated_driver)object.compositing.isolated_driver=remap(*object.compositing.isolated_driver);
+        if(object.compositing.isolated_expression)
+            object.compositing.isolated_expression=remap_composite_isolation_expression(*object.compositing.isolated_expression,remap);
         if(object.compositing.mask) {
             auto& mask=*object.compositing.mask;
             if(mask.enabled_driver)mask.enabled_driver=remap(*mask.enabled_driver);
@@ -5395,7 +5426,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 object.visible=c.visible;
             }
             else if constexpr(std::is_same_v<T,SetCompositing>){
-                require(!object.compositing.isolated_driver||c.isolated==object.compositing.isolated,
+                require((!object.compositing.isolated_driver&&!object.compositing.isolated_expression)||c.isolated==object.compositing.isolated,
                     "DRIVEN_PROPERTY","Unlink Composite isolation before changing its authored literal");
                 object.compositing.blend=c.blend;object.compositing.isolated=c.isolated;
             }
@@ -5471,17 +5502,29 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             object.visible=frozen;object.visibility_driver.reset();object.visibility_expression.reset();
         } else if constexpr(std::is_same_v<T,LinkCompositeIsolated>) {
             const auto& target=composite_isolation_source(candidate,c.target);
-            (void)composite_isolation_source(candidate,c.source);
-            require(c.target!=c.source,"DEPENDENCY_CYCLE","Composite isolation cannot link to itself");
-            require(!target.isolated_driver||c.replace_driver,
-                "DRIVEN_PROPERTY","Replacing a Composite isolation driver requires replace_driver=true");
-            candidate.objects.at(c.target.object).compositing.isolated_driver=c.source;
+            auto& compositing=candidate.objects.at(c.target.object).compositing;
+            if(const auto* source=std::get_if<Ref>(&c.source)) {
+                (void)composite_isolation_source(candidate,*source);
+                require(c.target!=*source,"DEPENDENCY_CYCLE","Composite isolation cannot link to itself");
+                const auto same_source=target.isolated_driver==std::optional<Ref>{*source}&&!target.isolated_expression;
+                require(same_source||(!target.isolated_driver&&!target.isolated_expression)||c.replace_driver,
+                    "DRIVEN_PROPERTY","Replacing a Composite isolation source requires replace_driver=true");
+                compositing.isolated_driver=*source;compositing.isolated_expression.reset();
+            } else {
+                const auto& expression=std::get<Expression>(c.source);
+                (void)parse_composite_isolation_expression(expression);
+                const auto same_expression=target.isolated_expression==std::optional<Expression>{expression}&&!target.isolated_driver;
+                require(same_expression||(!target.isolated_driver&&!target.isolated_expression)||c.replace_driver,
+                    "DRIVEN_PROPERTY","Replacing a Composite isolation source requires replace_driver=true");
+                compositing.isolated_driver.reset();compositing.isolated_expression=expression;
+            }
         } else if constexpr(std::is_same_v<T,UnlinkCompositeIsolated>) {
             const auto& target=composite_isolation_source(candidate,c.target);
-            require(target.isolated_driver.has_value(),"PROPERTY_NOT_LINKED","Composite isolation has no driver to unlink");
+            require(target.isolated_driver.has_value()||target.isolated_expression.has_value(),
+                "PROPERTY_NOT_LINKED","Composite isolation has no source to unlink");
             const auto frozen=evaluate_composite_isolation(candidate,c.target);
             auto& compositing=candidate.objects.at(c.target.object).compositing;
-            compositing.isolated=frozen;compositing.isolated_driver.reset();
+            compositing.isolated=frozen;compositing.isolated_driver.reset();compositing.isolated_expression.reset();
         } else if constexpr(std::is_same_v<T,MaskObjects>) {
             require(c.members.size()>=2&&c.members.size()<=1000,"INVALID_GROUP","Mask With requires 2..1000 ordered contiguous siblings");
             const auto source=c.top?c.members.back():c.members.front();
@@ -6196,6 +6239,7 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
         if(const auto* text_weight=std::get_if<LinkTextWeight>(&commands.front());
             text_weight&&(!text_weight->batch||text_weight->batch->mode==TextWeightBatchMode::link))return;
         if(std::holds_alternative<LinkObjectVisibility>(commands.front()))return;
+        if(std::holds_alternative<LinkCompositeIsolated>(commands.front()))return;
         if(const auto* layout_source=std::get_if<LayoutDependencyCommand>(&commands.front())) {
             const bool source_transition=std::visit([](const auto& operation) {
                 using T=std::decay_t<decltype(operation)>;
