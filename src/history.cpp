@@ -103,7 +103,7 @@ std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
 std::size_t extra(const Guide& v){return total(extra(v.id),extra(v.name),extra(v.axis),extra(v.position_driver));}
 std::size_t extra(const LayoutRect&){return 0;}
 std::size_t extra(const Margin& v){return total(extra(v.left_driver),extra(v.left_expression));}
-std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds),extra(v.bounds_x_driver),extra(v.bounds_x_expression),extra(v.bounds_y_driver),extra(v.bounds_y_expression),extra(v.bounds_width_driver),extra(v.bounds_width_expression));}
+std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds),extra(v.bounds_x_driver),extra(v.bounds_x_expression),extra(v.bounds_y_driver),extra(v.bounds_y_expression),extra(v.bounds_width_driver),extra(v.bounds_width_expression),extra(v.bounds_height_driver));}
 std::size_t extra(const ArtboardLayout& v){return total(extra(v.margin),extra(v.grid));}
 std::size_t extra(const Artboard::SizeDriver& v){return std::visit([](const auto& value){return extra(value);},v.value);}
 std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size),extra(v.layout),extra(v.width_driver),extra(v.height_driver));}
@@ -172,6 +172,8 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
             else if constexpr(std::is_same_v<T,LinkGridBoundsY>)return "Link Grid bounds y: "+property_label(operation.target);
             else if constexpr(std::is_same_v<T,UnlinkGridBoundsY>)return "Unlink Grid bounds y: "+property_label(operation.target);
             else if constexpr(std::is_same_v<T,LinkGridBoundsWidth>)return "Link Grid bounds width: "+property_label(operation.target);
+            else if constexpr(std::is_same_v<T,LinkGridBoundsHeight>)return "Link Grid bounds height: "+property_label(operation.target);
+            else if constexpr(std::is_same_v<T,UnlinkGridBoundsHeight>)return "Unlink Grid bounds height: "+property_label(operation.target);
             else if constexpr(std::is_same_v<T,SetGridBoundsWidthExpression>)return "Grid bounds width expression: "+property_label(operation.target);
             else return "Unlink Grid bounds width: "+property_label(operation.target);
         },command->operation);
