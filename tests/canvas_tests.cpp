@@ -1791,6 +1791,50 @@ void layout_overlays_are_view_only_and_not_exported() {
     Canvas second(session);check(second.show_guides()&&second.show_grid()&&second.show_margin(),"A second Canvas has independent default visibility state");
 }
 
+void grid_rows_snap_uses_evaluated_source() {
+    auto document=grid_guide_snap_document(500);
+    auto& target_grid=*document.compositions.front().artboards.front().layout->grid;
+    target_grid.rows=1;
+    Artboard source_board{"grid-rows-snap-source-board","Grid rows source",0,0,400,300};
+    ArtboardLayout source_layout;source_layout.grid=Grid{"grid-rows-snap-source",{0,0,100,100},1,3,0,0};
+    source_board.layout=source_layout;document.compositions.front().artboards.push_back(source_board);
+    Fixture f(document);const Ref target{"grid-snap","","grid.rows"};
+    const Ref source{"grid-rows-snap-source","","grid.rows"};
+    f.session.apply({GridRowsCommand{LinkGridRows{target,source,false}}},f.session.revision());
+    f.canvas.refresh();f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);f.canvas.set_selection("path");
+    auto start=f.screen(140,130),end=f.screen(140,83);
+    f.press(start);f.move(end);
+    near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),-140.0/3.0,
+        "Vertical Grid Snap uses the evaluated same-field row link to place the first cell boundary at y=53 1/3");
+    check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
+          f.canvas.last_snap_feedback().contains("row 1 boundary"),
+        "Linked Grid rows Snap feedback identifies the first row boundary");
+    f.release(end);
+    auto source_update=std::find_if(f.session.document().compositions.front().artboards.begin(),
+        f.session.document().compositions.front().artboards.end(),[](const Artboard& value){
+            return value.id=="grid-rows-snap-source-board";
+        });
+    auto updated=*source_update;updated.layout->grid->rows=4;
+    f.session.apply({SetArtboardLayout{f.session.document().compositions.front().id,updated.id,updated.layout}},
+        f.session.revision());
+    f.session.apply({Set{{"path","","transform.ty"},0}},f.session.revision());
+    f.canvas.refresh();
+    start=f.screen(140,130);end=f.screen(140,75);
+    f.press(start);f.move(end);
+    near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),-55,
+        "Vertical Grid Snap follows the source row count to the evaluated y=45 cell boundary");
+    const auto reeval_rows=artboard_layout_property(f.session.document(),target);
+    check(f.canvas.last_snap_feedback().contains("row 3 boundary")&&
+          std::get<std::size_t>(reeval_rows.literal)==1&&reeval_rows.driver==source&&
+          std::get<std::size_t>(reeval_rows.evaluated)==4,
+        ("Canvas Snap preserves authored rows after reevaluation: literal="+
+            std::to_string(std::get<std::size_t>(reeval_rows.literal))+" evaluated="+
+            std::to_string(std::get<std::size_t>(reeval_rows.evaluated))+" driver="+
+            (reeval_rows.driver?reeval_rows.driver->object+"/"+reeval_rows.driver->field:"none")+
+            " feedback="+f.canvas.last_snap_feedback().toStdString()).c_str());
+    f.release(end);f.no_error();
+}
+
 void grid_row_gutter_overlay_tracks_evaluated_source() {
     auto document=empty_document("row-gutter-overlay-document","row-gutter-overlay-composition","row-gutter-overlay-board");
     auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
@@ -1924,6 +1968,57 @@ void grid_columns_overlay_tracks_evaluated_source() {
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==4,
         "Canvas Grid overlay follows a source count change to the new first-column boundary");
 }
+
+void grid_rows_overlay_tracks_evaluated_source() {
+    auto document=empty_document("rows-overlay-document","rows-overlay-composition","rows-overlay-board");
+    auto& board=document.compositions.front().artboards.front();board.width=200;board.height=190;
+    const Id grid_id="rows-overlay-grid";
+    board.layout=ArtboardLayout{std::nullopt,Grid{grid_id,{20,20,160,160},2,2,10,10}};
+    Artboard source_board{"rows-overlay-source-board","Rows source",240,0,100,100};
+    ArtboardLayout source_layout;source_layout.grid=Grid{"rows-overlay-source-grid",{0,0,100,100},3,3,0,0};
+    source_board.layout=source_layout;document.compositions.front().artboards.push_back(source_board);
+    Session session(std::move(document));const Ref target{grid_id,"","grid.rows"};
+    const Ref source{"rows-overlay-source-grid","","grid.rows"};
+    session.apply({GridRowsCommand{LinkGridRows{target,source,false}},},session.revision());
+    Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
+    canvas.fit_artboard();QApplication::processEvents();
+    const auto count_horizontal=[&](const QImage& image,double world_y) {
+        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
+        const int pixel_y=qRound((canvas.height()/2.0+(world_y-95)*canvas.zoom())*scale);int pixels=0;
+        const int left=qRound((canvas.width()/2.0+(35-100)*canvas.zoom())*scale);
+        const int right=qRound((canvas.width()/2.0+(85-100)*canvas.zoom())*scale);
+        for(int y=pixel_y-qMax(2,qRound(2*scale));y<=pixel_y+qMax(2,qRound(2*scale));++y)
+            for(int x=left;x<=right;++x) {
+                const auto pixel=image.pixelColor(x,y);
+                if(pixel.green()>pixel.red()+10&&pixel.green()>pixel.blue()+5)++pixels;
+            }
+        return pixels;
+    };
+    const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    const auto initial_first_count=count_horizontal(linked,66.6666667),initial_other_count=count_horizontal(linked,80);
+    const auto initial_rows=artboard_layout_property(session.document(),target);
+    check(initial_first_count>20&&initial_other_count<=20&&
+        std::get<std::size_t>(initial_rows.literal)==2&&initial_rows.driver==source&&
+        std::get<std::size_t>(initial_rows.evaluated)==3,
+        "Canvas row overlay initial boundary counts="+std::to_string(initial_first_count)+"/"+
+            std::to_string(initial_other_count)+" literal="+std::to_string(std::get<std::size_t>(initial_rows.literal))+" evaluated="+
+            std::to_string(std::get<std::size_t>(initial_rows.evaluated)));
+    auto updated=std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[](const Artboard& value){
+            return value.id=="rows-overlay-source-board";
+        });
+    auto source_update=*updated;source_update.layout->grid->rows=4;
+    session.apply({SetArtboardLayout{session.document().compositions.front().id,source_update.id,source_update.layout}},
+        session.revision());
+    canvas.refresh();QApplication::processEvents();
+    const auto evaluated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    const auto updated_count=count_horizontal(evaluated,52.5),old_count=count_horizontal(evaluated,66.6666667);
+    const auto updated_rows=artboard_layout_property(session.document(),target);
+    check(updated_count>20&&old_count<=20&&std::get<std::size_t>(updated_rows.evaluated)==4,
+        ("Canvas Grid overlay follows evaluated rows: new_boundary_pixels="+std::to_string(updated_count)+
+            " old_boundary_pixels="+std::to_string(old_count)+" evaluated="+
+            std::to_string(std::get<std::size_t>(updated_rows.evaluated))).c_str());
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1943,6 +2038,7 @@ int main(int argc, char** argv) {
         driven_coordinate_rejects_atomically_but_free_axis_can_move();
         snap_tolerance_zoom_and_exact_edits();
         snap_guide_grid_priority_visibility_and_controls();
+        grid_rows_snap_uses_evaluated_source();
         snap_two_sided_equal_gap_and_point_world_correction();
         snap_repeated_gap_fixed_oracles_and_eligibility();
         snap_scope_and_singular_point_rejections();
@@ -1955,6 +2051,7 @@ int main(int argc, char** argv) {
         grid_row_gutter_overlay_tracks_evaluated_source();
         grid_column_gutter_overlay_tracks_evaluated_source();
         grid_columns_overlay_tracks_evaluated_source();
+        grid_rows_overlay_tracks_evaluated_source();
         std::cout << "Canvas widget contract: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
