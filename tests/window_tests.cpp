@@ -3305,19 +3305,52 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     grid_height_source_choice->setCurrentIndex(grid_height_source_index);QApplication::processEvents();
     grid_height_replace=visible_child<QCheckBox>(window,"grid-bounds-height-replace");grid_height_replace->setChecked(true);
     click("grid-bounds-height-link");
+    const QString grid_height_expression_text=QString::fromStdString("ref(\""+grid_y_source_id+"\",\"\",\"artboard.height\") + 10");
+    auto* grid_height_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-height-expression");
+    auto* grid_height_expression_apply=visible_child<QPushButton>(window,"grid-bounds-height-apply-expression");
+    grid_height_replace=visible_child<QCheckBox>(window,"grid-bounds-height-replace");
+    grid_height_expression->setPlainText(grid_height_expression_text);QApplication::processEvents();
+    const auto before_grid_height_expression=session.revision();grid_height_replace->setChecked(false);
+    QTest::mouseClick(grid_height_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_grid_height_expression&&
+        artboard_layout_property(session.document(),grid_height_target_ref).driver==grid_height_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_HEIGHT"),
+        "Replacing the Grid height link with an expression requires visible authorization");
+    grid_height_replace->setChecked(true);QTest::mouseClick(grid_height_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    grid_height_input=visible_child<QLineEdit>(window,"grid-height");
+    const auto expressed_grid_height=artboard_layout_property(session.document(),grid_height_target_ref);
+    auto* grid_height_expression_state=visible_child<QLabel>(window,"grid-bounds-height-source-state");
+    check(session.revision()==before_grid_height_expression+1&&grid_height_input->isReadOnly()&&
+        !expressed_grid_height.driver&&expressed_grid_height.expression==Expression{grid_height_expression_text.toStdString(),1}&&
+        std::get<double>(expressed_grid_height.literal)==grid_height_literal&&
+        std::get<double>(expressed_grid_height.evaluated)==120&&
+        grid_height_expression_state->text().contains("expression")&&
+        grid_height_expression_state->text().contains("Literal: 400")&&
+        grid_height_expression_state->text().contains("Evaluated: 120"),
+        "Grid height Inspector applies the exact expression and keeps its driven numeric field read-only");
+    grid_height_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-height-expression");
+    grid_height_expression->setPlainText("500");QApplication::processEvents();
+    const auto before_grid_height_expression_cancel=session.revision();click("grid-bounds-height-cancel-expression");
+    check(session.revision()==before_grid_height_expression_cancel&&
+        artboard_layout_property(session.document(),grid_height_target_ref).expression==
+            Expression{grid_height_expression_text.toStdString(),1},
+        "Cancel discards an uncommitted Grid height expression draft");
     grid_height_input=visible_child<QLineEdit>(window,"grid-height");
     const auto before_grid_height_readonly=session.revision();grid_height_input->setFocus();
     QTest::keyClick(grid_height_input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(grid_height_input,"999");
     QTest::keyClick(grid_height_input,Qt::Key_Return);QApplication::processEvents();
     check(session.revision()==before_grid_height_readonly&&grid_height_input->isReadOnly()&&
-        board().layout->grid->bounds_height_driver==grid_height_source_ref&&
+        !board().layout->grid->bounds_height_driver&&
+        board().layout->grid->bounds_height_expression==Expression{grid_height_expression_text.toStdString(),1}&&
         std::get<double>(artboard_layout_property(session.document(),grid_height_target_ref).literal)==grid_height_literal&&
-        std::get<double>(artboard_layout_property(session.document(),grid_height_target_ref).evaluated)==110,
-        "A linked Grid height refuses direct edits and retains its exact source and authored literal");
+        std::get<double>(artboard_layout_property(session.document(),grid_height_target_ref).evaluated)==120,
+        "An expression-driven Grid height refuses direct edits and retains its exact source and authored literal");
     input("grid-columns","2",true);
-    check(board().layout->grid->bounds_height_driver==grid_height_source_ref&&
-        artboard_layout_property(session.document(),grid_height_target_ref).driver==grid_height_source_ref,
-        "Applying sibling Grid fields preserves the height link in Inspector draft state");
+    check(!board().layout->grid->bounds_height_driver&&
+        board().layout->grid->bounds_height_expression==Expression{grid_height_expression_text.toStdString(),1}&&
+        artboard_layout_property(session.document(),grid_height_target_ref).expression==
+            Expression{grid_height_expression_text.toStdString(),1},
+        "Applying sibling Grid fields preserves the height expression in Inspector draft state");
     click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
     const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
@@ -3330,13 +3363,14 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         duplicate->layout->margin->bottom_expression==margin_bottom_expression_source&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
         duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
-        duplicate->layout->grid->bounds_height_driver==grid_height_source_ref&&
+        !duplicate->layout->grid->bounds_height_driver&&
+        duplicate->layout->grid->bounds_height_expression==Expression{grid_height_expression_text.toStdString(),1}&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.width"}).literal)==grid_width_literal&&
         !duplicate->layout->grid->bounds_y_driver&&
         duplicate->layout->grid->bounds_y_expression==Expression{grid_y_expression_text.toStdString(),1}&&
         !duplicate->layout->grid->bounds_width_driver&&
         duplicate->layout->grid->bounds_width_expression==Expression{grid_width_expression_text,1}&&
-        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.height"}).evaluated)==110&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.height"}).evaluated)==120&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.width"}).evaluated)==90&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==90&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.x"}).evaluated)==80&&
@@ -3348,12 +3382,13 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.bottom"}).expression==margin_bottom_expression_source&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.bottom"}).evaluated)==
             artboard_size_property(session.document(),Ref{margin_source_id,"","artboard.height"}).evaluated-20,
-        "Duplicate frame replays Margin and Grid x/y/width/height sources onto the new stable Grid ID");
+        "Duplicate frame replays Margin and Grid x/y/width/height expression sources onto the new stable Grid ID");
     const Ref duplicate_grid_height_ref{duplicate->layout->grid->id,"","grid.bounds.height"};
     const auto before_duplicate_height_unlink=session.revision();click("grid-bounds-height-unlink");
     check(session.revision()==before_duplicate_height_unlink+1&&
         !artboard_layout_property(session.document(),duplicate_grid_height_ref).driver&&
-        std::get<double>(artboard_layout_property(session.document(),duplicate_grid_height_ref).literal)==110&&
+        !artboard_layout_property(session.document(),duplicate_grid_height_ref).expression&&
+        std::get<double>(artboard_layout_property(session.document(),duplicate_grid_height_ref).literal)==120&&
         !visible_child<QLineEdit>(window,"grid-height")->isReadOnly(),
         "Unlinking the duplicated Grid height freezes its evaluated value into the authored literal");
     auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;

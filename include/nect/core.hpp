@@ -302,6 +302,7 @@ struct Grid {
     std::optional<Ref> bounds_width_driver;
     std::optional<Expression> bounds_width_expression;
     std::optional<Ref> bounds_height_driver;
+    std::optional<Expression> bounds_height_expression;
     bool operator==(const Grid&) const = default;
 };
 struct ArtboardLayout {
@@ -448,6 +449,7 @@ struct LinkGridBoundsWidth { Ref target; Ref source; bool replace_driver=false; 
 struct SetGridBoundsWidthExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridBoundsWidth { Ref target; };
 struct LinkGridBoundsHeight { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridBoundsHeightExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkGridBoundsHeight { Ref target; };
 struct LayoutDependencyCommand {
     std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkMarginTop,SetMarginTopExpression,UnlinkMarginTop,
@@ -456,7 +458,7 @@ struct LayoutDependencyCommand {
         LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX,
         LinkGridBoundsY,SetGridBoundsYExpression,UnlinkGridBoundsY,
         LinkGridBoundsWidth,SetGridBoundsWidthExpression,UnlinkGridBoundsWidth,
-        LinkGridBoundsHeight,UnlinkGridBoundsHeight> operation;
+        LinkGridBoundsHeight,SetGridBoundsHeightExpression,UnlinkGridBoundsHeight> operation;
     LayoutDependencyCommand(LinkMarginLeft value):operation(std::move(value)){}
     LayoutDependencyCommand(SetMarginLeftExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkMarginLeft value):operation(std::move(value)){}
@@ -479,6 +481,7 @@ struct LayoutDependencyCommand {
     LayoutDependencyCommand(SetGridBoundsWidthExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkGridBoundsWidth value):operation(std::move(value)){}
     LayoutDependencyCommand(LinkGridBoundsHeight value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridBoundsHeightExpression value):operation(std::move(value)){}
     LayoutDependencyCommand(UnlinkGridBoundsHeight value):operation(std::move(value)){}
 };
 using MarginLeftCommand=LayoutDependencyCommand;

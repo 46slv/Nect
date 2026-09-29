@@ -1544,6 +1544,8 @@ void Window::add_artboard(bool duplicate) {
         board.layout->grid->bounds_width_expression:std::optional<Expression>{};
     const auto grid_bounds_height_driver=duplicate&&board.layout&&board.layout->grid?
         board.layout->grid->bounds_height_driver:std::optional<Ref>{};
+    const auto grid_bounds_height_expression=duplicate&&board.layout&&board.layout->grid?
+        board.layout->grid->bounds_height_expression:std::optional<Expression>{};
     if(duplicate&&board.layout&&board.layout->margin) {
         board.layout->margin->left_driver.reset();board.layout->margin->left_expression.reset();
         board.layout->margin->top_driver.reset();board.layout->margin->top_expression.reset();
@@ -1558,6 +1560,7 @@ void Window::add_artboard(bool duplicate) {
         board.layout->grid->bounds_width_driver.reset();
         board.layout->grid->bounds_width_expression.reset();
         board.layout->grid->bounds_height_driver.reset();
+        board.layout->grid->bounds_height_expression.reset();
     }
     board.width_driver.reset();board.height_driver.reset();
     std::vector<Command> commands{AddArtboard{comp_id,board,index}};
@@ -1590,6 +1593,8 @@ void Window::add_artboard(bool duplicate) {
         {board.layout->grid->id,"","grid.bounds.width"},*grid_bounds_width_expression,false}});
     if(grid_bounds_height_driver)commands.push_back(GridBoundsHeightCommand{LinkGridBoundsHeight{
         {board.layout->grid->id,"","grid.bounds.height"},*grid_bounds_height_driver,false}});
+    else if(grid_bounds_height_expression)commands.push_back(GridBoundsHeightCommand{SetGridBoundsHeightExpression{
+        {board.layout->grid->id,"","grid.bounds.height"},*grid_bounds_height_expression,false}});
     host.session.apply(commands,host.session.revision());
     canvas->set_selection({});artboard_editing_=true;canvas->set_active_artboard(comp_id,board_id);host.edited();
 }
@@ -2193,10 +2198,11 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto grid_bounds_width_driver=board.layout&&board.layout->grid?board.layout->grid->bounds_width_driver:std::optional<Ref>{};
     const auto grid_bounds_width_expression=board.layout&&board.layout->grid?board.layout->grid->bounds_width_expression:std::optional<Expression>{};
     const auto grid_bounds_height_driver=board.layout&&board.layout->grid?board.layout->grid->bounds_height_driver:std::optional<Ref>{};
+    const auto grid_bounds_height_expression=board.layout&&board.layout->grid?board.layout->grid->bounds_height_expression:std::optional<Expression>{};
     const bool grid_bounds_x_is_driven=grid_bounds_x_driver.has_value()||grid_bounds_x_expression.has_value();
     const bool grid_bounds_y_is_driven=grid_bounds_y_driver.has_value()||grid_bounds_y_expression.has_value();
     const bool grid_bounds_width_is_driven=grid_bounds_width_driver.has_value()||grid_bounds_width_expression.has_value();
-    const bool grid_bounds_height_is_driven=grid_bounds_height_driver.has_value();
+    const bool grid_bounds_height_is_driven=grid_bounds_height_driver.has_value()||grid_bounds_height_expression.has_value();
     auto* grid_x=make_number(grid_box,"grid-x","Grid X",QString::number(initial_grid.bounds.x,'g',15));
     grid_x->setReadOnly(grid_bounds_x_is_driven);
     grid_x->setToolTip(grid_bounds_x_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Grid x offset in du.");
@@ -2223,7 +2229,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const LayoutBuilder grid_builder=[read,composition,id,parse_number,parse_count,set_layout_command,grid_id,grid_x,grid_y,grid_width,grid_height,grid_columns,grid_rows,grid_column_gutter,grid_row_gutter,
         grid_bounds_x_driver,grid_bounds_x_expression,grid_bounds_x_is_driven,authored_grid_x,grid_bounds_y_driver,grid_bounds_y_expression,grid_bounds_y_is_driven,authored_grid_y,
         grid_bounds_width_driver,grid_bounds_width_expression,grid_bounds_width_is_driven,authored_grid_width,
-        grid_bounds_height_driver,grid_bounds_height_is_driven,authored_grid_height=initial_grid.bounds.height] {
+        grid_bounds_height_driver,grid_bounds_height_expression,grid_bounds_height_is_driven,
+        authored_grid_height=initial_grid.bounds.height] {
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});
         Grid grid{grid_id,{grid_bounds_x_is_driven?authored_grid_x:parse_number(grid_x),
             grid_bounds_y_is_driven?authored_grid_y:parse_number(grid_y),
@@ -2236,6 +2243,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         grid.bounds_width_driver=grid_bounds_width_driver;
         grid.bounds_width_expression=grid_bounds_width_expression;
         grid.bounds_height_driver=grid_bounds_height_driver;
+        grid.bounds_height_expression=grid_bounds_height_expression;
         value.grid=std::move(grid);return set_layout_command(value);
     };
     auto* grid_source_box=new QGroupBox("X source",grid_box);grid_source_box->setObjectName("grid-bounds-x-source");
@@ -2490,7 +2498,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         const auto source_name=source_board==comp.artboards.end()?QString("Missing Artboard"):qs(source_board->name);
         grid_height_source_description="link · "+source_name+" ("+qs(grid_bounds_height_driver->object)+"/"+
             qs(grid_bounds_height_driver->field)+")";
-    }
+    } else if(grid_bounds_height_expression)
+        grid_height_source_description="expression · "+qs(grid_bounds_height_expression->source);
     const auto evaluated_grid_height=resolved.layout&&resolved.layout->grid?
         resolved.layout->grid->bounds.height:initial_grid.bounds.height;
     grid_height_source_state->setWordWrap(true);
@@ -2535,6 +2544,21 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_height_cancel=new QPushButton("Cancel draft",grid_height_source_box);
     grid_height_cancel->setObjectName("grid-bounds-height-cancel");
     grid_height_source_actions->addWidget(grid_height_cancel);
+    auto* grid_height_expression=new QPlainTextEdit(grid_height_source_box);
+    grid_height_expression->setObjectName("grid-bounds-height-expression");
+    grid_height_expression->setAccessibleName("Grid bounds height expression draft");
+    grid_height_expression->setPlaceholderText("du expression using ref(\"artboard-id\",\"\",\"artboard.height\")");
+    if(grid_bounds_height_expression)grid_height_expression->setPlainText(qs(grid_bounds_height_expression->source));
+    grid_height_source_layout->addWidget(grid_height_expression);
+    auto* grid_height_expression_actions=new QHBoxLayout;
+    grid_height_source_layout->addLayout(grid_height_expression_actions);
+    auto* grid_height_expression_apply=new QPushButton("Apply expression",grid_height_source_box);
+    grid_height_expression_apply->setObjectName("grid-bounds-height-apply-expression");
+    grid_height_expression_apply->setEnabled(board.layout&&board.layout->grid);
+    grid_height_expression_actions->addWidget(grid_height_expression_apply);
+    auto* grid_height_expression_cancel=new QPushButton("Cancel expression",grid_height_source_box);
+    grid_height_expression_cancel->setObjectName("grid-bounds-height-cancel-expression");
+    grid_height_expression_actions->addWidget(grid_height_expression_cancel);
     grid_form->addRow(grid_height_source_box);
     connect(grid_height_link,&QPushButton::clicked,this,[this,grid_height_source,grid_height_sources,grid_bounds_height_ref,
         grid_height_replace,grid_source_commit]{perform([&]{
@@ -2548,6 +2572,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         perform([&]{grid_source_commit({GridBoundsHeightCommand{UnlinkGridBoundsHeight{grid_bounds_height_ref}}});});
     });
     connect(grid_height_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_height_expression_apply,&QPushButton::clicked,this,[this,grid_bounds_height_ref,grid_height_expression,
+        grid_height_replace,grid_source_commit]{perform([&]{
+        grid_source_commit({GridBoundsHeightCommand{SetGridBoundsHeightExpression{grid_bounds_height_ref,
+            {grid_height_expression->toPlainText().toStdString(),1},grid_height_replace->isChecked()}}});
+    });});
+    connect(grid_height_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
     auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new QHBoxLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
     auto* grid_apply=new QPushButton("Apply Grid",grid_actions);grid_apply->setObjectName("grid-apply");grid_buttons->addWidget(grid_apply);
     auto* grid_copy=new QPushButton("Set Grid to margin box",grid_actions);grid_copy->setObjectName("grid-copy-margin-box");grid_copy->setToolTip("Copy the evaluated Margin box once; later Margin edits do not change Grid.");grid_buttons->addWidget(grid_copy);

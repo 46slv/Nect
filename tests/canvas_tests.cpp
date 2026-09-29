@@ -551,22 +551,23 @@ void snap_guide_grid_priority_visibility_and_controls() {
         auto& target=*document.compositions.front().artboards.front().layout->grid;
         target.bounds.height=100;
         const Id grid_id=target.id;
-        const Ref source{"grid-height-snap-source","","artboard.height"};
-        document.compositions.front().artboards.push_back({source.object,"Evaluated Grid height source",0,0,100,220});
+        document.compositions.front().artboards.push_back({"grid-height-snap-source","Evaluated Grid height source",0,0,100,220});
         Fixture f(document);const Ref target_ref{grid_id,"","grid.bounds.height"};
-        f.session.apply({GridBoundsHeightCommand{LinkGridBoundsHeight{target_ref,source,false}}},f.session.revision());
+        const Expression height_expression{R"(ref("grid-height-snap-source","","artboard.height"))",1};
+        f.session.apply({GridBoundsHeightCommand{SetGridBoundsHeightExpression{target_ref,height_expression,false}}},f.session.revision());
         f.canvas.refresh();f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);f.canvas.set_selection("path");
         auto start=f.screen(140,130),end=f.screen(140,208);
         f.press(start);f.move(end);
         near(evaluate(f.session.preview_document()).at({"path","","transform.ty"}),80,
-            "Vertical Grid Snap uses the linked evaluated height at its outer row boundary");
+            "Vertical Grid Snap uses the expression-evaluated height at its outer row boundary");
         check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
               f.canvas.last_snap_feedback().contains("row 1 boundary"),
             "Grid height Snap feedback identifies the stable Grid and bottom row boundary");
         f.release(end);
         auto value=artboard_layout_property(f.session.document(),target_ref);
-        check(std::get<double>(value.literal)==100&&value.driver==source&&std::get<double>(value.evaluated)==220,
-            "Canvas Snap preserves the authored Grid height while using the linked evaluated height");
+        check(std::get<double>(value.literal)==100&&!value.driver&&value.expression==height_expression&&
+              std::get<double>(value.evaluated)==220,
+            "Canvas Snap preserves the authored Grid height while using the exact evaluated expression");
         auto source_board=f.session.document().compositions.front().artboards.back();source_board.height=240;
         f.session.apply({UpdateArtboard{f.session.document().compositions.front().id,source_board}},f.session.revision());
         f.canvas.refresh();
@@ -1468,8 +1469,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     board.layout->grid->bounds.height=95;
     board.layout->grid->bounds_y_driver=grid_source;
     board.layout->grid->bounds_width_driver=grid_source;
-    const Ref grid_height_source{"overlay-grid-source","","artboard.height"};
-    board.layout->grid->bounds_height_driver=grid_height_source;
+    board.layout->grid->bounds_height_expression=Expression{R"(ref("overlay-grid-source","","artboard.height"))",1};
     document.compositions.front().artboards.push_back({margin_source.object,"Margin source",0,0,18,100});
     document.compositions.front().artboards.push_back({grid_source.object,"Grid source",0,0,55,95});
     document.compositions.front().guides={{"overlay-guide-x","Vertical","x",30},
@@ -1579,9 +1579,9 @@ void layout_overlays_are_view_only_and_not_exported() {
             std::to_string(count_grid_y_pixels(linked_image,55))+", literal="+
             std::to_string(count_grid_y_pixels(linked_image,25))+")");
     const auto grid_height=artboard_layout_property(session.document(),{"overlay-grid","","grid.bounds.height"});
-    check(std::get<double>(grid_height.literal)==95&&grid_height.driver==grid_height_source&&
+    check(std::get<double>(grid_height.literal)==95&&!grid_height.driver&&grid_height.expression.has_value()&&
         std::get<double>(grid_height.evaluated)==95&&count_grid_horizontal_pixels(linked_image,97.5)>20,
-        "Canvas Grid row overlay uses the linked evaluated height and preserves its authored literal and exact source");
+        "Canvas Grid row overlay uses the evaluated expression and preserves its authored literal and exact source");
     session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
         {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
     session.apply({MarginTopCommand{SetMarginTopExpression{{"overlay-artboard","","margin.top"},
@@ -1614,8 +1614,9 @@ void layout_overlays_are_view_only_and_not_exported() {
         preview_grid_y.driver==grid_source&&std::get<double>(preview_grid_y.literal)==25&&
         std::get<double>(preview_grid_y.evaluated)==65&&
         preview_grid.bounds.height==90&&std::get<double>(preview_grid_height.literal)==95&&
-        std::get<double>(preview_grid_height.evaluated)==90&&preview_grid_height.driver==grid_height_source,
-        "Canvas preview projection follows linked Grid y, width and height sources while preserving authored literals");
+        std::get<double>(preview_grid_height.evaluated)==90&&preview_grid_height.expression.has_value()&&
+        !preview_grid_height.driver,
+        "Canvas preview projection follows Grid height expressions while preserving authored literals");
     check(count_guide_pixels(preview_image,140)>20&&count_guide_pixels(preview_image,120)<20&&
           count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,28)>20&&
           count_margin_pixels(preview_image,20)<20&&count_margin_pixels(preview_image,18)<20&&
