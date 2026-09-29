@@ -459,7 +459,12 @@ j::object artboard_layout_property_json(const Document& d,const Ref& ref,const A
         {"space","artboard_local"},{"origin","authored"},
         {"authored",j::object{{"literal",literal}}},{"evaluated",literal},
         {"link",false},{"expression",false}};
-    if(ref.field=="margin.top"||ref.field=="margin.right") {
+    if(ref.field=="grid.columns") {
+        j::value driver=nullptr;if(value.driver)driver=ref_json(*value.driver);
+        result["authored"]=j::object{{"literal",literal},{"driver",std::move(driver)},
+            {"source_kind",value.source_kind}};
+        result["evaluated"]=evaluated;result["link"]=true;result["expression"]=false;
+    } else if(ref.field=="margin.top"||ref.field=="margin.right") {
         j::value driver=nullptr;if(value.driver)driver=ref_json(*value.driver);
         j::object authored{{"literal",literal},{"driver",std::move(driver)},
             {"source_kind",value.source_kind}};
@@ -834,7 +839,8 @@ ArtboardLayout read_layout(const j::value& value,bool allow_margin_driver=false,
     bool allow_grid_width_driver=false,bool allow_grid_width_expression=false,
     bool allow_grid_height_driver=false,bool allow_grid_height_expression=false,
     bool allow_grid_column_gutter_driver=false,bool allow_grid_row_gutter_driver=false,
-    bool allow_grid_row_gutter_expression=false,bool allow_grid_column_gutter_expression=false) {
+    bool allow_grid_row_gutter_expression=false,bool allow_grid_column_gutter_expression=false,
+    bool allow_grid_columns_driver=false) {
     try {
         if(!value.is_object())throw Error("INVALID_LAYOUT","Layout must be an object");
         const auto& object=value.as_object();keys(object,{"margin","grid"});ArtboardLayout layout;
@@ -883,7 +889,13 @@ ArtboardLayout read_layout(const j::value& value,bool allow_margin_driver=false,
         if(object.contains("grid")) {
             if(!object.at("grid").is_object())throw Error("INVALID_LAYOUT","Grid must be an object");
             const auto& grid=object.at("grid").as_object();
-            if(allow_grid_row_gutter_expression||allow_grid_column_gutter_expression) {
+            if(allow_grid_columns_driver) {
+                keys(grid,{"id","bounds","columns","rows","column_gutter","row_gutter","columns_driver",
+                    "column_gutter_driver","column_gutter_expression","row_gutter_driver","row_gutter_expression",
+                    "bounds_x_driver","bounds_x_expression","bounds_y_driver","bounds_y_expression",
+                    "bounds_width_driver","bounds_width_expression","bounds_height_driver","bounds_height_expression"});
+            }
+            else if(allow_grid_row_gutter_expression||allow_grid_column_gutter_expression) {
                 std::vector<std::string_view> allowed_grid{"id","bounds","columns","rows","column_gutter","row_gutter",
                     "column_gutter_driver","row_gutter_driver","bounds_x_driver","bounds_x_expression","bounds_y_driver",
                     "bounds_y_expression","bounds_width_driver","bounds_width_expression","bounds_height_driver","bounds_height_expression"};
@@ -928,6 +940,10 @@ ArtboardLayout read_layout(const j::value& value,bool allow_margin_driver=false,
                 {layout_number(bounds.at("x")),layout_number(bounds.at("y")),layout_number(bounds.at("width")),layout_number(bounds.at("height"))},
                 layout_count(grid.at("columns")),layout_count(grid.at("rows")),
                 layout_number(grid.at("column_gutter")),layout_number(grid.at("row_gutter"))};
+            if(allow_grid_columns_driver)if(const auto* driver=grid.if_contains("columns_driver")) {
+                const auto& fields=driver->as_object();keys(fields,{"link"});
+                layout.grid->columns_driver=read_ref(fields.at("link"));
+            }
             if(allow_grid_x_driver)if(const auto* driver=grid.if_contains("bounds_x_driver")) {
                 const auto& fields=driver->as_object();keys(fields,{"link"});
                 layout.grid->bounds_x_driver=read_ref(fields.at("link"));
@@ -979,6 +995,7 @@ j::value grid_json(const Grid& grid) {
             {"width",grid.bounds.width},{"height",grid.bounds.height}}},
         {"columns",grid.columns},{"rows",grid.rows},
         {"column_gutter",grid.column_gutter},{"row_gutter",grid.row_gutter}};
+    if(grid.columns_driver)result["columns_driver"]=j::object{{"link",ref_json(*grid.columns_driver)}};
     if(grid.bounds_x_driver)result["bounds_x_driver"]=j::object{{"link",ref_json(*grid.bounds_x_driver)}};
     if(grid.bounds_x_expression)result["bounds_x_expression"]=expression_json(*grid.bounds_x_expression);
     if(grid.bounds_y_driver)result["bounds_y_driver"]=j::object{{"link",ref_json(*grid.bounds_y_driver)}};
@@ -1030,7 +1047,7 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
     bool allow_grid_width_driver=false,bool allow_grid_width_expression=false,bool allow_grid_height_driver=false,
     bool allow_grid_height_expression=false,bool allow_grid_column_gutter_driver=false,
     bool allow_grid_row_gutter_driver=false,bool allow_grid_row_gutter_expression=false,
-    bool allow_grid_column_gutter_expression=false) {
+    bool allow_grid_column_gutter_expression=false,bool allow_grid_columns_driver=false) {
     const auto& a=v.as_object();
     std::vector<std::string_view> allowed{"id","name","x","y","width","height"};
     if(allow_parent)allowed.push_back("parent_size");
@@ -1049,7 +1066,7 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
             allow_margin_top_expression,allow_margin_right_driver,allow_margin_right_expression,allow_margin_bottom_driver,
             allow_margin_bottom_expression,allow_grid_width_driver,allow_grid_width_expression,allow_grid_height_driver,
             allow_grid_height_expression,allow_grid_column_gutter_driver,allow_grid_row_gutter_driver,
-            allow_grid_row_gutter_expression,allow_grid_column_gutter_expression);
+            allow_grid_row_gutter_expression,allow_grid_column_gutter_expression,allow_grid_columns_driver);
     }
     if(allow_size_driver) {
         if(const auto* driver=a.if_contains("width_driver"))result.width_driver=read_artboard_size_driver(*driver);
@@ -1211,10 +1228,10 @@ Command read_command(const j::value& v) {
     }
     if(type=="add_artboard") {
         keys(o,{"type","composition","artboard","index"});
-        return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,false,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true),j::value_to<std::size_t>(o.at("index"))};
+        return AddArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,false,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true),j::value_to<std::size_t>(o.at("index"))};
     }
     if(type=="update_artboard") {
-        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true)};
+        keys(o,{"type","composition","artboard"});return UpdateArtboard{text(o.at("composition")),read_artboard(o.at("artboard"),true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true)};
     }
     if(type=="add_guide"||type=="update_guide") {
         keys(o,{"type","composition","guide"});
@@ -1238,7 +1255,7 @@ Command read_command(const j::value& v) {
     if(type=="set_artboard_layout") {
         keys(o,{"type","composition","artboard_id","layout"});
         std::optional<ArtboardLayout> layout;if(!o.at("layout").is_null())layout=read_layout(o.at("layout"),
-            true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true);
+            true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true);
         return SetArtboardLayout{text(o.at("composition")),text(o.at("artboard_id")),std::move(layout)};
     }
     if(type=="link_margin_left") {
@@ -1288,6 +1305,13 @@ Command read_command(const j::value& v) {
     if(type=="link_grid_bounds_x") {
         keys(o,{"type","target","source","replace_driver"});
         return GridBoundsXCommand{LinkGridBoundsX{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()}};
+    }
+    if(type=="link_grid_columns") {
+        keys(o,{"type","target","source","replace_driver"});
+        return GridColumnsCommand{LinkGridColumns{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()}};
+    }
+    if(type=="unlink_grid_columns") {
+        keys(o,{"type","target"});return GridColumnsCommand{UnlinkGridColumns{read_ref(o.at("target"))}};
     }
     if(type=="unlink_grid_bounds_x") {
         keys(o,{"type","target"});return GridBoundsXCommand{UnlinkGridBoundsX{read_ref(o.at("target"))}};
@@ -1572,10 +1596,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,55> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55"};
+        constexpr std::array<std::string_view,56> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.55 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.56 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1596,7 +1620,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35,minor>=36,minor>=37,minor>=38,minor>=39,minor>=40,minor>=41,minor>=42,minor>=43,minor>=44,minor>=45,minor>=46,minor>=47,minor>=48,minor>=49,minor>=50,minor>=51,minor>=52,minor>=53,minor>=54));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35,minor>=36,minor>=37,minor>=38,minor>=39,minor>=40,minor>=41,minor>=42,minor>=43,minor>=44,minor>=45,minor>=46,minor>=47,minor>=48,minor>=49,minor>=50,minor>=51,minor>=52,minor>=53,minor>=54,minor>=56));
             if(minor>=14)for(const auto& gv:co.at("guides").as_array())c.guides.push_back(read_guide(gv,minor>=23,minor>=34));
             d.compositions.push_back(std::move(c));
         }

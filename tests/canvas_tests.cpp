@@ -422,6 +422,44 @@ void snap_tolerance_zoom_and_exact_edits() {
 
 void snap_guide_grid_priority_visibility_and_controls() {
     {
+        auto document=grid_guide_snap_document(500);
+        Artboard source_board{"grid-columns-snap-source-board","Grid columns source",0,0,400,300};
+        ArtboardLayout source_layout;source_layout.grid=Grid{"grid-columns-snap-source",{0,0,100,100},2,1,0,0};
+        source_board.layout=source_layout;
+        document.compositions.front().artboards.push_back(source_board);
+        Fixture f(document);const Ref target{"grid-snap","","grid.columns"};
+        const Ref source{"grid-columns-snap-source","","grid.columns"};
+        f.session.apply({GridColumnsCommand{LinkGridColumns{target,source,false}}},f.session.revision());
+        f.canvas.refresh();f.canvas.set_show_guides(false);f.canvas.set_show_grid(false);f.canvas.set_selection("path");
+        auto start=f.screen(140,130),end=f.screen(206,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),70,
+            "Horizontal Grid Snap uses the evaluated same-field columns link to place the first cell boundary at x=250");
+        check(f.canvas.last_snap_feedback().contains("Grid → grid-snap")&&
+              f.canvas.last_snap_feedback().contains("column 1 boundary"),
+            "Linked Grid columns Snap feedback identifies the first cell boundary");
+        f.release(end);
+        auto source_update=std::find_if(f.session.document().compositions.front().artboards.begin(),
+            f.session.document().compositions.front().artboards.end(),[](const Artboard& value){
+                return value.id=="grid-columns-snap-source-board";
+            });
+        auto updated=*source_update;updated.layout->grid->columns=4;
+        f.session.apply({SetArtboardLayout{f.session.document().compositions.front().id,updated.id,updated.layout}},
+            f.session.revision());
+        f.session.apply({Set{{"path","","transform.tx"},0}},f.session.revision());
+        f.canvas.refresh();
+        start=f.screen(140,130);end=f.screen(181,130);
+        f.press(start);f.move(end);
+        near(evaluate(f.session.preview_document()).at({"path","","transform.tx"}),45,
+            "Horizontal Grid Snap follows a source count change to the evaluated x=225 cell boundary");
+        check(f.canvas.last_snap_feedback().contains("column 1 boundary")&&
+              std::get<std::size_t>(artboard_layout_property(f.session.document(),target).literal)==1&&
+              artboard_layout_property(f.session.document(),target).driver==source&&
+              std::get<std::size_t>(artboard_layout_property(f.session.document(),target).evaluated)==4,
+            "Canvas Snap preserves the authored column count and exact source Ref after reevaluation");
+        f.release(end);f.no_error();
+    }
+    {
         auto document=grid_guide_snap_document(200);
         document.compositions.front().guides.push_back({"guide-a","Stable ID tie winner","x",200});
         Fixture f(document);f.canvas.set_selection("path");
@@ -1841,6 +1879,51 @@ void grid_column_gutter_overlay_tracks_evaluated_source() {
             std::to_string(count_vertical(updated,85))+","+std::to_string(count_vertical(updated,115))+" old="+
             std::to_string(count_vertical(updated,90))+","+std::to_string(count_vertical(updated,110))).c_str());
 }
+
+void grid_columns_overlay_tracks_evaluated_source() {
+    auto document=empty_document("columns-overlay-document","columns-overlay-composition","columns-overlay-board");
+    auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
+    const Id grid_id="columns-overlay-grid";
+    board.layout=ArtboardLayout{std::nullopt,Grid{grid_id,{20,20,160,100},2,2,10,10}};
+    Artboard source_board{"columns-overlay-source-board","Columns source",240,0,100,100};
+    ArtboardLayout source_layout;source_layout.grid=Grid{"columns-overlay-source-grid",{0,0,100,100},3,1,0,0};
+    source_board.layout=source_layout;document.compositions.front().artboards.push_back(source_board);
+    Session session(std::move(document));const Ref target{grid_id,"","grid.columns"};
+    const Ref source{"columns-overlay-source-grid","","grid.columns"};
+    session.apply({GridColumnsCommand{LinkGridColumns{target,source,false}}},session.revision());
+    Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
+    canvas.fit_artboard();QApplication::processEvents();
+    const auto count_vertical=[&](const QImage& image,double world_x) {
+        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
+        const int pixel_x=qRound((canvas.width()/2.0+(world_x-100)*canvas.zoom())*scale);int pixels=0;
+        const int top=qRound((canvas.height()/2.0+(20-80)*canvas.zoom())*scale);
+        const int bottom=qRound((canvas.height()/2.0+(120-80)*canvas.zoom())*scale);
+        for(int x=pixel_x-qMax(2,qRound(2*scale));x<=pixel_x+qMax(2,qRound(2*scale));++x)
+            for(int y=top;y<=bottom;++y) {
+                const auto pixel=image.pixelColor(x,y);
+                if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+            }
+        return pixels;
+    };
+    const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_vertical(linked,66.6666667)>20&&count_vertical(linked,95)<=20&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),target).literal)==2&&
+        artboard_layout_property(session.document(),target).driver==source&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==3,
+        "Canvas Grid overlay draws the first evaluated-count boundary and preserves its authored literal and stable Ref");
+    auto updated=std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[](const Artboard& value){
+            return value.id=="columns-overlay-source-board";
+        });
+    auto source_update=*updated;source_update.layout->grid->columns=4;
+    session.apply({SetArtboardLayout{session.document().compositions.front().id,source_update.id,source_update.layout}},
+        session.revision());
+    canvas.refresh();QApplication::processEvents();
+    const auto evaluated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_vertical(evaluated,52.5)>20&&count_vertical(evaluated,66.6666667)<=20&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==4,
+        "Canvas Grid overlay follows a source count change to the new first-column boundary");
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1871,6 +1954,7 @@ int main(int argc, char** argv) {
         layout_overlays_are_view_only_and_not_exported();
         grid_row_gutter_overlay_tracks_evaluated_source();
         grid_column_gutter_overlay_tracks_evaluated_source();
+        grid_columns_overlay_tracks_evaluated_source();
         std::cout << "Canvas widget contract: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

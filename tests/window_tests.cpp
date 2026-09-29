@@ -2510,10 +2510,24 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
 
     const Id margin_source_id="margin-ui-source",margin_source_twin_id="margin-ui-source-twin",
         grid_y_source_id="grid-y-ui-source",grid_width_source_id="grid-width-ui-source",
-        grid_column_gutter_source_id="grid-column-gutter-ui-source";
+        grid_column_gutter_source_id="grid-column-gutter-ui-source",
+        grid_columns_source_board_id="grid-columns-ui-source-board",
+        grid_columns_source_grid_id="grid-columns-ui-source-grid",
+        grid_columns_twin_board_id="grid-columns-ui-twin-board",
+        grid_columns_twin_grid_id="grid-columns-ui-twin-grid";
+    ArtboardLayout grid_columns_source_layout;grid_columns_source_layout.grid=
+        Grid{grid_columns_source_grid_id,{0,0,100,100},3,1,0,0};
+    Artboard grid_columns_source_board{grid_columns_source_board_id,"Grid columns source",0,0,100,100};
+    grid_columns_source_board.layout=grid_columns_source_layout;
+    ArtboardLayout grid_columns_twin_layout;grid_columns_twin_layout.grid=
+        Grid{grid_columns_twin_grid_id,{0,0,100,100},2,1,0,0};
+    Artboard grid_columns_twin_board{grid_columns_twin_board_id,"Grid columns twin",0,0,100,100};
+    grid_columns_twin_board.layout=grid_columns_twin_layout;
     session.apply({AddArtboard{composition_id,Artboard{margin_source_id,"Margin source",0,0,40,100},1},
         AddArtboard{composition_id,Artboard{margin_source_twin_id,"Margin source",0,0,45,120},2},
-        AddArtboard{composition_id,Artboard{grid_column_gutter_source_id,"Grid column gutter source",0,0,10,20},3}},
+        AddArtboard{composition_id,Artboard{grid_column_gutter_source_id,"Grid column gutter source",0,0,10,20},3},
+        AddArtboard{composition_id,grid_columns_source_board,4},
+        AddArtboard{composition_id,grid_columns_twin_board,5}},
         session.revision());
     window.host.edited();QApplication::processEvents();
     auto* source_choice=visible_child<QComboBox>(window,"margin-left-link-source");
@@ -3606,6 +3620,62 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     check(std::get<double>(artboard_layout_property(session.document(),grid_column_gutter_target_ref).evaluated)==30&&
         visible_child<QLabel>(window,"grid-column-gutter-source-state")->text().contains("Evaluated: 30"),
         "Grid column gutter Inspector readback follows its width expression after an Artboard resize");
+    const Ref grid_columns_target_ref{board().layout->grid->id,"","grid.columns"};
+    const Ref grid_columns_source_ref{grid_columns_source_grid_id,"","grid.columns"};
+    const Ref grid_columns_twin_ref{grid_columns_twin_grid_id,"","grid.columns"};
+    const auto grid_columns_literal=std::get<std::size_t>(artboard_layout_property(session.document(),grid_columns_target_ref).literal);
+    auto* grid_columns_input=visible_child<QLineEdit>(window,"grid-columns");reveal(window,grid_columns_input);
+    auto* grid_columns_search=visible_child<QLineEdit>(window,"grid-columns-link-source-search");reveal(window,grid_columns_search);
+    auto* grid_columns_picker=visible_child<QComboBox>(window,"grid-columns-link-source");reveal(window,grid_columns_picker);
+    auto select_grid_columns_source=[&](const Ref& ref,QLineEdit*& search,QComboBox*& picker) {
+        search->setText(QString::fromStdString(ref.object+"/"+ref.field));QApplication::processEvents();
+        int index=-1;
+        for(int i=0;i<picker->count();++i)
+            if(picker->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(ref.object+"/"+ref.field))index=i;
+        check(index>=0,"Grid columns source search exposes the exact stable Grid Ref");
+        picker->setCurrentIndex(index);QApplication::processEvents();
+    };
+    check(!grid_columns_input->isReadOnly()&&grid_columns_picker->currentIndex()==-1,
+        "Literal Grid columns starts editable with no implicit source selection");
+    select_grid_columns_source(grid_columns_source_ref,grid_columns_search,grid_columns_picker);
+    const auto before_grid_columns_cancel=session.revision();click("grid-columns-cancel");
+    check(session.revision()==before_grid_columns_cancel&&
+        !artboard_layout_property(session.document(),grid_columns_target_ref).driver,
+        "Cancel discards a searched Grid columns source draft without changing the Session");
+    grid_columns_search=visible_child<QLineEdit>(window,"grid-columns-link-source-search");reveal(window,grid_columns_search);
+    grid_columns_picker=visible_child<QComboBox>(window,"grid-columns-link-source");reveal(window,grid_columns_picker);
+    select_grid_columns_source(grid_columns_source_ref,grid_columns_search,grid_columns_picker);
+    click("grid-columns-link");
+    grid_columns_input=visible_child<QLineEdit>(window,"grid-columns");
+    auto* grid_columns_state=visible_child<QLabel>(window,"grid-columns-source-state");
+    auto linked_grid_columns=artboard_layout_property(session.document(),grid_columns_target_ref);
+    check(session.revision()==before_grid_columns_cancel+1&&grid_columns_input->isReadOnly()&&
+        std::get<std::size_t>(linked_grid_columns.literal)==grid_columns_literal&&
+        linked_grid_columns.driver==grid_columns_source_ref&&std::get<std::size_t>(linked_grid_columns.evaluated)==3&&
+        grid_columns_state->text().contains("Literal: "+QString::number(static_cast<qulonglong>(grid_columns_literal)))&&
+        grid_columns_state->text().contains("Evaluated: 3"),
+        "Grid columns Inspector links the exact same-field stable Grid Ref and keeps the authored integer read-only");
+    const auto before_grid_columns_edit=session.revision();grid_columns_input->setFocus();
+    QTest::keyClick(grid_columns_input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(grid_columns_input,"99");
+    QTest::keyClick(grid_columns_input,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==before_grid_columns_edit&&grid_columns_input->isReadOnly()&&
+        artboard_layout_property(session.document(),grid_columns_target_ref).driver==grid_columns_source_ref,
+        "A linked Grid columns literal refuses direct Inspector edits");
+    grid_columns_search=visible_child<QLineEdit>(window,"grid-columns-link-source-search");reveal(window,grid_columns_search);
+    grid_columns_picker=visible_child<QComboBox>(window,"grid-columns-link-source");reveal(window,grid_columns_picker);
+    select_grid_columns_source(grid_columns_twin_ref,grid_columns_search,grid_columns_picker);
+    auto* grid_columns_replace=visible_child<QCheckBox>(window,"grid-columns-replace");reveal(window,grid_columns_replace);
+    const auto before_unapproved_grid_columns_replace=session.revision();click("grid-columns-link");
+    check(session.revision()==before_unapproved_grid_columns_replace&&
+        artboard_layout_property(session.document(),grid_columns_target_ref).driver==grid_columns_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_COLUMNS"),
+        "Replacing a Grid columns source requires visible explicit authorization");
+    grid_columns_replace=visible_child<QCheckBox>(window,"grid-columns-replace");reveal(window,grid_columns_replace);
+    grid_columns_replace->setChecked(true);click("grid-columns-link");
+    linked_grid_columns=artboard_layout_property(session.document(),grid_columns_target_ref);
+    check(session.revision()==before_unapproved_grid_columns_replace+1&&linked_grid_columns.driver==grid_columns_twin_ref&&
+        std::get<std::size_t>(linked_grid_columns.evaluated)==2,
+        "Grid columns Inspector replaces its source only after explicit authorization");
     click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
     const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
@@ -3617,6 +3687,9 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         !duplicate->layout->margin->bottom_driver&&
         duplicate->layout->margin->bottom_expression==margin_bottom_expression_source&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
+        duplicate->layout->grid->columns_driver==grid_columns_twin_ref&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),
+            Ref{duplicate->layout->grid->id,"","grid.columns"}).literal)==grid_columns_literal&&
         !duplicate->layout->grid->column_gutter_driver&&
         duplicate->layout->grid->column_gutter_expression==Expression{grid_column_gutter_expression_text,1}&&
         duplicate->layout->grid->row_gutter_driver==grid_row_gutter_width_source_ref&&
@@ -3644,6 +3717,13 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     const Id duplicate_grid_id=duplicate->layout->grid->id;
     const Ref duplicate_grid_column_gutter_ref{duplicate_grid_id,"","grid.column_gutter"};
     const Ref duplicate_grid_row_gutter_ref{duplicate_grid_id,"","grid.row_gutter"};
+    const Ref duplicate_grid_columns_ref{duplicate_grid_id,"","grid.columns"};
+    const auto before_duplicate_grid_columns_unlink=session.revision();click("grid-columns-unlink");
+    check(session.revision()==before_duplicate_grid_columns_unlink+1&&
+        !artboard_layout_property(session.document(),duplicate_grid_columns_ref).driver&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),duplicate_grid_columns_ref).literal)==2&&
+        !visible_child<QLineEdit>(window,"grid-columns")->isReadOnly(),
+        "Unlinking duplicated Grid columns freezes its evaluated count into the copied literal");
     const auto before_duplicate_row_gutter_unlink=session.revision();click("grid-row-gutter-unlink");
     check(session.revision()==before_duplicate_row_gutter_unlink+1&&
         !artboard_layout_property(session.document(),duplicate_grid_row_gutter_ref).driver&&
@@ -3732,6 +3812,7 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
 
     click("grid-bounds-x-unlink");click("grid-bounds-y-unlink");click("grid-bounds-width-unlink");
     click("grid-bounds-height-unlink");click("grid-column-gutter-unlink");click("grid-row-gutter-unlink");
+    click("grid-columns-unlink");
     check(!artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver&&
         std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).literal)==20,
         "Unlink the original Grid row gutter before replacing its stable Grid ID in recovery setup");

@@ -209,7 +209,7 @@ void text_weight_expression_save_as(const QString& directory,const QString& nect
     const auto destination=directory+"/weight-expression-destination.nect";
     host.save(destination);const auto destination_bytes=bytes(destination);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.55\"")&&
+        destination_bytes.contains("\"version\":\"0.56\"")&&
         load_native(destination).document.objects.at("weight-target").text->weight_expression==expression,
         "Host Save As retains the exact Text weight expression and leaves original bytes unchanged");
     Host reopened(directory+"/weight-expression-cold-recovery");reopened.open(destination);
@@ -355,6 +355,10 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
     const auto composition=host.session.document().compositions.front().id;
     const auto artboard_id=host.session.document().compositions.front().artboards.front().id;
     const Id grid_id="save-as-layout-grid";
+    const Id grid_columns_source_board_id="save-as-grid-columns-source-board";
+    const Id grid_columns_source_grid_id="save-as-grid-columns-source-grid";
+    const Ref grid_columns_ref{grid_id,"","grid.columns"};
+    const Ref grid_columns_source_ref{grid_columns_source_grid_id,"","grid.columns"};
     const Id expression_board_id="save-as-column-expression-board",expression_grid_id="save-as-column-expression-grid";
     const Ref grid_column_gutter_ref{grid_id,"","grid.column_gutter"};
     const Ref grid_column_gutter_source_ref{"save-as-grid-column-gutter-source","","artboard.width"};
@@ -370,9 +374,15 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
     Artboard gutter_source{"save-as-grid-column-gutter-source","Grid column gutter source",0,0,10,20};
     Artboard expression_board{expression_board_id,"Column expression frame",0,0,400,300};
     ArtboardLayout expression_layout{std::nullopt,Grid{expression_grid_id,{20,30,320,240},3,2,12,10}};
+    Artboard columns_source{grid_columns_source_board_id,"Grid columns source",0,0,100,100};
+    ArtboardLayout columns_source_layout;columns_source_layout.grid=
+        Grid{grid_columns_source_grid_id,{0,0,100,100},3,1,0,0};columns_source.layout=columns_source_layout;
     host.session.apply({AddArtboard{composition,height_source,1},AddArtboard{composition,gutter_source,2},
-        AddArtboard{composition,expression_board,3},SetArtboardLayout{composition,artboard_id,initial_layout},
+        AddArtboard{composition,expression_board,3},AddArtboard{composition,columns_source,4},
+        SetArtboardLayout{composition,artboard_id,initial_layout},
         SetArtboardLayout{composition,expression_board_id,expression_layout}},host.session.revision());
+    host.session.apply({GridColumnsCommand{LinkGridColumns{grid_columns_ref,grid_columns_source_ref,false}}},
+        host.session.revision());
     host.session.apply({GridBoundsHeightCommand{SetGridBoundsHeightExpression{grid_height_ref,grid_height_expression,false}}},
         host.session.revision());
     host.session.apply({GridColumnGutterCommand{LinkGridColumnGutter{grid_column_gutter_ref,
@@ -384,6 +394,7 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
     initial_layout.grid->bounds_height_expression=grid_height_expression;
     initial_layout.grid->column_gutter_driver=grid_column_gutter_source_ref;
     initial_layout.grid->row_gutter_expression=grid_row_gutter_expression;
+    initial_layout.grid->columns_driver=grid_columns_source_ref;
     expression_layout.grid->column_gutter_expression=column_gutter_expression;
     host.edited();
     const auto initial=host.session.document();
@@ -409,11 +420,12 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
     const auto external_hash=sha256(external_bytes);
 
     ArtboardLayout committed_layout{
-        Margin{18,22,26,30},Grid{grid_id,{40,36,520,400},5,4,16,12}};
+        Margin{18,22,26,30},Grid{grid_id,{40,36,520,400},4,4,16,12}};
     host.session.apply({SetArtboardLayout{composition,artboard_id,committed_layout}},host.session.revision());host.edited();
     committed_layout.grid->bounds_height_expression=grid_height_expression;
     committed_layout.grid->column_gutter_driver=grid_column_gutter_source_ref;
     committed_layout.grid->row_gutter_expression=grid_row_gutter_expression;
+    committed_layout.grid->columns_driver=grid_columns_source_ref;
     auto committed_expression_layout=expression_layout;
     const auto committed=host.session.document();
     const auto committed_revision=host.session.revision();
@@ -458,10 +470,13 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
           saved_board.id==artboard_id&&saved_board.layout&&*saved_board.layout==committed_layout&&
           saved_expression_board!=saved.compositions.front().artboards.end()&&saved_expression_board->layout&&
           *saved_expression_board->layout==committed_expression_layout&&
+          artboard_layout_property(saved,grid_columns_ref).driver==grid_columns_source_ref&&
+          std::get<std::size_t>(artboard_layout_property(saved,grid_columns_ref).literal)==4&&
+          std::get<std::size_t>(artboard_layout_property(saved,grid_columns_ref).evaluated)==3&&
           artboard_layout_property(saved,expression_grid_column_gutter_ref).expression==column_gutter_expression&&
           std::get<double>(artboard_layout_property(saved,expression_grid_column_gutter_ref).evaluated)==20&&
           bytes(source_path)==external_bytes&&sha256(bytes(source_path))==external_hash,
-          "Valid Save As writes exact native 0.55 bytes and retains Grid expressions, column link, stable IDs and the new column gutter expression");
+          "Valid Save As writes exact native 0.56 bytes and retains Grid expressions, column link, stable IDs and the new column gutter expression");
     check(host.persistence()["recovery_revision"].toInteger(-1)==static_cast<qint64>(committed_revision)&&
           QJsonDocument::fromJson(bytes(recovery_meta)).object()["source_file"]==native_path(destination),
           "Recovery provenance follows the Grid and Margin Save As destination");
@@ -475,6 +490,9 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
           cold_board.id==artboard_id&&cold_board.layout&&*cold_board.layout==committed_layout&&
           cold_expression_board!=cold.compositions.front().artboards.end()&&cold_expression_board->layout&&
           *cold_expression_board->layout==committed_expression_layout&&
+          artboard_layout_property(cold,grid_columns_ref).driver==grid_columns_source_ref&&
+          std::get<std::size_t>(artboard_layout_property(cold,grid_columns_ref).literal)==4&&
+          std::get<std::size_t>(artboard_layout_property(cold,grid_columns_ref).evaluated)==3&&
           artboard_layout_property(cold,expression_grid_column_gutter_ref).expression==column_gutter_expression&&
           std::get<double>(artboard_layout_property(cold,expression_grid_column_gutter_ref).evaluated)==20,
           "Cold Host reopen restores every authored Margin, Grid field and stable ID");
@@ -557,7 +575,11 @@ void layout_save_as(const QString& directory,const QString& nect_cli) {
           margin_read["authored"].toObject()["literal"].toDouble()==committed_layout.margin->left&&
           margin_read["evaluated"].toDouble()==committed_layout.margin->left&&
           margin_read["space"]=="artboard_local"&&count_read["ref"].toObject()["object"]==QString::fromStdString(grid_id)&&
-          count_read["type"]=="integer"&&count_read["evaluated"].toInt()==static_cast<int>(committed_layout.grid->columns)&&
+          count_read["type"]=="integer"&&count_read["authored"].toObject()["literal"].toInt()==4&&
+          count_read["authored"].toObject()["source_kind"]=="link"&&
+          count_read["authored"].toObject()["driver"].toObject()["object"].toString()==
+              QString::fromStdString(grid_columns_source_grid_id)&&
+          count_read["evaluated"].toInt()==3&&
           grid_read["evaluated"].toDouble()==committed_layout.grid->bounds.x&&
           height_read["authored"].toObject()["literal"].toDouble()==committed_layout.grid->bounds.height&&
           height_read["authored"].toObject()["expression"].toObject()["source"].toString()==QString::fromStdString(grid_height_expression.source)&&
@@ -683,7 +705,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_width=artboard_layout_property(persisted,grid_width_ref);
     const auto persisted_grid_height=artboard_layout_property(persisted,grid_height_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.55\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.56\"")&&
         bytes(original)==original_bytes&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&
@@ -700,7 +722,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
          persisted_grid_width.expression==grid_width_expression&&std::get<double>(persisted_grid_width.evaluated)==70&&
          std::get<double>(persisted_grid_height.literal)==560&&persisted_grid_height.driver==source_top_ref&&
          std::get<double>(persisted_grid_height.evaluated)==70,
-          "Host Save As writes native 0.55 Grid height link, width expression and Margin sources beside authored literals while preserving original bytes");
+          "Host Save As writes native 0.56 Grid height link, width expression and Margin sources beside authored literals while preserving original bytes");
 
     Host cold(directory+"/linked-margin-left-cold-recovery");cold.open(destination);
     const auto cold_value=artboard_layout_property(cold.session.document(),target_ref);
