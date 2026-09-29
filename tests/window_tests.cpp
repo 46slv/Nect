@@ -2508,7 +2508,8 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
           visible_child<QLineEdit>(window,"margin-left")->text()=="25",
         "An untouched Inspector built at an older revision cannot overwrite current layout values");
 
-    const Id margin_source_id="margin-ui-source",margin_source_twin_id="margin-ui-source-twin",grid_y_source_id="grid-y-ui-source";
+    const Id margin_source_id="margin-ui-source",margin_source_twin_id="margin-ui-source-twin",
+        grid_y_source_id="grid-y-ui-source",grid_width_source_id="grid-width-ui-source";
     session.apply({AddArtboard{composition_id,Artboard{margin_source_id,"Margin source",0,0,40,100},1},
         AddArtboard{composition_id,Artboard{margin_source_twin_id,"Margin source",0,0,45,120},2}},session.revision());
     window.host.edited();QApplication::processEvents();
@@ -3027,7 +3028,8 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     for(int i=0;i<grid_source_choice->count();++i)
         if(grid_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))grid_source_width_choice=i;
     grid_source_choice->setCurrentIndex(grid_source_width_choice);QApplication::processEvents();click("grid-bounds-x-link");
-    session.apply({AddArtboard{composition_id,Artboard{grid_y_source_id,"Grid y source",0,0,20,100},3}},session.revision());
+    session.apply({AddArtboard{composition_id,Artboard{grid_y_source_id,"Grid y source",0,0,20,100},3},
+        AddArtboard{composition_id,Artboard{grid_width_source_id,"Grid width source",0,0,45,100},4}},session.revision());
     window.host.edited();QApplication::processEvents();
     input("grid-height","400",true);
     auto* grid_y_source_choice=visible_child<QComboBox>(window,"grid-bounds-y-link-source");
@@ -3067,6 +3069,97 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     check(std::get<double>(artboard_layout_property(session.document(),grid_y_target_ref).evaluated)==25&&
         visible_child<QLabel>(window,"grid-bounds-y-source-state")->text().contains("Evaluated: 25"),
         "Grid y Inspector status follows an upstream Artboard width change");
+    auto* grid_width_source_choice=visible_child<QComboBox>(window,"grid-bounds-width-link-source");
+    auto* grid_width_search=visible_child<QLineEdit>(window,"grid-bounds-width-link-source-search");
+    grid_width_search->setText(QString::fromStdString(grid_width_source_id+"/artboard.width"));QApplication::processEvents();
+    int grid_width_source_index=-1;
+    for(int i=0;i<grid_width_source_choice->count();++i)
+        if(grid_width_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_width_source_id+"/artboard.width"))grid_width_source_index=i;
+    check(grid_width_source_index>=0,"Grid width search exposes the exact stable Artboard width Ref");
+    grid_width_source_choice->setCurrentIndex(grid_width_source_index);QApplication::processEvents();
+    const auto before_width_cancel=session.revision();click("grid-bounds-width-cancel");
+    check(session.revision()==before_width_cancel&&
+        !artboard_layout_property(session.document(),Ref{board().layout->grid->id,"","grid.bounds.width"}).driver,
+        "Cancel discards an uncommitted Grid width source draft");
+    grid_width_search=visible_child<QLineEdit>(window,"grid-bounds-width-link-source-search");
+    grid_width_source_choice=visible_child<QComboBox>(window,"grid-bounds-width-link-source");
+    grid_width_search->setText(QString::fromStdString(grid_width_source_id+"/artboard.width"));QApplication::processEvents();
+    grid_width_source_index=-1;
+    for(int i=0;i<grid_width_source_choice->count();++i)
+        if(grid_width_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_width_source_id+"/artboard.width"))grid_width_source_index=i;
+    grid_width_source_choice->setCurrentIndex(grid_width_source_index);QApplication::processEvents();
+    const Ref grid_width_target_ref{board().layout->grid->id,"","grid.bounds.width"};
+    const Ref grid_width_source_ref{grid_width_source_id,"","artboard.width"};
+    auto* grid_width_input=visible_child<QLineEdit>(window,"grid-width");
+    const double grid_width_literal=std::get<double>(artboard_layout_property(session.document(),grid_width_target_ref).literal);
+    const auto before_width_link=session.revision();click("grid-bounds-width-link");
+    grid_width_input=visible_child<QLineEdit>(window,"grid-width");
+    auto width_state=artboard_layout_property(session.document(),grid_width_target_ref);
+    check(session.revision()==before_width_link+1&&grid_width_input->isReadOnly()&&
+        std::get<double>(width_state.literal)==grid_width_literal&&width_state.driver==grid_width_source_ref&&
+        std::get<double>(width_state.evaluated)==45&&
+        visible_child<QLabel>(window,"grid-bounds-width-source-state")->text().contains("Literal:")&&
+        visible_child<QLabel>(window,"grid-bounds-width-source-state")->text().contains("Evaluated: 45"),
+        "Grid width Inspector links the exact stable source and keeps its literal read-only beside evaluated status");
+    auto width_source_board=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==grid_width_source_id;});
+    width_source_board.width=50;
+    session.apply({UpdateArtboard{composition_id,width_source_board}},session.revision());window.host.edited();QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),grid_width_target_ref).literal)==grid_width_literal&&
+        std::get<double>(artboard_layout_property(session.document(),grid_width_target_ref).evaluated)==50&&
+        visible_child<QLabel>(window,"grid-bounds-width-source-state")->text().contains("Evaluated: 50"),
+        "Grid width Inspector follows an upstream Artboard resize without changing its authored literal");
+    grid_width_search=visible_child<QLineEdit>(window,"grid-bounds-width-link-source-search");
+    grid_width_source_choice=visible_child<QComboBox>(window,"grid-bounds-width-link-source");
+    auto* grid_width_replace=visible_child<QCheckBox>(window,"grid-bounds-width-replace");
+    grid_width_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    int replacement_grid_width_index=-1;
+    for(int i=0;i<grid_width_source_choice->count();++i)
+        if(grid_width_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_id+"/artboard.width"))replacement_grid_width_index=i;
+    grid_width_source_choice->setCurrentIndex(replacement_grid_width_index);QApplication::processEvents();
+    const Ref primary_grid_width_source_ref{margin_source_id,"","artboard.width"};
+    const auto before_width_replace=session.revision();click("grid-bounds-width-link");
+    check(session.revision()==before_width_replace&&
+        artboard_layout_property(session.document(),grid_width_target_ref).driver==grid_width_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_WIDTH"),
+        "Replacing a Grid width source requires explicit Inspector authorization");
+    grid_width_replace=visible_child<QCheckBox>(window,"grid-bounds-width-replace");
+    grid_width_search=visible_child<QLineEdit>(window,"grid-bounds-width-link-source-search");
+    grid_width_source_choice=visible_child<QComboBox>(window,"grid-bounds-width-link-source");
+    grid_width_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    replacement_grid_width_index=-1;
+    for(int i=0;i<grid_width_source_choice->count();++i)
+        if(grid_width_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_id+"/artboard.width"))replacement_grid_width_index=i;
+    grid_width_source_choice->setCurrentIndex(replacement_grid_width_index);QApplication::processEvents();
+    grid_width_replace->setChecked(true);click("grid-bounds-width-link");
+    const auto replaced_grid_width=artboard_layout_property(session.document(),grid_width_target_ref);
+    const auto grid_width_replace_details="revision="+std::to_string(session.revision())+", expected="+
+        std::to_string(before_width_replace+1)+", replace="+std::to_string(grid_width_replace->isChecked())+
+        ", source="+(replaced_grid_width.driver?replaced_grid_width.driver->object+"/"+replaced_grid_width.driver->field:"none")+
+        ", evaluated="+std::to_string(std::get<double>(replaced_grid_width.evaluated))+
+        ", status="+window.statusBar()->currentMessage().toStdString();
+    check(session.revision()==before_width_replace+1&&
+        replaced_grid_width.driver==primary_grid_width_source_ref&&
+        std::get<double>(replaced_grid_width.evaluated)==80,
+        "Grid width Inspector replaces its source only after explicit authorization: "+grid_width_replace_details);
+    const auto before_width_edit=session.revision();grid_width_input=visible_child<QLineEdit>(window,"grid-width");
+    grid_width_input->setFocus();QTest::keyClick(grid_width_input,Qt::Key_A,Qt::ControlModifier);
+    QTest::keyClicks(grid_width_input,"99");QTest::keyClick(grid_width_input,Qt::Key_Return);QApplication::processEvents();
+    const auto width_after_readonly=artboard_layout_property(session.document(),grid_width_target_ref);
+    const auto width_readonly_details="revision="+std::to_string(session.revision())+", expected="+
+        std::to_string(before_width_edit)+", readonly="+std::to_string(grid_width_input->isReadOnly())+
+        ", text="+grid_width_input->text().toStdString()+", literal="+
+        std::to_string(std::get<double>(width_after_readonly.literal))+", expected literal="+
+        std::to_string(grid_width_literal)+", driver="+
+        (width_after_readonly.driver?width_after_readonly.driver->object+"/"+width_after_readonly.driver->field:"none");
+    check(session.revision()==before_width_edit&&grid_width_input->isReadOnly()&&
+        std::get<double>(width_after_readonly.literal)==grid_width_literal&&
+        width_after_readonly.driver==primary_grid_width_source_ref,
+        "A driven Grid width field refuses direct edits without changing its source or authored literal: "+width_readonly_details);
     grid_y_search=visible_child<QLineEdit>(window,"grid-bounds-y-link-source-search");
     grid_y_source_choice=visible_child<QComboBox>(window,"grid-bounds-y-link-source");
     grid_y_search->setText("margin-ui-source-twin/artboard.width");QApplication::processEvents();
@@ -3119,6 +3212,9 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         duplicate->layout->margin->bottom_expression==margin_bottom_expression_source&&
         duplicate->layout->grid->id!=board().layout->grid->id&&
         duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
+        duplicate->layout->grid->bounds_width_driver==primary_grid_width_source_ref&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.width"}).literal)==grid_width_literal&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.width"}).evaluated)==80&&
         !duplicate->layout->grid->bounds_y_driver&&
         duplicate->layout->grid->bounds_y_expression==Expression{grid_y_expression_text.toStdString(),1}&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==90&&
@@ -3131,7 +3227,7 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.bottom"}).expression==margin_bottom_expression_source&&
         std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.bottom"}).evaluated)==
             artboard_size_property(session.document(),Ref{margin_source_id,"","artboard.height"}).evaluated-20,
-        "Duplicate frame replays Margin bottom, right, expression and Grid sources onto stable target IDs");
+        "Duplicate frame replays Margin, Grid x/y/width sources onto the new stable Grid ID");
     auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
     for(int i=0;i<artboards->count();++i)
         if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);
@@ -3197,7 +3293,7 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
             std::get<double>(frozen_margin_bottom.evaluated),
         "Unlinked Margin left, top, right and bottom remain frozen when their former sources change");
 
-    click("grid-bounds-x-unlink");click("grid-bounds-y-unlink");
+    click("grid-bounds-x-unlink");click("grid-bounds-y-unlink");click("grid-bounds-width-unlink");
     session.apply({SetArtboardLayout{composition_id,board_id,
                        ArtboardLayout{Margin{25,0,0,0},Grid{"recovery-grid",{25,0,100,100},2,1,10,0}}},
                    AddGuide{composition_id,{"recovery-guide","Recovery","y",25}}},session.revision());
