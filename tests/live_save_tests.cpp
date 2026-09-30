@@ -214,7 +214,7 @@ void text_weight_expression_save_as(const QString& directory,const QString& nect
     const auto destination=directory+"/weight-expression-destination.nect";
     host.save(destination);const auto destination_bytes=bytes(destination);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.64\"")&&
+        destination_bytes.contains("\"version\":\"0.65\"")&&
         destination_bytes.contains("\"offset\":200")&&
         load_native(destination).document.objects.at("weight-target").text->weight_expression==expression&&
         load_native(destination).document.objects.at("weight-relative-target").text->weight_driver==
@@ -272,7 +272,7 @@ void object_visibility_expression_save_as(const QString& directory,const QString
     const auto saved=load_native(destination).document;
     const auto saved_state=object_visibility_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.64\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.65\"")&&saved==committed&&
         saved_state.literal&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated,
         "Host Save As keeps the exact Object visibility expression and leaves original bytes unchanged");
     Host reopened(directory+"/visibility-expression-cold-recovery");reopened.open(destination);
@@ -314,7 +314,7 @@ void composite_isolation_expression_save_as(const QString& directory,const QStri
     const auto saved=load_native(destination).document;
     const auto saved_state=composite_isolation_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.64\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.65\"")&&saved==committed&&
         saved_state.literal==false&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated&&
         saved.objects.at("composite-isolation-target").compositing.isolated_expression==expression,
         "Host Save As keeps exact Composite isolation expression and leaves original bytes unchanged");
@@ -906,7 +906,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_width=artboard_layout_property(persisted,grid_width_ref);
     const auto persisted_grid_height=artboard_layout_property(persisted,grid_height_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.64\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.65\"")&&
         bytes(original)==original_bytes&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&

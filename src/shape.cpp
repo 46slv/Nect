@@ -4,6 +4,7 @@
 #include <cmath>
 #include <numbers>
 #include <limits>
+#include <functional>
 
 namespace nect {
 const std::vector<BuiltinOperationType>& builtin_operation_types() {
@@ -228,6 +229,44 @@ std::shared_ptr<const std::vector<EvaluatedContour>> project_text_on_path(const 
     else result.x=result.y=result.width=result.height=0;
     return projected;
 }
+std::size_t path_anchor_count(const std::vector<PathInstance>& paths) {
+    std::size_t count=0;for(const auto& path:paths)for(const auto& contour:*path.contours)count+=contour.points.size();return count;
+}
+void apply_repeater(EvaluatedShape& shape,const ShapeOperation& op,const std::function<double(const std::string&)>& value) {
+    const auto copies=static_cast<unsigned>(value("copies"));
+    if(shape.paths.size()*copies>4096||shape.paints.size()*copies>8192)
+        throw Error("OUTPUT_LIMIT","Repeated output exceeds 4096 path instances or 8192 paint layers");
+    std::size_t paint_anchors=0;for(const auto& paint:shape.paints)paint_anchors+=path_anchor_count(paint.paths);
+    if(path_anchor_count(shape.paths)*copies>250000||paint_anchors*copies>250000)
+        throw Error("OUTPUT_LIMIT","Repeated output exceeds 250000 cubic anchors");
+    const auto paths=std::move(shape.paths);const auto paints=std::move(shape.paints);
+    shape.paths.clear();shape.paints.clear();
+    auto matrix=[&](unsigned index) {
+        const auto n=static_cast<double>(index)+value("offset");
+        const auto angle=n*value("rotation")*std::numbers::pi/180;
+        const auto sx=std::pow(value("scale_x"),n),sy=std::pow(value("scale_y"),n);
+        Affine m{std::cos(angle)*sx,std::sin(angle)*sx,-std::sin(angle)*sy,std::cos(angle)*sy,0,0};
+        const Vec2 anchor{value("anchor_x"),value("anchor_y")};const auto mapped=map_point(m,anchor);
+        m[4]=anchor.x-mapped.x+n*value("position_x");m[5]=anchor.y-mapped.y+n*value("position_y");
+        for(auto number:m)if(!std::isfinite(number)||std::abs(number)>1e12)
+            throw Error("OUTPUT_RANGE","Repeater transform exceeds finite output bounds");
+        return m;
+    };
+    for(unsigned i=0;i<copies;++i) {
+        const auto transform=matrix(i);
+        for(const auto& path:paths)shape.paths.push_back({path.contours,compose(transform,path.transform)});
+    }
+    for(unsigned i=0;i<copies;++i) {
+        const auto index=op.composite=="above"?i:copies-1-i;
+        const auto transform=matrix(index);
+        const auto t=copies<2?0:static_cast<double>(index)/(copies-1);
+        const auto opacity=value("start_opacity")+(value("end_opacity")-value("start_opacity"))*t;
+        for(auto paint:paints) {
+            paint.transform=compose(transform,paint.transform);paint.rgba[3]*=opacity;
+            shape.paints.push_back(std::move(paint));
+        }
+    }
+}
 }
 PathSampler build_path_sampler(const Document& document,const Id& path_id,const Id& contour_id,const std::map<Ref,double>& values) {
     const auto object=document.objects.find(path_id);
@@ -370,12 +409,41 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
         source=evaluate_text_projection(d,id,values).contours;
     }
     EvaluatedShape shape;shape.paths.push_back({source,identity_matrix});
-    const auto anchors=[](const std::vector<PathInstance>& paths) {
-        std::size_t count=0;for(const auto& path:paths)for(const auto& contour:*path.contours)count+=contour.points.size();return count;
-    };
+    const auto anchors=[](const std::vector<PathInstance>& paths) {return path_anchor_count(paths);};
     const auto painted_anchors=[&] {std::size_t count=0;for(const auto& paint:shape.paints)count+=anchors(paint.paths);return count;};
     for(const auto& op:o.stack) {
         if(!operation_enabled->at(operation_ref(id,op.id,"enabled")))continue;
+        if(op.macro) {
+            const auto definition=d.macro_definitions.find(op.macro->definition);
+            if(definition==d.macro_definitions.end())throw Error("MISSING_MACRO_DEFINITION",op.macro->definition);
+            const auto revision=definition->second.revisions.find(op.macro->pinned_revision);
+            if(revision==definition->second.revisions.end())throw Error("MISSING_MACRO_REVISION",op.macro->definition);
+            for(const auto* type:{"nect.shape.offset","nect.shape.repeater"}) {
+                const auto node=std::find_if(revision->second.nodes.begin(),revision->second.nodes.end(),[&](const auto& item) {
+                    return item.operation.type==type;
+                });
+                if(node==revision->second.nodes.end())throw Error("INVALID_MACRO_GRAPH","Pinned Macro graph has a missing executable node");
+                const auto& macro_operation=node->operation;
+                const auto macro_value=[&](const std::string& name) {
+                    if(macro_operation.type=="nect.shape.offset"&&name=="amount"&&
+                        std::any_of(revision->second.public_parameters.begin(),revision->second.public_parameters.end(),
+                            [](const auto& parameter){return parameter.id=="macro.offset.amount";}))
+                        return macro_parameter_value(d,id,op.id,"macro.offset.amount");
+                    const auto found=macro_operation.parameters.find(name);
+                    if(found==macro_operation.parameters.end())throw Error("INVALID_MACRO_MAPPING",name);
+                    return found->second.literal;
+                };
+                if(macro_operation.type=="nect.shape.offset")
+                    apply_offset(shape,macro_value("amount"),macro_value("miter_limit"),macro_operation.line_join,macro_operation.fill_rule);
+                else if(macro_operation.type=="nect.shape.repeater")
+                    apply_repeater(shape,macro_operation,macro_value);
+                else throw Error("UNSUPPORTED_MACRO_NODE",macro_operation.type);
+                if(shape.paints.size()>8192)throw Error("OUTPUT_LIMIT","Paint layer limit 8192 per object");
+                if(shape.paths.size()>4096||anchors(shape.paths)>250000||painted_anchors()>250000)
+                    throw Error("OUTPUT_LIMIT","Shape output exceeds 4096 instances or 250000 geometry/paint anchors per object");
+            }
+            continue;
+        }
         auto v=[&](const char* name){return values.at(operation_ref(id,op.id,name));};
         if(op.type=="nect.paint.fill"||op.type=="nect.paint.stroke") {
             if(painted_anchors()+anchors(shape.paths)>250000)

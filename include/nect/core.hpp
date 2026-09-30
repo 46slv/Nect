@@ -10,6 +10,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -215,6 +216,69 @@ struct ShapeOperation {
     bool operator==(const ShapeOperation&) const = default;
 };
 ShapeOperation default_operation(Id id,const std::string& type);
+struct MacroPort {
+    Id id;
+    std::string domain;
+    bool operator==(const MacroPort&) const = default;
+};
+struct MacroEndpoint {
+    Id node;
+    Id port;
+    bool operator==(const MacroEndpoint&) const = default;
+};
+struct MacroEdge {
+    MacroEndpoint from,to;
+    bool operator==(const MacroEdge&) const = default;
+};
+struct MacroNode {
+    ShapeOperation operation;
+    Id input_port,output_port;
+    bool operator==(const MacroNode&) const = default;
+};
+struct MacroPublicParameter {
+    std::string id,label;
+    Id node;
+    std::string parameter;
+    std::string value_type="number";
+    std::string unit="scalar";
+    std::string domain="local_paths_and_paint";
+    bool operator==(const MacroPublicParameter&) const = default;
+};
+struct MacroDefinitionRevision {
+    std::uint64_t revision=1;
+    MacroPort input,output;
+    std::vector<MacroNode> nodes;
+    std::vector<MacroEdge> edges;
+    MacroEndpoint output_mapping;
+    std::vector<MacroPublicParameter> public_parameters;
+    bool operator==(const MacroDefinitionRevision&) const = default;
+};
+struct MacroDefinition {
+    Id id;
+    std::string label;
+    std::uint64_t latest_revision=1;
+    std::map<std::uint64_t,MacroDefinitionRevision> revisions;
+    bool operator==(const MacroDefinition&) const = default;
+};
+struct MacroInstance {
+    Id definition;
+    std::uint64_t pinned_revision=1;
+    std::map<std::string,double> overrides;
+    bool operator==(const MacroInstance&) const = default;
+};
+struct Document;
+Ref macro_parameter_ref(const Id& object,const Id& instance,const std::string& public_parameter);
+double macro_parameter_value(const Document&,const Id& object,const Id& instance,const std::string& public_parameter);
+// One ordered local-processing entry is either an ordinary ShapeOperation
+// (the inherited payload) or a Macro instance (the optional tagged payload).
+// For Macro entries, only id, enabled and type are read from ShapeOperation.
+struct ProcessingEntry : ShapeOperation {
+    std::optional<MacroInstance> macro;
+    ProcessingEntry() = default;
+    ProcessingEntry(ShapeOperation operation) : ShapeOperation(std::move(operation)) {}
+    bool operator==(const ProcessingEntry&) const = default;
+};
+inline constexpr const char* macro_entry_type="nect.macro.instance";
 struct PresetEntry {
     std::string type;
     unsigned version=1;
@@ -285,7 +349,7 @@ struct Object {
     std::vector<Id> children;
     std::vector<Contour> contours;
     std::array<Scalar,6> transform{{{1,{}},{0,{}},{0,{}},{1,{}},{0,{}},{0,{}}}};
-    std::vector<ShapeOperation> stack;
+    std::vector<ProcessingEntry> stack;
     // Compatibility address only: stroke.* resolves to this stable operation.
     // All scalar authority is in stack; this never stores duplicate paint values.
     Id legacy_stroke;
@@ -423,6 +487,7 @@ struct Document {
     std::map<Id,RasterAsset> raster_assets;
     std::map<Id,PresetDefinition> preset_definitions;
     std::map<Id,Definition> definitions;
+    std::map<Id,MacroDefinition> macro_definitions;
     bool operator==(const Document&) const = default;
 };
 
@@ -489,6 +554,28 @@ struct SetCollectionMembers { Id collection; std::vector<Id> members; };
 struct DeleteCollection { Id collection; };
 using CollectionMutation=std::variant<CreateCollection,RenameCollection,SetCollectionMembers,DeleteCollection>;
 struct CollectionCommand { CollectionMutation mutation; };
+struct CreateMacroDefinition { MacroDefinition definition; };
+struct RenameMacroDefinition { Id definition; std::string label; };
+struct UpdateMacroDefinition { Id definition; MacroDefinitionRevision revision; };
+struct DeleteMacroDefinition { Id definition; };
+struct InstantiateMacro { Id object,definition,instance; std::uint64_t revision=1; std::size_t index=0; };
+struct SetMacroOverride { Id object,instance; std::string public_parameter; double value=0; };
+struct ResetMacroOverride { Id object,instance; std::string public_parameter; };
+struct UpdateMacroInstance { Id object,instance; std::uint64_t revision=1; };
+struct DetachMacroInstance { Id object,instance,operation_id_prefix; };
+using MacroMutation=std::variant<CreateMacroDefinition,RenameMacroDefinition,UpdateMacroDefinition,
+    DeleteMacroDefinition,InstantiateMacro,SetMacroOverride,ResetMacroOverride,UpdateMacroInstance,DetachMacroInstance>;
+struct MacroCommand {
+    std::shared_ptr<const MacroMutation> mutation;
+    MacroCommand()=delete;
+    MacroCommand(const MacroCommand&)=default;
+    MacroCommand(MacroCommand&&) noexcept=default;
+    MacroCommand& operator=(const MacroCommand&)=default;
+    MacroCommand& operator=(MacroCommand&&) noexcept=default;
+    template<class T,std::enable_if_t<std::is_constructible_v<MacroMutation,T&&>,int> =0>
+    explicit MacroCommand(T&& value):mutation(std::make_shared<const MacroMutation>(std::forward<T>(value))){}
+};
+using StructuralCommand=std::variant<DefinitionCommand,CollectionCommand,MacroCommand>;
 struct EnableOperation { Id object; Id operation; bool enabled; };
 struct LinkOperationEnabled { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkOperationEnabled { Ref target; };
@@ -739,7 +826,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     LinkMaskEnabled,UnlinkMaskEnabled,
     SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
     AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects,
-    DefinitionCommand,CollectionCommand>;
+    StructuralCommand>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
@@ -1127,6 +1214,7 @@ private:
         std::vector<HistoryChange<RasterAsset>> assets;
         std::vector<HistoryChange<PresetDefinition>> presets;
         std::vector<HistoryChange<Definition>> definitions;
+        std::vector<HistoryChange<MacroDefinition>> macros;
         std::optional<std::pair<std::vector<Composition>,std::vector<Composition>>> compositions;
         std::optional<std::pair<std::vector<Collection>,std::vector<Collection>>> collections;
     };

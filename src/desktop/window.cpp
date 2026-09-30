@@ -608,6 +608,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     for(const auto& descriptor:builtin_operation_types())if(descriptor.effects_catalog) {
         auto* entry=new QListWidgetItem(qs(descriptor.label),effects_catalog_);
         entry->setData(Qt::UserRole,qs(descriptor.type));
+        entry->setData(Qt::UserRole+1,"builtin");
         entry->setToolTip(qs(descriptor.target_kind)+" · "+qs(descriptor.input)+" → "+qs(descriptor.output)+
             " · "+qs(descriptor.type)+" · behavior v"+QString::number(descriptor.version));
     }
@@ -674,8 +675,19 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Effects target belongs to another document");
             if(canvas->selected_object!=frozen_target)throw Error("TARGET_CONFLICT","Effects target changed; choose the current target");
             if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Effects target changed elsewhere; refresh the panel before applying");
-            add_operation(effect_type.toStdString());
-            effects_status_->setText("Applied "+effect_type+" · "+target_label);
+            if(effect_type.startsWith("macro:")) {
+                const auto definition_id=effect_type.mid(6).toStdString();
+                const auto& document=host.session.document();
+                const auto definition=document.macro_definitions.find(definition_id);
+                if(definition==document.macro_definitions.end())throw Error("MISSING_MACRO_DEFINITION",definition_id);
+                const auto object=document.objects.find(frozen_target);
+                if(object==document.objects.end()||(object->second.kind!=Kind::path&&object->second.kind!=Kind::text))
+                    throw Error("INVALID_DOMAIN","Macro target must be a Path or Text object");
+                host.session.apply({MacroCommand{InstantiateMacro{frozen_target,definition_id,new_id(),
+                    definition->second.latest_revision,object->second.stack.size()}}},frozen_revision);
+                host.edited();
+            } else add_operation(effect_type.toStdString());
+            effects_status_->setText("Applied "+effect_name+" · "+target_label);
         } catch(const Error& error) {
             const auto message=(frozen_target.empty()?QStringLiteral("Target: none"):target_label)+
                 " · "+effect_type+" ("+effect_name+") · "+qs(error.code)+": "+QString::fromUtf8(error.what());
@@ -1367,6 +1379,34 @@ void Window::rebuild_effects_panel() {
     effects_session_=host.session_id;
     effects_target_id_=canvas->selected_object;
     effects_revision_=host.session.revision();
+    const auto& document=host.session.document();
+
+    const auto selected_key=effects_catalog_->currentItem()?effects_catalog_->currentItem()->data(Qt::UserRole).toString():QString{};
+    std::set<QString> macro_ids;
+    for(int i=effects_catalog_->count()-1;i>=0;--i) {
+        auto* item=effects_catalog_->item(i);
+        if(item->data(Qt::UserRole+1).toString()!="macro")continue;
+        const auto id=item->data(Qt::UserRole).toString().mid(6);
+        const auto definition=document.macro_definitions.find(id.toStdString());
+        if(definition==document.macro_definitions.end()) {
+            delete effects_catalog_->takeItem(i);
+            continue;
+        }
+        item->setText(qs(definition->second.label));
+        item->setToolTip("Macro definition · "+qs(definition->second.id)+" · latest revision "+
+            QString::number(definition->second.latest_revision)+" · local_paths_and_paint");
+        macro_ids.insert(id);
+    }
+    for(const auto& [id,definition]:document.macro_definitions)if(!macro_ids.contains(qs(id))) {
+        auto* item=new QListWidgetItem(qs(definition.label),effects_catalog_);
+        item->setData(Qt::UserRole,"macro:"+qs(id));item->setData(Qt::UserRole+1,"macro");
+        item->setToolTip("Macro definition · "+qs(id)+" · latest revision "+
+            QString::number(definition.latest_revision)+" · local_paths_and_paint");
+    }
+    if(!selected_key.isEmpty())for(int i=0;i<effects_catalog_->count();++i)
+        if(effects_catalog_->item(i)->data(Qt::UserRole).toString()==selected_key) {
+            const QSignalBlocker blocker(effects_catalog_);effects_catalog_->setCurrentRow(i);break;
+        }
 
     const auto query=effects_search_?effects_search_->text().trimmed():QString{};
     QListWidgetItem* first_match=nullptr;
@@ -1383,6 +1423,7 @@ void Window::rebuild_effects_panel() {
     auto* entry=effects_catalog_->currentItem();
     const auto effect_type=entry?entry->data(Qt::UserRole).toString():QString{};
     const auto effect_name=entry?entry->text():QStringLiteral("Unavailable effect");
+    const bool macro_effect=effect_type.startsWith("macro:");
     const bool matches=entry&&!entry->isHidden();
     effects_apply_->setText("Apply "+effect_name);
     if(auto* empty=effects_dock_->findChild<QLabel*>("effects-no-results")) {
@@ -1391,11 +1432,10 @@ void Window::rebuild_effects_panel() {
     }
     effects_apply_->setEnabled(matches);
 
-    const auto& document=host.session.document();
     const auto selected=document.objects.find(effects_target_id_);
     QString target_text="Target: none";
     QString state_text;
-    auto state_prefix=effect_type.isEmpty()?QStringLiteral("built-in effect"):effect_type;
+    auto state_prefix=effect_type.isEmpty()?QStringLiteral("effect"):effect_type;
     if(effects_target_id_.empty()) {
         state_text="TARGET_UNAVAILABLE · "+state_prefix+" · Select a target for this effect.";
     } else if(selected==document.objects.end()) {
@@ -1409,7 +1449,16 @@ void Window::rebuild_effects_panel() {
             object.kind==Kind::image?QStringLiteral("Image"):QStringLiteral("Path");
         target_text=(effect_type=="nect.group.posterize"&&object.kind!=Kind::group?QStringLiteral("Unavailable target: "):QStringLiteral("Target: "))+
             identity+" · "+kind;
-        if(effect_type=="nect.group.posterize") {
+        if(macro_effect) {
+            if(object.kind==Kind::path||object.kind==Kind::text) {
+                const auto definition_id=effect_type.mid(6).toStdString();
+                const auto definition=document.macro_definitions.find(definition_id);
+                if(definition!=document.macro_definitions.end())
+                    state_text="Ready · Macro "+qs(definition->second.id)+" latest revision "+
+                        QString::number(definition->second.latest_revision)+" · local_paths_and_paint stack entry.";
+                else state_text="Unavailable Macro definition · refresh the document and choose an available Macro.";
+            } else state_text="TARGET_UNAVAILABLE · Macro effects require a Path or Text target.";
+        } else if(effect_type=="nect.group.posterize") {
             if(object.kind==Kind::group)state_text="Ready · nect.group.posterize v1 · Postchildren Group pixels.";
             else state_text="TARGET_UNAVAILABLE · nect.group.posterize · Select a Group; "+kind+" targets are unsupported.";
         } else if(effect_type=="nect.shape.offset") {
@@ -1434,13 +1483,17 @@ void Window::rebuild_effects_panel() {
     } else {
         const auto& object=selected->second;
         std::size_t count=0;
-        for(const auto& operation:object.stack)if(operation.type=="nect.shape.offset"||operation.type=="nect.group.posterize") {
+        for(const auto& operation:object.stack)if(operation.type=="nect.shape.offset"||operation.type=="nect.group.posterize"||operation.macro) {
             ++count;
             const auto generation=effects_generation_;const auto session=effects_session_;
             const auto target=effects_target_id_;const auto revision=effects_revision_;const auto operation_id=operation.id;
-            const auto operation_type=qs(operation.type);const auto operation_name=operation_label(operation);
+            const auto operation_type=qs(operation.type);
+            const auto operation_name=operation.macro?qs(document.macro_definitions.at(operation.macro->definition).label):operation_label(operation);
+            const auto expected_macro=operation.macro;
             const auto panel_target_label=effects_target_->text();
-            auto* card=new QGroupBox(operation_name+" · behavior v"+QString::number(operation.version),effects_operations_);
+            const auto card_title=operation.macro?operation_name+" · Macro revision v"+
+                QString::number(operation.macro->pinned_revision):operation_name+" · behavior v"+QString::number(operation.version);
+            auto* card=new QGroupBox(card_title,effects_operations_);
             card->setObjectName("effects-operation-"+qs(operation.id));
             auto* card_layout=new QVBoxLayout(card);
             auto* identity=new QLabel("Instance ID: "+qs(operation.id),card);
@@ -1450,14 +1503,19 @@ void Window::rebuild_effects_panel() {
             edit->setObjectName("effects-edit-properties-"+qs(operation.id));
             edit->setToolTip("Open the normal parameter, reorder, bypass and remove controls in Properties.");
             card_layout->addWidget(edit);effects_operations_layout_->addWidget(card);
-            connect(edit,&QPushButton::clicked,this,[this,generation,session,target,revision,operation_id,operation_type,operation_name,panel_target_label]{
+            connect(edit,&QPushButton::clicked,this,[this,generation,session,target,revision,operation_id,operation_type,operation_name,expected_macro,panel_target_label]{
                 try {
                     if(generation!=effects_generation_)throw Error("REVISION_CONFLICT","Effects panel changed; reopen the current effect instance");
                     if(host.session_id!=session)throw Error("SESSION_CONFLICT","Effect belongs to another document");
                     if(canvas->selected_object!=target)throw Error("TARGET_CONFLICT","Effects target changed; select the original target again");
                     if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Effect changed elsewhere; refresh the panel before opening it");
-                    const auto& current=find_operation(host.session.document(),target,operation_id);
-                    if(qs(current.type)!=operation_type)throw Error("INVALID_OPERATOR","The selected instance is no longer "+operation_name.toStdString());
+                    const auto object=host.session.document().objects.find(target);
+                    if(object==host.session.document().objects.end())throw Error("MISSING_OBJECT",target);
+                    const auto current=std::find_if(object->second.stack.begin(),object->second.stack.end(),[&](const auto& item) {
+                        return item.id==operation_id;
+                    });
+                    if(current==object->second.stack.end()||qs(current->type)!=operation_type||current->macro!=expected_macro)
+                        throw Error("INVALID_OPERATOR","The selected instance is no longer "+operation_name.toStdString());
                     auto* properties=findChild<QDockWidget*>("properties");
                     if(!properties)throw Error("MISSING_PANEL","Properties panel is unavailable");
                     properties->show();properties->raise();
@@ -4883,7 +4941,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
     };
     for(std::size_t index=0;index<object.stack.size();++index) {
         const auto& operation=object.stack[index];
-        const auto name=operation_label(operation);
+        const auto name=operation.macro?qs(host.session.document().macro_definitions.at(operation.macro->definition).label):operation_label(operation);
         auto* group=new QGroupBox(QString::number(index+1)+" · "+name);
         group->setObjectName("stack-operation-"+qs(operation.id));
         group->setProperty("nect-operation",qs(operation.id));
@@ -4905,7 +4963,16 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         auto* remove=new QPushButton("×");remove->setFixedWidth(28);
         remove->setObjectName("operation-remove-"+qs(operation.id));remove->setToolTip("Remove "+name);
         remove->setAccessibleName("Remove "+name);
-        row->addWidget(up);row->addWidget(down);row->addWidget(remove);form->addRow(controls);
+        row->addWidget(up);row->addWidget(down);row->addWidget(remove);
+        if(operation.macro) {
+            auto* detach=new QPushButton("Detach");detach->setObjectName("macro-detach-"+qs(operation.id));
+            detach->setToolTip("Replace this Macro entry in place with fresh ordinary Offset and Repeater operations.");
+            row->addWidget(detach);
+            connect(detach,&QPushButton::clicked,this,[this,id=object.id,instance=operation.id,apply]{perform([&]{
+                apply({MacroCommand{DetachMacroInstance{id,instance,new_id()}}});
+            });});
+        }
+        form->addRow(controls);
         QString enabled_source_name="none";
         if(enabled_state.driver) {
             const auto source_object=host.session.document().objects.find(enabled_state.driver->object);
@@ -5005,7 +5072,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The shape stack belongs to another document");
             move_operation(id,op,1);});});
         connect(remove,&QPushButton::clicked,this,[this,apply,id=object.id,op=operation.id]{perform([&]{apply({RemoveOperation{id,op}});});});
-        if(operation.type!="nect.shape.offset") {
+        if(!operation.macro&&operation.type!="nect.shape.offset") {
         auto* composite=new QComboBox;
         composite->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         composite->setMinimumContentsLength(10);
@@ -5020,7 +5087,50 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             if(!applied){const QSignalBlocker blocker(composite);composite->setCurrentIndex(before);}
         });
         }
-        if(operation.type=="nect.paint.fill") {
+        if(operation.macro) {
+            const auto& definition=host.session.document().macro_definitions.at(operation.macro->definition);
+            const auto& macro_revision=definition.revisions.at(operation.macro->pinned_revision);
+            const auto parameter=std::find_if(macro_revision.public_parameters.begin(),macro_revision.public_parameters.end(),
+                [](const auto& item){return item.id=="macro.offset.amount";});
+            if(parameter!=macro_revision.public_parameters.end()) {
+                const auto parameter_id=parameter->id;
+                const auto amount_ref=macro_parameter_ref(object.id,operation.id,parameter_id);
+                const auto initial=macro_parameter_value(host.session.document(),object.id,operation.id,parameter_id);
+                const auto frozen_macro_session=host.session_id;
+                const auto frozen_macro_revision=host.session.revision();
+                auto* editor=new QDoubleSpinBox(group);editor->setObjectName("macro-amount-"+qs(operation.id));
+                editor->setAccessibleName(name+" / "+qs(parameter->label));editor->setDecimals(3);
+                editor->setRange(-1e6,1e6);editor->setSingleStep(1);editor->setSuffix(" "+qs(parameter->unit));
+                editor->setValue(initial);
+                editor->setProperty("nect-reference",QJsonDocument(ref_json(amount_ref)).toJson(QJsonDocument::Compact));
+                connect(editor,&QDoubleSpinBox::editingFinished,this,[this,editor,initial,id=object.id,
+                    instance=operation.id,parameter_id,frozen_macro_session,frozen_macro_revision]{perform([&]{
+                    if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
+                    if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
+                    if(editor->value()==initial)return;
+                    host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,editor->value()}}},frozen_macro_revision);
+                    host.edited();
+                });});
+                auto* amount_row=new QWidget(group);auto* amount_layout=new QHBoxLayout(amount_row);
+                amount_layout->setContentsMargins(0,0,0,0);amount_layout->addWidget(editor);
+                if(operation.macro->overrides.contains(parameter_id)) {
+                    auto* reset=new QPushButton("Reset");reset->setObjectName("macro-reset-amount-"+qs(operation.id));
+                    reset->setToolTip("Restore the value published by the pinned Macro revision.");amount_layout->addWidget(reset);
+                    connect(reset,&QPushButton::clicked,this,[this,id=object.id,instance=operation.id,parameter_id,
+                        frozen_macro_session,frozen_macro_revision]{perform([&]{
+                        if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
+                        if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
+                        host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
+                        host.edited();
+                    });});
+                }
+                form->addRow(qs(parameter->label)+" · "+qs(parameter->unit),amount_row);
+            } else {
+                auto* no_parameters=new QLabel("This pinned Macro revision has no published controls.",group);
+                no_parameters->setObjectName("macro-no-public-parameters-"+qs(operation.id));
+                no_parameters->setWordWrap(true);form->addRow(no_parameters);
+            }
+        } else if(operation.type=="nect.paint.fill") {
             const auto target=operation_ref(object.id,operation.id,"fill_rule");
             const auto state=fill_rule_property(host.session.document(),target);
             const auto rule_index=state.evaluated=="evenodd"?1:0;

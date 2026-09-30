@@ -19,6 +19,20 @@ mcp = None
 sequence = 0
 
 
+def ordinary_stack_operations(obj):
+    operations = []
+    for entry in obj['stack']:
+        if entry.get('kind') == 'operation':
+            operations.append(entry['operation'])
+        elif entry.get('kind') == 'macro':
+            continue
+        elif 'kind' in entry:
+            raise AssertionError('Unknown native processing entry kind')
+        else:
+            operations.append(entry)
+    return operations
+
+
 def rpc(method, params=None):
     global sequence
     sequence += 1
@@ -114,8 +128,8 @@ def main():
         repeater['id'] = 'mcp-preset-source-repeater'
         repeater['parameters']['copies']['literal'] = 4
         repeater['parameters']['position_x']['literal'] = 36
-        source_stack = next(obj['stack'] for obj in core('inspect')['result']['objects']
-            if obj['id'] == 'mcp-preset-source')
+        source_stack = ordinary_stack_operations(next(obj for obj in core('inspect')['result']['objects']
+            if obj['id'] == 'mcp-preset-source'))
         changed = core('apply', expected_revision=revision, commands=[
             dict(type='add_operation', object='mcp-preset-source', index=len(source_stack), operation=offset),
             dict(type='add_operation', object='mcp-preset-source', index=len(source_stack) + 1, operation=repeater)])
@@ -154,8 +168,8 @@ def main():
         assert applied['ok'] and applied['result']['applied_presets'][0]['operation_ids'] == [
             'mcp-use-op-1', 'mcp-use-op-2'], applied
         revision = applied['revision']
-        target_stack = next(obj['stack'] for obj in compare_read('inspect')['result']['objects']
-            if obj['id'] == 'mcp-preset-target')
+        target_stack = ordinary_stack_operations(next(obj for obj in compare_read('inspect')['result']['objects']
+            if obj['id'] == 'mcp-preset-target'))
         applied_pair = [entry for entry in target_stack if entry['id'] in ('mcp-use-op-1', 'mcp-use-op-2')]
         assert [entry['type'] for entry in applied_pair] == ['nect.shape.offset', 'nect.shape.repeater']
         assert applied_pair[0]['parameters']['amount']['literal'] == 18
@@ -163,14 +177,14 @@ def main():
         apply_undo = core('undo', expected_revision=revision)
         assert apply_undo['ok'], apply_undo
         revision = apply_undo['revision']
-        target_stack = next(obj['stack'] for obj in compare_read('inspect')['result']['objects']
-            if obj['id'] == 'mcp-preset-target')
+        target_stack = ordinary_stack_operations(next(obj for obj in compare_read('inspect')['result']['objects']
+            if obj['id'] == 'mcp-preset-target'))
         assert not any(entry['id'] in ('mcp-use-op-1', 'mcp-use-op-2') for entry in target_stack)
         apply_redo = core('redo', expected_revision=revision)
         assert apply_redo['ok'], apply_redo
         revision = apply_redo['revision']
-        target_stack = next(obj['stack'] for obj in compare_read('inspect')['result']['objects']
-            if obj['id'] == 'mcp-preset-target')
+        target_stack = ordinary_stack_operations(next(obj for obj in compare_read('inspect')['result']['objects']
+            if obj['id'] == 'mcp-preset-target'))
         assert {'mcp-use-op-1', 'mcp-use-op-2'}.issubset({entry['id'] for entry in target_stack})
 
         definition = compare_read('preset', id='mcp-preset-captured')['result']
@@ -179,8 +193,8 @@ def main():
         assert updated['ok'], updated
         revision = updated['revision']
         assert compare_read('preset', id='mcp-preset-captured')['result']['entries'][0]['parameters']['amount'] == 7
-        target_stack = next(obj['stack'] for obj in compare_read('inspect')['result']['objects']
-            if obj['id'] == 'mcp-preset-target')
+        target_stack = ordinary_stack_operations(next(obj for obj in compare_read('inspect')['result']['objects']
+            if obj['id'] == 'mcp-preset-target'))
         assert next(entry for entry in target_stack if entry['id'] == 'mcp-use-op-1')['parameters']['amount']['literal'] == 18
 
         renamed = core('apply', expected_revision=revision, commands=[dict(
@@ -198,8 +212,8 @@ def main():
         assert mcp_stale['error']['code'] in ('REVISION_CONFLICT', 'STALE_REVISION')
 
         # An enabled link on a captured operation must preserve the precise source Ref in MCP errors.
-        source_stack = next(obj['stack'] for obj in core('inspect')['result']['objects']
-            if obj['id'] == 'mcp-preset-source')
+        source_stack = ordinary_stack_operations(next(obj for obj in core('inspect')['result']['objects']
+            if obj['id'] == 'mcp-preset-source'))
         source_stroke = next(op['id'] for op in source_stack if op['type'] == 'nect.paint.stroke')
         enabled_target = dict(object='mcp-preset-source', point='', field='op.mcp-preset-source-offset.enabled')
         enabled_source = dict(object='mcp-preset-source', point='', field='op.' + source_stroke + '.enabled')
@@ -257,18 +271,19 @@ def main():
         live_after_reopen = tool('nect_session')
         identity = {key: live_after_reopen[key] for key in ('session_id', 'document_id')}
         cold_document = compare_read('inspect')['result']
-        assert cold_document['version'] == '0.64'
+        assert cold_document['version'] == '0.65'
         cold_presets = {preset['id']: preset for preset in cold_document['presets']}
         assert cold_presets['mcp-preset-captured']['entries'][0]['parameters']['amount'] == 7
         assert cold_presets['mcp-preset-explicit']['label'] == 'Explicit Pair'
-        cold_target = next(obj['stack'] for obj in cold_document['objects'] if obj['id'] == 'mcp-preset-target')
+        cold_target = ordinary_stack_operations(next(obj for obj in cold_document['objects']
+            if obj['id'] == 'mcp-preset-target'))
         assert {'mcp-use-op-1', 'mcp-use-op-2'}.issubset({entry['id'] for entry in cold_target})
 
         print(json.dumps(dict(status='PASS', revision=revision, capture_ids=[
             'mcp-preset-source-offset', 'mcp-preset-source-repeater'],
             applied_ids=['mcp-use-op-1', 'mcp-use-op-2'], direct_api_readback=True,
             stale_revision_atomic=True, exact_nonportable_ref=True,
-            create_update_rename_delete_undo=True, native_0_63_cold_reopen=True), indent=2))
+            create_update_rename_delete_undo=True, native_0_65_cold_reopen=True), indent=2))
 
 
 try:

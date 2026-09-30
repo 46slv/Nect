@@ -5,7 +5,7 @@
 Implemented: Document, Composition, Artboard, Group, Path, Text, Contour, Point,
 Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/Polygon/Star sources,
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
-same-document Definitions/Instances, geometry masks and common compositing.
+same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
 ## PresetDefinition v1
 
@@ -26,9 +26,15 @@ applicable option on a captured operation rejects with `PRESET_NONPORTABLE_SOURC
 and exact operation Refs. Applying a definition validates the target and stack
 limit, appends fresh operation IDs in one Session commit, and is one Undo. Rename,
 update and delete participate in native serialization and history. Re-editing a
-definition does not alter operation snapshots already applied to Objects. This
-bounded vertical does not define Macros, Actions, published parameters or a
-cross-document preset library.
+definition does not alter operation snapshots already applied to Objects. This Preset v1 does not include Action graphs or a cross-document preset library. Macro definitions are a separate native v0.65 feature.
+
+## Macro v1
+
+Native 0.65 adds document-local Macro definitions with append-only pinned revisions and tagged Macro entries in the same ordered Path/Text processing stack as built-in operations. `schemas/native-v0.65.schema.json` describes the serialized form. The bounded first graph is Offset@1 -> Repeater@1 over `local_paths_and_paint`; graph validation resolves stable node IDs and typed edges independent of display/storage order. Group stacks and arbitrary executable graphs are unsupported.
+
+Revision 1 publishes the stable public parameter ID `macro.offset.amount`, mapped to Offset.amount in document units. An instance pins a definition revision and stores optional numeric overrides by that exact public ID. `properties` and `get` expose the ordinary stable Ref `{object, point: instance ID, field: "macro.offset.amount"}`. Editing an override, toggling or reordering an instance, updating its pinned revision, and detaching it use atomic Session commands with Undo. Revision migration preflights all existing overrides against the target revision; unresolved or incompatible values reject without changing authored state. Detach replaces the Macro at the same stack position with fresh ordinary operation IDs and copies published values.
+
+Native v0.65 requires the `macros` root array and tagged Path/Text stack entries. Native v0.64 and older continue to decode with no Macro definitions, and legacy untagged stack operations retain their ordinary operation meaning. A Macro-bearing payload that claims an earlier native version is rejected. PresetDefinition v1 does not flatten or capture mixed Macro stacks.
 
 ## Definition / Instance v1
 

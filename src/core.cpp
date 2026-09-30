@@ -957,6 +957,7 @@ auto& lookup_property(D& d,const Ref& r) {
     throw Error("MISSING_REFERENCE",r.object+"/"+r.point+"/"+r.field);
 }
 std::string unit(const Ref& r) {
+    if(r.field=="macro.offset.amount")return "du";
     if(r.point.empty()&&r.field=="guide.position")return "du";
     if(r.point.empty()&&(r.field=="grid.columns"||r.field=="grid.rows"))return "unitless";
     if(r.point.empty()&&(r.field.starts_with("grid.")||r.field.starts_with("margin.")))return "du";
@@ -999,6 +1000,7 @@ void value_range(const Ref& r,double v) {
     if(r.field=="text.frame_width"||r.field=="text.frame_height")require(v>0&&v<=1e6,"OUT_OF_RANGE","Text frame dimensions must be in (0,1000000]");
     if(r.field=="text.line_spacing")require(v>=0&&v<=10000,"OUT_OF_RANGE","Line spacing must be in [0,10000], with zero for automatic");
     if(r.field=="text.tracking")require(std::abs(v)<=10000,"OUT_OF_RANGE","Tracking magnitude limit 10000");
+    if(r.field=="macro.offset.amount")require(std::abs(v)<=1e6,"OUT_OF_RANGE","Offset amount magnitude limit 1000000");
     if(r.field.ends_with(".length")||r.field=="stroke.width"||r.field=="generator.radius"||
        r.field=="generator.width"||r.field=="generator.height"||r.field=="generator.outer_radius"||r.field=="generator.inner_radius")
         require(v>=0,"OUT_OF_RANGE","Negative length");
@@ -1223,6 +1225,15 @@ std::vector<Ref> properties(const Document& document) {
                 refs.push_back(gradient_ref(id,operation.id,operation.gradient->id,"enabled"));
             if((object.kind==Kind::path||object.kind==Kind::text)&&operation.type=="nect.paint.fill")
                 refs.push_back(operation_ref(id,operation.id,"fill_rule"));
+            if(operation.macro) {
+                const auto definition=document.macro_definitions.find(operation.macro->definition);
+                if(definition!=document.macro_definitions.end()) {
+                    const auto revision=definition->second.revisions.find(operation.macro->pinned_revision);
+                    if(revision!=definition->second.revisions.end())
+                        for(const auto& parameter:revision->second.public_parameters)
+                            refs.push_back(macro_parameter_ref(id,operation.id,parameter.id));
+                }
+            }
         }
     }
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards) {
@@ -3791,6 +3802,98 @@ static void validate_preset_definition(const Id& map_id,const PresetDefinition& 
     }
 }
 
+static const MacroPublicParameter* macro_public_parameter(const MacroDefinitionRevision& revision,const std::string& id) {
+    const auto found=std::find_if(revision.public_parameters.begin(),revision.public_parameters.end(),
+        [&](const auto& parameter){return parameter.id==id;});
+    return found==revision.public_parameters.end()?nullptr:&*found;
+}
+static const MacroNode* macro_node(const MacroDefinitionRevision& revision,const Id& id) {
+    const auto found=std::find_if(revision.nodes.begin(),revision.nodes.end(),
+        [&](const auto& node){return node.operation.id==id;});
+    return found==revision.nodes.end()?nullptr:&*found;
+}
+static double macro_default_value(const MacroDefinitionRevision& revision,const MacroPublicParameter& parameter) {
+    const auto* node=macro_node(revision,parameter.node);
+    if(!node)throw Error("INVALID_MACRO_MAPPING",parameter.node);
+    const auto found=node->operation.parameters.find(parameter.parameter);
+    if(found==node->operation.parameters.end())throw Error("INVALID_MACRO_MAPPING",parameter.parameter);
+    return found->second.literal;
+}
+static void validate_macro_definition(const Id& map_id,const MacroDefinition& definition) {
+    identity(map_id);require(map_id==definition.id,"ID_MISMATCH",map_id);
+    require(!definition.label.empty()&&definition.label.size()<=256,"INVALID_MACRO_LABEL","Macro label must be 1..256 UTF-8 bytes");
+    text_utf8(definition.label);
+    require(!definition.revisions.empty()&&definition.revisions.size()<=128,"INVALID_MACRO_REVISION","Macro requires 1..128 pinned revisions");
+    require(definition.revisions.contains(definition.latest_revision),"MISSING_MACRO_REVISION","Latest Macro revision is not retained");
+    for(const auto& [number,revision]:definition.revisions) {
+        require(number==revision.revision&&number>0,"INVALID_MACRO_REVISION","Macro revision key does not match its authored revision");
+        require(revision.input.domain=="local_paths_and_paint"&&revision.output.domain=="local_paths_and_paint",
+            "INVALID_MACRO_DOMAIN","Macro input and output must be local_paths_and_paint");
+        require(revision.nodes.size()==2,"INVALID_MACRO_GRAPH","Macro v1 graph is exactly Offset@1 then Repeater@1");
+        require(revision.edges.size()==3,"INVALID_MACRO_GRAPH","Macro v1 graph requires Input->Offset->Repeater->Output edges");
+        std::set<Id> local_ids;
+        auto local=[&](const Id& value){identity(value);require(local_ids.insert(value).second,"DUPLICATE_ID",value);};
+        local(revision.input.id);local(revision.output.id);
+        const auto offset_it=std::find_if(revision.nodes.begin(),revision.nodes.end(),[](const auto& node) {
+            return node.operation.type=="nect.shape.offset";
+        });
+        const auto repeater_it=std::find_if(revision.nodes.begin(),revision.nodes.end(),[](const auto& node) {
+            return node.operation.type=="nect.shape.repeater";
+        });
+        require(offset_it!=revision.nodes.end()&&repeater_it!=revision.nodes.end(),
+            "INVALID_MACRO_ORDER","Macro v1 requires one Offset@1 node and one Repeater@1 node");
+        const auto& offset=*offset_it;const auto& repeater=*repeater_it;
+        for(const auto* node:{&offset,&repeater}) {
+            local(node->operation.id);local(node->input_port);local(node->output_port);
+            require(node->operation.version==1,"UNSUPPORTED_MACRO_NODE_VERSION",node->operation.type);
+            require(!node->operation.enabled_driver&&!node->operation.fill_rule_driver&&!node->operation.gradient,
+                "INVALID_MACRO_NODE","Macro nodes cannot retain property links, gradients or driver state");
+            require(node->operation.type=="nect.shape.offset"||node->operation.type=="nect.shape.repeater",
+                "UNSUPPORTED_MACRO_NODE",node->operation.type);
+            const auto expected=default_operation(node->operation.id,node->operation.type);
+            require(node->operation.parameters.size()==expected.parameters.size(),"INVALID_MACRO_PARAMETERS",node->operation.type);
+            for(const auto& [name,value]:node->operation.parameters) {
+                require(expected.parameters.contains(name),"INVALID_MACRO_PARAMETERS",name);
+                require(!driven(value),"INVALID_MACRO_NODE","Macro node defaults must be literal values");
+                value_range(operation_ref("macro",node->operation.id,name),value.literal);
+            }
+            require(node->operation.composite==expected.composite&&node->operation.fill_rule==expected.fill_rule&&
+                node->operation.line_join==expected.line_join&&node->operation.line_cap==expected.line_cap,
+                "INVALID_MACRO_NODE","Macro v1 nodes use their supported default operator options");
+        }
+        require(offset.operation.type=="nect.shape.offset"&&repeater.operation.type=="nect.shape.repeater",
+            "INVALID_MACRO_ORDER","Macro v1 requires Offset@1 -> Repeater@1");
+        require(offset.operation.enabled&&repeater.operation.enabled,"INVALID_MACRO_NODE","Macro graph nodes must be enabled; bypass the Macro instance instead");
+        const MacroEndpoint input{{},revision.input.id};
+        const MacroEndpoint offset_in{offset.operation.id,offset.input_port};
+        const MacroEndpoint offset_out{offset.operation.id,offset.output_port};
+        const MacroEndpoint repeater_in{repeater.operation.id,repeater.input_port};
+        const MacroEndpoint repeater_out{repeater.operation.id,repeater.output_port};
+        const MacroEndpoint output{{},revision.output.id};
+        const auto has_edge=[&](const MacroEndpoint& from,const MacroEndpoint& to) {
+            return std::count_if(revision.edges.begin(),revision.edges.end(),[&](const auto& edge) {
+                return edge.from==from&&edge.to==to;
+            })==1;
+        };
+        require(has_edge(input,offset_in)&&has_edge(offset_out,repeater_in)&&
+            has_edge(repeater_out,output)&&revision.output_mapping==repeater_out,
+            "INVALID_MACRO_GRAPH","Macro graph must be the acyclic Input->Offset@1->Repeater@1->Output chain");
+        std::set<std::string> public_ids;
+        for(const auto& parameter:revision.public_parameters)
+            require(public_ids.insert(parameter.id).second,"DUPLICATE_MACRO_PARAMETER",parameter.id);
+        require(revision.public_parameters.size()<=1&&(number!=1||revision.public_parameters.size()==1),
+            "INVALID_MACRO_INTERFACE","Macro v1 publishes macro.offset.amount; later revisions may remove a published parameter only for explicit migration");
+        if(!revision.public_parameters.empty()) {
+            const auto& parameter=revision.public_parameters.front();
+            require(parameter.id=="macro.offset.amount"&&parameter.node==offset.operation.id&&parameter.parameter=="amount"&&
+                parameter.value_type=="number"&&parameter.unit=="du"&&parameter.domain=="local_paths_and_paint",
+                "INVALID_MACRO_MAPPING","Public macro.offset.amount must map to Offset.amount as a distance");
+            require(!parameter.label.empty()&&parameter.label.size()<=128,"INVALID_MACRO_INTERFACE","Published parameter label must be 1..128 bytes");
+            text_utf8(parameter.label);
+        }
+    }
+}
+
 static std::map<Ref,double> validate_evaluated(const Document& d) {
     require(d.objects.size()<=10000 && d.compositions.size()<=128,"LIMIT","Document size limit");
     require(d.definitions.size()<=10000,"LIMIT","Definition count limit 10000");
@@ -3808,6 +3911,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         text_utf8(definition.name);
         require(d.objects.contains(definition.root),"MISSING_DEFINITION_ROOT",definition.root);
     }
+    require(d.macro_definitions.size()<=128,"LIMIT","Macro definition count limit 128");
+    for(const auto& [id,definition]:d.macro_definitions){add(id);validate_macro_definition(id,definition);}
     require(d.preset_definitions.size()<=128,"LIMIT","Preset definition count limit 128");
     for(const auto& [id,preset]:d.preset_definitions) {
         add(id);validate_preset_definition(id,preset);
@@ -4184,6 +4289,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             require(o.stack.size()<=128,"LIMIT","Group operation stack limit 128");
             for(const auto& op:o.stack) {
                 add(op.id);
+                require(!op.macro&&op.type!=macro_entry_type,"INVALID_DOMAIN","Macros are local Path/Text processing entries, not Group postchildren operations");
                 require(op.type=="nect.group.posterize","INVALID_DOMAIN","Groups support only nect.group.posterize postchildren operations");
                 require(op.version==1,"UNSUPPORTED_OPERATOR_VERSION",op.type);
                 const auto expected=default_operation(op.id,op.type);
@@ -4210,8 +4316,26 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             } else require(!o.text,"INVALID_OBJECT","Path cannot own text source");
             require(o.stack.size()<=128,"LIMIT","Shape stack limit 128");
             for(const auto& op:o.stack) {
+                add(op.id);
+                if(op.macro) {
+                    require(op.type==macro_entry_type&&op.version==1&&op.parameters.empty()&&!op.enabled_driver&&
+                        !op.fill_rule_driver&&!op.gradient&&op.composite=="below"&&op.fill_rule=="nonzero"&&
+                        op.line_join=="miter"&&op.line_cap=="butt",
+                        "INVALID_MACRO_INSTANCE","Macro entries must use the strict Macro instance tag without operation payload fields");
+                    const auto definition=d.macro_definitions.find(op.macro->definition);
+                    require(definition!=d.macro_definitions.end(),"MISSING_MACRO_DEFINITION",op.macro->definition);
+                    const auto revision=definition->second.revisions.find(op.macro->pinned_revision);
+                    require(revision!=definition->second.revisions.end(),"MISSING_MACRO_REVISION",op.macro->definition);
+                    for(const auto& [parameter,value]:op.macro->overrides) {
+                        const auto* published=macro_public_parameter(revision->second,parameter);
+                        require(published,"ORPHAN_MACRO_OVERRIDE",parameter);
+            value_range({id,op.id,parameter},value);
+                    }
+                    continue;
+                }
+                require(op.type!=macro_entry_type,"INVALID_MACRO_INSTANCE","Macro tag has no typed Macro instance payload");
                 require(op.type!="nect.group.posterize","INVALID_DOMAIN","nect.group.posterize requires a Group target");
-                add(op.id);const bool styled_stroke=op.type=="nect.paint.stroke"&&op.version==2;
+                const bool styled_stroke=op.type=="nect.paint.stroke"&&op.version==2;
                 require(op.version==1||styled_stroke,"UNSUPPORTED_OPERATOR_VERSION",op.type);
                 auto expected=default_operation(op.id,op.type);
                 if(styled_stroke)expected.parameters.emplace("miter_limit",Scalar{4,{}});
@@ -4414,7 +4538,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         bool check_shape=(o.kind==Kind::path||o.kind==Kind::text)&&(o.stack.size()>1||
             std::any_of(o.stack.begin(),o.stack.end(),[&](const auto& op){return
                 operation_enabled_values.at(operation_ref(id,op.id,"enabled"))&&
-                (op.type=="nect.shape.repeater"||op.type=="nect.shape.offset");}));
+                (op.type=="nect.shape.repeater"||op.type=="nect.shape.offset"||op.macro.has_value());}));
 #ifdef _WIN32
         check_shape=check_shape||o.kind==Kind::text;
 #else
@@ -4524,6 +4648,25 @@ std::vector<Id> preset_operation_ids(const PresetDefinition& preset,const Id& pr
         auto id=prefix+"-op-"+std::to_string(i+1);identity(id);ids.push_back(std::move(id));
     }
     return ids;
+}
+
+Ref macro_parameter_ref(const Id& object,const Id& instance,const std::string& public_parameter) {
+    return {object,instance,public_parameter};
+}
+double macro_parameter_value(const Document& document,const Id& object,const Id& instance,const std::string& public_parameter) {
+    const auto found=document.objects.find(object);
+    if(found==document.objects.end())throw Error("MISSING_OBJECT",object);
+    const auto entry=std::find_if(found->second.stack.begin(),found->second.stack.end(),
+        [&](const auto& item){return item.id==instance&&item.macro.has_value();});
+    if(entry==found->second.stack.end())throw Error("MISSING_MACRO_INSTANCE",instance);
+    const auto definition=document.macro_definitions.find(entry->macro->definition);
+    if(definition==document.macro_definitions.end())throw Error("MISSING_MACRO_DEFINITION",entry->macro->definition);
+    const auto revision=definition->second.revisions.find(entry->macro->pinned_revision);
+    if(revision==definition->second.revisions.end())throw Error("MISSING_MACRO_REVISION",entry->macro->definition);
+    const auto* parameter=macro_public_parameter(revision->second,public_parameter);
+    if(!parameter)throw Error("MISSING_MACRO_PARAMETER",public_parameter);
+    if(const auto value=entry->macro->overrides.find(public_parameter);value!=entry->macro->overrides.end())return value->second;
+    return macro_default_value(revision->second,*parameter);
 }
 
 Session::Session(Document d,HistoryLimits limits):document_(std::move(d)),history_limits_(limits) {
@@ -5331,6 +5474,137 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
     },command.mutation);
 }
 
+void edit_detach_macro_instance(Document& candidate,const DetachMacroInstance& mutation) {
+    require(candidate.objects.contains(mutation.object),"MISSING_OBJECT",mutation.object);
+    auto& object=candidate.objects.at(mutation.object);
+    require(object.kind==Kind::path||object.kind==Kind::text,"INVALID_DOMAIN","Macro detach requires a Path or Text stack");
+    identity(mutation.operation_id_prefix);
+    require(mutation.operation_id_prefix.size()<=78,"INVALID_ID","Macro detach prefix must leave room for fresh operation suffixes");
+    const auto found=std::find_if(object.stack.begin(),object.stack.end(),[&](const auto& entry) {
+        return entry.id==mutation.instance;
+    });
+    require(found!=object.stack.end()&&found->macro.has_value(),"MISSING_MACRO_INSTANCE",mutation.instance);
+    const auto index=static_cast<std::size_t>(std::distance(object.stack.begin(),found));
+    const auto instance=*found->macro;
+    const bool instance_enabled=found->enabled;
+    const auto& definition=candidate.macro_definitions.at(instance.definition);
+    const auto& revision=definition.revisions.at(instance.pinned_revision);
+    std::set<Id> macro_addresses{mutation.instance};
+    for(const auto& [macro_id,macro_definition]:candidate.macro_definitions) {
+        macro_addresses.insert(macro_id);
+        for(const auto& [number,macro_revision]:macro_definition.revisions) {
+            (void)number;
+            macro_addresses.insert(macro_revision.input.id);macro_addresses.insert(macro_revision.output.id);
+            for(const auto& node:macro_revision.nodes) {
+                macro_addresses.insert(node.operation.id);macro_addresses.insert(node.input_port);macro_addresses.insert(node.output_port);
+            }
+            for(const auto& parameter:macro_revision.public_parameters)macro_addresses.insert(parameter.id);
+        }
+    }
+    std::vector<const MacroNode*> ordered_nodes;
+    for(const auto* type:{"nect.shape.offset","nect.shape.repeater"}) {
+        const auto node=std::find_if(revision.nodes.begin(),revision.nodes.end(),[&](const auto& item) {
+            return item.operation.type==type;
+        });
+        require(node!=revision.nodes.end(),"INVALID_MACRO_GRAPH","Pinned Macro graph has a missing executable node");
+        ordered_nodes.push_back(&*node);
+    }
+    std::vector<ProcessingEntry> detached;detached.reserve(ordered_nodes.size());
+    for(std::size_t i=0;i<ordered_nodes.size();++i) {
+        auto operation=ordered_nodes[i]->operation;
+        operation.id=mutation.operation_id_prefix+"-detached-"+std::to_string(i+1);
+        identity(operation.id);
+        require(!macro_addresses.contains(operation.id),"DUPLICATE_ID",operation.id);
+        operation.enabled=operation.enabled&&instance_enabled;
+        for(const auto& [public_id,value]:instance.overrides) {
+            const auto* parameter=macro_public_parameter(revision,public_id);
+            require(parameter,"ORPHAN_MACRO_OVERRIDE",public_id);
+            if(parameter->node==ordered_nodes[i]->operation.id)
+                operation.parameters.at(parameter->parameter).literal=value;
+        }
+        detached.emplace_back(std::move(operation));
+    }
+    object.stack.erase(object.stack.begin()+static_cast<std::ptrdiff_t>(index));
+    object.stack.insert(object.stack.begin()+static_cast<std::ptrdiff_t>(index),detached.begin(),detached.end());
+}
+
+void edit_macro(Document& candidate,const MacroCommand& command) {
+    require(static_cast<bool>(command.mutation),"INVALID_MACRO_COMMAND","Macro command has no mutation payload");
+    std::visit([&](const auto& mutation) {
+        using T=std::decay_t<decltype(mutation)>;
+        if constexpr(std::is_same_v<T,CreateMacroDefinition>) {
+            const auto& definition=mutation.definition;identity(definition.id);
+            require(!candidate.macro_definitions.contains(definition.id),"DUPLICATE_ID",definition.id);
+            candidate.macro_definitions.emplace(definition.id,definition);
+        } else if constexpr(std::is_same_v<T,RenameMacroDefinition>) {
+            const auto found=candidate.macro_definitions.find(mutation.definition);
+            require(found!=candidate.macro_definitions.end(),"MISSING_MACRO_DEFINITION",mutation.definition);
+            found->second.label=mutation.label;
+        } else if constexpr(std::is_same_v<T,UpdateMacroDefinition>) {
+            const auto found=candidate.macro_definitions.find(mutation.definition);
+            require(found!=candidate.macro_definitions.end(),"MISSING_MACRO_DEFINITION",mutation.definition);
+            require(found->second.latest_revision<std::numeric_limits<std::uint64_t>::max(),"MACRO_REVISION_LIMIT","Macro revision space exhausted");
+            require(mutation.revision.revision==found->second.latest_revision+1,"INVALID_MACRO_REVISION","Macro updates append exactly the next native definition revision");
+            require(!found->second.revisions.contains(mutation.revision.revision),"DUPLICATE_MACRO_REVISION",mutation.definition);
+            found->second.revisions.emplace(mutation.revision.revision,mutation.revision);
+            found->second.latest_revision=mutation.revision.revision;
+        } else if constexpr(std::is_same_v<T,DeleteMacroDefinition>) {
+            const auto found=candidate.macro_definitions.find(mutation.definition);
+            require(found!=candidate.macro_definitions.end(),"MISSING_MACRO_DEFINITION",mutation.definition);
+            for(const auto& [object_id,object]:candidate.objects)for(const auto& entry:object.stack)
+                if(entry.macro&&entry.macro->definition==mutation.definition)
+                    throw Error("MACRO_IN_USE","Macro "+mutation.definition+" is pinned by instance "+entry.id);
+            candidate.macro_definitions.erase(found);
+        } else if constexpr(std::is_same_v<T,InstantiateMacro>) {
+            require(candidate.objects.contains(mutation.object),"MISSING_OBJECT",mutation.object);
+            auto& object=candidate.objects.at(mutation.object);
+            require(object.kind==Kind::path||object.kind==Kind::text,"INVALID_DOMAIN","Macro target must be a Path or Text object");
+            const auto definition=candidate.macro_definitions.find(mutation.definition);
+            require(definition!=candidate.macro_definitions.end(),"MISSING_MACRO_DEFINITION",mutation.definition);
+            require(definition->second.revisions.contains(mutation.revision),"MISSING_MACRO_REVISION",mutation.definition);
+            require(mutation.index<=object.stack.size(),"INVALID_ORDER","Macro insertion index out of range");
+            ProcessingEntry entry;entry.id=mutation.instance;entry.type=macro_entry_type;
+            entry.macro=MacroInstance{mutation.definition,mutation.revision,{}};
+            object.stack.insert(object.stack.begin()+static_cast<std::ptrdiff_t>(mutation.index),std::move(entry));
+        } else if constexpr(std::is_same_v<T,SetMacroOverride>||std::is_same_v<T,ResetMacroOverride>||
+            std::is_same_v<T,UpdateMacroInstance>) {
+            require(candidate.objects.contains(mutation.object),"MISSING_OBJECT",mutation.object);
+            auto& object=candidate.objects.at(mutation.object);
+            auto found=std::find_if(object.stack.begin(),object.stack.end(),[&](const auto& entry){return entry.id==mutation.instance;});
+            require(found!=object.stack.end()&&found->macro.has_value(),"MISSING_MACRO_INSTANCE",mutation.instance);
+            auto& instance=*found->macro;
+            const auto definition=candidate.macro_definitions.find(instance.definition);
+            require(definition!=candidate.macro_definitions.end(),"MISSING_MACRO_DEFINITION",instance.definition);
+            const auto current=definition->second.revisions.find(instance.pinned_revision);
+            require(current!=definition->second.revisions.end(),"MISSING_MACRO_REVISION",instance.definition);
+            if constexpr(std::is_same_v<T,SetMacroOverride>) {
+                const auto* parameter=macro_public_parameter(current->second,mutation.public_parameter);
+                require(parameter,"MISSING_MACRO_PARAMETER",mutation.public_parameter);
+                finite(mutation.value);require(std::abs(mutation.value)<=1e6,"OUT_OF_RANGE","Offset amount magnitude limit 1000000");
+                instance.overrides.insert_or_assign(mutation.public_parameter,mutation.value);
+            } else if constexpr(std::is_same_v<T,ResetMacroOverride>) {
+                require(macro_public_parameter(current->second,mutation.public_parameter),"MISSING_MACRO_PARAMETER",mutation.public_parameter);
+                require(instance.overrides.erase(mutation.public_parameter)==1,"NO_MACRO_OVERRIDE","Macro instance has no local override for this public parameter");
+            } else {
+                const auto target=definition->second.revisions.find(mutation.revision);
+                require(target!=definition->second.revisions.end(),"MISSING_MACRO_REVISION",instance.definition);
+                for(const auto& [public_id,value]:instance.overrides) {
+                    (void)value;
+                    const auto* before=macro_public_parameter(current->second,public_id);
+                    const auto* after=macro_public_parameter(target->second,public_id);
+                    require(before&&after,"ORPHAN_MACRO_OVERRIDE","Pinned revision migration would orphan public parameter "+public_id);
+                    require(before->value_type==after->value_type&&before->unit==after->unit&&before->domain==after->domain,
+                        "INCOMPATIBLE_MACRO_MIGRATION","Pinned revision migration changes the type, unit or domain of "+public_id);
+                    (void)macro_default_value(target->second,*after);
+                }
+                instance.pinned_revision=mutation.revision;
+            }
+        } else if constexpr(std::is_same_v<T,DetachMacroInstance>) {
+            edit_detach_macro_instance(candidate,mutation);
+        }
+    },*command.mutation);
+}
+
 void edit_structural_command(Document& candidate,const CreatePath& command) {
     require(!candidate.objects.contains(command.id),"DUPLICATE_ID",command.id);
     require(!command.contours.empty(),"INVALID_PATH","Create Path needs a contour");
@@ -5576,6 +5850,8 @@ PresetDefinition capture_preset_from_stack(const Document& document,const Create
     require(document.objects.contains(command.object),"MISSING_OBJECT",command.object);
     const auto& object=document.objects.at(command.object);
     require(object.kind==Kind::path||object.kind==Kind::text,"INVALID_DOMAIN","Presets require a Path or Text target");
+    require(std::none_of(object.stack.begin(),object.stack.end(),[](const auto& entry){return entry.macro.has_value();}),
+        "PRESET_NONPORTABLE_SOURCE","Preset v1 cannot flatten Macro instances; detach the Macro or use a future portable Macro preset version");
     std::vector<const ShapeOperation*> portable_operations;
     std::vector<Ref> driven_fields;
     for(const auto& operation:object.stack) {
@@ -5768,7 +6044,17 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
     },command);
 
     auto candidate=document;
-    for(const auto& command:commands) std::visit([&](const auto& c) {
+    for(const auto& command:commands) {
+        if(const auto* structural=std::get_if<StructuralCommand>(&command)) {
+            std::visit([&](const auto& value) {
+                using T=std::decay_t<decltype(value)>;
+                if constexpr(std::is_same_v<T,DefinitionCommand>)edit_definition(candidate,value);
+                else if constexpr(std::is_same_v<T,CollectionCommand>)edit_collection(candidate,value);
+                else edit_macro(candidate,value);
+            },*structural);
+            continue;
+        }
+        std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
         if constexpr(std::is_same_v<T,DuplicateObjects>) {
             duplicate_objects(candidate,c);
@@ -6499,7 +6785,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& stack=candidate.objects.at(c.object).stack;
             require(c.order.size()==stack.size(),"INVALID_ORDER","Operation order must be a permutation");
-            std::map<Id,ShapeOperation> old;for(const auto& op:stack)old.emplace(op.id,op);
+            std::map<Id,ProcessingEntry> old;for(const auto& op:stack)old.emplace(op.id,op);
             stack.clear();for(const auto& id:c.order){require(old.contains(id),"INVALID_ORDER",id);stack.push_back(old.at(id));old.erase(id);}
         } else if constexpr(std::is_same_v<T,EnableOperation>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
@@ -6572,12 +6858,9 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             std::is_same_v<T,ReorderObjects>||std::is_same_v<T,DeleteObjects>||
             std::is_same_v<T,GroupContiguous>||std::is_same_v<T,CreateFolder>) {
             edit_structural_command(candidate,c);
-        } else if constexpr(std::is_same_v<T,DefinitionCommand>) {
-            edit_definition(candidate,c);
-        } else if constexpr(std::is_same_v<T,CollectionCommand>) {
-            edit_collection(candidate,c);
         }
-    },command);
+        },command);
+    }
 
     auto values=validate_evaluated(candidate);
     if(evaluated)*evaluated=std::move(values);

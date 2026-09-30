@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QDockWidget>
+#include <QDoubleSpinBox>
 #include <QFileInfo>
 #include <QGroupBox>
 #include <QJsonArray>
@@ -71,6 +72,27 @@ Bounds bounds(const EvaluatedShape& shape) {
         result.right=std::max(result.right,p.x);result.bottom=std::max(result.bottom,p.y);
     }
     return result;
+}
+MacroDefinition custom_macro() {
+    auto offset=default_operation("effects-macro-offset","nect.shape.offset");
+    offset.parameters.at("amount").literal=8;
+    auto repeater=default_operation("effects-macro-repeater","nect.shape.repeater");
+    repeater.parameters.at("copies").literal=2;
+    repeater.parameters.at("position_x").literal=120;
+    MacroDefinitionRevision revision;revision.revision=1;
+    revision.input={"effects-macro-input","local_paths_and_paint"};
+    revision.output={"effects-macro-output","local_paths_and_paint"};
+    revision.nodes={{offset,"effects-offset-in","effects-offset-out"},
+        {repeater,"effects-repeater-in","effects-repeater-out"}};
+    revision.edges={{{"","effects-macro-input"},{"effects-macro-offset","effects-offset-in"}},
+        {{"effects-macro-offset","effects-offset-out"},{"effects-macro-repeater","effects-repeater-in"}},
+        {{"effects-macro-repeater","effects-repeater-out"},{"","effects-macro-output"}}};
+    revision.output_mapping={"effects-macro-repeater","effects-repeater-out"};
+    revision.public_parameters.push_back({"macro.offset.amount","Amount","effects-macro-offset","amount",
+        "number","du","local_paths_and_paint"});
+    MacroDefinition definition;definition.id="effects-custom-macro";definition.label="Custom Offset Repeat";
+    definition.revisions.emplace(1,std::move(revision));
+    return definition;
 }
 void same_bounds(const Bounds& a,const Bounds& b) {
     check(std::abs(a.left-b.left)<1e-8&&std::abs(a.top-b.top)<1e-8&&
@@ -225,6 +247,56 @@ int main(int argc,char** argv) {
         const auto values=evaluate(session.document());
         same_bounds(ui_enabled_bounds,bounds(evaluate_shape(session.document(),api_object,values)));
 
+        window.canvas->set_selection(ui_object);effects->raise();events();
+        auto definition=custom_macro();
+        session.apply({MacroCommand{CreateMacroDefinition{definition}}},session.revision());
+        window.host.edited();events();
+        search->setText("Custom Offset Repeat");events();
+        auto* macro_item=catalog->currentItem();
+        check(macro_item&&!macro_item->isHidden()&&macro_item->data(Qt::UserRole).toString()=="macro:effects-custom-macro"&&
+            macro_item->text()=="Custom Offset Repeat"&&named<QPushButton>(window,"effects-apply")->text().contains("Custom Offset Repeat"),
+            "Effects search and selection include a document-local Macro definition");
+        const auto macro_apply_revision=session.revision();click(window,"effects-apply");
+        const auto& macro_applied=session.document().objects.at(ui_object).stack;
+        const auto macro_instance=std::find_if(macro_applied.begin(),macro_applied.end(),[](const auto& entry){return entry.macro.has_value();});
+        check(session.revision()==macro_apply_revision+1&&macro_instance!=macro_applied.end()&&
+            macro_instance->macro->definition==definition.id&&macro_instance->macro->pinned_revision==1,
+            "Applying a custom Effects catalog entry creates one pinned Macro stack instance");
+        const auto macro_instance_id=macro_instance->id;
+        click(window,"effects-edit-properties-"+QString::fromStdString(macro_instance_id));
+        auto* macro_amount=named<QDoubleSpinBox>(window,"macro-amount-"+QString::fromStdString(macro_instance_id));
+        const Ref macro_amount_ref=macro_parameter_ref(ui_object,macro_instance_id,"macro.offset.amount");
+        const auto macro_amount_ref_json=QJsonDocument(QJsonObject{{"object",QString::fromStdString(macro_amount_ref.object)},
+            {"point",QString::fromStdString(macro_amount_ref.point)},{"field",QString::fromStdString(macro_amount_ref.field)}})
+            .toJson(QJsonDocument::Compact);
+        check(macro_amount->suffix().contains("du")&&macro_amount->property("nect-reference").toByteArray()==
+            macro_amount_ref_json,
+            "Properties exposes the Macro amount as the same canonical stable Ref");
+        const auto macro_edit_revision=session.revision();macro_amount->setValue(22);
+        QTest::keyClick(macro_amount,Qt::Key_Return);events();
+        check(session.revision()==macro_edit_revision+1&&
+            macro_parameter_value(session.document(),ui_object,macro_instance_id,"macro.offset.amount")==22,
+            "Macro Amount editor writes through one Macro Session command");
+        auto* detach=named<QPushButton>(window,"macro-detach-"+QString::fromStdString(macro_instance_id));
+        const auto& before_detach=session.document().objects.at(ui_object).stack;
+        const auto macro_index=static_cast<std::size_t>(std::distance(before_detach.begin(),
+            std::find_if(before_detach.begin(),before_detach.end(),[&](const auto& entry){return entry.id==macro_instance_id;})));
+        const auto before_stack=before_detach;
+        const auto detach_revision=session.revision();detach->click();events();
+        const auto& detached=session.document().objects.at(ui_object).stack;
+        check(session.revision()==detach_revision+1&&detached.size()==before_stack.size()+1&&
+            detached[macro_index].type=="nect.shape.offset"&&!detached[macro_index].macro&&
+            detached[macro_index+1].type=="nect.shape.repeater"&&!detached[macro_index+1].macro&&
+            detached[macro_index].id!=macro_instance_id&&detached[macro_index+1].id!=macro_instance_id&&
+            detached[macro_index].parameters.at("amount").literal==22,
+            "Properties Detach replaces the Macro in place with fresh operations and copies its public value");
+
+        search->setText("offset");events();
+        QListWidgetItem* offset_item=nullptr;
+        for(int i=0;i<catalog->count();++i)if(catalog->item(i)->data(Qt::UserRole).toString()=="nect.shape.offset")
+            offset_item=catalog->item(i);
+        check(offset_item,"Built-in Offset remains discoverable after Macro apply");
+        catalog->setCurrentItem(offset_item);events();
         window.canvas->set_selection(ui_object);effects->raise();events();
         click(window,"effects-edit-properties-"+QString::fromStdString(offset_id));
         const auto remove_revision=session.revision();click(window,"operation-remove-"+QString::fromStdString(offset_id));

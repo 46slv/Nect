@@ -39,6 +39,15 @@ std::size_t extra(const PointEdit&);
 std::size_t extra(const GradientStop&);
 std::size_t extra(const Gradient&);
 std::size_t extra(const ShapeOperation&);
+std::size_t extra(const MacroPort&);
+std::size_t extra(const MacroEndpoint&);
+std::size_t extra(const MacroEdge&);
+std::size_t extra(const MacroNode&);
+std::size_t extra(const MacroPublicParameter&);
+std::size_t extra(const MacroDefinitionRevision&);
+std::size_t extra(const MacroDefinition&);
+std::size_t extra(const MacroInstance&);
+std::size_t extra(const ProcessingEntry&);
 std::size_t extra(const GeometryMask&);
 std::size_t extra(const Compositing&);
 std::size_t extra(const Object&);
@@ -99,6 +108,15 @@ std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
 std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops));}
 std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.enabled_driver),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.fill_rule_driver),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
+std::size_t extra(const MacroPort& v){return total(extra(v.id),extra(v.domain));}
+std::size_t extra(const MacroEndpoint& v){return total(extra(v.node),extra(v.port));}
+std::size_t extra(const MacroEdge& v){return total(extra(v.from),extra(v.to));}
+std::size_t extra(const MacroNode& v){return total(extra(v.operation),extra(v.input_port),extra(v.output_port));}
+std::size_t extra(const MacroPublicParameter& v){return total(extra(v.id),extra(v.label),extra(v.node),extra(v.parameter),extra(v.value_type),extra(v.unit),extra(v.domain));}
+std::size_t extra(const MacroDefinitionRevision& v){return total(extra(v.input),extra(v.output),extra(v.nodes),extra(v.edges),extra(v.output_mapping),extra(v.public_parameters));}
+std::size_t extra(const MacroDefinition& v){return total(extra(v.id),extra(v.label),extra(v.revisions));}
+std::size_t extra(const MacroInstance& v){return total(extra(v.definition),extra(v.overrides));}
+std::size_t extra(const ProcessingEntry& v){return total(extra(static_cast<const ShapeOperation&>(v)),extra(v.macro));}
 std::size_t extra(const PresetEntry& v){return total(extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.line_join),extra(v.line_cap));}
 std::size_t extra(const PresetDefinition& v){return total(extra(v.id),extra(v.label),extra(v.category),extra(v.tags),extra(v.target_domain),extra(v.entries));}
 std::size_t extra(const Definition& v){return total(extra(v.id),extra(v.name),extra(v.root));}
@@ -178,6 +196,23 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         return "Artboard size expression: "+property_label(command->target);
     if(const auto* command=std::get_if<UnlinkArtboardSize>(&commands.front()))
         return "Unlink Artboard size: "+property_label(command->target);
+    if(const auto* structural=std::get_if<StructuralCommand>(&commands.front())) {
+        if(const auto* command=std::get_if<MacroCommand>(structural)) {
+        if(!command->mutation)throw Error("INVALID_MACRO_COMMAND","Macro command has no mutation payload");
+        return std::visit([&](const auto& mutation)->std::string {
+            using T=std::decay_t<decltype(mutation)>;
+            if constexpr(std::is_same_v<T,CreateMacroDefinition>)return "Create Macro: "+mutation.definition.label;
+            else if constexpr(std::is_same_v<T,RenameMacroDefinition>)return "Rename Macro: "+mutation.label;
+            else if constexpr(std::is_same_v<T,UpdateMacroDefinition>)return "Update Macro revision: "+mutation.definition;
+            else if constexpr(std::is_same_v<T,DeleteMacroDefinition>)return "Delete Macro: "+mutation.definition;
+            else if constexpr(std::is_same_v<T,InstantiateMacro>)return "Apply Macro: "+mutation.definition;
+            else if constexpr(std::is_same_v<T,SetMacroOverride>)return "Set Macro parameter: "+mutation.public_parameter;
+            else if constexpr(std::is_same_v<T,ResetMacroOverride>)return "Reset Macro parameter: "+mutation.public_parameter;
+            else if constexpr(std::is_same_v<T,UpdateMacroInstance>)return "Update Macro instance revision: "+mutation.instance;
+            else return "Detach Macro instance: "+mutation.instance;
+        },*command->mutation);
+        }
+    }
     if(const auto* command=std::get_if<LayoutDependencyCommand>(&commands.front()))
         return std::visit([&](const auto& operation) {
             using T=std::decay_t<decltype(operation)>;
@@ -312,7 +347,7 @@ std::size_t Session::estimate_history(const HistoryEntry& entry) {
         for(const auto& item:items)result=total(result,extra(item.key),extra(item.before),extra(item.after));
         return result;
     };
-    return total(bytes,changes(entry.objects),changes(entry.colors),changes(entry.assets),changes(entry.presets),changes(entry.definitions));
+    return total(bytes,changes(entry.objects),changes(entry.colors),changes(entry.assets),changes(entry.presets),changes(entry.definitions),changes(entry.macros));
 }
 
 void Session::commit(Document candidate,std::string label) {
@@ -327,7 +362,7 @@ void Session::commit(Document candidate,std::string label) {
     };
     diff(document_.objects,candidate.objects,entry.objects);diff(document_.named_colors,candidate.named_colors,entry.colors);
     diff(document_.raster_assets,candidate.raster_assets,entry.assets);diff(document_.preset_definitions,candidate.preset_definitions,entry.presets);
-    diff(document_.definitions,candidate.definitions,entry.definitions);
+    diff(document_.definitions,candidate.definitions,entry.definitions);diff(document_.macro_definitions,candidate.macro_definitions,entry.macros);
     if(document_.compositions!=candidate.compositions)entry.compositions=std::pair{document_.compositions,candidate.compositions};
     if(document_.collections!=candidate.collections)entry.collections=std::pair{document_.collections,candidate.collections};
     entry.estimated_bytes=estimate_history(entry);
@@ -356,7 +391,7 @@ void Session::apply_history(Document& candidate,const HistoryEntry& entry,bool f
             if(value)objects.insert_or_assign(change.key,*value);else objects.erase(change.key);
         }
     };
-    patch(candidate.objects,entry.objects);patch(candidate.named_colors,entry.colors);patch(candidate.raster_assets,entry.assets);patch(candidate.preset_definitions,entry.presets);patch(candidate.definitions,entry.definitions);
+    patch(candidate.objects,entry.objects);patch(candidate.named_colors,entry.colors);patch(candidate.raster_assets,entry.assets);patch(candidate.preset_definitions,entry.presets);patch(candidate.definitions,entry.definitions);patch(candidate.macro_definitions,entry.macros);
     if(entry.compositions)candidate.compositions=forward?entry.compositions->second:entry.compositions->first;
     if(entry.collections)candidate.collections=forward?entry.collections->second:entry.collections->first;
 }

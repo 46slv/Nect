@@ -816,6 +816,85 @@ j::value operation_json(const ShapeOperation& op) {
     return result;
 }
 
+MacroPort read_macro_port(const j::value& value) {
+    const auto& object=value.as_object();keys(object,{"id","domain"});
+    return {text(object.at("id")),text(object.at("domain"))};
+}
+j::value macro_port_json(const MacroPort& port) {return j::object{{"id",port.id},{"domain",port.domain}};}
+MacroEndpoint read_macro_endpoint(const j::value& value) {
+    const auto& object=value.as_object();keys(object,{"node","port"});
+    return {text(object.at("node")),text(object.at("port"))};
+}
+j::value macro_endpoint_json(const MacroEndpoint& endpoint) {return j::object{{"node",endpoint.node},{"port",endpoint.port}};}
+MacroDefinitionRevision read_macro_revision(const j::value& value) {
+    const auto& object=value.as_object();keys(object,{"revision","input","output","nodes","edges","output_mapping","public_parameters"});
+    MacroDefinitionRevision revision;revision.revision=j::value_to<std::uint64_t>(object.at("revision"));
+    revision.input=read_macro_port(object.at("input"));revision.output=read_macro_port(object.at("output"));
+    for(const auto& value:object.at("nodes").as_array()) {
+        const auto& node=value.as_object();keys(node,{"operation","input_port","output_port"});
+        revision.nodes.push_back({read_operation(node.at("operation"),false,false,true,true,false,false,false),
+            text(node.at("input_port")),text(node.at("output_port"))});
+    }
+    for(const auto& value:object.at("edges").as_array()) {
+        const auto& edge=value.as_object();keys(edge,{"from","to"});
+        revision.edges.push_back({read_macro_endpoint(edge.at("from")),read_macro_endpoint(edge.at("to"))});
+    }
+    revision.output_mapping=read_macro_endpoint(object.at("output_mapping"));
+    for(const auto& value:object.at("public_parameters").as_array()) {
+        const auto& parameter=value.as_object();keys(parameter,{"id","label","node","parameter","value_type","unit","domain"});
+        revision.public_parameters.push_back({text(parameter.at("id")),text(parameter.at("label")),text(parameter.at("node")),
+            text(parameter.at("parameter")),text(parameter.at("value_type")),text(parameter.at("unit")),text(parameter.at("domain"))});
+    }
+    return revision;
+}
+j::value macro_revision_json(const MacroDefinitionRevision& revision) {
+    j::array nodes,edges,parameters;
+    for(const auto& node:revision.nodes)nodes.push_back(j::object{{"operation",operation_json(node.operation)},
+        {"input_port",node.input_port},{"output_port",node.output_port}});
+    for(const auto& edge:revision.edges)edges.push_back(j::object{{"from",macro_endpoint_json(edge.from)},
+        {"to",macro_endpoint_json(edge.to)}});
+    for(const auto& parameter:revision.public_parameters)parameters.push_back(j::object{{"id",parameter.id},
+        {"label",parameter.label},{"node",parameter.node},{"parameter",parameter.parameter},
+        {"value_type",parameter.value_type},{"unit",parameter.unit},{"domain",parameter.domain}});
+    return j::object{{"revision",revision.revision},{"input",macro_port_json(revision.input)},
+        {"output",macro_port_json(revision.output)},{"nodes",nodes},{"edges",edges},
+        {"output_mapping",macro_endpoint_json(revision.output_mapping)},{"public_parameters",parameters}};
+}
+MacroDefinition read_macro_definition(const j::value& value) {
+    const auto& object=value.as_object();keys(object,{"id","label","latest_revision","revisions"});
+    MacroDefinition definition;definition.id=text(object.at("id"));definition.label=text(object.at("label"));
+    definition.latest_revision=j::value_to<std::uint64_t>(object.at("latest_revision"));
+    for(const auto& value:object.at("revisions").as_array()) {
+        auto revision=read_macro_revision(value);const auto number=revision.revision;
+        if(!definition.revisions.emplace(number,std::move(revision)).second)throw Error("DUPLICATE_MACRO_REVISION",std::to_string(number));
+    }
+    return definition;
+}
+j::value macro_definition_json(const MacroDefinition& definition) {
+    j::array revisions;for(const auto& [number,revision]:definition.revisions){(void)number;revisions.push_back(macro_revision_json(revision));}
+    return j::object{{"id",definition.id},{"label",definition.label},{"latest_revision",definition.latest_revision},{"revisions",revisions}};
+}
+j::value processing_entry_json(const ProcessingEntry& entry) {
+    if(!entry.macro)return j::object{{"kind","operation"},{"operation",operation_json(entry)}};
+    j::object overrides;for(const auto& [parameter,value]:entry.macro->overrides)overrides[parameter]=value;
+    return j::object{{"kind","macro"},{"id",entry.id},{"enabled",entry.enabled},
+        {"definition",entry.macro->definition},{"revision",entry.macro->pinned_revision},{"overrides",overrides}};
+}
+ProcessingEntry read_processing_entry(const j::value& value) {
+    const auto& object=value.as_object();const auto kind=text(object.at("kind"));
+    if(kind=="operation") {
+        keys(object,{"kind","operation"});return ProcessingEntry{read_operation(object.at("operation"),true,true,true,true,true,true,true)};
+    }
+    if(kind=="macro") {
+        keys(object,{"kind","id","enabled","definition","revision","overrides"});
+        ProcessingEntry entry;entry.id=text(object.at("id"));entry.type=macro_entry_type;entry.enabled=object.at("enabled").as_bool();
+        MacroInstance instance;instance.definition=text(object.at("definition"));instance.pinned_revision=j::value_to<std::uint64_t>(object.at("revision"));
+        for(const auto& [parameter,value]:object.at("overrides").as_object())instance.overrides.emplace(std::string(parameter),number(value));
+        entry.macro=std::move(instance);return entry;
+    }
+    throw Error("UNSUPPORTED_STACK_ENTRY",kind);
+}
+
 PresetEntry read_preset_entry(const j::value& value) {
     const auto& o=value.as_object();keys(o,{"type","version","enabled","parameters","composite","fill_rule","line_join","line_cap"});
     PresetEntry entry;entry.type=text(o.at("type"));entry.version=j::value_to<unsigned>(o.at("version"));
@@ -1289,6 +1368,44 @@ CollectionCommand read_collection_command(const j::value& v) {
     throw Error("UNSUPPORTED_COLLECTION_OPERATION",type);
 }
 
+MacroCommand read_macro_command(const j::value& value) {
+    const auto& object=value.as_object();const auto type=text(object.at("type"));
+    if(type=="create_macro_definition") {
+        keys(object,{"type","definition"});return MacroCommand{CreateMacroDefinition{read_macro_definition(object.at("definition"))}};
+    }
+    if(type=="rename_macro_definition") {
+        keys(object,{"type","definition","label"});return MacroCommand{RenameMacroDefinition{text(object.at("definition")),text(object.at("label"))}};
+    }
+    if(type=="update_macro_definition") {
+        keys(object,{"type","definition","revision"});return MacroCommand{UpdateMacroDefinition{text(object.at("definition")),read_macro_revision(object.at("revision"))}};
+    }
+    if(type=="delete_macro_definition") {
+        keys(object,{"type","definition"});return MacroCommand{DeleteMacroDefinition{text(object.at("definition"))}};
+    }
+    if(type=="instantiate_macro"||type=="apply_macro") {
+        keys(object,{"type","object","definition","instance","revision","index"});
+        return MacroCommand{InstantiateMacro{text(object.at("object")),text(object.at("definition")),text(object.at("instance")),
+            j::value_to<std::uint64_t>(object.at("revision")),j::value_to<std::size_t>(object.at("index"))}};
+    }
+    if(type=="set_macro_override") {
+        keys(object,{"type","object","instance","public_parameter","value"});
+        return MacroCommand{SetMacroOverride{text(object.at("object")),text(object.at("instance")),text(object.at("public_parameter")),number(object.at("value"))}};
+    }
+    if(type=="reset_macro_override") {
+        keys(object,{"type","object","instance","public_parameter"});
+        return MacroCommand{ResetMacroOverride{text(object.at("object")),text(object.at("instance")),text(object.at("public_parameter"))}};
+    }
+    if(type=="update_macro_instance") {
+        keys(object,{"type","object","instance","revision"});
+        return MacroCommand{UpdateMacroInstance{text(object.at("object")),text(object.at("instance")),j::value_to<std::uint64_t>(object.at("revision"))}};
+    }
+    if(type=="detach_macro_instance") {
+        keys(object,{"type","object","instance","operation_id_prefix"});
+        return MacroCommand{DetachMacroInstance{text(object.at("object")),text(object.at("instance")),text(object.at("operation_id_prefix"))}};
+    }
+    throw Error("UNSUPPORTED_MACRO_OPERATION",type);
+}
+
 bool is_preset_command(const j::value& v) {
     const auto type=text(v.as_object().at("type"));
     return type=="create_preset"||type=="create_preset_from_stack"||type=="rename_preset"||
@@ -1298,6 +1415,7 @@ bool is_preset_command(const j::value& v) {
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type.find("_macro_")!=std::string::npos||type=="instantiate_macro"||type=="apply_macro")return read_macro_command(v);
     if(type.ends_with("_definition")||type=="create_instance"||type=="set_instance_override"||
         type=="reset_instance_override"||type=="detach_instance")return read_definition_command(v);
     if(type=="create_collection"||type=="rename_collection"||type=="set_collection_members"||
@@ -1853,12 +1971,13 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,64> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64"};
+        constexpr std::array<std::string_view,65> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.64 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.65 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
-        if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
+        if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
+        else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
         else if(minor>=63)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets"});
         else if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
@@ -1877,6 +1996,11 @@ Document decode(std::string_view input) {
             auto definition=read_definition(value);
             if(!d.definitions.emplace(definition.id,definition).second)
                 throw Error("DUPLICATE_DEFINITION_ID",definition.id);
+        }
+        if(minor>=65)for(const auto& value:root.at("macros").as_array()) {
+            auto definition=read_macro_definition(value);const auto id=definition.id;
+            if(!d.macro_definitions.emplace(id,std::move(definition)).second)
+                throw Error("DUPLICATE_MACRO_ID",id);
         }
         std::map<Id,ShapeOperation> legacy_paints;
 
@@ -1954,7 +2078,10 @@ Document decode(std::string_view input) {
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
                 if(minor>=3) {
-                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12,minor>=13,minor>=26,minor>=28,minor>=29));
+                    for(const auto& entry:o.at("stack").as_array()) {
+                        if(minor>=65)obj.stack.push_back(read_processing_entry(entry));
+                        else obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12,minor>=13,minor>=26,minor>=28,minor>=29));
+                    }
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
                     if(text(o.at("fill"))!="none")throw Error("UNSUPPORTED_APPEARANCE","Legacy format only supports stroked paths");
@@ -2018,11 +2145,12 @@ Document decode(std::string_view input) {
 std::string encode(const Document& d) {
     validate(d);
 
-    j::array comps,objects,collections,named_colors,raster_assets,presets,definitions;
+    j::array comps,objects,collections,named_colors,raster_assets,presets,definitions,macros;
     for(const auto& [id,asset]:d.raster_assets){(void)id;raster_assets.push_back(asset_json(asset,true));}
     for(const auto& [id,color]:d.named_colors){(void)id;named_colors.push_back(named_color_json(color));}
     for(const auto& [id,preset]:d.preset_definitions){(void)id;presets.push_back(preset_json(preset));}
     for(const auto& [id,definition]:d.definitions){(void)id;definitions.push_back(definition_json(definition));}
+    for(const auto& [id,definition]:d.macro_definitions){(void)id;macros.push_back(macro_definition_json(definition));}
 
     for(const auto& c:d.compositions) {
         j::array boards,guides;
@@ -2066,7 +2194,7 @@ std::string encode(const Document& d) {
                 out["source"]=primitive_json(*o.source);
                 if(o.point_edit)out["point_edit"]=point_edit_json(*o.point_edit);
             } else out["contours"]=contours;
-            j::array stack;for(const auto& op:o.stack)stack.push_back(operation_json(op));
+            j::array stack;for(const auto& op:o.stack)stack.push_back(processing_entry_json(op));
             out["stack"]=stack;out["legacy_stroke"]=o.legacy_stroke;
         }
 
@@ -2080,7 +2208,7 @@ std::string encode(const Document& d) {
         {"format","nect-native"},{"version",native_version},{"id",d.id},
         {"units","du96"},{"color_space","srgb"},
         {"compositions",comps},{"objects",objects},{"collections",collections},{"named_colors",named_colors},
-        {"raster_assets",raster_assets},{"presets",presets},{"definitions",definitions}});
+        {"raster_assets",raster_assets},{"presets",presets},{"definitions",definitions},{"macros",macros}});
 }
 
 std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
@@ -2303,6 +2431,11 @@ std::string request(Session& session,std::string_view input) {
             else if(r.field.starts_with("op.")&&r.field.ends_with(".enabled"))result=operation_enabled_property_json(
                 session.document(),r,operation_enabled_state(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.ends_with(".fill_rule"))result=fill_rule_property_json(session.document(),r,fill_rule_property(session.document(),r));
+            else if(r.field.starts_with("macro.")&&!r.point.empty()) {
+                const auto value=macro_parameter_value(session.document(),r.object,r.point,r.field);
+                result=j::object{{"ref",ref_json(r)},{"origin","macro_public_parameter"},
+                    {"authored",value},{"evaluated",value}};
+            }
             else if(r.field=="text.content")result=text_content_property_json(session.document(),r,text_content_property(session.document(),r));
             else if(r.field=="text.family")result=text_family_property_json(session.document(),r,text_family_property(session.document(),r));
             else if(r.field=="text.locale")result=text_locale_property_json(session.document(),r,text_locale_property(session.document(),r));
@@ -2332,6 +2465,15 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op"});j::array definitions;
             for(const auto& [id,definition]:session.document().definitions){(void)id;definitions.push_back(definition_json(definition));}
             result=std::move(definitions);
+        } else if(op=="macros") {
+            keys(o,{"op"});j::array definitions;
+            for(const auto& [id,definition]:session.document().macro_definitions){(void)id;definitions.push_back(macro_definition_json(definition));}
+            result=std::move(definitions);
+        } else if(op=="macro") {
+            keys(o,{"op","id"});const auto id=text(o.at("id"));
+            const auto found=session.document().macro_definitions.find(id);
+            if(found==session.document().macro_definitions.end())throw Error("MISSING_MACRO_DEFINITION",id);
+            result=macro_definition_json(found->second);
         } else if(op=="collections") {
             keys(o,{"op"});j::array collections;
             for(const auto& collection:session.document().collections)
@@ -2447,6 +2589,25 @@ std::string request(Session& session,std::string_view input) {
                     });
                     list.push_back(fill_rule_property_json(session.document(),ref,
                         {operation->fill_rule,operation->fill_rule_driver,fill_rule_values.at(ref)}));
+                    continue;
+                }
+                if(ref.field.starts_with("macro.")&&!ref.point.empty()) {
+                    const auto& object=session.document().objects.at(ref.object);
+                    const auto entry=std::find_if(object.stack.begin(),object.stack.end(),[&](const auto& candidate) {
+                        return candidate.id==ref.point&&candidate.macro.has_value();
+                    });
+                    if(entry==object.stack.end())throw Error("MISSING_MACRO_INSTANCE",ref.point);
+                    const auto& definition=session.document().macro_definitions.at(entry->macro->definition);
+                    const auto& revision=definition.revisions.at(entry->macro->pinned_revision);
+                    const auto parameter=std::find_if(revision.public_parameters.begin(),revision.public_parameters.end(),[&](const auto& item) {
+                        return item.id==ref.field;
+                    });
+                    if(parameter==revision.public_parameters.end())throw Error("MISSING_MACRO_PARAMETER",ref.field);
+                    const auto effective=macro_parameter_value(session.document(),ref.object,entry->id,ref.field);
+                    list.push_back({{"ref",ref_json(ref)},{"name",definition.label+" / "+parameter->label},
+                        {"type",parameter->value_type},{"unit",parameter->unit},{"space","local"},
+                        {"origin",entry->macro->overrides.contains(ref.field)?"macro_override":"macro_default"},
+                        {"authored",effective},{"evaluated",effective}});
                     continue;
                 }
                 if(is_text_readonly_field(ref.field)) {
