@@ -956,14 +956,64 @@ void primitive_authoring(Window& window) {
     QTest::mouseClick(buttons->button(QDialogButtonBox::Cancel),Qt::LeftButton);QApplication::processEvents();
     check(session.revision()==revision,"Cancelling the blocked plan does not mutate the document");
 
+    revision=session.revision();const auto prior_root_count=session.document().compositions.front().roots.size();
     named_action(window,"add-rectangle")->trigger();QApplication::processEvents();
     const auto rectangle=window.canvas->selected_object;
     const auto& rectangle_object=session.document().objects.at(rectangle);
-    check(rectangle_object.source&&rectangle_object.source->type=="nect.shape.rectangle"&&
+    check(session.revision()==revision+1&&session.document().compositions.front().roots.size()==prior_root_count+1&&
+        window.canvas->selected_object==rectangle&&rectangle_object.source&&rectangle_object.source->type=="nect.shape.rectangle"&&
         evaluate(session.document()).at({rectangle,"","generator.width"})==220&&
         evaluate(session.document()).at({rectangle,"","generator.height"})==140&&
         path_contours(rectangle_object).front().points.size()==4,
-        "Add Rectangle creates the usable default source with stable four-point topology");
+        "One Add Rectangle action creates and selects one retained source with its defaults and stable topology");
+
+    const auto ellipse_roots=session.document().compositions.front().roots.size();
+    const auto before_ellipse=session.document();revision=session.revision();
+    named_action(window,"add-ellipse")->trigger();QApplication::processEvents();
+    const auto ellipse=window.canvas->selected_object;
+    check(session.revision()==revision+1&&session.document().compositions.front().roots.size()==ellipse_roots+1&&
+        ellipse!=rectangle&&ellipse.size()>0&&window.canvas->selected_object==ellipse&&
+        session.document().objects.at(ellipse).source&&
+        session.document().objects.at(ellipse).source->type=="nect.shape.ellipse"&&
+        session.document().objects.at(ellipse).contours.empty()&&!session.document().objects.at(ellipse).point_edit,
+        "One Add Ellipse action creates and selects exactly one retained source without setup");
+    const auto& active_artboard=session.document().compositions.front().artboards.front();
+    const auto ellipse_center_x=active_artboard.x+active_artboard.width/2;
+    const auto ellipse_center_y=active_artboard.y+active_artboard.height/2;
+    const auto ellipse_source_id=session.document().objects.at(ellipse).source->id;
+    check(evaluate(session.document()).at({ellipse,"","generator.center_x"})==ellipse_center_x&&
+        evaluate(session.document()).at({ellipse,"","generator.center_y"})==ellipse_center_y&&
+        evaluate(session.document()).at({ellipse,"","generator.width"})==220&&
+        evaluate(session.document()).at({ellipse,"","generator.height"})==140&&
+        path_contours(session.document().objects.at(ellipse)).front().id==ellipse_source_id+"-contour",
+        "Ellipse starts centered with the established dimensions and stable contour role");
+    const auto created_ellipse=session.document();history_action(window,"Undo");
+    check(!session.document().objects.contains(ellipse)&&session.document()==before_ellipse,
+        "One Undo removes only the Ellipse created by the one-click action");
+    history_action(window,"Redo");
+    check(session.document()==created_ellipse&&session.document().objects.contains(rectangle),
+        "One Redo restores the same retained Ellipse without changing earlier objects");
+    window.canvas->set_selection(ellipse);QApplication::processEvents();
+    const Ref ellipse_width{ellipse,"","generator.width"},ellipse_height{ellipse,"","generator.height"};
+    auto* width_input=field<QLineEdit>(window,ellipse_width);
+    check(width_input->property("nect-property-origin")=="authored",
+        "Ellipse Width is exposed in the normal source Inspector");
+    edit_number(window,ellipse_width,"300");edit_number(window,ellipse_height,"180");
+    check(evaluate(session.document()).at(ellipse_width)==300&&evaluate(session.document()).at(ellipse_height)==180,
+        "Ellipse Width and Height Inspector edits update the retained source");
+    const Ref ellipse_east_x{ellipse,ellipse_source_id+"-east","x"};
+    window.canvas->set_selection(ellipse,ellipse_east_x.point);QApplication::processEvents();
+    edit_number(window,ellipse_east_x,"777");
+    check(session.document().objects.at(ellipse).point_edit&&
+        session.document().objects.at(ellipse).source->parameters.at("width").literal==300&&
+        evaluate(session.document()).at(ellipse_east_x)==777,
+        "Ellipse generated-point edits remain downstream Point Edit corrections");
+    toggle_correction(window);
+    check(!session.document().objects.at(ellipse).point_edit->enabled&&
+        evaluate(session.document()).at(ellipse_east_x)==ellipse_center_x+150&&
+        evaluate(session.document()).at(ellipse_width)==300,
+        "Point Edit bypass restores current generated geometry without changing source dimensions");
+    toggle_correction(window);
     window.canvas->set_selection(object);window.host.edited();QApplication::processEvents();
     named_action(window,"add-stroke")->trigger();QApplication::processEvents();
     const auto circle_stroke=session.document().objects.at(object).stack.back().id;
@@ -973,6 +1023,19 @@ void primitive_authoring(Window& window) {
         session.document().objects.at(object).stack.back().version==2,
         "Circle source retains topology while its Stroke Inspector commits style");
     window.canvas->set_selection(rectangle);window.host.edited();QApplication::processEvents();
+}
+void ellipse_creation_preconditions() {
+    QTemporaryDir files;check(files.isValid(),"Ellipse precondition fixture owns a temporary directory");
+    Window window(files.path());window.show();QApplication::processEvents();
+    auto document=window.host.session.document();
+    document.compositions.front().artboards.clear();
+    window.host.session=Session(std::move(document));
+    const auto before=window.host.session.document();const auto history=window.host.session.history();
+    const auto revision=window.host.session.revision();
+    named_action(window,"add-ellipse")->trigger();QApplication::processEvents();
+    check(window.host.session.document()==before&&window.host.session.history()==history&&
+        window.host.session.revision()==revision&&window.statusBar()->currentMessage().contains("MISSING_ARTBOARD"),
+        "Missing Artboard refuses one-click Ellipse creation without partial Session mutation");
 }
 void stack_authoring(Window& window) {
     auto& session=window.host.session;
@@ -5341,7 +5404,7 @@ int main(int argc,char** argv) {
         QTest::keyClick(&w,Qt::Key_Escape);QApplication::processEvents();
         check(s.revision()==3&&!nect::property(s.document(),target).binding&&w.canvas->selected_object=="a",
             "Pick-whip cancellation preserves document and restores context");
-        primitive_authoring(w);
+        primitive_authoring(w);ellipse_creation_preconditions();
         stack_authoring(w);
         w.hide();Window point_expressions(temp.path()+"/point-expressions");point_expressions.show();QApplication::processEvents();
         generated_point_expression(point_expressions);point_expressions.hide();

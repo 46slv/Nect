@@ -39,11 +39,13 @@ int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
     try {
         QTemporaryDir temp;Window window(temp.path());window.show();QApplication::processEvents();auto& session=window.host.session;
+        const auto star_revision=session.revision();const auto star_roots=session.document().compositions.front().roots.size();
         action(window,"add-star")->trigger();QApplication::processEvents();const auto star=window.canvas->selected_object;
         const auto source=session.document().objects.at(star).source->id;
         const Ref count{star,"","generator.points"},outer{star,source+"-outer-1-5","x"};
-        check(session.document().objects.at(star).source->type=="nect.shape.star"&&row(window,star)->childCount()==10,
-              "Add Star creates a retained five-point source and ten editable vertices");
+        check(session.revision()==star_revision+1&&session.document().compositions.front().roots.size()==star_roots+1&&
+              window.canvas->selected_object==star&&session.document().objects.at(star).source->type=="nect.shape.star"&&row(window,star)->childCount()==10,
+              "One Add Star action creates and selects one retained five-point source with ten editable vertices");
         check(window.findChild<QLabel*>("primitive-topology-note")!=nullptr,"Count/correction behavior is visible near the source");
         edit(window,{star,"","generator.inner_radius"},"70");
         check(evaluate(session.document()).at({star,"","generator.inner_radius"})==70,"Inner radius edits the real generator");
@@ -61,8 +63,11 @@ int main(int argc,char** argv) {
         edit(window,count,"6");check(row(window,star)->childCount()==12&&window.canvas->selected_point.empty(),"New topology refreshes tree and clears disappeared point selection");
         session.undo(session.revision());refresh(window);session.undo(session.revision());refresh(window);
         check(encode(session.document())==corrected,"Undo count and reset restores the exact original source and correction");
+        const auto polygon_revision=session.revision();const auto polygon_roots=session.document().compositions.front().roots.size();
         action(window,"add-polygon")->trigger();QApplication::processEvents();const auto polygon=window.canvas->selected_object;
-        check(row(window,polygon)->childCount()==6,"Add Polygon starts with a retained hexagon");
+        check(session.revision()==polygon_revision+1&&session.document().compositions.front().roots.size()==polygon_roots+1&&
+              window.canvas->selected_object==polygon&&session.document().objects.at(polygon).source->type=="nect.shape.polygon"&&
+              row(window,polygon)->childCount()==6,"One Add Polygon action creates and selects one retained hexagon");
         session.apply({Link{{polygon,"","generator.points"},{count,1,0,"copy_local_value"}}},session.revision());refresh(window);
         check(row(window,polygon)->childCount()==5,"Bound Polygon count updates generated tree topology through the normal property graph");
         session.apply({Set{count,10}},session.revision());refresh(window);

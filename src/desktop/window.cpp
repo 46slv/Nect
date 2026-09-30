@@ -281,6 +281,7 @@ public:
 QString display_value(double value) { return QString::number(value,'g',12); }
 QString primitive_label(const Primitive& source) {
     if(source.type=="nect.shape.circle")return QStringLiteral("Circle");
+    if(source.type=="nect.shape.ellipse")return QStringLiteral("Ellipse");
     if(source.type=="nect.shape.rectangle")return QStringLiteral("Rectangle");
     if(source.type=="nect.shape.polygon")return QStringLiteral("Polygon");
     if(source.type=="nect.shape.star")return QStringLiteral("Star");
@@ -935,6 +936,8 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     convert->setObjectName("convert-to-path");
     auto* circle=action(add,"Circle",{},[this]{add_primitive("nect.shape.circle");});
     circle->setObjectName("add-circle");
+    auto* ellipse=action(add,"Ellipse",{},[this]{add_primitive("nect.shape.ellipse");});
+    ellipse->setObjectName("add-ellipse");
     auto* rectangle=action(add,"Rectangle",{},[this]{add_primitive("nect.shape.rectangle");});
     rectangle->setObjectName("add-rectangle");
     auto* polygon=action(add,"Polygon",{},[this]{add_primitive("nect.shape.polygon");});polygon->setObjectName("add-polygon");

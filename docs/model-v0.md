@@ -3,11 +3,11 @@
 ## M0 vocabulary
 
 Implemented: Document, Composition, Artboard, Group, Path, Text, Contour, Point,
-Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/Polygon/Star sources,
+Scalar, Binding, Expression, Collection, Named Color, retained Circle/Ellipse/Rectangle/Polygon/Star sources,
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
 same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
-The current native writer is 0.72.
+The current native writer is 0.73.
 
 ## Point Edit enabled expression v1
 
@@ -297,25 +297,28 @@ Current M0 limits are safety bounds, not product performance targets.
 
 ## Native 0.2: retained primitives and point corrections
 
-The primitive slice introduced 0.2; the current writer emits 0.9 and the reader
-accepts strict 0.1 through 0.9. Migration of 0.1
+The primitive slice introduced 0.2; current native readers accept strict 0.1 through
+0.73. Migration of 0.1
 preserves authored values, IDs and bindings, with no geometry conversion. The
 historical linked fixture in `tests/fixtures/native-v0.1-linked.nect` is loaded,
 edited, saved and reopened in separate processes. Unknown fields and behavior
 versions remain errors. See `schemas/native-v0.2.schema.json`.
 
 A Path owns either authored contours or one retained primitive source, never
-both. `nect.shape.circle` and `nect.shape.rectangle` version 1 map typed local
-distance parameters to a closed cubic path. Source instance IDs are stable;
+both. `nect.shape.circle`, `nect.shape.ellipse` and `nect.shape.rectangle`
+version 1 map typed local distance parameters to a closed cubic path. Source instance IDs are stable;
 derived contour and point IDs append fixed semantic roles (east/south/west/north
 or corner names). Source IDs have a 64-character bound; generated IDs fit the
 normal 96-character bound. The correction instance namespace is reserved.
 
-Circle has center_x, center_y and radius; Rectangle has center_x, center_y, width
-and height. `generator.*` parameters are ordinary linkable distance properties.
+Circle has center_x, center_y and radius; Ellipse and Rectangle have center_x,
+center_y, width and height. `generator.*` parameters are ordinary linkable distance properties.
 Derived point/handle fields join the same dependency evaluator; generator/point
 cycles reject atomically. Circle uses four cubic arcs, with handle length
 `radius * 0.5522847498307936` (a cubic approximation, not an exact rational circle).
+Ellipse uses stable east/south/west/north anchors at its half-width and half-height
+extents. Its east/west handles use `height/2 * 0.5522847498307936`; north/south
+handles use `width/2 * 0.5522847498307936` with the same tangent convention.
 
 Setting or linking a generated point field creates/reuses the visible downstream
 `nect.path.point-edit` version 1 instance. Only changed fields are stored, as
@@ -1855,3 +1858,23 @@ the evaluated value while preserving the authored source. Native Save As keeps
 the exact expression and literal; versions 0.1–0.61 remain readable and reject
 a version-lied expression. `schemas/native-v0.62.schema.json` closes the
 optional field and rejects simultaneous link and expression sources.
+
+## Native 0.73 — retained Ellipse
+
+Native 0.73 adds `nect.shape.ellipse@1` to the existing retained Primitive
+source. It stores `center_x`, `center_y`, `width` and `height` as ordinary
+linkable distance properties; width and height use the existing nonnegative
+length rule and default to 220 and 140. Earlier native versions remain readable
+but reject an Ellipse source, so changing an Ellipse file's version to 0.72 or
+earlier cannot conceal the new behavior.
+
+The source generates stable east/south/west/north anchors in the same
+`<source-id>-<role>` namespace as Circle, with contour ID
+`<source-id>-contour`. For `rx=width/2`, `ry=height/2`, anchors are
+`(center_x+rx,center_y)`, `(center_x,center_y+ry)`,
+`(center_x-rx,center_y)` and `(center_x,center_y-ry)`. Using
+`k=0.5522847498307936`, east/west incoming and outgoing handle lengths are
+`k*ry`; north/south lengths are `k*rx`. Point Edit remains the downstream
+correction authority, and native files save the retained source plus authored
+corrections rather than generated anchors. See
+`schemas/native-v0.73.schema.json`.

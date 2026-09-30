@@ -7,6 +7,15 @@ using namespace nect;
 namespace {
 int checks=0;
 void check(bool ok,const char* reason) {if(!ok)throw std::runtime_error(reason);++checks;}
+double response_number(const std::string& response,const std::string& field) {
+    const auto marker="\""+field+"\":";
+    const auto begin=response.find(marker);
+    if(begin==std::string::npos)throw std::runtime_error("Missing numeric API field: "+field);
+    const auto value_begin=begin+marker.size();
+    const auto value_end=response.find_first_of(",}",value_begin);
+    if(value_end==std::string::npos)throw std::runtime_error("Unterminated numeric API field: "+field);
+    return std::stod(response.substr(value_begin,value_end-value_begin));
+}
 template<class F> void rejects(const char* code,F action) {
     try {action();}catch(const Error& e){check(e.code==code,("Expected "+std::string(code)+", got "+e.code).c_str());return;}
     throw std::runtime_error("Expected rejection: "+std::string(code));
@@ -50,13 +59,13 @@ void point_edit_enabled_links() {
     check(resolve_name(s.document(),"Target","","point_edit.circle-source-point-edit.enabled")==target_ref,
         "Unique-name resolution finds the exact retained correction Ref");
     const auto linked_bytes=encode(s.document());
-    check(linked_bytes.find("\"version\":\"0.72\"")!=std::string::npos&&
+    check(linked_bytes.find("\"version\":\"0.73\"")!=std::string::npos&&
         linked_bytes.find("\"enabled_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"point_edit.source-generator-point-edit.enabled\"}}")!=std::string::npos&&
         encode(decode(linked_bytes))==linked_bytes,
         "Native 0.70 retains the optional closed driver and roundtrips without byte drift");
     auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_bytes);
-    const auto version_at=false_version.find("\"version\":\"0.72\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.72\"").size(),"\"version\":\"0.31\"");
+    const auto version_at=false_version.find("\"version\":\"0.73\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.73\"").size(),"\"version\":\"0.31\"");
     rejects("UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER",[&]{(void)decode(false_version);});
     auto malformed=linked_bytes;
     const auto ref_at=malformed.find("point_edit.source-generator-point-edit.enabled");
@@ -194,13 +203,13 @@ void point_edit_enabled_expressions() {
         "Source false restores the same correction override");
 
     auto native=encode(session.document());
-    check(native.find("\"version\":\"0.72\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.73\"")!=std::string::npos&&
         native.find("\"enabled_expression\":{\"source\":\" ! ref (")!=std::string::npos&&
         encode(decode(native))==native,
         "Native 0.70 retains the exact expression and cold codec roundtrip without byte drift");
     auto false_version=native;
-    const auto version_at=false_version.find("\"version\":\"0.72\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.72\"").size(),"\"version\":\"0.69\"");
+    const auto version_at=false_version.find("\"version\":\"0.73\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.73\"").size(),"\"version\":\"0.69\"");
     rejects("UNSUPPORTED_POINT_EDIT_ENABLED_EXPRESSION",[&]{(void)decode(false_version);});
 
     auto atomic=[&](const char* code,std::vector<Command> commands) {
@@ -263,9 +272,152 @@ void point_edit_enabled_expressions() {
     }
     rejects("DEPENDENCY_DEPTH",[&]{validate(deep);});
 }
+void ellipse_contract() {
+    constexpr double k=0.5522847498307936;
+    const auto defaults=default_primitive("ellipse-defaults","nect.shape.ellipse");
+    check(defaults.parameters.size()==4&&defaults.parameters.at("center_x").literal==0&&
+        defaults.parameters.at("center_y").literal==0&&defaults.parameters.at("width").literal==220&&
+        defaults.parameters.at("height").literal==140,
+        "Ellipse defaults retain center and established Rectangle dimensions");
+
+    Session session(empty_document("ellipse-doc","ellipse-comp","ellipse-art"));
+    const auto primitive_catalog=request(session,R"({"op":"primitive_types"})");
+    check(primitive_catalog.find("\"type\":\"nect.shape.ellipse\"")!=std::string::npos&&
+        primitive_catalog.find("\"width\"")!=std::string::npos&&
+        primitive_catalog.find("\"height\"")!=std::string::npos,
+        "Public primitive catalog exposes the retained Ellipse source template");
+    auto source=default_primitive("ellipse-source","nect.shape.ellipse");
+    source.parameters.at("center_x").literal=300;source.parameters.at("center_y").literal=200;
+    session.apply({CreatePrimitive{"ellipse-comp","","ellipse","Ellipse",source}},0);
+    const auto contour=path_contours(session.document().objects.at("ellipse")).front();
+    const std::vector<Id> expected_ids{"ellipse-source-east","ellipse-source-south","ellipse-source-west","ellipse-source-north"};
+    check(session.revision()==1&&session.document().objects.at("ellipse").contours.empty()&&
+        contour.id=="ellipse-source-contour"&&[&]{std::vector<Id> ids;for(const auto& point:contour.points)ids.push_back(point.id);return ids==expected_ids;}(),
+        "Created Ellipse retains one source with stable contour and cardinal point identities");
+    auto values=evaluate(session.document());
+    check(values.at({"ellipse",expected_ids[0],"x"})==410&&values.at({"ellipse",expected_ids[0],"y"})==200&&
+        values.at({"ellipse",expected_ids[1],"x"})==300&&values.at({"ellipse",expected_ids[1],"y"})==270&&
+        values.at({"ellipse",expected_ids[2],"x"})==190&&values.at({"ellipse",expected_ids[2],"y"})==200&&
+        values.at({"ellipse",expected_ids[3],"x"})==300&&values.at({"ellipse",expected_ids[3],"y"})==130,
+        "Ellipse anchors follow center and half-width/half-height axes");
+    const std::vector<double> incoming{-90,0,90,180},outgoing{90,180,270,360};
+    for(std::size_t i=0;i<expected_ids.size();++i) {
+        const auto expected_length=(i%2==0?70.0:110.0)*k;
+        check(values.at({"ellipse",expected_ids[i],"in.angle"})==incoming[i]&&
+            values.at({"ellipse",expected_ids[i],"out.angle"})==outgoing[i]&&
+            std::abs(values.at({"ellipse",expected_ids[i],"in.length"})-expected_length)<1e-12&&
+            std::abs(values.at({"ellipse",expected_ids[i],"out.length"})-expected_length)<1e-12,
+            "Ellipse handles retain Circle tangent directions and anisotropic cubic lengths");
+    }
+    const Ref width{"ellipse","","generator.width"},height{"ellipse","","generator.height"};
+    const auto width_read=request(session,R"({"op":"get","ref":{"object":"ellipse","point":"","field":"generator.width"}})");
+    const auto width_properties=properties(session.document());
+    check(width_read.find("\"origin\":\"authored\"")!=std::string::npos,
+        "Ellipse Width API read identifies its authored source");
+    check(response_number(width_read,"evaluated")==220,
+        "Ellipse Width API read returns its evaluated default");
+    check(std::find(width_properties.begin(),width_properties.end(),width)!=width_properties.end(),
+        "Ellipse Width is discoverable through the normal property API");
+
+    const auto initial_ids=path_contours(session.document().objects.at("ellipse")).front().points;
+    session.apply({Set{width,300}},session.revision());values=evaluate(session.document());
+    check(values.at({"ellipse",expected_ids[0],"x"})==450&&values.at({"ellipse",expected_ids[2],"x"})==150&&
+        values.at({"ellipse",expected_ids[1],"y"})==270&&path_contours(session.document().objects.at("ellipse")).front().points==initial_ids,
+        "Width-only edit changes only the horizontal axis and keeps stable IDs");
+    session.apply({Set{height,180}},session.revision());values=evaluate(session.document());
+    check(values.at({"ellipse",expected_ids[0],"x"})==450&&values.at({"ellipse",expected_ids[1],"y"})==290&&
+        values.at({"ellipse",expected_ids[3],"y"})==110&&path_contours(session.document().objects.at("ellipse")).front().points==initial_ids,
+        "Height-only edit changes only the vertical axis and keeps stable IDs");
+
+    session.apply({Set{width,0}},session.revision());values=evaluate(session.document());
+    check(values.at({"ellipse",expected_ids[0],"x"})==300&&values.at({"ellipse",expected_ids[2],"x"})==300,
+        "Zero Ellipse width follows the existing degenerate nonnegative length rule");
+    session.apply({Set{width,300},Set{height,0}},session.revision());values=evaluate(session.document());
+    check(values.at({"ellipse",expected_ids[1],"y"})==200&&values.at({"ellipse",expected_ids[3],"y"})==200,
+        "Zero Ellipse height follows the existing degenerate nonnegative length rule");
+    session.apply({Set{height,180}},session.revision());
+
+    auto atomic=[&](const char* code,std::vector<Command> commands) {
+        const auto before=session.document();const auto history=session.history();const auto revision=session.revision();
+        rejects(code,[&]{session.apply(commands,revision);});
+        check(session.document()==before&&session.history()==history&&session.revision()==revision,
+            "Rejected Ellipse edit/create preserves document, revision and history");
+    };
+    atomic("OUT_OF_RANGE",{Set{width,-1}});atomic("OUT_OF_RANGE",{Set{height,-1}});
+    atomic("OUT_OF_RANGE",{Set{{"ellipse","","generator.center_x"},999},Set{width,-1}});
+
+    const Ref east_x{"ellipse",expected_ids[0],"x"};
+    const auto source_only=encode(session.document());
+    check(source_only.find("ellipse-source-east")==std::string::npos,
+        "Native source persistence derives anchors instead of storing generated geometry");
+    session.apply({Set{east_x,777}},session.revision());
+    check(property_origin(session.document(),east_x)=="point_edit"&&
+        evaluate(session.document()).at(east_x)==777&&evaluate(session.document()).at(width)==300,
+        "Generated point edits create downstream corrections without rewriting Ellipse source dimensions");
+    session.apply({EnablePointEdit{"ellipse",false}},session.revision());
+    check(property_origin(session.document(),east_x)=="bypassed_point_edit"&&
+        evaluate(session.document()).at(east_x)==450&&evaluate(session.document()).at(width)==300,
+        "Point Edit bypass restores the current generated Ellipse");
+    session.apply({EnablePointEdit{"ellipse",true}},session.revision());
+    session.apply({ClearPointEdit{"ellipse"},Set{height,160}},session.revision());
+    check(!session.document().objects.at("ellipse").point_edit&&
+        evaluate(session.document()).at(east_x)==450&&evaluate(session.document()).at(height)==160,
+        "Reset removes the correction and continues to follow the retained source");
+
+    const auto native=encode(session.document());
+    check(native.find("\"version\":\"0.73\"")!=std::string::npos&&
+        native.find("\"type\":\"nect.shape.ellipse\"")!=std::string::npos&&
+        encode(decode(native))==native,
+        "Native 0.73 preserves Ellipse type and parameters in a deterministic cold codec reopen");
+    Session reopened(decode(native));
+    check(reopened.document()==session.document()&&
+        response_number(request(reopened,R"({"op":"get","ref":{"object":"ellipse","point":"","field":"generator.height"}})"),"evaluated")==160,
+        "A fresh Session reads Ellipse source values through the public API");
+    auto lied=native;const auto current_version=lied.find("\"version\":\"0.73\"");
+    check(current_version!=std::string::npos,"Ellipse fixture identifies current native writer");
+    lied.replace(current_version,std::string("\"version\":\"0.73\"").size(),"\"version\":\"0.72\"");
+    rejects("UNSUPPORTED_OPERATOR",[&]{(void)decode(lied);});
+    auto malformed=native;
+    const auto ellipse_type=malformed.find("\"type\":\"nect.shape.ellipse\"");
+    const auto width_parameter=ellipse_type==std::string::npos?std::string::npos:malformed.find("\"width\":",ellipse_type);
+    check(width_parameter!=std::string::npos,"Ellipse fixture carries the required Width source parameter");
+    malformed.replace(width_parameter+1,std::string("width").size(),"unknown_width");
+    rejects("INVALID_GENERATOR_PARAMETERS",[&]{(void)decode(malformed);});
+    auto previous_document=empty_document("ellipse-legacy-doc","ellipse-legacy-comp","ellipse-legacy-art");
+    Session previous(previous_document);
+    previous.apply({CreatePrimitive{"ellipse-legacy-comp","","legacy-circle","Circle",
+        default_primitive("legacy-circle-source","nect.shape.circle")}},0);
+    auto legacy=encode(previous.document());const auto latest=legacy.find("\"version\":\"0.73\"");
+    legacy.replace(latest,std::string("\"version\":\"0.73\"").size(),"\"version\":\"0.72\"");
+    check(decode(legacy)==previous.document(),"Native 0.72 remains readable for previously supported primitives");
+
+    Session creation(empty_document("ellipse-undo-doc","ellipse-undo-comp","ellipse-undo-art"));
+    creation.apply({CreatePrimitive{"ellipse-undo-comp","","kept-circle","Circle",
+        default_primitive("kept-circle-source","nect.shape.circle")}},0);
+    const auto before_ellipse=creation.document();
+    creation.apply({CreatePrimitive{"ellipse-undo-comp","","created-ellipse","Ellipse",
+        default_primitive("created-ellipse-source","nect.shape.ellipse")}},creation.revision());
+    const auto created=creation.document();creation.undo(creation.revision());
+    check(creation.document()==before_ellipse,"One creation Undo removes only the new Ellipse");
+    creation.redo(creation.revision());check(creation.document()==created,"Creation Redo restores the retained Ellipse exactly");
+
+    Session atomic_session(empty_document("ellipse-atomic-doc","ellipse-atomic-comp","ellipse-atomic-art"));
+    const auto atomic_before=atomic_session.document();const auto atomic_history=atomic_session.history();const auto atomic_revision=atomic_session.revision();
+    rejects("MISSING_COMPOSITION",[&]{atomic_session.apply({CreatePrimitive{"missing-comp","","bad","Bad",
+        default_primitive("missing-source","nect.shape.ellipse")}},atomic_revision);});
+    check(atomic_session.document()==atomic_before&&atomic_session.history()==atomic_history&&
+        atomic_session.revision()==atomic_revision,"Missing Composition rejects Ellipse creation atomically");
+    auto missing_width=default_primitive("malformed-source","nect.shape.ellipse");missing_width.parameters.erase("width");
+    rejects("INVALID_GENERATOR_PARAMETERS",[&]{atomic_session.apply({CreatePrimitive{"ellipse-atomic-comp","","bad","Bad",missing_width}},atomic_revision);});
+    auto unsupported=default_primitive("unsupported-source","nect.shape.ellipse");unsupported.type="nect.shape.future";
+    rejects("UNSUPPORTED_OPERATOR",[&]{atomic_session.apply({CreatePrimitive{"ellipse-atomic-comp","","bad","Bad",unsupported}},atomic_revision);});
+    check(atomic_session.document()==atomic_before&&atomic_session.history()==atomic_history&&
+        atomic_session.revision()==atomic_revision,"Malformed or unsupported Ellipse creation leaves no partial object or history");
+}
 }
 int main() {
     try {
+        ellipse_contract();
         Session s(empty_document("doc","comp","art"));
         s.apply({CreatePrimitive{"comp","","circle","Circle",circle()},
             CreatePrimitive{"comp","","rect","Rectangle",{"rect-source","nect.shape.rectangle",1,

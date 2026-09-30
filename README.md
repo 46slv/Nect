@@ -126,8 +126,8 @@ the build script defaults work. It deploys Qt DLLs/plugins only into the local
 build output. Close the development executable before rebuilding it. No SDK is
 downloaded by configure or the script.
 
-Add a Circle/Rectangle and adjust its parameters, create a Curve, or choose Draw
-Path and click anchors (Enter finishes).
+Add a Circle, Ellipse, Rectangle, Polygon or Star and adjust its parameters,
+create a Curve, or choose Draw Path and click anchors (Enter finishes).
 Drag anchors/handles; Alt-drag an anchor to create handles. Escape cancels a drag.
 Shift-click adds/removes objects or points; Ctrl/Shift extended selection in the
 tree uses the same selection. Dragging multiple objects or points is one Undo.
@@ -350,7 +350,7 @@ geometry/appearance. See [model contract](docs/model-v0.md#native010-property-ex
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.27.schema.json` — current native JSON shape (0.1–0.26 readers retained)
+- `schemas/native-v0.73.schema.json` — current native JSON shape (0.1–0.72 readers retained)
 
 ## Project rules
 

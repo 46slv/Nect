@@ -1026,7 +1026,7 @@ std::string phase_role(const char* lineage,unsigned numerator,unsigned denominat
 }
 std::vector<std::string> source_roles(const Primitive& source,std::optional<double> count={}) {
     require(source.version==1,"UNSUPPORTED_OPERATOR_VERSION","Unsupported primitive behavior version");
-    if(source.type=="nect.shape.circle")return {"east","south","west","north"};
+    if(source.type=="nect.shape.circle"||source.type=="nect.shape.ellipse")return {"east","south","west","north"};
     if(source.type=="nect.shape.rectangle")return {"top-left","top-right","bottom-right","bottom-left"};
     if(polystar(source)) {
         require(count.has_value(),"EVALUATION_REQUIRED","Dynamic primitive topology needs an evaluated point count");
@@ -1299,6 +1299,7 @@ Primitive default_primitive(Id id,const std::string& type) {
     Primitive source;source.id=std::move(id);source.type=type;
     source.parameters={{"center_x",{0,{}}},{"center_y",{0,{}}}};
     if(type=="nect.shape.circle")source.parameters.emplace("radius",Scalar{100,{}});
+    else if(type=="nect.shape.ellipse") {source.parameters.emplace("width",Scalar{220,{}});source.parameters.emplace("height",Scalar{140,{}});}
     else if(type=="nect.shape.rectangle") {source.parameters.emplace("width",Scalar{220,{}});source.parameters.emplace("height",Scalar{140,{}});}
     else if(type=="nect.shape.polygon"||type=="nect.shape.star") {
         source.parameters.emplace("points",Scalar{type=="nect.shape.star"?5.0:6.0,{}});
@@ -2145,6 +2146,12 @@ std::map<Ref,double> evaluate_properties(const Document& d,const std::vector<Ref
                 if(r.field=="x") {v=param("center_x");if(position==0)v+=param("radius");else if(position==2)v-=param("radius");}
                 else if(r.field=="y") {v=param("center_y");if(position==1)v+=param("radius");else if(position==3)v-=param("radius");}
                 else if(r.field.ends_with(".length"))v=param("radius")*0.5522847498307936;
+                else if(r.field=="in.angle")v=static_cast<double>(position)*90-90;
+                else if(r.field=="out.angle")v=static_cast<double>(position)*90+90;
+            } else if(s.type=="nect.shape.ellipse") {
+                if(r.field=="x") {v=param("center_x");if(position==0)v+=param("width")*0.5;else if(position==2)v-=param("width")*0.5;}
+                else if(r.field=="y") {v=param("center_y");if(position==1)v+=param("height")*0.5;else if(position==3)v-=param("height")*0.5;}
+                else if(r.field.ends_with(".length"))v=param(position%2==0?"height":"width")*0.5*0.5522847498307936;
                 else if(r.field=="in.angle")v=static_cast<double>(position)*90-90;
                 else if(r.field=="out.angle")v=static_cast<double>(position)*90+90;
             } else if(s.type=="nect.shape.rectangle") {

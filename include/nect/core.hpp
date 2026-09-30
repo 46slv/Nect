@@ -166,7 +166,7 @@ std::vector<std::string> text_fonts();
 
 struct Primitive {
     Id id;
-    std::string type; // nect.shape.circle / rectangle / polygon / star
+    std::string type; // nect.shape.circle / ellipse / rectangle / polygon / star
     unsigned version = 1;
     std::map<std::string,Scalar> parameters;
     bool operator==(const Primitive&) const = default;

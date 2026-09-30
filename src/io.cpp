@@ -746,11 +746,13 @@ j::object text_layout_json(const Document& d,const Id& id) {
         {"attachment_status",text_source.path_attachment?"attached":"detached"},{"svg_text","outlined"},{"font_embedded",false}};
 }
 
-Primitive read_primitive(const j::value& v,bool allow_polystar=true,bool allow_expression=true) {
+Primitive read_primitive(const j::value& v,bool allow_polystar=true,bool allow_expression=true,bool allow_ellipse=true) {
     const auto& o=v.as_object();keys(o,{"id","type","version","parameters"});
     Primitive s{text(o.at("id")),text(o.at("type")),j::value_to<unsigned>(o.at("version")),{}};
     if(!allow_polystar&&(s.type=="nect.shape.polygon"||s.type=="nect.shape.star"))
         throw Error("UNSUPPORTED_OPERATOR","Polygon and Star require native 0.8");
+    if(!allow_ellipse&&s.type=="nect.shape.ellipse")
+        throw Error("UNSUPPORTED_OPERATOR","Ellipse requires native 0.73");
     for(const auto& p:o.at("parameters").as_object())
         s.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
     return s;
@@ -2096,10 +2098,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,72> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72"};
+        constexpr std::array<std::string_view,73> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.72 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.73 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -2228,7 +2230,7 @@ Document decode(std::string_view input) {
                     obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17,minor>=18,minor>=22,minor>=19,minor>=20,minor>=21,minor>=24,minor>=55,minor>=61);
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
-                    obj.source=read_primitive(o.at("source"),minor>=8,minor>=10);
+                    obj.source=read_primitive(o.at("source"),minor>=8,minor>=10,minor>=73);
                     if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"),minor>=10,minor>=32,minor>=70);
                 } else {
                     if(o.contains("point_edit"))throw Error("INVALID_POINT_EDIT","Point Edit needs a retained generator");
@@ -2943,7 +2945,7 @@ std::string request(Session& session,std::string_view input) {
                 {"effects","none"},{"drafts","UI-only until an atomic set_expression command succeeds"}};
         } else if(op=="primitive_types") {
             keys(o,{"op"});j::array definitions;
-            for(const auto* type:{"nect.shape.circle","nect.shape.rectangle","nect.shape.polygon","nect.shape.star"}) {
+            for(const auto* type:{"nect.shape.circle","nect.shape.ellipse","nect.shape.rectangle","nect.shape.polygon","nect.shape.star"}) {
                 const auto source=default_primitive("new-source",type);
                 definitions.push_back(j::object{{"type",type},{"version",1},{"template",primitive_json(source)},
                     {"point_edit","absolute_local_override"},{"topology_change","reject_unmapped_corrections_or_references"}});
