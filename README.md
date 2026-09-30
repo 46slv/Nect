@@ -159,6 +159,24 @@ Open, self-intersecting or touching compound outlines reject visibly. Curves use
 bounded0.1du polygon approximation in evaluated output; native source points stay
 editable. Zero Amount and bypass preserve input exactly.
 
+The Effects dock also has a searchable Presets tab for document-local native
+PresetDefinition v1. Save Current Stack as Preset captures exactly one Offset
+followed by one Repeater in source stack order; the panel displays their source
+instance IDs, while other paint entries are excluded. Enabled state, numeric
+parameters and supported options are saved as literals. Capture rejects a link or
+expression on a captured field and reports the exact source Ref. Apply appends a
+fresh Offset→Repeater pair in one Session edit and one Undo. Rename, update from
+the current stack and delete edit the named definition; re-editing never changes
+already-applied operation snapshots. Native 0.63 saves these definitions and
+reopens them with the document.
+
+The same API/MCP Session surface supports `presets`, `preset {id}` and single
+`apply` requests with `create_preset`, `create_preset_from_stack`, `rename_preset`,
+`update_preset`, `delete_preset` or `apply_preset`. `create_preset_from_stack`
+returns the exact captured source operation IDs and types. These v1 presets cover
+the built-in Offset/Repeater stack only; they do not implement Macros, Actions,
+published parameter libraries or cross-document libraries.
+
 Add Text creates an editable source. Use Edit text to compose Japanese or other
 Unicode content, then Apply for one undo step. Select font, writing direction,
 alignment and sizing in Properties; numeric text fields also support links.

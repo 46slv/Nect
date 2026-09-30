@@ -3749,6 +3749,48 @@ std::map<Id,double> evaluate_guide_positions(const Document& document,const Id& 
     return result;
 }
 
+static void validate_preset_definition(const Id& map_id,const PresetDefinition& preset) {
+    identity(map_id);require(map_id==preset.id,"ID_MISMATCH",map_id);
+    require(preset.schema_version==1,"UNSUPPORTED_PRESET_SCHEMA","Only Preset schema version 1 is supported");
+    require(!preset.label.empty()&&preset.label.size()<=256,"INVALID_PRESET_LABEL","Preset label must be 1..256 UTF-8 bytes");
+    text_utf8(preset.label);
+    require(preset.category.size()<=128,"INVALID_PRESET_METADATA","Preset category is limited to 128 UTF-8 bytes");text_utf8(preset.category);
+    require(preset.tags.size()<=32,"INVALID_PRESET_METADATA","Preset supports at most 32 tags");
+    std::set<std::string> tags;
+    for(const auto& tag:preset.tags) {
+        require(!tag.empty()&&tag.size()<=64,"INVALID_PRESET_METADATA","Preset tags must be 1..64 UTF-8 bytes");
+        text_utf8(tag);require(tags.insert(tag).second,"INVALID_PRESET_METADATA","Preset tags must be unique");
+    }
+    require(preset.target_domain=="local_paths_and_paint","INVALID_PRESET_DOMAIN",preset.target_domain);
+    require(preset.entries.size()==2,"INVALID_PRESET_ORDER","Preset v1 requires exactly Offset followed by Repeater");
+    require(preset.entries[0].type=="nect.shape.offset"&&preset.entries[1].type=="nect.shape.repeater",
+        "INVALID_PRESET_ORDER","Preset v1 order is nect.shape.offset then nect.shape.repeater");
+    for(const auto& entry:preset.entries) {
+        const auto* descriptor=builtin_operation_type(entry.type);
+        require(descriptor&&(entry.type=="nect.shape.offset"||entry.type=="nect.shape.repeater"),
+            "UNSUPPORTED_PRESET_OPERATION",entry.type);
+        require(entry.version==descriptor->version,"UNSUPPORTED_PRESET_VERSION",entry.type);
+        require(descriptor->input==preset.target_domain,"INVALID_PRESET_DOMAIN",entry.type);
+        const auto defaults=default_operation("preset-entry",entry.type);
+        require(entry.parameters.size()==defaults.parameters.size(),"INVALID_PRESET_PARAMETERS",entry.type);
+        for(const auto& [name,value]:entry.parameters) {
+            require(defaults.parameters.contains(name),"INVALID_PRESET_PARAMETERS",name);
+            value_range(operation_ref("preset","preset-entry",name),value);
+        }
+        require(entry.composite=="above"||entry.composite=="below","UNSUPPORTED_COMPOSITE",entry.composite);
+        require(entry.fill_rule=="nonzero"||entry.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",entry.fill_rule);
+        if(entry.type=="nect.shape.offset") {
+            require(entry.composite=="below","INVALID_OPERATOR_OPTIONS","Offset has no Above/Below compositing option");
+            require(entry.line_join=="miter"||entry.line_join=="round"||entry.line_join=="bevel",
+                "INVALID_OPERATOR_OPTIONS","Offset joins are miter, round or bevel");
+        } else {
+            require(entry.fill_rule=="nonzero"&&entry.line_join=="miter"&&entry.line_cap=="butt",
+                "INVALID_OPERATOR_OPTIONS","Repeater does not accept Fill rule or paint style options");
+        }
+        require(entry.line_cap=="butt","INVALID_OPERATOR_OPTIONS","Preset v1 does not capture Stroke cap options");
+    }
+}
+
 static std::map<Ref,double> validate_evaluated(const Document& d) {
     require(d.objects.size()<=10000 && d.compositions.size()<=128,"LIMIT","Document size limit");
     std::set<Id> ids;
@@ -3758,6 +3800,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     };
 
     add(d.id);
+    require(d.preset_definitions.size()<=128,"LIMIT","Preset definition count limit 128");
+    for(const auto& [id,preset]:d.preset_definitions) {
+        add(id);validate_preset_definition(id,preset);
+    }
     require(d.raster_assets.size()<=128,"LIMIT","Raster asset count limit 128");
     std::size_t raster_bytes=0;std::uint64_t raster_pixels=0;
     for(const auto& [id,asset]:d.raster_assets) {
@@ -4354,6 +4400,16 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
 }
 
 void validate(const Document& d) { (void)validate_evaluated(d); }
+
+std::vector<Id> preset_operation_ids(const PresetDefinition& preset,const Id& prefix) {
+    identity(prefix);
+    require(prefix.size()<=90,"INVALID_ID","Preset operation ID prefix must leave room for generated suffixes");
+    std::vector<Id> ids;ids.reserve(preset.entries.size());
+    for(std::size_t i=0;i<preset.entries.size();++i) {
+        auto id=prefix+"-op-"+std::to_string(i+1);identity(id);ids.push_back(std::move(id));
+    }
+    return ids;
+}
 
 Session::Session(Document d,HistoryLimits limits):document_(std::move(d)),history_limits_(limits) {
     require(limits.max_entries>0&&limits.max_bytes>0,"INVALID_HISTORY_LIMITS","History limits must both be positive");
@@ -5311,6 +5367,100 @@ void edit_text_weight_command(Document& candidate,const LinkTextWeight& command)
         text.weight_driver.reset();text.weight_expression=expression;
     }
 }
+PresetDefinition capture_preset_from_stack(const Document& document,const CreatePresetFromStack& command) {
+    require(command.metadata.entries.empty(),"INVALID_PRESET","Create-from-stack does not accept a parameter payload");
+    require(document.objects.contains(command.object),"MISSING_OBJECT",command.object);
+    const auto& object=document.objects.at(command.object);
+    require(object.kind==Kind::path||object.kind==Kind::text,"INVALID_DOMAIN","Presets require a Path or Text target");
+    std::vector<const ShapeOperation*> portable_operations;
+    std::vector<Ref> driven_fields;
+    for(const auto& operation:object.stack) {
+        if(operation.type!="nect.shape.offset"&&operation.type!="nect.shape.repeater")continue;
+        portable_operations.push_back(&operation);
+        if(operation.enabled_driver)driven_fields.push_back(operation_ref(command.object,operation.id,"enabled"));
+        if(operation.fill_rule_driver)driven_fields.push_back(operation_ref(command.object,operation.id,"fill_rule"));
+        for(const auto& [name,value]:operation.parameters)
+            if(driven(value))driven_fields.push_back(operation_ref(command.object,operation.id,name));
+    }
+    if(!driven_fields.empty()) {
+        Error error("PRESET_NONPORTABLE_SOURCE","Preset capture refuses link/expression-driven fields; references identify the exact authored Refs");
+        error.references=std::move(driven_fields);throw error;
+    }
+    PresetDefinition result=command.metadata;
+    result.entries.clear();
+    for(const auto* source:portable_operations) {
+        const auto& operation=*source;
+        require(!operation.gradient,"UNSUPPORTED_PRESET_OPTION","Preset v1 does not capture Gradient payloads");
+        PresetEntry entry;entry.type=operation.type;entry.version=operation.version;entry.enabled=operation.enabled;
+        for(const auto& [name,value]:operation.parameters)entry.parameters.emplace(name,value.literal);
+        entry.composite=operation.composite;entry.fill_rule=operation.fill_rule;
+        entry.line_join=operation.line_join;entry.line_cap=operation.line_cap;
+        result.entries.push_back(std::move(entry));
+    }
+    return result;
+}
+
+ShapeOperation operation_from_preset(const PresetEntry& entry,const Id& id) {
+    auto operation=default_operation(id,entry.type);operation.version=entry.version;operation.enabled=entry.enabled;
+    for(auto& [name,value]:operation.parameters)value.literal=entry.parameters.at(name);
+    operation.composite=entry.composite;operation.fill_rule=entry.fill_rule;
+    operation.line_join=entry.line_join;operation.line_cap=entry.line_cap;
+    return operation;
+}
+
+void edit_preset(Document& candidate,const PresetCommand& command) {
+    std::visit([&](const auto& mutation) {
+        using T=std::decay_t<decltype(mutation)>;
+        if constexpr(std::is_same_v<T,CreatePreset>) {
+            require(!candidate.preset_definitions.contains(mutation.definition.id),"DUPLICATE_ID",mutation.definition.id);
+            candidate.preset_definitions.emplace(mutation.definition.id,mutation.definition);
+        } else if constexpr(std::is_same_v<T,CreatePresetFromStack>) {
+            auto definition=capture_preset_from_stack(candidate,mutation);
+            require(!candidate.preset_definitions.contains(definition.id),"DUPLICATE_ID",definition.id);
+            candidate.preset_definitions.emplace(definition.id,std::move(definition));
+        } else if constexpr(std::is_same_v<T,RenamePreset>) {
+            const auto found=candidate.preset_definitions.find(mutation.preset);
+            require(found!=candidate.preset_definitions.end(),"MISSING_PRESET",mutation.preset);
+            found->second.label=mutation.label;
+        } else if constexpr(std::is_same_v<T,UpdatePreset>) {
+            const auto found=candidate.preset_definitions.find(mutation.definition.id);
+            require(found!=candidate.preset_definitions.end(),"MISSING_PRESET",mutation.definition.id);
+            found->second=mutation.definition;
+        } else if constexpr(std::is_same_v<T,DeletePreset>) {
+            require(candidate.preset_definitions.erase(mutation.preset)==1,"MISSING_PRESET",mutation.preset);
+        } else if constexpr(std::is_same_v<T,ApplyPreset>) {
+            const auto found=candidate.preset_definitions.find(mutation.preset);
+            require(found!=candidate.preset_definitions.end(),"MISSING_PRESET",mutation.preset);
+            const auto& definition=found->second;
+            validate_preset_definition(found->first,definition);
+            const auto target=candidate.objects.find(mutation.object);
+            require(target!=candidate.objects.end(),"MISSING_OBJECT",mutation.object);
+            require(target->second.kind==Kind::path||target->second.kind==Kind::text,
+                "INVALID_DOMAIN","Preset target must be a Path or Text object");
+            require(target->second.stack.size()+definition.entries.size()<=128,
+                "LIMIT","Preset application would exceed the 128-operation stack limit");
+            const auto ids=preset_operation_ids(definition,mutation.operation_id_prefix);
+            for(std::size_t i=0;i<definition.entries.size();++i)
+                target->second.stack.push_back(operation_from_preset(definition.entries[i],ids[i]));
+        }
+    },command.mutation);
+}
+
+std::string preset_history_label(const PresetCommand& command,const Document& candidate) {
+    return std::visit([&](const auto& mutation)->std::string {
+        using T=std::decay_t<decltype(mutation)>;
+        if constexpr(std::is_same_v<T,CreatePreset>)return "Create Preset: "+mutation.definition.label;
+        else if constexpr(std::is_same_v<T,CreatePresetFromStack>)return "Create Preset: "+mutation.metadata.label;
+        else if constexpr(std::is_same_v<T,RenamePreset>)return "Rename Preset: "+mutation.label;
+        else if constexpr(std::is_same_v<T,UpdatePreset>)return "Update Preset: "+mutation.definition.label;
+        else if constexpr(std::is_same_v<T,DeletePreset>)return "Delete Preset: "+mutation.preset;
+        else {
+            const auto found=candidate.preset_definitions.find(mutation.preset);
+            return "Apply Preset: "+(found==candidate.preset_definitions.end()?mutation.preset:found->second.label);
+        }
+    },command.mutation);
+}
+
 Document edited(const Document& document,const std::vector<Command>& commands,std::map<Ref,double>* evaluated=nullptr) {
     require(!commands.empty()&&commands.size()<=1000,"INVALID_BATCH","Batch must have 1..1000 commands");
     std::set<Ref> fill_rule_targets;
@@ -6227,6 +6377,10 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
 }
 }
 
+PresetDefinition capture_preset_definition(const Document& document,PresetDefinition metadata,const Id& object) {
+    return capture_preset_from_stack(document,CreatePresetFromStack{std::move(metadata),object});
+}
+
 std::vector<Id> duplicated_roots(const Document& document,const DuplicateObjects& command) {
     const auto plan=plan_duplication(document,command);std::vector<Id> result;
     for(const auto& id:plan.roots)result.push_back(plan.ids.at(id));return result;
@@ -6265,6 +6419,16 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
     });
     if(only_layout&&candidate==document_)return;
     auto label=history_label(commands,candidate);
+    commit(std::move(candidate),std::move(label));
+}
+
+void Session::apply_preset_command(const PresetCommand& command,std::uint64_t expected) {
+    check_revision(expected);
+    auto candidate=document_;
+    edit_preset(candidate,command);
+    if(candidate==document_)return;
+    (void)validate_evaluated(candidate);
+    auto label=preset_history_label(command,candidate);
     commit(std::move(candidate),std::move(label));
 }
 

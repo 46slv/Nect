@@ -16,16 +16,17 @@
 namespace nect {
 using Id = std::string;
 
-struct Error : std::runtime_error {
-    std::string code;
-    Error(std::string code, const std::string& message);
-};
-
 struct Ref {
     Id object;
     Id point;
     std::string field;
     auto operator<=>(const Ref&) const = default;
+};
+
+struct Error : std::runtime_error {
+    std::string code;
+    std::vector<Ref> references;
+    Error(std::string code, const std::string& message);
 };
 
 struct Binding {
@@ -214,6 +215,28 @@ struct ShapeOperation {
     bool operator==(const ShapeOperation&) const = default;
 };
 ShapeOperation default_operation(Id id,const std::string& type);
+struct PresetEntry {
+    std::string type;
+    unsigned version=1;
+    bool enabled=true;
+    std::map<std::string,double> parameters;
+    std::string composite="below";
+    std::string fill_rule="nonzero";
+    std::string line_join="miter";
+    std::string line_cap="butt";
+    bool operator==(const PresetEntry&) const = default;
+};
+struct PresetDefinition {
+    Id id;
+    unsigned schema_version=1;
+    std::string label;
+    std::string category;
+    std::vector<std::string> tags;
+    std::string target_domain="local_paths_and_paint";
+    std::vector<PresetEntry> entries;
+    bool operator==(const PresetDefinition&) const = default;
+};
+std::vector<Id> preset_operation_ids(const PresetDefinition&,const Id& prefix);
 // Immutable descriptors for executable built-ins. External extension registration is not yet supported.
 struct BuiltinOperationType {
     std::string type,label,target_kind,input,output;
@@ -388,6 +411,7 @@ struct Document {
     std::vector<Collection> collections;
     std::map<Id,NamedColor> named_colors;
     std::map<Id,RasterAsset> raster_assets;
+    std::map<Id,PresetDefinition> preset_definitions;
     bool operator==(const Document&) const = default;
 };
 
@@ -429,6 +453,15 @@ struct ConvertToPath { Id object; };
 struct AddOperation { Id object; ShapeOperation operation; std::size_t index; };
 struct RemoveOperation { Id object; Id operation; };
 struct ReorderOperations { Id object; std::vector<Id> order; };
+struct CreatePreset { PresetDefinition definition; };
+struct CreatePresetFromStack { PresetDefinition metadata; Id object; };
+PresetDefinition capture_preset_definition(const Document&,PresetDefinition metadata,const Id& object);
+struct RenamePreset { Id preset; std::string label; };
+struct UpdatePreset { PresetDefinition definition; };
+struct DeletePreset { Id preset; };
+struct ApplyPreset { Id preset; Id object; Id operation_id_prefix; };
+using PresetMutation=std::variant<CreatePreset,CreatePresetFromStack,RenamePreset,UpdatePreset,DeletePreset,ApplyPreset>;
+struct PresetCommand { PresetMutation mutation; };
 struct EnableOperation { Id object; Id operation; bool enabled; };
 struct LinkOperationEnabled { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkOperationEnabled { Ref target; };
@@ -1018,6 +1051,7 @@ public:
     const Document& document() const { return document_; }
     std::uint64_t revision() const { return revision_; }
     void apply(const std::vector<Command>& commands, std::uint64_t expected_revision);
+    void apply_preset_command(const PresetCommand&,std::uint64_t expected_revision);
     void undo(std::uint64_t expected_revision);
     void redo(std::uint64_t expected_revision);
     bool can_undo() const { return history_cursor_>0; }
@@ -1047,6 +1081,7 @@ private:
         std::vector<HistoryChange<Object>> objects;
         std::vector<HistoryChange<NamedColor>> colors;
         std::vector<HistoryChange<RasterAsset>> assets;
+        std::vector<HistoryChange<PresetDefinition>> presets;
         std::optional<std::pair<std::vector<Composition>,std::vector<Composition>>> compositions;
         std::optional<std::pair<std::vector<Collection>,std::vector<Collection>>> collections;
     };

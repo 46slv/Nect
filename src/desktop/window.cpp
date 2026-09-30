@@ -592,14 +592,18 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     effects_dock_=new QDockWidget("Effects",this);
     effects_dock_->setObjectName("effects");
     auto* effects_body=new QWidget(effects_dock_);
-    auto* effects_layout=new QVBoxLayout(effects_body);
-    effects_layout->setContentsMargins(8,8,8,8);effects_layout->setSpacing(6);
-    auto* effects_heading=new QLabel("Built-in effects",effects_body);effects_heading->setObjectName("effects-heading");
+    auto* effects_root_layout=new QVBoxLayout(effects_body);
+    effects_root_layout->setContentsMargins(8,8,8,8);effects_root_layout->setSpacing(6);
+    effects_tabs_=new QTabWidget(effects_body);effects_tabs_->setObjectName("effects-tabs");
+    auto* effects_page=new QWidget(effects_tabs_);
+    auto* effects_layout=new QVBoxLayout(effects_page);
+    effects_layout->setContentsMargins(4,4,4,4);effects_layout->setSpacing(6);
+    auto* effects_heading=new QLabel("Built-in effects",effects_page);effects_heading->setObjectName("effects-heading");
     effects_layout->addWidget(effects_heading);
-    effects_search_=new QLineEdit(effects_body);effects_search_->setObjectName("effects-search");
+    effects_search_=new QLineEdit(effects_page);effects_search_->setObjectName("effects-search");
     effects_search_->setPlaceholderText("Search effects…");effects_search_->setClearButtonEnabled(true);
     effects_layout->addWidget(effects_search_);
-    effects_catalog_=new QListWidget(effects_body);effects_catalog_->setObjectName("effects-catalog");
+    effects_catalog_=new QListWidget(effects_page);effects_catalog_->setObjectName("effects-catalog");
     effects_catalog_->setSelectionMode(QAbstractItemView::SingleSelection);
     for(const auto& descriptor:builtin_operation_types())if(descriptor.effects_catalog) {
         auto* entry=new QListWidgetItem(qs(descriptor.label),effects_catalog_);
@@ -609,25 +613,54 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     }
     if(effects_catalog_->count())effects_catalog_->setCurrentRow(0);
     effects_layout->addWidget(effects_catalog_);
-    auto* no_results=new QLabel("No supported effects match this search.",effects_body);
+    auto* no_results=new QLabel("No supported effects match this search.",effects_page);
     no_results->setObjectName("effects-no-results");no_results->setWordWrap(true);no_results->hide();effects_layout->addWidget(no_results);
-    effects_target_=new QLabel(effects_body);effects_target_->setObjectName("effects-target");
+    effects_target_=new QLabel(effects_page);effects_target_->setObjectName("effects-target");
     effects_target_->setWordWrap(true);effects_target_->setTextFormat(Qt::PlainText);effects_layout->addWidget(effects_target_);
-    effects_apply_=new QPushButton("Apply Offset Paths",effects_body);effects_apply_->setObjectName("effects-apply");
+    effects_apply_=new QPushButton("Apply Offset Paths",effects_page);effects_apply_->setObjectName("effects-apply");
     effects_layout->addWidget(effects_apply_);
-    effects_status_=new QLabel(effects_body);effects_status_->setObjectName("effects-status");
+    effects_status_=new QLabel(effects_page);effects_status_->setObjectName("effects-status");
     effects_status_->setWordWrap(true);effects_status_->setTextFormat(Qt::PlainText);effects_layout->addWidget(effects_status_);
-    auto* applied=new QGroupBox("Applied effect instances",effects_body);applied->setObjectName("effects-applied");
+    auto* applied=new QGroupBox("Applied effect instances",effects_page);applied->setObjectName("effects-applied");
     effects_operations_=new QWidget(applied);effects_operations_layout_=new QVBoxLayout(effects_operations_);
     effects_operations_layout_->setContentsMargins(0,0,0,0);effects_operations_layout_->setSpacing(4);
     auto* applied_layout=new QVBoxLayout(applied);applied_layout->addWidget(effects_operations_);
     effects_layout->addWidget(applied);effects_layout->addStretch();
+    effects_tabs_->addTab(effects_page,"Effects");
+
+    auto* presets_page=new QWidget(effects_tabs_);
+    auto* presets_layout=new QVBoxLayout(presets_page);
+    presets_layout->setContentsMargins(4,4,4,4);presets_layout->setSpacing(6);
+    auto* presets_heading=new QLabel("Document Presets · Offset then Repeater",presets_page);
+    presets_heading->setObjectName("presets-heading");presets_layout->addWidget(presets_heading);
+    presets_search_=new QLineEdit(presets_page);presets_search_->setObjectName("presets-search");
+    presets_search_->setPlaceholderText("Search presets by name, category, tag, or ID…");
+    presets_search_->setClearButtonEnabled(true);presets_layout->addWidget(presets_search_);
+    presets_catalog_=new QListWidget(presets_page);presets_catalog_->setObjectName("presets-catalog");
+    presets_catalog_->setSelectionMode(QAbstractItemView::SingleSelection);presets_layout->addWidget(presets_catalog_);
+    presets_status_=new QLabel(presets_page);presets_status_->setObjectName("presets-status");
+    presets_status_->setWordWrap(true);presets_status_->setTextFormat(Qt::PlainText);presets_layout->addWidget(presets_status_);
+    presets_save_=new QPushButton("Save Current Stack as Preset",presets_page);presets_save_->setObjectName("preset-save");
+    presets_save_->setToolTip("Captures the supported Offset and Repeater operations in their current stack order. Other paint operations are not included.");
+    presets_layout->addWidget(presets_save_);
+    presets_apply_=new QPushButton("Apply Preset",presets_page);presets_apply_->setObjectName("preset-apply");
+    presets_layout->addWidget(presets_apply_);
+    presets_rename_=new QPushButton("Rename Preset",presets_page);presets_rename_->setObjectName("preset-rename");
+    presets_layout->addWidget(presets_rename_);
+    presets_update_=new QPushButton("Update from Current Stack",presets_page);presets_update_->setObjectName("preset-update");
+    presets_layout->addWidget(presets_update_);
+    presets_delete_=new QPushButton("Delete Preset",presets_page);presets_delete_->setObjectName("preset-delete");
+    presets_layout->addWidget(presets_delete_);presets_layout->addStretch();
+    effects_tabs_->addTab(presets_page,"Presets");
+    effects_root_layout->addWidget(effects_tabs_);
     effects_dock_->setWidget(effects_body);
     addDockWidget(Qt::RightDockWidgetArea,effects_dock_);
     tabifyDockWidget(right,effects_dock_);
     right->raise();
     connect(effects_search_,&QLineEdit::textChanged,this,[this](const QString&){rebuild_effects_panel();});
     connect(effects_catalog_,&QListWidget::currentItemChanged,this,[this](QListWidgetItem*,QListWidgetItem*){rebuild_effects_panel();});
+    connect(presets_search_,&QLineEdit::textChanged,this,[this](const QString&){rebuild_effects_panel();});
+    connect(presets_catalog_,&QListWidget::currentItemChanged,this,[this](QListWidgetItem*,QListWidgetItem*){rebuild_effects_panel();});
     connect(effects_apply_,&QPushButton::clicked,this,[this]{
         const auto frozen_session=effects_session_;const auto frozen_target=effects_target_id_;
         const auto frozen_revision=effects_revision_;const auto frozen_generation=effects_generation_;
@@ -652,6 +685,98 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
                 " · "+effect_type+" ("+effect_name+") · "+QString::fromUtf8(error.what());
             effects_status_->setText(message);statusBar()->showMessage(message,12000);
         }
+    });
+    const auto preset_context_current=[this](std::uint64_t generation,const QString& session,const Id& target,std::uint64_t revision) {
+        if(host.session_id!=session)throw Error("SESSION_CONFLICT","Preset selection belongs to another document");
+        if(generation!=effects_generation_)throw Error("REVISION_CONFLICT","Preset browser changed; refresh the target before editing");
+        if(canvas->selected_object!=target)throw Error("TARGET_CONFLICT","Preset target changed; choose the current target");
+        if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Preset document changed elsewhere; refresh the browser before editing");
+    };
+    const auto set_preset_status=[this](const QString& message){presets_status_->setText(message);statusBar()->showMessage(message,12000);};
+    connect(presets_save_,&QPushButton::clicked,this,[this,preset_context_current,set_preset_status]{
+        const auto generation=effects_generation_;const auto session=effects_session_;const auto target=effects_target_id_;
+        const auto revision=effects_revision_;
+        const auto object=host.session.document().objects.find(target);
+        if(object==host.session.document().objects.end()) {set_preset_status("Select a Path or Text with the v1 Offset → Repeater stack.");return;}
+        bool accepted=false;
+        const auto label=QInputDialog::getText(this,"Save Preset","Preset name:",QLineEdit::Normal,{},&accepted);
+        if(!accepted)return;
+        try {
+            preset_context_current(generation,session,target,revision);
+            QStringList source_operations;
+            for(const auto& operation:host.session.document().objects.at(target).stack)
+                if(operation.type=="nect.shape.offset"||operation.type=="nect.shape.repeater")
+                    source_operations.push_back(qs(operation.id)+" ("+qs(operation.type)+")");
+            PresetDefinition metadata;metadata.id=new_id();metadata.label=label.toStdString();
+            host.session.apply_preset_command(PresetCommand{CreatePresetFromStack{metadata,target}},revision);
+            host.edited();set_preset_status("Saved “"+label+"” from these source operations: "+source_operations.join(" → ")+".");
+        } catch(const Error& error) {
+            auto message=qs(error.code)+": "+QString::fromUtf8(error.what());
+            for(const auto& ref:error.references)message+=" · Ref{object:\""+qs(ref.object)+"\",point:\""+
+                qs(ref.point)+"\",field:\""+qs(ref.field)+"\"}";
+            set_preset_status(message);
+        } catch(const std::exception& error) {set_preset_status(QString::fromUtf8(error.what()));}
+    });
+    connect(presets_apply_,&QPushButton::clicked,this,[this,preset_context_current,set_preset_status]{
+        const auto generation=effects_generation_;const auto session=effects_session_;const auto target=effects_target_id_;
+        const auto revision=effects_revision_;const auto* item=presets_catalog_->currentItem();
+        if(!item){set_preset_status("Choose a document preset to apply.");return;}
+        const auto preset=item->data(Qt::UserRole).toString().toStdString();const auto label=item->text();
+        try {
+            preset_context_current(generation,session,target,revision);
+            host.session.apply_preset_command(PresetCommand{ApplyPreset{preset,target,new_id()}},revision);
+            host.edited();set_preset_status("Applied “"+label+"” as a fresh Offset → Repeater stack.");
+        } catch(const Error& error) {set_preset_status(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+        catch(const std::exception& error) {set_preset_status(QString::fromUtf8(error.what()));}
+    });
+    connect(presets_rename_,&QPushButton::clicked,this,[this,preset_context_current,set_preset_status]{
+        const auto generation=effects_generation_;const auto session=effects_session_;const auto target=effects_target_id_;
+        const auto revision=effects_revision_;const auto* item=presets_catalog_->currentItem();
+        if(!item){set_preset_status("Choose a document preset to rename.");return;}
+        const auto id=item->data(Qt::UserRole).toString().toStdString();const auto old_label=item->text();bool accepted=false;
+        const auto label=QInputDialog::getText(this,"Rename Preset","Preset name:",QLineEdit::Normal,old_label,&accepted);
+        if(!accepted)return;
+        try {
+            preset_context_current(generation,session,target,revision);
+            host.session.apply_preset_command(PresetCommand{RenamePreset{id,label.toStdString()}},revision);
+            host.edited();set_preset_status("Renamed preset to “"+label+"”.");
+        } catch(const Error& error) {set_preset_status(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+        catch(const std::exception& error) {set_preset_status(QString::fromUtf8(error.what()));}
+    });
+    connect(presets_update_,&QPushButton::clicked,this,[this,preset_context_current,set_preset_status]{
+        const auto generation=effects_generation_;const auto session=effects_session_;const auto target=effects_target_id_;
+        const auto revision=effects_revision_;const auto* item=presets_catalog_->currentItem();
+        if(!item){set_preset_status("Choose a document preset to update.");return;}
+        const auto id=item->data(Qt::UserRole).toString().toStdString();const auto label=item->text();
+        try {
+            preset_context_current(generation,session,target,revision);
+            const auto& current=host.session.document().preset_definitions.at(id);
+            auto metadata=current;metadata.entries.clear();
+            auto definition=capture_preset_definition(host.session.document(),std::move(metadata),target);
+            QStringList source_operations;
+            for(const auto& operation:host.session.document().objects.at(target).stack)
+                if(operation.type=="nect.shape.offset"||operation.type=="nect.shape.repeater")
+                    source_operations.push_back(qs(operation.id)+" ("+qs(operation.type)+")");
+            host.session.apply_preset_command(PresetCommand{UpdatePreset{std::move(definition)}},revision);
+            host.edited();set_preset_status("Updated “"+label+"” from source operations "+source_operations.join(" → ")+"; existing applied snapshots are unchanged.");
+        } catch(const Error& error) {
+            auto message=qs(error.code)+": "+QString::fromUtf8(error.what());
+            for(const auto& ref:error.references)message+=" · Ref{object:\""+qs(ref.object)+"\",point:\""+
+                qs(ref.point)+"\",field:\""+qs(ref.field)+"\"}";
+            set_preset_status(message);
+        } catch(const std::exception& error) {set_preset_status(QString::fromUtf8(error.what()));}
+    });
+    connect(presets_delete_,&QPushButton::clicked,this,[this,preset_context_current,set_preset_status]{
+        const auto generation=effects_generation_;const auto session=effects_session_;const auto target=effects_target_id_;
+        const auto revision=effects_revision_;const auto* item=presets_catalog_->currentItem();
+        if(!item){set_preset_status("Choose a document preset to delete.");return;}
+        const auto id=item->data(Qt::UserRole).toString().toStdString();const auto label=item->text();
+        try {
+            preset_context_current(generation,session,target,revision);
+            host.session.apply_preset_command(PresetCommand{DeletePreset{id}},revision);
+            host.edited();set_preset_status("Deleted “"+label+"”. Undo restores its definition.");
+        } catch(const Error& error) {set_preset_status(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+        catch(const std::exception& error) {set_preset_status(QString::fromUtf8(error.what()));}
     });
     resizeDocks({structure,right},{215,320},Qt::Horizontal);
     auto* file=menuBar()->addMenu("&File");
@@ -1209,7 +1334,7 @@ void Window::refresh(bool project_canvas) {
 }
 
 void Window::rebuild_effects_panel() {
-    if(!effects_catalog_||!effects_status_||!effects_operations_layout_)return;
+    if(!effects_catalog_||!effects_status_||!effects_operations_layout_||!presets_catalog_||!presets_status_)return;
     ++effects_generation_;
     effects_session_=host.session_id;
     effects_target_id_=canvas->selected_object;
@@ -1326,6 +1451,50 @@ void Window::rebuild_effects_panel() {
         }
     }
     effects_operations_layout_->addStretch();
+
+    const auto* old_preset_item=presets_catalog_->currentItem();
+    const auto old_preset_id=old_preset_item?old_preset_item->data(Qt::UserRole).toString():QString{};
+    const auto preset_query=presets_search_?presets_search_->text().trimmed():QString{};
+    QListWidgetItem* matching_preset=nullptr;
+    {
+        const QSignalBlocker blocker(presets_catalog_);
+        presets_catalog_->clear();
+        for(const auto& [id,definition]:document.preset_definitions) {
+            QString searchable=qs(id)+" "+qs(definition.label)+" "+qs(definition.category);
+            for(const auto& tag:definition.tags)searchable+=" "+qs(tag);
+            if(!preset_query.isEmpty()&&!searchable.contains(preset_query,Qt::CaseInsensitive))continue;
+            auto* item=new QListWidgetItem(qs(definition.label),presets_catalog_);
+            item->setData(Qt::UserRole,qs(id));
+            const auto entry_summary=QString("%1 entries · schema v%2 · %3")
+                .arg(definition.entries.size()).arg(definition.schema_version).arg(qs(definition.target_domain));
+            item->setToolTip("ID: "+qs(id)+"\nCategory: "+qs(definition.category)+"\n"+entry_summary+
+                "\nOffset then Repeater · literal snapshot · editing this definition does not change applied stacks");
+            if(id==old_preset_id.toStdString())matching_preset=item;
+            if(!matching_preset)matching_preset=item;
+        }
+        if(matching_preset)presets_catalog_->setCurrentItem(matching_preset);
+    }
+    const auto selected_preset=presets_catalog_->currentItem();
+    const bool target_supports_presets=selected!=document.objects.end()&&
+        (selected->second.kind==Kind::path||selected->second.kind==Kind::text);
+    const bool has_preset=selected_preset!=nullptr;
+    presets_save_->setEnabled(target_supports_presets);
+    presets_apply_->setEnabled(has_preset&&target_supports_presets);
+    presets_rename_->setEnabled(has_preset);
+    presets_update_->setEnabled(has_preset&&target_supports_presets);
+    presets_delete_->setEnabled(has_preset);
+    if(!has_preset) {
+        presets_status_->setText(document.preset_definitions.empty()?
+            "No document presets yet. Save a selected Path or Text with exactly one Offset then one Repeater; other paint operations are excluded.":
+            "No presets match “"+preset_query+"”.");
+    } else {
+        const auto id=selected_preset->data(Qt::UserRole).toString().toStdString();
+        const auto& definition=document.preset_definitions.at(id);
+        if(target_supports_presets)
+            presets_status_->setText("Selected “"+qs(definition.label)+"” · applies to "+qs(selected->second.name)+
+                " · Offset then Repeater · append only");
+        else presets_status_->setText("Selected “"+qs(definition.label)+"” · choose a Path or Text target to apply or update it.");
+    }
 }
 
 void Window::sync_utility_view_state() {

@@ -18,6 +18,7 @@ std::size_t multiply(std::size_t a,std::size_t b) {
 }
 template<class... T>std::size_t total(T... values) {std::size_t result=0;((result=add(result,values)),...);return result;}
 std::size_t extra(const std::string& value){return total(value.capacity(),std::size_t{1},allocation_overhead);}
+std::size_t extra(double){return 0;}
 std::size_t extra(const Ref&);
 std::size_t extra(const Binding&);
 std::size_t extra(const Expression&);
@@ -54,6 +55,8 @@ std::size_t extra(const Artboard&);
 std::size_t extra(const Composition&);
 std::size_t extra(const Collection&);
 std::size_t extra(const NamedColor&);
+std::size_t extra(const PresetEntry&);
+std::size_t extra(const PresetDefinition&);
 template<class T>std::size_t extra(const std::optional<T>&);
 template<class A,class B>std::size_t extra(const std::pair<A,B>&);
 template<class T,std::size_t N>std::size_t extra(const std::array<T,N>&);
@@ -94,6 +97,8 @@ std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
 std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops));}
 std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.enabled_driver),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.fill_rule_driver),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
+std::size_t extra(const PresetEntry& v){return total(extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.line_join),extra(v.line_cap));}
+std::size_t extra(const PresetDefinition& v){return total(extra(v.id),extra(v.label),extra(v.category),extra(v.tags),extra(v.target_domain),extra(v.entries));}
 std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule),extra(v.enabled_driver));}
 std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.isolated_driver),extra(v.mask));}
 std::size_t extra(const ImageSource& v){return total(extra(v.asset),extra(v.width),extra(v.height));}
@@ -116,6 +121,7 @@ std::string owner_name(const Document& before,const Document& after,const Id& id
         if(const auto it=document->objects.find(id);it!=document->objects.end())return it->second.name;
         if(const auto it=document->named_colors.find(id);it!=document->named_colors.end())return it->second.name;
         if(const auto it=document->raster_assets.find(id);it!=document->raster_assets.end())return it->second.name;
+        if(const auto it=document->preset_definitions.find(id);it!=document->preset_definitions.end())return it->second.label;
         for(const auto& comp:document->compositions) {
             if(comp.id==id)return comp.name;
             for(const auto& board:comp.artboards)if(board.id==id)return board.name;
@@ -302,7 +308,7 @@ std::size_t Session::estimate_history(const HistoryEntry& entry) {
         for(const auto& item:items)result=total(result,extra(item.key),extra(item.before),extra(item.after));
         return result;
     };
-    return total(bytes,changes(entry.objects),changes(entry.colors),changes(entry.assets));
+    return total(bytes,changes(entry.objects),changes(entry.colors),changes(entry.assets),changes(entry.presets));
 }
 
 void Session::commit(Document candidate,std::string label) {
@@ -316,7 +322,7 @@ void Session::commit(Document candidate,std::string label) {
         }
     };
     diff(document_.objects,candidate.objects,entry.objects);diff(document_.named_colors,candidate.named_colors,entry.colors);
-    diff(document_.raster_assets,candidate.raster_assets,entry.assets);
+    diff(document_.raster_assets,candidate.raster_assets,entry.assets);diff(document_.preset_definitions,candidate.preset_definitions,entry.presets);
     if(document_.compositions!=candidate.compositions)entry.compositions=std::pair{document_.compositions,candidate.compositions};
     if(document_.collections!=candidate.collections)entry.collections=std::pair{document_.collections,candidate.collections};
     entry.estimated_bytes=estimate_history(entry);
@@ -345,7 +351,7 @@ void Session::apply_history(Document& candidate,const HistoryEntry& entry,bool f
             if(value)objects.insert_or_assign(change.key,*value);else objects.erase(change.key);
         }
     };
-    patch(candidate.objects,entry.objects);patch(candidate.named_colors,entry.colors);patch(candidate.raster_assets,entry.assets);
+    patch(candidate.objects,entry.objects);patch(candidate.named_colors,entry.colors);patch(candidate.raster_assets,entry.assets);patch(candidate.preset_definitions,entry.presets);
     if(entry.compositions)candidate.compositions=forward?entry.compositions->second:entry.compositions->first;
     if(entry.collections)candidate.collections=forward?entry.collections->second:entry.collections->first;
 }

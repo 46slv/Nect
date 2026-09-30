@@ -16,7 +16,7 @@ TOOLS = [
      'annotations': {'readOnlyHint': True, 'openWorldHint': False}},
     {'name': 'nect_command',
      'description': ('Inspect/evaluate/export_svg or edit the desktop-owned Session. request.op: '
-                     'inspect, properties, get, resolve_name, evaluate, expression_language, compositing_types, compositing_plan, export_svg, artboards, operator_types, gradient_types, render_plan, conversion_plan, apply, undo, redo, history, restore_history. '
+                     'inspect, properties, get, resolve_name, evaluate, expression_language, compositing_types, compositing_plan, export_svg, artboards, operator_types, gradient_types, render_plan, conversion_plan, presets, preset, apply, undo, redo, history, restore_history. '
                      'history lists stable state IDs and bounded retained memory estimates for this live Session only. '
                      'restore_history takes state_id and expected_revision, atomically returns to a retained state in one revision, '
                      'and keeps future states available until a new edit replaces the redo branch. '
@@ -24,7 +24,8 @@ TOOLS = [
                      'add_point, remove_point, close_contour, set, link, unlink, rename, '
                      'reorder_points, reorder_objects, group_contiguous, delete_objects, create_primitive, '
                      'enable_point_edit, clear_point_edit, convert_to_path, add_operation, remove_operation, reorder_operations, '
-                     'enable_operation, operation_options, link_fill_rule, unlink_fill_rule, link_gradient_enabled, unlink_gradient_enabled, link_mask_enabled, unlink_mask_enabled, link_composite_isolated, unlink_composite_isolated and set_gradient. operator_types and gradient_types return exact templates. '
+                     'enable_operation, operation_options, link_fill_rule, unlink_fill_rule, link_gradient_enabled, unlink_gradient_enabled, link_mask_enabled, unlink_mask_enabled, link_composite_isolated, unlink_composite_isolated, set_gradient, create_preset, create_preset_from_stack, rename_preset, update_preset, delete_preset and apply_preset. operator_types and gradient_types return exact templates. '
+                     'Document-local PresetDefinition v1 captures exactly one nect.shape.offset then one nect.shape.repeater instance, filtered in source stack order for local_paths_and_paint; other paint entries are excluded. create_preset_from_stack returns captured_source_operations with the exact source instance IDs and types. presets lists definitions; preset {id} inspects one stable ID. Capture refuses enabled/Scalar/option links or expressions with PRESET_NONPORTABLE_SOURCE and exact source Refs. Preset commands are single Session operations; apply appends fresh operation IDs and is one Undo. Editing a definition affects later applies only, not existing stacks. '
                      'nect.shape.offset expands/contracts closed simple regions in object-local units; amount and miter_limit are normal properties. '
                      'operation_options accepts line_join miter/round/bevel for Offset; its composite must remain below. '
                      'Fill rule uses a same-field stable Ref via link_fill_rule {target:Fill op fill_rule Ref,source:Fill op fill_rule Ref,replace_driver:bool}; unlink_fill_rule freezes the evaluated nonzero/evenodd choice. The literal remains authored and Fill paint geometry, Canvas and SVG use the evaluated choice. Offset fill rules remain literal. '

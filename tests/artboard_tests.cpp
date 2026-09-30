@@ -1,4 +1,5 @@
 #include "nect/io.hpp"
+#include "native_legacy_fixture.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -64,7 +65,7 @@ void layout_and_guide_acceptance() {
         "Clearing Grid retains the independently authored Margin");
     apply({SetArtboardLayout{"layout-comp","layout-art",copied}});
     const auto current=encode(session.document());
-    check(current.find("\"version\":\"0.62\"")!=std::string::npos&&encode(decode(current))==current,
+    check(current.find("\"version\":\"0.63\"")!=std::string::npos&&encode(decode(current))==current,
         "Native 0.43 roundtrip preserves Guide/Grid/Margin definitions and IDs");
 
     const auto readback=request(session,R"({"op":"inspect"})");
@@ -152,8 +153,8 @@ void layout_and_guide_acceptance() {
         comp.guides.clear();
         for(auto& board:comp.artboards)board.layout.reset();
     }
-    auto legacy=encode(legacy_document);
-    check(replace_all(legacy,"\"version\":\"0.62\"","\"version\":\"0.13\"")==1,
+    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_document));
+    check(replace_all(legacy,"\"version\":\"0.63\"","\"version\":\"0.13\"")==1,
         "Legacy fixture changes only its native version");
     check(replace_all(legacy,",\"guides\":[]","")==legacy_document.compositions.size(),
         "Legacy fixture removes each v0.14 Composition Guides field");
@@ -315,7 +316,7 @@ void layout_typed_reads() {
 
     const auto native=encode(session.document());
     const auto cold=decode(native);
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&encode(cold)==native,
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&encode(cold)==native,
         "Native 0.43 cold decode/re-encode preserves existing Grid and Margin bytes");
     auto expected_after_edit=expected_values;expected_after_edit[0].second=11.0;
     for(const auto& [ref,literal]:expected_after_edit)
@@ -487,19 +488,19 @@ void margin_left_artboard_driver() {
         "Invalid upstream width leaves the last valid link evaluation and Session state intact");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"left_driver\"")!=std::string::npos&&native.find("margin-left-source")!=std::string::npos&&
         encode(decode(native))==native,
         "Native 0.43 stores the exact Margin source beside the authored literal and roundtrips bytes");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.34\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.34\"")==1,
         "Version-lie fixture changes only native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto literal_document=empty_document("margin-left-legacy-doc","margin-left-legacy-comp","margin-left-legacy-art");
     ArtboardLayout literal_layout;literal_layout.margin=Margin{40,20,40,20};
     Session literal_session(literal_document);literal_session.apply({SetArtboardLayout{"margin-left-legacy-comp",
         "margin-left-legacy-art",literal_layout}},0);
-    auto legacy=encode(literal_session.document());
-    check(replace_all(legacy,"\"version\":\"0.62\"","\"version\":\"0.35\"")==1&&
+    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(literal_session.document()));
+    check(replace_all(legacy,"\"version\":\"0.63\"","\"version\":\"0.35\"")==1&&
         decode(legacy)==literal_session.document(),"Native 0.35 literal-only layout remains readable by the current decoder");
 
     apply({MarginLeftCommand{UnlinkMarginLeft{target}}});
@@ -615,9 +616,9 @@ void margin_top_artboard_driver() {
         std::get<double>(artboard_layout_property(session.document(),target).evaluated)==60,
         "Rejected source, payload and invalid upstream edits preserve the last valid Margin top evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&native.find("\"top_driver\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&native.find("\"top_driver\"")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 stores the closed Margin top source and byte-roundtrips");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.40\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.40\"")==1,
         "Version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     apply({MarginTopCommand{UnlinkMarginTop{target}}});typed=artboard_layout_property(session.document(),target);
@@ -747,10 +748,10 @@ void margin_right_artboard_driver() {
         "Rejected source deletion and width-containment violations preserve the linked Margin right");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&native.find("\"right_driver\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&native.find("\"right_driver\"")!=std::string::npos&&
         native.find("margin-right-source")!=std::string::npos&&encode(decode(native))==native,
         "Native 0.43 preserves the exact Margin right source beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.42\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.42\"")==1,
         "Margin right version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"right_driver\":{","\"right_driver\":{\"extra\":1,")==1,
@@ -759,8 +760,8 @@ void margin_right_artboard_driver() {
     auto legacy_document=session.document();
     std::find_if(legacy_document.compositions.front().artboards.begin(),legacy_document.compositions.front().artboards.end(),
         [&](const Artboard& value){return value.id==target.object;})->layout->margin->right_driver.reset();
-    auto native_042=encode(legacy_document);
-    check(replace_all(native_042,"\"version\":\"0.62\"","\"version\":\"0.42\"")==1&&
+    auto native_042=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_document));
+    check(replace_all(native_042,"\"version\":\"0.63\"","\"version\":\"0.42\"")==1&&
         decode(native_042)==legacy_document,"Native 0.43 remains readable when the optional Margin right source is absent");
 
     apply({MarginRightCommand{UnlinkMarginRight{target}}});typed=artboard_layout_property(session.document(),target);
@@ -892,10 +893,10 @@ void margin_bottom_artboard_driver() {
         "Rejected source deletion and vertical-containment edits preserve the linked Margin bottom");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&native.find("\"bottom_driver\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&native.find("\"bottom_driver\"")!=std::string::npos&&
         native.find("margin-bottom-source")!=std::string::npos&&encode(decode(native))==native,
         "Native 0.60 preserves the exact Margin bottom source beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.44\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.44\"")==1,
         "Margin bottom version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"bottom_driver\":{","\"bottom_driver\":{\"extra\":1,")==1,
@@ -904,8 +905,8 @@ void margin_bottom_artboard_driver() {
     auto legacy_document=session.document();
     std::find_if(legacy_document.compositions.front().artboards.begin(),legacy_document.compositions.front().artboards.end(),
         [&](const Artboard& value){return value.id==target.object;})->layout->margin->bottom_driver.reset();
-    auto native_044=encode(legacy_document);
-    check(replace_all(native_044,"\"version\":\"0.62\"","\"version\":\"0.44\"")==1&&
+    auto native_044=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_document));
+    check(replace_all(native_044,"\"version\":\"0.63\"","\"version\":\"0.44\"")==1&&
         decode(native_044)==legacy_document,"Native 0.44 remains readable when the optional Margin bottom source is absent");
 
     apply({MarginBottomCommand{UnlinkMarginBottom{target}}});typed=artboard_layout_property(session.document(),target);
@@ -1063,18 +1064,18 @@ void margin_top_expression() {
         "Stale Margin top expression commands preserve the exact Session state");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"top_expression\":{\"source\":\"ref(\\\"margin-top-expression-source\\\",\\\"\\\",\\\"artboard.height\\\") + 10\",\"version\":1}")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 preserves exact Margin top expression source and byte-roundtrips");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.41\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.41\"")==1,
         "Version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto legacy_document=session.document();
     auto& legacy_target=*std::find_if(legacy_document.compositions.front().artboards.begin(),
         legacy_document.compositions.front().artboards.end(),[&](const Artboard& value){return value.id==target.object;});
     legacy_target.layout->margin->top_expression.reset();legacy_target.layout->margin->top=40;
-    auto legacy=encode(legacy_document);
-    check(replace_all(legacy,"\"version\":\"0.62\"","\"version\":\"0.41\"")==1&&decode(legacy)==legacy_document,
+    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_document));
+    check(replace_all(legacy,"\"version\":\"0.63\"","\"version\":\"0.41\"")==1&&decode(legacy)==legacy_document,
         "Native 0.41 remains readable for literal-only Margin top documents");
 
     apply({MarginTopCommand{UnlinkMarginTop{target}}});typed=artboard_layout_property(session.document(),target);
@@ -1231,10 +1232,10 @@ void margin_right_expression() {
         "Stale Margin right expression commands preserve the exact Session state");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"right_expression\":{\"source\":\"ref(\\\"margin-right-expression-source\\\",\\\"\\\",\\\"artboard.width\\\") + 10\",\"version\":1}")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.60 preserves exact Margin right expression source and byte-roundtrips");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.43\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.43\"")==1,
         "Margin right expression version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"right_expression\":{","\"right_expression\":{\"extra\":1,")==1,
@@ -1247,8 +1248,8 @@ void margin_right_expression() {
     auto& legacy_target=*std::find_if(legacy_document.compositions.front().artboards.begin(),
         legacy_document.compositions.front().artboards.end(),[&](const Artboard& value){return value.id==target.object;});
     legacy_target.layout->margin->right_expression.reset();legacy_target.layout->margin->right=40;
-    auto legacy=encode(legacy_document);
-    check(replace_all(legacy,"\"version\":\"0.62\"","\"version\":\"0.43\"")==1&&decode(legacy)==legacy_document,
+    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_document));
+    check(replace_all(legacy,"\"version\":\"0.63\"","\"version\":\"0.43\"")==1&&decode(legacy)==legacy_document,
         "Native 0.43 remains readable when the optional Margin right expression is absent");
 
     apply({MarginRightCommand{UnlinkMarginRight{target}}});typed=artboard_layout_property(session.document(),target);
@@ -1408,10 +1409,10 @@ void margin_bottom_expression() {
         "Stale Margin bottom expression commands preserve exact Session state");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"bottom_expression\":{\"source\":\"ref(\\\"margin-bottom-expression-source\\\",\\\"\\\",\\\"artboard.height\\\") + 10\",\"version\":1}")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.60 preserves exact Margin bottom expression and byte-roundtrips");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.45\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.45\"")==1,
         "Margin bottom expression version-lie fixture changes only the writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"bottom_expression\":{","\"bottom_expression\":{\"extra\":1,")==1,
@@ -1425,8 +1426,8 @@ void margin_bottom_expression() {
     auto legacy_document=session.document();
     std::find_if(legacy_document.compositions.front().artboards.begin(),legacy_document.compositions.front().artboards.end(),
         [&](const Artboard& value){return value.id==target.object;})->layout->margin->bottom_expression.reset();
-    auto legacy=encode(legacy_document);
-    check(replace_all(legacy,"\"version\":\"0.62\"","\"version\":\"0.45\"")==1&&
+    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_document));
+    check(replace_all(legacy,"\"version\":\"0.63\"","\"version\":\"0.45\"")==1&&
         decode(legacy)==legacy_document,"Native 0.45 remains readable when Margin bottom expression is absent");
 
     apply({MarginBottomCommand{UnlinkMarginBottom{target}}});typed=artboard_layout_property(session.document(),target);
@@ -1577,10 +1578,10 @@ void margin_left_expression() {
         "A cyclic Artboard-size source graph rejects atomically while Margin depends on it");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"left_expression\"")!=std::string::npos&&native.find("margin-expression-source-a")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 preserves the exact Margin expression beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.37\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.37\"")==1,
         "Margin expression version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     apply({MarginLeftCommand{UnlinkMarginLeft{target}}});
@@ -1728,22 +1729,22 @@ void grid_bounds_x_artboard_driver() {
         "Invalid upstream width leaves the prior valid evaluated Grid x and all Session state intact");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"bounds_x_driver\"")!=std::string::npos&&native.find("grid-x-source")!=std::string::npos&&
         encode(decode(native))==native,
         "Native 0.43 stores the closed Grid source beside its authored literal and roundtrips bytes");
-    auto native_036=native;check(replace_all(native_036,"\"version\":\"0.62\"","\"version\":\"0.36\"")==1&&
+    auto native_036=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(native_036,"\"version\":\"0.63\"","\"version\":\"0.36\"")==1&&
         decode(native_036)==session.document(),
         "Native 0.36 remains readable with its existing Grid x link and no expression field");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.35\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.35\"")==1,
         "Grid version-lie fixture changes only the native writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto literal_document=empty_document("grid-x-legacy-doc","grid-x-legacy-comp","grid-x-legacy-art");
     ArtboardLayout literal_layout;literal_layout.grid=Grid{"grid-x-legacy-grid",{10,10,500,400},1,1,0,0};
     Session literal_session(literal_document);literal_session.apply({SetArtboardLayout{"grid-x-legacy-comp",
         "grid-x-legacy-art",literal_layout}},0);
-    auto legacy=encode(literal_session.document());
-    check(replace_all(legacy,"\"version\":\"0.62\"","\"version\":\"0.35\"")==1&&
+    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(literal_session.document()));
+    check(replace_all(legacy,"\"version\":\"0.63\"","\"version\":\"0.35\"")==1&&
         decode(legacy)==literal_session.document(),"Native 0.35 literal-only Grid remains readable by the current decoder");
 
     apply({GridBoundsXCommand{UnlinkGridBoundsX{target}}});
@@ -1891,10 +1892,10 @@ void grid_bounds_y_artboard_driver() {
         "Upstream y plus Grid height and target-height violations leave bytes, revision, history and prior evaluation unchanged");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"bounds_y_driver\"")!=std::string::npos&&native.find("grid-y-source")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 preserves the exact optional Grid y link beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.38\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.38\"")==1,
         "Grid y version-lie fixture changes only the writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"bounds_y_driver\":{","\"bounds_y_driver\":{\"extra\":1,")==1,
@@ -1904,8 +1905,8 @@ void grid_bounds_y_artboard_driver() {
     auto& legacy_grid=*std::find_if(legacy_document.compositions.front().artboards.begin(),legacy_document.compositions.front().artboards.end(),
         [](const Artboard& value){return value.id=="grid-y-target";})->layout->grid;
     legacy_grid.bounds_y_driver.reset();
-    auto native_038=encode(legacy_document);
-    check(replace_all(native_038,"\"version\":\"0.62\"","\"version\":\"0.38\"")==1&&decode(native_038)==legacy_document,
+    auto native_038=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_document));
+    check(replace_all(native_038,"\"version\":\"0.63\"","\"version\":\"0.38\"")==1&&decode(native_038)==legacy_document,
         "Native 0.38 remains readable when the optional Grid y link is absent");
 
     apply({GridBoundsYCommand{UnlinkGridBoundsY{target}}});typed=artboard_layout_property(session.document(),target);
@@ -2069,10 +2070,10 @@ void grid_bounds_width_artboard_driver() {
         "Source deletion, stale revisions, direct writes, failed batches and width or cell invalidation leave bytes, revision and history unchanged");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"bounds_width_driver\"")!=std::string::npos&&native.find("grid-width-source")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.60 preserves the exact Grid width link beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.46\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.46\"")==1,
         "Grid width version-lie fixture changes only the writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"bounds_width_driver\":{","\"bounds_width_driver\":{\"extra\":1,")==1,
@@ -2082,8 +2083,8 @@ void grid_bounds_width_artboard_driver() {
     auto& literal_grid=*std::find_if(literal_document.compositions.front().artboards.begin(),literal_document.compositions.front().artboards.end(),
         [](const Artboard& value){return value.id=="grid-width-target";})->layout->grid;
     literal_grid.bounds_width_driver.reset();
-    auto native_046=encode(literal_document);
-    check(replace_all(native_046,"\"version\":\"0.62\"","\"version\":\"0.46\"")==1&&
+    auto native_046=test_support::without_empty_presets_for_legacy_fixture(encode(literal_document));
+    check(replace_all(native_046,"\"version\":\"0.63\"","\"version\":\"0.46\"")==1&&
         decode(native_046)==literal_document,"Native 0.46 remains readable when the optional Grid width link is absent");
 
     apply({GridBoundsWidthCommand{UnlinkGridBoundsWidth{target}}});typed=artboard_layout_property(session.document(),target);
@@ -2235,10 +2236,10 @@ void grid_column_gutter_artboard_link() {
         "Source deletion, direct edits, stale revisions and failed batches preserve bytes, evaluation, revision and history");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"column_gutter_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.60 retains the closed Grid column gutter link beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.50\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.50\"")==1,
         "Grid column gutter version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"column_gutter_driver\":{\"link\":",
@@ -2248,8 +2249,8 @@ void grid_column_gutter_artboard_link() {
     auto& literal_grid=*std::find_if(literal_document.compositions.front().artboards.begin(),literal_document.compositions.front().artboards.end(),
         [](const Artboard& value){return value.id=="grid-gutter-target";})->layout->grid;
     literal_grid.column_gutter_driver.reset();
-    auto native_050=encode(literal_document);
-    check(replace_all(native_050,"\"version\":\"0.62\"","\"version\":\"0.50\"")==1&&
+    auto native_050=test_support::without_empty_presets_for_legacy_fixture(encode(literal_document));
+    check(replace_all(native_050,"\"version\":\"0.63\"","\"version\":\"0.50\"")==1&&
         decode(native_050)==literal_document,"Native 0.50 remains readable when the optional column gutter link is absent");
 
     apply({GridColumnGutterCommand{UnlinkGridColumnGutter{target}}});typed=artboard_layout_property(session.document(),target);
@@ -2389,14 +2390,14 @@ void grid_columns_same_field_link() {
         "Invalid refs, replacement, cycles, source removal, count/geometry changes, stale revisions and later batch failure preserve state atomically");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"columns_driver\":{\"link\"")!=std::string::npos&&encode(decode(native))==native,
         "Native 0.60 retains the closed Grid columns link beside its authored integer");
-    auto previous=native;check(replace_all(previous,"\"version\":\"0.62\"","\"version\":\"0.57\"")==1&&decode(previous)==session.document(),
+    auto previous=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(previous,"\"version\":\"0.63\"","\"version\":\"0.57\"")==1&&decode(previous)==session.document(),
         "Native 0.57 continues to read the existing Grid columns link");
-    auto previous_056=native;check(replace_all(previous_056,"\"version\":\"0.62\"","\"version\":\"0.56\"")==1&&
+    auto previous_056=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(previous_056,"\"version\":\"0.63\"","\"version\":\"0.56\"")==1&&
         decode(previous_056)==session.document(),"Native 0.56 continues to read the existing Grid columns link");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.55\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.55\"")==1,
         "Grid columns 0.56 version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"columns_driver\":{\"link\":",
@@ -2405,8 +2406,8 @@ void grid_columns_same_field_link() {
     auto literal_document=session.document();
     auto& literal_grid=*std::find_if(literal_document.compositions.front().artboards.begin(),literal_document.compositions.front().artboards.end(),
         [](const Artboard& value){return value.id=="grid-columns-target";})->layout->grid;
-    literal_grid.columns_driver.reset();auto legacy=encode(literal_document);
-    check(replace_all(legacy,"\"version\":\"0.62\"","\"version\":\"0.57\"")==1&&decode(legacy)==literal_document,
+    literal_grid.columns_driver.reset();auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(literal_document));
+    check(replace_all(legacy,"\"version\":\"0.63\"","\"version\":\"0.57\"")==1&&decode(legacy)==literal_document,
         "Native 0.57 remains readable when the new optional Grid columns expression is absent");
 
     apply({GridColumnsCommand{UnlinkGridColumns{target}}});typed=artboard_layout_property(session.document(),target);
@@ -2562,10 +2563,10 @@ void grid_columns_expression() {
         "Invalid expression type/range/unit/syntax/version, cycles, deletion, injection and failed batches preserve exact Session state");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"columns_expression\":{\"source\":\"ref")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.60 retains the exact Grid columns expression and byte-roundtrips");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.57\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.57\"")==1,
         "Grid columns 0.57 version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"columns_expression\":{\"source\":",
@@ -2579,8 +2580,8 @@ void grid_columns_expression() {
     auto legacy_document=session.document();
     std::find_if(legacy_document.compositions.front().artboards.begin(),legacy_document.compositions.front().artboards.end(),
         [](const Artboard& value){return value.id=="grid-columns-expression-target-board";})->layout->grid->columns_expression.reset();
-    auto previous=encode(legacy_document);
-    check(replace_all(previous,"\"version\":\"0.62\"","\"version\":\"0.57\"")==1&&
+    auto previous=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_document));
+    check(replace_all(previous,"\"version\":\"0.63\"","\"version\":\"0.57\"")==1&&
         decode(previous)==legacy_document,"Native 0.57 remains readable without the new optional Grid columns expression");
 
     apply({GridColumnsCommand{UnlinkGridColumns{target}}});typed=artboard_layout_property(session.document(),target);
@@ -2744,10 +2745,10 @@ void grid_rows_expression() {
         "Invalid expression type/range/unit/syntax/version, cycles, deletion, injection and failed batches preserve exact Session state");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"rows_expression\":{\"source\":\"ref")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.60 retains the exact Grid rows expression and byte-roundtrips");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.58\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.58\"")==1,
         "Grid rows 0.58 version-lie fixture downgrades only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"rows_expression\":{\"source\":",
@@ -2761,8 +2762,8 @@ void grid_rows_expression() {
     auto legacy_document=session.document();
     std::find_if(legacy_document.compositions.front().artboards.begin(),legacy_document.compositions.front().artboards.end(),
         [](const Artboard& value){return value.id=="grid-rows-expression-target-board";})->layout->grid->rows_expression.reset();
-    auto previous=encode(legacy_document);
-    check(replace_all(previous,"\"version\":\"0.62\"","\"version\":\"0.58\"")==1&&
+    auto previous=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_document));
+    check(replace_all(previous,"\"version\":\"0.63\"","\"version\":\"0.58\"")==1&&
         decode(previous)==legacy_document,"Native 0.60 remains readable without the new optional Grid rows expression");
 
     apply({GridRowsCommand{UnlinkGridRows{target}}});typed=artboard_layout_property(session.document(),target);
@@ -2903,10 +2904,10 @@ void grid_rows_same_field_link() {
         "Invalid refs, replacement, cycles, source removal, count/geometry changes, stale revisions and later batch failure preserve state atomically");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"rows_driver\":{\"link\"")!=std::string::npos&&encode(decode(native))==native,
         "Native 0.60 retains the closed Grid rows link beside its authored integer");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.56\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.56\"")==1,
         "Grid rows 0.56 version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"rows_driver\":{\"link\":",
@@ -2915,8 +2916,8 @@ void grid_rows_same_field_link() {
     auto literal_document=session.document();
     auto& literal_grid=*std::find_if(literal_document.compositions.front().artboards.begin(),literal_document.compositions.front().artboards.end(),
         [](const Artboard& value){return value.id=="grid-rows-target";})->layout->grid;
-    literal_grid.rows_driver.reset();auto legacy=encode(literal_document);
-    check(replace_all(legacy,"\"version\":\"0.62\"","\"version\":\"0.56\"")==1&&decode(legacy)==literal_document,
+    literal_grid.rows_driver.reset();auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(literal_document));
+    check(replace_all(legacy,"\"version\":\"0.63\"","\"version\":\"0.56\"")==1&&decode(legacy)==literal_document,
         "Native 0.56 remains readable when the optional Grid rows source is absent");
 
     apply({GridRowsCommand{UnlinkGridRows{target}}});typed=artboard_layout_property(session.document(),target);
@@ -3073,10 +3074,10 @@ void grid_row_gutter_artboard_link() {
         "Deletion, direct edits, stale revisions and failed batches preserve bytes, evaluation, revision and history");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"row_gutter_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.60 retains the closed Grid row gutter link beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.51\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.51\"")==1,
         "Grid row gutter version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"row_gutter_driver\":{\"link\":",
@@ -3087,8 +3088,8 @@ void grid_row_gutter_artboard_link() {
     auto& literal_grid=*std::find_if(literal_document.compositions.front().artboards.begin(),literal_document.compositions.front().artboards.end(),
         [](const Artboard& value){return value.id=="grid-row-gutter-target";})->layout->grid;
     literal_grid.row_gutter_driver.reset();
-    auto native_051=encode(literal_document);
-    check(replace_all(native_051,"\"version\":\"0.62\"","\"version\":\"0.51\"")==1&&
+    auto native_051=test_support::without_empty_presets_for_legacy_fixture(encode(literal_document));
+    check(replace_all(native_051,"\"version\":\"0.63\"","\"version\":\"0.51\"")==1&&
         decode(native_051)==literal_document,"Native 0.51 remains readable when the optional row gutter link is absent");
 
     apply({GridRowGutterCommand{UnlinkGridRowGutter{target}}});typed=artboard_layout_property(session.document(),target);
@@ -3250,11 +3251,11 @@ void grid_row_gutter_expression() {
         "A Grid height edit leaving no positive row cell is rejected atomically");
 
     auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"row_gutter_expression\"")!=std::string::npos&&encode(decode(native))==native,
         "Native 0.60 preserves exact Grid row gutter expression source and roundtrips bytes");
-    auto old_version=native;
-    check(replace_all(old_version,"\"version\":\"0.62\"","\"version\":\"0.52\"")==1,
+    auto old_version=test_support::without_empty_presets_for_legacy_fixture(native);
+    check(replace_all(old_version,"\"version\":\"0.63\"","\"version\":\"0.52\"")==1,
         "Grid row gutter expression version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(old_version);});
     auto malformed=native;
@@ -3272,8 +3273,8 @@ void grid_row_gutter_expression() {
         legacy_link_document.compositions.front().artboards.end(),[](const Artboard& value){
             return value.id=="grid-row-gutter-expression-target";})->layout->grid;
     legacy_grid.row_gutter_expression.reset();legacy_grid.row_gutter_driver=source;
-    auto native_052=encode(legacy_link_document);
-    check(replace_all(native_052,"\"version\":\"0.62\"","\"version\":\"0.52\"")==1&&
+    auto native_052=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_link_document));
+    check(replace_all(native_052,"\"version\":\"0.63\"","\"version\":\"0.52\"")==1&&
         decode(native_052)==legacy_link_document,
         "Native 0.52 Grid row gutter links remain readable when the new expression field is absent");
 
@@ -3437,11 +3438,11 @@ void grid_column_gutter_expression() {
         "A Grid width edit leaving no positive column cell is rejected atomically");
 
     auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"column_gutter_expression\"")!=std::string::npos&&encode(decode(native))==native,
         "Native 0.60 preserves exact Grid column gutter expression source and roundtrips bytes");
-    auto old_version=native;
-    check(replace_all(old_version,"\"version\":\"0.62\"","\"version\":\"0.53\"")==1,
+    auto old_version=test_support::without_empty_presets_for_legacy_fixture(native);
+    check(replace_all(old_version,"\"version\":\"0.63\"","\"version\":\"0.53\"")==1,
         "Grid column gutter expression version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(old_version);});
     auto malformed=native;
@@ -3459,8 +3460,8 @@ void grid_column_gutter_expression() {
         legacy_link_document.compositions.front().artboards.end(),[](const Artboard& value){
             return value.id=="grid-column-gutter-expression-target";})->layout->grid;
     legacy_grid.column_gutter_expression.reset();legacy_grid.column_gutter_driver=source;
-    auto native_052=encode(legacy_link_document);
-    check(replace_all(native_052,"\"version\":\"0.62\"","\"version\":\"0.53\"")==1&&
+    auto native_052=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_link_document));
+    check(replace_all(native_052,"\"version\":\"0.63\"","\"version\":\"0.53\"")==1&&
         decode(native_052)==legacy_link_document,
         "Native 0.53 Grid column gutter links remain readable when the new expression field is absent");
 
@@ -3627,10 +3628,10 @@ void grid_bounds_height_artboard_link() {
         "Source deletion, invalid containment or row geometry, stale revisions and failed batches leave bytes, revision and history unchanged");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"bounds_height_driver\"")!=std::string::npos&&native.find("grid-height-source")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.60 preserves the exact Grid height link beside its authored literal");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.48\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.48\"")==1,
         "Grid height version-lie fixture changes only the writer version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     auto malformed=native;check(replace_all(malformed,"\"bounds_height_driver\":{",
@@ -3646,8 +3647,8 @@ void grid_bounds_height_artboard_link() {
     apply({UpdateArtboard{composition,source_update}});typed=artboard_layout_property(session.document(),target);
     check(std::get<double>(typed.literal)==520&&!typed.driver&&std::get<double>(typed.evaluated)==520,
         "After unlink, later source edits leave the frozen evaluated height unchanged");
-    auto native_048=encode(session.document());
-    check(replace_all(native_048,"\"version\":\"0.62\"","\"version\":\"0.48\"")==1&&
+    auto native_048=test_support::without_empty_presets_for_legacy_fixture(encode(session.document()));
+    check(replace_all(native_048,"\"version\":\"0.63\"","\"version\":\"0.48\"")==1&&
         decode(native_048)==session.document(),"Native 0.48 without the optional Grid height link remains readable");
 }
 
@@ -3795,12 +3796,12 @@ void grid_bounds_height_expression() {
             "Containment and positive-row-cell failures leave Grid height expression state unchanged");
     }
     auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"bounds_height_expression\"")!=std::string::npos&&
         encode(decode(native))==native,
         "Native 0.60 preserves exact Grid height expression text and roundtrips bytes");
-    auto old_version=native;
-    check(replace_all(old_version,"\"version\":\"0.62\"","\"version\":\"0.49\"")==1,
+    auto old_version=test_support::without_empty_presets_for_legacy_fixture(native);
+    check(replace_all(old_version,"\"version\":\"0.63\"","\"version\":\"0.49\"")==1,
         "Grid height expression version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(old_version);});
     auto conflict=native;
@@ -3822,8 +3823,8 @@ void grid_bounds_height_expression() {
     auto& old_link_grid=*std::find_if(old_link_document.compositions.front().artboards.begin(),
         old_link_document.compositions.front().artboards.end(),[](const Artboard& value){return value.id=="grid-height-expression-target";})->layout->grid;
     old_link_grid.bounds_height_driver=source;
-    auto native_049=encode(old_link_document);
-    check(replace_all(native_049,"\"version\":\"0.62\"","\"version\":\"0.49\"")==1&&
+    auto native_049=test_support::without_empty_presets_for_legacy_fixture(encode(old_link_document));
+    check(replace_all(native_049,"\"version\":\"0.63\"","\"version\":\"0.49\"")==1&&
         decode(native_049)==old_link_document,"Native 0.49 remains readable with its Grid height link and no expression");
 }
 
@@ -3998,12 +3999,12 @@ void grid_bounds_width_expression() {
         "Grid width expression rejects an upstream Artboard-size cycle atomically");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"bounds_width_expression\"")!=std::string::npos&&
         native.find("grid-width-expression-source")!=std::string::npos&&encode(decode(native))==native,
         "Native 0.60 preserves exact Grid width expression text and roundtrips bytes");
-    auto old_version=native;
-    check(replace_all(old_version,"\"version\":\"0.62\"","\"version\":\"0.47\"")==1,
+    auto old_version=test_support::without_empty_presets_for_legacy_fixture(native);
+    check(replace_all(old_version,"\"version\":\"0.63\"","\"version\":\"0.47\"")==1,
         "Grid width expression version-lie fixture changes only the native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(old_version);});
     auto conflict=native;
@@ -4016,8 +4017,8 @@ void grid_bounds_width_expression() {
         literal_document.compositions.front().artboards.end(),[](const Artboard& value){
             return value.id=="grid-width-expression-target";})->layout->grid;
     literal_grid.bounds_width_expression.reset();literal_grid.bounds_width_driver=source_height;
-    auto native_047=encode(literal_document);
-    check(replace_all(native_047,"\"version\":\"0.62\"","\"version\":\"0.47\"")==1&&
+    auto native_047=test_support::without_empty_presets_for_legacy_fixture(encode(literal_document));
+    check(replace_all(native_047,"\"version\":\"0.63\"","\"version\":\"0.47\"")==1&&
         decode(native_047)==literal_document,"Native 0.47 remains readable with its Grid width link and no expression");
 
     apply({GridBoundsWidthCommand{UnlinkGridBoundsWidth{target}}});typed=artboard_layout_property(session.document(),target);
@@ -4140,10 +4141,10 @@ void grid_bounds_x_expression() {
         "Failing source edits and second batch commands preserve the prior expression evaluation atomically");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"bounds_x_expression\"")!=std::string::npos&&native.find("grid-expression-source-a")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 preserves exact Grid expression source and roundtrips bytes");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.36\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.36\"")==1,
         "Grid expression version-lie fixture changes only native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     apply({GridBoundsXCommand{UnlinkGridBoundsX{target}}});
@@ -4280,17 +4281,17 @@ void grid_bounds_y_expression() {
         "Cycle, bad source edits and failed later batch commands preserve prior y expression state atomically");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"bounds_y_expression\"")!=std::string::npos&&
         encode(decode(native))==native,"Native 0.43 preserves the exact Grid y expression and stable source text");
-    auto lied=native;check(replace_all(lied,"\"version\":\"0.62\"","\"version\":\"0.39\"")==1,
+    auto lied=test_support::without_empty_presets_for_legacy_fixture(native);check(replace_all(lied,"\"version\":\"0.63\"","\"version\":\"0.39\"")==1,
         "Grid y expression version-lie fixture changes only native version");
     rejects("INVALID_LAYOUT",[&]{(void)decode(lied);});
     apply({GridBoundsYCommand{UnlinkGridBoundsY{target}}});typed=artboard_layout_property(session.document(),target);
     check(std::get<double>(typed.literal)==60&&!typed.driver&&!typed.expression&&typed.source_kind=="literal"&&
         std::get<double>(typed.evaluated)==60,"Unlink freezes evaluated Grid y and clears its expression in one step");
-    const auto literal_document=session.document();auto legacy_039=encode(literal_document);
-    check(replace_all(legacy_039,"\"version\":\"0.62\"","\"version\":\"0.39\"")==1&&decode(legacy_039)==literal_document,
+    const auto literal_document=session.document();auto legacy_039=test_support::without_empty_presets_for_legacy_fixture(encode(literal_document));
+    check(replace_all(legacy_039,"\"version\":\"0.63\"","\"version\":\"0.39\"")==1&&decode(legacy_039)==literal_document,
         "Native 0.39 literal-only Grid y remains readable after the format bump");
     session.undo(session.revision());typed=artboard_layout_property(session.document(),target);
     check(typed.expression==expression&&std::get<double>(typed.literal)==40&&std::get<double>(typed.evaluated)==60,
@@ -4393,22 +4394,22 @@ void guide_position_links() {
     session.cancel_gesture();
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.63\"")!=std::string::npos&&
         native.find("\"position_driver\":{\"link\":{\"object\":\"guide-source\",\"point\":\"\",\"field\":\"guide.position\"}}")!=std::string::npos&&
         encode(decode(native))==native,
         "Native 0.43 preserves the existing optional Guide position link and authored literal");
-    auto legacy_with_driver=native;
-    check(replace_all(legacy_with_driver,"\"version\":\"0.62\"","\"version\":\"0.22\"")==1,
+    auto legacy_with_driver=test_support::without_empty_presets_for_legacy_fixture(native);
+    check(replace_all(legacy_with_driver,"\"version\":\"0.63\"","\"version\":\"0.22\"")==1,
         "Legacy linked fixture downgrades only its version tag");
     rejects("INVALID_GUIDE",[&]{(void)decode(legacy_with_driver);});
-    auto native_033_link=encode(session.document());
-    check(replace_all(native_033_link,"\"version\":\"0.62\"","\"version\":\"0.33\"")==1&&
+    auto native_033_link=test_support::without_empty_presets_for_legacy_fixture(encode(session.document()));
+    check(replace_all(native_033_link,"\"version\":\"0.63\"","\"version\":\"0.33\"")==1&&
         decode(native_033_link)==session.document(),
         "Native 0.33 still decodes the existing Guide link representation unchanged");
     auto literal_document=session.document();
     for(auto& composition:literal_document.compositions)for(auto& guide:composition.guides)guide.position_driver.reset();
-    auto legacy_literal=encode(literal_document);
-    check(replace_all(legacy_literal,"\"version\":\"0.62\"","\"version\":\"0.22\"")==1&&
+    auto legacy_literal=test_support::without_empty_presets_for_legacy_fixture(encode(literal_document));
+    check(replace_all(legacy_literal,"\"version\":\"0.63\"","\"version\":\"0.22\"")==1&&
         decode(legacy_literal)==literal_document,
         "Native 0.22 continues to decode literal-only Guide positions unchanged");
 
@@ -4466,12 +4467,12 @@ void guide_position_links() {
         "Undo restores the exact Guide expression and its evaluated value after link replacement");
     session.redo(session.revision());session.undo(session.revision());
     const auto expression_native=encode(session.document());
-    check(expression_native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(expression_native.find("\"version\":\"0.63\"")!=std::string::npos&&
         expression_native.find("\"position_expression\":{\"source\":\"ref(\\\"guide-source\\\",\\\"\\\",\\\"guide.position\\\") + 20\",\"version\":1}")!=std::string::npos&&
         encode(decode(expression_native))==expression_native,
         "Native 0.43 stores and byte-roundtrips the exact Guide expression while omitting an absent link");
-    auto expression_lied_version=expression_native;
-    check(replace_all(expression_lied_version,"\"version\":\"0.62\"","\"version\":\"0.33\"")==1,
+    auto expression_lied_version=test_support::without_empty_presets_for_legacy_fixture(expression_native);
+    check(replace_all(expression_lied_version,"\"version\":\"0.63\"","\"version\":\"0.33\"")==1,
         "Native Guide expression version-lie fixture changes only its version tag");
     rejects("INVALID_GUIDE",[&]{(void)decode(expression_lied_version);});
     auto both_sources=session.document();
@@ -4577,13 +4578,13 @@ void artboard_size_drivers() {
     const Ref peer_width{"size-peer","","artboard.width"};
     const Ref other_width{"size-other-art","","artboard.width"};
     const Ref scalar_target{"size-circle","","transform.tx"};
-    auto malformed_parent_native=encode(empty_document("parent-chain-doc","parent-chain-comp","parent-chain-art"));
+    auto malformed_parent_native=test_support::without_empty_presets_for_legacy_fixture(encode(empty_document("parent-chain-doc","parent-chain-comp","parent-chain-art")));
     const auto parent_height_marker=malformed_parent_native.find("\"height\":");
     check(parent_height_marker!=std::string::npos,"Native fixture contains its default Artboard height");
     const auto parent_height_end=malformed_parent_native.find_first_of(",}",parent_height_marker);
     malformed_parent_native.insert(parent_height_end,
         ",\"parent_size\":{\"artboard\":\"missing-parent\",\"width\":false,\"height\":false}");
-    check(replace_all(malformed_parent_native,"\"version\":\"0.62\"","\"version\":\"0.32\"")==1,
+    check(replace_all(malformed_parent_native,"\"version\":\"0.63\"","\"version\":\"0.32\"")==1,
         "Malformed false-false legacy parent fixture uses the preserved native 0.32 gate");
     rejects("MISSING_ARTBOARD",[&]{(void)decode(malformed_parent_native);});
     Artboard peer{"size-peer","Peer",50,60,200,300};
@@ -4724,20 +4725,20 @@ void artboard_size_drivers() {
         [](const auto& board){return board.id=="size-child";});
     native_child->width_driver=ArtboardSizeDriver{combined};
     auto typed_native=encode(native_document);
-    check(typed_native.find("\"version\":\"0.62\"")!=std::string::npos&&
+    check(typed_native.find("\"version\":\"0.63\"")!=std::string::npos&&
         typed_native.find("\"width_driver\":{\"expression\":")!=std::string::npos&&
         encode(decode(typed_native))==typed_native,
         "Native 0.43 stores and cold-roundtrips the additive Artboard expression driver");
-    auto lied_version=typed_native;
-    check(replace_all(lied_version,"\"version\":\"0.62\"","\"version\":\"0.32\"")==1,
+    auto lied_version=test_support::without_empty_presets_for_legacy_fixture(typed_native);
+    check(replace_all(lied_version,"\"version\":\"0.63\"","\"version\":\"0.32\"")==1,
         "Native version-lie fixture changes only the version tag");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(lied_version);});
     auto literal_document=session.document();
     auto literal_child=std::find_if(literal_document.compositions.front().artboards.begin(),literal_document.compositions.front().artboards.end(),
         [](const auto& board){return board.id=="size-child";});
     literal_child->width_driver.reset();literal_child->height_driver.reset();
-    auto legacy=encode(literal_document);
-    check(replace_all(legacy,"\"version\":\"0.62\"","\"version\":\"0.32\"")==1&&
+    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(literal_document));
+    check(replace_all(legacy,"\"version\":\"0.63\"","\"version\":\"0.32\"")==1&&
         decode(legacy)==literal_document,
         "Native 0.32 still reopens literal and parent_size Artboards without driver fields");
     auto malformed=typed_native;

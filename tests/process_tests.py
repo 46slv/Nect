@@ -10,6 +10,19 @@ from pathlib import Path
 exe = str(Path(sys.argv[1]).resolve())
 checks = 0
 
+def remove_empty_presets_for_legacy_fixture(document):
+    if 'presets' in document:
+        if document['presets'] != []:
+            raise AssertionError('historical native fixture must not carry preset definitions')
+        document.pop('presets')
+    return document
+
+def legacy_native(document, version):
+    fixture = json.loads(json.dumps(document))
+    remove_empty_presets_for_legacy_fixture(fixture)
+    fixture['version'] = version
+    return fixture
+
 def run(mode, value=None):
     return subprocess.run([exe, mode], input=None if value is None else json.dumps(value),
                           text=True, capture_output=True, timeout=10)
@@ -58,16 +71,16 @@ check(run('--validate', future).returncode == 2, 'future schema rejected')
 unknown = dict(sample, secret_extension={})
 check('UNKNOWN_FIELD' in run('--validate', unknown).stderr, 'unknown field rejected')
 
-native_026 = json.loads(json.dumps(sample));native_026['version'] = '0.26'
+native_026 = json.loads(json.dumps(sample));native_026['version'] = '0.26'; remove_empty_presets_for_legacy_fixture(native_026)
 check(run('--validate', native_026).returncode == 0, 'native 0.26 literal-only document remains readable')
-native_059 = json.loads(json.dumps(sample));native_059['version'] = '0.59'
+native_059 = json.loads(json.dumps(sample));native_059['version'] = '0.59'; remove_empty_presets_for_legacy_fixture(native_059)
 check(run('--validate', native_059).returncode == 0, 'native 0.59 literal/link-only document remains readable')
 expression_lie = json.loads(json.dumps(native_059))
 next(obj for obj in expression_lie['objects'] if obj['id'] == 'path-A')['visibility_expression'] = dict(
     source='true', version=1)
 check('UNKNOWN_FIELD' in run('--validate', expression_lie).stderr,
       'native 0.59 version lie rejects the 0.60 Object visibility expression field')
-old_driver = json.loads(json.dumps(sample));old_driver['version'] = '0.26'
+old_driver = json.loads(json.dumps(sample));old_driver['version'] = '0.26'; remove_empty_presets_for_legacy_fixture(old_driver)
 next(obj for obj in old_driver['objects'] if obj['id'] == 'path-A')['visibility_driver'] = dict(
     link=dict(object='path-B', point='', field='object.visible'))
 check('UNKNOWN_FIELD' in run('--validate', old_driver).stderr,
@@ -479,14 +492,14 @@ next(obj for obj in composite_expression_doc['objects'] if obj['id'] == 'path-B'
     source='!ref("path-A","","composite.isolated")', version=1)
 check(run('--validate', composite_expression_doc).returncode == 0,
       'native 0.62 accepts a valid same-field Composite isolation expression')
-composite_expression_lie = json.loads(json.dumps(composite_expression_doc));composite_expression_lie['version'] = '0.61'
+composite_expression_lie = json.loads(json.dumps(composite_expression_doc));composite_expression_lie['version'] = '0.61'; remove_empty_presets_for_legacy_fixture(composite_expression_lie)
 check('UNKNOWN_FIELD' in run('--validate', composite_expression_lie).stderr,
       'native 0.61 version lie rejects the 0.62 Composite isolation expression field')
 
-literal_029 = json.loads(json.dumps(sample));literal_029['version'] = '0.29'
+literal_029 = json.loads(json.dumps(sample));literal_029['version'] = '0.29'; remove_empty_presets_for_legacy_fixture(literal_029)
 check(run('--validate', literal_029).returncode == 0,
       'native 0.29 remains readable with literal-only Composite isolation')
-false_029 = json.loads(json.dumps(sample));false_029['version'] = '0.29'
+false_029 = json.loads(json.dumps(sample));false_029['version'] = '0.29'; remove_empty_presets_for_legacy_fixture(false_029)
 next(obj for obj in false_029['objects'] if obj['id'] == 'path-B')['compositing']['isolated_driver'] = dict(
     link=dict(object='path-A', point='', field='composite.isolated'))
 check('UNKNOWN_FIELD' in run('--validate', false_029).stderr,
@@ -719,10 +732,10 @@ with tempfile.TemporaryDirectory() as tmp:
         'Same-ID source toggles propagate while clear, clear/recreate, conversion and deletion guard surviving dependents')
     native=reply['linked_native']['result']
     native_target=next(obj for obj in native['objects'] if obj['id']==target_object)['point_edit']
-    check(native['version']=='0.62' and native_target['enabled'] is False and
+    check(native['version']=='0.63' and native_target['enabled'] is False and
         native_target['enabled_driver']==dict(link=source_ref) and run('--validate',native).returncode==0,
         'Native 0.36 persists only the optional closed qualified driver beside the authored false literal')
-    old=native.copy();old['version']='0.31'
+    old=native.copy();old['version']='0.31'; remove_empty_presets_for_legacy_fixture(old)
     check('UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER' in run('--validate',old).stderr,
         'Native 0.31 rejects a falsely versioned Point Edit enabled driver')
     malformed=json.loads(json.dumps(native));next(obj for obj in malformed['objects'] if obj['id']==target_object)['point_edit']['enabled_driver']['extra']=True
@@ -794,7 +807,7 @@ with tempfile.TemporaryDirectory() as tmp:
           replies[10]['ok'] and replies[11]['error']['code'] == 'MISSING_MASK' and
           not any(value['ref'] == mask_ref for value in replies[12]['result']),
           'Undo restores the literal, and removal makes get fail with MISSING_MASK and removes discovery')
-    check(replies[13]['ok'] and replies[14]['result']['version'] == '0.62' and
+    check(replies[13]['ok'] and replies[14]['result']['version'] == '0.63' and
           next(obj for obj in replies[14]['result']['objects'] if obj['id'] == 'path-A')['compositing']['mask']['id'] == 'process-mask-replacement',
           'Replacement mask retains its native identity under the owner-slot Ref')
     saved = replies[14]['result']
@@ -858,7 +871,7 @@ with tempfile.TemporaryDirectory() as tmp:
           replies[4]['result'] and replies[6]['error']['code'] == 'INVALID_MASK_REF' and replies[6]['revision'] == 2,
           'Qualified get/properties expose exact linked state while legacy owner-slot reads stay literal-only')
     linked_native = replies[5]['result']
-    check(linked_native['version'] == '0.62' and
+    check(linked_native['version'] == '0.63' and
           next(obj for obj in linked_native['objects'] if obj['id'] == 'path-A')['compositing']['mask']['enabled_driver'] == dict(link=source_ref),
           'Native 0.36 inspect preserves the exact mask driver beside its authored literal')
     changed = replies[7]['result']['changed_ids']
@@ -888,7 +901,7 @@ with tempfile.TemporaryDirectory() as tmp:
               next(value for value in cold_replies[1]['result'] if value['ref'] == target_ref) == linked and
               cold_replies[2]['result'] == linked_native and cold_path.read_bytes() == before,
               'Distinct JSON-lines process cold-opens native 0.36 with exact linked reads and unchanged bytes')
-    old_version = json.loads(json.dumps(linked_native)); old_version['version'] = '0.30'
+    old_version = json.loads(json.dumps(linked_native)); old_version['version'] = '0.30'; remove_empty_presets_for_legacy_fixture(old_version)
     check('UNSUPPORTED_MASK_ENABLED_DRIVER' in run('--validate', old_version).stderr,
           'Native 0.30 rejects a version-lied mask enabled driver')
     malformed = json.loads(json.dumps(linked_native))
@@ -949,7 +962,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(not replies[6]['ok'] and replies[6]['error']['code'] == 'TYPE_MISMATCH' and replies[6]['revision'] == 3,
           'Generic Scalar set rejects Guide.position without advancing revision')
     linked_native = replies[7]['result']
-    check(linked_native['version'] == '0.62' and
+    check(linked_native['version'] == '0.63' and
           next(value for value in linked_native['compositions'][0]['guides'] if value['id'] == guide_target['object'])['position_expression'] ==
               dict(source='ref("process-guide-source","","guide.position") + 20', version=1),
           'Native 0.36 inspect preserves the exact Guide expression and authored target literal')
@@ -1029,7 +1042,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(expressed_grid['authored']==dict(literal=40,driver=None,source_kind='expression',
           expression=dict(source=grid_expression,version=1)) and expressed_grid['evaluated']==70 and
           next(item for item in replies[11]['result'] if item['ref']==grid_ref)==expressed_grid and
-          grid_expression_native['version']=='0.62' and target_layout['margin']['left_driver']==dict(link=expected_source) and
+          grid_expression_native['version']=='0.63' and target_layout['margin']['left_driver']==dict(link=expected_source) and
           target_layout['grid']['bounds_x_expression']==dict(source=grid_expression,version=1) and
           'bounds_x_driver' not in target_layout['grid'],
           'JSON-lines carries Grid expression commands, typed reads and native 0.43 Grid authorship')
@@ -1039,7 +1052,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(expressed_margin['authored']==dict(literal=40,driver=None,source_kind='expression',
           expression=dict(source=margin_expression,version=1)) and expressed_margin['evaluated']==90 and
           next(item for item in replies[15]['result'] if item['ref']==target_ref)==expressed_margin and
-          linked_native['version']=='0.62' and target_layout['margin']['left_expression']==dict(source=margin_expression,version=1) and
+          linked_native['version']=='0.63' and target_layout['margin']['left_expression']==dict(source=margin_expression,version=1) and
           'left_driver' not in target_layout['margin'] and
           target_layout['grid']['bounds_x_expression']==dict(source=grid_expression,version=1),
           'JSON-lines carries the Margin expression command, typed properties and exact native 0.43 source')
@@ -1053,13 +1066,13 @@ with tempfile.TemporaryDirectory() as tmp:
         cold_replies[0]['result']==expressed_margin and cold_replies[1]['result']==expressed_grid and
         cold_replies[2]['result']==linked_native and cold_path.read_bytes()==cold_bytes,
         'Distinct JSON-lines process cold-opens exact 0.43 Margin and Grid expressions with unchanged authored/evaluated state')
-    lied=json.loads(json.dumps(linked_native));lied['version']='0.35'
+    lied=json.loads(json.dumps(linked_native));lied['version']='0.35'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.35 version-lie cannot admit the new Grid bounds x driver')
-    expression_lie=json.loads(json.dumps(linked_native));expression_lie['version']='0.36'
+    expression_lie=json.loads(json.dumps(linked_native));expression_lie['version']='0.36'; remove_empty_presets_for_legacy_fixture(expression_lie)
     check('INVALID_LAYOUT' in run('--validate',expression_lie).stderr,
         'Native 0.36 version-lie cannot admit the new Grid bounds x expression')
-    margin_expression_lie=json.loads(json.dumps(linked_native));margin_expression_lie['version']='0.37'
+    margin_expression_lie=json.loads(json.dumps(linked_native));margin_expression_lie['version']='0.37'; remove_empty_presets_for_legacy_fixture(margin_expression_lie)
     check('INVALID_LAYOUT' in run('--validate',margin_expression_lie).stderr,
         'Native 0.37 version-lie cannot admit the new Margin left expression')
     unlinked,unlinked_grid=replies[18]['result'],replies[19]['result']
@@ -1129,7 +1142,7 @@ with tempfile.TemporaryDirectory() as tmp:
         expression=dict(source=expression,version=1)) and linked['evaluated']==60 and
         linked['link'] is True and linked['expression'] is True and
         next(item for item in replies[5]['result'] if item['ref']==target_ref)==linked and
-        linked_native['version']=='0.62' and
+        linked_native['version']=='0.63' and
         next(board for board in linked_native['compositions'][0]['artboards'] if board['id']==target['id'])[
             'layout']['margin']['top_expression']==dict(source=expression,version=1) and
         'top_driver' not in next(board for board in linked_native['compositions'][0]['artboards'] if board['id']==target['id'])[
@@ -1144,10 +1157,10 @@ with tempfile.TemporaryDirectory() as tmp:
     check(cold.returncode==0 and len(cold_replies)==2 and all(reply['ok'] for reply in cold_replies) and
         cold_replies[0]['result']==linked and cold_replies[1]['result']==linked_native,
         'A distinct JSON-lines process cold-opens the exact Margin top expression and native bytes')
-    lied=json.loads(json.dumps(linked_native));lied['version']='0.41'
+    lied=json.loads(json.dumps(linked_native));lied['version']='0.41'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.41 version-lie cannot admit the new Margin top expression')
-    literal_native=json.loads(json.dumps(replies[15]['result']));literal_native['version']='0.41'
+    literal_native=json.loads(json.dumps(replies[15]['result']));literal_native['version']='0.41'; remove_empty_presets_for_legacy_fixture(literal_native)
     check(run('--validate',literal_native).returncode==0,
         'Native 0.41 literal-only Margin top remains readable after the format bump')
 
@@ -1204,7 +1217,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(linked['authored']==dict(literal=25,driver=source_ref,source_kind='link') and linked['evaluated']==60 and
         linked['link'] is True and linked['expression'] is True and
         next(item for item in replies[9]['result'] if item['ref']==target_ref)==linked and
-        linked_native['version']=='0.62' and
+        linked_native['version']=='0.63' and
         next(board for board in linked_native['compositions'][0]['artboards'] if board['id']==target['id'])[
             'layout']['margin']['right_driver']==dict(link=source_ref) and
         next(item for item in replies[9]['result'] if item['ref']==target_ref)['evaluated']==60,
@@ -1219,14 +1232,14 @@ with tempfile.TemporaryDirectory() as tmp:
         'A distinct JSON-lines process cold-opens the exact Margin right Ref and native bytes')
     frozen = replies[12]['result']
     check(frozen['authored']==dict(literal=60,driver=None,source_kind='literal') and frozen['evaluated']==60 and
-        replies[13]['result']['version']=='0.62' and 'right_driver' not in next(
+        replies[13]['result']['version']=='0.63' and 'right_driver' not in next(
             board for board in replies[13]['result']['compositions'][0]['artboards'] if board['id']==target['id'])[
                 'layout']['margin'],
         'JSON-lines unlink freezes the evaluated Margin right into its literal and removes the driver')
-    lied = json.loads(json.dumps(linked_native));lied['version']='0.42'
+    lied = json.loads(json.dumps(linked_native));lied['version']='0.42'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.42 version-lie cannot admit a Margin right source')
-    legacy_literal = json.loads(json.dumps(replies[13]['result']));legacy_literal['version']='0.42'
+    legacy_literal = json.loads(json.dumps(replies[13]['result']));legacy_literal['version']='0.42'; remove_empty_presets_for_legacy_fixture(legacy_literal)
     check(run('--validate',legacy_literal).returncode==0,
         'Native 0.42 literal-only Margin right remains readable')
 
@@ -1265,12 +1278,12 @@ with tempfile.TemporaryDirectory() as tmp:
     check(expressed['authored']==dict(literal=60,driver=None,source_kind='expression',expression=expression) and
         expressed['evaluated']==70 and expressed['link'] is True and expressed['expression'] is True and
         next(item for item in replies[3]['result'] if item['ref']==target_ref)==expressed and
-        expression_native['version']=='0.62' and
+        expression_native['version']=='0.63' and
         next(board for board in expression_native['compositions'][0]['artboards'] if board['id']==target['id'])[
             'layout']['margin']['right_expression']==expression and
         run('--validate',expression_native).returncode==0,
         'JSON-lines get, properties and native 0.50 inspect retain the exact Margin right expression and evaluated du')
-    lied = json.loads(json.dumps(expression_native));lied['version']='0.43'
+    lied = json.loads(json.dumps(expression_native));lied['version']='0.43'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.43 version-lie cannot admit a Margin right expression')
     cold_path = Path(tmp) / 'margin-right-expression-cold.nect'
@@ -1283,7 +1296,7 @@ with tempfile.TemporaryDirectory() as tmp:
         'A distinct JSON-lines process cold-opens the exact Margin right expression source and native bytes')
     frozen = replies[7]['result']
     check(frozen['authored']==dict(literal=70,driver=None,source_kind='literal') and frozen['evaluated']==70 and
-        replies[8]['result']['version']=='0.62' and 'right_expression' not in next(
+        replies[8]['result']['version']=='0.63' and 'right_expression' not in next(
             board for board in replies[8]['result']['compositions'][0]['artboards'] if board['id']==target['id'])[
                 'layout']['margin'],
         'JSON-lines unlink freezes evaluated Margin right and removes the expression source')
@@ -1356,7 +1369,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(linked['authored']==dict(literal=40,driver=source_ref,source_kind='link') and linked['evaluated']==60 and
         linked['link'] is True and linked['expression'] is True and
         next(item for item in replies[9]['result'] if item['ref']==target_ref)==linked and
-        linked_native['version']=='0.62' and
+        linked_native['version']=='0.63' and
         next(board for board in linked_native['compositions'][0]['artboards'] if board['id']==target['id'])[
             'layout']['margin']['bottom_driver']==dict(link=source_ref),
         'JSON-lines get, properties and native 0.50 inspect preserve Margin bottom source and evaluated value')
@@ -1371,14 +1384,14 @@ with tempfile.TemporaryDirectory() as tmp:
         'A distinct JSON-lines process cold-opens the exact Margin bottom Ref and unchanged native bytes')
     frozen = replies[14]['result']
     check(frozen['authored']==dict(literal=60,driver=None,source_kind='literal') and frozen['evaluated']==60 and
-        replies[15]['result']['version']=='0.62' and 'bottom_driver' not in next(
+        replies[15]['result']['version']=='0.63' and 'bottom_driver' not in next(
             board for board in replies[15]['result']['compositions'][0]['artboards'] if board['id']==target['id'])[
                 'layout']['margin'],
         'JSON-lines unlink freezes evaluated Margin bottom into its authored literal')
-    lied = json.loads(json.dumps(linked_native));lied['version']='0.44'
+    lied = json.loads(json.dumps(linked_native));lied['version']='0.44'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.44 version-lie cannot admit a Margin bottom source')
-    literal_native = json.loads(json.dumps(replies[15]['result']));literal_native['version']='0.44'
+    literal_native = json.loads(json.dumps(replies[15]['result']));literal_native['version']='0.44'; remove_empty_presets_for_legacy_fixture(literal_native)
     check(run('--validate',literal_native).returncode==0,
         'Native 0.44 literal-only Margin bottom remains readable')
     malformed = json.loads(json.dumps(linked_native))
@@ -1422,7 +1435,7 @@ with tempfile.TemporaryDirectory() as tmp:
     updated = replies[6]['result']
     check(linked['authored']==dict(literal=40,driver=source_ref,source_kind='link') and linked['evaluated']==50 and
         next(item for item in replies[3]['result'] if item['ref']==target_ref)==linked and
-        linked_native['version']=='0.62' and
+        linked_native['version']=='0.63' and
         next(board for board in linked_native['compositions'][0]['artboards'] if board['id']==target['id'])['layout']['grid'][
             'bounds_y_driver']==dict(link=source_ref) and updated['authored']==linked['authored'] and updated['evaluated']==70,
         'JSON-lines get, properties and native 0.43 inspect preserve Grid y authorship while reporting upstream evaluation')
@@ -1446,9 +1459,9 @@ with tempfile.TemporaryDirectory() as tmp:
         cold_replies[0]['result']==updated and cold_replies[2]['result']['authored']==
             dict(literal=70,driver=None,source_kind='literal') and cold_replies[2]['result']['evaluated']==70 and
         cold_replies[2]['result']['link'] is True and cold_replies[2]['result']['expression'] is True and
-        cold_replies[3]['result']['version']=='0.62',
+        cold_replies[3]['result']['version']=='0.63',
         'A separate JSON-lines process cold-opens Grid y and Unlink freezes its evaluated value: '+repr(cold_evidence))
-    lied=json.loads(json.dumps(replies[7]['result']));lied['version']='0.38'
+    lied=json.loads(json.dumps(replies[7]['result']));lied['version']='0.38'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.38 version-lie cannot admit a Grid bounds y source')
 
@@ -1487,12 +1500,12 @@ with tempfile.TemporaryDirectory() as tmp:
         'Grid width JSON-lines process accepts setup and its dedicated stable-Ref link command')
     linked=replies[2]['result'];native=replies[4]['result'];updated=replies[6]['result'];expressed=replies[8]['result']
     check(linked['authored']==dict(literal=400,driver=source_ref,source_kind='link') and linked['evaluated']==40 and
-        next(item for item in replies[3]['result'] if item['ref']==target_ref)==linked and native['version']=='0.62' and
+        next(item for item in replies[3]['result'] if item['ref']==target_ref)==linked and native['version']=='0.63' and
         next(board for board in native['compositions'][0]['artboards'] if board['id']==target['id'])['layout']['grid'][
             'bounds_width_driver']==dict(link=source_ref) and updated['authored']==linked['authored'] and
         updated['evaluated']==70 and replies[7]['ok'] and expressed['authored']==
             dict(literal=400,driver=None,source_kind='expression',expression=dict(source=width_expression,version=1)) and
-        expressed['evaluated']==80 and replies[11]['result']['version']=='0.62' and
+        expressed['evaluated']==80 and replies[11]['result']['version']=='0.63' and
         next(board for board in replies[11]['result']['compositions'][0]['artboards'] if board['id']==target['id'])['layout']['grid'][
             'bounds_width_expression']==dict(source=width_expression,version=1),
         'JSON-lines get, properties and native inspect preserve Grid width literal and exact expression evaluation')
@@ -1510,9 +1523,9 @@ with tempfile.TemporaryDirectory() as tmp:
     check(cold.returncode==0 and len(cold_replies)==4 and all(reply['ok'] for reply in cold_replies) and
         cold_replies[0]['result']==expressed and cold_replies[2]['result']['authored']==
             dict(literal=80,driver=None,source_kind='literal') and cold_replies[2]['result']['evaluated']==80 and
-        cold_replies[3]['result']['version']=='0.62',
+        cold_replies[3]['result']['version']=='0.63',
         'A distinct JSON-lines process cold-opens Grid width expression and Unlink freezes the evaluated value')
-    lied=json.loads(json.dumps(replies[11]['result']));lied['version']='0.47'
+    lied=json.loads(json.dumps(replies[11]['result']));lied['version']='0.47'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.47 version-lie cannot admit a Grid width expression')
 
@@ -1548,7 +1561,7 @@ with tempfile.TemporaryDirectory() as tmp:
         'Grid height JSON-lines process accepts setup, typed link and a valid source edit')
     linked=replies[2]['result'];native=replies[4]['result'];updated=replies[6]['result']
     check(linked['authored']==dict(literal=500,driver=source_ref,source_kind='link') and linked['evaluated']==500 and
-        next(item for item in replies[3]['result'] if item['ref']==target_ref)==linked and native['version']=='0.62' and
+        next(item for item in replies[3]['result'] if item['ref']==target_ref)==linked and native['version']=='0.63' and
         next(board for board in native['compositions'][0]['artboards'] if board['id']==target['id'])['layout']['grid'][
             'bounds_height_driver']==dict(link=source_ref) and updated['authored']==linked['authored'] and
         updated['evaluated']==520 and updated['link'] is True and updated['expression'] is True and
@@ -1569,12 +1582,12 @@ with tempfile.TemporaryDirectory() as tmp:
         cold_replies[0]['result']==updated and cold_replies[2]['result']['authored']==
             dict(literal=520,driver=None,source_kind='literal') and cold_replies[2]['result']['evaluated']==520 and
         cold_replies[2]['result']['link'] is True and cold_replies[2]['result']['expression'] is True and
-        cold_replies[3]['result']['version']=='0.62',
+        cold_replies[3]['result']['version']=='0.63',
         'A distinct JSON-lines cold process preserves the Grid height link and Unlink freezes its evaluated value')
-    lied=json.loads(json.dumps(replies[8]['result']));lied['version']='0.48'
+    lied=json.loads(json.dumps(replies[8]['result']));lied['version']='0.48'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.48 version-lie cannot admit a Grid height driver')
-    old=json.loads(json.dumps(replies[8]['result']));old['version']='0.48'
+    old=json.loads(json.dumps(replies[8]['result']));old['version']='0.48'; remove_empty_presets_for_legacy_fixture(old)
     next(board for board in old['compositions'][0]['artboards'] if board['id']==target['id'])['layout']['grid'].pop(
         'bounds_height_driver')
     check(run('--validate',old).returncode==0,
@@ -1617,7 +1630,7 @@ with tempfile.TemporaryDirectory() as tmp:
           expression=dict(source=expression,version=1)) and expressed['evaluated']==500 and
         next(item for item in replies[3]['result'] if item['ref']==target_ref)==expressed and
         replies[6]['result']['authored']==expressed['authored'] and replies[6]['result']['evaluated']==520 and
-        native['version']=='0.62' and
+        native['version']=='0.63' and
         next(board for board in native['compositions'][0]['artboards'] if board['id']==target['id'])[
             'layout']['grid']['bounds_height_expression']==dict(source=expression,version=1),
         'JSON-lines get, properties and native inspect preserve Grid height literal, exact expression and evaluated height')
@@ -1636,9 +1649,9 @@ with tempfile.TemporaryDirectory() as tmp:
     check(cold.returncode==0 and len(cold_replies)==4 and all(reply['ok'] for reply in cold_replies) and
         cold_replies[0]['result']==replies[6]['result'] and
         cold_replies[2]['result']['authored']==dict(literal=520,driver=None,source_kind='literal') and
-        cold_replies[2]['result']['evaluated']==520 and cold_replies[3]['result']['version']=='0.62',
+        cold_replies[2]['result']['evaluated']==520 and cold_replies[3]['result']['version']=='0.63',
         'A distinct JSON-lines process cold-opens Grid height expression and Unlink freezes its evaluated value')
-    lied=json.loads(json.dumps(native));lied['version']='0.49'
+    lied=json.loads(json.dumps(native));lied['version']='0.49'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.49 version-lie cannot admit a Grid height expression')
 
@@ -1673,13 +1686,13 @@ with tempfile.TemporaryDirectory() as tmp:
         'Grid column gutter JSON-lines process accepts setup, typed link and positive source resize')
     linked=replies[2]['result'];native=replies[4]['result'];updated=replies[6]['result']
     check(linked['authored']==dict(literal=20,driver=source_ref,source_kind='link') and linked['evaluated']==20 and
-        next(item for item in replies[3]['result'] if item['ref']==target_ref)==linked and native['version']=='0.62' and
+        next(item for item in replies[3]['result'] if item['ref']==target_ref)==linked and native['version']=='0.63' and
         next(board for board in native['compositions'][0]['artboards'] if board['id']==target['id'])['layout']['grid'][
             'column_gutter_driver']==dict(link=source_ref) and updated['authored']==linked['authored'] and
         updated['evaluated']==30 and updated['link'] is True and updated['expression'] is True,
         'JSON-lines get, properties and native inspect preserve the Grid column gutter literal and exact Artboard source')
     check(not replies[7]['ok'] and replies[7]['error']['code']=='INVALID_LAYOUT' and replies[7]['revision']==3 and
-        replies[8]['revision']==3 and replies[8]['result']['version']=='0.62',
+        replies[8]['revision']==3 and replies[8]['result']['version']=='0.63',
         'JSON-lines rejects a zero-width evaluated column cell atomically at the committed revision')
     cold_path=Path(tmp)/'grid-column-gutter-cold.nect.json'
     cold_path.write_text(json.dumps(replies[8]['result']),encoding='utf-8')
@@ -1693,9 +1706,9 @@ with tempfile.TemporaryDirectory() as tmp:
         cold_replies[0]['result']==updated and cold_replies[2]['result']['authored']==
             dict(literal=30,driver=None,source_kind='literal') and cold_replies[2]['result']['evaluated']==30 and
         cold_replies[2]['result']['link'] is True and cold_replies[2]['result']['expression'] is True and
-        cold_replies[3]['result']['version']=='0.62',
+        cold_replies[3]['result']['version']=='0.63',
         'A distinct JSON-lines process cold-opens the Grid gutter link and Unlink freezes its evaluated value')
-    lied=json.loads(json.dumps(replies[8]['result']));lied['version']='0.50'
+    lied=json.loads(json.dumps(replies[8]['result']));lied['version']='0.50'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.50 version-lie cannot admit a Grid column gutter link')
     malformed=json.loads(json.dumps(replies[8]['result']))
@@ -1703,7 +1716,7 @@ with tempfile.TemporaryDirectory() as tmp:
         'layout']['grid']['column_gutter_driver']['extra']=True
     check('INVALID_LAYOUT' in run('--validate',malformed).stderr,
         'Native 0.55 rejects unknown Grid column gutter driver fields')
-    old=json.loads(json.dumps(replies[8]['result']));old['version']='0.50'
+    old=json.loads(json.dumps(replies[8]['result']));old['version']='0.50'; remove_empty_presets_for_legacy_fixture(old)
     next(board for board in old['compositions'][0]['artboards'] if board['id']==target['id'])[
         'layout']['grid'].pop('column_gutter_driver')
     check(run('--validate',old).returncode==0,
@@ -1740,13 +1753,13 @@ with tempfile.TemporaryDirectory() as tmp:
         'Grid row gutter JSON-lines process accepts setup, typed link and positive source resize')
     linked=replies[2]['result'];native=replies[8]['result'];updated=replies[6]['result']
     check(linked['authored']==dict(literal=20,driver=source_ref,source_kind='link') and linked['evaluated']==20 and
-        next(item for item in replies[3]['result'] if item['ref']==target_ref)==linked and native['version']=='0.62' and
+        next(item for item in replies[3]['result'] if item['ref']==target_ref)==linked and native['version']=='0.63' and
         next(board for board in native['compositions'][0]['artboards'] if board['id']==target['id'])['layout']['grid'][
             'row_gutter_driver']==dict(link=source_ref) and updated['authored']==linked['authored'] and
         updated['evaluated']==30 and updated['link'] is True and updated['expression'] is True,
         'JSON-lines get, properties and native inspect preserve the Grid row gutter literal and exact Artboard source')
     check(not replies[7]['ok'] and replies[7]['error']['code']=='INVALID_LAYOUT' and replies[7]['revision']==3 and
-        replies[8]['revision']==3 and replies[8]['result']['version']=='0.62',
+        replies[8]['revision']==3 and replies[8]['result']['version']=='0.63',
         'JSON-lines rejects a zero-height evaluated row cell atomically at the committed revision')
     cold_path=Path(tmp)/'grid-row-gutter-cold.nect.json'
     cold_path.write_text(json.dumps(native),encoding='utf-8')
@@ -1760,9 +1773,9 @@ with tempfile.TemporaryDirectory() as tmp:
         cold_replies[0]['result']==updated and cold_replies[2]['result']['authored']==
             dict(literal=30,driver=None,source_kind='literal') and cold_replies[2]['result']['evaluated']==30 and
         cold_replies[2]['result']['link'] is True and cold_replies[2]['result']['expression'] is True and
-        cold_replies[3]['result']['version']=='0.62',
+        cold_replies[3]['result']['version']=='0.63',
         'A distinct JSON-lines process cold-opens the Grid row gutter link and Unlink freezes its evaluated value')
-    lied=json.loads(json.dumps(native));lied['version']='0.51'
+    lied=json.loads(json.dumps(native));lied['version']='0.51'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.51 version-lie cannot admit the Grid row gutter link')
     malformed=json.loads(json.dumps(native))
@@ -1770,7 +1783,7 @@ with tempfile.TemporaryDirectory() as tmp:
         'layout']['grid']['row_gutter_driver']['extra']=True
     check('INVALID_LAYOUT' in run('--validate',malformed).stderr,
         'Native 0.55 rejects unknown Grid row gutter driver fields')
-    old=json.loads(json.dumps(native));old['version']='0.51'
+    old=json.loads(json.dumps(native));old['version']='0.51'; remove_empty_presets_for_legacy_fixture(old)
     next(board for board in old['compositions'][0]['artboards'] if board['id']==target['id'])[
         'layout']['grid'].pop('row_gutter_driver')
     check(run('--validate',old).returncode==0,
@@ -1812,9 +1825,9 @@ with tempfile.TemporaryDirectory() as tmp:
     check(expressed['authored']==dict(literal=20,driver=None,source_kind='expression',
           expression=dict(source=expression,version=1)) and expressed['evaluated']==30 and
         next(item for item in replies[3]['result'] if item['ref']==target_ref)==expressed and
-        native['version']=='0.62' and native_grid['row_gutter_expression']==dict(source=expression,version=1) and
+        native['version']=='0.63' and native_grid['row_gutter_expression']==dict(source=expression,version=1) and
         'row_gutter_driver' not in native_grid and updated['authored']==expressed['authored'] and
-        updated['evaluated']==40 and replies[8]['result']==updated and replies[9]['result']['version']=='0.62',
+        updated['evaluated']==40 and replies[8]['result']==updated and replies[9]['result']['version']=='0.63',
         'JSON-lines get, properties and native inspect preserve exact Grid row gutter expression and evaluated value')
     check(replies[7]['error']['code']=='INVALID_LAYOUT',
         'A source edit making an expression-driven row cell zero is rejected without committing')
@@ -1829,9 +1842,9 @@ with tempfile.TemporaryDirectory() as tmp:
     check(cold.returncode==0 and len(cold_replies)==4 and all(reply['ok'] for reply in cold_replies) and
         cold_replies[0]['result']==updated and cold_replies[2]['result']['authored']==
             dict(literal=40,driver=None,source_kind='literal') and cold_replies[2]['result']['evaluated']==40 and
-        cold_replies[2]['result']['expression'] is True and cold_replies[3]['result']['version']=='0.62',
+        cold_replies[2]['result']['expression'] is True and cold_replies[3]['result']['version']=='0.63',
         'A distinct JSON-lines process cold-opens the Grid expression and Unlink freezes its evaluated gutter')
-    lied=json.loads(json.dumps(replies[9]['result']));lied['version']='0.52'
+    lied=json.loads(json.dumps(replies[9]['result']));lied['version']='0.52'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.52 version-lie cannot admit the new Grid row gutter expression field')
     conflict=json.loads(json.dumps(replies[9]['result']))
@@ -1875,9 +1888,9 @@ with tempfile.TemporaryDirectory() as tmp:
     check(expressed['authored']==dict(literal=20,driver=None,source_kind='expression',
           expression=dict(source=expression,version=1)) and expressed['evaluated']==30 and
         next(item for item in replies[3]['result'] if item['ref']==target_ref)==expressed and
-        native['version']=='0.62' and native_grid['column_gutter_expression']==dict(source=expression,version=1) and
+        native['version']=='0.63' and native_grid['column_gutter_expression']==dict(source=expression,version=1) and
         'column_gutter_driver' not in native_grid and updated['authored']==expressed['authored'] and
-        updated['evaluated']==40 and replies[8]['result']==updated and replies[9]['result']['version']=='0.62',
+        updated['evaluated']==40 and replies[8]['result']==updated and replies[9]['result']['version']=='0.63',
         'JSON-lines get, properties and native inspect preserve exact Grid column gutter expression and evaluated value')
     check(replies[7]['error']['code']=='INVALID_LAYOUT',
         'A source edit making an expression-driven column cell zero is rejected without committing')
@@ -1892,9 +1905,9 @@ with tempfile.TemporaryDirectory() as tmp:
     check(cold.returncode==0 and len(cold_replies)==4 and all(reply['ok'] for reply in cold_replies) and
         cold_replies[0]['result']==updated and cold_replies[2]['result']['authored']==
             dict(literal=40,driver=None,source_kind='literal') and cold_replies[2]['result']['evaluated']==40 and
-        cold_replies[2]['result']['expression'] is True and cold_replies[3]['result']['version']=='0.62',
+        cold_replies[2]['result']['expression'] is True and cold_replies[3]['result']['version']=='0.63',
         'A distinct JSON-lines process cold-opens the Grid expression and Unlink freezes its evaluated gutter')
-    lied=json.loads(json.dumps(replies[9]['result']));lied['version']='0.53'
+    lied=json.loads(json.dumps(replies[9]['result']));lied['version']='0.53'; remove_empty_presets_for_legacy_fixture(lied)
     check('INVALID_LAYOUT' in run('--validate',lied).stderr,
         'Native 0.53 version-lie cannot admit the new Grid column gutter expression field')
     conflict=json.loads(json.dumps(replies[9]['result']))
@@ -1965,7 +1978,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(columns_linked['type']=='integer' and columns_linked['unit']=='unitless' and
         columns_linked['authored']==dict(literal=2,driver=grid_columns_source_ref,expression=None,source_kind='link') and
         columns_linked['evaluated']==2 and columns_linked['link'] is True and columns_linked['expression'] is True and
-        columns_metadata==columns_linked and columns_link_native['version']=='0.62' and
+        columns_metadata==columns_linked and columns_link_native['version']=='0.63' and
         columns_native_grid['columns']==2 and columns_native_grid['columns_driver']==dict(link=grid_columns_source_ref) and
         columns_updated['authored']==columns_linked['authored'] and columns_updated['evaluated']==3,
         'Typed JSON get/properties and native inspect preserve the literal and exact Grid source as evaluation changes')
@@ -1977,7 +1990,7 @@ with tempfile.TemporaryDirectory() as tmp:
         if board['id']==grid_columns_target_board['id'])['layout']['grid']
     check(columns_expressed['authored']==dict(literal=2,driver=None,expression=columns_expression,source_kind='expression') and
         columns_expressed['evaluated']==4 and columns_expressed['link'] is True and columns_expressed['expression'] is True and
-        columns_expression_metadata==columns_expressed and columns_native['version']=='0.62' and
+        columns_expression_metadata==columns_expressed and columns_native['version']=='0.63' and
         columns_expression_grid['columns']==2 and columns_expression_grid['columns_expression']==columns_expression and
         'columns_driver' not in columns_expression_grid,
         'JSON-lines expression command exposes the exact source and retains its authored count in typed/native readback')
@@ -1998,12 +2011,12 @@ with tempfile.TemporaryDirectory() as tmp:
         cold_columns_replies[2]['result']['evaluated']==4 and cold_columns_replies[4]['result']==cold_columns_replies[2]['result'],
         'Separate JSON-lines cold open retains the exact expression and Unlink freezes its evaluated count across source edits: '+
         json.dumps(cold_columns_replies,ensure_ascii=False))
-    columns_link_lied=json.loads(json.dumps(columns_link_native));columns_link_lied['version']='0.55'
+    columns_link_lied=json.loads(json.dumps(columns_link_native));columns_link_lied['version']='0.55'; remove_empty_presets_for_legacy_fixture(columns_link_lied)
     columns_link_lie_result=run('--validate',columns_link_lied)
     check(columns_link_lie_result.returncode==2 and 'INVALID_LAYOUT:' in columns_link_lie_result.stderr and
         'columns_driver' in columns_link_lie_result.stderr,
         'Native 0.55 cannot claim support for the existing Grid columns link Ref')
-    columns_lied=json.loads(json.dumps(columns_native));columns_lied['version']='0.57'
+    columns_lied=json.loads(json.dumps(columns_native));columns_lied['version']='0.57'; remove_empty_presets_for_legacy_fixture(columns_lied)
     columns_lie_result=run('--validate',columns_lied)
     check(columns_lie_result.returncode==2 and 'INVALID_LAYOUT:' in columns_lie_result.stderr and
         'columns_expression' in columns_lie_result.stderr,
@@ -2074,7 +2087,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(rows_linked['type']=='integer' and rows_linked['unit']=='unitless' and
         rows_linked['authored']==dict(literal=2,driver=grid_rows_source_ref,source_kind='link') and
         rows_linked['evaluated']==2 and rows_linked['link'] is True and
-        rows_metadata==rows_linked and rows_native['version']=='0.62' and
+        rows_metadata==rows_linked and rows_native['version']=='0.63' and
         rows_native_grid['rows']==2 and rows_native_grid['rows_driver']==dict(link=grid_rows_source_ref) and
         rows_updated['authored']==rows_linked['authored'] and rows_updated['evaluated']==3,
         'Typed JSON get/properties and native inspect preserve the literal and exact Grid rows source as evaluation changes')
@@ -2095,7 +2108,7 @@ with tempfile.TemporaryDirectory() as tmp:
         cold_rows_replies[2]['result']['authored']==dict(literal=3,driver=None,source_kind='literal') and
         cold_rows_replies[2]['result']['evaluated']==3 and cold_rows_replies[4]['result']==cold_rows_replies[2]['result'],
         'Separate JSON-lines cold open retains the exact rows link and Unlink freezes its evaluated count across source edits')
-    rows_lied=json.loads(json.dumps(rows_native));rows_lied['version']='0.56'
+    rows_lied=json.loads(json.dumps(rows_native));rows_lied['version']='0.56'; remove_empty_presets_for_legacy_fixture(rows_lied)
     rows_lie_result=run('--validate',rows_lied)
     check(rows_lie_result.returncode==2 and 'INVALID_LAYOUT:' in rows_lie_result.stderr and
         'rows_driver' in rows_lie_result.stderr,
@@ -2151,7 +2164,7 @@ with tempfile.TemporaryDirectory() as tmp:
         rows_expression_read['authored']==dict(literal=2,driver=None,expression=rows_expression,source_kind='expression') and
         rows_expression_read['evaluated']==3 and rows_expression_read['expression'] is True and
         rows_expression_metadata==rows_expression_read and rows_expression_updated['authored']==rows_expression_read['authored'] and
-        rows_expression_updated['evaluated']==4 and rows_expression_native['version']=='0.62' and
+        rows_expression_updated['evaluated']==4 and rows_expression_native['version']=='0.63' and
         rows_expression_native_grid['rows']==2 and rows_expression_native_grid['rows_expression']==rows_expression and
         'rows_driver' not in rows_expression_native_grid,
         'Typed get/properties expose the literal, exact expression and evaluated integer; native 0.60 retains the expression')
@@ -2168,7 +2181,7 @@ with tempfile.TemporaryDirectory() as tmp:
         rows_expression_cold_replies[2]['result']['authored']==dict(literal=4,driver=None,source_kind='literal') and
         rows_expression_cold_replies[2]['result']['evaluated']==4,
         'Separate JSON-lines cold open preserves the exact expression and unlink freezes its evaluated count')
-    rows_expression_lied=json.loads(json.dumps(rows_expression_native));rows_expression_lied['version']='0.58'
+    rows_expression_lied=json.loads(json.dumps(rows_expression_native));rows_expression_lied['version']='0.58'; remove_empty_presets_for_legacy_fixture(rows_expression_lied)
     rows_expression_lie_result=run('--validate',rows_expression_lied)
     check(rows_expression_lie_result.returncode==2 and 'INVALID_LAYOUT:' in rows_expression_lie_result.stderr and
         'rows_expression' in rows_expression_lie_result.stderr,
@@ -2210,7 +2223,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(all(r['ok'] for r in replies), 'legacy migration and edit succeed')
     migrated = replies[0]['result']
     projected = json.loads(json.dumps(migrated))
-    projected['version'] = '0.1'
+    projected['version'] = '0.1'; remove_empty_presets_for_legacy_fixture(projected)
     remove_migrated_anchor_defaults(projected)
     check(projected.pop('named_colors')==[], 'legacy migration does not invent named colors')
     for obj in projected['objects']:
@@ -2257,7 +2270,7 @@ old = json.loads(ornament.read_text(encoding='utf-8'))
 check(old['version']=='0.3','production fixture remains historical 0.3')
 migrated_run = subprocess.run([exe,'--serve',str(ornament)],input='{"op":"inspect"}\n',
     capture_output=True,text=True,timeout=10)
-new=json.loads(migrated_run.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.3'
+new=json.loads(migrated_run.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.3'; remove_empty_presets_for_legacy_fixture(new)
 check(new.pop('named_colors')==[], '0.3 migration starts with no named colors')
 check(new==old,'0.3 migration retains all paint, repeat, binding and correction state')
 check(run('--svg',old).stdout==(ornament.with_suffix('.svg')).read_text(encoding='utf-8'),
@@ -2274,7 +2287,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(authored.returncode == 0 and len(replies) == 2 and replies[0]['ok'] and replies[1]['ok'],
           'Group Posterize authors through the real JSON-lines process')
     group_native = replies[1]['result']
-    check(group_native['version'] == '0.62' and
+    check(group_native['version'] == '0.63' and
           next(obj for obj in group_native['objects'] if obj['id'] == 'ornament')['stack'] == [operation],
           'Current writer preserves Group Posterize identity, version, level, and order')
     cold_path = Path(tmp) / 'group-posterize.nect'
@@ -2289,12 +2302,12 @@ gradient_path=ornament.with_name('gradient-ornament.nect')
 old=json.loads(gradient_path.read_text(encoding='utf-8'))
 check(old['version']=='0.4','gradient fixture remains historical 0.4')
 upgraded=subprocess.run([exe,'--serve',str(gradient_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,timeout=10)
-new=json.loads(upgraded.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.4'
+new=json.loads(upgraded.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.4'; remove_empty_presets_for_legacy_fixture(new)
 check(new.pop('named_colors')==[], '0.4 migration starts with no named colors')
 check(new==old,'0.4 migration preserves gradients and their linked stable stops')
 check(run('--svg',old).stdout==gradient_path.with_suffix('.svg').read_text(encoding='utf-8'),
     'gradient 0.4 scene exports identical SVG after frame migration')
-frames=json.loads(json.dumps(sample));frames['version']='0.5'
+frames=json.loads(json.dumps(sample));frames['version']='0.5'; remove_empty_presets_for_legacy_fixture(frames)
 frames.pop('named_colors')
 remove_migrated_anchor_defaults(frames)
 composition=frames['compositions'][0]
@@ -2306,29 +2319,29 @@ frames_path=ornament.with_name('artboard-studies.nect')
 old=json.loads(frames_path.read_text(encoding='utf-8'))
 check(old['version']=='0.5','frame fixture remains historical 0.5')
 upgraded=subprocess.run([exe,'--serve',str(frames_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.5'
+new=json.loads(upgraded.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.5'; remove_empty_presets_for_legacy_fixture(new)
 check(new.pop('named_colors')==[], '0.5 migration starts with no named colors')
 check(new==old,'0.5 migration preserves ordered frames, inheritance and all authored artwork')
 text_path=ornament.with_name('typography-poster.nect')
 old=json.loads(text_path.read_text(encoding='utf-8'))
 check(old['version']=='0.6','Text fixture remains historical 0.6')
 upgraded=subprocess.run([exe,'--serve',str(text_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.6'
+new=json.loads(upgraded.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.6'; remove_empty_presets_for_legacy_fixture(new)
 check(new.pop('named_colors')==[], '0.6 migration starts with no named colors')
 check(new==old,'0.6 migration preserves all editable Text and shape inputs')
 color_path=ornament.with_name('named-color-poster.nect')
 old=json.loads(color_path.read_text(encoding='utf-8'))
 check(old['version']=='0.7','named-color fixture remains historical 0.7')
 upgraded=subprocess.run([exe,'--serve',str(color_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.62','current writer uses native 0.62')
-remove_migrated_anchor_defaults(new);new['version']='0.7';check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
+new=json.loads(upgraded.stdout)['result'];check(new['version']=='0.63','current writer uses native 0.63')
+remove_migrated_anchor_defaults(new);new['version']='0.7'; remove_empty_presets_for_legacy_fixture(new);check(new==old,'0.7 migration preserves named colors, links, Text and authored geometry')
 polystar_path=ornament.with_name('polystar-field.nect')
 old=json.loads(polystar_path.read_text(encoding='utf-8'))
 check(old['version']=='0.8','Polystar fixture remains historical 0.8')
 upgraded=subprocess.run([exe,'--serve',str(polystar_path)],input='{"op":"inspect"}\n'+
     '{"op":"properties"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
 replies=[json.loads(line) for line in upgraded.stdout.splitlines()]
-new=replies[0]['result'];remove_migrated_anchor_defaults(new);new['version']='0.8'
+new=replies[0]['result'];remove_migrated_anchor_defaults(new);new['version']='0.8'; remove_empty_presets_for_legacy_fixture(new)
 check(new==old,'0.8 migration preserves linked count, angular correction, all paints and text')
 # Catch the documented field vocabulary falling behind real numeric properties.
 # This checks that specific schema boundary; the native codec remains the validator.
@@ -2408,7 +2421,7 @@ with tempfile.TemporaryDirectory() as tmp:
 expression_path=ornament.with_name('phase-form.nect')
 old=json.loads(expression_path.read_text(encoding='utf-8'));check(old['version']=='0.10','expression fixture stays historical0.10')
 upgraded=subprocess.run([exe,'--serve',str(expression_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];remove_migrated_compositing_defaults(new);new['version']='0.10'
+new=json.loads(upgraded.stdout)['result'];remove_migrated_compositing_defaults(new);new['version']='0.10'; remove_empty_presets_for_legacy_fixture(new)
 check(new==old,'0.10 migration retains exact formula source and all authored inputs')
 with tempfile.TemporaryDirectory() as tmp:
     path=Path(tmp)/'masked.nect';path.write_text(json.dumps(sample),encoding='utf-8')
@@ -2429,12 +2442,12 @@ with tempfile.TemporaryDirectory() as tmp:
     check(svg_root.find(".//s:g[@id='"+comp['roots'][-1]+"']",ns) is None,'hidden mask source not exported as artwork')
     check(replies[-1]['result']==sample,'one Undo restores all masked-group inputs')
     check(run('--validate',native).returncode==0,'masked native reopens in a fresh process')
-    native['version']='0.10';check('UNKNOWN_FIELD' in run('--validate',native).stderr,'old format rejects new compositing fields')
+    native['version']='0.10'; remove_empty_presets_for_legacy_fixture(native);check('UNKNOWN_FIELD' in run('--validate',native).stderr,'old format rejects new compositing fields')
 # Native0.11 compositing inputs stay exact; Offset is a new, strict0.12 type.
 mask_path=ornament.with_name('colour-cut.nect')
 old=json.loads(mask_path.read_text(encoding='utf-8'));check(old['version']=='0.11','mask fixture stays historical0.11')
 upgraded=subprocess.run([exe,'--serve',str(mask_path)],input='{"op":"inspect"}\n',capture_output=True,text=True,encoding='utf-8',timeout=10)
-new=json.loads(upgraded.stdout)['result'];remove_migrated_asset_defaults(new);new['version']='0.11'
+new=json.loads(upgraded.stdout)['result'];remove_migrated_asset_defaults(new);new['version']='0.11'; remove_empty_presets_for_legacy_fixture(new)
 check(new==old,'0.11 migration retains all exact masks, blends, references and geometry')
 with tempfile.TemporaryDirectory() as tmp:
     path=Path(tmp)/'offset.nect';path.write_text(json.dumps(sample),encoding='utf-8')
@@ -2463,7 +2476,7 @@ with tempfile.TemporaryDirectory() as tmp:
     numbers=[float(v) for v in re.findall(r'-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?',svg_path.attrib['d'])]
     check(min(numbers[0::2])==-10 and max(numbers[0::2])==110 and min(numbers[1::2])==-10 and max(numbers[1::2])==70,'SVG exports expanded prior Stroke geometry')
     check(run('--validate',native).returncode==0,'Offset native reopens in a new process')
-    native['version']='0.11';remove_migrated_asset_defaults(native);check('UNKNOWN_FIELD' in run('--validate',native).stderr,'old format rejects Offset line-join field')
+    native['version']='0.11'; remove_empty_presets_for_legacy_fixture(native);remove_migrated_asset_defaults(native);check('UNKNOWN_FIELD' in run('--validate',native).stderr,'old format rejects Offset line-join field')
     next(o for o in native['objects'] if o['id']=='offset-box')['stack'][-1].pop('line_join')
     check('UNSUPPORTED_OPERATOR' in run('--validate',native).stderr,'old format rejects Offset type even without its new field')
 
@@ -2508,12 +2521,12 @@ with tempfile.TemporaryDirectory() as tmp:
     check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
         'Rejected process command preserves the authored source and link')
     check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
-    check(replies[12]['result']['version']=='0.62' and replies[12]['result']==replies[8]['result'],
+    check(replies[12]['result']['version']=='0.63' and replies[12]['result']==replies[8]['result'],
         'Undo restores the pre-unlink native state exactly')
     check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
         'Undo restores the stable driver and its evaluated integer through a fresh request')
     check(run('--validate',replies[12]['result']).returncode==0,'Native 0.23 Text weight document validates in a fresh process')
-    old_weight=json.loads(json.dumps(replies[12]['result']));old_weight['version']='0.15'
+    old_weight=json.loads(json.dumps(replies[12]['result']));old_weight['version']='0.15'; remove_empty_presets_for_legacy_fixture(old_weight)
     check(run('--validate',old_weight).returncode==2 and 'UNSUPPORTED_TEXT_WEIGHT_DRIVER' in run('--validate',old_weight).stderr,
         'Native 0.15 rejects the new Text weight driver instead of dropping it')
 
@@ -2582,9 +2595,9 @@ with tempfile.TemporaryDirectory() as tmp:
         linked_layout['glyph_count']>0 and linked_layout['used_fonts'] and
         all(linked_layout[field]==frozen_layout[field] for field in layout_fields),
         'Text layout consumes the linked family, and unlink freezes identical geometry, warnings and used fonts')
-    native=replies[12]['result'];check(native['version']=='0.62' and run('--validate',native).returncode==0,
+    native=replies[12]['result'];check(native['version']=='0.63' and run('--validate',native).returncode==0,
         'Native 0.23 content link validates in a separate CLI process')
-    family_native=replies[22]['result'];check(family_native['version']=='0.62' and run('--validate',family_native).returncode==0,
+    family_native=replies[22]['result'];check(family_native['version']=='0.63' and run('--validate',family_native).returncode==0,
         'Native 0.23 family link validates in a separate CLI process')
     path.write_text(json.dumps(family_native,ensure_ascii=False),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
@@ -2667,7 +2680,7 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='vertical' and reply['linked_horizontal']['result']['evaluated']=='horizontal',
         'Unlink freezes Text direction, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.62' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.63' and run('--validate',native).returncode==0,
         'Native 0.23 Text direction link validates in a separate CLI process')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input=json.dumps(dict(op='get',ref=ref_b))+'\n'+
@@ -2755,17 +2768,17 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='frame',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='frame' and reply['linked_auto']['result']['evaluated']=='auto',
         'Unlink freezes Text layout, Undo restores its link, and later source edits still propagate')
-    native=reply['native']['result'];check(native['version']=='0.62' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.63' and run('--validate',native).returncode==0,
         'Native 0.23 Text layout link validates in a separate CLI process')
     target_native=next(obj for obj in native['objects'] if obj['id']=='layout-b')['text']
     check(target_native['layout']=='frame' and target_native['layout_driver']==dict(link=ref_a) and
         target_native['parameters']['frame_width']['literal']==96 and target_native['parameters']['frame_height']['literal']==48,
         'Native layout save retains the target literal, Ref and target-owned frame dimensions')
-    literal_native=json.loads(json.dumps(native));literal_native['version']='0.19'
+    literal_native=json.loads(json.dumps(native));literal_native['version']='0.19'; remove_empty_presets_for_legacy_fixture(literal_native)
     for obj in literal_native['objects']:
         if obj.get('kind')=='text':obj['text'].pop('layout_driver',None)
     check(run('--validate',literal_native).returncode==0,'Native 0.19 Text layout literals migrate as literal-only state')
-    old_driver=json.loads(json.dumps(native));old_driver['version']='0.19'
+    old_driver=json.loads(json.dumps(native));old_driver['version']='0.19'; remove_empty_presets_for_legacy_fixture(old_driver)
     check('UNSUPPORTED_TEXT_LAYOUT_DRIVER' in run('--validate',old_driver).stderr,
         'Native 0.19 rejects a Text layout driver field')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
@@ -2840,14 +2853,14 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored_link']['result']['authored']==dict(literal='end',driver=dict(link=ref_a)) and
         reply['restored_link']['result']['evaluated']=='center',
         'A driven alignment edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.62' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.63' and run('--validate',native).returncode==0,
         'Native 0.23 Text alignment link validates in a separate CLI process')
     check(linked_metadata['alignment']=='end' and linked_metadata['alignment_driver']==dict(link=ref_a),
         'Native 0.23 retains alignment literal separately from its stable Ref')
-    legacy=json.loads(json.dumps(native));legacy['version']='0.20'
+    legacy=json.loads(json.dumps(native));legacy['version']='0.20'; remove_empty_presets_for_legacy_fixture(legacy)
     target=next(obj for obj in legacy['objects'] if obj['id']=='alignment-b')['text'];target.pop('alignment_driver')
     check(run('--validate',legacy).returncode==0 and
-        'UNSUPPORTED_TEXT_ALIGNMENT_DRIVER' in run('--validate',dict(native,version='0.20')).stderr,
+        'UNSUPPORTED_TEXT_ALIGNMENT_DRIVER' in run('--validate',legacy_native(native,'0.20')).stderr,
         'Native 0.20 preserves literal alignment and rejects the 0.21 driver field')
     malformed=json.loads(json.dumps(native));next(obj for obj in malformed['objects'] if obj['id']=='alignment-b')['text']['alignment_driver']={'other':ref_a}
     check('INVALID_TEXT_ALIGNMENT_DRIVER' in run('--validate',malformed).stderr,
@@ -2934,15 +2947,15 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored']['result']['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
         reply['restored']['result']['evaluated']=='ja-JP',
         'Driven Text locale edit rejects atomically; unlink freezes and Undo restores its driver')
-    native=reply['native']['result'];check(native['version']=='0.62' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.63' and run('--validate',native).returncode==0,
         'Native 0.23 Text locale link validates in a separate CLI process')
     linked_metadata=next(obj for obj in native['objects'] if obj['id']=='locale-b')['text']
     check(linked_metadata['locale']=='ja-JP' and linked_metadata['locale_driver']==dict(link=ref_a),
         'Native 0.23 retains the target locale literal separately from its stable Ref')
-    legacy=json.loads(json.dumps(native));legacy['version']='0.21'
+    legacy=json.loads(json.dumps(native));legacy['version']='0.21'; remove_empty_presets_for_legacy_fixture(legacy)
     legacy_target=next(obj for obj in legacy['objects'] if obj['id']=='locale-b')['text'];legacy_target.pop('locale_driver')
     check(run('--validate',legacy).returncode==0 and
-        'UNSUPPORTED_TEXT_LOCALE_DRIVER' in run('--validate',dict(native,version='0.21')).stderr,
+        'UNSUPPORTED_TEXT_LOCALE_DRIVER' in run('--validate',legacy_native(native,'0.21')).stderr,
         'Native 0.21 preserves locale literals and rejects a falsely versioned driver')
     malformed=json.loads(json.dumps(native));next(obj for obj in malformed['objects'] if obj['id']=='locale-b')['text']['locale_driver']={'other':ref_a}
     check('INVALID_TEXT_LOCALE_DRIVER' in run('--validate',malformed).stderr,
@@ -3026,12 +3039,12 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['restored']['result']['authored']==dict(literal='nonzero',driver=dict(link=source_ref)) and
         reply['follows']['result']['evaluated']=='evenodd',
         'Fill unlink freezes the choice and Undo restores the live dependency')
-    native=reply['native']['result'];check(native['version']=='0.62' and run('--validate',native).returncode==0,
+    native=reply['native']['result'];check(native['version']=='0.63' and run('--validate',native).returncode==0,
         'Native 0.36 Fill driver validates in a separate CLI process')
     native_target=next(obj for obj in native['objects'] if obj['id']=='path-B')['stack'][-1]
     check(native_target['fill_rule']=='nonzero' and native_target['fill_rule_driver']==dict(link=source_ref),
         'Native Fill keeps the authored literal beside its stable driver')
-    false_version=json.loads(json.dumps(native));false_version['version']='0.25'
+    false_version=json.loads(json.dumps(native));false_version['version']='0.25'; remove_empty_presets_for_legacy_fixture(false_version)
     check('UNSUPPORTED_FILL_RULE_DRIVER' in run('--validate',false_version).stderr,
         'Native 0.25 rejects a falsely versioned Fill driver')
     malformed=json.loads(json.dumps(native));next(obj for obj in malformed['objects'] if obj['id']=='path-B')['stack'][-1]['fill_rule_driver']={'other':source_ref}
@@ -3095,11 +3108,11 @@ with tempfile.TemporaryDirectory() as tmp:
         reply['driven_edit']['revision']==2,
         'EnableOperation refuses a linked enabled target without changing its revision')
     native=reply['native']['result']
-    check(native['version']=='0.62' and
+    check(native['version']=='0.63' and
         next(obj for obj in native['objects'] if obj['id']=='path-B')['stack'][0]['enabled_driver']==dict(link=source_ref) and
         run('--validate',native).returncode==0,
         'Native 0.36 preserves and validates the authored operation enabled source Ref')
-    old=json.loads(json.dumps(native));old['version']='0.27'
+    old=json.loads(json.dumps(native));old['version']='0.27'; remove_empty_presets_for_legacy_fixture(old)
     check('UNSUPPORTED_OPERATION_ENABLED_DRIVER' in run('--validate',old).stderr,
         'Native 0.27 rejects operation enabled driver smuggling')
     malformed=json.loads(json.dumps(native));next(obj for obj in malformed['objects'] if obj['id']=='path-B')['stack'][0]['enabled_driver']={'link':source_ref,'extra':True}
@@ -3181,13 +3194,13 @@ with tempfile.TemporaryDirectory() as tmp:
         'Deleting a source object fails while a surviving Gradient target depends on it')
     native=reply['native']['result'];target_object=next(obj for obj in native['objects'] if obj['id']=='path-B')
     native_gradient=target_object['stack'][0]['gradient']
-    check(native['version']=='0.62' and native_gradient['enabled'] is False and native_gradient['enabled_driver']==dict(link=source_ref) and
+    check(native['version']=='0.63' and native_gradient['enabled'] is False and native_gradient['enabled_driver']==dict(link=source_ref) and
         run('--validate',native).returncode==0,
         'Native 0.36 persists the target literal and exact closed same-field driver')
-    false_version=json.loads(json.dumps(native));false_version['version']='0.28'
+    false_version=json.loads(json.dumps(native));false_version['version']='0.28'; remove_empty_presets_for_legacy_fixture(false_version)
     check('UNSUPPORTED_GRADIENT_ENABLED_DRIVER' in run('--validate',false_version).stderr,
         'Native 0.28 rejects a falsely versioned Gradient enabled driver')
-    literal_legacy=json.loads(json.dumps(native));literal_legacy['version']='0.28'
+    literal_legacy=json.loads(json.dumps(native));literal_legacy['version']='0.28'; remove_empty_presets_for_legacy_fixture(literal_legacy)
     del next(obj for obj in literal_legacy['objects'] if obj['id']=='path-B')['stack'][0]['gradient']['enabled_driver']
     check(run('--validate',literal_legacy).returncode==0,
         'Native 0.28 continues to read literal-only Gradient state')
@@ -3265,10 +3278,10 @@ with tempfile.TemporaryDirectory() as tmp:
         not reply['delete_source']['ok'] and reply['delete_source']['error']['code']=='MISSING_REFERENCE' and reply['delete_source']['revision']==5,
         'Driven literal, invalid later command and referenced-source deletion reject atomically')
     native=reply['native']['result'];native_target=next(obj for obj in native['objects'] if obj['id']=='path-B')['compositing']
-    check(native['version']=='0.62' and native_target['isolated'] is False and
+    check(native['version']=='0.63' and native_target['isolated'] is False and
         native_target['isolated_driver']==dict(link=source_ref) and run('--validate',native).returncode==0,
         'Native 0.36 keeps the authored literal and exact driver separately')
-    false_version=json.loads(json.dumps(native));false_version['version']='0.29'
+    false_version=json.loads(json.dumps(native));false_version['version']='0.29'; remove_empty_presets_for_legacy_fixture(false_version)
     check('UNKNOWN_FIELD' in run('--validate',false_version).stderr,'Native 0.29 rejects a driver carried by a false version')
     path.write_text(json.dumps(native),encoding='utf-8');before=path.read_bytes()
     cold=subprocess.run([exe,'--serve',str(path)],input='\n'.join(json.dumps(request) for request in [
@@ -3296,9 +3309,9 @@ with tempfile.TemporaryDirectory() as tmp:
         'JSON-lines get and properties preserve exact expression text, source kind and evaluated isolation')
     check(not reply['expression_bad_batch']['ok'] and reply['expression_bad_batch']['error']['code']=='DEPENDENCY_CYCLE' and
         reply['expression_bad_batch']['revision']==8 and
-        reply['expression_native']['result']['version']=='0.62' and
+        reply['expression_native']['result']['version']=='0.63' and
         next(obj for obj in reply['expression_native']['result']['objects'] if obj['id']=='path-B')['compositing']['isolated_expression']==expression_value,
-        'JSON-lines failed expression batch is atomic and native 0.62 retains exact expression source')
+        'JSON-lines failed expression batch is atomic and native 0.63 retains exact expression source')
     check(reply['expression_frozen']['result']['authored']==dict(literal=True,driver=None,source_kind='literal') and
         reply['expression_frozen']['result']['evaluated'] is True and
         reply['expression_still_frozen']['result']['authored']==dict(literal=True,driver=None,source_kind='literal') and

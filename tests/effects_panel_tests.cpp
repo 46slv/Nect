@@ -11,6 +11,9 @@
 #include <QJsonObject>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QInputDialog>
+#include <QTabWidget>
+#include <QTimer>
 #include <QPointer>
 #include <QPushButton>
 #include <QStatusBar>
@@ -34,6 +37,18 @@ void trigger(Window& window,const char* name) {
     auto* action=window.findChild<QAction*>(name);check(action,"Window action exists");action->trigger();events();
 }
 void click(Window& window,const QString& name) {named<QPushButton>(window,name)->click();events();}
+void answer_text_dialog_later(Window& window,const QString& text,bool replace_session=false) {
+    auto* poll=new QTimer(&window);poll->setInterval(5);
+    QObject::connect(poll,&QTimer::timeout,&window,[&window,poll,text,replace_session]{
+        auto* dialog=qobject_cast<QInputDialog*>(QApplication::activeModalWidget());
+        if(!dialog)return;
+        poll->stop();poll->deleteLater();
+        dialog->setTextValue(text);
+        if(replace_session)window.host.create_document();
+        dialog->accept();
+    });
+    poll->start();
+}
 void edit_property(Window& window,const Ref& ref,const char* value) {
     const auto key=QJsonDocument(QJsonObject{{"object",QString::fromStdString(ref.object)},
         {"point",QString::fromStdString(ref.point)},{"field",QString::fromStdString(ref.field)}}).toJson(QJsonDocument::Compact);
@@ -325,6 +340,116 @@ int main(int argc,char** argv) {
         check(status->text().contains(QString::fromStdString(open_path))&&status->text().contains("Path")&&
             status->text().contains("nect.shape.offset")&&status->text().contains("OFFSET_OPEN_PATH"),
             "Open Path refusal displays exact target, operator and actual geometry error");
+
+        trigger(window,"add-rectangle");const auto preset_source=window.canvas->selected_object;
+        auto source_offset=default_operation("ui-preset-offset","nect.shape.offset");source_offset.parameters.at("amount").literal=18;
+        auto source_repeater=default_operation("ui-preset-repeater","nect.shape.repeater");
+        source_repeater.parameters.at("copies").literal=4;source_repeater.parameters.at("position_x").literal=36;
+        const auto source_stack_size=session.document().objects.at(preset_source).stack.size();
+        session.apply({AddOperation{preset_source,source_offset,source_stack_size},
+            AddOperation{preset_source,source_repeater,source_stack_size+1}},session.revision());
+        window.host.edited();events();
+        auto* preset_tabs=window.findChild<QTabWidget*>("effects-tabs");check(preset_tabs,"Effects dock exposes a Presets tab");
+        preset_tabs->setCurrentIndex(1);events();
+        auto* preset_search=named<QLineEdit>(window,"presets-search");
+        auto* preset_list=named<QListWidget>(window,"presets-catalog");
+        const auto create_preset_revision=session.revision();
+        answer_text_dialog_later(window,"UI Pair");click(window,"preset-save");
+        check(session.revision()==create_preset_revision+1&&session.document().preset_definitions.size()==1,
+            "Preset browser saves a named definition through one Session revision");
+        const auto preset_id=session.document().preset_definitions.begin()->first;
+        auto* preset_status=named<QLabel>(window,"presets-status");
+        check(preset_status->text().contains(QString::fromStdString("ui-preset-offset"))&&
+            preset_status->text().contains(QString::fromStdString("ui-preset-repeater")),
+            "Save status exposes the exact captured source operation IDs");
+        preset_search->setText("ui pair");events();
+        auto matching_presets=preset_list->findItems("UI Pair",Qt::MatchExactly);
+        check(matching_presets.size()==1&&matching_presets.front()->data(Qt::UserRole).toString()==QString::fromStdString(preset_id),
+            "Preset search resolves the stable definition ID by label");
+
+          trigger(window,"add-rectangle");const auto preset_target=window.canvas->selected_object;
+          const auto preset_target_base=session.document().objects.at(preset_target).stack.size();
+        preset_list=named<QListWidget>(window,"presets-catalog");
+        matching_presets=preset_list->findItems("UI Pair",Qt::MatchExactly);check(matching_presets.size()==1,"Preset remains searchable after target change");
+        preset_list->setCurrentItem(matching_presets.front());events();
+        const auto apply_preset_revision=session.revision();click(window,"preset-apply");
+        const auto target_applied=session.document().objects.at(preset_target).stack;
+          check(session.revision()==apply_preset_revision+1&&target_applied.size()==preset_target_base+2&&
+              target_applied[preset_target_base].type=="nect.shape.offset"&&target_applied[preset_target_base+1].type=="nect.shape.repeater"&&
+              target_applied[preset_target_base].parameters.at("amount").literal==18&&target_applied[preset_target_base+1].parameters.at("position_x").literal==36,
+            "Preset browser appends the captured ordered literal operations to the selected target");
+        const auto apply_undo_revision=session.revision();
+        text_action(window,"Undo")->trigger();events();
+          check(session.revision()==apply_undo_revision+1&&session.document().objects.at(preset_target).stack.size()==preset_target_base,
+            "One UI Undo removes both applied preset operations together");
+        text_action(window,"Redo")->trigger();events();
+          check(session.document().objects.at(preset_target).stack.size()==preset_target_base+2,
+            "One UI Redo restores the complete applied pair");
+
+        window.canvas->set_selection(preset_source);events();
+        const auto source_offset_ref=operation_ref(preset_source,"ui-preset-offset","amount");
+        session.apply({Set{source_offset_ref,7}},session.revision());window.host.edited();events();
+        const auto update_revision=session.revision();click(window,"preset-update");
+        check(session.revision()==update_revision+1&&
+            session.document().preset_definitions.at(preset_id).entries[0].parameters.at("amount")==7&&
+              session.document().objects.at(preset_target).stack[preset_target_base].parameters.at("amount").literal==18&&
+            named<QLabel>(window,"presets-status")->text().contains("ui-preset-offset"),
+            "Update captures the exact source pair while existing applied snapshots stay unchanged");
+        window.canvas->set_selection(preset_target);events();
+        const auto reapply_revision=session.revision();click(window,"preset-apply");
+        const auto& reedited_stack=session.document().objects.at(preset_target).stack;
+          check(session.revision()==reapply_revision+1&&reedited_stack.size()==preset_target_base+4&&
+              reedited_stack[preset_target_base].parameters.at("amount").literal==18&&reedited_stack[preset_target_base+2].parameters.at("amount").literal==7,
+            "Later applications use the re-edited definition without changing the earlier pair");
+
+        answer_text_dialog_later(window,"Renamed Pair");click(window,"preset-rename");
+        check(session.document().preset_definitions.at(preset_id).label=="Renamed Pair",
+            "Preset browser rename preserves its stable ID");
+        preset_search=named<QLineEdit>(window,"presets-search");preset_search->setText("renamed");events();
+        check(named<QListWidget>(window,"presets-catalog")->count()==1,"Preset browser searches the renamed definition");
+        preset_search->setText("no matching preset");events();
+        check(named<QListWidget>(window,"presets-catalog")->count()==0&&
+            !named<QPushButton>(window,"preset-apply")->isEnabled(),
+            "Empty Preset search disables Apply without changing the document");
+        preset_search->clear();events();
+
+        const auto before_delete=session.revision();click(window,"preset-delete");
+        check(session.revision()==before_delete+1&&!session.document().preset_definitions.contains(preset_id),
+            "Preset browser deletes one named definition through Session history");
+        text_action(window,"Undo")->trigger();events();
+        check(session.document().preset_definitions.contains(preset_id),"Undo restores the deleted PresetDefinition");
+
+        const auto stale_before=session.revision();
+        session.apply({Set{{preset_target,"","transform.anchor_x"},1}},stale_before);
+        const auto stale_stack_size=session.document().objects.at(preset_target).stack.size();
+        const auto stale_after=session.revision();click(window,"preset-apply");
+        check(session.revision()==stale_after&&session.document().objects.at(preset_target).stack.size()==stale_stack_size&&
+            named<QLabel>(window,"presets-status")->text().contains("REVISION_CONFLICT"),
+            "Preset browser refuses an old captured revision without applying operations");
+        window.host.edited();events();
+
+        trigger(window,"add-rectangle");const auto driven_target=window.canvas->selected_object;
+        auto driven_offset=default_operation("ui-driven-offset","nect.shape.offset");
+        auto driven_repeater=default_operation("ui-driven-repeater","nect.shape.repeater");
+        const auto driven_index=session.document().objects.at(driven_target).stack.size();
+        session.apply({AddOperation{driven_target,driven_offset,driven_index},
+            AddOperation{driven_target,driven_repeater,driven_index+1}},session.revision());
+        session.apply({LinkOperationEnabled{operation_ref(driven_target,"ui-driven-offset","enabled"),
+            operation_ref(driven_target,session.document().objects.at(driven_target).stack.front().id,"enabled"),false}},session.revision());
+        window.host.edited();events();
+        const auto driven_definitions=session.document().preset_definitions.size();
+        answer_text_dialog_later(window,"Refused Driven Stack");click(window,"preset-save");
+        const auto driven_status=named<QLabel>(window,"presets-status")->text();
+        check(session.document().preset_definitions.size()==driven_definitions&&
+            driven_status.contains("PRESET_NONPORTABLE_SOURCE")&&driven_status.contains(QString::fromStdString(driven_target))&&
+            driven_status.contains("op.ui-driven-offset.enabled"),
+            "Preset browser visibly refuses a driven captured field and displays its exact source Ref");
+
+        const auto previous_session=window.host.session_id;
+        answer_text_dialog_later(window,"Stale Session Preset",true);click(window,"preset-save");
+        check(window.host.session_id!=previous_session&&session.document().preset_definitions.empty()&&
+            named<QLabel>(window,"presets-status")->text().contains("SESSION_CONFLICT"),
+            "Preset browser refuses a dialog opened for a replaced document Session");
 
         std::cout<<"PASS Effects panel search, selection guard, Apply, Inspector navigation, edits, native/API readback, history and refusals\n";
         return 0;

@@ -32,6 +32,8 @@
 #include <QInputDialog>
 #include <QMenu>
 #include <QSpinBox>
+#include <QStyle>
+#include <QStyleOptionButton>
 #include <QTimer>
 #include <QToolButton>
 #include <QFile>
@@ -2318,7 +2320,11 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
     const auto baseline=session.revision();
 
     auto* guides=visible_child<QCheckBox>(window,"overlay-show-guides");
-    QTest::mouseClick(guides,Qt::LeftButton);QApplication::processEvents();
+    guides->setChecked(true);QApplication::processEvents();
+    QStyleOptionButton guides_option;guides_option.initFrom(guides);
+    const auto guides_indicator_rect=guides->style()->subElementRect(QStyle::SE_CheckBoxIndicator,&guides_option,guides);
+    check(!guides_indicator_rect.isEmpty(),"Visible Guide checkbox has a style-provided click target");
+    QTest::mouseClick(guides,Qt::LeftButton,Qt::NoModifier,guides_indicator_rect.center());QApplication::processEvents();
     check(!window.canvas->show_guides()&&window.canvas->show_grid()&&window.canvas->show_margin()&&session.revision()==baseline,
         "Guide, Grid and Margin visibility remain independent per-window view state");
     guides->setChecked(true);QApplication::processEvents();

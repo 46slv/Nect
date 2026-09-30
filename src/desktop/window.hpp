@@ -18,6 +18,7 @@ class QPushButton;
 class QStringListModel;
 class QScrollArea;
 class QToolButton;
+class QTabWidget;
 
 namespace nect::desktop {
 class ColorTools;
@@ -53,6 +54,15 @@ private:
     QPushButton* effects_apply_=nullptr;
     QWidget* effects_operations_=nullptr;
     QVBoxLayout* effects_operations_layout_=nullptr;
+    QLineEdit* presets_search_=nullptr;
+    QListWidget* presets_catalog_=nullptr;
+    QLabel* presets_status_=nullptr;
+    QPushButton* presets_save_=nullptr;
+    QPushButton* presets_apply_=nullptr;
+    QPushButton* presets_rename_=nullptr;
+    QPushButton* presets_update_=nullptr;
+    QPushButton* presets_delete_=nullptr;
+    QTabWidget* effects_tabs_=nullptr;
     QString effects_session_;
     Id effects_target_id_;
     std::uint64_t effects_revision_=0;

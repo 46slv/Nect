@@ -4,7 +4,30 @@
 
 Implemented: Document, Composition, Artboard, Group, Path, Text, Contour, Point,
 Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/Polygon/Star sources,
-Point Edit, gradients, local Fill/Stroke/Repeater stacks, geometry masks and common compositing.
+Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
+geometry masks and common compositing.
+
+## PresetDefinition v1
+
+Native 0.63 adds a document-owned map of stable-ID `PresetDefinition`s. The bounded
+v1 schema accepts exactly one `nect.shape.offset@1` entry followed by one
+`nect.shape.repeater@1` entry for the `local_paths_and_paint` target domain. It
+stores enabled literals, every built-in Scalar parameter, and the supported literal
+options; it stores no object references, expressions, gradients or executable code.
+`schemas/native-v0.63.schema.json` describes the serialized form. Native 0.62 and
+older documents remain readable with an empty definition map.
+
+Create-from-stack selects these two built-ins in their source stack order and
+reports the exact captured source operation IDs. Missing, reversed, or repeated
+Offset/Repeater instances reject. Other paint operations remain in the source
+object but are not copied into the definition. A driven enabled bit, Scalar, or
+applicable option on a captured operation rejects with `PRESET_NONPORTABLE_SOURCE`
+and exact operation Refs. Applying a definition validates the target and stack
+limit, appends fresh operation IDs in one Session commit, and is one Undo. Rename,
+update and delete participate in native serialization and history. Re-editing a
+definition does not alter operation snapshots already applied to Objects. This
+bounded vertical does not define Macros, Actions, published parameters or a
+cross-document preset library.
 
 Layer is the UI presentation of an Object; there is no duplicate Layer state model.
 
