@@ -66,6 +66,7 @@ class BooleanPropertyExpressionParser {
     std::string_view field_;
     std::string_view property_;
     bool operation_enabled_=false;
+    bool mask_enabled_=false;
     std::size_t cursor_=0;
     void whitespace(){while(cursor_<source_.size()&&(source_[cursor_]==' '||source_[cursor_]=='\t'||source_[cursor_]=='\n'||source_[cursor_]=='\r'))++cursor_;}
     bool take(char c){whitespace();if(cursor_<source_.size()&&source_[cursor_]==c){++cursor_;return true;}return false;}
@@ -90,8 +91,8 @@ class BooleanPropertyExpressionParser {
     }
 public:
     BooleanPropertyExpressionParser(std::string_view source,std::string_view field,std::string_view property,
-        bool operation_enabled=false)
-        :source_(source),field_(field),property_(property),operation_enabled_(operation_enabled){}
+        bool operation_enabled=false,bool mask_enabled=false)
+        :source_(source),field_(field),property_(property),operation_enabled_(operation_enabled),mask_enabled_(mask_enabled){}
     ParsedBooleanExpression parse() {
         ParsedBooleanExpression result;whitespace();
         if(word("true")){result.is_literal=true;result.literal=true;}
@@ -117,6 +118,14 @@ public:
                     };
                     supported_field=parameter=="enabled"&&valid_id(operation_id);
                 }
+            }
+            if(mask_enabled_&&result.source.field.starts_with("mask.")&&result.source.field.ends_with(".enabled")&&
+                result.source.field.size()>std::string_view("mask.").size()+std::string_view(".enabled").size()) {
+                const auto mask_id=std::string_view(result.source.field).substr(5,result.source.field.size()-5-8);
+                const bool valid_id=!mask_id.empty()&&mask_id.size()<=96&&std::all_of(mask_id.begin(),mask_id.end(),[](char c) {
+                    return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-';
+                });
+                supported_field=valid_id;
             }
             require(result.source.point.empty()&&supported_field,"BOOLEAN_EXPRESSION_TYPE",
                 operation_enabled_?std::string(property_)+" expressions may reference only an operation enabled Ref":
@@ -146,6 +155,12 @@ ParsedBooleanExpression parse_operation_enabled_expression(const Expression& exp
     require(!expression.source.empty()&&expression.source.size()<=4096,"EXPRESSION_LIMIT",
         "Operation enabled expression source must contain 1..4096 bytes");
     return BooleanPropertyExpressionParser(expression.source,"","Operation enabled",true).parse();
+}
+ParsedBooleanExpression parse_mask_enabled_expression(const Expression& expression) {
+    require(expression.version==1,"UNSUPPORTED_EXPRESSION_VERSION","Only expression version 1 is supported for Geometry mask enabled");
+    require(!expression.source.empty()&&expression.source.size()<=4096,"EXPRESSION_LIMIT",
+        "Geometry mask enabled expression source must contain 1..4096 bytes");
+    return BooleanPropertyExpressionParser(expression.source,"","Geometry mask enabled",false,true).parse();
 }
 const TextSource& text_italic_source(const Document& document,const Ref& ref) {
     require(ref.point.empty()&&ref.field=="text.italic","TYPE_MISMATCH","Only Text italic accepts a boolean property Ref");
@@ -741,6 +756,8 @@ class GeometryMaskEnabledEvaluator {
         require(active_.insert(ref).second,"DEPENDENCY_CYCLE","Geometry mask enabled dependency cycle");
         const auto& mask=geometry_mask_enabled_source(document_,ref);
         GeometryMaskEnabledEvaluation result{mask.enabled,0};
+        require(!(mask.enabled_driver&&mask.enabled_expression),"MULTIPLE_DRIVERS",
+            "Geometry mask enabled may have only one active source");
         if(mask.enabled_driver) {
             (void)geometry_mask_enabled_source(document_,*mask.enabled_driver);
             require(*mask.enabled_driver!=ref,"DEPENDENCY_CYCLE","Geometry mask enabled cannot link to itself");
@@ -751,6 +768,20 @@ class GeometryMaskEnabledEvaluator {
                 "Geometry mask enabled links must stay in one Composition");
             const auto upstream=visit(*mask.enabled_driver,depth+1);
             result={upstream.value,upstream.remaining_edges+1};
+        } else if(mask.enabled_expression) {
+            const auto parsed=parse_mask_enabled_expression(*mask.enabled_expression);
+            if(parsed.is_literal)result.value=parsed.literal;
+            else {
+                (void)geometry_mask_enabled_source(document_,parsed.source);
+                require(parsed.source!=ref,"DEPENDENCY_CYCLE","Geometry mask enabled expression cannot reference itself");
+                const auto target_owner=compositions_.find(ref.object),source_owner=compositions_.find(parsed.source.object);
+                require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                    "ORPHAN_OBJECT","Geometry mask enabled expressions require masks owned by a Composition");
+                require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                    "Geometry mask enabled expressions must stay in one Composition");
+                const auto upstream=visit(parsed.source,depth+1);
+                result={parsed.negate?!upstream.value:upstream.value,upstream.remaining_edges+1};
+            }
         }
         require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Geometry mask enabled dependency depth limit 128");
         active_.erase(ref);values_.emplace(ref,result);return result;
@@ -869,6 +900,17 @@ Expression remap_operation_enabled_expression(const Expression& expression,const
     result.source.replace(parsed.field_begin,parsed.field_end-parsed.field_begin,target.field);
     result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
     (void)parse_operation_enabled_expression(result);return result;
+}
+Expression remap_mask_enabled_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
+    const auto parsed=parse_mask_enabled_expression(expression);
+    if(parsed.is_literal)return expression;
+    const auto target=remap(parsed.source);if(target==parsed.source)return expression;
+    require(target.point.empty()&&target.field.starts_with("mask.")&&target.field.ends_with(".enabled"),
+        "TYPE_MISMATCH","Duplicated Geometry mask enabled Ref changed type");
+    auto result=expression;
+    result.source.replace(parsed.field_begin,parsed.field_end-parsed.field_begin,target.field);
+    result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
+    (void)parse_mask_enabled_expression(result);return result;
 }
 const std::array<std::string,6> point_fields{"x","y","in.angle","in.length","out.angle","out.length"};
 bool polystar(const Primitive& source){return source.type=="nect.shape.polygon"||source.type=="nect.shape.star";}
@@ -1794,7 +1836,7 @@ Ref geometry_mask_enabled_ref(const Id& object,const Id& mask) {
 }
 GeometryMaskEnabledProperty geometry_mask_enabled_state(const Document& document,const Ref& ref) {
     const auto& mask=geometry_mask_enabled_source(document,ref);
-    return {mask.enabled,mask.enabled_driver,GeometryMaskEnabledEvaluator(document).value(ref)};
+    return {mask.enabled,mask.enabled_driver,mask.enabled_expression,GeometryMaskEnabledEvaluator(document).value(ref)};
 }
 bool evaluate_geometry_mask_enabled(const Document& document,const Ref& ref) {
     return GeometryMaskEnabledEvaluator(document).value(ref);
@@ -4754,6 +4796,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             if(object.compositing.mask) {
                 require_member({object.compositing.mask->source,"","composite.opacity"});
                 if(object.compositing.mask->enabled_driver)require_member(*object.compositing.mask->enabled_driver);
+                if(object.compositing.mask->enabled_expression) {
+                    const auto parsed=parse_mask_enabled_expression(*object.compositing.mask->enabled_expression);
+                    if(!parsed.is_literal)require_member(parsed.source);
+                }
             }
             if(object.text) {
                 const auto& text=*object.text;
@@ -5494,6 +5540,7 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         if(object.compositing.mask) {
             auto& mask=*object.compositing.mask;
             if(mask.enabled_driver)mask.enabled_driver=remap(*mask.enabled_driver);
+            if(mask.enabled_expression)mask.enabled_expression=remap_mask_enabled_expression(*mask.enabled_expression,remap);
             mask.id=plan.ids.at(mask.id);
             if(plan.objects.contains(mask.source))mask.source=plan.ids.at(mask.source);
         }
@@ -5846,16 +5893,32 @@ void edit_mask_enabled(Document& candidate,const LinkMaskEnabled& command) {
     const auto& target=geometry_mask_enabled_source(candidate,command.target);
     (void)geometry_mask_enabled_source(candidate,command.source);
     require(command.target!=command.source,"DEPENDENCY_CYCLE","Geometry mask enabled cannot link to itself");
-    require(!target.enabled_driver||command.replace_driver,"DRIVEN_PROPERTY",
-        "Replacing a Geometry mask enabled driver requires replace_driver=true");
-    auto& mask=*candidate.objects.at(command.target.object).compositing.mask;mask.enabled_driver=command.source;
+    const auto same_source=target.enabled_driver==std::optional<Ref>{command.source}&&!target.enabled_expression;
+    require(same_source||(!target.enabled_driver&&!target.enabled_expression)||command.replace_driver,"DRIVEN_PROPERTY",
+        "Replacing a Geometry mask enabled source requires replace_driver=true");
+    auto& mask=*candidate.objects.at(command.target.object).compositing.mask;
+    mask.enabled_driver=command.source;mask.enabled_expression.reset();
+}
+void edit_mask_enabled(Document& candidate,const SetMaskEnabledExpression& command) {
+    const auto& target=geometry_mask_enabled_source(candidate,command.target);
+    const auto parsed=parse_mask_enabled_expression(command.expression);
+    if(!parsed.is_literal) {
+        (void)geometry_mask_enabled_source(candidate,parsed.source);
+        require(command.target!=parsed.source,"DEPENDENCY_CYCLE","Geometry mask enabled expression cannot reference itself");
+    }
+    const auto same_expression=target.enabled_expression==std::optional<Expression>{command.expression}&&!target.enabled_driver;
+    require(same_expression||(!target.enabled_driver&&!target.enabled_expression)||command.replace_driver,"DRIVEN_PROPERTY",
+        "Replacing a Geometry mask enabled source requires replace_driver=true");
+    auto& mask=*candidate.objects.at(command.target.object).compositing.mask;
+    mask.enabled_driver.reset();mask.enabled_expression=command.expression;
 }
 void edit_mask_enabled(Document& candidate,const UnlinkMaskEnabled& command) {
     const auto& target=geometry_mask_enabled_source(candidate,command.target);
-    require(target.enabled_driver.has_value(),"PROPERTY_NOT_LINKED","Geometry mask enabled has no driver to unlink");
+    require(target.enabled_driver.has_value()||target.enabled_expression.has_value(),"PROPERTY_NOT_LINKED",
+        "Geometry mask enabled has no source to unlink");
     const auto frozen=evaluate_geometry_mask_enabled(candidate,command.target);
     auto& mask=*candidate.objects.at(command.target.object).compositing.mask;
-    mask.enabled=frozen;mask.enabled_driver.reset();
+    mask.enabled=frozen;mask.enabled_driver.reset();mask.enabled_expression.reset();
 }
 void edit_point_edit_enabled(Document& candidate,const LinkPointEditEnabled& command) {
     const auto& target=point_edit_enabled_source(candidate,command.target);
@@ -6176,8 +6239,9 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(operation_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","An operation enabled target may be changed only once per batch");
         else if constexpr(std::is_same_v<T,LinkGradientEnabled>||std::is_same_v<T,UnlinkGradientEnabled>)
             require(gradient_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A Gradient enabled target may be linked or unlinked only once per batch");
-        else if constexpr(std::is_same_v<T,LinkMaskEnabled>||std::is_same_v<T,UnlinkMaskEnabled>)
-            require(geometry_mask_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A geometry mask enabled target may be linked or unlinked only once per batch");
+        else if constexpr(std::is_same_v<T,LinkMaskEnabled>||std::is_same_v<T,SetMaskEnabledExpression>||
+            std::is_same_v<T,UnlinkMaskEnabled>)
+            require(geometry_mask_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A geometry mask enabled target may be changed only once per batch");
         else if constexpr(std::is_same_v<T,LinkPointEditEnabled>||std::is_same_v<T,UnlinkPointEditEnabled>)
             require(point_edit_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A Point Edit enabled target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkCompositeIsolated>||std::is_same_v<T,UnlinkCompositeIsolated>)
@@ -6277,12 +6341,15 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 if(current&&c.mask&&current->id==c.mask->id) {
                     require(!c.mask->enabled_driver||c.mask->enabled_driver==current->enabled_driver,
                         "USE_TYPED_COMMAND","Create or replace Geometry mask enabled links with link_mask_enabled");
-                    require(c.mask->enabled==current->enabled||!current->enabled_driver,
-                        "DRIVEN_PROPERTY","Unlink the Geometry mask enabled driver before changing its authored literal");
-                    auto next=*c.mask;next.enabled_driver=current->enabled_driver;object.compositing.mask=std::move(next);
+                    require(!c.mask->enabled_expression||c.mask->enabled_expression==current->enabled_expression,
+                        "USE_TYPED_COMMAND","Create or replace Geometry mask enabled expressions with set_mask_enabled_expression");
+                    require(c.mask->enabled==current->enabled||(!current->enabled_driver&&!current->enabled_expression),
+                        "DRIVEN_PROPERTY","Unlink the Geometry mask enabled source before changing its authored literal");
+                    auto next=*c.mask;next.enabled_driver=current->enabled_driver;next.enabled_expression=current->enabled_expression;
+                    object.compositing.mask=std::move(next);
                 } else {
-                    require(!c.mask||!c.mask->enabled_driver,"USE_TYPED_COMMAND",
-                        "Create Geometry mask enabled links with link_mask_enabled");
+                    require(!c.mask||(!c.mask->enabled_driver&&!c.mask->enabled_expression),"USE_TYPED_COMMAND",
+                        "Create Geometry mask enabled sources with the typed command");
                     object.compositing.mask=c.mask;
                 }
             }
@@ -6348,7 +6415,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             const auto frozen=evaluate_gradient_enabled(candidate,c.target);
             auto& gradient=gradient_enabled_source(candidate,c.target);
             gradient.enabled=frozen;gradient.enabled_driver.reset();
-        } else if constexpr(std::is_same_v<T,LinkMaskEnabled>||std::is_same_v<T,UnlinkMaskEnabled>) {
+        } else if constexpr(std::is_same_v<T,LinkMaskEnabled>||std::is_same_v<T,SetMaskEnabledExpression>||
+            std::is_same_v<T,UnlinkMaskEnabled>) {
             edit_mask_enabled(candidate,c);
         } else if constexpr(std::is_same_v<T,LinkPointEditEnabled>||std::is_same_v<T,UnlinkPointEditEnabled>) {
             edit_point_edit_enabled(candidate,c);
@@ -7198,6 +7266,7 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
             text_weight&&(!text_weight->batch||text_weight->batch->mode==TextWeightBatchMode::link))return;
         if(const auto* operation_enabled=std::get_if<LinkOperationEnabled>(&commands.front());
             operation_enabled&&std::holds_alternative<Expression>(operation_enabled->source))return;
+        if(std::holds_alternative<SetMaskEnabledExpression>(commands.front()))return;
         if(std::holds_alternative<LinkObjectVisibility>(commands.front()))return;
         if(std::holds_alternative<LinkCompositeIsolated>(commands.front()))return;
         if(const auto* layout_source=std::get_if<LayoutDependencyCommand>(&commands.front())) {

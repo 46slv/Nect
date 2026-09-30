@@ -3810,16 +3810,18 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     auto* mask_box=new QGroupBox("Geometry mask");auto* mask_form=new QFormLayout(mask_box);mask_form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(mask_box);
     const auto mask_ref=geometry_mask_enabled_ref(id,mask.id);
     const auto mask_state=geometry_mask_enabled_state(host.session.document(),mask_ref);
+    const bool mask_enabled_driven=mask_state.driver.has_value()||mask_state.expression.has_value();
     auto* enabled_row=new QWidget(mask_box);auto* enabled_layout=new QHBoxLayout(enabled_row);enabled_layout->setContentsMargins(0,0,0,0);
     auto* enabled=new QCheckBox("Mask enabled",enabled_row);enabled->setObjectName("mask-enabled");
-    enabled->setChecked(mask_state.literal);enabled->setEnabled(!mask_state.driver);enabled_layout->addWidget(enabled);
+    enabled->setChecked(mask_state.literal);enabled->setEnabled(!mask_enabled_driven);enabled_layout->addWidget(enabled);
     auto* driver_button=new QToolButton(enabled_row);driver_button->setObjectName("mask-enabled-driver");
-    driver_button->setText(mask_state.driver?"Driver…":"Link…");driver_button->setPopupMode(QToolButton::InstantPopup);
+    driver_button->setText(mask_state.driver?"Driver…":mask_state.expression?"Expression…":"Link…");driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* driver_menu=new QMenu(driver_button);driver_button->setMenu(driver_menu);enabled_layout->addWidget(driver_button);enabled_layout->addStretch();
     mask_form->addRow(enabled_row);
     connect(enabled,&QCheckBox::toggled,this,[this,enabled,id,apply](bool value){bool ok=false;perform([&]{auto mask=*host.session.document().objects.at(id).compositing.mask;mask.enabled=value;apply(SetMask{id,mask});ok=true;});if(!ok){QSignalBlocker b(enabled);enabled->setChecked(!value);}});
-    auto* link_mask=driver_menu->addAction(mask_state.driver?"Replace enabled source…":"Link enabled source…");
-    auto* unlink_mask=driver_menu->addAction("Unlink and freeze evaluated value");unlink_mask->setEnabled(mask_state.driver.has_value());
+    auto* link_mask=driver_menu->addAction(mask_enabled_driven?"Replace enabled source with link…":"Link enabled source…");
+    auto* expression_mask=driver_menu->addAction(mask_enabled_driven?"Replace enabled source with expression…":"Set enabled expression…");
+    auto* unlink_mask=driver_menu->addAction("Unlink and freeze evaluated value");unlink_mask->setEnabled(mask_enabled_driven);
     const auto mask_revision=host.session.revision();
     std::vector<Ref> mask_sources;QStringList mask_source_labels;
     const auto& mask_composition=find_composition(host.session.document(),canvas->active_composition());
@@ -3837,15 +3839,44 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     for(const auto& root:mask_composition.roots)append_mask_source(root);
     link_mask->setEnabled(!mask_sources.empty());
     connect(link_mask,&QAction::triggered,this,[this,mask_ref,session,mask_revision,mask_sources,mask_source_labels,
-        replace=mask_state.driver.has_value(),apply] {
+        replace=mask_enabled_driven,apply] {
         choose_boolean_source(this,"mask-enabled-source-dialog",
-            replace?"Replace Geometry mask enabled link":"Link Geometry mask enabled",
+            replace?"Replace Geometry mask enabled source with link":"Link Geometry mask enabled",
             qs(mask_ref.object)+" / "+qs(mask_ref.field),mask_sources,mask_source_labels,
             [this,mask_ref,session,mask_revision,replace,apply](const Ref& source) {
             if(host.session_id!=session)throw Error("SESSION_CONFLICT","Geometry mask belongs to another document");
             if(host.session.revision()!=mask_revision)throw Error("REVISION_CONFLICT","Geometry mask enabled state changed while the source chooser was open");
             apply(LinkMaskEnabled{mask_ref,source,replace});
         });
+    });
+    connect(expression_mask,&QAction::triggered,this,[this,mask_ref,session,mask_revision,
+        replace=mask_enabled_driven,initial=mask_state.expression,apply] {
+        if(host.session_id!=session) {statusBar()->showMessage("SESSION_CONFLICT: Geometry mask belongs to another document",12000);return;}
+        QDialog dialog(this);dialog.setObjectName("mask-enabled-expression-dialog");
+        dialog.setWindowTitle(replace?"Replace Geometry mask enabled source with expression":"Set Geometry mask enabled expression");
+        dialog.resize(560,210);auto* draft_layout=new QVBoxLayout(&dialog);
+        auto* target_label=new QLabel("Target: "+qs(mask_ref.object)+" / "+qs(mask_ref.field),&dialog);
+        target_label->setWordWrap(true);draft_layout->addWidget(target_label);
+        auto* source=new QPlainTextEdit(&dialog);source->setObjectName("mask-enabled-expression-source");
+        source->setPlaceholderText("true, false, ref(\"object-id\",\"\",\"mask.mask-id.enabled\"), or !ref(…)");
+        if(initial)source->setPlainText(qs(initial->source));else source->setPlainText("true");
+        source->setMinimumHeight(58);draft_layout->addWidget(source);
+        auto* status=new QLabel("Version 1 accepts true, false, or an optional negation of an installed GeometryMask.enabled Ref in this Composition. Apply commits one Session command; Cancel leaves it unchanged.",&dialog);
+        status->setObjectName("mask-enabled-expression-status");status->setWordWrap(true);status->setTextFormat(Qt::PlainText);draft_layout->addWidget(status);
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+        buttons->button(QDialogButtonBox::Apply)->setText("Apply");draft_layout->addWidget(buttons);
+        connect(buttons->button(QDialogButtonBox::Cancel),&QPushButton::clicked,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
+            [this,&dialog,source,status,mask_ref,session,mask_revision,replace,apply] {
+            try {
+                if(host.session_id!=session)throw Error("SESSION_CONFLICT","Geometry mask belongs to another document");
+                if(host.session.revision()!=mask_revision)throw Error("REVISION_CONFLICT","Geometry mask enabled state changed while the expression draft was open");
+                apply(SetMaskEnabledExpression{mask_ref,{source->toPlainText().toStdString(),1},replace});dialog.accept();
+            } catch(const Error& error) {
+                status->setText(QString::fromLatin1(error.code.c_str())+": "+QString::fromUtf8(error.what()));
+            }
+        });
+        dialog.exec();
     });
     connect(unlink_mask,&QAction::triggered,this,[this,mask_ref,session,mask_revision,apply]{perform([&]{
         if(host.session_id!=session)throw Error("SESSION_CONFLICT","Geometry mask belongs to another document");
@@ -3860,7 +3891,7 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
         const auto field=mask_state.driver->field;const auto dot=field.rfind('.');
         const auto source_mask_id=field.substr(5,dot-5);
         mask_source=source_name+" / Mask ["+qs(source_mask_id)+"]";
-    }
+    } else if(mask_state.expression)mask_source="expression: "+qs(mask_state.expression->source);
     mask_status->setText(QString("Authored literal: %1 · Source: %2 · Evaluated enabled: %3")
         .arg(mask_state.literal?"true":"false",mask_source,mask_state.evaluated?"true":"false"));
     mask_form->addRow("Mask enabled state",mask_status);

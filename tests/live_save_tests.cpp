@@ -214,7 +214,7 @@ void text_weight_expression_save_as(const QString& directory,const QString& nect
     const auto destination=directory+"/weight-expression-destination.nect";
     host.save(destination);const auto destination_bytes=bytes(destination);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.67\"")&&
+        destination_bytes.contains("\"version\":\"0.68\"")&&
         destination_bytes.contains("\"offset\":200")&&
         load_native(destination).document.objects.at("weight-target").text->weight_expression==expression&&
         load_native(destination).document.objects.at("weight-relative-target").text->weight_driver==
@@ -272,7 +272,7 @@ void object_visibility_expression_save_as(const QString& directory,const QString
     const auto saved=load_native(destination).document;
     const auto saved_state=object_visibility_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.67\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.68\"")&&saved==committed&&
         saved_state.literal&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated,
         "Host Save As keeps the exact Object visibility expression and leaves original bytes unchanged");
     Host reopened(directory+"/visibility-expression-cold-recovery");reopened.open(destination);
@@ -314,7 +314,7 @@ void composite_isolation_expression_save_as(const QString& directory,const QStri
     const auto saved=load_native(destination).document;
     const auto saved_state=composite_isolation_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.67\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.68\"")&&saved==committed&&
         saved_state.literal==false&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated&&
         saved.objects.at("composite-isolation-target").compositing.isolated_expression==expression,
         "Host Save As keeps exact Composite isolation expression and leaves original bytes unchanged");
@@ -367,7 +367,7 @@ void operation_enabled_expression_save_as(const QString& directory,const QString
     host.save(destination);const auto destination_bytes=bytes(destination);
     const auto saved=load_native(destination).document;const auto saved_state=operation_enabled_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-          destination_bytes.contains("\"version\":\"0.67\"")&&saved==committed&&
+          destination_bytes.contains("\"version\":\"0.68\"")&&saved==committed&&
           saved_state.literal==false&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated,
           "Host Save As preserves the authored operation literal, exact expression and original file bytes");
     Host reopened(directory+"/operation-enabled-expression-cold-recovery");reopened.open(destination);
@@ -389,6 +389,56 @@ void operation_enabled_expression_save_as(const QString& directory,const QString
           authored["expression"].toObject()["version"].toInt()==1&&authored["source_kind"]=="expression"&&
           reply["evaluated"].toBool()&&reply["expression"].toBool()&&reply["link"].toBool(),
           "Separate process reads exact built-in operation expression, authored source kind and evaluation");
+}
+void mask_enabled_expression_save_as(const QString& directory,const QString& nect_cli) {
+    Host host(directory+"/mask-enabled-expression-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    host.session.apply({
+        CreatePrimitive{composition,"","mask-expression-target","Target",default_primitive("mask-expression-target-primitive","nect.shape.rectangle")},
+        CreatePrimitive{composition,"","mask-expression-source","Source",default_primitive("mask-expression-source-primitive","nect.shape.rectangle")},
+        CreatePrimitive{composition,"","mask-expression-target-geometry","Target geometry",default_primitive("mask-expression-target-geometry-primitive","nect.shape.rectangle")},
+        CreatePrimitive{composition,"","mask-expression-source-geometry","Source geometry",default_primitive("mask-expression-source-geometry-primitive","nect.shape.rectangle")}},
+        host.session.revision());host.edited();
+    host.session.apply({
+        SetMask{"mask-expression-target",GeometryMask{"mask-expression-target-id","mask-expression-target-geometry",1,false,"evenodd"}},
+        SetMask{"mask-expression-source",GeometryMask{"mask-expression-source-id","mask-expression-source-geometry",1,false,"nonzero"}}},
+        host.session.revision());host.edited();
+    const Ref target{"mask-expression-target","","mask.mask-expression-target-id.enabled"};
+    const Expression expression{" ! ref ( \"mask-expression-source\" , \"\" , \"mask.mask-expression-source-id.enabled\" ) ",1};
+    const auto original=directory+"/mask-enabled-expression-original.nect";
+    host.save(original);const auto original_bytes=bytes(original);
+    host.session.apply({SetMaskEnabledExpression{target,expression,false}},host.session.revision());host.edited();
+    const auto committed=host.session.document();const auto state=geometry_mask_enabled_state(committed,target);
+    check(!state.literal&&!state.driver&&state.expression==expression&&state.evaluated,
+        "False authored mask literal follows the negated false source before Save As");
+    const auto destination=directory+"/mask-enabled-expression-destination.nect";
+    host.save(destination);const auto destination_bytes=bytes(destination);
+    const auto saved=load_native(destination).document;const auto saved_state=geometry_mask_enabled_state(saved,target);
+    check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
+        destination_bytes.contains("\"version\":\"0.68\"")&&saved==committed&&
+        saved_state.literal==false&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated&&
+        saved.objects.at("mask-expression-target").compositing.mask->id=="mask-expression-target-id",
+        "Host Save As preserves mask ID, authored literal, exact expression and original source bytes");
+    Host reopened(directory+"/mask-enabled-expression-cold-recovery");reopened.open(destination);
+    const auto cold=geometry_mask_enabled_state(reopened.session.document(),target);
+    check(reopened.session.document()==committed&&reopened.session.revision()==0&&
+        cold.literal==false&&!cold.driver&&cold.expression==expression&&cold.evaluated&&
+        bytes(original)==original_bytes,
+        "Cold Host reopen restores the exact GeometryMask expression and evaluated bypass");
+    QProcess process;process.start(nect_cli,{"--serve",destination});
+    check(process.waitForStarted(5000),"Start a separate Nect process on the GeometryMask expression Save As destination");
+    const auto query=QByteArray("{\"op\":\"get\",\"ref\":{\"object\":\"mask-expression-target\",\"point\":\"\",\"field\":\"mask.mask-expression-target-id.enabled\"}}\n");
+    check(process.write(query)==query.size(),"Query GeometryMask expression from the separate cold Nect process");
+    process.closeWriteChannel();
+    check(process.waitForFinished(10000)&&process.exitStatus()==QProcess::NormalExit&&process.exitCode()==0,
+        "Cold Nect process exits after GeometryMask expression readback");
+    const auto reply=QJsonDocument::fromJson(process.readAllStandardOutput().trimmed()).object()["result"].toObject();
+    const auto authored=reply["authored"].toObject();
+    check(authored["literal"].toBool()==false&&authored["driver"].isNull()&&
+        authored["expression"].toObject()["source"].toString()==QString::fromStdString(expression.source)&&
+        authored["expression"].toObject()["version"].toInt()==1&&authored["source_kind"]=="expression"&&
+        reply["evaluated"].toBool()&&reply["expression"].toBool()&&reply["link"].toBool(),
+        "Separate process reads exact GeometryMask expression, source kind and evaluated value");
 }
 void point_edit_save_as(const QString& directory) {
     Host host(directory+"/point-edit-recovery");
@@ -957,7 +1007,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_width=artboard_layout_property(persisted,grid_width_ref);
     const auto persisted_grid_height=artboard_layout_property(persisted,grid_height_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.67\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.68\"")&&
         bytes(original)==original_bytes&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&
@@ -1298,10 +1348,11 @@ int main(int argc,char** argv) {
         object_visibility_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         composite_isolation_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         operation_enabled_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
+        mask_enabled_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         point_edit_save_as(temp.path());artboard_size_save_as(temp.path());
         layout_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         linked_margin_left_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         linked_point_edit_save_as(temp.path());linked_mask_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
-        std::cout<<"PASS asynchronous snapshots, typed, linked Margin, Grid, Point Edit and mask Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
+        std::cout<<"PASS asynchronous snapshots, typed expression and linked Margin, Grid, Point Edit and mask Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

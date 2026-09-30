@@ -143,32 +143,40 @@ ImageSource read_image(const j::value& value) {
     return {text(o.at("asset")),read_scalar(o.at("width")),read_scalar(o.at("height"))};
 }
 j::object image_json(const ImageSource& i){return {{"asset",i.asset},{"width",scalar_json(i.width)},{"height",scalar_json(i.height)}};}
-GeometryMask read_mask(const j::value& value,bool allow_enabled_driver=false) {
+GeometryMask read_mask(const j::value& value,bool allow_enabled_driver=false,bool allow_enabled_expression=false) {
     const auto& o=value.as_object();
     if(!allow_enabled_driver&&o.contains("enabled_driver"))
         throw Error("UNSUPPORTED_MASK_ENABLED_DRIVER","Geometry mask enabled drivers require native 0.31 and the dedicated link command");
-    if(allow_enabled_driver)keys(o,{"id","source","version","enabled","fill_rule","enabled_driver"});
+    if(!allow_enabled_expression&&o.contains("enabled_expression"))
+        throw Error("UNSUPPORTED_MASK_ENABLED_EXPRESSION","Geometry mask enabled expressions require native 0.68 and the dedicated expression command");
+    if(allow_enabled_expression)keys(o,{"id","source","version","enabled","fill_rule","enabled_driver","enabled_expression"});
+    else if(allow_enabled_driver)keys(o,{"id","source","version","enabled","fill_rule","enabled_driver"});
     else keys(o,{"id","source","version","enabled","fill_rule"});
     GeometryMask result{text(o.at("id")),text(o.at("source")),j::value_to<unsigned>(o.at("version")),o.at("enabled").as_bool(),text(o.at("fill_rule"))};
     if(const auto* driver=o.if_contains("enabled_driver")) {
         const auto& wrapper=driver->as_object();keys(wrapper,{"link"});result.enabled_driver=read_ref(wrapper.at("link"));
     }
+    if(const auto* expression=o.if_contains("enabled_expression"))result.enabled_expression=read_expression(*expression);
+    if(result.enabled_driver&&result.enabled_expression)
+        throw Error("INVALID_MASK_ENABLED_SOURCE","Geometry mask enabled link and expression are mutually exclusive");
     return result;
 }
 j::value mask_json(const std::optional<GeometryMask>& mask) {
     if(!mask)return nullptr;
     j::object result{{"id",mask->id},{"source",mask->source},{"version",mask->version},{"enabled",mask->enabled},{"fill_rule",mask->fill_rule}};
     if(mask->enabled_driver)result["enabled_driver"]=j::object{{"link",ref_json(*mask->enabled_driver)}};
+    if(mask->enabled_expression)result["enabled_expression"]=expression_json(*mask->enabled_expression);
     return result;
 }
 Compositing read_compositing(const j::value& value,bool allow_isolated_driver,bool allow_mask_enabled_driver=false,
-    bool allow_isolated_expression=false) {
+    bool allow_isolated_expression=false,bool allow_mask_enabled_expression=false) {
     const auto& o=value.as_object();
     if(allow_isolated_expression)keys(o,{"version","opacity","blend","isolated","mask","isolated_driver","isolated_expression"});
     else if(allow_isolated_driver)keys(o,{"version","opacity","blend","isolated","mask","isolated_driver"});
     else keys(o,{"version","opacity","blend","isolated","mask"});
     Compositing c;c.version=j::value_to<unsigned>(o.at("version"));c.opacity=read_scalar(o.at("opacity"));
-    c.blend=text(o.at("blend"));c.isolated=o.at("isolated").as_bool();if(!o.at("mask").is_null())c.mask=read_mask(o.at("mask"),allow_mask_enabled_driver);
+    c.blend=text(o.at("blend"));c.isolated=o.at("isolated").as_bool();
+    if(!o.at("mask").is_null())c.mask=read_mask(o.at("mask"),allow_mask_enabled_driver,allow_mask_enabled_expression);
     if(const auto* driver=o.if_contains("isolated_driver")) {
         const auto& wrapper=driver->as_object();keys(wrapper,{"link"});c.isolated_driver=read_ref(wrapper.at("link"));
     }
@@ -661,10 +669,13 @@ j::object geometry_mask_enabled_property_json(const Document& d,const Ref& ref,b
 }
 j::object geometry_mask_enabled_state_json(const Document& d,const Ref& ref,const GeometryMaskEnabledProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
+    j::object authored{{"literal",value.literal},{"driver",std::move(driver)},
+        {"source_kind",value.driver?"link":value.expression?"expression":"literal"}};
+    if(value.expression)authored["expression"]=expression_json(*value.expression);
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
         {"unit","boolean"},{"space","local"},{"origin","authored"},
-        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
-        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+        {"authored",std::move(authored)},
+        {"evaluated",value.evaluated},{"link",true},{"expression",true}};
 }
 j::object point_edit_enabled_property_json(const Document& d,const Ref& ref,bool enabled) {
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
@@ -1624,6 +1635,10 @@ Command read_command(const j::value& v) {
         keys(o,{"type","target","source","replace_driver"});
         return LinkMaskEnabled{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
     }
+    if(type=="set_mask_enabled_expression") {
+        keys(o,{"type","target","expression","replace_driver"});
+        return SetMaskEnabledExpression{read_ref(o.at("target")),read_expression(o.at("expression")),o.at("replace_driver").as_bool()};
+    }
     if(type=="unlink_mask_enabled") {
         keys(o,{"type","target"});return UnlinkMaskEnabled{read_ref(o.at("target"))};
     }
@@ -2021,10 +2036,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,67> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67"};
+        constexpr std::array<std::string_view,68> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.67 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.68 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -2086,7 +2101,7 @@ Document decode(std::string_view input) {
             Object obj;
             obj.id=text(o.at("id"));
             obj.name=text(o.at("name"));
-            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"),minor>=30,minor>=31,minor>=62);}
+            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"),minor>=30,minor>=31,minor>=62,minor>=68);}
             if(minor>=27)if(const auto* driver=o.if_contains("visibility_driver")) {
                 const auto& fields=driver->as_object();keys(fields,{"link"});obj.visibility_driver=read_ref(fields.at("link"));
             }
@@ -2604,9 +2619,9 @@ std::string request(Session& session,std::string_view input) {
                     continue;
                 }
                 if(ref.field.starts_with("mask.")&&ref.field.ends_with(".enabled")) {
+                    const auto& mask=*session.document().objects.at(ref.object).compositing.mask;
                     list.push_back(geometry_mask_enabled_state_json(session.document(),ref,
-                        {session.document().objects.at(ref.object).compositing.mask->enabled,
-                            session.document().objects.at(ref.object).compositing.mask->enabled_driver,
+                        {mask.enabled,mask.enabled_driver,mask.enabled_expression,
                             mask_enabled_values.at(ref)}));
                     continue;
                 }
@@ -2959,8 +2974,9 @@ std::string request(Session& session,std::string_view input) {
             } else {
                 std::vector<Command> commands;
                 for(const auto& v:wire_commands)commands.push_back(read_command(v));
+                const auto before=session.revision();
                 apply_serializable(session,commands,expected);
-                result=j::object{{"changed",true},{"applied_presets",j::array{}}};
+                result=j::object{{"changed",session.revision()!=before},{"applied_presets",j::array{}}};
             }
         } else if(op=="history") {
             keys(o,{"op"});const auto history=session.history();j::array states;

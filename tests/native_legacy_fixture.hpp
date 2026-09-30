@@ -6,7 +6,7 @@
 
 namespace nect::test_support {
 inline void require_native_current_writer(const std::string& encoded) {
-    const std::string current_version = "\"version\":\"0.67\"";
+    const std::string current_version = "\"version\":\"0.68\"";
     if (encoded.find(current_version) == std::string::npos || encoded.empty() || encoded.back() != '}')
         throw std::runtime_error("Legacy fixture must start from current native writer output");
 }

@@ -323,7 +323,7 @@ def main():
         live_after_reopen = tool('nect_session')
         identity = {key: live_after_reopen[key] for key in ('session_id', 'document_id')}
         cold_document = compare_read('inspect')['result']
-        assert cold_document['version'] == '0.67'
+        assert cold_document['version'] == '0.68'
         cold_presets = {preset['id']: preset for preset in cold_document['presets']}
         assert cold_presets['mcp-preset-captured']['entries'][0]['operation']['parameters']['amount'] == 7
         assert cold_presets['mcp-preset-explicit']['label'] == 'Explicit Pair'

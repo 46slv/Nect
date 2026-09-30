@@ -328,6 +328,7 @@ struct GeometryMask {
     bool enabled=true;
     std::string fill_rule="nonzero";
     std::optional<Ref> enabled_driver;
+    std::optional<Expression> enabled_expression;
     bool operator==(const GeometryMask&) const = default;
 };
 struct Compositing {
@@ -599,6 +600,7 @@ struct UnlinkOperationEnabled { Ref target; };
 struct LinkGradientEnabled { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkGradientEnabled { Ref target; };
 struct LinkMaskEnabled { Ref target; Ref source; bool replace_driver=false; };
+struct SetMaskEnabledExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkMaskEnabled { Ref target; };
 struct StrokeStyle { Id object,operation; std::string line_cap="butt",line_join="miter"; double miter_limit=4; };
 struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; std::optional<std::string> line_join; };
@@ -840,7 +842,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
     EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
     SetVisibility,LinkObjectVisibility,UnlinkObjectVisibility,LinkCompositeIsolated,UnlinkCompositeIsolated,
-    LinkMaskEnabled,UnlinkMaskEnabled,
+    LinkMaskEnabled,SetMaskEnabledExpression,UnlinkMaskEnabled,
     SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
     AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects,
     StructuralCommand>;
@@ -1047,6 +1049,7 @@ Ref geometry_mask_enabled_ref(const Id& object,const Id& mask);
 struct GeometryMaskEnabledProperty {
     bool literal=true;
     std::optional<Ref> driver;
+    std::optional<Expression> expression;
     bool evaluated=true;
 };
 GeometryMaskEnabledProperty geometry_mask_enabled_state(const Document&,const Ref&);

@@ -231,6 +231,36 @@ void geometry_mask_enabled_driver_remapping() {
         geometry_mask_enabled_ref(external_owner.id,"external-mask"),
         "Copying only the target retains its external mask source identity");
 }
+void geometry_mask_enabled_expression_remapping() {
+    auto document=fixture();
+    document.objects.at("path-A").compositing.mask=GeometryMask{"path-a-mask","path-B"};
+    document.objects.at("group").compositing.mask->enabled_expression=
+        Expression{"!ref(\"path-A\",\"\",\"mask.path-a-mask.enabled\")",1};
+    Session internal(document);
+    apply(internal,{DuplicateObjects{{"group"},"mask-expression-copy"}});
+    const auto copied=internal.document();const auto group=copy_of(copied,"group"),path=copy_of(copied,"path-A");
+    const auto copied_ref=geometry_mask_enabled_ref(group,copied.objects.at(group).compositing.mask->id);
+    const auto copied_source=geometry_mask_enabled_ref(path,copied.objects.at(path).compositing.mask->id);
+    const Expression expected{"!ref(\""+path+"\",\"\",\"mask."+
+        copied.objects.at(path).compositing.mask->id+".enabled\")",1};
+    check(copied.objects.at(group).compositing.mask->enabled_expression==expected&&
+        evaluate_geometry_mask_enabled(copied,copied_ref)==
+            !evaluate_geometry_mask_enabled(copied,copied_source)&&
+        expected.source.find("path-a-mask")==std::string::npos,
+        "Copying both mask endpoint owners remaps Object and GeometryMask IDs in the exact expression Ref");
+
+    auto external=document;Object external_owner;external_owner.id="external-expression-mask-owner";
+    external_owner.name="External expression mask owner";external.objects.emplace(external_owner.id,external_owner);
+    external.compositions.front().roots.push_back(external_owner.id);
+    external.objects.at(external_owner.id).compositing.mask=GeometryMask{"external-expression-mask","path-B"};
+    external.objects.at("group").compositing.mask->enabled_expression=
+        Expression{"ref(\"external-expression-mask-owner\",\"\",\"mask.external-expression-mask.enabled\")",1};
+    Session target_only(external);apply(target_only,{DuplicateObjects{{"group"},"external-expression-copy"}});
+    const auto external_group=copy_of(target_only.document(),"group");
+    check(target_only.document().objects.at(external_group).compositing.mask->enabled_expression==
+        external.objects.at("group").compositing.mask->enabled_expression,
+        "Duplicating only an expression target keeps its external mask identity and exact source text");
+}
 void point_edit_enabled_driver_remapping() {
     Session s(empty_document("point-edit-duplicate-doc","point-edit-duplicate-comp","point-edit-duplicate-art"));
     auto source_circle=default_primitive("link-source-generator","nect.shape.circle");
@@ -270,4 +300,4 @@ void point_edit_enabled_driver_remapping() {
         "The copied target follows its copied source while the target-only copy follows the external original");
 }
 }
-int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();geometry_mask_enabled_driver_remapping();point_edit_enabled_driver_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}
+int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();geometry_mask_enabled_driver_remapping();geometry_mask_enabled_expression_remapping();point_edit_enabled_driver_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

@@ -357,14 +357,52 @@ void mask_enabled_inspector(){
     check(!geometry_mask_enabled_state(session.document(),target).evaluated&&
         widget<QLabel>(w,"mask-enabled-state")->text().contains("Evaluated enabled: false"),
         "Inspector follows source bypass changes without altering the target literal");
-    driver=widget<QToolButton>(w,"mask-enabled-driver");
-    check(driver->menu()->actions().size()==2&&driver->menu()->actions()[1]->isEnabled(),
-        "Inspector offers explicit unlink for a driven mask value");
+    const Expression expression{" ! ref ( \"source\" , \"\" , \"mask.source-mask.enabled\" ) ",1};
+    driver=widget<QToolButton>(w,"mask-enabled-driver");const auto cancel_revision=session.revision();bool expression_cancelled=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("mask-enabled-expression-dialog");
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>("mask-enabled-expression-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_editor||!buttons){if(dialog)dialog->reject();return;}
+        source_editor->setPlainText(QString::fromStdString(expression.source));
+        expression_cancelled=session.revision()==cancel_revision&&
+            geometry_mask_enabled_state(session.document(),target).driver==source&&
+            !geometry_mask_enabled_state(session.document(),target).expression;
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    driver->menu()->actions()[1]->trigger();QApplication::processEvents();
+    check(expression_cancelled&&session.revision()==cancel_revision&&
+        geometry_mask_enabled_state(session.document(),target).driver==source,
+        "Inspector Cancel leaves the captured mask source and Session revision unchanged");
+    driver=widget<QToolButton>(w,"mask-enabled-driver");bool expression_applied=false;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("mask-enabled-expression-dialog");
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>("mask-enabled-expression-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_editor||!buttons){if(dialog)dialog->reject();return;}
+        source_editor->setPlainText(QString::fromStdString(expression.source));
+        buttons->button(QDialogButtonBox::Apply)->click();expression_applied=true;
+    });
     driver->menu()->actions()[1]->trigger();QApplication::processEvents();
     state=geometry_mask_enabled_state(session.document(),target);
-    check(!state.literal&&!state.driver&&widget<QCheckBox>(w,"mask-enabled")->isEnabled(),
-        "Inspector unlink freezes evaluated false and re-enables the authored bypass checkbox");
+    check(expression_applied&&!state.literal&&!state.driver&&state.expression==expression&&state.evaluated,
+        "Inspector Apply explicitly replaces the link with the exact expression while preserving its literal");
+    check(!widget<QCheckBox>(w,"mask-enabled")->isEnabled()&&
+        widget<QToolButton>(w,"mask-enabled-driver")->text()=="Expression…"&&
+        widget<QLabel>(w,"mask-enabled-state")->text().contains(QString::fromStdString(expression.source)),
+        "Expression-driven mask Inspector disables its literal checkbox and displays the exact source");
     source_mask=*session.document().objects.at("source").compositing.mask;source_mask.enabled=true;
+    session.apply({SetMask{"source",source_mask}},session.revision());w.host.edited();
+    check(!geometry_mask_enabled_state(session.document(),target).evaluated,
+        "Inspector expression follows source bypass changes through the shared Session");
+    driver=widget<QToolButton>(w,"mask-enabled-driver");
+    check(driver->menu()->actions().size()==3&&driver->menu()->actions()[2]->isEnabled(),
+        "Inspector offers explicit unlink for a driven mask expression");
+    driver->menu()->actions()[2]->trigger();QApplication::processEvents();
+    state=geometry_mask_enabled_state(session.document(),target);
+    check(!state.literal&&!state.driver&&!state.expression&&widget<QCheckBox>(w,"mask-enabled")->isEnabled(),
+        "Inspector unlink freezes evaluated false and re-enables the authored bypass checkbox");
+    source_mask=*session.document().objects.at("source").compositing.mask;source_mask.enabled=false;
     session.apply({SetMask{"source",source_mask}},session.revision());w.host.edited();
     check(!geometry_mask_enabled_state(session.document(),target).evaluated,
         "Unlinked target remains frozen when its former source mask changes");

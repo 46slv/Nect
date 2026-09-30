@@ -121,7 +121,7 @@ std::size_t extra(const PresetEntry& v){return total(extra(v.kind),extra(v.type)
 std::size_t extra(const PresetDefinition& v){return total(extra(v.id),extra(v.label),extra(v.category),extra(v.tags),extra(v.target_domain),extra(v.entries));}
 std::size_t extra(const Definition& v){return total(extra(v.id),extra(v.name),extra(v.root));}
 std::size_t extra(const DefinitionInstance& v){return total(extra(v.definition),extra(v.overrides));}
-std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule),extra(v.enabled_driver));}
+std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule),extra(v.enabled_driver),extra(v.enabled_expression));}
 std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.isolated_driver),extra(v.mask));}
 std::size_t extra(const ImageSource& v){return total(extra(v.asset),extra(v.width),extra(v.height));}
 std::size_t extra(const RasterAsset& v){return total(extra(v.id),extra(v.name),extra(v.mode),extra(v.locator),v.payload?v.payload->bytes().size()+sizeof(RasterPayload)+allocation_overhead:0);}

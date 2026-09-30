@@ -97,7 +97,7 @@ void object_visibility_link_contract() {
         get.find("\"evaluated\":false")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos,
         "API get reports literal, stable driver Ref and evaluated own value separately");
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.67\"")!=std::string::npos&&
+    check(linked_native.find("\"version\":\"0.68\"")!=std::string::npos&&
         linked_native.find("\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}}")!=std::string::npos&&
         decode(linked_native)==session.document(),
         "Native 0.60 roundtrip preserves the optional stable visibility driver");
@@ -133,12 +133,12 @@ void object_visibility_link_contract() {
         !object_visibility_state(deletion.document(),target).literal,
         "Deleting a visibility source is atomic unless the target is first unlinked and frozen in the same batch");
 
-    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto current_version=old_literal.find("\"version\":\"0.67\"");
-    check(current_version!=std::string::npos,"Native writer emits 0.67 before a 0.27 compatibility downgrade");
-    old_literal.replace(current_version,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.27\"");
+    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto current_version=old_literal.find("\"version\":\"0.68\"");
+    check(current_version!=std::string::npos,"Native writer emits 0.68 before a 0.27 compatibility downgrade");
+    old_literal.replace(current_version,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.27\"");
     check(decode(old_literal)==document,"Native 0.27 literal-only documents remain readable unchanged");
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto linked_version=false_version.find("\"version\":\"0.67\"");
-    false_version.replace(linked_version,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.26\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto linked_version=false_version.find("\"version\":\"0.68\"");
+    false_version.replace(linked_version,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.26\"");
     rejects("UNKNOWN_FIELD",[&]{decode(false_version);});
 
     auto cross_document=fixture();auto other=empty_document("other-doc","other-comp","other-art").compositions.front();
@@ -175,15 +175,15 @@ void object_visibility_expression_contract() {
         "Typed properties exposes the exact Object visibility source kind");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.67\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.68\"")!=std::string::npos&&
         native.find("\"visibility_expression\":{\"source\":\" ! ref ( \\\"source\\\" , \\\"\\\" , \\\"object.visible\\\" ) \",\"version\":1}")!=std::string::npos&&
         decode(native)==session.document(),"Native 0.60 retains the exact Object visibility expression");
     auto conflict=native;const auto expression_at=conflict.find("\"visibility_expression\":");
     check(expression_at!=std::string::npos,"Encoded expression has a closed native field");
     conflict.insert(expression_at,"\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}},");
     rejects("INVALID_VISIBILITY_SOURCE",[&]{(void)decode(conflict);});
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(native);const auto version_at=false_version.find("\"version\":\"0.67\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.59\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(native);const auto version_at=false_version.find("\"version\":\"0.68\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.59\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
 
     const auto before_target=session.document().objects.at("a");
@@ -342,7 +342,7 @@ void mask_enabled_link_contract() {
         scene(session.document()).roots.front().mask.has_value(),
         "A false authored target follows a true source mask and remains clipped");
     const auto get=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"mask.target-mask.enabled"}})");
-    check(get.find("\"authored\":{\"literal\":false,\"driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"mask.source-mask.enabled\"}}}")!=std::string::npos&&
+    check(get.find("\"authored\":{\"literal\":false,\"driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"mask.source-mask.enabled\"}},\"source_kind\":\"link\"}")!=std::string::npos&&
         get.find("\"evaluated\":true")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos,
         "Qualified API get separates target literal, stable source and evaluated bypass");
     const auto legacy=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"mask.enabled"}})");
@@ -401,15 +401,15 @@ void mask_enabled_link_contract() {
         "Explicit replace_driver changes only the source Ref");
 
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.67\"")!=std::string::npos&&
+    check(linked_native.find("\"version\":\"0.68\"")!=std::string::npos&&
         linked_native.find("\"enabled_driver\":{\"link\":{\"object\":\"b\",\"point\":\"\",\"field\":\"mask.third-mask.enabled\"}}")!=std::string::npos&&
         decode(linked_native)==session.document()&&encode(decode(linked_native))==linked_native,
         "Native 0.43 retains the exact mask Ref and authored literal without byte drift");
-    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto old_version=old_literal.find("\"version\":\"0.67\"");
-    old_literal.replace(old_version,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.30\"");
+    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto old_version=old_literal.find("\"version\":\"0.68\"");
+    old_literal.replace(old_version,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.30\"");
     check(decode(old_literal)==document,"Native 0.30 remains readable with literal-only masks");
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto current_version=false_version.find("\"version\":\"0.67\"");
-    false_version.replace(current_version,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.30\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto current_version=false_version.find("\"version\":\"0.68\"");
+    false_version.replace(current_version,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.30\"");
     rejects("UNSUPPORTED_MASK_ENABLED_DRIVER",[&]{decode(false_version);});
 
     auto missing_source=fixture();missing_source.objects.at("a").compositing.mask=GeometryMask{"one","source"};
@@ -453,6 +453,135 @@ void mask_enabled_link_contract() {
             geometry_mask_enabled_ref("mask-node-"+std::to_string(i+1),"mask-instance-"+std::to_string(i+1)),false});
     }
     Session depth(std::move(deep));atomic(depth,"DEPENDENCY_DEPTH",std::move(links));
+}
+void mask_enabled_expression_contract() {
+    auto document=fixture();
+    document.objects.at("a").compositing.mask=GeometryMask{"target-mask","source",1,false,"evenodd"};
+    document.objects.at("source").compositing.mask=GeometryMask{"source-mask","b",1,false,"nonzero"};
+    Session session(document);
+    const auto target=geometry_mask_enabled_ref("a","target-mask");
+    const auto source=geometry_mask_enabled_ref("source","source-mask");
+    const Expression expression{" ! ref ( \"source\" , \"\" , \"mask.source-mask.enabled\" ) ",1};
+    const auto set_expression=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"set_mask_enabled_expression","target":{"object":"a","point":"","field":"mask.target-mask.enabled"},"expression":{"source":" ! ref ( \"source\" , \"\" , \"mask.source-mask.enabled\" ) ","version":1},"replace_driver":false}]})");
+    auto state=geometry_mask_enabled_state(session.document(),target);
+    check(set_expression.find("\"changed\":true")!=std::string::npos&&session.revision()==1&&
+        !state.literal&&!state.driver&&state.expression==expression&&state.evaluated,
+        "JSON-lines commits an exact whitespace-preserving expression on the installed target mask ID");
+    auto native=encode(session.document());
+    auto expected=document;expected.objects.at("a").compositing.mask->enabled=true;
+    check(scene(session.document()).roots.front().mask.has_value()&&
+        export_svg(session.document(),"comp","art")==export_svg(expected,"comp","art"),
+        "The negated false source mask enables clipping in scene evaluation and SVG while the literal remains false");
+    auto source_deletion=session.document();Session deletion(source_deletion);
+    atomic(deletion,"MISSING_MASK",{SetMask{"source",std::nullopt}});
+    apply(deletion,{SetMask{"a",std::nullopt},SetMask{"source",std::nullopt}});
+    check(!deletion.document().objects.at("a").compositing.mask&&
+        !deletion.document().objects.at("source").compositing.mask,
+        "A source mask cannot be removed while referenced, but removing its target in the same batch releases it");
+    const auto get=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"mask.target-mask.enabled"}})");
+    check(get.find("\"source_kind\":\"expression\"")!=std::string::npos&&
+        get.find("\"source\":\" ! ref ( \\\"source\\\" , \\\"\\\" , \\\"mask.source-mask.enabled\\\" ) \"")!=std::string::npos&&
+        get.find("\"evaluated\":true")!=std::string::npos&&get.find("\"expression\":true")!=std::string::npos,
+        "Qualified get reports the exact expression, false literal, evaluated bool and expression capability");
+    const auto owner_slot=request(session,R"({"op":"get","ref":{"object":"a","point":"","field":"mask.enabled"}})");
+    check(owner_slot.find("\"literal\":false")!=std::string::npos&&owner_slot.find("\"evaluated\":false")!=std::string::npos&&
+        owner_slot.find("\"link\":false")!=std::string::npos&&owner_slot.find("\"expression\":false")!=std::string::npos,
+        "Legacy owner-slot read remains literal-only while the installed mask has an expression");
+    const auto replay=request(session,R"({"op":"apply","expected_revision":1,"commands":[{"type":"set_mask_enabled_expression","target":{"object":"a","point":"","field":"mask.target-mask.enabled"},"expression":{"source":" ! ref ( \"source\" , \"\" , \"mask.source-mask.enabled\" ) ","version":1},"replace_driver":false}]})");
+    check(replay.find("\"changed\":false")!=std::string::npos&&session.revision()==1,
+        "Exact expression reapply is idempotent");
+
+    auto source_mask=*session.document().objects.at("source").compositing.mask;source_mask.enabled=true;
+    apply(session,{SetMask{"source",source_mask}});
+    check(!geometry_mask_enabled_state(session.document(),target).evaluated&&
+        !scene(session.document()).roots.front().mask&&session.document().objects.at("a").compositing.mask->source=="source",
+        "Changing the source mask from false to true bypasses clipping without changing the target geometry source");
+    source_mask=*session.document().objects.at("source").compositing.mask;source_mask.enabled=false;
+    apply(session,{SetMask{"source",source_mask}});
+    state=geometry_mask_enabled_state(session.document(),target);
+    check(state.expression==expression&&state.evaluated&&session.document().objects.at("a").compositing.mask->enabled==false,
+        "Source changes only the evaluated bit and preserves the target literal and exact expression");
+    auto target_sibling_edit=*session.document().objects.at("a").compositing.mask;
+    target_sibling_edit.fill_rule="nonzero";target_sibling_edit.source="b";
+    apply(session,{SetMask{"a",target_sibling_edit}});
+    check(geometry_mask_enabled_state(session.document(),target).expression==expression&&
+        session.document().objects.at("a").compositing.mask->source=="b",
+        "Same-ID mask geometry and fill edits preserve the expression source");
+    atomic(session,"DRIVEN_PROPERTY",{SetMask{"a",GeometryMask{"target-mask","b",1,true,"nonzero"}}});
+    const Expression replacement{"false",1};
+    atomic(session,"USE_TYPED_COMMAND",{SetMask{"a",GeometryMask{"target-mask","b",1,false,"nonzero",std::nullopt,replacement}}});
+    atomic(session,"USE_TYPED_COMMAND",{SetMask{"a",GeometryMask{"smuggled-mask","b",1,false,"nonzero",std::nullopt,replacement}}});
+    atomic(session,"DRIVEN_PROPERTY",{LinkMaskEnabled{target,source,false}});
+
+    const auto before_failed_batch=session.document();const auto before_failed_history=session.history();const auto before_failed_revision=session.revision();
+    atomic(session,"DEPENDENCY_CYCLE",{SetMask{"source",GeometryMask{"source-mask","b",1,true,"nonzero"}},
+        SetMaskEnabledExpression{target,{"ref(\"a\",\"\",\"mask.target-mask.enabled\")",1},true}});
+    check(session.document()==before_failed_batch&&session.history()==before_failed_history&&session.revision()==before_failed_revision,
+        "A cyclic expression after a valid first batch edit preserves the entire Document, History and revision");
+
+    atomic(session,"BOOLEAN_EXPRESSION_TYPE",{SetMaskEnabledExpression{target,{"ref(\"source\",\"\",\"object.visible\")",1},false}});
+    atomic(session,"BOOLEAN_EXPRESSION_TYPE",{SetMaskEnabledExpression{target,{"ref(\"source\",\"\",\"mask.enabled\")",1},false}});
+    atomic(session,"BOOLEAN_EXPRESSION_TYPE",{SetMaskEnabledExpression{target,{"ref(\"source\",\"point\",\"mask.source-mask.enabled\")",1},false}});
+    atomic(session,"MISSING_REFERENCE",{SetMaskEnabledExpression{target,{"ref(\"missing\",\"\",\"mask.missing.enabled\")",1},false}});
+    atomic(session,"MISSING_MASK",{SetMaskEnabledExpression{target,{"ref(\"source\",\"\",\"mask.missing.enabled\")",1},false}});
+    atomic(session,"UNSUPPORTED_EXPRESSION_VERSION",{SetMaskEnabledExpression{target,{"true",2},false}});
+    atomic(session,"BOOLEAN_EXPRESSION_SYNTAX",{SetMaskEnabledExpression{target,{"true && false",1},false}});
+    rejects("REVISION_CONFLICT",[&]{session.apply({UnlinkMaskEnabled{target}},session.revision()+1);});
+
+    const auto order=session.document().compositions.front().roots;
+    auto reversed=order;std::reverse(reversed.begin(),reversed.end());
+    apply(session,{Rename{"source","Renamed source"},ReorderObjects{"comp","",reversed}});
+    check(geometry_mask_enabled_state(session.document(),target).evaluated&&
+        resolve_name(session.document(),"Renamed source","",source.field)==source,
+        "Rename and reorder retain the stable source mask Ref and evaluated result");
+
+    const auto linked_expression=encode(session.document());
+    check(linked_expression.find("\"version\":\"0.68\"")!=std::string::npos&&
+        linked_expression.find("\"enabled_expression\":{\"source\":\" ! ref ( ")!=std::string::npos&&
+        decode(linked_expression)==session.document()&&encode(decode(linked_expression))==linked_expression,
+        "Native 0.68 retains the exact expression beside the authored literal without byte drift");
+    auto old_expression=linked_expression;
+    const auto old_version=old_expression.find("\"version\":\"0.68\"");
+    old_expression.replace(old_version,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.67\"");
+    rejects("UNSUPPORTED_MASK_ENABLED_EXPRESSION",[&]{decode(old_expression);});
+
+    apply(session,{LinkMaskEnabled{target,source,true}});
+    check(geometry_mask_enabled_state(session.document(),target).driver==source&&
+        !geometry_mask_enabled_state(session.document(),target).expression,
+        "Explicit link replacement clears the prior expression source");
+    apply(session,{SetMaskEnabledExpression{target,expression,true}});
+    check(geometry_mask_enabled_state(session.document(),target).expression==expression&&
+        !geometry_mask_enabled_state(session.document(),target).driver,
+        "Explicit expression replacement clears the prior link source");
+    source_mask=*session.document().objects.at("source").compositing.mask;source_mask.enabled=true;
+    apply(session,{SetMask{"source",source_mask}});
+    check(!geometry_mask_enabled_state(session.document(),target).evaluated,"True source makes the negated target expression false before unlink");
+    apply(session,{UnlinkMaskEnabled{target}});
+    state=geometry_mask_enabled_state(session.document(),target);
+    check(!state.literal&&!state.driver&&!state.expression&&!state.evaluated,
+        "Unlink freezes the evaluated false expression value into the authored literal");
+    session.undo(session.revision());
+    check(geometry_mask_enabled_state(session.document(),target).expression==expression&&
+        !geometry_mask_enabled_state(session.document(),target).literal&&
+        !geometry_mask_enabled_state(session.document(),target).evaluated,
+        "One Undo restores the exact expression and authored literal");
+    session.redo(session.revision());
+    check(!geometry_mask_enabled_state(session.document(),target).expression&&
+        !geometry_mask_enabled_state(session.document(),target).literal,
+        "One Redo restores the frozen literal and removes the expression");
+
+    auto cross_document=fixture();
+    cross_document.objects.at("a").compositing.mask=GeometryMask{"one","source"};
+    auto other=empty_document("other-doc","other-comp","other-art").compositions.front();
+    Object external=rectangle("external");external.compositing.mask=GeometryMask{"external-mask","external-geometry"};
+    Object geometry=rectangle("external-geometry");cross_document.objects.emplace(external.id,external);
+    cross_document.objects.emplace(geometry.id,geometry);other.roots={external.id,geometry.id};cross_document.compositions.push_back(other);
+    Session cross(cross_document);
+    atomic(cross,"CROSS_COMPOSITION",{SetMaskEnabledExpression{geometry_mask_enabled_ref("a","one"),
+        {"ref(\"external\",\"\",\"mask.external-mask.enabled\")",1},false}});
+    auto removed_target=session.document();removed_target.objects.at("a").compositing.mask->enabled_expression=expression;
+    Session removal(std::move(removed_target));apply(removal,{SetMask{"a",std::nullopt}});
+    check(!removal.document().objects.at("a").compositing.mask,"Removing an expression-driven target mask removes its own source without retargeting");
 }
 void object_visibility_consumer_parity() {
     auto document=fixture();document.objects.at("source").visible=true;document.objects.at("b").visible=false;
@@ -704,7 +833,7 @@ void composite_isolation_link_contract() {
     check(svg.find("<g id=\"group-B\" opacity=\"1\" color-interpolation=\"sRGB\" style=\"isolation:isolate;")!=std::string::npos,
         "SVG uses the effective isolation of a linked false-literal Group");
     const auto initial_native=encode(session.document());
-    check(initial_native.find("\"version\":\"0.67\"")!=std::string::npos&&
+    check(initial_native.find("\"version\":\"0.68\"")!=std::string::npos&&
         initial_native.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}}")!=std::string::npos&&
         decode(initial_native)==session.document()&&encode(decode(initial_native))==initial_native,
         "Native 0.43 roundtrip preserves the target literal and optional closed same-field driver");
@@ -747,12 +876,12 @@ void composite_isolation_link_contract() {
 
     auto literal=document;literal.objects.at("group-B").compositing.isolated=false;
     const auto old_native=encode(literal);auto native_029=test_support::without_empty_presets_for_legacy_fixture(old_native);
-    auto version_at=native_029.find("\"version\":\"0.67\"");
-    check(version_at!=std::string::npos,"Native writer emits 0.67 before literal-only compatibility downgrade");
-    native_029.replace(version_at,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.29\"");
+    auto version_at=native_029.find("\"version\":\"0.68\"");
+    check(version_at!=std::string::npos,"Native writer emits 0.68 before literal-only compatibility downgrade");
+    native_029.replace(version_at,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.29\"");
     check(decode(native_029)==literal,"Native 0.29 remains readable with literal-only compositing isolation");
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(initial_native);version_at=false_version.find("\"version\":\"0.67\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.29\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(initial_native);version_at=false_version.find("\"version\":\"0.68\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.29\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
     auto malformed=initial_native;
     const auto driver_at=malformed.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}} ");
@@ -972,16 +1101,16 @@ void composite_isolation_expression_contract() {
     auto native_document=document;native_document.objects.at("group-A").compositing.isolated=false;
     native_document.objects.at("group-B").compositing.isolated_expression=expression;
     Session native_session(native_document);const auto native=encode(native_session.document());
-    check(native.find("\"version\":\"0.67\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.68\"")!=std::string::npos&&
         native.find("\"isolated_expression\":{\"source\":\" ! ref ( \\\"group-A\\\" , \\\"\\\" , \\\"composite.isolated\\\" ) \",\"version\":1}")!=std::string::npos&&
         decode(native)==native_session.document()&&encode(decode(native))==native,
-        "Native 0.67 roundtrip retains the exact closed expression and authored isolation literal");
-    auto version_lie=test_support::without_empty_presets_for_legacy_fixture(native);const auto writer=version_lie.find("\"version\":\"0.67\"");
-    check(writer!=std::string::npos,"Native writer emits 0.67 for composite isolation expressions");
-    version_lie.replace(writer,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.61\"");
+        "Native 0.68 roundtrip retains the exact closed expression and authored isolation literal");
+    auto version_lie=test_support::without_empty_presets_for_legacy_fixture(native);const auto writer=version_lie.find("\"version\":\"0.68\"");
+    check(writer!=std::string::npos,"Native writer emits 0.68 for composite isolation expressions");
+    version_lie.replace(writer,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.61\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(version_lie);});
-    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto legacy_writer=legacy.find("\"version\":\"0.67\"");
-    legacy.replace(legacy_writer,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.61\"");
+    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto legacy_writer=legacy.find("\"version\":\"0.68\"");
+    legacy.replace(legacy_writer,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.61\"");
     check(decode(legacy)==document,"Native 0.61 remains readable when no Composite isolation expression is present");
 
     auto structure=document;structure.objects.at("group-B").compositing.isolated_expression=Expression{"true",1};
@@ -1014,7 +1143,7 @@ void group_posterize_native_api_and_refusals() {
     check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({3,4}),
         "ReorderOperations changes the ordered postchildren evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.67\"")!=std::string::npos&&decode(native)==session.document()&&
+    check(native.find("\"version\":\"0.68\"")!=std::string::npos&&decode(native)==session.document()&&
         decode(native).objects.at("group").stack[0].id=="posterize-second",
         "Native 0.43 preserves Group operation IDs, levels and reordered stack");
     check(request(session,R"({"op":"operator_types"})").find("nect.group.posterize")!=std::string::npos,
@@ -1049,9 +1178,9 @@ void group_posterize_native_api_and_refusals() {
     rejects("UNSUPPORTED_SVG_EFFECT",[&]{(void)export_svg(session.document(),"comp","art");});
 
     auto legacy_bytes=test_support::without_empty_presets_for_legacy_fixture(encode(d));
-    const auto old_version=legacy_bytes.find("\"version\":\"0.67\"");
+    const auto old_version=legacy_bytes.find("\"version\":\"0.68\"");
     check(old_version!=std::string::npos,"Native fixture writer uses 0.43 before migration downgrade");
-    legacy_bytes.replace(old_version,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.24\"");
+    legacy_bytes.replace(old_version,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.24\"");
     const auto group_id=legacy_bytes.find("\"id\":\"group\"");
     check(group_id!=std::string::npos,"Native fixture contains the target Group object");
     const auto object_start=legacy_bytes.rfind('{',group_id);
@@ -1079,8 +1208,8 @@ void group_posterize_native_api_and_refusals() {
     else throw std::runtime_error("Could not remove Group stack member from legacy fixture");
     legacy_bytes.erase(erase_start,erase_end-erase_start);
     check(decode(legacy_bytes).objects.at("group").stack.empty(),"Native 0.24 Group migrates to an empty effect stack");
-    auto smuggled=test_support::without_empty_presets_for_legacy_fixture(native);const auto old_writer=smuggled.find("\"version\":\"0.67\"");
-    smuggled.replace(old_writer,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.24\"");
+    auto smuggled=test_support::without_empty_presets_for_legacy_fixture(native);const auto old_writer=smuggled.find("\"version\":\"0.68\"");
+    smuggled.replace(old_writer,std::string("\"version\":\"0.68\"").size(),"\"version\":\"0.24\"");
     rejects("INVALID_OBJECT",[&]{(void)decode(smuggled);});
 
     session.apply({EnableOperation{"group","posterize",false},EnableOperation{"group","posterize-second",false}},session.revision());
@@ -1440,6 +1569,6 @@ void previewed_folder_api() {
 
 }
 int main() {
-    try{object_visibility_read_contract();object_visibility_link_contract();object_visibility_expression_contract();mask_enabled_read_contract();mask_enabled_link_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();composite_isolation_link_contract();composite_isolation_expression_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{object_visibility_read_contract();object_visibility_link_contract();object_visibility_expression_contract();mask_enabled_read_contract();mask_enabled_link_contract();mask_enabled_expression_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();composite_isolation_link_contract();composite_isolation_expression_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

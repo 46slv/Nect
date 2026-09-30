@@ -7,6 +7,21 @@ Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
 same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
+## Geometry mask enabled expression v1
+
+Native 0.68 adds optional `enabled_expression` to an installed GeometryMask,
+beside its authored enabled literal and existing exact link. Link and expression
+are mutually exclusive. The closed version-1 source is `true`, `false`, an exact
+`Ref{Object ID,"","mask.<stable mask ID>.enabled"}` on a distinct installed mask
+in the same Composition, or its negation. Evaluation drives mask bypass in the
+scene, Canvas and SVG while preserving the authored literal, mask identity,
+geometry source and exact expression text. The legacy owner-slot `mask.enabled`
+is literal-only. The dedicated Session command sets an expression with explicit
+replacement; linking clears an expression and unlink freezes the evaluated bool.
+Same-ID `SetMask` edits preserve the source and reject direct driven changes.
+Native 0.1–0.67 remain readable; an expression under an older version or beside
+a link is rejected. The closed wire shape is `schemas/native-v0.68.schema.json`.
+
 ## Operation enabled expression v1
 
 Native 0.67 adds an optional `enabled_expression` beside the authored enabled

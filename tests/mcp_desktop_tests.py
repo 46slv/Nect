@@ -489,7 +489,7 @@ try:
         frozen_after=core('get',ref=target_gradient_ref)['result']
         assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.67' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
+        assert mcp_native['version']=='0.68' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -640,7 +640,7 @@ try:
         grid_columns_native=core('inspect')['result']
         grid_columns_layout=next(board for board in grid_columns_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert grid_columns_native['version']=='0.67' and grid_columns_layout['columns']==2 and \
+        assert grid_columns_native['version']=='0.68' and grid_columns_layout['columns']==2 and \
             grid_columns_layout['columns_driver']==dict(link=grid_columns_source_ref) and \
             grid_columns_layout['rows']==1 and grid_columns_layout['rows_driver']==dict(link=grid_rows_source_ref)
         source_grid_layout=dict(grid=dict(id='mcp-grid-columns-source',bounds=dict(x=0,y=0,width=10,height=20),
@@ -661,7 +661,7 @@ try:
         assert grid_columns_expressed['authored']==dict(literal=2,driver=None,expression=grid_columns_expression,
             source_kind='expression') and grid_columns_expressed['evaluated']==4 and \
             next(item for item in core('properties')['result'] if item['ref']==target_grid_columns_ref)==grid_columns_expressed and \
-            grid_columns_expression_native['version']=='0.67' and \
+            grid_columns_expression_native['version']=='0.68' and \
             grid_columns_expression_layout['columns_expression']==grid_columns_expression and \
             'columns_driver' not in grid_columns_expression_layout
         rows_source_layout=dict(grid=dict(id='mcp-grid-rows-source',bounds=dict(x=0,y=0,width=100,height=100),
@@ -682,7 +682,7 @@ try:
         assert grid_rows_expressed['authored']==dict(literal=1,driver=None,expression=grid_rows_expression,
             source_kind='expression') and grid_rows_expressed['evaluated']==4 and \
             next(item for item in core('properties')['result'] if item['ref']==target_grid_rows_ref)==grid_rows_expressed and \
-            grid_rows_expression_native['version']=='0.67' and \
+            grid_rows_expression_native['version']=='0.68' and \
             grid_rows_expression_layout['rows_expression']==grid_rows_expression and 'rows_driver' not in grid_rows_expression_layout
         rows_source_layout['grid']['rows']=2
         rev=apply([dict(type='set_artboard_layout',composition=comp['id'],
@@ -788,7 +788,7 @@ try:
             if board['id']==first['id'])['layout']['grid']
         margin_top_native=next(board for board in grid_y_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert grid_y_native['version']=='0.67' and grid_y_layout['bounds_y_expression']==dict(
+        assert grid_y_native['version']=='0.68' and grid_y_layout['bounds_y_expression']==dict(
             source=grid_y_expression,version=1) and 'bounds_y_driver' not in grid_y_layout and \
             grid_y_layout['bounds_width_expression']==dict(source=grid_width_expression,version=1) and \
             'bounds_width_driver' not in grid_y_layout and \
@@ -835,7 +835,7 @@ try:
         row_gutter_expression_native=core('inspect')['result']
         row_gutter_expression_layout=next(board for board in row_gutter_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert row_gutter_expression_native['version']=='0.67' and \
+        assert row_gutter_expression_native['version']=='0.68' and \
             row_gutter_expression_layout['row_gutter_expression']==dict(source=grid_row_gutter_expression,version=1) and \
             'row_gutter_driver' not in row_gutter_expression_layout
         blocked_row_gutter_replacement=core('apply',expected_revision=rev,commands=[
@@ -862,7 +862,7 @@ try:
         column_gutter_expression_native=core('inspect')['result']
         column_gutter_expression_layout=next(board for board in column_gutter_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert column_gutter_expression_native['version']=='0.67' and \
+        assert column_gutter_expression_native['version']=='0.68' and \
             column_gutter_expression_layout['column_gutter_expression']==dict(source=grid_column_gutter_expression,version=1) and \
             'column_gutter_driver' not in column_gutter_expression_layout
         blocked_column_gutter_replacement=core('apply',expected_revision=rev,commands=[
@@ -886,7 +886,7 @@ try:
         expression_native=core('inspect')['result']
         expression_layout=next(board for board in expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert expression_native['version']=='0.67' and expression_layout['bounds_x_expression']==dict(
+        assert expression_native['version']=='0.68' and expression_layout['bounds_x_expression']==dict(
             source=grid_expression,version=1) and 'bounds_x_driver' not in expression_layout
         margin_expression='ref("mcp-margin-upstream","","artboard.width") + 10'
         rev=apply([dict(type='set_margin_left_expression',target=target_margin_ref,
@@ -898,7 +898,7 @@ try:
         margin_expression_native=core('inspect')['result']
         margin_expression_layout=next(board for board in margin_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']
-        assert margin_expression_native['version']=='0.67' and margin_expression_layout['margin']['left_expression']==dict(
+        assert margin_expression_native['version']=='0.68' and margin_expression_layout['margin']['left_expression']==dict(
             source=margin_expression,version=1) and 'left_driver' not in margin_expression_layout['margin'] and \
             margin_expression_layout['margin']['top_driver']==dict(link=margin_top_source_ref)
         margin_top_expression='ref("mcp-margin-upstream","","artboard.height") + 10'
@@ -912,7 +912,7 @@ try:
         margin_top_expression_native=core('inspect')['result']
         margin_top_expression_layout=next(board for board in margin_top_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert margin_top_expression_native['version']=='0.67' and margin_top_expression_layout['top_expression']==dict(
+        assert margin_top_expression_native['version']=='0.68' and margin_top_expression_layout['top_expression']==dict(
             source=margin_top_expression,version=1) and 'top_driver' not in margin_top_expression_layout
         margin_right_expression='ref("mcp-margin-source","","artboard.width") + 10'
         rev=apply([dict(type='set_margin_right_expression',target=target_margin_right_ref,
@@ -925,7 +925,7 @@ try:
         margin_right_expression_native=core('inspect')['result']
         margin_right_expression_layout=next(board for board in margin_right_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert margin_right_expression_native['version']=='0.67' and margin_right_expression_layout['right_expression']==dict(
+        assert margin_right_expression_native['version']=='0.68' and margin_right_expression_layout['right_expression']==dict(
             source=margin_right_expression,version=1) and 'right_driver' not in margin_right_expression_layout
         rev=apply([dict(type='unlink_margin_right',target=target_margin_right_ref)],rev)
         margin_right_frozen=core('get',ref=target_margin_right_ref)['result']
@@ -1559,7 +1559,7 @@ try:
         rev=apply([dict(type='link_mask_enabled',target=target_mask_enabled_ref,
                         source=source_mask_enabled_ref,replace_driver=False)],rev)
         linked_mask_enabled=core('get',ref=target_mask_enabled_ref)['result']
-        assert linked_mask_enabled['authored']==dict(literal=False,driver=dict(link=source_mask_enabled_ref))
+        assert linked_mask_enabled['authored']==dict(literal=False,driver=dict(link=source_mask_enabled_ref),source_kind='link')
         assert linked_mask_enabled['evaluated'] is True and linked_mask_enabled['link'] is True
         assert linked_mask_enabled==desktop_api_call(endpoint,dict(identity,op='core',
             request=dict(op='get',ref=target_mask_enabled_ref)))['result']
@@ -1571,14 +1571,58 @@ try:
         bypassed_linked_mask=core('get',ref=target_mask_enabled_ref)['result']
         bypassed_linked_plan=core('compositing_plan',composition=comp['id'])['result']
         bypassed_linked_group=next(n for n in bypassed_linked_plan['roots'] if n['object']=='mcp-masked-group')
-        assert bypassed_linked_mask['authored']==dict(literal=False,driver=dict(link=source_mask_enabled_ref))
+        assert bypassed_linked_mask['authored']==dict(literal=False,driver=dict(link=source_mask_enabled_ref),source_kind='link')
         assert bypassed_linked_mask['evaluated'] is False and bypassed_linked_group['mask'] is None
         rev=apply([dict(type='set_mask',object='mcp-mask',mask=dict(id='mcp-source-clip',source='linked-star',
             version=1,enabled=True,fill_rule='nonzero'))],rev)
         rev=apply([dict(type='unlink_mask_enabled',target=target_mask_enabled_ref)],rev)
         frozen_mask_enabled=core('get',ref=target_mask_enabled_ref)['result']
-        assert frozen_mask_enabled['authored']==dict(literal=True,driver=None) and frozen_mask_enabled['evaluated'] is True
+        assert frozen_mask_enabled['authored']==dict(literal=True,driver=None,source_kind='literal') and frozen_mask_enabled['evaluated'] is True
         assert core('get',ref=mask_enabled_ref)['result']['authored']==dict(literal=True,driver=None)
+        rev=apply([dict(type='set_mask',object='mcp-masked-group',mask=dict(disabled_mask,enabled=False))],rev)
+        mask_expression=' ! ref ( "mcp-mask" , "" , "mask.mcp-source-clip.enabled" ) '
+        rev=apply([dict(type='set_mask_enabled_expression',target=target_mask_enabled_ref,
+            expression=dict(source=mask_expression,version=1),replace_driver=False)],rev)
+        expressed_mask_enabled=core('get',ref=target_mask_enabled_ref)['result']
+        assert expressed_mask_enabled['authored']==dict(literal=False,driver=None,
+            expression=dict(source=mask_expression,version=1),source_kind='expression')
+        assert expressed_mask_enabled['evaluated'] is False and expressed_mask_enabled['link'] is True and \
+            expressed_mask_enabled['expression'] is True
+        assert expressed_mask_enabled==desktop_api_call(endpoint,dict(identity,op='core',
+            request=dict(op='get',ref=target_mask_enabled_ref)))['result']
+        assert next(item for item in core('properties')['result'] if item['ref']==target_mask_enabled_ref)==expressed_mask_enabled
+        assert core('get',ref=mask_enabled_ref)['result']['authored']==dict(literal=False,driver=None)
+        expression_native=core('inspect')['result']
+        expression_native_mask=next(o for o in expression_native['objects'] if o['id']=='mcp-masked-group')['compositing']['mask']
+        assert expression_native['version']=='0.68' and expression_native_mask['id']=='mcp-geometry-clip' and \
+            expression_native_mask['enabled'] is False and expression_native_mask['enabled_expression']==dict(
+                source=mask_expression,version=1) and 'enabled_driver' not in expression_native_mask
+        source_mask=core('inspect')['result']
+        source_mask_value=next(o for o in source_mask['objects'] if o['id']=='mcp-mask')['compositing']['mask']
+        refused_source_removal=core('apply',expected_revision=rev,commands=[dict(type='set_mask',
+            object='mcp-mask',mask=None)])
+        assert not refused_source_removal['ok'] and refused_source_removal['revision']==rev and \
+            core('inspect')['result']==expression_native
+        rev=apply([dict(type='set_mask',object='mcp-mask',mask=dict(source_mask_value,enabled=False))],rev)
+        source_false_expression=core('get',ref=target_mask_enabled_ref)['result']
+        active_expression_plan=core('compositing_plan',composition=comp['id'])['result']
+        expression_group=next(n for n in active_expression_plan['roots'] if n['object']=='mcp-masked-group')
+        assert source_false_expression['authored']['literal'] is False and source_false_expression['evaluated'] is True and \
+            expression_group['mask'] is not None
+        rev=apply([dict(type='set_mask',object='mcp-mask',mask=dict(source_mask_value,enabled=True))],rev)
+        source_true_expression=core('get',ref=target_mask_enabled_ref)['result']
+        assert source_true_expression['evaluated'] is False and source_true_expression['authored']['expression']==dict(
+            source=mask_expression,version=1)
+        rev=apply([dict(type='set_mask',object='mcp-masked-group',mask=dict(disabled_mask,fill_rule='evenodd'))],rev)
+        assert core('get',ref=target_mask_enabled_ref)['result']==source_true_expression
+        rev=apply([dict(type='unlink_mask_enabled',target=target_mask_enabled_ref)],rev)
+        frozen_expression_mask=core('get',ref=target_mask_enabled_ref)['result']
+        assert frozen_expression_mask['authored']==dict(literal=False,driver=None,source_kind='literal') and frozen_expression_mask['evaluated'] is False
+        assert core('undo',expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=target_mask_enabled_ref)['result']==source_true_expression
+        assert core('redo',expected_revision=rev)['ok'];rev+=1
+        assert core('get',ref=target_mask_enabled_ref)['result']==frozen_expression_mask
+        rev=apply([dict(type='set_mask',object='mcp-masked-group',mask=dict(disabled_mask,enabled=True))],rev)
         before_bad=core('inspect')['result']
         bad_mask_scalar=core('apply',expected_revision=rev,commands=[dict(type='set',ref=mask_enabled_ref,value=0)])
         assert not bad_mask_scalar['ok'] and bad_mask_scalar['revision']==rev
@@ -1892,7 +1936,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.67'
+        assert native_save_as['version']=='0.68'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']
@@ -2029,7 +2073,7 @@ try:
         native_expression_target=next(operation for operation in ordinary_stack_operations(
             next(obj for obj in operation_expression_native['objects'] if obj['id']=='mcp-fill-target'))
             if operation['id']=='mcp-target-fill')
-        assert operation_expression_native['version']=='0.67' and native_expression_target['enabled'] is True and \
+        assert operation_expression_native['version']=='0.68' and native_expression_target['enabled'] is True and \
             native_expression_target['enabled_expression']==operation_expression and 'enabled_driver' not in native_expression_target
         failed_operation_expression=core('apply',expected_revision=fill_rev,commands=[
             dict(type='enable_operation',object='mcp-fill-source',operation='mcp-source-fill',enabled=False),
@@ -2058,7 +2102,7 @@ try:
         assert isolation_metadata==isolation
         isolation_native=core('inspect')['result']
         native_isolation=next(obj for obj in isolation_native['objects'] if obj['id']=='mcp-fill-target')['compositing']
-        assert isolation_native['version']=='0.67' and native_isolation['isolated'] is False and \
+        assert isolation_native['version']=='0.68' and native_isolation['isolated'] is False and \
             native_isolation['isolated_expression']==isolation_expression and 'isolated_driver' not in native_isolation
         isolation_plan=core('compositing_plan',composition=comp['id'])['result']
         assert next(node for node in isolation_plan['roots'] if node['object']=='mcp-fill-target')['isolated'] is True
