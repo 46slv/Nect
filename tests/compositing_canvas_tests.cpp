@@ -182,6 +182,51 @@ void all_supported_blends_match_independent_channel_formulas() {
     }
     f.no_error();
 }
+void standard_blends_compose_two_transparent_layers() {
+    const QColor backdrop(51,102,204,128),source(204,179,77,128);
+    auto d=document(false);
+    add(d,rectangle("backdrop",80,80,200,200,backdrop));
+    add(d,rectangle("source",120,80,200,200,source));
+    group(d,"aggregate",{"source"});
+    Session session(d);
+    constexpr double as=128.0/255.0,ab=128.0/255.0;
+    const double ao=as+ab*(1-as);
+    const auto expected_channel=[&](const std::string& mode,int b,int s) {
+        const double cb=b/255.0,cs=s/255.0;
+        // W3C §6 source-over with a separable blend and straight sRGB colors.
+        const double premultiplied=as*(1-ab)*cs+as*ab*separable_blend(mode,cb,cs)+(1-as)*ab*cb;
+        return static_cast<int>(std::lround(255*premultiplied/ao));
+    };
+    const auto same_layer_byte=[&](const QColor& observed,const QColor& authored) {
+        // Premultiplied RGBA8 can change a straight RGB byte by one on readback.
+        return observed.alpha()==authored.alpha()&&
+            std::abs(observed.red()-authored.red())<=1&&
+            std::abs(observed.green()-authored.green())<=1&&
+            std::abs(observed.blue()-authored.blue())<=1;
+    };
+    for(const auto* mode:{"normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn",
+        "hard-light","soft-light","difference","exclusion"}) {
+        session.apply({SetCompositing{"aggregate",mode,false}},session.revision());
+        const auto image=Canvas::render_artboard(session.document(),"composition","artboard",1,false);
+        const auto overlap=image.pixelColor(180,180),backdrop_only=image.pixelColor(90,180);
+        const auto source_only=image.pixelColor(300,180),empty=image.pixelColor(20,20);
+        const QColor expected(expected_channel(mode,backdrop.red(),source.red()),
+            expected_channel(mode,backdrop.green(),source.green()),
+            expected_channel(mode,backdrop.blue(),source.blue()));
+        check(overlap.alpha()==static_cast<int>(std::lround(255*ao))&&
+            std::abs(overlap.red()-expected.red())<=3&&
+            std::abs(overlap.green()-expected.green())<=3&&
+            std::abs(overlap.blue()-expected.blue())<=3,
+            std::string(mode)+" obeys independent W3C source-over and blend RGB/alpha with both layers transparent");
+        check(same_layer_byte(backdrop_only,backdrop)&&same_layer_byte(source_only,source)&&empty.alpha()==0,
+            std::string(mode)+" retains each isolated layer outside overlap and never blends against UI paper: backdrop="+
+            std::to_string(backdrop_only.red())+"/"+std::to_string(backdrop_only.green())+"/"+
+            std::to_string(backdrop_only.blue())+"/"+std::to_string(backdrop_only.alpha())+" source="+
+            std::to_string(source_only.red())+"/"+std::to_string(source_only.green())+"/"+
+            std::to_string(source_only.blue())+"/"+std::to_string(source_only.alpha())+" empty="+
+            std::to_string(empty.alpha()));
+    }
+}
 void open_mask_hole_and_fill_rule() {
     auto d=document();add(d,rectangle("target",80,80,300,280,Qt::green));
     auto source=rectangle("source",100,100,220,220,Qt::black);
@@ -541,7 +586,7 @@ int main(int argc,char** argv) {
     QApplication application(argc,argv);
     try {
         group_opacity_is_applied_once();group_posterize_uses_independent_postcomposite_pixel_oracle();pass_through_and_isolation_have_distinct_backdrops();blend_alpha_and_transparent_root();
-        all_supported_blends_match_independent_channel_formulas();
+        all_supported_blends_match_independent_channel_formulas();standard_blends_compose_two_transparent_layers();
         open_mask_hole_and_fill_rule();alpha_mask_path_and_group_pixel_oracle();luma_mask_srgb_pixel_oracle();
         luma_source_internal_mask_and_effect();
         alpha_mask_image_source_pixel_oracle();alpha_mask_invert_uses_target_bounds_and_source_world();
