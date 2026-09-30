@@ -25,6 +25,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <functional>
+#include <numbers>
+#include <set>
 
 namespace nect::desktop {
 Id new_id() { return QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString(); }
@@ -370,6 +373,77 @@ QString analysis_pixel_digest(const QImage& image) {
         hash.addData(row);
     }
     return QString::fromLatin1(hash.result().toHex());
+}
+struct AnalysisOperatorDescriptor {
+    const char* type_id;
+    int version;
+    const char* input_domain;
+    const char* coordinate_space;
+};
+constexpr std::array<AnalysisOperatorDescriptor,3> analysis_operators{{
+    {"nect.analysis.image.regions",1,"artboard.rgba8_srgb_premultiplied","artboard-output-pixels"},
+    {"nect.analysis.vector.geometry",1,"document.path_geometry","object-local-du-and-composition-du"},
+    {"nect.analysis.document.structure",1,"document.composition_structure","stable-document-identities"}
+}};
+QString analysis_snapshot_id(const QJsonObject& snapshot) {
+    const auto canonical=QJsonDocument(snapshot).toJson(QJsonDocument::Compact);
+    const auto digest=QCryptographicHash::hash(canonical,QCryptographicHash::Sha256).toHex();
+    return QStringLiteral("analysis.v1:%1").arg(QString::fromLatin1(digest));
+}
+QJsonObject analysis_point_json(Vec2 point) {
+    if(!std::isfinite(point.x)||!std::isfinite(point.y))
+        throw Error("ANALYSIS_NON_FINITE","Vector analysis produced a non-finite coordinate");
+    return {{"x",point.x},{"y",point.y}};
+}
+QJsonObject analysis_bounds_json(const Bounds& bounds) {
+    for(const auto value:{bounds.left,bounds.top,bounds.right,bounds.bottom})
+        if(!std::isfinite(value))throw Error("ANALYSIS_NON_FINITE","Vector bounds contain a non-finite value");
+    const auto width=bounds.right-bounds.left,height=bounds.bottom-bounds.top;
+    if(!std::isfinite(width)||!std::isfinite(height))
+        throw Error("ANALYSIS_NON_FINITE","Vector bounds exceed the finite coordinate range");
+    return {{"x",bounds.left},{"y",bounds.top},{"width",width},{"height",height}};
+}
+void analysis_parameter_keys(const QJsonObject& parameters,const QStringList& allowed) {
+    for(auto it=parameters.begin();it!=parameters.end();++it)
+        if(!allowed.contains(it.key()))throw Error("INVALID_ANALYSIS_PARAMETER",it.key().toStdString());
+}
+QString analysis_parameter_string(const QJsonObject& parameters,const char* key) {
+    const auto value=parameters.value(QLatin1String(key));
+    if(!value.isString()||value.toString().isEmpty())
+        throw Error("INVALID_ANALYSIS_PARAMETER",std::string("Nonempty string required: ")+key);
+    return value.toString();
+}
+double analysis_parameter_number(const QJsonObject& parameters,const char* key) {
+    const auto value=parameters.value(QLatin1String(key));
+    if(!value.isDouble()||!std::isfinite(value.toDouble()))
+        throw Error("INVALID_ANALYSIS_PARAMETER",std::string("Finite number required: ")+key);
+    return value.toDouble();
+}
+int analysis_parameter_integer(const QJsonObject& parameters,const char* key) {
+    const auto value=analysis_parameter_number(parameters,key);
+    if(std::floor(value)!=value||value<std::numeric_limits<int>::min()||value>std::numeric_limits<int>::max())
+        throw Error("INVALID_ANALYSIS_PARAMETER",std::string("Integer required: ")+key);
+    return static_cast<int>(value);
+}
+bool analysis_parameter_boolean(const QJsonObject& parameters,const char* key,bool fallback=false) {
+    if(!parameters.contains(QLatin1String(key)))return fallback;
+    const auto value=parameters.value(QLatin1String(key));
+    if(!value.isBool())throw Error("INVALID_ANALYSIS_PARAMETER",std::string("Boolean required: ")+key);
+    return value.toBool();
+}
+std::map<Id,Id> analysis_structural_parents(const Document& document,const Composition& composition) {
+    std::map<Id,Id> parents;std::set<Id> active;
+    std::function<void(const Id&,const Id&,unsigned)> visit=[&](const Id& id,const Id& parent,unsigned depth) {
+        if(depth>128)throw Error("ANALYSIS_LIMIT","Structure depth exceeds 128 objects");
+        const auto found=document.objects.find(id);
+        if(found==document.objects.end())throw Error("MISSING_OBJECT",id);
+        if(active.contains(id)||parents.contains(id))throw Error("INVALID_HIERARCHY","Repeated structural object: "+id);
+        active.insert(id);parents.emplace(id,parent);
+        for(const auto& child:found->second.children)visit(child,id,depth+1);
+        active.erase(id);
+    };
+    for(const auto& root:composition.roots)visit(root,{},0);
+    return parents;
 }
 }
 
@@ -961,6 +1035,302 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
     return result;
 }
 
+QJsonObject Host::analyze_dataset(const QString& operator_type_id,int operator_version,const QString& input_domain,
+    const Id& composition_id,const QJsonObject& parameters,std::uint64_t expected) {
+    if(expected!=session.revision())throw Error("REVISION_CONFLICT","Refresh revision before analysis");
+    if(session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before analysis");
+    const auto descriptor=std::find_if(analysis_operators.begin(),analysis_operators.end(),[&](const auto& item) {
+        return operator_type_id==QLatin1String(item.type_id);
+    });
+    if(descriptor==analysis_operators.end())throw Error("UNSUPPORTED_ANALYSIS_OPERATOR",operator_type_id.toStdString());
+    if(operator_version!=descriptor->version)
+        throw Error("UNSUPPORTED_ANALYSIS_VERSION",operator_type_id.toStdString()+" version "+std::to_string(operator_version));
+    if(input_domain!=QLatin1String(descriptor->input_domain))
+        throw Error("UNSUPPORTED_ANALYSIS_DOMAIN",input_domain.toStdString());
+    const auto& document=session.document();
+    const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& item) {
+        return item.id==composition_id;
+    });
+    if(composition==document.compositions.end())throw Error("MISSING_COMPOSITION",composition_id);
+    constexpr int analysis_behavior_version=1;
+    const auto document_id=QString::fromStdString(document.id);
+    const auto composition_id_json=QString::fromStdString(composition_id);
+    const auto operator_type=QString::fromLatin1(descriptor->type_id);
+    const auto coordinate_space=QString::fromLatin1(descriptor->coordinate_space);
+    const auto finish=[&](const QString& analysis_id,const QJsonArray& records,const QJsonObject& limits) {
+        return QJsonObject{{"type","analysis.dataset/v1"},{"output_domain","analysis.dataset/v1"},
+            {"analysis_id",analysis_id},{"analysis_behavior_version",analysis_behavior_version},
+            {"operator_type_id",operator_type},{"operator_version",descriptor->version},
+            {"document_id",document_id},{"composition_id",composition_id_json},
+            {"source_revision",static_cast<qint64>(expected)},
+            {"input_domain",input_domain},{"coordinate_space",coordinate_space},
+            {"records",records},{"warnings",QJsonArray{}},{"limits",limits}};
+    };
+
+    if(operator_type==QLatin1String("nect.analysis.image.regions")) {
+        analysis_parameter_keys(parameters,{"artboard_id","scale","threshold","include_color_groups",
+            "include_color_components","intersect_color_component_index","intersect_color_component_id"});
+        if(!parameters.contains("artboard_id")||!parameters.contains("scale")||!parameters.contains("threshold"))
+            throw Error("INVALID_ANALYSIS_PARAMETER","Image regions requires artboard_id, scale and threshold");
+        const auto artboard=analysis_parameter_string(parameters,"artboard_id").toStdString();
+        const auto scale=analysis_parameter_number(parameters,"scale");
+        const auto threshold=analysis_parameter_integer(parameters,"threshold");
+        const auto include_color_groups=analysis_parameter_boolean(parameters,"include_color_groups");
+        const auto include_color_components=analysis_parameter_boolean(parameters,"include_color_components");
+        std::optional<std::uint64_t> component_index;
+        if(parameters.contains("intersect_color_component_index")) {
+            const auto value=analysis_parameter_number(parameters,"intersect_color_component_index");
+            if(std::floor(value)!=value||value<0)
+                throw Error("INVALID_ANALYSIS_PARAMETER","intersect_color_component_index must be a nonnegative integer");
+            component_index=value>=18446744073709551616.0?std::numeric_limits<std::uint64_t>::max():
+                static_cast<std::uint64_t>(value);
+        }
+        std::optional<QString> component_id;
+        if(parameters.contains("intersect_color_component_id"))
+            component_id=analysis_parameter_string(parameters,"intersect_color_component_id");
+        const auto legacy=analyze_regions(composition_id,artboard,scale,threshold,expected,include_color_groups,
+            include_color_components,component_index,component_id);
+        const auto analysis_id=legacy.value("analysis_id").toString();
+        QJsonObject record_data{{"result",legacy}};
+        const auto record_id=analysis_child_id(analysis_id,"dataset_record",
+            QJsonObject{{"operator_type_id",operator_type},{"data",record_data}});
+        const QJsonArray records{QJsonObject{{"id",record_id},
+            {"type","nect.analysis.image.regions.record@1"},{"data",record_data}}};
+        return finish(analysis_id,records,QJsonObject{{"output_pixels",4000000},{"regions",10000},
+            {"edge_runs",100000},{"directed_boundary_edges",200000},{"line_candidates",10000},
+            {"boolean_mask_runs",20000},{"color_groups",256},{"color_runs",20000},
+            {"color_components",10000}});
+    }
+
+    const auto structural_parents=analysis_structural_parents(document,*composition);
+    if(operator_type==QLatin1String("nect.analysis.vector.geometry")) {
+        analysis_parameter_keys(parameters,{"object_id","contour_id"});
+        if(!parameters.contains("object_id"))throw Error("INVALID_ANALYSIS_PARAMETER","Vector geometry requires object_id");
+        const auto object_id=analysis_parameter_string(parameters,"object_id").toStdString();
+        const auto object_it=document.objects.find(object_id);
+        if(object_it==document.objects.end())throw Error("MISSING_OBJECT",object_id);
+        if(!structural_parents.contains(object_id))throw Error("CROSS_COMPOSITION","Vector target is outside the selected Composition");
+        const auto& object=object_it->second;
+        if(object.kind!=Kind::path)throw Error("INVALID_DOMAIN","Vector geometry requires a Path object");
+        if(object.source)throw Error("UNSUPPORTED_VECTOR_SOURCE","Vector geometry v1 accepts retained Path contours");
+        const std::optional<Id> selected_contour=parameters.contains("contour_id")?
+            std::optional<Id>(analysis_parameter_string(parameters,"contour_id").toStdString()):std::nullopt;
+        const auto values=evaluate(document);
+        const auto transforms=evaluate_transforms(document,values);
+        const auto contours=path_contours(object,&values);
+        std::vector<const Contour*> selected;
+        std::size_t point_count=0;
+        for(const auto& contour:contours) {
+            if(selected_contour&&contour.id!=*selected_contour)continue;
+            selected.push_back(&contour);point_count+=contour.points.size();
+        }
+        if(selected_contour&&selected.empty())throw Error("MISSING_CONTOUR",*selected_contour);
+        if(selected.empty())throw Error("INVALID_VECTOR_GEOMETRY","Path has no retained contours");
+        constexpr std::size_t max_contours=1024,max_points=10000;
+        if(selected.size()>max_contours||point_count>max_points)
+            throw Error("ANALYSIS_LIMIT","Vector geometry is limited to 1024 contours and 10,000 points");
+        const auto local_bounds=object_bounds(document,object_id,values,transforms,false);
+        const auto composition_bounds=object_bounds(document,object_id,values,transforms,true);
+        if(!local_bounds||!composition_bounds)
+            throw Error("INVALID_VECTOR_GEOMETRY","Path has no finite geometric bounds");
+        QJsonArray bare_contours;
+        for(const auto* contour:selected) {
+            QJsonArray bare_points,ordered_point_ids;
+            for(std::size_t index=0;index<contour->points.size();++index) {
+                const auto& point=contour->points[index];
+                const auto value=[&](const char* field) {
+                    const auto found=values.find({object_id,point.id,field});
+                    if(found==values.end())throw Error("MISSING_REFERENCE",object_id+"/"+point.id+"/"+field);
+                    if(!std::isfinite(found->second))throw Error("ANALYSIS_NON_FINITE","Evaluated vector point is non-finite");
+                    return found->second;
+                };
+                const Vec2 anchor{value("x"),value("y")};
+                const auto handle=[&](const char* angle_field,const char* length_field) {
+                    const auto radians=value(angle_field)*std::numbers::pi/180.0;
+                    const auto length=value(length_field);
+                    const Vec2 local{anchor.x+std::cos(radians)*length,anchor.y+std::sin(radians)*length};
+                    if(!std::isfinite(local.x)||!std::isfinite(local.y))
+                        throw Error("ANALYSIS_NON_FINITE","Evaluated vector handle is non-finite");
+                    return local;
+                };
+                const auto incoming=handle("in.angle","in.length");
+                const auto outgoing=handle("out.angle","out.length");
+                QJsonObject coordinates{{"anchor",QJsonObject{
+                        {"object_local",analysis_point_json(anchor)},
+                        {"composition",analysis_point_json(map_point(transforms.at(object_id).world,anchor))}}},
+                    {"incoming_handle",QJsonObject{
+                        {"object_local",analysis_point_json(incoming)},
+                        {"composition",analysis_point_json(map_point(transforms.at(object_id).world,incoming))}}},
+                    {"outgoing_handle",QJsonObject{
+                        {"object_local",analysis_point_json(outgoing)},
+                        {"composition",analysis_point_json(map_point(transforms.at(object_id).world,outgoing))}}}};
+                bare_points.append(QJsonObject{{"point_id",QString::fromStdString(point.id)},
+                    {"order",static_cast<int>(index)},{"coordinates",coordinates}});
+                ordered_point_ids.append(QString::fromStdString(point.id));
+            }
+            const auto sampler=build_path_sampler(document,object_id,contour->id,values);
+            if(!std::isfinite(sampler.length)||sampler.length<=0)
+                throw Error("ANALYSIS_NON_FINITE","Canonical Path length must be finite and positive");
+            bare_contours.append(QJsonObject{{"contour_id",QString::fromStdString(contour->id)},
+                {"closed",contour->closed},{"ordered_point_ids",ordered_point_ids},
+                {"canonical_length",QJsonObject{{"value",sampler.length},{"coordinate_space","composition"}}},
+                {"points",bare_points}});
+        }
+        const auto transform_parent=object.transform_parent?
+            QJsonValue(QString::fromStdString(*object.transform_parent)):QJsonValue(QJsonValue::Null);
+        const auto structural_parent=structural_parents.at(object_id).empty()?QJsonValue(QJsonValue::Null):
+            QJsonValue(QString::fromStdString(structural_parents.at(object_id)));
+        const QJsonObject bare_object{{"object_id",QString::fromStdString(object_id)},
+            {"kind","path"},{"name",QString::fromStdString(object.name)},
+            {"structural_parent_id",structural_parent},
+            {"transform_parent_id",transform_parent},
+            {"local_bounds",analysis_bounds_json(*local_bounds)},
+            {"composition_bounds",analysis_bounds_json(*composition_bounds)},
+            {"contours",bare_contours}};
+        const QJsonObject snapshot{{"analysis_behavior_version",analysis_behavior_version},
+            {"operator_type_id",operator_type},{"operator_version",descriptor->version},
+            {"document_id",document_id},{"composition_id",composition_id_json},
+            {"source_revision",static_cast<qint64>(expected)},{"input_domain",input_domain},
+            {"coordinate_space",coordinate_space},{"parameters",parameters},{"source",bare_object}};
+        const auto analysis_id=analysis_snapshot_id(snapshot);
+        QJsonArray output_contours;
+        for(const auto& contour_value:bare_contours) {
+            auto contour=contour_value.toObject();const auto contour_id=contour.value("contour_id").toString();
+            contour.insert("id",analysis_child_id(analysis_id,"contour",
+                QJsonObject{{"object_id",QString::fromStdString(object_id)},{"contour_id",contour_id}}));
+            QJsonArray output_points;
+            for(const auto& point_value:contour.value("points").toArray()) {
+                auto point=point_value.toObject();const auto point_id=point.value("point_id").toString();
+                point.insert("id",analysis_child_id(analysis_id,"point",QJsonObject{
+                    {"object_id",QString::fromStdString(object_id)},{"contour_id",contour_id},{"point_id",point_id}}));
+                output_points.append(point);
+            }
+            contour.insert("points",output_points);output_contours.append(contour);
+        }
+        QJsonObject output_object=bare_object;
+        output_object.insert("id",analysis_child_id(analysis_id,"object",QJsonObject{{"object_id",QString::fromStdString(object_id)}}));
+        output_object.insert("contours",output_contours);
+        const auto record_id=analysis_child_id(analysis_id,"vector_record",QJsonObject{{"object_id",QString::fromStdString(object_id)}});
+        const QJsonArray records{QJsonObject{{"id",record_id},{"type","nect.analysis.vector.geometry.record@1"},
+            {"data",QJsonObject{{"object",output_object}}}}};
+        return finish(analysis_id,records,QJsonObject{{"contours",1024},{"points",10000}});
+    }
+
+    analysis_parameter_keys(parameters,{});
+    constexpr std::size_t max_objects=10000,max_artboards=1024,max_collections=1024,max_collection_members=20000;
+    if(structural_parents.size()>max_objects||composition->artboards.size()>max_artboards||
+       document.collections.size()>max_collections)
+        throw Error("ANALYSIS_LIMIT","Document structure exceeds 10,000 objects, 1,024 Artboards or 1,024 Collections");
+    std::size_t collection_members=0;
+    for(const auto& collection:document.collections) {
+        collection_members+=collection.members.size();
+        if(collection_members>max_collection_members)
+            throw Error("ANALYSIS_LIMIT","Document structure is limited to 20,000 Collection member relations");
+    }
+    const auto values=evaluate(document);
+    (void)evaluate_transforms(document,values);
+    const auto visibility=evaluate_object_visibilities(document);
+    const auto isolation=evaluate_composite_isolations(document);
+    const auto mask_enabled=evaluate_geometry_mask_enableds(document);
+    const auto kind_name=[](Kind kind)->const char* {
+        switch(kind) {
+            case Kind::group:return "group";
+            case Kind::path:return "path";
+            case Kind::text:return "text";
+            case Kind::image:return "image";
+            case Kind::instance:return "instance";
+        }
+        return "unknown";
+    };
+    QJsonArray root_ids;
+    for(const auto& id:composition->roots)root_ids.append(QString::fromStdString(id));
+    QJsonArray bare_objects;
+    for(const auto& [id,parent]:structural_parents) {
+        const auto& object=document.objects.at(id);
+        QJsonArray children;
+        for(const auto& child:object.children)children.append(QString::fromStdString(child));
+        const auto transform_parent=object.transform_parent?
+            QJsonValue(QString::fromStdString(*object.transform_parent)):QJsonValue(QJsonValue::Null);
+        QJsonValue mask=QJsonValue::Null;
+        if(object.compositing.mask) {
+            const auto& source=*object.compositing.mask;
+            mask=QJsonObject{{"id",QString::fromStdString(source.id)},
+                {"source_object_id",QString::fromStdString(source.source)},
+                {"enabled",mask_enabled.at(geometry_mask_enabled_ref(id,source.id))},
+                {"fill_rule",QString::fromStdString(source.fill_rule)}};
+        }
+        const auto opacity=values.find({id,"","composite.opacity"});
+        if(opacity==values.end()||!std::isfinite(opacity->second))
+            throw Error("ANALYSIS_NON_FINITE","Evaluated compositing opacity is missing or non-finite");
+        const QJsonObject compositing{{"opacity",opacity->second},
+            {"blend",QString::fromStdString(object.compositing.blend)},
+            {"isolated",isolation.at(id)},{"mask",mask}};
+        bare_objects.append(QJsonObject{{"object_id",QString::fromStdString(id)},
+            {"kind",kind_name(object.kind)},{"name",QString::fromStdString(object.name)},
+            {"structural_parent_id",parent.empty()?QJsonValue(QJsonValue::Null):QJsonValue(QString::fromStdString(parent))},
+            {"child_ids",children},{"visible",visibility.at(id)},
+            {"compositing",compositing},{"transform_parent_id",transform_parent}});
+    }
+    QJsonArray bare_artboards;
+    for(const auto& source:composition->artboards) {
+        const auto board=evaluate_artboard(*composition,source.id);
+        for(const auto value:{board.x,board.y,board.width,board.height})
+            if(!std::isfinite(value))throw Error("ANALYSIS_NON_FINITE","Artboard frame contains a non-finite value");
+        bare_artboards.append(QJsonObject{{"artboard_id",QString::fromStdString(board.id)},
+            {"name",QString::fromStdString(board.name)},
+            {"frame",QJsonObject{{"x",board.x},{"y",board.y},{"width",board.width},{"height",board.height}}}});
+    }
+    QJsonArray bare_collections;
+    for(const auto& collection:document.collections) {
+        QJsonArray members;std::set<Id> unique;
+        for(const auto& member:collection.members) {
+            if(!document.objects.contains(member))throw Error("MISSING_OBJECT",member);
+            if(!unique.insert(member).second)throw Error("DUPLICATE_MEMBER",member);
+            members.append(QString::fromStdString(member));
+        }
+        bare_collections.append(QJsonObject{{"collection_id",QString::fromStdString(collection.id)},
+            {"name",QString::fromStdString(collection.name)},{"member_ids",members}});
+    }
+    const QJsonObject bare_data{{"root_ids",root_ids},{"objects",bare_objects},
+        {"artboards",bare_artboards},{"collections",bare_collections}};
+    const QJsonObject snapshot{{"analysis_behavior_version",analysis_behavior_version},
+        {"operator_type_id",operator_type},{"operator_version",descriptor->version},
+        {"document_id",document_id},{"composition_id",composition_id_json},
+        {"source_revision",static_cast<qint64>(expected)},{"input_domain",input_domain},
+        {"coordinate_space",coordinate_space},{"source",bare_data}};
+    const auto analysis_id=analysis_snapshot_id(snapshot);
+    QJsonArray output_objects;
+    for(const auto& object_value:bare_objects) {
+        auto object=object_value.toObject();
+        object.insert("id",analysis_child_id(analysis_id,"object",
+            QJsonObject{{"object_id",object.value("object_id").toString()}}));
+        output_objects.append(object);
+    }
+    QJsonArray output_artboards;
+    for(const auto& artboard_value:bare_artboards) {
+        auto artboard=artboard_value.toObject();
+        artboard.insert("id",analysis_child_id(analysis_id,"artboard",
+            QJsonObject{{"artboard_id",artboard.value("artboard_id").toString()}}));
+        output_artboards.append(artboard);
+    }
+    QJsonArray output_collections;
+    for(const auto& collection_value:bare_collections) {
+        auto collection=collection_value.toObject();
+        collection.insert("id",analysis_child_id(analysis_id,"collection",
+            QJsonObject{{"collection_id",collection.value("collection_id").toString()}}));
+        output_collections.append(collection);
+    }
+    const QJsonObject data{{"document_id",document_id},{"composition_id",composition_id_json},
+        {"root_ids",root_ids},{"objects",output_objects},{"artboards",output_artboards},
+        {"collections",output_collections}};
+    const auto record_id=analysis_child_id(analysis_id,"structure",QJsonObject{{"composition_id",composition_id_json}});
+    const QJsonArray records{QJsonObject{{"id",record_id},{"type","nect.analysis.document.structure.record@1"},
+        {"data",data}}};
+    return finish(analysis_id,records,QJsonObject{{"objects",static_cast<qint64>(max_objects)},
+        {"artboards",static_cast<qint64>(max_artboards)},{"collections",static_cast<qint64>(max_collections)},
+        {"collection_member_relations",static_cast<qint64>(max_collection_members)}});
+}
+
 QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected,
     bool include_color_groups,bool include_color_components,
     std::optional<std::uint64_t> intersect_color_component_index,
@@ -999,13 +1369,14 @@ QByteArray Host::dispatch(const QByteArray& input) {
         auto outer=QJsonDocument::fromJson(input).object();
         const auto operation=string(outer,"op");
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
+            (operation=="analysis_dataset"?QStringList{"op","session_id","document_id","expected_revision","operator_type_id","operator_version","input_domain","composition_id","parameters"}:
             (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","include_color_groups","include_color_components","intersect_color_component_index","intersect_color_component_id"}:
             (operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
              operation=="core"?QStringList{"op","session_id","document_id","request"}:
              operation=="import_svg"?QStringList{"op","session_id","document_id","expected_revision","path","composition","prefix","name","x","y"}:
                 (operation=="import_image"?QStringList{"op","session_id","document_id","expected_revision","path","mode","composition","parent","asset","id","name","x","y"}:
                  operation=="asset"?QStringList{"op","session_id","document_id","expected_revision","asset","action","path"}:
-                 QStringList{"op","session_id","document_id","expected_revision","path"})));
+                 QStringList{"op","session_id","document_id","expected_revision","path"}))));
         for(auto it=outer.begin();it!=outer.end();++it)
             if(!allowed.contains(it.key()))throw Error("UNKNOWN_FIELD",it.key().toStdString());
         if(string(outer,"op")=="hello") {
@@ -1024,6 +1395,20 @@ QByteArray Host::dispatch(const QByteArray& input) {
                 response=QJsonDocument::fromJson(QByteArray::fromStdString(request(session,
                     std::string_view(bytes.constData(),static_cast<std::size_t>(bytes.size()))))).object();
                 if(session.revision()!=before) edited();
+            } else if(op=="analysis_dataset") {
+                if(!outer.value("expected_revision").isDouble()||!outer.value("operator_version").isDouble()||
+                   !outer.value("parameters").isObject())
+                    throw Error("INVALID_REQUEST","Integer expected_revision/operator_version and parameters object required");
+                const auto revision=outer.value("expected_revision").toDouble();
+                if(!std::isfinite(revision)||std::floor(revision)!=revision||revision<0||
+                   revision>=std::ldexp(1.0,63))
+                    throw Error("INVALID_REQUEST","expected_revision must be a nonnegative integer");
+                const auto version=outer.value("operator_version").toDouble();
+                if(!std::isfinite(version)||std::floor(version)!=version||version<1||version>std::numeric_limits<int>::max())
+                    throw Error("INVALID_REQUEST","operator_version must be a positive integer");
+                response={{"ok",true},{"result",analyze_dataset(string(outer,"operator_type_id"),static_cast<int>(version),
+                    string(outer,"input_domain"),string(outer,"composition_id").toStdString(),
+                    outer.value("parameters").toObject(),static_cast<std::uint64_t>(revision))}};
             } else {
                 const auto expected=outer.value("expected_revision");
                 if(!expected.isDouble() || expected.toDouble()!=static_cast<double>(session.revision()))

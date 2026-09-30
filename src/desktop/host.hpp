@@ -38,6 +38,8 @@ public:
         bool include_color_groups=false,bool include_color_components=false,
         std::optional<std::uint64_t> intersect_color_component_index=std::nullopt,
         std::optional<QString> intersect_color_component_id=std::nullopt);
+    QJsonObject analyze_dataset(const QString& operator_type_id,int operator_version,const QString& input_domain,
+        const Id& composition,const QJsonObject& parameters,std::uint64_t expected);
     void recover();
     void flush();
     QString recovery_directory() const { return recovery_directory_; }

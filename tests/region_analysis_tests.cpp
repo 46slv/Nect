@@ -10,9 +10,11 @@
 #include <QTemporaryDir>
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <initializer_list>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -53,6 +55,12 @@ Object rectangle(Id id,double x,double y,double width,double height,int alpha=25
 }
 QJsonObject api(Host& host,const QJsonObject& fields) {
     QJsonObject request{{"op","analyze_regions"},{"session_id",host.session_id},
+        {"document_id",QString::fromStdString(host.session.document().id)}};
+    for(auto it=fields.begin();it!=fields.end();++it)request.insert(it.key(),it.value());
+    return QJsonDocument::fromJson(host.dispatch(QJsonDocument(request).toJson(QJsonDocument::Compact))).object();
+}
+QJsonObject dataset_api(Host& host,const QJsonObject& fields) {
+    QJsonObject request{{"op","analysis_dataset"},{"session_id",host.session_id},
         {"document_id",QString::fromStdString(host.session.document().id)}};
     for(auto it=fields.begin();it!=fields.end();++it)request.insert(it.key(),it.value());
     return QJsonDocument::fromJson(host.dispatch(QJsonDocument(request).toJson(QJsonDocument::Compact))).object();
@@ -1590,6 +1598,225 @@ void live_erosion_canvas_api() {
         encode(host.session.document())==document_before&&bytes(native)==native_before,
         "Live erosion and paired dilation leave revision, History, Document and native bytes unchanged");
 }
+void live_multidomain_dataset_api() {
+    QTemporaryDir temp;check(temp.isValid(),"Temporary dataset directory is available");
+    auto document=empty_document("dataset-document","dataset-composition","dataset-artboard");
+    auto& composition=document.compositions.front();composition.artboards.front().width=100;composition.artboards.front().height=80;
+    Object group;group.id="dataset-group";group.name="Dataset group";group.kind=Kind::group;
+    group.children={"dataset-path","dataset-text"};group.compositing.opacity.literal=.75;
+    group.compositing.blend="multiply";group.compositing.isolated=true;
+    Object path;path.id="dataset-path";path.name="Retained cubic";path.kind=Kind::path;
+    Contour contour;contour.id="dataset-contour";contour.closed=true;
+    Point first;first.id="dataset-point-a";first.x.literal=10;first.y.literal=10;
+    first.in_angle.literal=90;first.in_length.literal=4;first.out_angle.literal=0;first.out_length.literal=5;
+    Point second;second.id="dataset-point-b";second.x.literal=30;second.y.literal=20;
+    second.in_angle.literal=270;second.in_length.literal=6;second.out_angle.literal=180;second.out_length.literal=7;
+    contour.points={first,second};path.contours.push_back(contour);path.transform[4].literal=7;path.transform[5].literal=11;
+    path.stack.push_back(default_operation("dataset-path-fill","nect.paint.fill"));
+    Object text;text.id="dataset-text";text.name="Dataset text";text.kind=Kind::text;
+    text.text=default_text("dataset-text-source","Structure fixture");text.transform_parent="dataset-path";
+    text.stack.push_back(default_operation("dataset-text-fill","nect.paint.fill"));
+    RasterPixels pixels;pixels.width=1;pixels.height=1;pixels.rgba={255,0,0,255};
+    document.raster_assets.emplace("dataset-asset",RasterAsset{"dataset-asset","Dataset asset","embedded","",
+        make_raster(encode_raster_png(pixels))});
+    Object image;image.id="dataset-image";image.name="Dataset image";image.kind=Kind::image;
+    image.image=ImageSource{"dataset-asset",Scalar{1,{}},Scalar{1,{}}};image.visible=false;
+    image.compositing.opacity.literal=.5;image.compositing.blend="screen";image.compositing.isolated=true;
+    composition.roots={group.id,image.id};document.objects.emplace(group.id,std::move(group));
+    document.objects.emplace(path.id,std::move(path));document.objects.emplace(text.id,std::move(text));
+    document.objects.emplace(image.id,std::move(image));
+    document.collections.push_back(Collection{"dataset-collection","Fixture collection",{"dataset-path","dataset-image"}});
+    Host host(temp.path()+"/dataset-recovery");host.session=Session(std::move(document));
+    const auto native=temp.path()+"/dataset.nect";host.save(native);
+    const auto revision=host.session.revision();const auto document_before=encode(host.session.document());
+    const auto history_before=host.session.history();const auto native_before=bytes(native);
+    const auto dataset_fields=[&](const QString& operator_id,const QString& domain,const QJsonObject& parameters) {
+        return QJsonObject{{"expected_revision",static_cast<qint64>(revision)},
+            {"operator_type_id",operator_id},{"operator_version",1},{"input_domain",domain},
+            {"composition_id","dataset-composition"},{"parameters",parameters}};
+    };
+    const auto vector_fields=dataset_fields("nect.analysis.vector.geometry","document.path_geometry",
+        QJsonObject{{"object_id","dataset-path"}});
+    const auto vector=dataset_api(host,vector_fields);check(vector.value("ok").toBool(),
+        "Vector geometry analysis reads the exact live Session revision");
+    const auto vector_dataset=vector.value("result").toObject();
+    check(vector_dataset.value("type").toString()=="analysis.dataset/v1"&&
+        vector_dataset.value("output_domain").toString()=="analysis.dataset/v1"&&
+        vector_dataset.value("analysis_behavior_version").toInt()==1&&
+        vector_dataset.value("operator_type_id").toString()=="nect.analysis.vector.geometry"&&
+        vector_dataset.value("operator_version").toInt()==1&&
+        vector_dataset.value("document_id").toString()=="dataset-document"&&
+        vector_dataset.value("composition_id").toString()=="dataset-composition"&&
+        vector_dataset.value("source_revision").toInt()==static_cast<int>(revision)&&
+        vector_dataset.value("input_domain").toString()=="document.path_geometry"&&
+        vector_dataset.value("coordinate_space").toString()=="object-local-du-and-composition-du"&&
+        vector_dataset.value("warnings").toArray().isEmpty()&&vector_dataset.value("limits").isObject(),
+        "Vector dataset declares operator, snapshot identity, domains, warnings and limits");
+    check(dataset_api(host,vector_fields)==vector,"Repeated reads return deterministic vector records and child IDs");
+    const auto vector_record=vector_dataset.value("records").toArray().at(0).toObject();
+    const auto vector_object=vector_record.value("data").toObject().value("object").toObject();
+    const auto vector_contour=vector_object.value("contours").toArray().at(0).toObject();
+    const auto vector_points=vector_contour.value("points").toArray();
+    check(vector_record.value("id").toString().startsWith("analysis.vector_record.v1:")&&
+        vector_record.value("type").toString()=="nect.analysis.vector.geometry.record@1"&&
+        vector_object.value("id").toString().startsWith("analysis.object.v1:")&&
+        vector_object.value("object_id").toString()=="dataset-path"&&
+        vector_object.value("structural_parent_id").toString()=="dataset-group"&&
+        vector_contour.value("id").toString().startsWith("analysis.contour.v1:")&&
+        vector_contour.value("contour_id").toString()=="dataset-contour"&&vector_contour.value("closed").toBool()&&
+        vector_points.size()==2&&vector_points[0].toObject().value("id").toString().startsWith("analysis.point.v1:")&&
+        vector_points[0].toObject().value("point_id").toString()=="dataset-point-a"&&
+        vector_points[1].toObject().value("point_id").toString()=="dataset-point-b"&&
+        vector_contour.value("ordered_point_ids").toArray()==QJsonArray{"dataset-point-a","dataset-point-b"},
+        "Vector records retain authored Object/Contour/Point IDs beside snapshot-stable derived IDs");
+    const auto first_coordinates=vector_points[0].toObject().value("coordinates").toObject();
+    check(first_coordinates.value("anchor").toObject().value("object_local").toObject()==QJsonObject{{"x",10},{"y",10}}&&
+        first_coordinates.value("anchor").toObject().value("composition").toObject()==QJsonObject{{"x",17},{"y",21}}&&
+        first_coordinates.value("incoming_handle").toObject().value("object_local").toObject()==QJsonObject{{"x",10},{"y",14}}&&
+        first_coordinates.value("outgoing_handle").toObject().value("composition").toObject()==QJsonObject{{"x",22},{"y",21}},
+        "Vector points include evaluated anchors and handles in local and Composition coordinates");
+    const auto values=evaluate(host.session.document());const auto transforms=evaluate_transforms(host.session.document(),values);
+    const auto sample=build_path_sampler(host.session.document(),"dataset-path","dataset-contour",values);
+    const auto local_bounds=object_bounds(host.session.document(),"dataset-path",values,transforms,false);
+    const auto composition_bounds=object_bounds(host.session.document(),"dataset-path",values,transforms,true);
+    check(local_bounds&&composition_bounds&&
+        vector_contour.value("canonical_length").toObject().value("value").toDouble()==sample.length&&
+        vector_contour.value("canonical_length").toObject().value("coordinate_space").toString()=="composition"&&
+        vector_object.value("local_bounds").toObject().value("x").toDouble()==local_bounds->left&&
+        vector_object.value("local_bounds").toObject().value("y").toDouble()==local_bounds->top&&
+        vector_object.value("composition_bounds").toObject().value("x").toDouble()==composition_bounds->left&&
+        vector_object.value("composition_bounds").toObject().value("y").toDouble()==composition_bounds->top,
+        "Vector bounds and canonical length reuse the canonical core evaluators");
+
+    const auto structure_fields=dataset_fields("nect.analysis.document.structure","document.composition_structure",{});
+    const auto structure=dataset_api(host,structure_fields);check(structure.value("ok").toBool(),
+        "Document structure analysis succeeds for the retained fixture");
+    const auto structure_dataset=structure.value("result").toObject();
+    const auto structure_data=structure_dataset.value("records").toArray().at(0).toObject()
+        .value("data").toObject();
+    check(structure_dataset.value("operator_type_id").toString()=="nect.analysis.document.structure"&&
+        structure_dataset.value("input_domain").toString()=="document.composition_structure"&&
+        structure_data.value("root_ids").toArray()==QJsonArray{"dataset-group","dataset-image"}&&
+        structure_data.value("artboards").toArray().size()==1&&
+        structure_data.value("artboards").toArray().at(0).toObject().value("artboard_id").toString()=="dataset-artboard"&&
+        structure_data.value("collections").toArray().size()==1&&
+        structure_data.value("collections").toArray().at(0).toObject().value("collection_id").toString()=="dataset-collection"&&
+        structure_data.value("collections").toArray().at(0).toObject().value("member_ids").toArray()==
+            QJsonArray{"dataset-path","dataset-image"},
+        "Structure dataset reports ordered roots, Artboards and Collection membership");
+    std::map<QString,QJsonObject> structure_objects;
+    for(const auto& value:structure_data.value("objects").toArray()) {
+        const auto object=value.toObject();structure_objects.emplace(object.value("object_id").toString(),object);
+    }
+    const auto group_summary=structure_objects.at("dataset-group");
+    const auto text_summary=structure_objects.at("dataset-text");
+    const auto image_summary=structure_objects.at("dataset-image");
+    check(group_summary.value("child_ids").toArray()==QJsonArray{"dataset-path","dataset-text"}&&
+        text_summary.value("transform_parent_id").toString()=="dataset-path"&&
+        !image_summary.value("visible").toBool()&&
+        image_summary.value("compositing").toObject().value("blend").toString()=="screen"&&
+        image_summary.value("compositing").toObject().value("isolated").toBool()&&
+        image_summary.value("compositing").toObject().value("opacity").toDouble()==.5&&
+        image_summary.value("compositing").toObject().value("mask").isNull()&&
+        group_summary.value("id").toString().startsWith("analysis.object.v1:"),
+        "Structure summaries retain Group children, Transform Parent and visibility/compositing state");
+
+    const auto image_fields=dataset_fields("nect.analysis.image.regions","artboard.rgba8_srgb_premultiplied",
+        QJsonObject{{"artboard_id","dataset-artboard"},{"scale",1},{"threshold",128}});
+    const auto image_dataset=dataset_api(host,image_fields);
+    const auto legacy=api(host,QJsonObject{{"expected_revision",static_cast<qint64>(revision)},
+        {"composition","dataset-composition"},{"artboard","dataset-artboard"},{"scale",1},{"threshold",128}});
+    check(image_dataset.value("ok").toBool()&&legacy.value("ok").toBool()&&
+        image_dataset.value("result").toObject().value("analysis_id")==legacy.value("result").toObject().value("analysis_id")&&
+        image_dataset.value("result").toObject().value("records").toArray().at(0).toObject()
+            .value("data").toObject().value("result")==legacy.value("result"),
+        "Image dataset adapter preserves the D1-D10 payload and stable legacy snapshot identity");
+
+    const auto expect_error=[&](QJsonObject fields,const QString& code) {
+        const auto response=dataset_api(host,fields);
+        check(!response.value("ok").toBool()&&!response.contains("result")&&
+            response.value("error").toObject().value("code").toString()==code,
+            "Invalid multidomain request rejects without an identified partial result");
+    };
+    auto stale=vector_fields;stale["expected_revision"]=static_cast<qint64>(revision+1);expect_error(stale,"REVISION_CONFLICT");
+    auto missing_document=vector_fields;missing_document["document_id"]="missing-document";
+    expect_error(missing_document,"SESSION_CONFLICT");
+    auto missing_composition=vector_fields;missing_composition["composition_id"]="missing-composition";
+    expect_error(missing_composition,"MISSING_COMPOSITION");
+    auto missing_target=vector_fields;missing_target["parameters"]=QJsonObject{{"object_id","missing-object"}};
+    expect_error(missing_target,"MISSING_OBJECT");
+    auto wrong_domain=vector_fields;wrong_domain["input_domain"]="document.other";
+    expect_error(wrong_domain,"UNSUPPORTED_ANALYSIS_DOMAIN");
+    auto wrong_version=vector_fields;wrong_version["operator_version"]=2;expect_error(wrong_version,"UNSUPPORTED_ANALYSIS_VERSION");
+    auto wrong_operator=vector_fields;wrong_operator["operator_type_id"]="nect.analysis.unknown";
+    expect_error(wrong_operator,"UNSUPPORTED_ANALYSIS_OPERATOR");
+    auto malformed=vector_fields;malformed["parameters"]=QJsonObject{{"object_id","dataset-path"},{"unexpected",true}};
+    expect_error(malformed,"INVALID_ANALYSIS_PARAMETER");
+    auto mismatched_contour=vector_fields;mismatched_contour["parameters"]=QJsonObject{
+        {"object_id","dataset-path"},{"contour_id","stale-contour"}};expect_error(mismatched_contour,"MISSING_CONTOUR");
+
+    auto& mutable_document=const_cast<Document&>(host.session.document());
+    mutable_document.objects.at("dataset-text").transform_parent="dangling-transform-parent";
+    const auto dangling=dataset_api(host,structure_fields);
+    mutable_document.objects.at("dataset-text").transform_parent="dataset-path";
+    check(!dangling.value("ok").toBool()&&!dangling.contains("result"),
+        "Dangling Transform Parent rejects structure analysis without a partial result");
+    const auto old_translation=mutable_document.objects.at("dataset-path").transform[4].literal;
+    mutable_document.objects.at("dataset-path").transform[4].literal=std::numeric_limits<double>::quiet_NaN();
+    const auto nonfinite_transform=dataset_api(host,vector_fields);
+    mutable_document.objects.at("dataset-path").transform[4].literal=old_translation;
+    check(!nonfinite_transform.value("ok").toBool()&&!nonfinite_transform.contains("result"),
+        "Non-finite Transform rejects vector analysis without a partial result");
+    const auto old_x=mutable_document.objects.at("dataset-path").contours.front().points.front().x.literal;
+    mutable_document.objects.at("dataset-path").contours.front().points.front().x.literal=
+        std::numeric_limits<double>::quiet_NaN();
+    const auto nonfinite_geometry=dataset_api(host,vector_fields);
+    mutable_document.objects.at("dataset-path").contours.front().points.front().x.literal=old_x;
+    check(!nonfinite_geometry.value("ok").toBool()&&!nonfinite_geometry.contains("result"),
+        "Non-finite retained geometry rejects vector analysis without a partial result");
+
+    host.session.apply({Rename{"dataset-path","Renamed retained cubic"},
+        ReorderPoints{"dataset-path","dataset-contour",{"dataset-point-b","dataset-point-a"}},
+        ReorderObjects{"dataset-composition","",{"dataset-image","dataset-group"}}},revision);
+    const auto after_revision=host.session.revision();
+    auto vector_after_fields=vector_fields;vector_after_fields["expected_revision"]=static_cast<qint64>(after_revision);
+    const auto vector_after=dataset_api(host,vector_after_fields).value("result").toObject();
+    const auto object_after=vector_after.value("records").toArray().at(0).toObject()
+        .value("data").toObject().value("object").toObject();
+    const auto contour_after=object_after.value("contours").toArray().at(0).toObject();
+    auto structure_after_fields=structure_fields;structure_after_fields["expected_revision"]=static_cast<qint64>(after_revision);
+    const auto structure_after=dataset_api(host,structure_after_fields).value("result").toObject()
+        .value("records").toArray().at(0).toObject().value("data").toObject();
+    check(vector_after.value("analysis_id")!=vector_dataset.value("analysis_id")&&
+        object_after.value("object_id").toString()=="dataset-path"&&
+        contour_after.value("contour_id").toString()=="dataset-contour"&&
+        contour_after.value("ordered_point_ids").toArray()==QJsonArray{"dataset-point-b","dataset-point-a"}&&
+        structure_after.value("root_ids").toArray()==QJsonArray{"dataset-image","dataset-group"},
+        "Rename and reorder update the snapshot while preserving retained source identities");
+    check(host.session.revision()==after_revision&&host.session.history().states.size()==history_before.states.size()+1&&
+        encode(host.session.document())!=document_before&&bytes(native)==native_before,
+        "Dataset reads and failures preserve revision/history/native bytes outside the explicit edit");
+
+    auto limited_document=empty_document("dataset-limit-document","dataset-limit-composition","dataset-limit-artboard");
+    Object large_path;large_path.id="dataset-limit-path";large_path.name="Point cap fixture";large_path.kind=Kind::path;
+    Contour large_contour;large_contour.id="dataset-limit-contour";large_contour.closed=true;
+    for(int index=0;index<10001;++index) {
+        Point point;point.id="dataset-limit-point-"+std::to_string(index);point.x.literal=index%100;
+        point.y.literal=index/100;large_contour.points.push_back(std::move(point));
+    }
+    large_path.contours.push_back(std::move(large_contour));limited_document.objects.emplace(large_path.id,std::move(large_path));
+    limited_document.compositions.front().roots={"dataset-limit-path"};
+    Host limited_host(temp.path()+"/dataset-limit-recovery");limited_host.session=Session(std::move(limited_document));
+    const auto limited_revision=limited_host.session.revision();
+    const auto limited_response=dataset_api(limited_host,QJsonObject{{"expected_revision",static_cast<qint64>(limited_revision)},
+        {"operator_type_id","nect.analysis.vector.geometry"},{"operator_version",1},
+        {"input_domain","document.path_geometry"},{"composition_id","dataset-limit-composition"},
+        {"parameters",QJsonObject{{"object_id","dataset-limit-path"}}}});
+    check(!limited_response.value("ok").toBool()&&!limited_response.contains("result")&&
+        limited_response.value("error").toObject().value("code").toString()=="ANALYSIS_LIMIT"&&
+        limited_host.session.revision()==limited_revision,
+        "Vector point resource cap rejects without a partial dataset or Session revision change");
+}
 }
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");
@@ -1609,6 +1836,7 @@ int main(int argc,char** argv) {
         live_color_group_canvas_api();
         live_color_component_mask_intersection_canvas_api();
         live_erosion_canvas_api();
+        live_multidomain_dataset_api();
         QTemporaryDir line_cap_temp;check(line_cap_temp.isValid(),"Line-cap test directory is available");
         line_candidate_limit_oracle(line_cap_temp.path());
         QTemporaryDir morphology_cap_temp;check(morphology_cap_temp.isValid(),"Morphology-cap test directory is available");
@@ -1617,6 +1845,6 @@ int main(int argc,char** argv) {
         erosion_run_cap_oracle(erosion_cap_temp.path());
         QTemporaryDir mask_boolean_cap_temp;check(mask_boolean_cap_temp.isValid(),"Mask Boolean-cap test directory is available");
         mask_boolean_run_cap_oracle(mask_boolean_cap_temp.path());
-        std::cout<<"PASS region, color-group/component, edge-map, contour, thin-line, dilation, erosion and mask Boolean pixel oracles, limits, live Canvas API and read-only behavior\n";return 0;
+        std::cout<<"PASS image, vector and structure analysis datasets; stable IDs, negative matrix, limits, D1-D10 pixel oracles and read-only behavior\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

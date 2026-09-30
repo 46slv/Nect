@@ -138,6 +138,27 @@ TOOLS = [
           intersect_color_component_id={'type':'string','minLength':1}),
          'required':['session_id','document_id','op','expected_revision','composition','artboard','scale','threshold'],'additionalProperties':False},
      'annotations':{'readOnlyHint':True,'destructiveHint':False,'openWorldHint':False}},
+    {'name': 'nect_analyze_dataset',
+     'description': ('Read-only typed analysis.dataset/v1 from the live desktop Session. Operators are '
+                     'nect.analysis.image.regions@1 (input domain artboard.rgba8_srgb_premultiplied; parameters '
+                     'artboard_id, scale, threshold and optional image-region selectors), '
+                     'nect.analysis.vector.geometry@1 (document.path_geometry; parameters object_id and optional '
+                     'contour_id), and nect.analysis.document.structure@1 (document.composition_structure; empty '
+                     'parameters). Results identify the exact document, Composition and source revision, coordinate '
+                     'domain, typed records, warnings and hard limits. Child IDs are stable for one analysis snapshot; '
+                     'source Object, Contour and Point IDs remain provenance. Uses the exact live Session and never '
+                     'creates or adopts a second Document. Stale revisions, unsupported operators/versions/domains, '
+                     'invalid parameters, dangling relations, non-finite geometry and resource-limit violations reject '
+                     'without a partial result or authored/history mutation.'),
+     'inputSchema': {'type':'object','properties':dict(IDENTITY,
+         op={'type':'string','enum':['analysis_dataset']},expected_revision={'type':'integer','minimum':0},
+         operator_type_id={'type':'string','enum':['nect.analysis.image.regions','nect.analysis.vector.geometry','nect.analysis.document.structure']},
+         operator_version={'type':'integer','minimum':1},
+         input_domain={'type':'string','enum':['artboard.rgba8_srgb_premultiplied','document.path_geometry','document.composition_structure']},
+         composition_id={'type':'string'},parameters={'type':'object'}),
+         'required':['session_id','document_id','op','expected_revision','operator_type_id','operator_version','input_domain','composition_id','parameters'],
+         'additionalProperties':False},
+     'annotations':{'readOnlyHint':True,'destructiveHint':False,'openWorldHint':False}},
     {'name': 'nect_import_svg',
      'description': 'Import a bounded local static SVG as editable path/Group artwork in one Undo. Supports M/L/H/V/C/S/Q/T/A/Z, groups, rect/circle/ellipse/line/polyline/polygon, solid paints and affine transforms. Shapes/arcs become paths; elliptical portions use cubic approximation (spans at most45 degrees). CSS stylesheets, text/images, masks, external content and unknown semantics reject atomically. The source viewport maps coordinates but is not imported as a crop or Artboard. Original file unchanged. Requires absolute local path, fresh 1..40-character identifier prefix, current identity/revision; 1 MiB,128 nodes,10000 points.',
      'inputSchema': {'type': 'object', 'properties': dict(IDENTITY,

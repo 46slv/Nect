@@ -162,8 +162,18 @@ try:
         assert init['result']['protocolVersion'] == '2025-06-18'
         mcp.stdin.write(json.dumps(dict(jsonrpc='2.0', method='notifications/initialized')) + '\n'); mcp.stdin.flush()
         listed_tools = rpc('tools/list')['result']['tools']
-        assert {t['name'] for t in listed_tools} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png', 'nect_analyze_regions', 'nect_import_svg'}
+        assert {t['name'] for t in listed_tools} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png', 'nect_analyze_regions', 'nect_analyze_dataset', 'nect_import_svg'}
         analyze_schema = next(t for t in listed_tools if t['name'] == 'nect_analyze_regions')['inputSchema']
+        dataset_schema = next(t for t in listed_tools if t['name'] == 'nect_analyze_dataset')['inputSchema']
+        assert dataset_schema['properties']['operator_type_id']['enum'] == [
+            'nect.analysis.image.regions', 'nect.analysis.vector.geometry', 'nect.analysis.document.structure']
+        assert dataset_schema['properties']['input_domain']['enum'] == [
+            'artboard.rgba8_srgb_premultiplied', 'document.path_geometry', 'document.composition_structure']
+        assert dataset_schema['properties']['parameters'] == {'type': 'object'}
+        assert {'expected_revision', 'operator_type_id', 'operator_version', 'input_domain',
+                'composition_id', 'parameters'} <= set(dataset_schema['required'])
+        assert dataset_schema['additionalProperties'] is False
+        assert next(t for t in listed_tools if t['name'] == 'nect_analyze_dataset')['annotations']['readOnlyHint'] is True
         assert analyze_schema['properties']['include_color_groups'] == {'type': 'boolean'}
         assert analyze_schema['properties']['include_color_components'] == {'type': 'boolean'}
         assert analyze_schema['properties']['intersect_color_component_index'] == {'type': 'integer', 'minimum': 0}
@@ -193,6 +203,89 @@ try:
             border='outside-background-clipped', coordinate_space='artboard-output-pixels', area=0, runs=[])
         assert legacy_analysis(direct_regions['result']['erosion']) == dict(operation='erode', kernel='cross-4-radius-1',
             border='outside-background', coordinate_space='artboard-output-pixels', area=0, runs=[])
+        source = core('text_defaults')['result'];source.update(id='dataset-text-source',content='Structure fixture')
+        dataset_setup = apply([
+            dict(type='create_path',composition=comp['id'],parent='',id='dataset-path',name='Retained cubic',contours=[
+                dict(id='dataset-contour',closed=True,points=[point('dataset-point-a',10,10),point('dataset-point-b',30,20)])]),
+            dict(type='create_text',composition=comp['id'],parent='',id='dataset-text',name='Dataset text',source=source),
+            dict(type='group_contiguous',composition=comp['id'],parent='',members=['dataset-path','dataset-text'],
+                id='dataset-group',name='Dataset group'),
+            dict(type='set_transform_parent',object='dataset-text',parent='dataset-path',preserve_world=False),
+            dict(type='create_collection',id='dataset-collection',name='Dataset collection',members=['dataset-path'])],live['revision'])
+        dataset_image_path = temp / 'mcp-analysis-dataset.png'
+        dataset_image_path.write_bytes(make_png((255,0,0),width=1,height=1))
+        dataset_image = tool('nect_image',dict(identity,op='import_image',expected_revision=dataset_setup,
+            path=str(dataset_image_path),mode='embedded',composition=comp['id'],parent='',asset='dataset-asset',
+            id='dataset-image',name='Dataset image',x=0,y=0))
+        assert dataset_image['ok'], dataset_image
+        dataset_revision = apply([
+            dict(type='set_visibility',object='dataset-image',visible=False),
+            dict(type='set_compositing',object='dataset-image',blend='screen',isolated=True),
+            dict(type='set_compositing',object='dataset-group',blend='multiply',isolated=True)],dataset_image['revision'])
+        dataset_document_before = core('inspect')['result'];dataset_history_before = core('history')['result']
+        dataset_identity = dict(identity,op='analysis_dataset',expected_revision=dataset_revision,
+            operator_type_id='nect.analysis.vector.geometry',operator_version=1,input_domain='document.path_geometry',
+            composition_id=comp['id'],parameters={'object_id':'dataset-path'})
+        direct_vector_dataset = desktop_api_call(endpoint,dataset_identity)
+        mcp_vector_dataset = tool('nect_analyze_dataset',dataset_identity)
+        assert direct_vector_dataset == mcp_vector_dataset and direct_vector_dataset['ok']
+        vector_dataset = direct_vector_dataset['result']
+        assert vector_dataset['type'] == vector_dataset['output_domain'] == 'analysis.dataset/v1'
+        assert vector_dataset['analysis_behavior_version'] == vector_dataset['operator_version'] == 1
+        assert vector_dataset['document_id'] == live['document_id'] and vector_dataset['composition_id'] == comp['id']
+        assert vector_dataset['source_revision'] == dataset_revision and vector_dataset['input_domain'] == 'document.path_geometry'
+        vector_data = vector_dataset['records'][0]['data']['object']
+        assert vector_dataset['records'][0]['type'] == 'nect.analysis.vector.geometry.record@1'
+        assert vector_data['object_id'] == 'dataset-path' and vector_data['contours'][0]['contour_id'] == 'dataset-contour'
+        assert vector_data['contours'][0]['ordered_point_ids'] == ['dataset-point-a','dataset-point-b']
+        assert vector_data['contours'][0]['points'][0]['coordinates']['anchor']['object_local'] == {'x':10,'y':10}
+        assert vector_data['contours'][0]['points'][0]['coordinates']['anchor']['composition'] == {'x':10,'y':10}
+        repeated_vector = tool('nect_analyze_dataset',dataset_identity)['result']
+        assert repeated_vector['analysis_id'] == vector_dataset['analysis_id']
+        assert repeated_vector['records'] == vector_dataset['records']
+        structure_identity = dict(dataset_identity,operator_type_id='nect.analysis.document.structure',
+            input_domain='document.composition_structure',parameters={})
+        direct_structure = desktop_api_call(endpoint,structure_identity)
+        mcp_structure = tool('nect_analyze_dataset',structure_identity)
+        assert direct_structure == mcp_structure and direct_structure['ok']
+        structure_data = direct_structure['result']['records'][0]['data']
+        assert structure_data['root_ids'] == ['dataset-group','dataset-image']
+        structure_objects = {obj['object_id']:obj for obj in structure_data['objects']}
+        assert structure_objects['dataset-group']['child_ids'] == ['dataset-path','dataset-text']
+        assert structure_objects['dataset-text']['transform_parent_id'] == 'dataset-path'
+        assert structure_objects['dataset-image']['visible'] is False
+        assert structure_objects['dataset-image']['compositing']['blend'] == 'screen'
+        assert structure_objects['dataset-image']['compositing']['isolated'] is True
+        assert structure_data['artboards'][0]['artboard_id'] == comp['artboards'][0]['id']
+        assert structure_data['collections'][0]['member_ids'] == ['dataset-path']
+        image_dataset_identity = dict(dataset_identity,operator_type_id='nect.analysis.image.regions',
+            input_domain='artboard.rgba8_srgb_premultiplied',parameters={
+                'artboard_id':comp['artboards'][0]['id'],'scale':1,'threshold':128})
+        direct_dataset_image = desktop_api_call(endpoint,image_dataset_identity)
+        mcp_dataset_image = tool('nect_analyze_dataset',image_dataset_identity)
+        legacy_dataset_image = desktop_api_call(endpoint,dict(identity,op='analyze_regions',
+            expected_revision=dataset_revision,composition=comp['id'],artboard=comp['artboards'][0]['id'],
+            scale=1,threshold=128))
+        assert direct_dataset_image == mcp_dataset_image and direct_dataset_image['ok'] and legacy_dataset_image['ok']
+        assert direct_dataset_image['result']['analysis_id'] == legacy_dataset_image['result']['analysis_id']
+        assert direct_dataset_image['result']['records'][0]['data']['result'] == legacy_dataset_image['result']
+        stale_dataset = dict(dataset_identity,expected_revision=dataset_revision+1)
+        assert desktop_api_call(endpoint,stale_dataset) == tool('nect_analyze_dataset',stale_dataset)
+        assert desktop_api_call(endpoint,stale_dataset)['error']['code'] == 'REVISION_CONFLICT'
+        malformed_dataset = dict(dataset_identity,parameters={'object_id':'dataset-path','unexpected':True})
+        assert desktop_api_call(endpoint,malformed_dataset) == tool('nect_analyze_dataset',malformed_dataset)
+        assert desktop_api_call(endpoint,malformed_dataset)['error']['code'] == 'INVALID_ANALYSIS_PARAMETER'
+        unsupported_dataset = dict(dataset_identity,operator_version=2)
+        assert desktop_api_call(endpoint,unsupported_dataset)['error']['code'] == 'UNSUPPORTED_ANALYSIS_VERSION'
+        assert core('inspect')['result'] == dataset_document_before
+        assert core('history')['result'] == dataset_history_before
+        assert tool('nect_session')['revision'] == dataset_revision
+        for _ in range(3):
+            undo = core('undo',expected_revision=dataset_revision)
+            assert undo['ok'], undo
+            dataset_revision = undo['revision']
+        live = tool('nect_session')
+        assert core('inspect')['result']['objects'] == []
         initial_document = core('inspect')['result']
         color_fixture_path = temp / 'mcp-color-groups.png'
         color_fixture_path.write_bytes(make_png((12, 34, 56), width=3, height=2))
