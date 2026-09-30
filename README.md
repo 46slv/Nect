@@ -108,6 +108,19 @@ Windows desktop, with the installed/local Qt and Boost SDK directories:
 ./build/Release/nect_desktop.exe
 ```
 
+Run the public API seeded Q1 fixture and visible A/B/A Canvas timing qualification
+with the current Release build:
+
+```powershell
+python scripts/perf_q1.py --desktop build/Release/nect_desktop.exe --benchmark build/Release/canvas_benchmark.exe --output-dir build/perf-q1
+```
+
+The script records the public command stream and native fixture hashes under
+ignored `build/`, verifies an independent second-process replay, then opens exact
+fixture copies in one exposed Windows production Window for A1 (detailed timing
+off), B (on), and A2 (off). The test environment also runs the fixture contract
+without launching the visible benchmark.
+
 On the current development machine both SDKs are under ignored `build/deps`, so
 the build script defaults work. It deploys Qt DLLs/plugins only into the local
 build output. Close the development executable before rebuilding it. No SDK is

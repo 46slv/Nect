@@ -102,7 +102,11 @@ public:
         int viewport_height = 0;
         double device_pixel_ratio = 1;
     };
+    using FrameObserver = std::function<void(const FrameTiming&)>;
     const std::vector<FrameTiming>& frame_timings() const { return timings_; }
+    void set_timing_capture_enabled(bool enabled);
+    bool timing_capture_enabled() const { return timing_capture_enabled_; }
+    void set_frame_observer(FrameObserver observer);
     void reset_timing();
 
 protected:
@@ -267,7 +271,10 @@ private:
     std::uint64_t painted_sequence_ = 0;
     QString pending_operation_;
     std::vector<FrameTiming> timings_;
+    bool timing_capture_enabled_ = false;
+    FrameObserver frame_observer_;
 
+    bool timing_observation_enabled() const { return timing_capture_enabled_ || static_cast<bool>(frame_observer_); }
     QTransform view() const;
     const Geometry* geometry(const Id&) const;
     const EvaluatedPoint* point(const Geometry&, const Id&) const;

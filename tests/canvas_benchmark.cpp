@@ -1,10 +1,12 @@
 #include "window.hpp"
 
 #include <QApplication>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -23,6 +25,7 @@
 #include <functional>
 #include <iostream>
 #include <numbers>
+#include <optional>
 #include <stdexcept>
 
 using namespace nect;
@@ -38,6 +41,10 @@ constexpr double target_budget_ms = 1000.0 / 60;
 QElapsedTimer run_clock;
 
 void require(bool condition, const char* message) {
+    if (!condition) throw std::runtime_error(message);
+}
+
+void require(bool condition, const std::string& message) {
     if (!condition) throw std::runtime_error(message);
 }
 
@@ -206,7 +213,8 @@ struct SequenceResult {
 };
 
 SequenceResult sequence(Window& window, Operation operation, int frames, bool commit,
-                        const QStringList& errors,bool text_transform=false,int selection_count=1) {
+                        const QStringList& errors,bool text_transform=false,int selection_count=1,
+                        std::vector<Canvas::FrameTiming>* observed_frames=nullptr) {
     auto& canvas = *window.canvas;
     require(window.isVisible() && window.windowHandle() && window.windowHandle()->isExposed(),
             "The benchmark window must remain visible and exposed");
@@ -219,6 +227,7 @@ SequenceResult sequence(Window& window, Operation operation, int frames, bool co
     canvas.setFocus();
     fit(window);
     canvas.reset_timing();
+    if (observed_frames) observed_frames->clear();
     const auto zoom = canvas.zoom();
     const QPointF world_start = text_transform?QPointF(65,360):operation == Operation::handle ? QPointF(88, 70)
         : operation == Operation::transform ? QPointF(107.5, 70) : QPointF(70, 70);
@@ -324,23 +333,35 @@ QJsonObject distribution(std::vector<double> values) {
 }
 
 QJsonObject summarize(const Canvas& canvas, Operation operation, SequenceResult sequence,
-                      std::uint64_t revision_before, std::uint64_t revision_after, int commits) {
+                      std::uint64_t revision_before, std::uint64_t revision_after, int commits,
+                      const std::vector<Canvas::FrameTiming>* observed_frames=nullptr,
+                      bool include_detailed_timing=true) {
     std::vector<double> intervals, inputs, paints, previews, projections;
     QJsonArray raw;
-    for (const auto& frame : canvas.frame_timings()) {
+    const auto& frames=observed_frames?*observed_frames:canvas.frame_timings();
+    for (const auto& frame : frames) {
         if (frame.operation != timing_operation(operation)) continue;
-        previews.push_back(frame.semantic_preview_ms);projections.push_back(frame.projection_ms);
+        if (include_detailed_timing) {
+            previews.push_back(frame.semantic_preview_ms);
+            projections.push_back(frame.projection_ms);
+        }
         paints.push_back(frame.paint_ms);
         inputs.push_back(frame.input_to_paint_ms);
         if (frame.interval_ms >= 0) intervals.push_back(frame.interval_ms);
-        raw.push_back(QJsonObject{{"semantic_preview_ms",frame.semantic_preview_ms},{"projection_ms",frame.projection_ms},{"paint_ms", frame.paint_ms}, {"input_to_paint_ms", frame.input_to_paint_ms},
-            {"interval_ms", frame.interval_ms < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(frame.interval_ms)}});
+        QJsonObject raw_frame{{"paint_ms", frame.paint_ms}, {"input_to_paint_ms", frame.input_to_paint_ms},
+            {"interval_ms", frame.interval_ms < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(frame.interval_ms)}};
+        if (include_detailed_timing) {
+            raw_frame["semantic_preview_ms"]=frame.semantic_preview_ms;
+            raw_frame["projection_ms"]=frame.projection_ms;
+        }
+        raw.push_back(raw_frame);
     }
     const auto interval_stats = distribution(intervals);
     const bool enough = intervals.size() >= 60;
     const bool floor = enough && interval_stats["p95_ms"].toDouble() <= floor_budget_ms;
     const bool target = enough && interval_stats["p95_ms"].toDouble() <= target_budget_ms;
-    return {{"operation", operation_name(operation)}, {"requested_inputs", measured_frames},
+    return {{"operation", operation_name(operation)}, {"timing_capture_enabled",include_detailed_timing},
+        {"requested_inputs", measured_frames},
         {"observed_paints", static_cast<int>(paints.size())}, {"warmup_inputs", warmup_frames},
         {"requested_interval_ms", target_interval_ms}, {"elapsed_ms", sequence.elapsed_ms},
         {"release_and_ui_commit_ms", sequence.release_and_ui_commit_ms},
@@ -362,6 +383,371 @@ void write_result(const QString& path, const QJsonObject& result) {
     require(file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit(),
             "Cannot write benchmark JSON artifact");
 }
+
+std::optional<double> p95(const QJsonObject& summary, const char* distribution_name) {
+    const auto distribution=summary.value(distribution_name).toObject();
+    const auto value=distribution.value("p95_ms");
+    if (!value.isDouble()) return std::nullopt;
+    return value.toDouble();
+}
+
+QJsonObject run_q1_aba(const QString& output, const QString& fixture_path, const QString& manifest_path) {
+    QJsonObject result{{"schema","nect-visible-viewport-benchmark-1"},
+        {"qualification","REQ-183 Q1 PERF-API-SEED-01 + PERF-TELEMETRY-AB-01"},
+        {"started_utc",QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+        {"measurement_boundary","Visible production Window/Canvas QWidget paint completion; input to end of paint includes Session preview/evaluation. Native compositor/GPU presentation is not measured."},
+        {"input_method","QMouseEvent/QWheelEvent delivered to one owned, exposed production Canvas; normal queued updates and event loop; no forced repaint."},
+        {"frame_interval_boundary","Consecutive input-triggered QWidget paint completions in each sequence; input cadence and coalescing included. First interval omitted."},
+        {"quantile_method","Nearest rank"},
+        {"platform",QGuiApplication::platformName()},{"qt_version",qVersion()},
+        {"os",QSysInfo::prettyProductName()},{"cpu_architecture",QSysInfo::currentCpuArchitecture()},
+        {"build_cpu_architecture",QSysInfo::buildCpuArchitecture()},
+        {"floor_interval_budget_ms",floor_budget_ms},{"target_interval_budget_ms",target_budget_ms},
+        {"q1_overhead_oracle","B p95 <= max(A1 p95 + 1.0 ms, A1 p95 * 1.10)"},
+        {"q1_a2_drift_oracle","abs(A2 p95 - A1 p95) <= max(1.0 ms, A1 p95 * 0.10)"},
+        {"common_frame_observer","Installed identically for A1/B/A2; it records paint, input-to-paint, interval, viewport and DPR. Detailed semantic/projection samples are enabled only for B."}};
+    try {
+        require(QGuiApplication::platformName()=="windows",
+                "Run Q1 with the Windows Qt platform; offscreen/minimal is not visible-host evidence");
+        QFile fixture(fixture_path);
+        require(fixture.open(QIODevice::ReadOnly),"Cannot read the exact Q1 fixture file");
+        const auto fixture_bytes=fixture.readAll();
+        fixture.close();
+        require(!fixture_bytes.isEmpty(),"Q1 fixture file is empty");
+        const auto fixture_sha=QCryptographicHash::hash(fixture_bytes,QCryptographicHash::Sha256).toHex();
+        QJsonParseError native_error;
+        const auto native_document=QJsonDocument::fromJson(fixture_bytes,&native_error);
+        require(native_error.error==QJsonParseError::NoError&&native_document.isObject(),
+                "Q1 fixture is not valid native JSON");
+        QFile manifest_file(manifest_path);
+        require(manifest_file.open(QIODevice::ReadOnly),"Cannot read the Q1 fixture manifest");
+        const auto manifest_bytes=manifest_file.readAll();
+        manifest_file.close();
+        const auto manifest_sha=QCryptographicHash::hash(manifest_bytes,QCryptographicHash::Sha256).toHex();
+        QJsonParseError manifest_error;
+        const auto manifest_document=QJsonDocument::fromJson(manifest_bytes,&manifest_error);
+        require(manifest_error.error==QJsonParseError::NoError&&manifest_document.isObject(),
+                "Q1 fixture manifest is not valid JSON");
+        const auto manifest=manifest_document.object();
+        require(manifest.value("fixture_sha256").toString().toLatin1()==fixture_sha,
+                "Fixture SHA-256 does not match its public API manifest");
+        require(manifest.value("byte_identical_second_process_replay").toBool()||
+                manifest.value("semantic_second_process_replay").toBool(),
+                "Manifest does not prove byte or semantic equivalence in the second process");
+        const auto replay_processes=manifest.value("processes").toArray();
+        require(replay_processes.size()==2,"Fixture manifest must record two independent API replay processes");
+        const auto replay_a=replay_processes.at(0).toObject();
+        const auto replay_b=replay_processes.at(1).toObject();
+        require(replay_a.value("process_id").toInteger()!=replay_b.value("process_id").toInteger(),
+                "Fixture manifest replay records do not identify two distinct processes");
+        require(replay_a.value("readback_equal").toBool()&&replay_b.value("readback_equal").toBool()&&
+                replay_a.value("final_revision").toInteger()==1&&replay_b.value("final_revision").toInteger()==1,
+                "Independent API replays did not both verify native readback at revision one");
+        require(replay_a.value("document_id").toString()==replay_b.value("document_id").toString()&&
+                replay_a.value("composition_id").toString()==replay_b.value("composition_id").toString()&&
+                replay_a.value("artboard_id").toString()==replay_b.value("artboard_id").toString()&&
+                replay_a.value("normalized_native_sha256").toString()==replay_b.value("normalized_native_sha256").toString(),
+                "Independent API process replay identities or normalized native state differ");
+
+        const auto native=native_document.object();
+        const auto compositions=native.value("compositions").toArray();
+        const auto objects=native.value("objects").toArray();
+        std::size_t point_count=0;
+        for (const auto& object_value:objects)
+            for (const auto& contour_value:object_value.toObject().value("contours").toArray())
+                point_count+=static_cast<std::size_t>(contour_value.toObject().value("points").toArray().size());
+        require(!compositions.isEmpty(),"Q1 fixture has no Composition");
+        const auto composition=compositions.at(0).toObject();
+        const auto artboards=composition.value("artboards").toArray();
+        require(!artboards.isEmpty(),"Q1 fixture has no Artboard");
+        const auto composition_id=composition.value("id").toString();
+        const auto artboard_id=artboards.at(0).toObject().value("id").toString();
+        require(objects.size()==manifest.value("object_count").toInt()&&
+                static_cast<qint64>(point_count)==manifest.value("point_count").toInteger(),
+                "Native fixture object/point counts disagree with its manifest");
+        require(native.value("id").toString()==manifest.value("document_id").toString()&&
+                composition_id==manifest.value("composition_id").toString()&&
+                artboard_id==manifest.value("artboard_id").toString(),
+                "Native fixture stable identity disagrees with its manifest");
+
+        QTemporaryDir scratch(QDir::tempPath()+"/nect-perf-q1-XXXXXX");
+        require(scratch.isValid(),"Cannot allocate the benchmark-owned scratch directory");
+        Window window(scratch.path()+"/recovery");
+        window.setWindowTitle(QStringLiteral("Nect Q1 Canvas performance qualification"));
+        window.resize(1440,900);
+        window.show();window.raise();window.activateWindow();
+        int exposed_wait=0;
+        while ((!window.windowHandle()||!window.windowHandle()->isExposed())&&exposed_wait<5000) {
+            wait_events(20);exposed_wait+=20;
+        }
+        require(window.windowHandle()&&window.windowHandle()->isExposed(),
+                "Q1 owned production Window did not become visible and exposed");
+        const auto window_identity=QString::number(static_cast<quintptr>(window.winId()),16);
+        const auto window_handle_identity=QString::number(static_cast<quintptr>(window.windowHandle()->winId()),16);
+        const auto process_id=QCoreApplication::applicationPid();
+        std::vector<Canvas::FrameTiming> observed_frames;
+        window.canvas->set_frame_observer([&](const Canvas::FrameTiming& frame){observed_frames.push_back(frame);});
+        QStringList errors;
+        int commits=0;
+        const auto original_error=window.canvas->error;
+        const auto original_changed=window.canvas->document_changed;
+        window.canvas->error=[&](QString message){errors.push_back(message);if(original_error)original_error(std::move(message));};
+        window.canvas->document_changed=[&]{++commits;if(original_changed)original_changed();};
+        InteractionCleanup cleanup{*window.canvas};
+
+        const auto viewport_receipt=[&] {
+            const auto* screen=window.screen();
+            return QJsonObject{
+                {"window_x",window.x()},{"window_y",window.y()},
+                {"window_width",window.width()},{"window_height",window.height()},
+                {"canvas_width",window.canvas->width()},{"canvas_height",window.canvas->height()},
+                {"device_pixel_ratio",window.canvas->devicePixelRatioF()},
+                {"screen_name",screen?screen->name():QString{}},
+                {"screen_x",screen?screen->geometry().x():0},
+                {"screen_y",screen?screen->geometry().y():0},
+                {"screen_width",screen?screen->geometry().width():0},
+                {"screen_height",screen?screen->geometry().height():0},
+                {"logical_dpi",screen?screen->logicalDotsPerInch():0},
+                {"reported_refresh_hz",screen?screen->refreshRate():0}};
+        };
+        const auto prewarm_path=QDir(scratch.path()).filePath(QStringLiteral("whole-schedule-prewarm.nect"));
+        require(QFile::copy(fixture_path,prewarm_path),"Cannot create an exact-byte whole-schedule prewarm fixture copy");
+        QFile prewarm_fixture(prewarm_path);
+        require(prewarm_fixture.open(QIODevice::ReadOnly),"Cannot verify the whole-schedule prewarm fixture");
+        require(QCryptographicHash::hash(prewarm_fixture.readAll(),QCryptographicHash::Sha256).toHex()==fixture_sha,
+                "Whole-schedule prewarm fixture copy does not match the exact source SHA");
+        window.host.open(prewarm_path);
+        require(window.host.session.document().id==native.value("id").toString().toStdString()&&
+                window.host.session.revision()==0,
+                "Whole-schedule prewarm did not open the exact public fixture at revision zero");
+        window.canvas->set_active_artboard(composition_id.toStdString(),artboard_id.toStdString(),true);
+        window.canvas->set_timing_capture_enabled(false);
+        errors.clear();commits=0;
+        QJsonArray rehearsal_operations;
+        for(const auto operation:{Operation::pan,Operation::zoom,Operation::point,Operation::handle,Operation::transform}) {
+            const auto revision_before=window.host.session.revision();
+            observed_frames.clear();
+            sequence(window,operation,warmup_frames,false,errors,false,1);
+            const auto warmup_paints=static_cast<int>(observed_frames.size());
+            observed_frames.clear();
+            sequence(window,operation,measured_frames,false,errors,false,1);
+            const auto rehearsal_paints=static_cast<int>(observed_frames.size());
+            require(window.host.session.revision()==revision_before&&!window.host.session.gesture_active(),
+                    "Unmeasured whole-schedule rehearsal changed or left an active Session gesture");
+            rehearsal_operations.push_back(QJsonObject{{"operation",operation_name(operation)},
+                {"warmup_inputs",warmup_frames},{"rehearsal_inputs",measured_frames},
+                {"warmup_observed_paints",warmup_paints},{"rehearsal_observed_paints",rehearsal_paints},
+                {"detailed_timing_capture",false},{"revision_before",static_cast<qint64>(revision_before)},
+                {"revision_after",static_cast<qint64>(window.host.session.revision())}});
+        }
+        check_errors(errors);
+        require(window.host.session.revision()==0&&commits==0,
+                "Whole-schedule rehearsal changed the public fixture's starting state");
+        const auto prewarm_viewport=viewport_receipt();
+        QJsonObject viewport_identity=prewarm_viewport;
+        const QJsonObject whole_schedule_rehearsal{{"completed",true},{"fixture_sha256",QString::fromLatin1(fixture_sha)},
+            {"opened_file_path",QFileInfo(prewarm_path).absoluteFilePath()},{"detailed_timing_capture",false},
+            {"common_frame_observer",true},{"viewport_identity",prewarm_viewport},
+            {"ordered_operations",QJsonArray{"pan","zoom","point","handle","transform"}},
+            {"warmup_inputs_per_operation",warmup_frames},{"rehearsal_inputs_per_operation",measured_frames},
+            {"rehearsal_operations",rehearsal_operations},{"starting_revision",0},
+            {"ending_revision",static_cast<qint64>(window.host.session.revision())},
+            {"committed_notifications",commits}};
+
+        struct Pass { QString name; bool detailed; QJsonArray operations; QJsonObject scene; };
+        std::array<Pass,3> passes{{Pass{QStringLiteral("A1-off"),false,{},{}},
+            Pass{QStringLiteral("B-on"),true,{},{}},Pass{QStringLiteral("A2-off"),false,{},{}}}};
+        bool all_samples=true;
+        for (auto& pass:passes) {
+            require(QCryptographicHash::hash([&] { QFile source(fixture_path); require(source.open(QIODevice::ReadOnly),"Cannot verify source fixture before a pass"); return source.readAll(); }(),QCryptographicHash::Sha256).toHex()==fixture_sha,
+                    "Source fixture SHA changed before "+pass.name.toStdString());
+            require(QCryptographicHash::hash([&] { QFile source(manifest_path); require(source.open(QIODevice::ReadOnly),"Cannot verify source manifest before a pass"); return source.readAll(); }(),QCryptographicHash::Sha256).toHex()==manifest_sha,
+                    "Source fixture manifest SHA changed before "+pass.name.toStdString());
+            const auto pass_path=QDir(scratch.path()).filePath(pass.name+QStringLiteral(".nect"));
+            require(QFile::copy(fixture_path,pass_path),"Cannot create an owned exact-byte fixture copy for "+pass.name.toStdString());
+            QFile pass_fixture(pass_path);
+            require(pass_fixture.open(QIODevice::ReadOnly),"Cannot read an owned pass fixture");
+            const auto pass_sha=QCryptographicHash::hash(pass_fixture.readAll(),QCryptographicHash::Sha256).toHex();
+            require(pass_sha==fixture_sha,"Owned pass fixture copy does not match the exact source SHA");
+            window.host.open(pass_path);
+            require(window.host.session.document().id==native.value("id").toString().toStdString()&&
+                    window.host.session.revision()==0,
+                    "Opening the exact Q1 fixture copy changed stable document identity or starting revision");
+            window.canvas->set_active_artboard(composition_id.toStdString(),artboard_id.toStdString(),true);
+            window.canvas->set_timing_capture_enabled(pass.detailed);
+            observed_frames.clear();errors.clear();commits=0;
+            fit(window);wait_events(50);
+            const auto revision_start=window.host.session.revision();
+            const auto pass_window_identity=QString::number(static_cast<quintptr>(window.winId()),16);
+            require(pass_window_identity==window_identity,"A/B/A pass changed the visible Window identity");
+            require(window.isWindow()&&window.isVisible()&&window.windowHandle()&&window.windowHandle()->isExposed(),
+                    "Q1 pass did not run in the same visible/exposed Qt top-level Window");
+            const auto pass_window_visible=window.isVisible();
+            const auto pass_window_exposed=window.windowHandle()->isExposed();
+            const auto pass_window_active=window.isActiveWindow();
+            const auto pass_window_handle_identity=QString::number(static_cast<quintptr>(window.windowHandle()->winId()),16);
+            require(pass_window_handle_identity==window_handle_identity,
+                    "A/B/A pass changed the native Qt Window handle identity");
+            const auto pass_viewport=viewport_receipt();
+            require(pass_viewport==viewport_identity,"Viewport, DPI or display identity changed between Q1 passes");
+            const auto pass_start_clock=run_clock.elapsed();
+            for (const auto operation:{Operation::pan,Operation::zoom,Operation::point,Operation::handle,Operation::transform}) {
+                sequence(window,operation,warmup_frames,false,errors,false,1);
+                const auto before=window.host.session.revision();
+                const auto commits_before=commits;
+                const auto measurement=sequence(window,operation,measured_frames,true,errors,false,1,&observed_frames);
+                const auto after=window.host.session.revision();
+                require(commits-commits_before==(edits_document(operation)?1:0),
+                        "Unexpected committed notification count in Q1 "+pass.name.toStdString());
+                const auto summary=summarize(*window.canvas,operation,measurement,before,after,
+                    commits-commits_before,&observed_frames,pass.detailed);
+                all_samples=all_samples&&summary.value("sufficient_interval_samples").toBool();
+                pass.operations.push_back(summary);
+                if (edits_document(operation)) {
+                    window.host.session.undo(window.host.session.revision());
+                    window.host.edited();wait_events(40);
+                }
+            }
+            pass.scene={{"name","representative-public-api-fixture"},
+                {"fixture_file",QFileInfo(fixture_path).fileName()},
+                {"opened_file_path",QFileInfo(pass_path).absoluteFilePath()},
+                {"fixture_sha256",QString::fromLatin1(fixture_sha)},
+                {"fixture_copy_sha256",QString::fromLatin1(pass_sha)},
+                {"command_stream_sha256",manifest.value("command_stream_sha256")},
+                {"seed",manifest.value("seed")},{"config",manifest.value("config")},
+                {"document_id",QString::fromStdString(window.host.session.document().id)},
+                {"composition_id",composition_id},{"artboard_id",artboard_id},
+                {"path_count",objects.size()},{"point_count",static_cast<qint64>(point_count)},
+                {"fixture_revision",static_cast<qint64>(revision_start)},
+                {"final_revision",static_cast<qint64>(window.host.session.revision())},
+                {"viewport_identity",pass_viewport},
+                {"window_is_top_level",window.isWindow()},{"window_visible_at_start",pass_window_visible},
+                {"window_exposed_at_start",pass_window_exposed},
+                {"qt_window_handle_id_hex",pass_window_handle_identity},
+                {"active_window_at_start",pass_window_active},
+                {"same_process_id",process_id},{"window_identity_hex",window_identity},
+                {"detailed_timing_capture",pass.detailed},
+                {"common_frame_observer",true},{"phase_elapsed_ms",run_clock.elapsed()-pass_start_clock},
+                {"revision_after_undo_cleanup",static_cast<qint64>(window.host.session.revision())},
+                {"operations",pass.operations}};
+            pass.scene["active_window_at_end"]=window.isActiveWindow();
+            pass.scene["window_visible_at_end"]=window.isVisible();
+            pass.scene["window_exposed_at_end"]=window.windowHandle()&&window.windowHandle()->isExposed();
+            require(window.isVisible()&&window.windowHandle()&&window.windowHandle()->isExposed(),
+                    "Q1 owned Window lost visibility/exposure during "+pass.name.toStdString());
+            window.host.flush();
+            require(QCryptographicHash::hash([&] { QFile source(fixture_path); require(source.open(QIODevice::ReadOnly),"Cannot verify source fixture after a pass"); return source.readAll(); }(),QCryptographicHash::Sha256).toHex()==fixture_sha,
+                    "Source fixture SHA changed during "+pass.name.toStdString());
+            require(QCryptographicHash::hash([&] { QFile source(manifest_path); require(source.open(QIODevice::ReadOnly),"Cannot verify source manifest after a pass"); return source.readAll(); }(),QCryptographicHash::Sha256).toHex()==manifest_sha,
+                    "Source fixture manifest SHA changed during "+pass.name.toStdString());
+        }
+        window.canvas->set_frame_observer({});
+        window.canvas->error=original_error;window.canvas->document_changed=original_changed;
+        QFile final_fixture(fixture_path);
+        require(final_fixture.open(QIODevice::ReadOnly),"Cannot verify the source fixture after A/B/A");
+        const auto final_fixture_sha=QCryptographicHash::hash(final_fixture.readAll(),QCryptographicHash::Sha256).toHex();
+        require(final_fixture_sha==fixture_sha,"Visible benchmark modified the public API source fixture");
+        QFile final_manifest(manifest_path);
+        require(final_manifest.open(QIODevice::ReadOnly),"Cannot verify the source fixture manifest after A/B/A");
+        const auto final_manifest_sha=QCryptographicHash::hash(final_manifest.readAll(),QCryptographicHash::Sha256).toHex();
+        require(final_manifest_sha==manifest_sha,"Visible benchmark modified the public API source manifest");
+
+        QJsonArray pass_array;
+        for (const auto& pass:passes) pass_array.push_back(QJsonObject{{"name",pass.name},
+            {"detailed_timing_capture",pass.detailed},{"scene",pass.scene}});
+        QJsonArray comparisons;
+        bool all_overhead=true,all_a2_stable=true,all_a1_floor=true,all_b_floor=true;
+        for (qsizetype i=0;i<passes[0].operations.size();++i) {
+            const auto a1=passes[0].operations.at(i).toObject();
+            const auto b=passes[1].operations.at(i).toObject();
+            const auto a2=passes[2].operations.at(i).toObject();
+            const auto a1_interval=p95(a1,"interval"),b_interval=p95(b,"interval"),a2_interval=p95(a2,"interval");
+            const auto a1_input=p95(a1,"input_to_paint"),b_input=p95(b,"input_to_paint"),a2_input=p95(a2,"input_to_paint");
+            const auto a1_paint=p95(a1,"paint"),b_paint=p95(b,"paint"),a2_paint=p95(a2,"paint");
+            const bool samples=a1_interval&&b_interval&&a2_interval&&a1_input&&b_input&&a2_input&&a1_paint&&b_paint&&a2_paint&&
+                a1.value("sufficient_interval_samples").toBool()&&b.value("sufficient_interval_samples").toBool()&&a2.value("sufficient_interval_samples").toBool();
+            const double overhead_limit=samples?std::max(*a1_interval+1.0,*a1_interval*1.10):0;
+            const double drift_limit=samples?std::max(1.0,*a1_interval*0.10):0;
+            const bool overhead=samples&&*b_interval<=overhead_limit;
+            const bool a2_stable=samples&&std::abs(*a2_interval-*a1_interval)<=drift_limit;
+            const bool a1_floor=samples&&*a1_interval<=floor_budget_ms;
+            const bool b_floor=samples&&*b_interval<=floor_budget_ms;
+            all_samples=all_samples&&samples;all_overhead=all_overhead&&overhead;
+            all_a2_stable=all_a2_stable&&a2_stable;all_a1_floor=all_a1_floor&&a1_floor;
+            all_b_floor=all_b_floor&&b_floor;
+            QJsonObject compare{{"operation",a1.value("operation")},{"sufficient_samples",samples},
+                {"A1_interval_p95_ms",samples?QJsonValue(*a1_interval):QJsonValue(QJsonValue::Null)},
+                {"B_interval_p95_ms",samples?QJsonValue(*b_interval):QJsonValue(QJsonValue::Null)},
+                {"B_interval_p95_limit_ms",samples?QJsonValue(overhead_limit):QJsonValue(QJsonValue::Null)},
+                {"B_overhead_pass",overhead},{"A1_meets_30fps_floor",a1_floor},
+                {"B_meets_30fps_floor",b_floor},
+                {"A2_interval_p95_ms",samples?QJsonValue(*a2_interval):QJsonValue(QJsonValue::Null)},
+                {"A2_drift_ms",samples?QJsonValue(*a2_interval-*a1_interval):QJsonValue(QJsonValue::Null)},
+                {"A2_drift_bound_ms",samples?QJsonValue(drift_limit):QJsonValue(QJsonValue::Null)},
+                {"A2_stable",a2_stable}};
+            const auto delta=[&](const char* key,const std::optional<double>& base,const std::optional<double>& later) {
+                compare[QString::fromLatin1(key)]=base&&later?QJsonValue(*later-*base):QJsonValue(QJsonValue::Null);
+            };
+            delta("B_input_to_paint_p95_delta_ms",a1_input,b_input);
+            delta("B_paint_p95_delta_ms",a1_paint,b_paint);
+            delta("A2_input_to_paint_p95_delta_ms",a1_input,a2_input);
+            delta("A2_paint_p95_delta_ms",a1_paint,a2_paint);
+            comparisons.push_back(compare);
+        }
+        const bool visible_at_completion=window.isVisible();
+        const bool exposed_at_completion=window.windowHandle()&&window.windowHandle()->isExposed();
+        require(visible_at_completion&&exposed_at_completion,"Q1 owned Window was not visible/exposed at the end of A/B/A");
+        window.close();wait_events(20);
+        result["completed"]=true;
+        result["fixture"]=QJsonObject{{"path",QFileInfo(fixture_path).absoluteFilePath()},
+            {"sha256",QString::fromLatin1(fixture_sha)},
+            {"command_stream_sha256",manifest.value("command_stream_sha256")},
+            {"manifest_sha256",QString::fromLatin1(manifest_sha)},
+            {"native_version",native.value("version")},{"document_id",native.value("id")},
+            {"composition_id",composition_id},{"artboard_id",artboard_id},
+            {"object_count",objects.size()},{"point_count",static_cast<qint64>(point_count)},
+            {"starting_revision",0},{"api_fixture_revision",manifest.value("fixture_revision")},
+            {"second_process_byte_equivalent",manifest.value("byte_identical_second_process_replay")},
+            {"second_process_semantic_equivalent",manifest.value("semantic_second_process_replay")}};
+        result["passes"]=pass_array;result["comparisons"]=comparisons;
+        result["whole_schedule_rehearsal"]=whole_schedule_rehearsal;
+        result["all_operations_have_sufficient_samples"]=all_samples;
+        result["all_A1_operations_meet_30fps_p95_interval_floor"]=all_a1_floor;
+        result["all_B_operations_meet_30fps_p95_interval_floor"]=all_b_floor;
+        result["all_B_operations_meet_telemetry_overhead_bound"]=all_overhead;
+        result["all_A2_operations_within_A1_drift_bound"]=all_a2_stable;
+        result["same_visible_window_for_all_passes"]=true;
+        result["same_process_for_all_passes"]=true;
+        result["same_input_schedule_for_all_passes"]=true;
+        result["same_viewport_and_dpi_for_all_passes"]=true;
+        result["viewport_identity"]=viewport_identity;
+        result["visible_window_receipt"]=QJsonObject{{"process_id",process_id},
+            {"qt_window_handle_id_hex",window_handle_identity},
+            {"top_level",window.isWindow()},{"visible_at_completion",visible_at_completion},
+            {"exposed_at_completion",exposed_at_completion},
+            {"platform",QGuiApplication::platformName()}};
+        result["input_schedule"]=QJsonObject{{"ordered_operations",QJsonArray{"pan","zoom","point","handle","transform"}},
+            {"warmup_inputs_per_operation",warmup_frames},{"measured_inputs_per_operation",measured_frames},
+            {"input_spacing_ms",target_interval_ms},{"unmeasured_full_schedule_rehearsals_before_A1",1},
+            {"schedule_reused_for_all_passes",true}};
+        const bool pass=all_samples&&all_a1_floor&&all_b_floor&&all_overhead&&all_a2_stable;
+        result["performance_status"]=(all_a1_floor&&all_b_floor&&all_overhead)?"PASS":"RED";
+        result["qualification_status"]=pass?"PASS":(!all_samples||!all_a2_stable?"INCONCLUSIVE":"RED");
+        result["qualification_status_reason"]=pass?"All sampled operation oracles pass":
+            !all_samples?"One or more operations lack sufficient samples":
+            !all_a2_stable?"A2 exceeded the frozen A1 drift bound; the paired A/B result is inconclusive":
+            "One or more performance or telemetry-overhead oracles are RED";
+        result["elapsed_ms"]=run_clock.elapsed();
+        write_result(output,result);
+        return result;
+    } catch (const std::exception& error) {
+        result["completed"]=false;result["qualification_status"]="BLOCKED";
+        result["execution_error"]=QString::fromUtf8(error.what());
+        result["elapsed_ms"]=run_clock.elapsed();
+        write_result(output,result);
+        throw;
+    }
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -382,9 +768,24 @@ int main(int argc, char** argv) {
         "QToolBar{spacing:8px;padding:4px;border-bottom:1px solid #3b424a;}"
         "QMenu{border:1px solid #49515c;}QMenu::item:selected{background:#43505f;}");
     app.setQuitOnLastWindowClosed(false);
+    const bool q1_aba=app.arguments().size()==5&&app.arguments().at(2)=="--q1-aba";
+    if (q1_aba) {
+        const auto output=app.arguments().at(1);
+        run_clock.start();
+        try {
+            const auto result=run_q1_aba(output,app.arguments().at(3),app.arguments().at(4));
+            const auto status=result.value("qualification_status").toString();
+            std::cout<<"Q1 visible A/B/A qualification "<<status.toStdString()<<": "<<output.toStdString()<<'\n';
+            return 0; // RED and INCONCLUSIVE are machine results, not execution errors.
+        } catch (const std::exception& error) {
+            std::cerr<<"Q1 visible A/B/A benchmark blocked: "<<error.what()<<'\n';
+            return 1;
+        }
+    }
     if (app.arguments().size() < 2 || app.arguments().size()>3 ||
         (app.arguments().size()==3&&app.arguments().at(2)!="--repeat"&&app.arguments().at(2)!="--text"&&app.arguments().at(2)!="--polystar"&&app.arguments().at(2)!="--multi"&&app.arguments().at(2)!="--expressions"&&app.arguments().at(2)!="--compositing"&&app.arguments().at(2)!="--offset"&&app.arguments().at(2)!="--assets"&&app.arguments().at(2)!="--layout")) {
-        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions|--compositing|--offset|--assets|--layout]\n";
+        std::cerr << "Usage: canvas_benchmark <result.json> [--repeat|--text|--polystar|--multi|--expressions|--compositing|--offset|--assets|--layout]\n"
+                     "   or: canvas_benchmark <result.json> --q1-aba <fixture.nect> <fixture-manifest.json>\n";
         return 2;
     }
     const auto output = app.arguments().at(1);
@@ -537,6 +938,9 @@ int main(int argc, char** argv) {
                 if (original_changed) original_changed();
             };
             InteractionCleanup cleanup{*window.canvas};
+            // Keep legacy benchmark output populated after production capture
+            // became opt-in by default.
+            window.canvas->set_timing_capture_enabled(true);
             const auto* screen = window.screen();
             QJsonObject scene{{"name", layout_scene?(paths == 2 ? "layout-lightweight" : "layout-representative"):
                 repeated?"repeated-paint":paths == 2 ? "lightweight" : "representative"},

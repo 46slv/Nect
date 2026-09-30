@@ -134,6 +134,34 @@ void point_drag_is_one_transaction() {
     f.no_error();
 }
 
+void detailed_canvas_timing_is_opt_in_with_shared_observer() {
+    Fixture f;
+    check(!f.canvas.timing_capture_enabled(), "Detailed Canvas timing is off by default");
+    std::vector<Canvas::FrameTiming> observed;
+    f.canvas.set_frame_observer([&](const Canvas::FrameTiming& frame) {
+        observed.push_back(frame);
+    });
+
+    f.canvas.fit_artboard();
+    QApplication::processEvents();
+    check(!observed.empty(), "Common observer receives completed paints with detailed capture off");
+    check(!f.canvas.timing_capture_enabled() && f.canvas.frame_timings().empty(),
+          "Observation-only mode does not retain detailed FrameTiming samples");
+    check(observed.back().operation == "fit" && observed.back().input_to_paint_ms >= 0 &&
+          observed.back().paint_ms >= 0,
+          "Common observer reports the paint and input-to-paint boundary");
+
+    observed.clear();
+    f.canvas.set_timing_capture_enabled(true);
+    f.canvas.fit_artboard();
+    QApplication::processEvents();
+    check(!observed.empty() && !f.canvas.frame_timings().empty(),
+          "Enabling detailed timing retains samples while common observation remains active");
+    check(f.canvas.timing_capture_enabled(), "Detailed timing state reflects the opt-in");
+    f.canvas.set_frame_observer({});
+    f.canvas.set_timing_capture_enabled(false);
+}
+
 void cancellation_and_return_home_do_not_commit() {
     Fixture f;
     const auto original = encode(f.session.document());
@@ -2140,6 +2168,7 @@ int main(int argc, char** argv) {
         rectangle_selection_is_view_only();
         keyboard_world_placement();
         contextual_selection_and_framing();
+        detailed_canvas_timing_is_opt_in_with_shared_observer();
         point_drag_is_one_transaction();
         cancellation_and_return_home_do_not_commit();
         independent_polar_handle_edits();

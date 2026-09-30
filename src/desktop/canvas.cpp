@@ -901,7 +901,8 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
 }
 
 void Canvas::paintEvent(QPaintEvent*) {
-    const auto start = clock_.nsecsElapsed();
+    const auto observe_timing = timing_observation_enabled();
+    const auto start = observe_timing ? clock_.nsecsElapsed() : 0;
     {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
@@ -1053,11 +1054,14 @@ void Canvas::paintEvent(QPaintEvent*) {
             painter.drawText(QRect(18,49,width()-36,42),Qt::TextWordWrap,tr("Rendering unavailable: ")+render_error_);
         }
     }
-    const auto end = clock_.nsecsElapsed();
-    if (input_started_ns_ >= 0) {
+    if (observe_timing && input_started_ns_ >= 0) {
+        const auto end = clock_.nsecsElapsed();
         FrameTiming sample;
         sample.operation = pending_operation_;
-        sample.semantic_preview_ms=pending_preview_ms_;sample.projection_ms=pending_projection_ms_;
+        if (timing_capture_enabled_) {
+            sample.semantic_preview_ms=pending_preview_ms_;
+            sample.projection_ms=pending_projection_ms_;
+        }
         sample.paint_ms = (end - start) / 1e6;
         sample.input_to_paint_ms = (end - input_started_ns_) / 1e6;
         if (last_paint_ns_ >= 0 && painted_sequence_ == input_sequence_)
@@ -1065,8 +1069,11 @@ void Canvas::paintEvent(QPaintEvent*) {
         sample.viewport_width = width();
         sample.viewport_height = height();
         sample.device_pixel_ratio = devicePixelRatioF();
-        if (timings_.size() >= 4096) timings_.erase(timings_.begin(), timings_.begin() + 1024);
-        timings_.push_back(std::move(sample));
+        if (timing_capture_enabled_) {
+            if (timings_.size() >= 4096) timings_.erase(timings_.begin(), timings_.begin() + 1024);
+            timings_.push_back(sample);
+        }
+        if (frame_observer_) frame_observer_(sample);
         last_paint_ns_ = end;
         painted_sequence_ = input_sequence_;
         input_started_ns_ = -1;
@@ -1157,7 +1164,8 @@ void Canvas::begin_guide_drag(const Guide& guide,QPointF screen) {
         guide_drag_revision_=session_.revision();guide_drag_invalid_=false;
         press_position_=screen;press_pan_=pan_;drag_moved_=false;
         session_.begin_gesture(guide_drag_revision_);gesture_owned_=true;drag_=Drag::guide;
-        ++input_sequence_;update_cursor();update();
+        if (timing_observation_enabled()) ++input_sequence_;
+        update_cursor();update();
     } catch(const std::exception& exception) {report_error(exception);}
 }
 
@@ -1601,7 +1609,7 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
     drag_moved_ = false;
     if (kind == Drag::pan) {
         drag_ = kind;
-        ++input_sequence_;
+        if (timing_observation_enabled()) ++input_sequence_;
         update_cursor();
         return;
     }
@@ -1655,7 +1663,7 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
         session_.begin_gesture(session_.revision());
         gesture_owned_ = true;
         drag_ = kind;
-        ++input_sequence_;
+        if (timing_observation_enabled()) ++input_sequence_;
         update_cursor();
     } catch (const std::exception& exception) {
         report_error(exception);
@@ -1748,10 +1756,17 @@ void Canvas::update_drag(QPointF screen) {
             }
         }
         // An empty preview restores the start state when a drag returns home.
-        const auto preview_start=clock_.nsecsElapsed();
-        session_.update_gesture(commands);
-        const auto projection_start=clock_.nsecsElapsed();pending_preview_ms_+=(projection_start-preview_start)/1e6;
-        refresh();pending_projection_ms_+=(clock_.nsecsElapsed()-projection_start)/1e6;
+        if (timing_capture_enabled_) {
+            const auto preview_start=clock_.nsecsElapsed();
+            session_.update_gesture(commands);
+            const auto projection_start=clock_.nsecsElapsed();
+            pending_preview_ms_+=(projection_start-preview_start)/1e6;
+            refresh();
+            pending_projection_ms_+=(clock_.nsecsElapsed()-projection_start)/1e6;
+        } else {
+            session_.update_gesture(commands);
+            refresh();
+        }
     } catch (const std::exception& exception) {
         cancel_interaction();
         report_error(exception);
@@ -1929,7 +1944,8 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         else {
             drag_=Drag::marquee;press_position_=marquee_position_=event->position();
             marquee_start_=selections_;marquee_extend_=extend;drag_moved_=false;
-            ++input_sequence_;update_cursor();
+            if (timing_observation_enabled()) ++input_sequence_;
+            update_cursor();
         }
     }
     event->accept();
@@ -2040,11 +2056,27 @@ void Canvas::report_error(const std::exception& exception) {
 }
 
 void Canvas::request_frame(const QString& operation, bool new_sequence) {
-    if (new_sequence) ++input_sequence_;
-    // Keep the earliest unpainted input so coalescing is visible in latency data.
-    if (input_started_ns_ < 0) {input_started_ns_ = clock_.nsecsElapsed();pending_preview_ms_=0;pending_projection_ms_=0;}
-    pending_operation_ = operation;
+    if (timing_observation_enabled()) {
+        if (new_sequence) ++input_sequence_;
+        // Keep the earliest unpainted input so coalescing is visible in latency data.
+        if (input_started_ns_ < 0) {
+            input_started_ns_ = clock_.nsecsElapsed();
+            if (timing_capture_enabled_) {pending_preview_ms_=0;pending_projection_ms_=0;}
+        }
+        pending_operation_ = operation;
+    }
     update();
+}
+
+void Canvas::set_timing_capture_enabled(bool enabled) {
+    if (timing_capture_enabled_ == enabled) return;
+    timing_capture_enabled_ = enabled;
+    reset_timing();
+}
+
+void Canvas::set_frame_observer(FrameObserver observer) {
+    frame_observer_ = std::move(observer);
+    reset_timing();
 }
 
 void Canvas::reset_timing() {
@@ -2052,7 +2084,7 @@ void Canvas::reset_timing() {
     input_started_ns_ = -1;
     last_paint_ns_ = -1;
     last_wheel_ns_ = -1;
-    ++input_sequence_;
+    if (timing_observation_enabled()) ++input_sequence_;
 }
 
 void Canvas::update_cursor() {
