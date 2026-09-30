@@ -349,16 +349,46 @@ QJsonObject Host::export_png(const QString& path,const Id& composition,const Id&
         {"background",white_background?"white":"transparent"},{"color_space","sRGB"},{"revision",static_cast<qint64>(expected)}};
 }
 
+namespace {
+QString analysis_child_id(const QString& analysis_id,const char* kind,const QJsonObject& payload) {
+    const auto canonical=QJsonDocument(QJsonObject{{"analysis_id",analysis_id},{"payload",payload}})
+        .toJson(QJsonDocument::Compact);
+    const auto digest=QCryptographicHash::hash(canonical,QCryptographicHash::Sha256).toHex();
+    return QStringLiteral("analysis.%1.v1:%2").arg(QString::fromLatin1(kind),QString::fromLatin1(digest));
+}
+QString analysis_pixel_digest(const QImage& image) {
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    QByteArray row(image.width()*4,Qt::Uninitialized);
+    for(int y=0;y<image.height();++y) {
+        for(int x=0;x<image.width();++x) {
+            const auto pixel=image.pixel(x,y);
+            row[4*x]=static_cast<char>(qAlpha(pixel));
+            row[4*x+1]=static_cast<char>(qRed(pixel));
+            row[4*x+2]=static_cast<char>(qGreen(pixel));
+            row[4*x+3]=static_cast<char>(qBlue(pixel));
+        }
+        hash.addData(row);
+    }
+    return QString::fromLatin1(hash.result().toHex());
+}
+}
+
 QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale,std::uint64_t source_revision,
     bool include_color_groups,bool include_color_components,
-    std::optional<std::uint64_t> intersect_color_component_index) {
+    std::optional<std::uint64_t> intersect_color_component_index,
+    std::optional<QString> intersect_color_component_id,
+    const Id& document_id,const Id& composition_id,const Id& artboard_id) {
     if(include_color_components&&!include_color_groups)
         throw Error("INVALID_REQUEST","include_color_components requires include_color_groups to be true");
-    if(intersect_color_component_index&&(!include_color_groups||!include_color_components))
-        throw Error("INVALID_REQUEST","intersect_color_component_index requires include_color_groups and include_color_components to be true");
+    if(intersect_color_component_index&&intersect_color_component_id)
+        throw Error("INVALID_REQUEST","Supply only one color component selector");
+    if((intersect_color_component_index||intersect_color_component_id)&&(!include_color_groups||!include_color_components))
+        throw Error("INVALID_REQUEST","Color component selection requires include_color_groups and include_color_components to be true");
     if(threshold<1||threshold>255)throw Error("INVALID_THRESHOLD","Alpha threshold must be an integer from 1 through 255");
     if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","Analysis scale must be greater than zero and at most 16");
     if(image.isNull()||image.width()<1||image.height()<1)throw Error("RENDER_ALLOCATION","Could not read rendered analysis pixels");
+    if(image.format()!=QImage::Format_ARGB32_Premultiplied)
+        throw Error("INVALID_REQUEST","Analysis pixels must be ARGB32_Premultiplied Canvas output");
     constexpr std::uint64_t max_pixels=4'000'000;
     constexpr std::size_t max_regions=10'000;
     constexpr std::size_t max_edge_runs=100'000;
@@ -369,6 +399,23 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
     const auto height=static_cast<std::uint64_t>(image.height());
     const auto pixel_count=width*height;
     if(pixel_count>max_pixels)throw Error("ANALYSIS_LIMIT","Region analysis is limited to 4,000,000 output pixels");
+
+    constexpr int analysis_behavior_version=1;
+    const QJsonObject snapshot{{"document_id",QString::fromStdString(document_id)},
+        {"composition",QString::fromStdString(composition_id)},{"artboard",QString::fromStdString(artboard_id)},
+        {"source_revision",static_cast<qint64>(source_revision)},{"scale",scale},{"threshold",threshold},
+        {"width",image.width()},{"height",image.height()},
+        {"pixel_format","ARGB32_Premultiplied"},{"color_space","sRGB"},
+        {"alpha_domain","8-bit premultiplied Canvas output alpha byte"},
+        {"coordinate_space","artboard-output-pixels"},{"origin","top-left"},
+        {"analysis_behavior_version",analysis_behavior_version},
+        {"pixel_sha256",analysis_pixel_digest(image)}};
+    const auto analysis_id=QStringLiteral("analysis.v1:%1").arg(QString::fromLatin1(
+        QCryptographicHash::hash(QJsonDocument(snapshot).toJson(QJsonDocument::Compact),
+            QCryptographicHash::Sha256).toHex()));
+    const auto child_id=[&](const char* kind,const QJsonObject& payload) {
+        return analysis_child_id(analysis_id,kind,payload);
+    };
 
     constexpr auto no_region=std::numeric_limits<std::uint32_t>::max();
     std::vector<std::uint32_t> pixel_regions(static_cast<std::size_t>(pixel_count),no_region);
@@ -402,8 +449,10 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
             if(y>0)enqueue(index-static_cast<std::uint32_t>(width));
             if(static_cast<std::uint64_t>(y)+1<height)enqueue(index+static_cast<std::uint32_t>(width));
         }
-        regions.append(QJsonObject{{"area",static_cast<qint64>(area)},
-            {"x",min_x},{"y",min_y},{"width",max_x-min_x+1},{"height",max_y-min_y+1}});
+        QJsonObject region{{"area",static_cast<qint64>(area)},
+            {"x",min_x},{"y",min_y},{"width",max_x-min_x+1},{"height",max_y-min_y+1}};
+        region.insert("id",child_id("region",region));
+        regions.append(region);
     }
 
     QJsonArray edge_runs;
@@ -537,8 +586,13 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         for(const auto& vertex:contour.vertices) {
             QJsonArray point;point.append(vertex.x);point.append(vertex.y);vertices.append(point);
         }
-        outer_contours.append(QJsonObject{{"region_index",static_cast<int>(contour.region)},
-            {"closed",true},{"vertices",vertices}});
+        QJsonObject output{{"region_index",static_cast<int>(contour.region)},
+            {"region_id",regions.at(static_cast<int>(contour.region)).toObject().value("id")},
+            {"closed",true},{"vertices",vertices}};
+        auto identity_payload=output;
+        identity_payload.remove("region_index");
+        output.insert("id",child_id("contour",identity_payload));
+        outer_contours.append(output);
     }
 
     // Derive exact one-pixel runs only after the existing region, edge-run,
@@ -575,8 +629,10 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
                 throw Error("ANALYSIS_LIMIT","Region analysis is limited to 10,000 line candidates");
             QJsonArray start_point;start_point.append(x);start_point.append(y);
             QJsonArray end_point;end_point.append(end_x);end_point.append(end_y);
-            line_candidates.append(QJsonObject{{"direction",name},{"start",start_point},
-                {"end",end_point},{"length_pixels",length}});
+            QJsonObject line{{"direction",name},{"start",start_point},
+                {"end",end_point},{"length_pixels",length}};
+            line.insert("id",child_id("line",line));
+            line_candidates.append(line);
         }
     }
     QJsonArray morphology_runs;
@@ -599,9 +655,10 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         }
         if(in_run)append_morphology_run(y,run_start,image.width());
     }
-    const QJsonObject morphology{{"operation","dilate"},{"kernel","cross-4-radius-1"},
+    QJsonObject morphology{{"operation","dilate"},{"kernel","cross-4-radius-1"},
         {"border","outside-background-clipped"},{"coordinate_space","artboard-output-pixels"},
         {"area",static_cast<qint64>(morphology_area)},{"runs",morphology_runs}};
+    morphology.insert("id",child_id("morphology",morphology));
     QJsonArray erosion_runs;
     std::uint64_t erosion_area=0;
     const auto append_erosion_run=[&](int y,int start,int end) {
@@ -622,9 +679,10 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         }
         if(in_run)append_erosion_run(y,run_start,image.width());
     }
-    const QJsonObject erosion{{"operation","erode"},{"kernel","cross-4-radius-1"},
+    QJsonObject erosion{{"operation","erode"},{"kernel","cross-4-radius-1"},
         {"border","outside-background"},{"coordinate_space","artboard-output-pixels"},
         {"area",static_cast<qint64>(erosion_area)},{"runs",erosion_runs}};
+    erosion.insert("id",child_id("erosion",erosion));
     QJsonArray mask_boolean_runs;
     std::uint64_t mask_boolean_area=0;
     const auto append_mask_boolean_run=[&](int y,int start,int end) {
@@ -655,14 +713,16 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
         }
         if(cursor<end)append_mask_boolean_run(y,cursor,end);
     }
-    const QJsonObject mask_boolean{{"operation","difference"},
+    QJsonObject mask_boolean{{"operation","difference"},
         {"operands",QJsonArray{
             QJsonObject{{"role","left"},{"mask","morphology"},{"operation","dilate"}},
             QJsonObject{{"role","right"},{"mask","erosion"},{"operation","erode"}}}},
         {"coordinate_space","artboard-output-pixels"},{"width",image.width()},{"height",image.height()},
         {"source_revision",static_cast<qint64>(source_revision)},
         {"area",static_cast<qint64>(mask_boolean_area)},{"runs",mask_boolean_runs}};
+    mask_boolean.insert("id",child_id("mask_boolean",mask_boolean));
     QJsonObject result{{"regions",regions},{"edge_runs",edge_runs},{"edge_pixel_count",static_cast<qint64>(edge_pixel_count)},
+        {"analysis_id",analysis_id},{"analysis_behavior_version",analysis_behavior_version},
         {"edge_rule","foreground-4-neighbor"},{"threshold",threshold},{"connectivity",4},{"scale",scale},
         {"width",image.width()},{"height",image.height()},{"color_space","sRGB"},
         {"coordinate_space","artboard-output-pixels"},{"origin","top-left"},
@@ -728,11 +788,13 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
             QJsonArray runs;
             for(const auto& run:value.runs)
                 runs.append(QJsonObject{{"y",run.y},{"x",run.x},{"width",run.width}});
-            color_groups.append(QJsonObject{{"rgb",QJsonArray{rgb[0],rgb[1],rgb[2]}},
+            QJsonObject group{{"rgb",QJsonArray{rgb[0],rgb[1],rgb[2]}},
                 {"area",static_cast<qint64>(value.area)},
                 {"bounds",QJsonObject{{"x",value.min_x},{"y",value.min_y},
                     {"width",value.max_x-value.min_x+1},{"height",value.max_y-value.min_y+1}}},
-                {"runs",runs}});
+                {"runs",runs}};
+            group.insert("id",child_id("color_group",group));
+            color_groups.append(group);
         }
         result.insert("color_groups",color_groups);
         result.insert("color_key_domain","output-srgb-straight-rgb8");
@@ -822,20 +884,35 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
                     QJsonArray component_runs;
                     for(const auto& run:component.runs)
                         component_runs.append(QJsonObject{{"y",run.y},{"x",run.x},{"width",run.width}});
-                    color_components.append(QJsonObject{{"component_index",static_cast<int>(color_components.size())},
+                    QJsonObject output{{"component_index",static_cast<int>(color_components.size())},
                         {"rgb",QJsonArray{rgb[0],rgb[1],rgb[2]}},
                         {"area",static_cast<qint64>(component.area)},
                         {"bounds",QJsonObject{{"x",component.min_x},{"y",component.min_y},
                             {"width",component.max_x-component.min_x+1},{"height",component.max_y-component.min_y+1}}},
-                        {"runs",component_runs}});
+                        {"runs",component_runs}};
+                    auto identity_payload=output;
+                    identity_payload.remove("component_index");
+                    output.insert("id",child_id("color_component",identity_payload));
+                    color_components.append(output);
                 }
             }
             result.insert("color_components",color_components);
 
-            if(intersect_color_component_index) {
-                if(*intersect_color_component_index>=static_cast<std::uint64_t>(color_components.size()))
-                    throw Error("INVALID_REQUEST","intersect_color_component_index is outside this request's color_components result");
-                const auto selected=color_components.at(static_cast<int>(*intersect_color_component_index)).toObject();
+            if(intersect_color_component_index||intersect_color_component_id) {
+                int selected_index=-1;
+                if(intersect_color_component_index) {
+                    if(*intersect_color_component_index>=static_cast<std::uint64_t>(color_components.size()))
+                        throw Error("INVALID_REQUEST","intersect_color_component_index is outside this request's color_components result");
+                    selected_index=static_cast<int>(*intersect_color_component_index);
+                } else {
+                    for(int index=0;index<color_components.size();++index)
+                        if(color_components.at(index).toObject().value("id").toString()==*intersect_color_component_id) {
+                            selected_index=index;break;
+                        }
+                    if(selected_index<0)
+                        throw Error("INVALID_REQUEST","intersect_color_component_id is not a component of this analysis snapshot");
+                }
+                const auto selected=color_components.at(selected_index).toObject();
                 const auto component_runs=selected.value("runs").toArray();
                 std::size_t component_run_index=0,mask_run_index=0;
                 std::uint64_t intersection_area=0;
@@ -863,16 +940,21 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
                     if(component_end<=mask_end)++component_run_index;
                     if(mask_end<=component_end)++mask_run_index;
                 }
-                result.insert("color_component_mask_intersection",QJsonObject{
+                QJsonObject intersection{
                     {"operation","intersection"},
-                    {"component_index",static_cast<qint64>(*intersect_color_component_index)},
+                    {"component_index",selected_index},{"component_id",selected.value("id")},
+                    {"analysis_id",analysis_id},
                     {"rgb",selected.value("rgb")},
                     {"other_operand","mask_boolean"},
                     {"coordinate_space","artboard-output-pixels"},
                     {"width",image.width()},{"height",image.height()},
                     {"source_revision",static_cast<qint64>(source_revision)},
                     {"area",static_cast<qint64>(intersection_area)},
-                    {"runs",intersection_runs}});
+                    {"runs",intersection_runs}};
+                auto identity_payload=intersection;
+                identity_payload.remove("component_index");
+                intersection.insert("id",child_id("intersection",identity_payload));
+                result.insert("color_component_mask_intersection",intersection);
             }
         }
     }
@@ -881,11 +963,14 @@ QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale
 
 QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected,
     bool include_color_groups,bool include_color_components,
-    std::optional<std::uint64_t> intersect_color_component_index) {
+    std::optional<std::uint64_t> intersect_color_component_index,
+    std::optional<QString> intersect_color_component_id) {
     if(include_color_components&&!include_color_groups)
         throw Error("INVALID_REQUEST","include_color_components requires include_color_groups to be true");
-    if(intersect_color_component_index&&(!include_color_groups||!include_color_components))
-        throw Error("INVALID_REQUEST","intersect_color_component_index requires include_color_groups and include_color_components to be true");
+    if(intersect_color_component_index&&intersect_color_component_id)
+        throw Error("INVALID_REQUEST","Supply only one color component selector");
+    if((intersect_color_component_index||intersect_color_component_id)&&(!include_color_groups||!include_color_components))
+        throw Error("INVALID_REQUEST","Color component selection requires include_color_groups and include_color_components to be true");
     if(expected!=session.revision())throw Error("REVISION_CONFLICT","Refresh revision before analyzing regions");
     if(session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before analyzing regions");
     if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","Analysis scale must be greater than zero and at most 16");
@@ -904,7 +989,7 @@ QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,doubl
         throw Error("ANALYSIS_LIMIT","Region analysis is limited to 4,000,000 output pixels");
     const auto image=Canvas::render_artboard(session.document(),composition,artboard,scale,false);
     return analyze_region_pixels(image,threshold,scale,expected,include_color_groups,include_color_components,
-        intersect_color_component_index);
+        intersect_color_component_index,intersect_color_component_id,session.document().id,composition,artboard);
 }
 
 QByteArray Host::dispatch(const QByteArray& input) {
@@ -914,7 +999,7 @@ QByteArray Host::dispatch(const QByteArray& input) {
         auto outer=QJsonDocument::fromJson(input).object();
         const auto operation=string(outer,"op");
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
-            (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","include_color_groups","include_color_components","intersect_color_component_index"}:
+            (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","include_color_groups","include_color_components","intersect_color_component_index","intersect_color_component_id"}:
             (operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
              operation=="core"?QStringList{"op","session_id","document_id","request"}:
              operation=="import_svg"?QStringList{"op","session_id","document_id","expected_revision","path","composition","prefix","name","x","y"}:
@@ -980,13 +1065,24 @@ QByteArray Host::dispatch(const QByteArray& input) {
                         intersect_color_component_index=number>=18446744073709551616.0?
                             std::numeric_limits<std::uint64_t>::max():static_cast<std::uint64_t>(number);
                     }
+                    std::optional<QString> intersect_color_component_id;
+                    if(outer.contains("intersect_color_component_id")) {
+                        const auto value=outer.value("intersect_color_component_id");
+                        if(!value.isString()||value.toString().isEmpty())
+                            throw Error("INVALID_REQUEST","intersect_color_component_id must be a nonempty string");
+                        intersect_color_component_id=value.toString();
+                    }
+                    if(intersect_color_component_index&&intersect_color_component_id)
+                        throw Error("INVALID_REQUEST","Supply only one color component selector");
                     if(include_color_components&&!include_color_groups)
                         throw Error("INVALID_REQUEST","include_color_components requires include_color_groups to be true");
-                    if(intersect_color_component_index&&(!include_color_groups||!include_color_components))
-                        throw Error("INVALID_REQUEST","intersect_color_component_index requires include_color_groups and include_color_components to be true");
+                    if((intersect_color_component_index||intersect_color_component_id)&&
+                       (!include_color_groups||!include_color_components))
+                        throw Error("INVALID_REQUEST","Color component selection requires include_color_groups and include_color_components to be true");
                     response={{"ok",true},{"result",analyze_regions(string(outer,"composition").toStdString(),
                         string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),static_cast<int>(threshold),session.revision(),
-                        include_color_groups,include_color_components,intersect_color_component_index)}};
+                        include_color_groups,include_color_components,intersect_color_component_index,
+                        intersect_color_component_id)}};
                 } else if(op=="import_svg") {
                     if(!outer.value("x").isDouble()||!outer.value("y").isDouble())throw Error("INVALID_REQUEST","Numeric x/y required");
                     response={{"ok",true},{"result",import_svg(string(outer,"path"),string(outer,"composition").toStdString(),string(outer,"prefix").toStdString(),

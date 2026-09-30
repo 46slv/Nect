@@ -20,6 +20,20 @@ using namespace nect;
 using namespace nect::desktop;
 namespace {
 void check(bool ok,const char* message) {if(!ok)throw std::runtime_error(message);}
+QJsonObject legacy_analysis_object(QJsonObject value) {
+    value.remove("id");value.remove("region_id");return value;
+}
+QJsonArray legacy_analysis_array(const QJsonArray& values) {
+    QJsonArray result;
+    for(const auto& value:values) {
+        result.append(legacy_analysis_object(value.toObject()));
+    }
+    return result;
+}
+QJsonObject legacy_intersection(QJsonObject value) {
+    value.remove("id");value.remove("analysis_id");value.remove("component_id");
+    return value;
+}
 QByteArray bytes(const QString& path) {
     QFile file(path);if(!file.open(QIODevice::ReadOnly))throw std::runtime_error("Could not read native fixture");
     return file.readAll();
@@ -130,7 +144,7 @@ QJsonObject expected_contour(int region,std::initializer_list<std::array<int,2>>
     return {{"region_index",region},{"closed",true},{"vertices",vertices}};
 }
 void check_contours(const QJsonObject& value,const QJsonArray& expected,const char* message) {
-    check(value.value("outer_contours").toArray()==expected,message);
+    check(legacy_analysis_array(value.value("outer_contours").toArray())==expected,message);
     check(value.value("contour_rule").toString()=="foreground-right-clockwise-outer"&&
         value.value("contour_coordinate_space").toString()=="artboard-output-pixel-corners"&&
         value.value("contour_closed").toString()=="implicit-last-to-first",
@@ -142,7 +156,7 @@ QJsonObject expected_line(const char* direction,std::array<int,2> start,std::arr
     return {{"direction",direction},{"start",start_point},{"end",end_point},{"length_pixels",length}};
 }
 void check_lines(const QJsonObject& value,const QJsonArray& expected,const char* message) {
-    check(value.value("line_candidates").toArray()==expected,message);
+    check(legacy_analysis_array(value.value("line_candidates").toArray())==expected,message);
     check(value.value("line_rule").toString()=="exact-one-pixel-wide-4-direction-min3"&&
         value.value("line_coordinate_space").toString()=="artboard-output-pixel-centers",
         "Line candidates declare the thinness rule and output pixel-center coordinates");
@@ -218,11 +232,11 @@ void independent_color_group_oracle() {
     check(grouped.value("color_key_domain").toString()=="output-srgb-straight-rgb8"&&
         grouped.value("color_alpha_rule").toString()=="output-alpha-byte-ge-threshold"&&
         groups.size()==2,"Requested output groups declare their byte and alpha domains");
-    check(groups[0].toObject()==QJsonObject{{"rgb",QJsonArray{0,0,255}},
+    check(legacy_analysis_object(groups[0].toObject())==QJsonObject{{"rgb",QJsonArray{0,0,255}},
         {"area",2},{"bounds",QJsonObject{{"x",2},{"y",0},{"width",1},{"height",2}}},
         {"runs",expected_runs({{0,2,1},{1,2,1}})}},
         "Blue output bytes sort first with exact area, bounds and maximal row runs");
-    check(groups[1].toObject()==QJsonObject{{"rgb",QJsonArray{255,0,0}},
+    check(legacy_analysis_object(groups[1].toObject())==QJsonObject{{"rgb",QJsonArray{255,0,0}},
         {"area",3},{"bounds",QJsonObject{{"x",0},{"y",0},{"width",4},{"height",3}}},
         {"runs",expected_runs({{0,0,2},{2,3,1}})}},
         "Opaque red output bytes have exact area, bounds and maximal row runs");
@@ -269,7 +283,7 @@ void independent_color_group_oracle() {
         "Omitted or false color-components preserves the complete D8 color-group response");
     const auto with_components=analyze_region_pixels(image,128,1.0,61,true,true);
     const auto components=with_components.value("color_components").toArray();
-    check(components==QJsonArray{
+    check(legacy_analysis_array(components)==QJsonArray{
         expected_color_component(0,{0,0,255},2,2,0,1,2,expected_runs({{0,2,1},{1,2,1}})),
         expected_color_component(1,{255,0,0},2,0,0,2,1,expected_runs({{0,0,2}})),
         expected_color_component(2,{255,0,0},1,3,2,1,1,expected_runs({{2,3,1}}))},
@@ -278,7 +292,7 @@ void independent_color_group_oracle() {
     QImage diagonal(2,2,QImage::Format_ARGB32_Premultiplied);diagonal.fill(Qt::transparent);
     diagonal.setPixel(0,0,qRgba(30,60,90,255));diagonal.setPixel(1,1,qRgba(30,60,90,255));
     const auto diagonal_components=analyze_region_pixels(diagonal,128,1.0,65,true,true).value("color_components").toArray();
-    check(diagonal_components==QJsonArray{
+    check(legacy_analysis_array(diagonal_components)==QJsonArray{
         expected_color_component(0,{30,60,90},1,0,0,1,1,expected_runs({{0,0,1}})),
         expected_color_component(1,{30,60,90},1,1,1,1,1,expected_runs({{1,1,1}}))},
         "Same-color diagonal contact remains two separate 4-connected components");
@@ -288,7 +302,7 @@ void independent_color_group_oracle() {
     for(const auto& xy:bridge_pixels)
         bridge.setPixel(xy[0],xy[1],qRgba(30,60,90,255));
     const auto bridge_components=analyze_region_pixels(bridge,128,1.0,66,true,true).value("color_components").toArray();
-    check(bridge_components==QJsonArray{expected_color_component(0,{30,60,90},5,0,0,3,2,
+    check(legacy_analysis_array(bridge_components)==QJsonArray{expected_color_component(0,{30,60,90},5,0,0,3,2,
         expected_runs({{0,0,1},{0,2,1},{1,0,3}}))},
         "A bridging run unions both overlapping predecessor runs into one component");
 
@@ -334,16 +348,16 @@ void independent_color_component_mask_intersection_oracle() {
     const auto red=analyze_region_pixels(ring,128,1.0,70,true,true,1);
     const auto ring_runs=expected_runs({{0,0,5},{1,0,1},{1,4,1},{2,0,1},{2,4,1},
         {3,0,1},{3,4,1},{4,0,5}});
-    check(red.value("color_components").toArray()==QJsonArray{
+    check(legacy_analysis_array(red.value("color_components").toArray())==QJsonArray{
         expected_color_component(0,{0,0,255},1,2,2,1,1,expected_runs({{2,2,1}})),
         expected_color_component(1,{255,0,0},24,0,0,5,5,expected_runs({{0,0,5},{1,0,5},{2,0,2},{2,3,2},{3,0,5},{4,0,5}}))},
         "The independent 5x5 color components have blue index 0 and connected red index 1");
     check_mask_boolean(red,ring_runs,16,"The D7 operand is the independently counted 5x5 outer ring");
-    check(red.value("color_component_mask_intersection").toObject()==
+    check(legacy_intersection(red.value("color_component_mask_intersection").toObject())==
         expected_color_component_mask_intersection(1,{255,0,0},5,5,70,16,ring_runs),
         "Selecting red returns the exact intersection runs, metadata and area");
     const auto blue=analyze_region_pixels(ring,128,1.0,70,true,true,0);
-    check(blue.value("color_component_mask_intersection").toObject()==
+    check(legacy_intersection(blue.value("color_component_mask_intersection").toObject())==
         expected_color_component_mask_intersection(0,{0,0,255},5,5,70,0,{}),
         "Selecting the blue center returns an empty intersection with exact metadata");
     check(blue.value("color_component_mask_intersection").toObject().value("runs").toArray().isEmpty(),
@@ -357,7 +371,7 @@ void independent_color_component_mask_intersection_oracle() {
         first_red.value("color_components").toArray()[1].toObject().value("rgb").toArray()==QJsonArray{255,0,0}&&
         first_red.value("color_components").toArray()[2].toObject().value("rgb").toArray()==QJsonArray{255,0,0},
         "Two separated red islands keep distinct result-local component indexes");
-    check(first_red.value("color_component_mask_intersection").toObject()==
+    check(legacy_intersection(first_red.value("color_component_mask_intersection").toObject())==
         expected_color_component_mask_intersection(1,{255,0,0},9,3,71,1,expected_runs({{1,1,1}})),
         "The selected red component does not pull in the other island with the same RGB key");
 
@@ -378,6 +392,75 @@ void independent_color_component_mask_intersection_oracle() {
     catch(const Error& error) {check(error.code=="ANALYSIS_LIMIT"&&
         QString::fromStdString(error.what()).contains("10,000 components"),
         "The D9 component cap takes precedence over a valid intersection selector");}
+}
+void stable_analysis_identity_oracle() {
+    QImage image(5,5,QImage::Format_ARGB32_Premultiplied);image.fill(qRgba(255,0,0,255));
+    image.setPixel(2,2,qRgba(0,0,255,255));
+    const auto base=analyze_region_pixels(image,128,1.0,70,true,true,std::nullopt,std::nullopt,
+        "identity-document","identity-composition","identity-artboard");
+    const auto again=analyze_region_pixels(image,128,1.0,70,true,true,std::nullopt,std::nullopt,
+        "identity-document","identity-composition","identity-artboard");
+    const auto analysis_id=base.value("analysis_id").toString();
+    const auto components=base.value("color_components").toArray();
+    check(base==again&&analysis_id.startsWith("analysis.v1:")&&analysis_id.size()==76&&
+        base.value("analysis_behavior_version").toInt()==1,
+        "Same committed snapshot has a deterministic versioned analysis identity");
+    check(components.size()==2&&components[0].toObject().value("id").toString().startsWith("analysis.color_component.v1:")&&
+        components[0].toObject().value("id")!=components[1].toObject().value("id")&&
+        base.value("regions").toArray()[0].toObject().value("id").toString().startsWith("analysis.region.v1:")&&
+        base.value("outer_contours").toArray()[0].toObject().value("id").toString().startsWith("analysis.contour.v1:")&&
+        base.value("morphology").toObject().value("id").toString().startsWith("analysis.morphology.v1:")&&
+        base.value("erosion").toObject().value("id").toString().startsWith("analysis.erosion.v1:")&&
+        base.value("mask_boolean").toObject().value("id").toString().startsWith("analysis.mask_boolean.v1:"),
+        "Derived region, contour, color and mask children have typed IDs");
+    const auto bare=analyze_region_pixels(image,128,1.0,70,false,false,std::nullopt,std::nullopt,
+        "identity-document","identity-composition","identity-artboard");
+    check(bare.value("analysis_id")==base.value("analysis_id")&&
+        bare.value("regions")==base.value("regions")&&bare.value("morphology")==base.value("morphology"),
+        "Output-selection flags do not change the base snapshot or shared child identity");
+    const auto red_id=components[1].toObject().value("id").toString();
+    const auto by_id=analyze_region_pixels(image,128,1.0,70,true,true,std::nullopt,red_id,
+        "identity-document","identity-composition","identity-artboard");
+    const auto by_index=analyze_region_pixels(image,128,1.0,70,true,true,1,std::nullopt,
+        "identity-document","identity-composition","identity-artboard");
+    const auto intersection=by_id.value("color_component_mask_intersection").toObject();
+    check(by_id==by_index&&by_id.value("analysis_id")==base.value("analysis_id")&&
+        intersection.value("component_id").toString()==red_id&&
+        intersection.value("analysis_id")==base.value("analysis_id")&&
+        intersection.value("id").toString().startsWith("analysis.intersection.v1:")&&
+        intersection.value("source_revision").toInt()==70&&
+        intersection.value("coordinate_space").toString()=="artboard-output-pixels"&&
+        intersection.value("width").toInt()==5&&intersection.value("height").toInt()==5,
+        "Stable selector and legacy index resolve the same identified intersection with coordinate metadata");
+    const auto changed_revision=analyze_region_pixels(image,128,1.0,71,true,true,std::nullopt,std::nullopt,
+        "identity-document","identity-composition","identity-artboard");
+    const auto changed_threshold=analyze_region_pixels(image,129,1.0,70,true,true,std::nullopt,std::nullopt,
+        "identity-document","identity-composition","identity-artboard");
+    const auto changed_scale=analyze_region_pixels(image,128,2.0,70,true,true,std::nullopt,std::nullopt,
+        "identity-document","identity-composition","identity-artboard");
+    auto changed_image=image;changed_image.setPixel(0,0,qRgba(0,255,0,255));
+    const auto changed_pixels=analyze_region_pixels(changed_image,128,1.0,70,true,true,std::nullopt,std::nullopt,
+        "identity-document","identity-composition","identity-artboard");
+    const auto changed_document=analyze_region_pixels(image,128,1.0,70,true,true,std::nullopt,std::nullopt,
+        "other-document","identity-composition","identity-artboard");
+    check(changed_revision.value("analysis_id")!=base.value("analysis_id")&&
+        changed_threshold.value("analysis_id")!=base.value("analysis_id")&&
+        changed_scale.value("analysis_id")!=base.value("analysis_id")&&
+        changed_pixels.value("analysis_id")!=base.value("analysis_id")&&
+        changed_document.value("analysis_id")!=base.value("analysis_id"),
+        "Revision, threshold, scale, rendered pixels and document identity each change the snapshot ID");
+    const auto reject=[&](std::optional<std::uint64_t> index,std::optional<QString> id,
+        const Id& document="identity-document") {
+        try {
+            analyze_region_pixels(image,128,1.0,70,true,true,index,id,document,
+                "identity-composition","identity-artboard");
+            throw std::runtime_error("Expected invalid snapshot selector refusal");
+        } catch(const Error& error) {check(error.code=="INVALID_REQUEST",
+            "Mismatched, stale or double component selectors reject atomically");}
+    };
+    reject(1,red_id);
+    reject(std::nullopt,QStringLiteral("analysis.color_component.v1:stale"));
+    reject(std::nullopt,red_id,"other-document");
 }
 void independent_morphology_oracle() {
     QImage center(5,5,QImage::Format_ARGB32_Premultiplied);center.fill(Qt::transparent);
@@ -973,6 +1056,8 @@ void independent_line_oracle() {
     QImage down(3,3,QImage::Format_ARGB32_Premultiplied);down.fill(Qt::transparent);
     down.setPixel(0,0,qRgba(0,0,0,255));down.setPixel(1,1,qRgba(0,0,0,255));down.setPixel(2,2,qRgba(0,0,0,255));
     const auto down_result=analyze_region_pixels(down,128,1.0,33);
+    check(down_result.value("line_candidates").toArray()[0].toObject().value("id").toString()
+        .startsWith("analysis.line.v1:"),"Line candidates carry typed snapshot identities");
     check(down_result.value("regions").toArray().size()==3,"A diagonal line still contains three separate 4-connected regions");
     check_lines(down_result,QJsonArray{expected_line("down_diagonal",{0,0},{2,2},3)},
         "Three diagonal pixels form one descending candidate with center indexes");
@@ -1296,11 +1381,11 @@ void live_color_group_canvas_api() {
     check(groups.size()==2&&result.value("width").toInt()==4&&result.value("height").toInt()==3&&
         result.value("source_revision").toInt()==static_cast<int>(revision),
         "The embedded image is grouped from the exact rendered Canvas dimensions and revision");
-    check(groups[0].toObject()==QJsonObject{{"rgb",QJsonArray{0,0,255}},
+    check(legacy_analysis_object(groups[0].toObject())==QJsonObject{{"rgb",QJsonArray{0,0,255}},
         {"area",2},{"bounds",QJsonObject{{"x",2},{"y",0},{"width",1},{"height",2}}},
         {"runs",expected_runs({{0,2,1},{1,2,1}})}},
         "Canvas/API blue pixels match the independent straight-byte oracle");
-    check(groups[1].toObject()==QJsonObject{{"rgb",QJsonArray{255,0,0}},
+    check(legacy_analysis_object(groups[1].toObject())==QJsonObject{{"rgb",QJsonArray{255,0,0}},
         {"area",3},{"bounds",QJsonObject{{"x",0},{"y",0},{"width",4},{"height",3}}},
         {"runs",expected_runs({{0,0,2},{2,3,1}})}},
         "Canvas/API red pixels match the independent straight-byte oracle");
@@ -1308,7 +1393,7 @@ void live_color_group_canvas_api() {
     const auto component_response=api(host,component_fields);
     check(component_response.value("ok").toBool()&&component_response.value("revision").toInt()==static_cast<int>(revision),
         "Live Canvas color components return at the source revision");
-    check(component_response.value("result").toObject().value("color_components").toArray()==QJsonArray{
+    check(legacy_analysis_array(component_response.value("result").toObject().value("color_components").toArray())==QJsonArray{
         expected_color_component(0,{0,0,255},2,2,0,1,2,expected_runs({{0,2,1},{1,2,1}})),
         expected_color_component(1,{255,0,0},2,0,0,2,1,expected_runs({{0,0,2}})),
         expected_color_component(2,{255,0,0},1,3,2,1,1,expected_runs({{2,3,1}}))},
@@ -1421,7 +1506,7 @@ void live_color_component_mask_intersection_canvas_api() {
         "The real Canvas/API analysis reads the exact committed source revision");
     const auto base_result=base.value("result").toObject();
     const auto red_runs=expected_runs({{0,0,5},{1,0,5},{2,0,2},{2,3,2},{3,0,5},{4,0,5}});
-    check(base_result.value("color_components").toArray()==QJsonArray{
+    check(legacy_analysis_array(base_result.value("color_components").toArray())==QJsonArray{
         expected_color_component(0,{0,0,255},1,2,2,1,1,expected_runs({{2,2,1}})),
         expected_color_component(1,{255,0,0},24,0,0,5,5,red_runs)},
         "The real Canvas/API output preserves the independent blue and red component oracle");
@@ -1433,13 +1518,13 @@ void live_color_component_mask_intersection_canvas_api() {
     auto red_request=fields;red_request["intersect_color_component_index"]=1;
     const auto red=api(host,red_request);
     check(red.value("ok").toBool()&&red.value("revision").toInt()==static_cast<int>(revision)&&
-        red.value("result").toObject().value("color_component_mask_intersection").toObject()==
+        legacy_intersection(red.value("result").toObject().value("color_component_mask_intersection").toObject())==
             expected_color_component_mask_intersection(1,{255,0,0},5,5,revision,16,ring_runs),
         "The live API returns exact intersection metadata and red ring runs");
     auto blue_request=fields;blue_request["intersect_color_component_index"]=0;
     const auto blue=api(host,blue_request);
     check(blue.value("ok").toBool()&&blue.value("revision").toInt()==static_cast<int>(revision)&&
-        blue.value("result").toObject().value("color_component_mask_intersection").toObject()==
+        legacy_intersection(blue.value("result").toObject().value("color_component_mask_intersection").toObject())==
             expected_color_component_mask_intersection(0,{0,0,255},5,5,revision,0,{}),
         "The live API returns an empty intersection for the blue center");
     check(!base_result.contains("color_component_mask_intersection"),
@@ -1513,6 +1598,7 @@ int main(int argc,char** argv) {
         independent_pixel_oracle();
         independent_color_group_oracle();
         independent_color_component_mask_intersection_oracle();
+        stable_analysis_identity_oracle();
         independent_morphology_oracle();
         independent_erosion_oracle();
         independent_mask_boolean_oracle();

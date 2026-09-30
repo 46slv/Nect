@@ -36,7 +36,8 @@ public:
     QJsonObject export_png(const QString& path,const Id& composition,const Id& artboard,double scale,bool white_background,std::uint64_t expected);
     QJsonObject analyze_regions(const Id& composition,const Id& artboard,double scale,int threshold,std::uint64_t expected,
         bool include_color_groups=false,bool include_color_components=false,
-        std::optional<std::uint64_t> intersect_color_component_index=std::nullopt);
+        std::optional<std::uint64_t> intersect_color_component_index=std::nullopt,
+        std::optional<QString> intersect_color_component_id=std::nullopt);
     void recover();
     void flush();
     QString recovery_directory() const { return recovery_directory_; }
@@ -81,5 +82,7 @@ private:
 // image fixtures. The live API always supplies Canvas::render_artboard output.
 QJsonObject analyze_region_pixels(const QImage& image,int threshold,double scale,std::uint64_t source_revision,
     bool include_color_groups=false,bool include_color_components=false,
-    std::optional<std::uint64_t> intersect_color_component_index=std::nullopt);
+    std::optional<std::uint64_t> intersect_color_component_index=std::nullopt,
+    std::optional<QString> intersect_color_component_id=std::nullopt,
+    const Id& document_id={},const Id& composition_id={},const Id& artboard_id={});
 }
