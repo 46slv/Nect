@@ -1,0 +1,15 @@
+# R12 Q1 performance instrumentation — bounded implementation packet
+
+**Status:** Sol-frozen early qualification packet, 2026-10-01. Entry: clean, synchronized `codex/practical-alpha@2854328a750f59b579ef1834494273868f82e32b`, native 0.72. **Authority:** Confirmed [REQ-183](https://app.notion.com/p/3e0fd279a6f381fdb63aea1013c5f331), [G10 Suite C](https://app.notion.com/p/3eafd279a6f381dbbcd5fa53f6635dfc) and current `CURRENT_GOAL.md`. This is Q1 early qualification; final-candidate Q2 is later.
+
+## Result
+
+Create one reproducible representative document through the public JSON-lines or formal MCP command surface, persist native, and give the visible production Window benchmark an exact fixture file to open. Record seed/config, canonical public command-stream SHA-256, native SHA-256, stable object/point counts, starting revision and viewport/DPI. A second process must reproduce a byte-identical native file or explain any volatile metadata and prove a semantically equivalent starting state with a deterministic normalized digest. Direct `Session` helpers inside the benchmark cannot stand in for this public seed.
+
+Add an observation-only Canvas timing-capture switch with production default **off**. Existing detailed `FrameTiming` samples may be collected only when on. The benchmark may install a minimal common frame-completion observer in both A and B to measure frame intervals/input-to-paint at the same boundary without enabling detailed capture in A; document its common overhead. Do not change evaluation, rasterization, source state, input cadence or the 30fps requirement to make B pass.
+
+Run A(off), B(on), A(off) on the same fixed fixture, build, viewport/DPI and warm-up/interaction schedule. Record machine/build/Qt/platform, raw frames and p50/p95/max, over-budget counts, input-to-paint, semantic preview/projection/paint when captured, and revision before/after. B must keep the 30fps p95 interval floor when A passes, and its interval p95 must be at most `max(A p95 + 1.0 ms, A p95 × 1.10)`; report input-to-paint and paint deltas too. A2 must show no material drift from A1, or the A/B result is inconclusive. A performance RED is reported as RED, never changed into a weaker oracle.
+
+Use one owned scratch endpoint/process and fixture; do not touch an existing user document, window, settings or profile. The visible benchmark must prove its Window is exposed on Windows Qt; offscreen/headless checks are separate evidence. If that Host path is unavailable, record the exact `LOCAL_WAIT` row and continue the independent fixture/switch work. Run focused protocol/Canvas checks and proportionate full regression after implementation. Preserve the existing benchmark options and output schema where practical, while adding explicit Q1 fields rather than silently changing old measurements.
+
+**Exit:** Sol reviews exact diff and receipt, fixes concrete failures, commits and non-force pushes, verifies remote SHA and updates G10/G2. Q1 PASS does not mark whole REQ-183 VERIFIED or replace Q2 on a final candidate.
