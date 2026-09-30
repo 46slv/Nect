@@ -107,6 +107,238 @@ struct Fixture {
     }
 };
 
+Document circle_source_handle_document() {
+    auto document=empty_document("circle-handle-document","circle-handle-composition","circle-handle-board");
+    auto& board=document.compositions.front().artboards.front();board.width=640;board.height=480;
+    Object parent;parent.id="circle-parent";parent.name="Circle parent";parent.kind=Kind::group;
+    parent.children={"circle"};parent.transform={Scalar{1.5,{}},Scalar{0,{}},Scalar{0,{}},Scalar{0.75,{}},Scalar{0,{}},Scalar{0,{}}};
+    Object circle;circle.id="circle";circle.name="Circle";circle.transform_parent=parent.id;
+    circle.transform={Scalar{0,{}},Scalar{1,{}},Scalar{-1,{}},Scalar{0,{}},Scalar{200,{}},Scalar{100,{}}};
+    auto source=default_primitive("circle-source","nect.shape.circle");
+    source.parameters.at("center_x").literal=100;source.parameters.at("center_y").literal=120;
+    source.parameters.at("radius").literal=40;circle.source=std::move(source);
+    document.objects.emplace(parent.id,std::move(parent));document.objects.emplace(circle.id,std::move(circle));
+    document.compositions.front().roots={"circle-parent"};
+    return document;
+}
+
+QTransform qtransform(const Affine& matrix) {
+    return {matrix[0],matrix[1],matrix[2],matrix[3],matrix[4],matrix[5]};
+}
+
+QPoint circle_canvas_screen(Canvas& canvas,const QTransform& world,QPointF local) {
+    const auto point=world.map(local);
+    return {qRound(canvas.width()/2.0+(point.x()-320)*canvas.zoom()),
+        qRound(canvas.height()/2.0+(point.y()-240)*canvas.zoom())};
+}
+
+void circle_source_handles_use_local_session_properties() {
+    auto document=circle_source_handle_document();Session session(document);Canvas canvas(session);
+    QString last_error;canvas.error=[&last_error](const QString& message){last_error=message;};
+    canvas.resize(740,580);canvas.show();QApplication::processEvents();canvas.fit_artboard();
+    canvas.set_selection("circle");
+    QString identity="circle-session-A";canvas.set_session_identity_provider([&identity]{return identity;});
+    const auto original=session.document();const auto encoded_original=encode(original);
+    const auto initial=evaluate(session.document());
+    const Ref center_x{"circle","","generator.center_x"},center_y{"circle","","generator.center_y"},radius_ref{"circle","","generator.radius"};
+    const auto world=qtransform(canvas.evaluated_transforms().at("circle").world);
+    auto revision=session.revision();canvas.set_circle_source_edit(true);
+    check(canvas.circle_source_edit()&&session.revision()==revision&&encode(session.document())==encoded_original,
+        "Entering Circle source-handle mode changes only temporary Canvas state");
+    canvas.set_circle_source_edit(false);
+    check(!canvas.circle_source_edit()&&session.revision()==revision&&encode(session.document())==encoded_original,
+        "Leaving Circle source-handle mode creates no authored revision");
+    canvas.set_circle_source_edit(true);
+
+    const auto center=QPointF(initial.at(center_x),initial.at(center_y));
+    const auto center_start=circle_canvas_screen(canvas,world,center);
+    const auto center_end=circle_canvas_screen(canvas,world,center+QPointF(20,-12));
+    QTest::mousePress(&canvas,Qt::LeftButton,Qt::NoModifier,center_start);QApplication::processEvents();
+    check(session.gesture_active(),"Center handle starts one shared Session gesture");
+    QTest::mouseMove(&canvas,center_start+(center_end-center_start)/2);QApplication::processEvents();
+    QTest::mouseMove(&canvas,center_end);QApplication::processEvents();
+    check(session.revision()==revision&&session.document()==original&&session.gesture_active(),
+        "Center drag previews without changing committed Circle source values");
+    const auto center_preview=evaluate(session.preview_document());
+    check(std::abs(center_preview.at(center_x)-(initial.at(center_x)+20))<1.0&&
+        std::abs(center_preview.at(center_y)-(initial.at(center_y)-12))<1.0&&
+        center_preview.at(radius_ref)==initial.at(radius_ref),
+        "Rotated, scaled and parented Center drag changes only local Center X/Y");
+    QTest::mouseRelease(&canvas,Qt::LeftButton,Qt::NoModifier,center_end);QApplication::processEvents();
+    const auto after_center=session.document();const auto center_values=evaluate(after_center);
+    check(session.revision()==revision+1&&!session.gesture_active()&&
+        std::abs(center_values.at(center_x)-(initial.at(center_x)+20))<1.0&&
+        std::abs(center_values.at(center_y)-(initial.at(center_y)-12))<1.0&&
+        center_values.at(radius_ref)==initial.at(radius_ref),
+        "Center handle release commits the target source properties once");
+    session.undo(session.revision());
+    check(session.document()==original,"One Undo restores the full Center handle gesture");canvas.refresh();QApplication::processEvents();
+    session.redo(session.revision());
+    check(session.document()==after_center,"Redo reapplies the same Center handle result");canvas.refresh();QApplication::processEvents();
+    revision=session.revision();
+
+    const auto current=evaluate(session.document());
+    const auto radius_start_local=QPointF(current.at(center_x)+current.at(radius_ref),current.at(center_y));
+    const auto radius_end_local=radius_start_local+QPointF(20,0);
+    const auto radius_start=circle_canvas_screen(canvas,world,radius_start_local);
+    const auto radius_end=circle_canvas_screen(canvas,world,radius_end_local);
+    QTest::mousePress(&canvas,Qt::LeftButton,Qt::NoModifier,radius_start);QApplication::processEvents();
+    QTest::mouseMove(&canvas,radius_start+(radius_end-radius_start)/2);QApplication::processEvents();
+    QTest::mouseMove(&canvas,radius_end);QApplication::processEvents();
+    const auto radius_preview=evaluate(session.preview_document());
+    check(session.gesture_active()&&session.revision()==revision&&
+        std::abs(radius_preview.at(radius_ref)-(current.at(radius_ref)+20))<1.0&&
+        radius_preview.at(center_x)==current.at(center_x)&&radius_preview.at(center_y)==current.at(center_y),
+        "Radius handle follows object-local +X through the inverse parent/rotation/scale transform");
+    QTest::mouseRelease(&canvas,Qt::LeftButton,Qt::NoModifier,radius_end);QApplication::processEvents();
+    const auto after_radius=session.document();
+    check(session.revision()==revision+1&&evaluate(after_radius).at(radius_ref)>current.at(radius_ref)&&
+        !after_radius.objects.at("circle").point_edit,
+        "Radius drag commits only the Circle source radius without Point Edit");
+    session.undo(session.revision());
+    check(session.document()==after_center,"One Undo restores the full Radius handle gesture");canvas.refresh();QApplication::processEvents();
+
+    revision=session.revision();
+    const auto radius_value=evaluate(session.document()).at(radius_ref);
+    const auto crossed_start=QPointF(evaluate(session.document()).at(center_x)+radius_value,
+        evaluate(session.document()).at(center_y));
+    const auto crossed_end=QPointF(evaluate(session.document()).at(center_x)-15,
+        evaluate(session.document()).at(center_y));
+    const auto crossed_start_screen=circle_canvas_screen(canvas,world,crossed_start);
+    const auto crossed_end_screen=circle_canvas_screen(canvas,world,crossed_end);
+    QTest::mousePress(&canvas,Qt::LeftButton,Qt::NoModifier,crossed_start_screen);QApplication::processEvents();
+    QTest::mouseMove(&canvas,crossed_end_screen);QApplication::processEvents();
+    QTest::mouseRelease(&canvas,Qt::LeftButton,Qt::NoModifier,crossed_end_screen);QApplication::processEvents();
+    check(session.revision()==revision+1&&evaluate(session.document()).at(radius_ref)==0,
+        "Dragging Radius past Center clamps to valid Radius 0 and never commits a negative value: revision="+
+        std::to_string(session.revision())+" expected="+std::to_string(revision+1)+" radius="+
+        std::to_string(evaluate(session.document()).at(radius_ref))+" error="+last_error.toStdString());
+    session.undo(session.revision());canvas.refresh();QApplication::processEvents();
+    const auto before_exit=encode(session.document());revision=session.revision();
+    canvas.set_circle_source_edit(false);
+    check(session.revision()==revision&&encode(session.document())==before_exit,
+        "Exiting source mode is view-only after a committed edit");
+    check(encode(decode(before_exit))==before_exit&&before_exit.find("circle-source-handles")==std::string::npos,
+        "Native reopen contains only Circle source data, not temporary source-handle mode");
+
+    const auto positive_radius=evaluate(session.document()).at(radius_ref);
+    const auto east=circle_canvas_screen(canvas,world,QPointF(evaluate(session.document()).at(center_x)+positive_radius,
+        evaluate(session.document()).at(center_y)));
+    const auto east_moved=east+QPoint(18,0);
+    QTest::mousePress(&canvas,Qt::LeftButton,Qt::NoModifier,east);QApplication::processEvents();
+    check(session.gesture_active()&&canvas.selected_object=="circle"&&canvas.selected_point=="circle-source-east",
+        "Outside-mode press hits the generated East anchor and starts Point Edit (not the Circle body): selected="+
+        canvas.selected_object+" point="+canvas.selected_point+
+        " gesture="+std::to_string(session.gesture_active())+" press="+
+        std::to_string(east.x())+","+std::to_string(east.y()));
+    QTest::mouseMove(&canvas,east_moved);QApplication::processEvents();
+    QTest::mouseRelease(&canvas,Qt::LeftButton,Qt::NoModifier,east_moved);QApplication::processEvents();
+    check(session.document().objects.at("circle").point_edit.has_value()&&
+        evaluate(session.document()).at(radius_ref)==positive_radius,
+        "Outside source mode generated-point drag retains Point Edit authority: mode="+
+        std::to_string(canvas.circle_source_edit())+" point_edit="+
+        std::to_string(session.document().objects.at("circle").point_edit.has_value())+" radius="+
+        std::to_string(evaluate(session.document()).at(radius_ref))+" expected="+std::to_string(positive_radius)+
+        " revision="+std::to_string(session.revision())+" error="+last_error.toStdString());
+}
+
+void circle_source_handle_context_and_driver_failures_are_atomic() {
+    auto document=circle_source_handle_document();Session session(document);Canvas canvas(session);
+    canvas.resize(740,580);canvas.show();QApplication::processEvents();canvas.fit_artboard();canvas.set_selection("circle");
+    QString last_error;canvas.error=[&last_error](const QString& message){last_error=message;};
+    QString identity="circle-session-A";canvas.set_session_identity_provider([&identity]{return identity;});
+    const auto original=session.document();const auto values=evaluate(original);const auto cx=values.at({"circle","","generator.center_x"});
+    const auto cy=values.at({"circle","","generator.center_y"});const auto world=qtransform(canvas.evaluated_transforms().at("circle").world);
+    canvas.set_circle_source_edit(true);
+    auto start=circle_canvas_screen(canvas,world,{cx,cy});auto end=circle_canvas_screen(canvas,world,{cx+18,cy+8});
+    QTest::mousePress(&canvas,Qt::LeftButton,Qt::NoModifier,start);QApplication::processEvents();
+    QTest::mouseMove(&canvas,end);QApplication::processEvents();
+    identity="circle-session-B";canvas.refresh();QApplication::processEvents();
+    check(!session.gesture_active()&&session.revision()==0&&session.document()==original&&
+        last_error.startsWith("REVISION_CONFLICT"),"Session identity drift cancels a Circle preview without committing");
+    check(canvas.circle_source_edit(),"A still-selected same-source Circle remains available for a fresh gesture after cancellation");
+
+    const auto current_world=qtransform(canvas.evaluated_transforms().at("circle").world);
+    start=circle_canvas_screen(canvas,current_world,{cx,cy});end=circle_canvas_screen(canvas,current_world,{cx+18,cy+8});
+    QTest::mousePress(&canvas,Qt::LeftButton,Qt::NoModifier,start);QApplication::processEvents();
+    QTest::mouseMove(&canvas,end);QApplication::processEvents();
+    canvas.set_selection("circle-parent");
+    check(!session.gesture_active()&&session.revision()==0&&session.document()==original&&!canvas.circle_source_edit(),
+        "Selection change cancels and exits the captured Circle context without retargeting");
+
+    canvas.set_selection("circle");canvas.set_circle_source_edit(true);
+    const auto radius_value=evaluate(session.document()).at({"circle","","generator.radius"});
+    start=circle_canvas_screen(canvas,current_world,{cx+radius_value,cy});
+    end=circle_canvas_screen(canvas,current_world,{cx+radius_value+12,cy});
+    QTest::mousePress(&canvas,Qt::LeftButton,Qt::NoModifier,start);QApplication::processEvents();
+    QTest::mouseMove(&canvas,end);QApplication::processEvents();
+    session.cancel_gesture();
+    session.apply({ConvertToPath{"circle"}},session.revision());
+    const auto converted=session.document();canvas.refresh();QApplication::processEvents();
+    check(!session.gesture_active()&&session.revision()==1&&session.document()==converted&&
+        !converted.objects.at("circle").source&&!canvas.circle_source_edit(),
+        "Source replacement during a drag cancels stale preview and does not retarget a different source");
+
+    auto driven_document=empty_document("circle-driven-document","circle-driven-composition","circle-driven-board");
+    auto& board=driven_document.compositions.front().artboards.front();board.width=640;board.height=480;
+    auto driver=default_primitive("circle-driver-source","nect.shape.circle");
+    auto target=default_primitive("circle-target-source","nect.shape.circle");
+    driver.parameters.at("center_x").literal=50;driver.parameters.at("center_y").literal=80;driver.parameters.at("radius").literal=30;
+    target.parameters.at("center_x").literal=180;target.parameters.at("center_y").literal=120;target.parameters.at("radius").literal=40;
+    Object driver_object;driver_object.id="circle-driver";driver_object.name="Driver";driver_object.source=driver;
+    Object target_object;target_object.id="circle-target";target_object.name="Target";target_object.source=target;
+    driven_document.objects.emplace(driver_object.id,std::move(driver_object));
+    driven_document.objects.emplace(target_object.id,std::move(target_object));
+    driven_document.compositions.front().roots={"circle-driver","circle-target"};
+    Session driven(std::move(driven_document));
+    const Ref driven_x{"circle-target","","generator.center_x"},driven_radius{"circle-target","","generator.radius"};
+    const Ref source_radius{"circle-driver","","generator.radius"};
+    driven.apply({Link{driven_x,{source_radius,1,0,"copy_local_value"}},
+        Link{driven_radius,{source_radius,1,0,"copy_local_value"}}},driven.revision());
+    Canvas driven_canvas(driven);QString driven_error;driven_canvas.error=[&driven_error](const QString& message){driven_error=message;};
+    driven_canvas.resize(740,580);driven_canvas.show();QApplication::processEvents();
+    driven_canvas.fit_artboard();driven_canvas.set_selection("circle-target");driven_canvas.set_circle_source_edit(true);
+    const auto driven_before=driven.document();const auto driven_history=driven.history();const auto driven_revision=driven.revision();
+    const auto driven_values=evaluate(driven.document());const auto driven_world=qtransform(driven_canvas.evaluated_transforms().at("circle-target").world);
+    start=circle_canvas_screen(driven_canvas,driven_world,{driven_values.at(driven_x),driven_values.at({"circle-target","","generator.center_y"})});
+    end=circle_canvas_screen(driven_canvas,driven_world,{driven_values.at(driven_x)+15,driven_values.at({"circle-target","","generator.center_y"})+9});
+    QTest::mousePress(&driven_canvas,Qt::LeftButton,Qt::NoModifier,start);QApplication::processEvents();
+    QTest::mouseMove(&driven_canvas,end);QApplication::processEvents();
+    check(driven.revision()==driven_revision&&driven.document()==driven_before&&driven.history()==driven_history&&
+        !driven.gesture_active()&&driven_error.startsWith("DRIVEN_PROPERTY"),
+        "Driven Center X refusal leaves Center Y and all Session history unchanged");
+    driven_error.clear();
+    const auto driven_center_x=evaluate(driven.document()).at(driven_x);
+    const auto driven_center_y=evaluate(driven.document()).at({"circle-target","","generator.center_y"});
+    const auto driven_start=circle_canvas_screen(driven_canvas,driven_world,
+        {driven_center_x+evaluate(driven.document()).at(driven_radius),driven_center_y});
+    const auto driven_end=circle_canvas_screen(driven_canvas,driven_world,
+        {driven_center_x+evaluate(driven.document()).at(driven_radius)+18,driven_center_y});
+    QTest::mousePress(&driven_canvas,Qt::LeftButton,Qt::NoModifier,driven_start);QApplication::processEvents();
+    QTest::mouseMove(&driven_canvas,driven_end);QApplication::processEvents();
+    check(driven.revision()==driven_revision&&driven.document()==driven_before&&driven.history()==driven_history&&
+        !driven.gesture_active()&&driven_error.startsWith("DRIVEN_PROPERTY"),
+        "Driven Radius refusal leaves the source and all Session history unchanged");
+
+    auto singular_document=circle_source_handle_document();
+    singular_document.objects.at("circle-parent").transform[0].literal=0;
+    Session singular(std::move(singular_document));Canvas singular_canvas(singular);QString singular_error;
+    singular_canvas.error=[&singular_error](const QString& message){singular_error=message;};
+    singular_canvas.resize(740,580);singular_canvas.show();QApplication::processEvents();
+    singular_canvas.fit_artboard();singular_canvas.set_selection("circle");singular_canvas.set_circle_source_edit(true);
+    const auto singular_before=singular.document();const auto singular_revision=singular.revision();
+    const auto singular_history=singular.history();const auto singular_values=evaluate(singular_before);
+    const auto singular_world=qtransform(singular_canvas.evaluated_transforms().at("circle").world);
+    const auto singular_center=circle_canvas_screen(singular_canvas,singular_world,
+        {singular_values.at({"circle","","generator.center_x"}),singular_values.at({"circle","","generator.center_y"})});
+    QTest::mousePress(&singular_canvas,Qt::LeftButton,Qt::NoModifier,singular_center);QApplication::processEvents();
+    QTest::mouseMove(&singular_canvas,singular_center+QPoint(24,8));QApplication::processEvents();
+    QTest::mouseRelease(&singular_canvas,Qt::LeftButton,Qt::NoModifier,singular_center+QPoint(24,8));QApplication::processEvents();
+    check(!singular.gesture_active()&&singular.revision()==singular_revision&&singular.document()==singular_before&&
+        singular.history()==singular_history&&singular_error.startsWith("SINGULAR_TRANSFORM"),
+        "A Circle source-handle drag explicitly refuses a singular inverse without preview or authored mutation");
+}
+
 void point_drag_is_one_transaction() {
     Fixture f;
     const auto original = encode(f.session.document());
@@ -2169,6 +2401,8 @@ int main(int argc, char** argv) {
         keyboard_world_placement();
         contextual_selection_and_framing();
         detailed_canvas_timing_is_opt_in_with_shared_observer();
+        circle_source_handles_use_local_session_properties();
+        circle_source_handle_context_and_driver_failures_are_atomic();
         point_drag_is_one_transaction();
         cancellation_and_return_home_do_not_commit();
         independent_polar_handle_edits();

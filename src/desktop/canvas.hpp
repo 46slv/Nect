@@ -36,6 +36,7 @@ public:
     std::function<void(bool)> draw_mode_changed;
     std::function<void()> gradient_edit_changed;
     std::function<void(bool)> anchor_edit_changed;
+    std::function<void(bool)> circle_source_edit_changed;
     std::function<void()> active_artboard_changed;
     std::function<void()> view_state_changed;
     std::function<void(double)> zoom_changed;
@@ -60,6 +61,8 @@ public:
     void set_draw_mode(bool enabled);
     void set_anchor_edit(bool enabled);
     bool anchor_edit() const {return anchor_edit_;}
+    void set_circle_source_edit(bool enabled);
+    bool circle_source_edit() const {return circle_source_edit_;}
     void set_show_mask_outline(bool enabled) {show_mask_outline_=enabled;update();}
     bool show_mask_outline() const {return show_mask_outline_;}
     bool draw_mode() const { return draw_mode_; }
@@ -183,7 +186,8 @@ private:
         bool text_overflow=false;
         bool normal_visible=true;
     };
-    enum class Drag { none, marquee, pan, anchor, pivot, incoming, outgoing, symmetric, object, gradient_start, gradient_end, guide };
+    enum class Drag { none, marquee, pan, anchor, pivot, incoming, outgoing, symmetric, object,
+        gradient_start, gradient_end, circle_center, circle_radius, guide };
     struct Hit {
         Drag kind = Drag::none;
         Id object;
@@ -210,10 +214,13 @@ private:
     Id active_composition_, active_artboard_;
     std::vector<Artboard> artboards_;
     struct GradientControl { Id id; QPointF start, end; QTransform world; bool radial = false; };
+    struct CircleSourceControl { QPointF center, radius; QTransform world; bool center_driven=false, radius_driven=false; };
     Id gradient_object_, gradient_operation_;
     std::optional<GradientControl> gradient_control_;
+    Id circle_source_object_,circle_source_id_;
     bool draw_mode_ = false;
     bool anchor_edit_ = false;
+    bool circle_source_edit_ = false;
     Id drawing_object_;
     Id drawing_contour_;
     bool initial_fit_ = true;
@@ -247,6 +254,9 @@ private:
     Id guide_drag_document_,guide_drag_composition_;
     std::uint64_t guide_drag_revision_=0;
     bool guide_drag_invalid_=false;
+    QString circle_drag_session_;
+    Id circle_drag_document_,circle_drag_object_,circle_drag_source_,circle_drag_composition_;
+    std::uint64_t circle_drag_revision_=0;
     std::vector<SnapSourceFeature> snap_x_sources_, snap_y_sources_;
     std::vector<SnapCandidate> snap_x_targets_, snap_y_targets_;
     std::optional<SnapMatch> snap_x_match_,snap_y_match_;
@@ -303,6 +313,9 @@ private:
     void request_frame(const QString& operation, bool new_sequence = false);
     void update_cursor();
     void clear_gradient_edit();
+    void clear_circle_source_edit(bool notify=true);
+    std::optional<CircleSourceControl> circle_source_control() const;
+    bool circle_drag_context_current() const;
     void fit_bounds(QRectF bounds);
 };
 

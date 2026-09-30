@@ -1098,6 +1098,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         if(!utility_zoom_)return;const QSignalBlocker blocker(utility_zoom_);utility_zoom_->setValue(zoom*100.0);
     };
     canvas->gradient_edit_changed=[this]{rebuild_inspector();};
+    canvas->circle_source_edit_changed=[this](bool){rebuild_inspector();};
     canvas->scope_changed=[this]{breadcrumb_->setText(canvas->breadcrumb());};
     canvas->error=[this](const QString& message){statusBar()->showMessage(message,10000);};
     canvas->snap_feedback=[this](const QString& message) {
@@ -3503,6 +3504,16 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     if(o.image)add_image_properties(layout,o);
     if(o.source) {
         auto* generator=section("1 · "+primitive_label(*o.source)+" source");
+        if(o.source->type=="nect.shape.circle") {
+            auto* handles=new QPushButton(canvas->circle_source_edit()?"Finish Circle source handles":"Edit Circle source handles");
+            handles->setObjectName("circle-source-handles");
+            handles->setAccessibleName(canvas->circle_source_edit()?"Finish Circle source handles":"Edit Circle source handles");
+            handles->setToolTip("Temporarily show Center and Radius controls on the Canvas. Escape exits; this mode is not saved.");
+            generator->addRow(handles);
+            connect(handles,&QPushButton::clicked,this,[this]{
+                canvas->set_circle_source_edit(!canvas->circle_source_edit());canvas->setFocus();
+            });
+        }
         for(const auto* parameter:{"center_x","center_y","points","rotation","radius","outer_radius","inner_radius","width","height"})
             if(o.source->parameters.contains(parameter))
                 add_property(generator,{o.id,{},std::string("generator.")+parameter},parameter_label(parameter));

@@ -118,8 +118,55 @@ const Canvas::EvaluatedPoint* Canvas::point(const Geometry& item, const Id& id) 
     return found == item.points.end() ? nullptr : &*found;
 }
 
+std::optional<Canvas::CircleSourceControl> Canvas::circle_source_control() const {
+    if(!circle_source_edit_||circle_source_object_.empty()||circle_source_id_.empty())return std::nullopt;
+    const auto& document=session_.preview_document();
+    const auto found=document.objects.find(circle_source_object_);
+    if(found==document.objects.end()||!found->second.source||
+       found->second.source->type!="nect.shape.circle"||found->second.source->id!=circle_source_id_||
+       !world_.contains(circle_source_object_))return std::nullopt;
+    const auto& source=*found->second.source;
+    const auto scalar=[&](const char* parameter)->const Scalar* {
+        const auto item=source.parameters.find(parameter);
+        return item==source.parameters.end()?nullptr:&item->second;
+    };
+    const auto* center_x=scalar("center_x");const auto* center_y=scalar("center_y");const auto* radius=scalar("radius");
+    const auto value=[&](const char* parameter)->std::optional<double> {
+        const auto item=values_.find({circle_source_object_,{},std::string("generator.")+parameter});
+        return item==values_.end()?std::nullopt:std::optional<double>(item->second);
+    };
+    const auto x=value("center_x"),y=value("center_y"),r=value("radius");
+    if(!center_x||!center_y||!radius||!x||!y||!r)return std::nullopt;
+    return CircleSourceControl{{*x,*y},{*x+*r,*y},world_.at(circle_source_object_),
+        center_x->binding.has_value()||center_x->expression.has_value()||
+            center_y->binding.has_value()||center_y->expression.has_value(),
+        radius->binding.has_value()||radius->expression.has_value()};
+}
+
+bool Canvas::circle_drag_context_current() const {
+    if(circle_drag_object_.empty()||circle_drag_source_.empty()||circle_drag_document_.empty()||
+       circle_drag_composition_.empty()||!circle_source_edit_||
+       circle_source_object_!=circle_drag_object_||circle_source_id_!=circle_drag_source_||
+       selected_object!=circle_drag_object_||!selected_point.empty()||selections_.size()!=1||
+       selections_.front()!=Selection{circle_drag_object_,{}}||
+       active_composition_!=circle_drag_composition_||session_.revision()!=circle_drag_revision_||
+       session_.preview_document().id!=circle_drag_document_||
+       (session_identity_provider_?session_identity_provider_():QString{})!=circle_drag_session_)return false;
+    const auto found=session_.preview_document().objects.find(circle_drag_object_);
+    return found!=session_.preview_document().objects.end()&&found->second.source&&
+        found->second.source->type=="nect.shape.circle"&&found->second.source->id==circle_drag_source_;
+}
+
 void Canvas::refresh() {
     projection_error_ = {};
+    if((drag_==Drag::circle_center||drag_==Drag::circle_radius)&&!circle_drag_context_current()) {
+        if(gesture_owned_&&session_.gesture_active())session_.cancel_gesture();
+        gesture_owned_=false;drag_=Drag::none;drag_moved_=false;
+        circle_drag_session_.clear();circle_drag_document_.clear();circle_drag_object_.clear();
+        circle_drag_source_.clear();circle_drag_composition_.clear();circle_drag_revision_=0;
+        report_error(Error("REVISION_CONFLICT","Circle source-handle drag belongs to an older Session, source, selection, or revision"));
+        update_cursor();
+    }
     if(drag_==Drag::guide&&!guide_context_current()) {
         if(gesture_owned_&&session_.gesture_active())session_.cancel_gesture();
         gesture_owned_=false;drag_=Drag::none;guide_drag_invalid_=false;
@@ -344,6 +391,13 @@ void Canvas::refresh() {
             }
             if (!gradient_control_) clear_gradient_edit();
         }
+        if(circle_source_edit_) {
+            const auto source=document.objects.find(circle_source_object_);
+            if(selections_.size()!=1||selections_.front()!=Selection{circle_source_object_,{}}||
+               source==document.objects.end()||!source->second.source||
+               source->second.source->type!="nect.shape.circle"||source->second.source->id!=circle_source_id_)
+                clear_circle_source_edit();
+        }
     } catch (const std::exception& exception) {
         projection_error_ = std::current_exception();
         report_error(exception);
@@ -508,6 +562,8 @@ void Canvas::select_many(std::vector<Selection> items,bool enter_parent) {
     if(enter_parent)set_scope(valid.empty()?Id{}:parents_.at(valid.back().object));
     if(valid==selections_)return;
     if(valid.size()!=1||valid.back().object!=gradient_object_||!valid.back().point.empty())clear_gradient_edit();
+    if(circle_source_edit_&&(valid.size()!=1||valid.back()!=Selection{circle_source_object_,{}}))
+        clear_circle_source_edit(false);
     selections_=std::move(valid);
     selected_object=selections_.empty()?Id{}:selections_.back().object;
     selected_point=selections_.empty()?Id{}:selections_.back().point;
@@ -576,7 +632,7 @@ void Canvas::leave_group() {
 
 void Canvas::set_draw_mode(bool enabled) {
     cancel_interaction();
-    if (enabled) {clear_gradient_edit();set_anchor_edit(false);}
+    if (enabled) {clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);}
     drawing_object_.clear();
     drawing_contour_.clear();
     if (draw_mode_ == enabled) return;
@@ -588,7 +644,7 @@ void Canvas::set_draw_mode(bool enabled) {
 
 void Canvas::set_anchor_edit(bool enabled) {
     cancel_interaction();
-    if(enabled) {set_draw_mode(false);clear_gradient_edit();select(selected_object,{});}
+    if(enabled) {clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();select(selected_object,{});}
     if(anchor_edit_==enabled)return;
     anchor_edit_=enabled;update_cursor();update();
     if(anchor_edit_changed)anchor_edit_changed(enabled);
@@ -601,8 +657,38 @@ void Canvas::clear_gradient_edit() {
     update();
 }
 
+void Canvas::clear_circle_source_edit(bool notify) {
+    if(drag_==Drag::circle_center||drag_==Drag::circle_radius)cancel_interaction();
+    const bool active=circle_source_edit_;
+    circle_source_edit_=false;circle_source_object_.clear();circle_source_id_.clear();
+    circle_drag_session_.clear();circle_drag_document_.clear();circle_drag_object_.clear();
+    circle_drag_source_.clear();circle_drag_composition_.clear();circle_drag_revision_=0;
+    if(active&&notify&&circle_source_edit_changed)circle_source_edit_changed(false);
+    update_cursor();update();
+}
+
+void Canvas::set_circle_source_edit(bool enabled) {
+    cancel_interaction();
+    if(!enabled) {clear_circle_source_edit();return;}
+    try {
+        if(selected_object.empty()||!session_.document().objects.contains(selected_object))
+            throw Error("INVALID_SELECTION","Select a Circle source before editing its source handles");
+        if(selections_.size()!=1||!selected_point.empty())select(selected_object,{});
+        const auto& object=session_.document().objects.at(selected_object);
+        if(!object.source||object.source->type!="nect.shape.circle")
+            throw Error("INVALID_SELECTION","Circle source handles require a selected retained Circle");
+        if(circle_source_edit_&&circle_source_object_==object.id&&circle_source_id_==object.source->id)return;
+        clear_circle_source_edit();
+        set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
+        circle_source_object_=object.id;circle_source_id_=object.source->id;circle_source_edit_=true;
+        refresh();update_cursor();update();
+        if(circle_source_edit_changed)circle_source_edit_changed(true);
+    } catch(const std::exception& exception) {report_error(exception);}
+}
+
 void Canvas::set_gradient_edit(Id object, Id operation) {
     cancel_interaction();
+    clear_circle_source_edit();
     set_anchor_edit(false);
     if (operation.empty() || (object == gradient_object_ && operation == gradient_operation_)) {
         clear_gradient_edit(); return;
@@ -663,6 +749,19 @@ const Canvas::Geometry* Canvas::hit_path(QPointF screen) const {
 }
 
 Canvas::Hit Canvas::hit_control(QPointF screen) const {
+    if(circle_source_edit_) {
+        const auto control=circle_source_control();
+        if(!control)return {};
+        const auto transform=control->world*view();
+        const auto center=transform.map(control->center),radius=transform.map(control->radius);
+        const auto center_distance=distance(center,screen),radius_distance=distance(radius,screen);
+        // At Radius 0 the two semantic handles coincide. Keep the Center's
+        // inner target and leave the surrounding Radius target reachable.
+        if(center_distance<=4)return {Drag::circle_center,circle_source_object_,{}};
+        if(radius_distance<=hit_radius)return {Drag::circle_radius,circle_source_object_,{}};
+        if(center_distance<=hit_radius)return {Drag::circle_center,circle_source_object_,{}};
+        return {};
+    }
     if(anchor_edit_) {
         if(!world_.contains(selected_object))return {};
         const QPointF anchor(values_.at({selected_object,"","transform.anchor_x"}),values_.at({selected_object,"","transform.anchor_y"}));
@@ -973,7 +1072,8 @@ void Canvas::paintEvent(QPaintEvent*) {
                 painter.drawPolygon(outline);
             }
             if (std::none_of(selections_.begin(),selections_.end(),[&](const auto& s){return s.object==item.id;}))continue;
-            if (gradient_control_ && item.id == gradient_object_) continue;
+            if ((gradient_control_ && item.id == gradient_object_) ||
+                (circle_source_edit_&&item.id==circle_source_object_)) continue;
             if (const auto* p = point(item, item.id==selected_object?selected_point:Id{})) {
                 painter.setPen(QPen(accent, 1));
                 const auto anchor = transform.map(p->anchor);
@@ -1018,6 +1118,23 @@ void Canvas::paintEvent(QPaintEvent*) {
             painter.drawText(start_screen + QPointF(10, -10), control.radial ? tr("Center") : tr("Start"));
             painter.drawText(end_screen + QPointF(10, -10), control.radial ? tr("Radius") : tr("End"));
         }
+        if(const auto control=circle_source_control()) {
+            const auto transform=control->world*view();
+            const auto center=transform.map(control->center),radius=transform.map(control->radius);
+            painter.setPen(QPen(control->center_driven?linked:accent,1.5));
+            painter.setBrush(QColor(39,42,47));
+            painter.drawLine(center,radius);
+            painter.drawEllipse(center,5,5);
+            painter.drawLine(center+QPointF(-8,0),center+QPointF(8,0));
+            painter.drawLine(center+QPointF(0,-8),center+QPointF(0,8));
+            painter.setPen(QPen(control->radius_driven?linked:accent,1.5));
+            painter.setBrush(control->radius_driven?linked:QColor(39,42,47));
+            painter.drawRect(QRectF(radius.x()-5,radius.y()-5,10,10));
+            painter.setPen(control->center_driven?linked:accent);
+            painter.drawText(center+QPointF(11,-10),tr("Center"));
+            painter.setPen(control->radius_driven?linked:accent);
+            painter.drawText(radius+QPointF(11,-10),tr("Radius"));
+        }
         if (!selected_object.empty() && document.objects.contains(selected_object) &&
             (selections_.size()>1||document.objects.at(selected_object).kind == Kind::group||
                 document.objects.at(selected_object).kind == Kind::instance) && !selected_bounds.isNull()) {
@@ -1041,6 +1158,7 @@ void Canvas::paintEvent(QPaintEvent*) {
                              static_cast<int>(breadcrumb_rect_.width() - 20)));
         const auto hint = draw_mode_
             ? tr("Add Path · Click for points · Click first point to close · Enter / Esc to finish")
+            : circle_source_edit_ ? tr("Circle source · Drag Center or Radius · Radius follows local +X · Esc exits")
             : anchor_edit_ ? tr("Anchor · Drag the crosshair to change the pivot; artwork stays in place · Esc exits")
             : gradient_control_ ? tr("Gradient · Drag its handles · Esc cancels a drag / exits handles · Space-drag to pan")
             : tr("Empty-drag: select contained · Shift: extend · Arrows: move · Space: pan · F: fit / Shift+F: selection");
@@ -1623,6 +1741,18 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
             start_anchor_ = kind == Drag::gradient_start ? gradient_control_->start : gradient_control_->end;
             for (const auto* field : {"start_x", "start_y", "end_x", "end_y"})
                 start_values_.emplace(field, values_.at(gradient_ref(gradient_object_, gradient_operation_, gradient_control_->id, field)));
+        } else if(kind==Drag::circle_center||kind==Drag::circle_radius) {
+            const auto control=circle_source_control();
+            if(!control||selected_object!=circle_source_object_||!selected_point.empty()||selections_.size()!=1)
+                throw Error("INVALID_SELECTION","Circle source handles require the selected Circle object");
+            drag_inverse_=control->world.inverted(&invertible);
+            start_anchor_=kind==Drag::circle_center?control->center:control->radius;
+            for(const auto* field:{"generator.center_x","generator.center_y","generator.radius"})
+                start_values_.emplace(field,values_.at({circle_source_object_,{},field}));
+            circle_drag_session_=session_identity_provider_?session_identity_provider_():QString{};
+            circle_drag_document_=session_.preview_document().id;
+            circle_drag_object_=circle_source_object_;circle_drag_source_=circle_source_id_;
+            circle_drag_composition_=active_composition_;circle_drag_revision_=session_.revision();
         } else if(kind==Drag::pivot) {
             drag_inverse_=world_.at(selected_object).inverted(&invertible);
             start_anchor_={values_.at({selected_object,"","transform.anchor_x"}),values_.at({selected_object,"","transform.anchor_y"})};
@@ -1666,12 +1796,17 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
         if (timing_observation_enabled()) ++input_sequence_;
         update_cursor();
     } catch (const std::exception& exception) {
+        circle_drag_session_.clear();circle_drag_document_.clear();circle_drag_object_.clear();
+        circle_drag_source_.clear();circle_drag_composition_.clear();circle_drag_revision_=0;
         report_error(exception);
     }
 }
 
 void Canvas::update_drag(QPointF screen) {
     if (drag_ == Drag::none) return;
+    if((drag_==Drag::circle_center||drag_==Drag::circle_radius)&&!circle_drag_context_current()) {
+        cancel_interaction();report_error(Error("REVISION_CONFLICT","Circle source-handle drag belongs to an older Session, source, selection, or revision"));return;
+    }
     if(drag_==Drag::guide) {
         if(!guide_context_current()) {
             cancel_interaction();report_error(Error("REVISION_CONFLICT","Guide drag belongs to an older document session or revision"));return;
@@ -1704,14 +1839,16 @@ void Canvas::update_drag(QPointF screen) {
     if (!drag_moved_ && distance(screen, press_position_) < QApplication::startDragDistance()) return;
     drag_moved_ = true;
     const bool gradient_drag = drag_ == Drag::gradient_start || drag_ == Drag::gradient_end;
-    const auto operation = gradient_drag ? QStringLiteral("gradient") : drag_ == Drag::object ? QStringLiteral("transform") : QStringLiteral("point-handle");
+    const bool circle_drag=drag_==Drag::circle_center||drag_==Drag::circle_radius;
+    const auto operation = gradient_drag ? QStringLiteral("gradient") : circle_drag ? QStringLiteral("circle-source") :
+        drag_ == Drag::object ? QStringLiteral("transform") : QStringLiteral("point-handle");
     request_frame(operation);
     const auto local = drag_inverse_.map(view().inverted().map(screen));
     const auto press_local = drag_inverse_.map(view().inverted().map(press_position_));
     std::vector<Command> commands;
     auto set = [&](const Id& point_id, const char* field, double value) {
         const Ref ref = gradient_drag ? gradient_ref(gradient_object_, gradient_operation_, gradient_control_->id, field)
-            : Ref{selected_object, point_id, field};
+            : circle_drag ? Ref{circle_drag_object_,{},field}:Ref{selected_object, point_id, field};
         // Unchanged axes need no Set and must not cause a spurious driven error.
         // Session still validates every changed target atomically.
         const auto original = start_values_.at(field);
@@ -1722,6 +1859,13 @@ void Canvas::update_drag(QPointF screen) {
             const auto target = start_anchor_ + local - press_local;
             set({}, drag_ == Drag::gradient_start ? "start_x" : "end_x", target.x());
             set({}, drag_ == Drag::gradient_start ? "start_y" : "end_y", target.y());
+        } else if(drag_==Drag::circle_center) {
+            const auto target=start_anchor_+local-press_local;
+            set({},"generator.center_x",target.x());set({},"generator.center_y",target.y());
+        } else if(drag_==Drag::circle_radius) {
+            const auto target=start_anchor_+local-press_local;
+            const auto radius=std::max(0.0,target.x()-start_values_.at("generator.center_x"));
+            set({},"generator.radius",radius);
         } else if(drag_==Drag::pivot) {
             const auto target=start_anchor_+local-press_local;
             set({},"transform.anchor_x",target.x());set({},"transform.anchor_y",target.y());
@@ -1809,6 +1953,9 @@ void Canvas::finish_drag() {
             cancel_interaction();report_error(Error("INVALID_GUIDE","The last Guide position was invalid; the drag was canceled"));return;
         }
     }
+    if((drag_==Drag::circle_center||drag_==Drag::circle_radius)&&!circle_drag_context_current()) {
+        cancel_interaction();report_error(Error("REVISION_CONFLICT","Circle source-handle drag belongs to an older Session, source, selection, or revision"));return;
+    }
     if((drag_==Drag::object||drag_==Drag::anchor)&&snap_prepared_&&!snap_context_current()) {
         cancel_interaction();
         report_error(Error("REVISION_CONFLICT","Snap gesture belongs to an older document session, scope, zoom, or revision"));
@@ -1837,6 +1984,8 @@ void Canvas::finish_drag() {
     snap_prepared_=false;snap_point_mode_=false;snap_point_world_.reset();snap_bounds_.reset();
     snap_x_sources_.clear();snap_y_sources_.clear();snap_x_targets_.clear();snap_y_targets_.clear();
     snap_x_match_.reset();snap_y_match_.reset();publish_snap_feedback({});
+    circle_drag_session_.clear();circle_drag_document_.clear();circle_drag_object_.clear();
+    circle_drag_source_.clear();circle_drag_composition_.clear();circle_drag_revision_=0;
     update_cursor();
 }
 
@@ -1852,6 +2001,8 @@ void Canvas::cancel_interaction() {
     drag_ = Drag::none;
     drag_moved_ = false;
     guide_drag_invalid_=false;guide_drag_document_.clear();guide_drag_composition_.clear();guide_drag_session_.clear();
+    circle_drag_session_.clear();circle_drag_document_.clear();circle_drag_object_.clear();
+    circle_drag_source_.clear();circle_drag_composition_.clear();circle_drag_revision_=0;
     update_cursor();
     if (had_preview) refresh();
     else if(had_marquee)update();
@@ -1917,6 +2068,12 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         append_draw_point(event->position());
         return;
     }
+    if(circle_source_edit_) {
+        const auto source_hit=hit_control(event->position());
+        if(source_hit.kind==Drag::circle_center||source_hit.kind==Drag::circle_radius) {
+            begin_drag(source_hit.kind,event->position());event->accept();return;
+        }
+    }
     if(const auto* guide=hit_guide(event->position())) {
         begin_guide_drag(*guide,event->position());event->accept();return;
     }
@@ -1930,6 +2087,7 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         begin_drag(hit.kind == Drag::anchor && event->modifiers().testFlag(Qt::AltModifier)
                        ? Drag::symmetric : hit.kind, event->position());
     } else if (const auto* item = hit_path(event->position())) {
+        const bool circle_mode_at_press=circle_source_edit_;
         const auto target = selection_target(*item);
         if(extend&&!selected_point.empty()&&target==item->id) {
             for(const auto& p:item->points)if(distance((item->world*view()).map(p.anchor),event->position())<=hit_radius) {
@@ -1938,9 +2096,9 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         }
         if(extend){toggle_selection({target,{}});event->accept();return;}
         if(std::find(selections_.begin(),selections_.end(),Selection{target,{}})==selections_.end())select(target);
-        if(!anchor_edit_)begin_drag(Drag::object, event->position());
+        if(!anchor_edit_&&!circle_mode_at_press&&!circle_source_edit_)begin_drag(Drag::object, event->position());
     } else {
-        if(anchor_edit_||gradient_control_) {if(!extend)select({});}
+        if(anchor_edit_||gradient_control_||circle_source_edit_) {if(!extend)select({});}
         else {
             drag_=Drag::marquee;press_position_=marquee_position_=event->position();
             marquee_start_=selections_;marquee_extend_=extend;drag_moved_=false;
@@ -2003,6 +2161,7 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
         if (drag_ != Drag::none) cancel_interaction();
         else if (draw_mode_) set_draw_mode(false);
         else if(anchor_edit_)set_anchor_edit(false);
+        else if(circle_source_edit_)set_circle_source_edit(false);
         else if (gradient_control_) clear_gradient_edit();
         else if (!scope_.empty()) leave_group();
         else select({});
@@ -2090,9 +2249,9 @@ void Canvas::reset_timing() {
 void Canvas::update_cursor() {
     if (drag_ == Drag::pan) setCursor(Qt::ClosedHandCursor);
     else if (space_down_) setCursor(Qt::OpenHandCursor);
-    else if (draw_mode_ || anchor_edit_ || guide_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
+    else if (draw_mode_ || anchor_edit_ || circle_source_edit_ || guide_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
              drag_ == Drag::outgoing || drag_ == Drag::symmetric || drag_ == Drag::gradient_start ||
-             drag_ == Drag::gradient_end) setCursor(Qt::CrossCursor);
+             drag_ == Drag::gradient_end || drag_==Drag::circle_center || drag_==Drag::circle_radius) setCursor(Qt::CrossCursor);
     else if (drag_ == Drag::object) setCursor(Qt::SizeAllCursor);
     else setCursor(Qt::ArrowCursor);
 }

@@ -798,6 +798,19 @@ void edit_number(Window& window,const Ref& ref,const char* text) {
     QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);
     QTest::keyClicks(input,text);QTest::keyClick(input,Qt::Key_Return);QApplication::processEvents();
 }
+QPoint source_handle_screen(Window& window,const Id& object,QPointF local) {
+    const auto& document=window.host.session.document();
+    const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const Composition& item){
+        return item.id==window.canvas->active_composition();
+    });
+    if(composition==document.compositions.end())throw std::runtime_error("Active Circle Composition is missing");
+    const auto board=evaluate_artboard(*composition,window.canvas->active_artboard());
+    const auto& matrix=window.canvas->evaluated_transforms().at(object).world;
+    const QTransform world(matrix[0],matrix[1],matrix[2],matrix[3],matrix[4],matrix[5]);
+    const auto point=world.map(local);
+    return {qRound(window.canvas->width()/2.0+(point.x()-(board.x+board.width/2))*window.canvas->zoom()),
+        qRound(window.canvas->height()/2.0+(point.y()-(board.y+board.height/2))*window.canvas->zoom())};
+}
 void toggle_correction(Window& window) {
     auto* checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
     check(checkbox->isEnabled(),"Authored Point Edit can be toggled");reveal(window,checkbox);
@@ -2101,6 +2114,63 @@ void point_edit_enabled_expression(Window& window) {
         window.canvas->evaluated_values().at(target_point)==fallback,
         "Redo keeps the frozen target independent of later source changes");
 }
+void circle_source_handle_inspector(Window& window) {
+    auto& session=window.host.session;
+    const auto revision=session.revision();
+    named_action(window,"add-circle")->trigger();QApplication::processEvents();
+    const auto object=window.canvas->selected_object;
+    check(!object.empty()&&session.revision()==revision+1&&!session.gesture_active()&&
+        session.document().objects.at(object).source&&
+        session.document().objects.at(object).source->type=="nect.shape.circle",
+        "One Add Circle action creates and selects a retained Circle without a draw gesture");
+    auto* handles=visible_child<QPushButton>(window,"circle-source-handles");reveal(window,handles);
+    const auto authored=session.document();const auto encoded=encode(authored);const auto mode_revision=session.revision();
+    QTest::mouseClick(handles,Qt::LeftButton);QApplication::processEvents();
+    check(window.canvas->circle_source_edit()&&session.revision()==mode_revision&&encode(session.document())==encoded,
+        "Circle Inspector affordance enters temporary source mode without changing authored state");
+
+    const Ref center_x{object,"","generator.center_x"},center_y{object,"","generator.center_y"},radius_ref{object,"","generator.radius"};
+    edit_number(window,center_x,"330");
+    check(window.canvas->circle_source_edit()&&evaluate(session.document()).at(center_x)==330,
+        "Inspector numeric Center edit remains the same source while Circle handles are active");
+    edit_number(window,radius_ref,"60");
+    check(window.canvas->circle_source_edit()&&evaluate(session.document()).at(radius_ref)==60,
+        "Inspector numeric Radius edit refreshes the active source-handle frame");
+    window.canvas->fit_artboard();QApplication::processEvents();
+    const auto drag_revision=session.revision();const auto center_before=evaluate(session.document());
+    const auto start=source_handle_screen(window,object,{center_before.at(center_x)+center_before.at(radius_ref),center_before.at(center_y)});
+    const auto end=source_handle_screen(window,object,{center_before.at(center_x)+center_before.at(radius_ref)+50,center_before.at(center_y)});
+    const auto& world_values=window.canvas->evaluated_transforms().at(object).world;
+    const QTransform world(world_values[0],world_values[1],world_values[2],world_values[3],world_values[4],world_values[5]);
+    bool invertible=false;const auto world_inverse=world.inverted(&invertible);
+    check(invertible,"Circle handle object transform is invertible for the screen oracle");
+    const auto viewport_delta=QPointF(end-start)/window.canvas->zoom();
+    const auto local_delta=world_inverse.map(viewport_delta)-world_inverse.map(QPointF{});
+    const auto expected_radius=center_before.at(radius_ref)+local_delta.x();
+    QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,start);
+    QTest::mouseMove(window.canvas,end);QApplication::processEvents();
+    QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,end);QApplication::processEvents();
+    const auto after_drag=evaluate(session.document());
+    check(session.revision()==drag_revision+1&&std::abs(after_drag.at(radius_ref)-expected_radius)<1e-9&&
+        after_drag.at(center_x)==center_before.at(center_x)&&after_drag.at(center_y)==center_before.at(center_y)&&
+        !session.document().objects.at(object).point_edit,
+        "Canvas Radius handle and Inspector use the same source property with one undoable edit: revision="+
+        std::to_string(session.revision())+" expected="+std::to_string(drag_revision+1)+" radius="+
+        std::to_string(after_drag.at(radius_ref))+" expected radius="+std::to_string(expected_radius)+" center="+
+        std::to_string(after_drag.at(center_x))+","+
+        std::to_string(after_drag.at(center_y))+" status="+window.statusBar()->currentMessage().toStdString());
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(std::abs(evaluate(session.document()).at(radius_ref)-60)<1e-9,
+        "One Undo restores the Inspector and Canvas Radius value together");
+
+    const auto before_exit=encode(session.document());const auto exit_revision=session.revision();
+    handles=visible_child<QPushButton>(window,"circle-source-handles");reveal(window,handles);
+    QTest::mouseClick(handles,Qt::LeftButton);QApplication::processEvents();
+    check(!window.canvas->circle_source_edit()&&session.revision()==exit_revision&&encode(session.document())==before_exit&&
+        encode(decode(before_exit))==before_exit,
+        "Inspector exits source mode without saving UI state; native reopen preserves only source values");
+}
+
 void gradient_authoring(Window& window) {
     auto& session=window.host.session;
     named_action(window,"add-rectangle")->trigger();QApplication::processEvents();
@@ -5406,6 +5476,8 @@ int main(int argc,char** argv) {
             "Pick-whip cancellation preserves document and restores context");
         primitive_authoring(w);ellipse_creation_preconditions();
         stack_authoring(w);
+        {Window circle_handles(temp.path()+"/circle-handles");circle_handles.show();QApplication::processEvents();
+            circle_source_handle_inspector(circle_handles);circle_handles.hide();}
         w.hide();Window point_expressions(temp.path()+"/point-expressions");point_expressions.show();QApplication::processEvents();
         generated_point_expression(point_expressions);point_expressions.hide();
         Window source_picker(temp.path()+"/source-picker");source_picker.show();QApplication::processEvents();
