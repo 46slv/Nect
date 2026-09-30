@@ -143,16 +143,27 @@ ImageSource read_image(const j::value& value) {
     return {text(o.at("asset")),read_scalar(o.at("width")),read_scalar(o.at("height"))};
 }
 j::object image_json(const ImageSource& i){return {{"asset",i.asset},{"width",scalar_json(i.width)},{"height",scalar_json(i.height)}};}
-GeometryMask read_mask(const j::value& value,bool allow_enabled_driver=false,bool allow_enabled_expression=false) {
+GeometryMask read_mask(const j::value& value,bool allow_enabled_driver=false,bool allow_enabled_expression=false,
+    bool allow_mode_fields=false,bool require_mode_fields=false) {
     const auto& o=value.as_object();
     if(!allow_enabled_driver&&o.contains("enabled_driver"))
         throw Error("UNSUPPORTED_MASK_ENABLED_DRIVER","Geometry mask enabled drivers require native 0.31 and the dedicated link command");
     if(!allow_enabled_expression&&o.contains("enabled_expression"))
         throw Error("UNSUPPORTED_MASK_ENABLED_EXPRESSION","Geometry mask enabled expressions require native 0.68 and the dedicated expression command");
-    if(allow_enabled_expression)keys(o,{"id","source","version","enabled","fill_rule","enabled_driver","enabled_expression"});
+    if(require_mode_fields&&(!o.contains("mode")||!o.contains("invert")))
+        throw Error("NATIVE_VERSION_MISMATCH","Native 0.71 masks require explicit mode and invert fields");
+    if(allow_mode_fields) {
+        if(allow_enabled_expression)keys(o,{"id","source","version","enabled","fill_rule","enabled_driver","enabled_expression","mode","invert"});
+        else if(allow_enabled_driver)keys(o,{"id","source","version","enabled","fill_rule","enabled_driver","mode","invert"});
+        else keys(o,{"id","source","version","enabled","fill_rule","mode","invert"});
+    } else if(allow_enabled_expression)keys(o,{"id","source","version","enabled","fill_rule","enabled_driver","enabled_expression"});
     else if(allow_enabled_driver)keys(o,{"id","source","version","enabled","fill_rule","enabled_driver"});
     else keys(o,{"id","source","version","enabled","fill_rule"});
     GeometryMask result{text(o.at("id")),text(o.at("source")),j::value_to<unsigned>(o.at("version")),o.at("enabled").as_bool(),text(o.at("fill_rule"))};
+    if(allow_mode_fields) {
+        if(const auto* mode=o.if_contains("mode"))result.mode=text(*mode);
+        if(const auto* invert=o.if_contains("invert"))result.invert=invert->as_bool();
+    }
     if(const auto* driver=o.if_contains("enabled_driver")) {
         const auto& wrapper=driver->as_object();keys(wrapper,{"link"});result.enabled_driver=read_ref(wrapper.at("link"));
     }
@@ -163,20 +174,23 @@ GeometryMask read_mask(const j::value& value,bool allow_enabled_driver=false,boo
 }
 j::value mask_json(const std::optional<GeometryMask>& mask) {
     if(!mask)return nullptr;
-    j::object result{{"id",mask->id},{"source",mask->source},{"version",mask->version},{"enabled",mask->enabled},{"fill_rule",mask->fill_rule}};
+    j::object result{{"id",mask->id},{"source",mask->source},{"version",mask->version},{"enabled",mask->enabled},
+        {"fill_rule",mask->fill_rule},{"mode",mask->mode},{"invert",mask->invert}};
     if(mask->enabled_driver)result["enabled_driver"]=j::object{{"link",ref_json(*mask->enabled_driver)}};
     if(mask->enabled_expression)result["enabled_expression"]=expression_json(*mask->enabled_expression);
     return result;
 }
 Compositing read_compositing(const j::value& value,bool allow_isolated_driver,bool allow_mask_enabled_driver=false,
-    bool allow_isolated_expression=false,bool allow_mask_enabled_expression=false) {
+    bool allow_isolated_expression=false,bool allow_mask_enabled_expression=false,
+    bool allow_mask_mode=false,bool require_mask_mode=false) {
     const auto& o=value.as_object();
     if(allow_isolated_expression)keys(o,{"version","opacity","blend","isolated","mask","isolated_driver","isolated_expression"});
     else if(allow_isolated_driver)keys(o,{"version","opacity","blend","isolated","mask","isolated_driver"});
     else keys(o,{"version","opacity","blend","isolated","mask"});
     Compositing c;c.version=j::value_to<unsigned>(o.at("version"));c.opacity=read_scalar(o.at("opacity"));
     c.blend=text(o.at("blend"));c.isolated=o.at("isolated").as_bool();
-    if(!o.at("mask").is_null())c.mask=read_mask(o.at("mask"),allow_mask_enabled_driver,allow_mask_enabled_expression);
+    if(!o.at("mask").is_null())c.mask=read_mask(o.at("mask"),allow_mask_enabled_driver,allow_mask_enabled_expression,
+        allow_mask_mode,require_mask_mode);
     if(const auto* driver=o.if_contains("isolated_driver")) {
         const auto& wrapper=driver->as_object();keys(wrapper,{"link"});c.isolated_driver=read_ref(wrapper.at("link"));
     }
@@ -1977,7 +1991,8 @@ Command read_command(const j::value& v) {
     if(type=="set_visibility") {keys(o,{"type","object","visible"});return SetVisibility{text(o.at("object")),o.at("visible").as_bool()};}
     if(type=="set_compositing") {keys(o,{"type","object","blend","isolated"});return SetCompositing{text(o.at("object")),text(o.at("blend")),o.at("isolated").as_bool()};}
     if(type=="set_mask") {
-        keys(o,{"type","object","mask"});std::optional<GeometryMask> mask;if(!o.at("mask").is_null())mask=read_mask(o.at("mask"));
+        keys(o,{"type","object","mask"});std::optional<GeometryMask> mask;
+        if(!o.at("mask").is_null())mask=read_mask(o.at("mask"),false,false,true,false);
         return SetMask{text(o.at("object")),std::move(mask)};
     }
     if(type=="mask_objects") {
@@ -2070,10 +2085,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,70> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70"};
+        constexpr std::array<std::string_view,71> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.70 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.71 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -2135,7 +2150,7 @@ Document decode(std::string_view input) {
             Object obj;
             obj.id=text(o.at("id"));
             obj.name=text(o.at("name"));
-            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"),minor>=30,minor>=31,minor>=62,minor>=68);}
+            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"),minor>=30,minor>=31,minor>=62,minor>=68,minor>=71,minor>=71);}
             if(minor>=27)if(const auto* driver=o.if_contains("visibility_driver")) {
                 const auto& fields=driver->as_object();keys(fields,{"link"});obj.visibility_driver=read_ref(fields.at("link"));
             }
@@ -2325,6 +2340,9 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
 
     std::function<void(const Id&)> reject_unsupported=[&](const Id& id) {
         const auto& object=d.objects.at(id);
+        if(object.compositing.mask&&object.compositing.mask->mode=="alpha"&&
+            mask_enabled.at(geometry_mask_enabled_ref(id,object.compositing.mask->id)))
+            throw Error("UNSUPPORTED_SVG_ALPHA_MASK","SVG export cannot represent Alpha mask on Object "+id+" without a lossless projection");
         for(const auto& operation:object.stack)if(
             operation_enabled.at(operation_ref(id,operation.id,"enabled"))&&operation.type=="nect.group.posterize")
             throw Error("UNSUPPORTED_SVG_EFFECT","SVG export cannot represent enabled Group Posterize instance "+operation.id+" on Group "+id);
@@ -2823,10 +2841,16 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op","composition","artboard"});const auto cid=text(o.at("composition"));
             const auto& d=session.document();const auto comp=std::find_if(d.compositions.begin(),d.compositions.end(),[&](const auto& c){return c.id==cid;});
             if(comp==d.compositions.end())throw Error("MISSING_COMPOSITION",cid);
-            const auto board=evaluate_artboard(*comp,text(o.at("artboard")));j::array texts,unsupported_effects;
+            const auto board=evaluate_artboard(*comp,text(o.at("artboard")));j::array texts,unsupported_effects,unsupported_masks;
             const auto operation_enabled=evaluate_operation_enableds(d);
+            const auto mask_enabled=evaluate_geometry_mask_enableds(d);
             std::function<void(const Id&)> walk=[&](const Id& id){const auto& object=d.objects.at(id);
                 if(object.text)texts.push_back(text_layout_json(d,id));
+                if(object.compositing.mask&&object.compositing.mask->mode=="alpha"&&
+                    mask_enabled.at(geometry_mask_enabled_ref(id,object.compositing.mask->id)))
+                    unsupported_masks.push_back(j::object{{"object",id},{"source",object.compositing.mask->source},
+                        {"mode","alpha"},{"derivative","svg"},
+                        {"reason","SVG cannot represent Alpha mask RGBA coverage without a lossless projection"}});
                 for(const auto& operation:object.stack)if(object.kind==Kind::group&&
                     operation_enabled.at(operation_ref(id,operation.id,"enabled"))&&operation.type=="nect.group.posterize")
                     unsupported_effects.push_back(j::object{{"object",id},{"operation",operation.id},{"type",operation.type},
@@ -2834,7 +2858,8 @@ std::string request(Session& session,std::string_view input) {
                 for(const auto& child:object.children)walk(child);};
             for(const auto& id:comp->roots)walk(id);
             result=j::object{{"format","svg"},{"artboard",artboard_json(board)},{"text",texts},
-                {"svg_export_supported",unsupported_effects.empty()},{"unsupported_effects",unsupported_effects},
+                {"svg_export_supported",unsupported_effects.empty()&&unsupported_masks.empty()},
+                {"unsupported_effects",unsupported_effects},{"unsupported_masks",unsupported_masks},
                 {"property_policy","evaluated_values"},{"expressions_preserved",false},
                 {"shape_policy","evaluated vector contours; live operators preserved only in native"},
                 {"image_policy","accepted snapshot projected to oriented sRGB PNG in SVG; original bytes and links preserved in native"},
@@ -2845,8 +2870,14 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op"});
             result=j::object{{"version",1},{"space","srgb"},{"alpha","source-over premultiplied compositing"},
                 {"blends",j::array{"normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion"}},
-                {"mask","final_path_geometry"},{"mask_sources",j::array{"path","text"}},{"mask_space","composition"},
-                {"mask_paint_ignored",true},{"mask_open_contours","implicitly_closed"},{"mask_normal_visibility","independent"},
+                {"mask","final_path_geometry_or_alpha_rgba"},{"mask_sources",j::array{"path","text"}},
+                {"mask_modes",j::array{"geometry","alpha"}},{"geometry_mask_sources",j::array{"path","text"}},
+                {"alpha_mask_sources",j::array{"path","text","image","group"}},{"mask_space","composition"},
+                {"mask_paint_ignored",true},{"geometry_mask_paint_ignored",true},
+                {"alpha_mask_source_projection","isolated_rgba"},
+                {"alpha_mask_root_visibility_ignored",true},{"alpha_mask_root_blend_ignored",true},
+                {"alpha_mask_invert","alpha_only"},{"luma_mask_supported",false},
+                {"mask_open_contours","implicitly_closed_geometry_only"},{"mask_normal_visibility","independent"},
                 {"neutral_groups","pass_through"},{"nonneutral_groups","isolated_then_clip_opacity_blend"},{"after_effects_full_parity",false}};
         } else if(op=="compositing_plan") {
             keys(o,{"op","composition"});const auto values=evaluate(session.document());
@@ -2867,7 +2898,16 @@ std::string request(Session& session,std::string_view input) {
                     if(operation.enabled_expression)effect["enabled_expression"]=expression_json(*operation.enabled_expression);
                     effects.push_back(std::move(effect));
                 }
-                j::value mask=nullptr;if(node.mask)mask=j::object{{"source",node.mask->source},{"fill_rule",node.mask->fill_rule},{"space","composition"},{"path_instances",node.mask->paths.size()}};
+                j::value mask=nullptr;
+                if(node.mask) {
+                    j::object details{{"source",node.mask->source},{"mode",node.mask->mode},
+                        {"invert",node.mask->invert},{"space","composition"}};
+                    if(node.mask->mode=="geometry") {
+                        details["fill_rule"]=node.mask->fill_rule;
+                        details["path_instances"]=node.mask->paths.size();
+                    } else details["projection"]="isolated_rgba";
+                    mask=std::move(details);
+                }
                 return j::object{{"object",node.id},{"world",world},{"visible",node.visible},{"opacity",node.opacity},{"blend",node.blend},
                     {"isolated",node.isolated},{"mask",mask},{"postchildren_effects",effects},{"children",children}};
             };

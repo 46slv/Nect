@@ -4570,11 +4570,19 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         require(std::find(blends.begin(),blends.end(),composite.blend)!=blends.end(),"UNSUPPORTED_BLEND",composite.blend);
         if(composite.mask) {
             const auto& mask=*composite.mask;add(mask.id);identity(mask.source);
-            require(mask.version==1,"UNSUPPORTED_MASK_VERSION","Only geometry mask version 1 is supported");
+            require(mask.version==1,"UNSUPPORTED_MASK_VERSION","Only mask version 1 is supported");
+            require(mask.mode=="geometry"||mask.mode=="alpha",mask.mode=="luma"?"UNSUPPORTED_MASK_MODE":"INVALID_MASK_MODE",
+                mask.mode=="luma"?"Luma masks are not supported in Alpha Mask v1":"Mask mode must be geometry or alpha");
+            require(mask.mode=="alpha"||!mask.invert,"UNSUPPORTED_MASK_INVERT","Invert is available only for Alpha masks");
             require(mask.fill_rule=="nonzero"||mask.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",mask.fill_rule);
             require(mask.source!=id,"INVALID_MASK_SOURCE","A geometry mask cannot reference its owner");
             require(d.objects.contains(mask.source),"MISSING_MASK_SOURCE",mask.source);
-            require((d.objects.at(mask.source).kind==Kind::path||d.objects.at(mask.source).kind==Kind::text),"INVALID_MASK_SOURCE","Geometry mask source must be a Path or Text");
+            const auto source_kind=d.objects.at(mask.source).kind;
+            if(mask.mode=="geometry")
+                require(source_kind==Kind::path||source_kind==Kind::text,"INVALID_MASK_SOURCE","Geometry mask source must be a Path or Text");
+            else
+                require(source_kind==Kind::path||source_kind==Kind::text||source_kind==Kind::image||source_kind==Kind::group,
+                    "INVALID_MASK_SOURCE","Alpha mask source must be a Path, Text, Image, or Group");
         }
         if(o.transform_parent)identity(*o.transform_parent);
         require(o.name.size()<=4096,"LIMIT","Object name too long");
@@ -4732,7 +4740,38 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             "Definition source and Instance must belong to the same Composition");
     }
     for(const auto& [id,object]:d.objects)if(object.compositing.mask)
-        require(compositions.at(id)==compositions.at(object.compositing.mask->source),"CROSS_COMPOSITION","Geometry mask source must belong to the same Composition");
+        require(compositions.at(id)==compositions.at(object.compositing.mask->source),"CROSS_COMPOSITION","Mask source must belong to the same Composition");
+    // Appearance dependencies deliberately exclude Transform Parent edges.
+    // A source may follow the target's world transform without rendering the
+    // target as part of its own appearance; that is not an appearance cycle.
+    const auto evaluated_mask_enabled=evaluate_geometry_mask_enableds(d);
+    std::map<Id,unsigned char> appearance_state;
+    std::map<Id,unsigned> appearance_remaining;
+    std::function<void(const Id&,unsigned)> visit_appearance=[&](const Id& id,unsigned depth) {
+        require(depth<=128,"MASK_DEPENDENCY_DEPTH","Mask render dependency depth limit 128");
+        auto& state=appearance_state[id];
+        require(state!=1,"MASK_DEPENDENCY_CYCLE","Alpha mask appearance dependencies contain a cycle");
+        if(state==2) {
+            require(depth+appearance_remaining.at(id)<=128,"MASK_DEPENDENCY_DEPTH","Mask render dependency depth limit 128");
+            return;
+        }
+        state=1;
+        const auto& object=d.objects.at(id);
+        unsigned remaining=0;
+        for(const auto& child:object.children) {
+            visit_appearance(child,depth+1);
+            remaining=std::max(remaining,appearance_remaining.at(child)+1);
+        }
+        if(object.compositing.mask&&object.compositing.mask->mode=="alpha"&&
+            evaluated_mask_enabled.at(geometry_mask_enabled_ref(id,object.compositing.mask->id))) {
+            visit_appearance(object.compositing.mask->source,depth+1);
+            remaining=std::max(remaining,appearance_remaining.at(object.compositing.mask->source)+1);
+        }
+        require(depth+remaining<=128,"MASK_DEPENDENCY_DEPTH","Mask render dependency depth limit 128");
+        state=2;
+        appearance_remaining.emplace(id,remaining);
+    };
+    for(const auto& [id,object]:d.objects){(void)object;visit_appearance(id,0);}
     (void)evaluate_object_visibilities(d);
     (void)evaluate_composite_isolations(d);
     (void)evaluate_geometry_mask_enableds(d);
@@ -4798,6 +4837,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     const auto operation_enabled_values=evaluate_operation_enableds(d);
     const auto gradient_enabled_values=evaluate_gradient_enableds(d);
     const auto transforms=evaluate_transforms(d,values);
+    for(const auto& [id,object]:d.objects)if(object.compositing.mask&&object.compositing.mask->mode=="alpha") {
+        (void)id;
+        (void)inverse_affine(transforms.at(object.compositing.mask->source).world);
+    }
     for(const auto& [id,object]:d.objects)if(object.text&&object.text->path_attachment) {
         const auto source=evaluated_text_source(d,id);
         require(source.layout=="auto","TEXT_PATH_LAYOUT_UNSUPPORTED","Text-on-Path requires automatic one-line layout");

@@ -7,6 +7,8 @@ Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
 same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
+The current native writer is 0.71.
+
 ## Point Edit enabled expression v1
 
 Native 0.70 adds optional `enabled_expression` to an installed procedural Path
@@ -805,6 +807,31 @@ No alpha/luma/invert mode or appearance-derived silhouette is implied. A bypasse
 mask retains its source reference; deleting a referenced source rejects unless
 all owners are deleted in the same transaction. Removing the mask preserves its
 source and current visibility. Transform Parent determines following independently.
+
+## Native 0.71 Alpha mask v1
+
+Native 0.71 extends the same `Object::compositing.mask` record with required
+`mode:geometry|alpha` and `invert:bool`. Readers of native 0.1–0.70 migrate an
+existing mask to `geometry` and `invert=false`; a document claiming an older
+version while carrying these fields is rejected. Luma is unsupported in v1.
+Invert is valid only for Alpha mode. Geometry retains its previous path-fill
+coverage and fill-rule behavior.
+
+Alpha renders the retained source subtree to a bounded transparent RGBA surface
+in Composition space, then uses that rendered alpha at the existing target mask
+stage. It includes source paints/effects, Group children and internal masks,
+image alpha, and source opacity. It ignores only the source root's ordinary
+visibility and blend; descendant visibility and child blends remain normal.
+The target still follows content, Group postchildren effects, mask, opacity and
+blend. Inversion is `1 - source_alpha`, including coverage outside the source
+within the target content bounds. Alpha source cycles follow appearance
+dependencies through Group children and Alpha mask-source edges; Transform
+Parent edges remain separate geometry dependencies.
+
+The first Alpha slice accepts Path, Text, Image and Group sources. SVG explicitly
+refuses a document containing an Alpha mask until it can project that mask
+without loss. Native, Session/API, MCP and the desktop inspector expose the same
+mode and invert fields.
 
 `set_visibility`, `set_compositing` and `set_mask` use the normal Session boundary.
 `mask_objects` accepts at least two ordered contiguous siblings and an explicit

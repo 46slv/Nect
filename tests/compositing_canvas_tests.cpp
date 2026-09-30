@@ -281,6 +281,75 @@ void linked_mask_enabled_projects_to_canvas_and_svg() {
         "SVG uses the evaluated false expression bit while retaining target mask authored state");
     f.no_error();
 }
+void alpha_mask_path_and_group_pixel_oracle() {
+    auto d=document(false);
+    add(d,rectangle("target-content",0,0,30,10,Qt::red));group(d,"target",{"target-content"});
+    add(d,rectangle("zero",0,0,10,10,QColor(0,0,0,0)));
+    add(d,rectangle("half",10,0,10,10,QColor(0,0,0,128)));
+    add(d,rectangle("one",20,0,10,10,QColor(0,0,0,255)));
+    group(d,"alpha-source",{"zero","half","one"});
+    d.objects.at("alpha-source").visible=false;
+    d.objects.at("target").compositing.mask=GeometryMask{"alpha-mask","alpha-source",1,true,
+        "nonzero",std::nullopt,std::nullopt,"alpha",false};
+    const auto pixels=Canvas::render_artboard(d,"composition","artboard",1,false);
+    check(pixels.pixelColor(5,5).alpha()==0&&pixels.pixelColor(15,5).alpha()==128&&pixels.pixelColor(25,5).alpha()==255,
+        "Hidden Alpha Group source yields exact zero, half and full RGBA coverage through visible Path children");
+
+    auto hidden_child=d;hidden_child.objects.at("half").visible=false;
+    const auto hidden_pixels=Canvas::render_artboard(hidden_child,"composition","artboard",1,false);
+    check(hidden_pixels.pixelColor(15,5).alpha()==0&&hidden_pixels.pixelColor(25,5).alpha()==255,
+        "Alpha source ignores only root visibility and respects hidden descendant visibility");
+
+    auto opacity=d;opacity.objects.at("alpha-source").compositing.opacity.literal=.5;
+    const auto opacity_pixels=Canvas::render_artboard(opacity,"composition","artboard",1,false);
+    const int half_alpha=opacity_pixels.pixelColor(15,5).alpha(),full_alpha=opacity_pixels.pixelColor(25,5).alpha();
+    check(half_alpha==64&&full_alpha==127,
+        "Source Group opacity scales the isolated alpha projection before target opacity");
+}
+void alpha_mask_image_source_pixel_oracle() {
+    auto d=document(false);
+    add(d,rectangle("target-content",90,90,30,30,Qt::red));group(d,"target",{"target-content"});
+    const RasterPixels source_pixels{3,1,{0,0,0,0, 0,0,255,128, 255,0,0,255}};
+    auto payload=make_raster(encode_raster_png(source_pixels));
+    d.raster_assets.emplace("alpha-raster",RasterAsset{"alpha-raster","Alpha source","embedded","",payload});
+    Object image;image.id="alpha-image";image.name="Alpha image";image.kind=Kind::image;
+    image.image=ImageSource{"alpha-raster",Scalar{3,{}},Scalar{1,{}}};add(d,std::move(image));
+    const Affine image_world{1,0,0,1,100,105};
+    for(std::size_t i=0;i<6;++i)d.objects.at("alpha-image").transform[i].literal=image_world[i];
+    group(d,"nested-image-group",{"alpha-image"});group(d,"alpha-image-source",{"nested-image-group"});
+    d.objects.at("alpha-image-source").visible=false;
+    d.objects.at("target").compositing.mask=GeometryMask{"image-alpha-mask","alpha-image-source",1,true,
+        "nonzero",std::nullopt,std::nullopt,"alpha",false};
+    const auto pixels=Canvas::render_artboard(d,"composition","artboard",1,false);
+    const int zero_alpha=pixels.pixelColor(100,105).alpha(),half_alpha=pixels.pixelColor(101,105).alpha(),full_alpha=pixels.pixelColor(102,105).alpha();
+    check(zero_alpha==0&&half_alpha==128&&full_alpha==255,
+        "Nested Group/Image source projects its decoded RGBA alpha instead of its RGB color: "+
+        std::to_string(zero_alpha)+"/"+std::to_string(half_alpha)+"/"+std::to_string(full_alpha));
+}
+void alpha_mask_invert_uses_target_bounds_and_source_world() {
+    auto d=document(false);
+    add(d,rectangle("target-content",100,100,100,100,Qt::red));group(d,"target",{"target-content"});
+    add(d,rectangle("source-shape",0,0,30,30,Qt::black));group(d,"source-root",{"source-shape"});
+    const Affine translated{1,0,0,1,120,120};
+    for(std::size_t i=0;i<6;++i)d.objects.at("source-root").transform[i].literal=translated[i];
+    d.objects.at("source-root").visible=false;
+    d.objects.at("target").compositing.mask=GeometryMask{"invert-alpha-mask","source-root",1,true,
+        "nonzero",std::nullopt,std::nullopt,"alpha",true};
+    const auto inverted=Canvas::render_artboard(d,"composition","artboard",1,false);
+    check(inverted.pixelColor(110,110).alpha()==255&&inverted.pixelColor(130,130).alpha()==0&&
+        inverted.pixelColor(90,90).alpha()==0,
+        "Inverted source transform reveals target outside source bounds and clears source coverage");
+
+    d.objects.at("source-root").compositing.opacity.literal=0;
+    d.objects.at("target").compositing.mask->invert=false;
+    const auto zero_source=Canvas::render_artboard(d,"composition","artboard",1,false);
+    check(zero_source.pixelColor(110,110).alpha()==0,
+        "Zero-opacity hidden Alpha root produces an all-zero non-inverted mask");
+    d.objects.at("target").compositing.mask->invert=true;
+    const auto inverted_zero=Canvas::render_artboard(d,"composition","artboard",1,false);
+    check(inverted_zero.pixelColor(110,110).alpha()==255&&inverted_zero.pixelColor(90,90).alpha()==0,
+        "Inverting a zero-opacity source preserves target coverage and stays within target content bounds");
+}
 void repeated_mask_uses_external_world_transform() {
     auto d=document();add(d,rectangle("target",80,80,300,240,Qt::green));auto source=rectangle("source",100,100,40,80,Qt::black);
     source.visible=false;source.transform_parent="driver";
@@ -393,7 +462,8 @@ int main(int argc,char** argv) {
     try {
         group_opacity_is_applied_once();group_posterize_uses_independent_postcomposite_pixel_oracle();pass_through_and_isolation_have_distinct_backdrops();blend_alpha_and_transparent_root();
         all_supported_blends_match_independent_channel_formulas();
-        open_mask_hole_and_fill_rule();linked_visibility_controls_canvas_pixels();expression_visibility_projects_own_value_to_canvas();linked_fill_rule_projects_to_canvas_and_svg();
+        open_mask_hole_and_fill_rule();alpha_mask_path_and_group_pixel_oracle();alpha_mask_image_source_pixel_oracle();alpha_mask_invert_uses_target_bounds_and_source_world();
+        linked_visibility_controls_canvas_pixels();expression_visibility_projects_own_value_to_canvas();linked_fill_rule_projects_to_canvas_and_svg();
         linked_mask_enabled_projects_to_canvas_and_svg();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
         mask_outline_is_separate_from_inherited_selection();cropped_unmasked_scope_preserves_stroke_gradient_and_repeater();
         cropped_mask_scope_preserves_world_alignment();render_limits_remain_visible();

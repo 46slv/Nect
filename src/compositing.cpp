@@ -33,8 +33,9 @@ EvaluatedScene evaluate_scene(const Document& document,const Id& composition,con
         EvaluatedSceneNode result;result.id=id;result.world=scene_transforms.at(id).world;
         result.visible=visibility.at(id);result.opacity=scene_values.at({id,"","composite.opacity"});result.blend=composite.blend;
         if(composite.mask&&mask_enabled.at(geometry_mask_enabled_ref(id,composite.mask->id))) {
-            const auto& mask=*composite.mask;EvaluatedMask resolved;resolved.source=mask.source;resolved.fill_rule=mask.fill_rule;
-            for(const auto& path:shape(mask.source).paths)
+            const auto& mask=*composite.mask;EvaluatedMask resolved;resolved.source=mask.source;
+            resolved.mode=mask.mode;resolved.fill_rule=mask.fill_rule;resolved.invert=mask.invert;
+            if(mask.mode=="geometry")for(const auto& path:shape(mask.source).paths)
                 resolved.paths.push_back({path.contours,compose(scene_transforms.at(mask.source).world,path.transform)});
             result.mask=std::move(resolved);
         }

@@ -6,7 +6,7 @@
 
 namespace nect::test_support {
 inline void require_native_current_writer(const std::string& encoded) {
-    const std::string current_version = "\"version\":\"0.70\"";
+    const std::string current_version = "\"version\":\"0.71\"";
     if (encoded.find(current_version) == std::string::npos || encoded.empty() || encoded.back() != '}')
         throw std::runtime_error("Legacy fixture must start from current native writer output");
 }
@@ -15,6 +15,20 @@ inline void remove_empty_terminal_array(std::string& encoded,const char* field) 
     if(encoded.size()<=length||encoded.compare(encoded.size()-length-1,length,field)!=0)
         throw std::runtime_error(std::string("Legacy fixture requires an empty terminal top-level ")+field+" array");
     encoded.erase(encoded.size()-length-1,length);
+}
+inline void remove_member(std::string& encoded,const std::string& member) {
+    for(auto at=encoded.find(member);at!=std::string::npos;at=encoded.find(member,at)) {
+        const auto next=at+member.size();
+        if(next<encoded.size()&&encoded[next]==',')encoded.erase(at,member.size()+1);
+        else if(at>0&&encoded[at-1]==',')encoded.erase(at-1,member.size()+1);
+        else throw std::runtime_error("Legacy mask member is not comma-delimited");
+    }
+}
+inline void remove_native_071_mask_defaults_for_legacy_fixture(std::string& encoded) {
+    if(encoded.find("\"mode\":\"alpha\"")!=std::string::npos||encoded.find("\"invert\":true")!=std::string::npos)
+        throw std::runtime_error("Alpha masks cannot be downgraded to a pre-0.71 native fixture");
+    remove_member(encoded,"\"mode\":\"geometry\"");
+    remove_member(encoded,"\"invert\":false");
 }
 inline std::string untag_ordinary_processing_entries(std::string encoded) {
     if(encoded.find("\"kind\":\"macro\"")!=std::string::npos)
@@ -54,6 +68,7 @@ inline std::string untag_ordinary_processing_entries_for_legacy_fixture(std::str
 }
 inline std::string without_empty_macro_and_definition_fields_for_legacy_fixture(std::string encoded) {
     require_native_current_writer(encoded);
+    remove_native_071_mask_defaults_for_legacy_fixture(encoded);
     remove_empty_terminal_array(encoded,",\"macros\":[]");
     remove_empty_terminal_array(encoded,",\"definitions\":[]");
     return untag_ordinary_processing_entries(std::move(encoded));

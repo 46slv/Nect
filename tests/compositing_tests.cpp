@@ -4,6 +4,7 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <limits>
 
 using namespace nect;
 namespace {
@@ -97,7 +98,7 @@ void object_visibility_link_contract() {
         get.find("\"evaluated\":false")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos,
         "API get reports literal, stable driver Ref and evaluated own value separately");
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.70\"")!=std::string::npos&&
+    check(linked_native.find("\"version\":\"0.71\"")!=std::string::npos&&
         linked_native.find("\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}}")!=std::string::npos&&
         decode(linked_native)==session.document(),
         "Native 0.60 roundtrip preserves the optional stable visibility driver");
@@ -133,12 +134,12 @@ void object_visibility_link_contract() {
         !object_visibility_state(deletion.document(),target).literal,
         "Deleting a visibility source is atomic unless the target is first unlinked and frozen in the same batch");
 
-    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto current_version=old_literal.find("\"version\":\"0.70\"");
+    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto current_version=old_literal.find("\"version\":\"0.71\"");
     check(current_version!=std::string::npos,"Native writer emits 0.68 before a 0.27 compatibility downgrade");
-    old_literal.replace(current_version,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.27\"");
+    old_literal.replace(current_version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.27\"");
     check(decode(old_literal)==document,"Native 0.27 literal-only documents remain readable unchanged");
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto linked_version=false_version.find("\"version\":\"0.70\"");
-    false_version.replace(linked_version,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.26\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto linked_version=false_version.find("\"version\":\"0.71\"");
+    false_version.replace(linked_version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.26\"");
     rejects("UNKNOWN_FIELD",[&]{decode(false_version);});
 
     auto cross_document=fixture();auto other=empty_document("other-doc","other-comp","other-art").compositions.front();
@@ -175,15 +176,15 @@ void object_visibility_expression_contract() {
         "Typed properties exposes the exact Object visibility source kind");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.70\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.71\"")!=std::string::npos&&
         native.find("\"visibility_expression\":{\"source\":\" ! ref ( \\\"source\\\" , \\\"\\\" , \\\"object.visible\\\" ) \",\"version\":1}")!=std::string::npos&&
         decode(native)==session.document(),"Native 0.60 retains the exact Object visibility expression");
     auto conflict=native;const auto expression_at=conflict.find("\"visibility_expression\":");
     check(expression_at!=std::string::npos,"Encoded expression has a closed native field");
     conflict.insert(expression_at,"\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}},");
     rejects("INVALID_VISIBILITY_SOURCE",[&]{(void)decode(conflict);});
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(native);const auto version_at=false_version.find("\"version\":\"0.70\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.59\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(native);const auto version_at=false_version.find("\"version\":\"0.71\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.59\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
 
     const auto before_target=session.document().objects.at("a");
@@ -401,15 +402,15 @@ void mask_enabled_link_contract() {
         "Explicit replace_driver changes only the source Ref");
 
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.70\"")!=std::string::npos&&
+    check(linked_native.find("\"version\":\"0.71\"")!=std::string::npos&&
         linked_native.find("\"enabled_driver\":{\"link\":{\"object\":\"b\",\"point\":\"\",\"field\":\"mask.third-mask.enabled\"}}")!=std::string::npos&&
         decode(linked_native)==session.document()&&encode(decode(linked_native))==linked_native,
         "Native 0.43 retains the exact mask Ref and authored literal without byte drift");
-    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto old_version=old_literal.find("\"version\":\"0.70\"");
-    old_literal.replace(old_version,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.30\"");
+    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto old_version=old_literal.find("\"version\":\"0.71\"");
+    old_literal.replace(old_version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.30\"");
     check(decode(old_literal)==document,"Native 0.30 remains readable with literal-only masks");
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto current_version=false_version.find("\"version\":\"0.70\"");
-    false_version.replace(current_version,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.30\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto current_version=false_version.find("\"version\":\"0.71\"");
+    false_version.replace(current_version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.30\"");
     rejects("UNSUPPORTED_MASK_ENABLED_DRIVER",[&]{decode(false_version);});
 
     auto missing_source=fixture();missing_source.objects.at("a").compositing.mask=GeometryMask{"one","source"};
@@ -536,13 +537,13 @@ void mask_enabled_expression_contract() {
         "Rename and reorder retain the stable source mask Ref and evaluated result");
 
     const auto linked_expression=encode(session.document());
-    check(linked_expression.find("\"version\":\"0.70\"")!=std::string::npos&&
+    check(linked_expression.find("\"version\":\"0.71\"")!=std::string::npos&&
         linked_expression.find("\"enabled_expression\":{\"source\":\" ! ref ( ")!=std::string::npos&&
         decode(linked_expression)==session.document()&&encode(decode(linked_expression))==linked_expression,
         "Native 0.68 retains the exact expression beside the authored literal without byte drift");
     auto old_expression=linked_expression;
-    const auto old_version=old_expression.find("\"version\":\"0.70\"");
-    old_expression.replace(old_version,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.67\"");
+    const auto old_version=old_expression.find("\"version\":\"0.71\"");
+    old_expression.replace(old_version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.67\"");
     rejects("UNSUPPORTED_MASK_ENABLED_EXPRESSION",[&]{decode(old_expression);});
 
     apply(session,{LinkMaskEnabled{target,source,true}});
@@ -833,7 +834,7 @@ void composite_isolation_link_contract() {
     check(svg.find("<g id=\"group-B\" opacity=\"1\" color-interpolation=\"sRGB\" style=\"isolation:isolate;")!=std::string::npos,
         "SVG uses the effective isolation of a linked false-literal Group");
     const auto initial_native=encode(session.document());
-    check(initial_native.find("\"version\":\"0.70\"")!=std::string::npos&&
+    check(initial_native.find("\"version\":\"0.71\"")!=std::string::npos&&
         initial_native.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}}")!=std::string::npos&&
         decode(initial_native)==session.document()&&encode(decode(initial_native))==initial_native,
         "Native 0.43 roundtrip preserves the target literal and optional closed same-field driver");
@@ -876,12 +877,12 @@ void composite_isolation_link_contract() {
 
     auto literal=document;literal.objects.at("group-B").compositing.isolated=false;
     const auto old_native=encode(literal);auto native_029=test_support::without_empty_presets_for_legacy_fixture(old_native);
-    auto version_at=native_029.find("\"version\":\"0.70\"");
+    auto version_at=native_029.find("\"version\":\"0.71\"");
     check(version_at!=std::string::npos,"Native writer emits 0.68 before literal-only compatibility downgrade");
-    native_029.replace(version_at,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.29\"");
+    native_029.replace(version_at,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.29\"");
     check(decode(native_029)==literal,"Native 0.29 remains readable with literal-only compositing isolation");
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(initial_native);version_at=false_version.find("\"version\":\"0.70\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.29\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(initial_native);version_at=false_version.find("\"version\":\"0.71\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.29\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
     auto malformed=initial_native;
     const auto driver_at=malformed.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}} ");
@@ -1101,16 +1102,16 @@ void composite_isolation_expression_contract() {
     auto native_document=document;native_document.objects.at("group-A").compositing.isolated=false;
     native_document.objects.at("group-B").compositing.isolated_expression=expression;
     Session native_session(native_document);const auto native=encode(native_session.document());
-    check(native.find("\"version\":\"0.70\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.71\"")!=std::string::npos&&
         native.find("\"isolated_expression\":{\"source\":\" ! ref ( \\\"group-A\\\" , \\\"\\\" , \\\"composite.isolated\\\" ) \",\"version\":1}")!=std::string::npos&&
         decode(native)==native_session.document()&&encode(decode(native))==native,
         "Native 0.68 roundtrip retains the exact closed expression and authored isolation literal");
-    auto version_lie=test_support::without_empty_presets_for_legacy_fixture(native);const auto writer=version_lie.find("\"version\":\"0.70\"");
+    auto version_lie=test_support::without_empty_presets_for_legacy_fixture(native);const auto writer=version_lie.find("\"version\":\"0.71\"");
     check(writer!=std::string::npos,"Native writer emits 0.68 for composite isolation expressions");
-    version_lie.replace(writer,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.61\"");
+    version_lie.replace(writer,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.61\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(version_lie);});
-    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto legacy_writer=legacy.find("\"version\":\"0.70\"");
-    legacy.replace(legacy_writer,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.61\"");
+    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto legacy_writer=legacy.find("\"version\":\"0.71\"");
+    legacy.replace(legacy_writer,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.61\"");
     check(decode(legacy)==document,"Native 0.61 remains readable when no Composite isolation expression is present");
 
     auto structure=document;structure.objects.at("group-B").compositing.isolated_expression=Expression{"true",1};
@@ -1143,7 +1144,7 @@ void group_posterize_native_api_and_refusals() {
     check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({3,4}),
         "ReorderOperations changes the ordered postchildren evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.70\"")!=std::string::npos&&decode(native)==session.document()&&
+    check(native.find("\"version\":\"0.71\"")!=std::string::npos&&decode(native)==session.document()&&
         decode(native).objects.at("group").stack[0].id=="posterize-second",
         "Native 0.43 preserves Group operation IDs, levels and reordered stack");
     check(request(session,R"({"op":"operator_types"})").find("nect.group.posterize")!=std::string::npos,
@@ -1178,9 +1179,9 @@ void group_posterize_native_api_and_refusals() {
     rejects("UNSUPPORTED_SVG_EFFECT",[&]{(void)export_svg(session.document(),"comp","art");});
 
     auto legacy_bytes=test_support::without_empty_presets_for_legacy_fixture(encode(d));
-    const auto old_version=legacy_bytes.find("\"version\":\"0.70\"");
+    const auto old_version=legacy_bytes.find("\"version\":\"0.71\"");
     check(old_version!=std::string::npos,"Native fixture writer uses 0.43 before migration downgrade");
-    legacy_bytes.replace(old_version,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.24\"");
+    legacy_bytes.replace(old_version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.24\"");
     const auto group_id=legacy_bytes.find("\"id\":\"group\"");
     check(group_id!=std::string::npos,"Native fixture contains the target Group object");
     const auto object_start=legacy_bytes.rfind('{',group_id);
@@ -1208,8 +1209,8 @@ void group_posterize_native_api_and_refusals() {
     else throw std::runtime_error("Could not remove Group stack member from legacy fixture");
     legacy_bytes.erase(erase_start,erase_end-erase_start);
     check(decode(legacy_bytes).objects.at("group").stack.empty(),"Native 0.24 Group migrates to an empty effect stack");
-    auto smuggled=test_support::without_empty_presets_for_legacy_fixture(native);const auto old_writer=smuggled.find("\"version\":\"0.70\"");
-    smuggled.replace(old_writer,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.24\"");
+    auto smuggled=test_support::without_empty_presets_for_legacy_fixture(native);const auto old_writer=smuggled.find("\"version\":\"0.71\"");
+    smuggled.replace(old_writer,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.24\"");
     rejects("INVALID_OBJECT",[&]{(void)decode(smuggled);});
 
     session.apply({EnableOperation{"group","posterize",false},EnableOperation{"group","posterize-second",false}},session.revision());
@@ -1254,6 +1255,117 @@ void mask_geometry_and_validation() {
     apply(session,{DeleteObjects{{"a","source"}}});check(!session.document().objects.contains("source"),"Deleting source together with its owner is valid");
     auto foreign=fixture();foreign.compositions.push_back({"other","Other",{"source"},{{"other-art","Page"}}});foreign.compositions[0].roots.pop_back();Session planes(foreign);
     atomic(planes,"CROSS_COMPOSITION",{SetMask{"a",GeometryMask{"mask","source"}}});
+}
+
+void alpha_mask_native_api_and_refusals() {
+    Session session(fixture());
+    const auto response=request(session,R"({"op":"apply","expected_revision":0,"commands":[{"type":"set_mask","object":"a","mask":{"id":"alpha-mask","source":"source","version":1,"enabled":true,"fill_rule":"nonzero","mode":"alpha","invert":true}}]})");
+    check(response.find("\"changed\":true")!=std::string::npos&&session.revision()==1,
+        "JSON-lines authors Alpha mode and inversion through the shared Session command");
+    const auto mask=*session.document().objects.at("a").compositing.mask;
+    check(mask.mode=="alpha"&&mask.invert,"Session retains the explicit Alpha mode and invert bit");
+    const auto plan=request(session,R"({"op":"compositing_plan","composition":"comp"})");
+    check(plan.find("\"mode\":\"alpha\"")!=std::string::npos&&
+        plan.find("\"invert\":true")!=std::string::npos&&
+        plan.find("\"projection\":\"isolated_rgba\"")!=std::string::npos,
+        "API compositing plan reads back the Alpha projection and inversion");
+    const auto export_plan=request(session,R"({"op":"export_plan","composition":"comp","artboard":"art"})");
+    check(export_plan.find("\"svg_export_supported\":false")!=std::string::npos&&
+        export_plan.find("\"unsupported_masks\"")!=std::string::npos&&
+        export_plan.find("\"mode\":\"alpha\"")!=std::string::npos,
+        "API export plan names an enabled Alpha mask as an unsupported SVG derivative");
+    const auto saved=encode(session.document());
+    check(saved.find("\"version\":\"0.71\"")!=std::string::npos&&
+        decode(saved)==session.document()&&encode(decode(saved))==saved,
+        "Native 0.71 cold reopen and Save As retain exact Alpha authored state");
+    validate_json(saved);
+    Session reopened(decode(saved));
+    check(reopened.document()==session.document(),"A new Session reopens the Alpha native snapshot exactly");
+    session.undo(session.revision());
+    check(!session.document().objects.at("a").compositing.mask&&session.revision()==2,
+        "Alpha mask creation has one complete Undo");
+    session.redo(session.revision());
+    check(session.document().objects.at("a").compositing.mask==mask&&session.revision()==3,
+        "Redo restores the same Alpha source, mode and inversion");
+
+    Session geometry(fixture());
+    apply(geometry,{SetMask{"a",GeometryMask{"legacy-geometry-mask","source"}}});
+    const auto geometry_native=encode(geometry.document());
+    auto old_native=geometry_native;
+    const auto current_version=old_native.find("\"version\":\"0.71\"");
+    check(current_version!=std::string::npos,"Native writer is 0.71 before making the legacy fixture");
+    old_native.replace(current_version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.70\"");
+    test_support::remove_native_071_mask_defaults_for_legacy_fixture(old_native);
+    check(decode(old_native)==geometry.document()&&encode(decode(old_native))!=old_native,
+        "Native 0.70 Geometry mask defaults exactly to Geometry and non-inverted");
+    auto false_version=geometry_native;
+    const auto false_version_at=false_version.find("\"version\":\"0.71\"");
+    false_version.replace(false_version_at,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.70\"");
+    rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
+    auto missing_fields=geometry_native;
+    const auto mode_at=missing_fields.find("\"mode\":\"geometry\"");
+    check(mode_at!=std::string::npos,"Native 0.71 emits a required mask mode");
+    missing_fields.erase(mode_at,std::string("\"mode\":\"geometry\",").size());
+    rejects("NATIVE_VERSION_MISMATCH",[&]{(void)decode(missing_fields);});
+
+    auto invalid=mask;invalid.mode="luma";atomic(session,"UNSUPPORTED_MASK_MODE",{SetMask{"a",invalid}});
+    invalid=mask;invalid.mode="bogus";atomic(session,"INVALID_MASK_MODE",{SetMask{"a",invalid}});
+    invalid=mask;invalid.mode="geometry";invalid.invert=true;atomic(session,"UNSUPPORTED_MASK_INVERT",{SetMask{"a",invalid}});
+    invalid=mask;invalid.source="missing-source";atomic(session,"MISSING_MASK_SOURCE",{SetMask{"a",invalid}});
+    invalid=mask;invalid.source="a";atomic(session,"INVALID_MASK_SOURCE",{SetMask{"a",invalid}});
+    auto singular=mask;singular.source="b";
+    atomic(session,"SINGULAR_TRANSFORM",{SetMask{"a",singular},Set{{"b","","transform.a"},0}});
+    atomic(session,"NON_FINITE",{SetMask{"a",singular},Set{{"b","","transform.a"},std::numeric_limits<double>::infinity()}});
+    rejects("REVISION_CONFLICT",[&]{session.apply({SetMask{"a",mask}},session.revision()+1);});
+
+    auto cross_document=fixture();
+    auto& roots=cross_document.compositions.front().roots;
+    roots.erase(std::remove(roots.begin(),roots.end(),"source"),roots.end());
+    cross_document.compositions.push_back({"other-comp","Other",{"source"},{{"other-art","Other"}}});
+    Session cross(cross_document);
+    atomic(cross,"CROSS_COMPOSITION",{SetMask{"a",GeometryMask{"cross-alpha-mask","source",1,true,"nonzero",std::nullopt,std::nullopt,"alpha",false}}});
+
+    auto indirect_document=fixture();
+    Object parent;parent.id="parent";parent.name="Parent";parent.kind=Kind::group;parent.children={"a"};
+    indirect_document.objects.emplace(parent.id,parent);
+    auto& indirect_roots=indirect_document.compositions.front().roots;
+    indirect_roots.erase(std::remove(indirect_roots.begin(),indirect_roots.end(),"a"),indirect_roots.end());
+    indirect_roots.push_back(parent.id);
+    Session indirect(indirect_document);
+    const GeometryMask parent_source{"parent-alpha-mask","parent",1,false,"nonzero",std::nullopt,std::nullopt,"alpha",false};
+    auto recursive_source=parent_source;recursive_source.enabled=true;
+    atomic(indirect,"MASK_DEPENDENCY_CYCLE",{SetMask{"a",recursive_source}});
+    Session disabled(indirect_document);
+    apply(disabled,{SetMask{"a",parent_source}});
+    const auto disabled_scene=scene(disabled.document());
+    const auto parent_node=std::find_if(disabled_scene.roots.begin(),disabled_scene.roots.end(),
+        [](const EvaluatedSceneNode& node){return node.id=="parent";});
+    check(parent_node!=disabled_scene.roots.end()&&!parent_node->children.front().mask,
+        "A disabled Alpha source edge does not create a render dependency");
+
+    auto deep=empty_document("alpha-depth-doc","alpha-depth-comp","alpha-depth-art");
+    for(int i=0;i<130;++i) {
+        const auto id="alpha-depth-"+std::to_string(i);deep.objects.emplace(id,rectangle(id));
+        deep.compositions.front().roots.push_back(id);
+        if(i>0)deep.objects.at(id).compositing.mask=GeometryMask{"alpha-depth-mask-"+std::to_string(i),
+            "alpha-depth-"+std::to_string(i-1),1,true,"nonzero",std::nullopt,std::nullopt,"alpha",false};
+    }
+    rejects("MASK_DEPENDENCY_DEPTH",[&]{validate(deep);});
+
+    auto transform_back_edge=fixture();
+    transform_back_edge.objects.at("a").compositing.mask=GeometryMask{"transform-alpha-mask","b",1,true,
+        "nonzero",std::nullopt,std::nullopt,"alpha",false};
+    transform_back_edge.objects.at("b").transform_parent="a";
+    validate(transform_back_edge);
+    check(true,"Transform Parent back-edges do not count as Alpha appearance cycles");
+
+    auto svg_document=fixture();
+    svg_document.objects.at("a").compositing.mask=GeometryMask{"svg-alpha-mask","source",1,true,
+        "nonzero",std::nullopt,std::nullopt,"alpha",false};
+    rejects("UNSUPPORTED_SVG_ALPHA_MASK",[&]{(void)export_svg(svg_document,"comp","art");});
+    svg_document.objects.at("a").compositing.mask->enabled=false;
+    check(export_svg(svg_document,"comp","art").find("<svg")!=std::string::npos,
+        "Bypassed Alpha masks do not block an SVG derivative with matching visible output");
 }
 
 void mask_with_and_put_inside() {
@@ -1569,6 +1681,6 @@ void previewed_folder_api() {
 
 }
 int main() {
-    try{object_visibility_read_contract();object_visibility_link_contract();object_visibility_expression_contract();mask_enabled_read_contract();mask_enabled_link_contract();mask_enabled_expression_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();composite_isolation_link_contract();composite_isolation_expression_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
+    try{object_visibility_read_contract();object_visibility_link_contract();object_visibility_expression_contract();mask_enabled_read_contract();mask_enabled_link_contract();mask_enabled_expression_contract();object_visibility_consumer_parity();create_empty_folder();batch_rename_api();sort_paint_order_api();scene_contract();composite_isolation_link_contract();composite_isolation_expression_contract();group_posterize_native_api_and_refusals();mask_geometry_and_validation();alpha_mask_native_api_and_refusals();mask_with_and_put_inside();neutral_ungroup();move_out_folder();adjacent_folder_transfer();reverse_adjacent_folder_transfer();explicit_nonadjacent_folder_transfer();previewed_folder_api();std::cout<<"PASS "<<checks<<" compositing scene, mask, visibility and structure checks\n";return 0;}
     catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

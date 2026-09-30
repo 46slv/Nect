@@ -67,6 +67,27 @@ void controls(){
     check(s.document().objects.at(bottom).children.front()=="background"&&s.document().compositions.front().roots.size()==1,
         "Put Inside targets the now neutral top selected Group and retains order");
 }
+void alpha_mask_controls(){
+    QTemporaryDir tmp;Window w(tmp.path());w.host.session=Session(empty_document("alpha-ui-doc","alpha-ui-comp","alpha-ui-board"));
+    auto& session=w.host.session;
+    session.apply({CreatePrimitive{"alpha-ui-comp","","target","Target",default_primitive("target-source","nect.shape.rectangle")},
+        CreatePrimitive{"alpha-ui-comp","","source","Source",default_primitive("source-source","nect.shape.circle")},
+        SetMask{"target",GeometryMask{"alpha-ui-mask","source"}}},session.revision());
+    w.host.edited();w.show();QApplication::processEvents();w.canvas->set_selection("target");QApplication::processEvents();
+    auto* mode=widget<QComboBox>(w,"mask-mode");mode->setCurrentIndex(1);
+    check(session.document().objects.at("target").compositing.mask->mode=="alpha"&&
+        widget<QCheckBox>(w,"mask-invert")->isEnabled(),
+        "Mask Inspector selects Alpha through the shared Session command");
+    auto* invert=widget<QCheckBox>(w,"mask-invert");invert->setChecked(true);
+    check(session.document().objects.at("target").compositing.mask->invert&&
+        !widget<QComboBox>(w,"mask-fill-rule")->isEnabled(),
+        "Alpha inversion is authored while Geometry-only fill rule is unavailable");
+    widget<QComboBox>(w,"mask-mode")->setCurrentIndex(0);
+    check(session.document().objects.at("target").compositing.mask->mode=="geometry"&&
+        !session.document().objects.at("target").compositing.mask->invert&&
+        widget<QComboBox>(w,"mask-fill-rule")->isEnabled(),
+        "Mask Inspector restores Geometry mode with its unchanged fill-rule control");
+}
 void visibility_inspector(){
     QTemporaryDir tmp;Window w(tmp.path());w.host.session=Session(empty_document("visibility-doc","visibility-comp","visibility-board"));
     auto& session=w.host.session;
@@ -408,4 +429,4 @@ void mask_enabled_inspector(){
         "Unlinked target remains frozen when its former source mask changes");
 }
 }
-int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();visibility_inspector();isolation_inspector();mask_enabled_inspector();std::cout<<"Compositing UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{controls();alpha_mask_controls();visibility_inspector();isolation_inspector();mask_enabled_inspector();std::cout<<"Compositing UI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

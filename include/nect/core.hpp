@@ -331,6 +331,10 @@ struct GeometryMask {
     std::string fill_rule="nonzero";
     std::optional<Ref> enabled_driver;
     std::optional<Expression> enabled_expression;
+    // A missing mode in native documents predating 0.71 is Geometry. Alpha
+    // uses the source's isolated RGBA projection; fill_rule is Geometry-only.
+    std::string mode="geometry";
+    bool invert=false;
     bool operator==(const GeometryMask&) const = default;
 };
 struct Compositing {
@@ -973,7 +977,9 @@ EvaluatedShape evaluate_shape(const Document&,const Id&,const std::map<Ref,doubl
     const std::map<Ref,bool>* gradient_enabled=nullptr);
 struct EvaluatedMask {
     Id source;
+    std::string mode="geometry";
     std::string fill_rule;
+    bool invert=false;
     std::vector<PathInstance> paths; // transforms already map to Composition/world
 };
 struct EvaluatedSceneNode {

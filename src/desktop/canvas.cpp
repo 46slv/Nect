@@ -175,7 +175,7 @@ void Canvas::refresh() {
                 rasters_.insert_or_assign(id,RasterProjection{payload,std::move(projection)});
             }
             std::function<void(const EvaluatedSceneNode&)> masks=[&](const auto& node) {
-                if(node.mask) {
+                if(node.mask&&node.mask->mode=="geometry") {
                     QPainterPath path;
                     for(const auto& instance:node.mask->paths)path.addPath(qt_transform(instance.transform).map(qt_path(*instance.contours,true)));
                     path.setFillRule(node.mask->fill_rule=="evenodd"?Qt::OddEvenFill:Qt::WindingFill);mask_paths_.emplace(node.id,std::move(path));
@@ -771,34 +771,55 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                     if(image.isNull())throw Error("RENDER_ALLOCATION","Could not allocate a compositing surface");
                     image.setDevicePixelRatio(dpr);image.fill(Qt::transparent);allocated+=bytes;return image;
                 };
-                // Bounds are evaluated only when a scope needs an image. A mask
-                // is an unconditional coverage bound, so masked Groups need no
-                // traversal/stroking of their descendants just to size a surface.
-                std::map<Id,QRectF> bounds;
-                std::function<QRectF(const EvaluatedSceneNode&)> painted_bounds=[&](const EvaluatedSceneNode& node) {
-                    if(!node.visible||node.opacity<=0)return QRectF{};
-                    if(const auto found=bounds.find(node.id);found!=bounds.end())return found->second;
-                    QRectF result;
-                    if(node.mask)result=mask_paths_.at(node.id).boundingRect();
-                    else {
-                        if(const auto* item=geometry(node.id);item&&item->image_bounds)result=item->world.mapRect(*item->image_bounds);
-                        if(const auto* item=geometry(node.id))for(const auto& paint:item->paints) {
-                            if(paint.color.alphaF()<=0||(!paint.fill&&paint.width<=0))continue;
-                            const auto transform=paint.transform*item->world;
-                            if(paint.fill)result=result.united(transform.map(paint.path).boundingRect());
-                            else {
-                                const auto outline=paint.stroke_outline?*paint.stroke_outline:qt_stroke(paint.path,paint.width,paint.cap,paint.join,paint.miter_limit);
-                                // The control hull conservatively contains the
-                                // generated stroke curves under affine transforms.
-                                result=result.united(transform.map(outline).controlPointRect());
-                            }
-                        }
-                        for(const auto& child:node.children)result=result.united(painted_bounds(child));
-                    }
-                    bounds.emplace(node.id,result);return result;
+                std::map<Id,const EvaluatedSceneNode*> scene_nodes;
+                std::function<void(const EvaluatedSceneNode&)> index_nodes=[&](const auto& node) {
+                    scene_nodes.emplace(node.id,&node);
+                    for(const auto& child:node.children)index_nodes(child);
                 };
-                const auto pixel_region=[&](const EvaluatedSceneNode& node,const QRect& parent) {
-                    const auto world=painted_bounds(node);if(world.isEmpty())return QRect{};
+                for(const auto& node:scene_.roots)index_nodes(node);
+                // Geometry masks bound to their path as before. Alpha masks
+                // bound to the source projection, except inversion needs the
+                // full target content because coverage is opaque outside it.
+                std::map<std::pair<Id,bool>,QRectF> bounds;
+                std::function<QRectF(const EvaluatedSceneNode&,bool)> painted_bounds;
+                std::function<QRectF(const EvaluatedSceneNode&)> content_bounds;
+                content_bounds=[&](const EvaluatedSceneNode& node) {
+                    QRectF result;
+                    if(const auto* item=geometry(node.id);item&&item->image_bounds)result=item->world.mapRect(*item->image_bounds);
+                    if(const auto* item=geometry(node.id))for(const auto& paint:item->paints) {
+                        if(paint.color.alphaF()<=0||(!paint.fill&&paint.width<=0))continue;
+                        const auto transform=paint.transform*item->world;
+                        if(paint.fill)result=result.united(transform.map(paint.path).boundingRect());
+                        else {
+                            const auto outline=paint.stroke_outline?*paint.stroke_outline:qt_stroke(paint.path,paint.width,paint.cap,paint.join,paint.miter_limit);
+                            // The control hull conservatively contains the
+                            // generated stroke curves under affine transforms.
+                            result=result.united(transform.map(outline).controlPointRect());
+                        }
+                    }
+                    for(const auto& child:node.children)result=result.united(painted_bounds(child,false));
+                    return result;
+                };
+                painted_bounds=[&](const EvaluatedSceneNode& node,bool ignore_root_visibility) {
+                    if((!ignore_root_visibility&&!node.visible)||node.opacity<=0)return QRectF{};
+                    const auto key=std::make_pair(node.id,ignore_root_visibility);
+                    if(const auto found=bounds.find(key);found!=bounds.end())return found->second;
+                    QRectF result;
+                    if(node.mask) {
+                        if(node.mask->mode=="geometry")result=mask_paths_.at(node.id).boundingRect();
+                        else if(node.mask->mode=="alpha") {
+                            if(node.mask->invert)result=content_bounds(node);
+                            else {
+                                const auto source=scene_nodes.find(node.mask->source);
+                                if(source==scene_nodes.end())throw Error("MISSING_MASK_SOURCE",node.mask->source);
+                                result=painted_bounds(*source->second,true);
+                            }
+                        } else throw Error("UNSUPPORTED_MASK_MODE",node.mask->mode);
+                    } else result=content_bounds(node);
+                    bounds.emplace(key,result);return result;
+                };
+                const auto pixel_region=[&](const EvaluatedSceneNode& node,const QRect& parent,bool ignore_root_visibility=false) {
+                    const auto world=painted_bounds(node,ignore_root_visibility);if(world.isEmpty())return QRect{};
                     auto screen=transform.mapRect(world);
                     if(!std::isfinite(screen.left())||!std::isfinite(screen.top())||!std::isfinite(screen.right())||!std::isfinite(screen.bottom()))
                         throw Error("RENDER_RANGE","Compositing paint bounds must be finite");
@@ -811,34 +832,56 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                     return QRect(left,top,right-left,bottom-top).intersected(parent);
                 };
                 const auto origin=[&](const QRect& region){return QPointF(region.x()/dpr,region.y()/dpr);};
-                std::function<void(QPainter&,const EvaluatedSceneNode&,unsigned,const QRect&)> render;
+                std::function<void(QPainter&,const EvaluatedSceneNode&,unsigned,const QRect&,bool,bool)> render;
                 const auto content=[&](QPainter& target,const EvaluatedSceneNode& node,unsigned depth,const QRect& region) {
                     if(const auto* item=geometry(node.id))draw_leaf(target,*item,origin(region));
-                    for(const auto& child:node.children)render(target,child,depth,region);
+                    for(const auto& child:node.children)render(target,child,depth,region,false,false);
                 };
-                render=[&](QPainter& target,const EvaluatedSceneNode& node,unsigned depth,const QRect& parent) {
-                    if(!node.visible||node.opacity<=0)return;
+                render=[&](QPainter& target,const EvaluatedSceneNode& node,unsigned depth,const QRect& parent,
+                    bool ignore_root_visibility,bool ignore_root_blend) {
+                    if((!ignore_root_visibility&&!node.visible)||node.opacity<=0)return;
                     if(!node.isolated){content(target,node,depth,parent);return;}
                     if(depth>=16)throw Error("RENDER_LIMIT","Compositing isolation nesting exceeds 16");
-                    const auto region=pixel_region(node,parent);if(region.isEmpty())return;
+                    const auto region=pixel_region(node,parent,ignore_root_visibility);if(region.isEmpty())return;
                     const auto bytes=byte_size(region);auto image=surface(region);
                     {
                         {QPainter layer(&image);layer.setRenderHint(QPainter::Antialiasing);content(layer,node,depth+1,region);}
                         for(const auto levels:node.posterize_levels)posterize_premultiplied_srgb(image,levels);
                         if(node.mask) {
-                            auto coverage=surface(region);const auto offset=origin(region);
-                            {QPainter mask(&coverage);mask.setRenderHint(QPainter::Antialiasing);mask.setWorldTransform(transform*QTransform::fromTranslate(-offset.x(),-offset.y()));
-                             mask.setPen(Qt::NoPen);mask.setBrush(Qt::white);mask.drawPath(mask_paths_.at(node.id));}
+                            auto coverage=surface(region);
+                            if(node.mask->mode=="geometry") {
+                                const auto offset=origin(region);
+                                QPainter mask(&coverage);mask.setRenderHint(QPainter::Antialiasing);
+                                mask.setWorldTransform(transform*QTransform::fromTranslate(-offset.x(),-offset.y()));
+                                mask.setPen(Qt::NoPen);mask.setBrush(Qt::white);mask.drawPath(mask_paths_.at(node.id));
+                            } else if(node.mask->mode=="alpha") {
+                                const auto source=scene_nodes.find(node.mask->source);
+                                if(source==scene_nodes.end())throw Error("MISSING_MASK_SOURCE",node.mask->source);
+                                auto projected=surface(region);
+                                {QPainter source_painter(&projected);source_painter.setRenderHint(QPainter::Antialiasing);
+                                 render(source_painter,*source->second,depth+1,region,true,true);}
+                                for(int y=0;y<region.height();++y) {
+                                    const auto* source_row=reinterpret_cast<const QRgb*>(projected.constScanLine(y));
+                                    auto* coverage_row=reinterpret_cast<QRgb*>(coverage.scanLine(y));
+                                    for(int x=0;x<region.width();++x) {
+                                        const int alpha=qAlpha(source_row[x]);
+                                        const int value=node.mask->invert?255-alpha:alpha;
+                                        coverage_row[x]=qRgba(value,value,value,value);
+                                    }
+                                }
+                                allocated-=bytes;
+                            } else throw Error("UNSUPPORTED_MASK_MODE",node.mask->mode);
                             {QPainter layer(&image);layer.setCompositionMode(QPainter::CompositionMode_DestinationIn);
                              layer.drawImage(QPointF(0,0),coverage);}
                             allocated-=bytes;
                         }
                     }
-                    target.save();target.resetTransform();target.setOpacity(node.opacity);target.setCompositionMode(blend_mode(node.blend));
+                    target.save();target.resetTransform();target.setOpacity(node.opacity);
+                    target.setCompositionMode(blend_mode(ignore_root_blend?"normal":node.blend));
                     target.drawImage(origin(region)-origin(parent),image);target.restore();allocated-=bytes;
                 };
                 auto artwork=surface(viewport);
-                {QPainter layer(&artwork);layer.setRenderHint(QPainter::Antialiasing);for(const auto& node:scene_.roots)render(layer,node,0,viewport);}
+                {QPainter layer(&artwork);layer.setRenderHint(QPainter::Antialiasing);for(const auto& node:scene_.roots)render(layer,node,0,viewport,false,false);}
                 painter.save();painter.resetTransform();painter.drawImage(QPointF(0,0),artwork);painter.restore();
             }
 }

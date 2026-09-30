@@ -59,11 +59,11 @@ void operation_enabled_link_contract() {
         resolve_name(session.document(),"Target","",target.field)==target&&
         !literal_state.literal&&!literal_state.driver&&!literal_state.evaluated,
         "Operation enabled is a typed boolean property with the authored literal before linking");
-    auto literal_native=encode(session.document());const auto literal_version=literal_native.find("\"version\":\"0.70\"");
+    auto literal_native=encode(session.document());const auto literal_version=literal_native.find("\"version\":\"0.71\"");
     check(literal_version!=std::string::npos&&decode(literal_native)==session.document(),
         "Native 0.43 roundtrips a literal operation enabled property");
     auto legacy_literal=test_support::without_empty_presets_for_legacy_fixture(literal_native);
-    legacy_literal.replace(literal_version,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.27\"");
+    legacy_literal.replace(literal_version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.27\"");
     check(decode(legacy_literal)==session.document(),"Native 0.27 literal-only documents remain readable");
 
     session.apply({LinkOperationEnabled{target,source,false}},session.revision());
@@ -116,11 +116,11 @@ void operation_enabled_link_contract() {
         !operation_enabled_state(session.document(),target).evaluated,
         "Explicit replacement switches the target to another stable boolean source");
     const auto linked=encode(session.document());
-    check(linked.find("\"version\":\"0.70\"")!=std::string::npos&&
+    check(linked.find("\"version\":\"0.71\"")!=std::string::npos&&
         linked.find("\"enabled_driver\":{\"link\":")!=std::string::npos&&encode(decode(linked))==linked,
         "Native 0.43 preserves the closed enabled driver and exact Ref");
-    auto old_driver=test_support::without_empty_presets_for_legacy_fixture(linked);const auto old_version=old_driver.find("\"version\":\"0.70\"");
-    old_driver.replace(old_version,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.27\"");
+    auto old_driver=test_support::without_empty_presets_for_legacy_fixture(linked);const auto old_version=old_driver.find("\"version\":\"0.71\"");
+    old_driver.replace(old_version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.27\"");
     rejects("UNSUPPORTED_OPERATION_ENABLED_DRIVER",[&]{(void)decode(old_driver);});
 
     session.apply({EnableOperation{"enabled-alternate","enabled-alternate-fill",true}},session.revision());
@@ -260,13 +260,13 @@ void operation_enabled_expression_contract() {
     check(state.driver==alternate&&!state.expression,"Replacing an expression with a link clears the old source");
     session.apply({SetOperationEnabledExpression{target,expression,true}},session.revision());
     const auto expression_native=encode(session.document());
-    check(expression_native.find("\"version\":\"0.70\"")!=std::string::npos&&
+    check(expression_native.find("\"version\":\"0.71\"")!=std::string::npos&&
         expression_native.find("\"enabled_expression\":{\"source\":\" ! ref ( \\\"expr-source\\\" , \\\"\\\" , \\\"op.expr-source-fill.enabled\\\" ) \",\"version\":1}")!=std::string::npos&&
         encode(decode(expression_native))==expression_native,
         "Native 0.67 roundtrips the closed operation expression beside its authored literal");
     auto old_version=expression_native;
-    const auto writer=old_version.find("\"version\":\"0.70\"");
-    old_version.replace(writer,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.66\"");
+    const auto writer=old_version.find("\"version\":\"0.71\"");
+    old_version.replace(writer,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.66\"");
     rejects("UNSUPPORTED_OPERATION_ENABLED_EXPRESSION",[&]{(void)decode(old_version);});
     auto conflicting=expression_native;
     const auto expression_field=conflicting.find("\"enabled_expression\":");
@@ -346,13 +346,13 @@ void fill_rule_link_contract() {
     rejects("INVALID_OPERATION_REF",[&]{session.apply({LinkFillRule{target,{"fill-source","point","op.source-fill.fill_rule"}}},session.revision());});
     rejects("TYPE_MISMATCH",[&]{session.apply({LinkFillRule{target,{"fill-source","","op.source-fill.composite"}}},session.revision());});
     const auto literal_bytes=encode(session.document());
-    check(literal_bytes.find("\"version\":\"0.70\"")!=std::string::npos&&
+    check(literal_bytes.find("\"version\":\"0.71\"")!=std::string::npos&&
         literal_bytes.find("fill_rule_driver")==std::string::npos&&encode(decode(literal_bytes))==literal_bytes,
         "Native 0.43 omits an absent Fill rule driver and roundtrips literal state");
     auto legacy_literal=test_support::without_empty_presets_for_legacy_fixture(literal_bytes);
-    const auto current_version=legacy_literal.find("\"version\":\"0.70\"");
+    const auto current_version=legacy_literal.find("\"version\":\"0.71\"");
     check(current_version!=std::string::npos,"Native writer exposes 0.36 for the literal migration fixture");
-    legacy_literal.replace(current_version,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.27\"");
+    legacy_literal.replace(current_version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.27\"");
     check(decode(legacy_literal)==session.document(),"Native 0.27 retains literal-only Fill rules");
 
     session.apply({LinkFillRule{target,source}},session.revision());
@@ -364,8 +364,8 @@ void fill_rule_link_contract() {
         "Linked Fill shape evaluation uses the resolved enum");
     auto linked=encode(session.document());check(linked.find("\"fill_rule_driver\":{\"link\":")!=std::string::npos&&
         encode(decode(linked))==linked,"Native 0.43 retains the closed stable Fill rule Ref exactly");
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked);const auto version= false_version.find("\"version\":\"0.70\"");
-    false_version.replace(version,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.25\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked);const auto version= false_version.find("\"version\":\"0.71\"");
+    false_version.replace(version,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.25\"");
     rejects("UNSUPPORTED_FILL_RULE_DRIVER",[&]{decode(false_version);});
     auto malformed=linked;const auto field=malformed.find("op.source-fill.fill_rule");
     check(field!=std::string::npos,"Native linked source Ref is present");

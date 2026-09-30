@@ -3849,7 +3849,25 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     auto* scope=new QLabel("Opacity, masks and blending apply to the composed result. Neutral Groups pass through.");scope->setWordWrap(true);scope->setStyleSheet("color:#9ea7b4;");form->addRow(scope);
     if(!object.compositing.mask)return;
     const auto mask=*object.compositing.mask;
-    auto* mask_box=new QGroupBox("Geometry mask");auto* mask_form=new QFormLayout(mask_box);mask_form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(mask_box);
+    auto* mask_box=new QGroupBox("Mask");auto* mask_form=new QFormLayout(mask_box);mask_form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(mask_box);
+    auto* mode=new QComboBox(mask_box);mode->setObjectName("mask-mode");mode->addItem("Geometry","geometry");mode->addItem("Alpha","alpha");
+    mode->setCurrentIndex(mask.mode=="alpha"?1:0);mask_form->addRow("Mode",mode);
+    auto* invert=new QCheckBox("Invert alpha",mask_box);invert->setObjectName("mask-invert");invert->setChecked(mask.invert);
+    invert->setEnabled(mask.mode=="alpha");mask_form->addRow(invert);
+      connect(mode,&QComboBox::currentIndexChanged,this,[this,mode,invert,id,apply](int) {
+          const auto requested=mode->currentData().toString().toStdString();
+          invert->setEnabled(requested=="alpha");bool ok=false;
+          perform([&]{auto current=*host.session.document().objects.at(id).compositing.mask;current.mode=requested;
+              if(requested!="alpha")current.invert=false;apply(SetMask{id,current});ok=true;});
+        if(!ok) {
+            const auto current=host.session.document().objects.at(id).compositing.mask->mode;
+            QSignalBlocker blocker(mode);mode->setCurrentIndex(current=="alpha"?1:0);
+            invert->setEnabled(current=="alpha");
+        }
+    });
+    connect(invert,&QCheckBox::toggled,this,[this,invert,id,apply](bool value){bool ok=false;perform([&]{
+        auto current=*host.session.document().objects.at(id).compositing.mask;current.invert=value;apply(SetMask{id,current});ok=true;
+    });if(!ok){QSignalBlocker blocker(invert);invert->setChecked(!value);}});
     const auto mask_ref=geometry_mask_enabled_ref(id,mask.id);
     const auto mask_state=geometry_mask_enabled_state(host.session.document(),mask_ref);
     const bool mask_enabled_driven=mask_state.driver.has_value()||mask_state.expression.has_value();
@@ -3939,14 +3957,18 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     mask_form->addRow("Mask enabled state",mask_status);
     auto* edit=new QPushButton("Edit: "+qs(host.session.document().objects.at(mask.source).name));edit->setObjectName("mask-edit-source");edit->setToolTip("Select the retained source to edit its points and parameters. Its normal visibility stays unchanged.");mask_form->addRow(edit);
     connect(edit,&QPushButton::clicked,this,[this,source=mask.source]{canvas->set_selection(source);});
-    auto* rule=new QComboBox;rule->setObjectName("mask-fill-rule");rule->addItem("Nonzero","nonzero");rule->addItem("Even–odd","evenodd");rule->setCurrentIndex(mask.fill_rule=="evenodd"?1:0);mask_form->addRow("Fill rule",rule);
+    auto* rule=new QComboBox;rule->setObjectName("mask-fill-rule");rule->addItem("Nonzero","nonzero");rule->addItem("Even–odd","evenodd");
+    rule->setCurrentIndex(mask.fill_rule=="evenodd"?1:0);rule->setEnabled(mask.mode=="geometry");mask_form->addRow("Fill rule",rule);
     connect(rule,&QComboBox::currentIndexChanged,this,[this,rule,id,apply](int){perform([&]{auto mask=*host.session.document().objects.at(id).compositing.mask;mask.fill_rule=rule->currentData().toString().toStdString();apply(SetMask{id,mask});});});
     auto* outline=new QCheckBox("Show mask outline");outline->setObjectName("mask-show-outline");outline->setChecked(canvas->show_mask_outline());mask_form->addRow(outline);
     connect(outline,&QCheckBox::toggled,canvas,&Canvas::set_show_mask_outline);
     add_visibility_control(mask_box,mask_form,mask.source,"Show source artwork","mask-source-visible");
     auto* remove=new QPushButton("Remove mask");remove->setObjectName("mask-remove");remove->setToolTip("Remove clipping; keep source object and its current visibility. Undo restores the mask.");mask_form->addRow(remove);
     connect(remove,&QPushButton::clicked,this,[this,id,apply]{perform([&]{apply(SetMask{id,{}});});});
-    auto* note=new QLabel("Uses final source geometry in Composition space. Source paint and opacity do not affect this mask; open paths close implicitly.");note->setWordWrap(true);note->setStyleSheet("color:#9ea7b4;");mask_form->addRow(note);
+    auto* note=new QLabel(mask.mode=="alpha"
+        ?"Uses the source's isolated RGBA appearance in Composition space. Source root visibility and blend are ignored; source opacity and internal Group content are included."
+        :"Uses final source geometry in Composition space. Source paint and opacity do not affect this mask; open paths close implicitly.");
+    note->setWordWrap(true);note->setStyleSheet("color:#9ea7b4;");mask_form->addRow(note);
 }
 void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) {
     const auto id=object.id;const auto frozen_session=host.session_id;
