@@ -5533,15 +5533,17 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
     const auto gradient_ref_value=operation.gradient?std::optional<Ref>{gradient_ref(id,op,operation.gradient->id,"enabled")}:std::nullopt;
     const auto gradient_state=gradient_ref_value?std::optional<GradientEnabledProperty>{gradient_enabled_state(document,*gradient_ref_value)}:std::nullopt;
     const auto gradient_active=gradient_state?gradient_state->evaluated:false;
+    const bool gradient_driven=gradient_state&&(gradient_state->driver.has_value()||gradient_state->expression.has_value());
     mode->setCurrentIndex(!operation.gradient||!gradient_active?0:operation.gradient->type=="radial"?2:1);
-    mode->setEnabled(!gradient_state||!gradient_state->driver);
-    if(gradient_state&&gradient_state->driver)mode->setToolTip("Unlink the Gradient enabled driver before changing Paint mode.");
+    mode->setEnabled(!gradient_driven);
+    if(gradient_driven)mode->setToolTip("Unlink the Gradient enabled source before changing Paint mode.");
     form->addRow("Paint",mode);
     connect(mode,&QComboBox::currentIndexChanged,this,[this,mode,id,op,apply,before=mode->currentIndex()](int index) {
         bool applied=false;
         perform([&]{
             auto gradient=find_operation(host.session.document(),id,op).gradient;
-            if(gradient&&gradient->enabled_driver)throw Error("DRIVEN_PROPERTY","Unlink the Gradient enabled driver before changing Paint mode");
+            if(gradient&&(gradient->enabled_driver||gradient->enabled_expression))
+                throw Error("DRIVEN_PROPERTY","Unlink the Gradient enabled source before changing Paint mode");
             if(index==0) {
                 if(gradient)gradient->enabled=false;
             } else {
@@ -5580,11 +5582,14 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
     if(operation.gradient&&gradient_state&&gradient_ref_value) {
         auto* driver_row=new QWidget;auto* driver_layout=new QHBoxLayout(driver_row);driver_layout->setContentsMargins(0,0,0,0);
         auto* driver_button=new QToolButton(driver_row);driver_button->setObjectName("gradient-enabled-driver-"+qs(op));
-        driver_button->setText(gradient_state->driver?"Driver…":"Drive…");driver_button->setPopupMode(QToolButton::InstantPopup);
+        driver_button->setText(gradient_state->driver?"Driver…":gradient_state->expression?"Expression…":"Drive…");
+        driver_button->setPopupMode(QToolButton::InstantPopup);
         auto* driver_menu=new QMenu(driver_button);driver_button->setMenu(driver_menu);driver_layout->addWidget(driver_button);
-        auto* link_enabled=driver_menu->addAction(gradient_state->driver?"Replace enabled source…":"Link enabled source…");
+        const bool has_enabled_source=gradient_state->driver.has_value()||gradient_state->expression.has_value();
+        auto* link_enabled=driver_menu->addAction(has_enabled_source?"Replace with link…":"Link enabled source…");
+        auto* set_expression=driver_menu->addAction(has_enabled_source?"Replace with expression…":"Set enabled expression…");
         auto* unlink_enabled=driver_menu->addAction("Unlink and freeze evaluated value");
-        unlink_enabled->setEnabled(gradient_state->driver.has_value());driver_layout->addStretch();form->addRow("Gradient enabled",driver_row);
+        unlink_enabled->setEnabled(has_enabled_source);driver_layout->addStretch();form->addRow("Gradient enabled",driver_row);
         const Composition* owner_composition=nullptr;
         const std::function<bool(const Id&)> contains_target=[&](const Id& source_id) {
             if(source_id==id)return true;
@@ -5614,14 +5619,14 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         if(gradient_state->driver) {
             const auto& source=*gradient_state->driver;const auto source_object=document.objects.find(source.object);
             driver_source=QString("%1 / %2").arg(source_object==document.objects.end()?qs(source.object):qs(source_object->second.name),qs(source.field));
-        }
+        } else if(gradient_state->expression)driver_source="expression · "+qs(gradient_state->expression->source);
         auto* state_label=new QLabel(QString("Literal: %1 · Source: %2 · Evaluated: %3")
             .arg(gradient_state->literal?"true":"false",driver_source,gradient_state->evaluated?"true":"false"));
         state_label->setObjectName("gradient-enabled-state-"+qs(op));
         state_label->setWordWrap(true);state_label->setTextFormat(Qt::PlainText);form->addRow("",state_label);
         const auto frozen_revision=host.session.revision();const auto target_ref=*gradient_ref_value;
         connect(link_enabled,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision,
-            replace_driver=gradient_state->driver.has_value(),source_refs,source_labels] {
+            replace_driver=has_enabled_source,source_refs,source_labels] {
             choose_boolean_source(this,"gradient-enabled-source-dialog","Link Gradient enabled",
                 qs(target_ref.object)+" / "+qs(target_ref.field),source_refs,source_labels,
                 [this,target_ref,frozen_session,frozen_revision,replace_driver](const Ref& source) {
@@ -5630,6 +5635,34 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                 host.session.apply({LinkGradientEnabled{target_ref,source,replace_driver}},frozen_revision);
                 host.edited();
             });
+        });
+        connect(set_expression,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision,
+            initial_expression=gradient_state->expression,has_enabled_source,operation_id=op] {
+            QDialog dialog(this);dialog.setObjectName("gradient-enabled-expression-dialog-"+qs(operation_id));
+            dialog.setWindowTitle("Gradient enabled expression");auto* layout=new QVBoxLayout(&dialog);
+            auto* expression=new QPlainTextEdit(&dialog);
+            expression->setObjectName("gradient-enabled-expression-source-"+qs(operation_id));
+            expression->setPlaceholderText("true, false, ref(\"object-id\",\"\",\"op.paint-operation.gradient.gradient-id.enabled\"), or !ref(…)");
+            expression->setPlainText(initial_expression?qs(initial_expression->source):"true");
+            expression->setMinimumHeight(72);layout->addWidget(expression);
+            auto* replace=new QCheckBox("Replace existing source",&dialog);replace->setObjectName("gradient-enabled-expression-replace-"+qs(operation_id));
+            replace->setEnabled(has_enabled_source);layout->addWidget(replace);
+            auto* status=new QLabel("Use true, false, or a Gradient enabled Ref in this Composition. Apply commits one command; Cancel leaves the current source and revision unchanged.",&dialog);
+            status->setObjectName("gradient-enabled-expression-status-"+qs(operation_id));status->setWordWrap(true);layout->addWidget(status);
+            auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
+            connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+            connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
+                [this,&dialog,target_ref,frozen_session,frozen_revision,expression,replace,status] {
+                    try {
+                        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Gradient belongs to another document");
+                        if(host.session.revision()!=frozen_revision)
+                            throw Error("STALE_CONTEXT","Gradient enabled source changed while its editor was open; reopen it");
+                        host.session.apply({SetGradientEnabledExpression{target_ref,
+                            {expression->toPlainText().toStdString(),1},replace->isChecked()}},frozen_revision);
+                        host.edited();dialog.accept();
+                    } catch(const std::exception& error) {status->setText(QString::fromUtf8(error.what()));}
+                });
+            dialog.exec();
         });
         connect(unlink_enabled,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision] {
             perform([&]{

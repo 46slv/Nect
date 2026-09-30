@@ -106,7 +106,7 @@ std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content)
 std::size_t extra(const Primitive& v){return total(extra(v.id),extra(v.type),extra(v.parameters));}
 std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides),extra(v.enabled_driver));}
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
-std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops));}
+std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops),extra(v.enabled_driver),extra(v.enabled_expression));}
 std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.enabled_driver),extra(v.enabled_expression),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.fill_rule_driver),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
 std::size_t extra(const MacroPort& v){return total(extra(v.id),extra(v.domain));}
 std::size_t extra(const MacroEndpoint& v){return total(extra(v.node),extra(v.port));}
@@ -183,7 +183,8 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
     if(const auto* command=std::get_if<UnlinkTextWeight>(&commands.front()))
         return "Unlink Text weight: "+property_label(command->target);
     if(const auto* command=std::get_if<LinkGradientEnabled>(&commands.front()))
-        return "Link Gradient enabled: "+property_label(command->target);
+        return std::string(std::holds_alternative<Expression>(command->source)?
+            "Set Gradient enabled expression: ":"Link Gradient enabled: ")+property_label(command->target);
     if(const auto* command=std::get_if<UnlinkGradientEnabled>(&commands.front()))
         return "Unlink Gradient enabled: "+property_label(command->target);
     if(const auto* command=std::get_if<LinkPointEditEnabled>(&commands.front()))

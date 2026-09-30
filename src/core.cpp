@@ -67,6 +67,7 @@ class BooleanPropertyExpressionParser {
     std::string_view property_;
     bool operation_enabled_=false;
     bool mask_enabled_=false;
+    bool gradient_enabled_=false;
     std::size_t cursor_=0;
     void whitespace(){while(cursor_<source_.size()&&(source_[cursor_]==' '||source_[cursor_]=='\t'||source_[cursor_]=='\n'||source_[cursor_]=='\r'))++cursor_;}
     bool take(char c){whitespace();if(cursor_<source_.size()&&source_[cursor_]==c){++cursor_;return true;}return false;}
@@ -91,8 +92,9 @@ class BooleanPropertyExpressionParser {
     }
 public:
     BooleanPropertyExpressionParser(std::string_view source,std::string_view field,std::string_view property,
-        bool operation_enabled=false,bool mask_enabled=false)
-        :source_(source),field_(field),property_(property),operation_enabled_(operation_enabled),mask_enabled_(mask_enabled){}
+        bool operation_enabled=false,bool mask_enabled=false,bool gradient_enabled=false)
+        :source_(source),field_(field),property_(property),operation_enabled_(operation_enabled),mask_enabled_(mask_enabled),
+         gradient_enabled_(gradient_enabled){}
     ParsedBooleanExpression parse() {
         ParsedBooleanExpression result;whitespace();
         if(word("true")){result.is_literal=true;result.literal=true;}
@@ -127,8 +129,28 @@ public:
                 });
                 supported_field=valid_id;
             }
+            if(gradient_enabled_&&result.source.field.starts_with("op.")) {
+                const auto separator=result.source.field.find('.',3);
+                if(separator!=std::string::npos&&separator>3) {
+                    const auto operation_id=std::string_view(result.source.field).substr(3,separator-3);
+                    const auto tail=std::string_view(result.source.field).substr(separator+1);
+                    constexpr std::string_view gradient_prefix="gradient.";
+                    constexpr std::string_view enabled_suffix=".enabled";
+                    if(tail.starts_with(gradient_prefix)&&tail.ends_with(enabled_suffix)&&
+                        tail.size()>gradient_prefix.size()+enabled_suffix.size()) {
+                        const auto gradient_id=tail.substr(gradient_prefix.size(),tail.size()-gradient_prefix.size()-enabled_suffix.size());
+                        const auto valid_id=[](std::string_view id) {
+                            return !id.empty()&&id.size()<=96&&std::all_of(id.begin(),id.end(),[](char c) {
+                                return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-';
+                            });
+                        };
+                        supported_field=valid_id(operation_id)&&valid_id(gradient_id);
+                    }
+                }
+            }
             require(result.source.point.empty()&&supported_field,"BOOLEAN_EXPRESSION_TYPE",
                 operation_enabled_?std::string(property_)+" expressions may reference only an operation enabled Ref":
+                gradient_enabled_?std::string(property_)+" expressions may reference only a Gradient enabled Ref":
                 std::string(property_)+" expressions may reference only "+std::string(field_));
         }
         whitespace();require(cursor_==source_.size(),"BOOLEAN_EXPRESSION_SYNTAX","Unexpected trailing boolean property expression text");
@@ -161,6 +183,12 @@ ParsedBooleanExpression parse_mask_enabled_expression(const Expression& expressi
     require(!expression.source.empty()&&expression.source.size()<=4096,"EXPRESSION_LIMIT",
         "Geometry mask enabled expression source must contain 1..4096 bytes");
     return BooleanPropertyExpressionParser(expression.source,"","Geometry mask enabled",false,true).parse();
+}
+ParsedBooleanExpression parse_gradient_enabled_expression(const Expression& expression) {
+    require(expression.version==1,"UNSUPPORTED_EXPRESSION_VERSION","Only expression version 1 is supported for Gradient enabled");
+    require(!expression.source.empty()&&expression.source.size()<=4096,"EXPRESSION_LIMIT",
+        "Gradient enabled expression source must contain 1..4096 bytes");
+    return BooleanPropertyExpressionParser(expression.source,"","Gradient enabled",false,false,true).parse();
 }
 const TextSource& text_italic_source(const Document& document,const Ref& ref) {
     require(ref.point.empty()&&ref.field=="text.italic","TYPE_MISMATCH","Only Text italic accepts a boolean property Ref");
@@ -692,6 +720,8 @@ class GradientEnabledEvaluator {
         }
         require(active_.insert(ref).second,"DEPENDENCY_CYCLE","Gradient enabled dependency cycle");
         const auto& gradient=gradient_enabled_source(document_,ref);
+        require(!(gradient.enabled_driver&&gradient.enabled_expression),"MULTIPLE_DRIVERS",
+            "Gradient enabled may have only one active source");
         GradientEnabledEvaluation result{gradient.enabled,0};
         if(gradient.enabled_driver) {
             (void)gradient_enabled_source(document_,*gradient.enabled_driver);
@@ -703,6 +733,20 @@ class GradientEnabledEvaluator {
                 "Gradient enabled links must stay in one Composition");
             const auto upstream=visit(*gradient.enabled_driver,depth+1);
             result={upstream.value,upstream.remaining_edges+1};
+        } else if(gradient.enabled_expression) {
+            const auto parsed=parse_gradient_enabled_expression(*gradient.enabled_expression);
+            if(parsed.is_literal)result={parsed.literal,0};
+            else {
+                (void)gradient_enabled_source(document_,parsed.source);
+                require(parsed.source!=ref,"DEPENDENCY_CYCLE","Gradient enabled expression cannot reference itself");
+                const auto target_owner=compositions_.find(ref.object),source_owner=compositions_.find(parsed.source.object);
+                require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                    "ORPHAN_OBJECT","Gradient enabled expressions require objects owned by a Composition");
+                require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                    "Gradient enabled expressions must stay in one Composition");
+                const auto upstream=visit(parsed.source,depth+1);
+                result={parsed.negate?!upstream.value:upstream.value,upstream.remaining_edges+1};
+            }
         }
         require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Gradient enabled dependency depth limit 128");
         active_.erase(ref);values_.emplace(ref,result);return result;
@@ -735,7 +779,8 @@ public:
         for(const auto& [id,object]:document_.objects)for(const auto& operation:object.stack)if(operation.gradient) {
             const auto ref=gradient_ref(id,operation.id,operation.gradient->id,"enabled");
             const auto evaluated=visit(ref,0).value;
-            result.emplace(ref,GradientEnabledProperty{operation.gradient->enabled,operation.gradient->enabled_driver,evaluated});
+            result.emplace(ref,GradientEnabledProperty{operation.gradient->enabled,operation.gradient->enabled_driver,
+                operation.gradient->enabled_expression,evaluated});
         }
         return result;
     }
@@ -900,6 +945,17 @@ Expression remap_operation_enabled_expression(const Expression& expression,const
     result.source.replace(parsed.field_begin,parsed.field_end-parsed.field_begin,target.field);
     result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
     (void)parse_operation_enabled_expression(result);return result;
+}
+Expression remap_gradient_enabled_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
+    const auto parsed=parse_gradient_enabled_expression(expression);
+    if(parsed.is_literal)return expression;
+    const auto target=remap(parsed.source);if(target==parsed.source)return expression;
+    require(target.point.empty()&&target.field.starts_with("op.")&&target.field.find(".gradient.")!=std::string::npos&&
+        target.field.ends_with(".enabled"),"TYPE_MISMATCH","Duplicated Gradient enabled Ref changed type");
+    auto result=expression;
+    result.source.replace(parsed.field_begin,parsed.field_end-parsed.field_begin,target.field);
+    result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
+    (void)parse_gradient_enabled_expression(result);return result;
 }
 Expression remap_mask_enabled_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
     const auto parsed=parse_mask_enabled_expression(expression);
@@ -1625,7 +1681,7 @@ bool gradient_enabled_property(const Document& document,const Ref& ref) {
 }
 GradientEnabledProperty gradient_enabled_state(const Document& document,const Ref& ref) {
     const auto& gradient=gradient_enabled_source(document,ref);
-    return {gradient.enabled,gradient.enabled_driver,evaluate_gradient_enabled(document,ref)};
+    return {gradient.enabled,gradient.enabled_driver,gradient.enabled_expression,evaluate_gradient_enabled(document,ref)};
 }
 std::map<Ref,GradientEnabledProperty> gradient_enabled_states(const Document& document) {
     return GradientEnabledEvaluator(document).states();
@@ -4822,7 +4878,13 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                 if(operation.enabled_driver)require_member(*operation.enabled_driver);
                 if(operation.enabled_expression)require_expression_members(*operation.enabled_expression);
                 if(operation.fill_rule_driver)require_member(operation.fill_rule_driver->link);
-                if(operation.gradient&&operation.gradient->enabled_driver)require_member(*operation.gradient->enabled_driver);
+                if(operation.gradient) {
+                    if(operation.gradient->enabled_driver)require_member(*operation.gradient->enabled_driver);
+                    if(operation.gradient->enabled_expression) {
+                        const auto parsed=parse_gradient_enabled_expression(*operation.gradient->enabled_expression);
+                        if(!parsed.is_literal)require_member(parsed.source);
+                    }
+                }
             }
             for(const auto& [ref,scalar]:authored)if(ref.object==id&&scalar) {
                 const bool root_placement=source_root&&(ref.field.starts_with("transform.")||ref.field=="object.visible");
@@ -5579,6 +5641,8 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
             if(op.fill_rule_driver)op.fill_rule_driver->link=remap(op.fill_rule_driver->link);
             op.id=plan.ids.at(op.id);if(op.gradient){
                 if(op.gradient->enabled_driver)op.gradient->enabled_driver=remap(*op.gradient->enabled_driver);
+                if(op.gradient->enabled_expression)
+                    op.gradient->enabled_expression=remap_gradient_enabled_expression(*op.gradient->enabled_expression,remap);
                 op.gradient->id=plan.ids.at(op.gradient->id);for(auto& stop:op.gradient->stops)stop.id=plan.ids.at(stop.id);
             }
         }
@@ -6404,17 +6468,33 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             source.enabled=frozen;source.enabled_driver.reset();source.enabled_expression.reset();
         } else if constexpr(std::is_same_v<T,LinkGradientEnabled>) {
             const auto& target=gradient_enabled_source(candidate,c.target);
-            (void)gradient_enabled_source(candidate,c.source);
-            require(c.target!=c.source,"DEPENDENCY_CYCLE","Gradient enabled cannot link to itself");
-            require(!target.enabled_driver||c.replace_driver,
-                "DRIVEN_PROPERTY","Replacing a Gradient enabled driver requires replace_driver=true");
-            auto& gradient=gradient_enabled_source(candidate,c.target);gradient.enabled_driver=c.source;
+            auto& gradient=gradient_enabled_source(candidate,c.target);
+            if(const auto* link=std::get_if<Ref>(&c.source)) {
+                (void)gradient_enabled_source(candidate,*link);
+                require(c.target!=*link,"DEPENDENCY_CYCLE","Gradient enabled cannot link to itself");
+                const auto same_source=target.enabled_driver==std::optional<Ref>{*link}&&!target.enabled_expression;
+                require(same_source||(!target.enabled_driver&&!target.enabled_expression)||c.replace_driver,
+                    "DRIVEN_PROPERTY","Replacing a Gradient enabled source requires replace_driver=true");
+                gradient.enabled_driver=*link;gradient.enabled_expression.reset();
+            } else {
+                const auto& expression=std::get<Expression>(c.source);
+                const auto parsed=parse_gradient_enabled_expression(expression);
+                if(!parsed.is_literal) {
+                    (void)gradient_enabled_source(candidate,parsed.source);
+                    require(c.target!=parsed.source,"DEPENDENCY_CYCLE","Gradient enabled expression cannot reference itself");
+                }
+                const auto same_expression=target.enabled_expression==std::optional<Expression>{expression}&&!target.enabled_driver;
+                require(same_expression||(!target.enabled_driver&&!target.enabled_expression)||c.replace_driver,
+                    "DRIVEN_PROPERTY","Replacing a Gradient enabled source requires replace_driver=true");
+                gradient.enabled_driver.reset();gradient.enabled_expression=expression;
+            }
         } else if constexpr(std::is_same_v<T,UnlinkGradientEnabled>) {
             const auto& target=gradient_enabled_source(candidate,c.target);
-            require(target.enabled_driver.has_value(),"PROPERTY_NOT_LINKED","Gradient enabled has no driver to unlink");
+            require(target.enabled_driver.has_value()||target.enabled_expression.has_value(),
+                "PROPERTY_NOT_LINKED","Gradient enabled has no source to unlink");
             const auto frozen=evaluate_gradient_enabled(candidate,c.target);
             auto& gradient=gradient_enabled_source(candidate,c.target);
-            gradient.enabled=frozen;gradient.enabled_driver.reset();
+            gradient.enabled=frozen;gradient.enabled_driver.reset();gradient.enabled_expression.reset();
         } else if constexpr(std::is_same_v<T,LinkMaskEnabled>||std::is_same_v<T,SetMaskEnabledExpression>||
             std::is_same_v<T,UnlinkMaskEnabled>) {
             edit_mask_enabled(candidate,c);
@@ -7059,7 +7139,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(!c.operation.fill_rule_driver,"USE_TYPED_COMMAND","Create Fill rule links with link_fill_rule");
             require(!c.operation.enabled_driver,"USE_TYPED_COMMAND","Create operation enabled links with link_operation_enabled");
             require(!c.operation.enabled_expression,"USE_TYPED_COMMAND","Create operation enabled expressions with set_operation_enabled_expression");
-            require(!c.operation.gradient||!c.operation.gradient->enabled_driver,"USE_TYPED_COMMAND","Create Gradient enabled links with link_gradient_enabled");
+            require(!c.operation.gradient||(!c.operation.gradient->enabled_driver&&!c.operation.gradient->enabled_expression),
+                "USE_TYPED_COMMAND","Create Gradient enabled sources with the dedicated enabled commands");
             require(o.kind==Kind::path||o.kind==Kind::text||(o.kind==Kind::group&&c.operation.type=="nect.group.posterize"),
                 "INVALID_DOMAIN","Shape operations require a Path or Text; Group postchildren operations require nect.group.posterize");
             require(c.index<=o.stack.size(),"INVALID_ORDER","Operation insertion index out of range");
@@ -7104,10 +7185,15 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 if(target.gradient&&target.gradient->id==next.id) {
                     require(!next.enabled_driver||next.enabled_driver==target.gradient->enabled_driver,
                         "USE_TYPED_COMMAND","SetGradient cannot replace a Gradient enabled driver");
-                    require(next.enabled==target.gradient->enabled||!target.gradient->enabled_driver,
-                        "DRIVEN_PROPERTY","Unlink the Gradient enabled driver before changing its authored literal");
+                    require(!next.enabled_expression||next.enabled_expression==target.gradient->enabled_expression,
+                        "USE_TYPED_COMMAND","SetGradient cannot replace a Gradient enabled expression");
+                    const bool driven=target.gradient->enabled_driver.has_value()||target.gradient->enabled_expression.has_value();
+                    require(next.enabled==target.gradient->enabled||!driven,
+                        "DRIVEN_PROPERTY","Unlink the Gradient enabled source before changing its authored literal");
                     next.enabled_driver=target.gradient->enabled_driver;
-                } else require(!next.enabled_driver,"USE_TYPED_COMMAND","Create Gradient enabled links with link_gradient_enabled");
+                    next.enabled_expression=target.gradient->enabled_expression;
+                } else require(!next.enabled_driver&&!next.enabled_expression,
+                    "USE_TYPED_COMMAND","Create Gradient enabled sources with the dedicated enabled commands");
                 target.gradient=std::move(next);
             }
         } else if constexpr(std::is_same_v<T,EnablePointEdit>) {
@@ -7266,6 +7352,7 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
             text_weight&&(!text_weight->batch||text_weight->batch->mode==TextWeightBatchMode::link))return;
         if(const auto* operation_enabled=std::get_if<LinkOperationEnabled>(&commands.front());
             operation_enabled&&std::holds_alternative<Expression>(operation_enabled->source))return;
+        if(std::holds_alternative<LinkGradientEnabled>(commands.front()))return;
         if(std::holds_alternative<SetMaskEnabledExpression>(commands.front()))return;
         if(std::holds_alternative<LinkObjectVisibility>(commands.front()))return;
         if(std::holds_alternative<LinkCompositeIsolated>(commands.front()))return;

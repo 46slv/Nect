@@ -415,8 +415,8 @@ try:
         gradient_enabled=core('get',ref=gradient_enabled_ref)['result']
         assert gradient_enabled['type']=='bool' and gradient_enabled['unit']=='boolean' and \
             gradient_enabled['space']=='local' and gradient_enabled['origin']=='authored' and \
-            gradient_enabled['authored']==dict(literal=True,driver=None) and gradient_enabled['evaluated'] is True and \
-            gradient_enabled['link'] is True and gradient_enabled['expression'] is False, gradient_enabled
+            gradient_enabled['authored']==dict(literal=True,driver=None,source_kind='literal') and gradient_enabled['evaluated'] is True and \
+            gradient_enabled['link'] is True and gradient_enabled['expression'] is True, gradient_enabled
         assert core('resolve_name',name=next(obj['name'] for obj in core('inspect')['result']['objects']
             if obj['id']=='path-0'),point='',field=gradient_enabled_ref['field'])['result']==gradient_enabled_ref
         assert next(item for item in core('properties')['result'] if item['ref']==gradient_enabled_ref)==gradient_enabled
@@ -438,7 +438,7 @@ try:
         bypassed_gradient=dict(gradient,enabled=False)
         rev=apply([dict(type='set_gradient',object='path-0',operation='motif-fill',gradient=bypassed_gradient)],rev)
         disabled=core('get',ref=gradient_enabled_ref)['result']
-        assert disabled['authored']==dict(literal=False,driver=None) and disabled['evaluated'] is False and \
+        assert disabled['authored']==dict(literal=False,driver=None,source_kind='literal') and disabled['evaluated'] is False and \
             core('get',ref=operation_enabled_ref)['result']['evaluated'] is True and \
             any(item['ref']==gradient_enabled_ref for item in core('properties')['result'])
         assert core('undo',expected_revision=rev)['ok'];rev+=1
@@ -455,7 +455,7 @@ try:
         assert linked['ok'] and linked['revision']==rev+1;rev=linked['revision']
         linked_value=core('get',ref=target_gradient_ref)['result']
         direct_value=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=target_gradient_ref)))['result']
-        assert linked_value['type']=='bool' and linked_value['authored']==dict(literal=False,driver=dict(link=gradient_enabled_ref)) and \
+        assert linked_value['type']=='bool' and linked_value['authored']==dict(literal=False,driver=dict(link=gradient_enabled_ref),source_kind='link') and \
             linked_value['evaluated'] is True and linked_value==direct_value and \
             next(item for item in core('properties')['result'] if item['ref']==target_gradient_ref)==linked_value
         plan=core('render_plan',object='path-1')['result']
@@ -467,19 +467,34 @@ try:
         stale=core('apply',expected_revision=rev-1,commands=[dict(type='link_gradient_enabled',target=target_gradient_ref,
             source=gradient_enabled_ref,replace_driver=True)])
         assert not stale['ok'] and stale['error']['code']=='REVISION_CONFLICT' and stale['revision']==rev
+        gradient_expression=' ref ( "path-0" , "" , "op.motif-fill.gradient.motif-gradient.enabled" ) '
+        gradient_expression_value=dict(source=gradient_expression,version=1)
+        expression_set=core('apply',expected_revision=rev,commands=[dict(type='set_gradient_enabled_expression',target=target_gradient_ref,
+            expression=gradient_expression_value,replace_driver=True)])
+        assert expression_set['ok'] and expression_set['revision']==rev+1;rev=expression_set['revision']
+        expression_repeat=core('apply',expected_revision=rev,commands=[dict(type='set_gradient_enabled_expression',target=target_gradient_ref,
+            expression=gradient_expression_value,replace_driver=False)])
+        implicit_replacement=core('apply',expected_revision=rev,commands=[dict(type='set_gradient_enabled_expression',target=target_gradient_ref,
+            expression=dict(source='true',version=1),replace_driver=False)])
+        expressed_value=core('get',ref=target_gradient_ref)['result']
+        assert expression_repeat['ok'] and expression_repeat['revision']==rev and \
+            not implicit_replacement['ok'] and implicit_replacement['error']['code']=='DRIVEN_PROPERTY' and \
+            implicit_replacement['revision']==rev and expressed_value['authored']==dict(literal=False,driver=None,
+                source_kind='expression',expression=gradient_expression_value) and expressed_value['evaluated'] is True and \
+            expressed_value['expression'] is True and next(item for item in core('properties')['result'] if item['ref']==target_gradient_ref)==expressed_value
         direct_toggle=core('apply',expected_revision=rev,commands=[dict(type='set_gradient',object='path-1',operation='path-1-stroke',
             gradient=dict(target_gradient,enabled=True))])
         assert not direct_toggle['ok'] and direct_toggle['error']['code']=='DRIVEN_PROPERTY' and direct_toggle['revision']==rev
         target_replacement=dict(target_gradient,end_x=dict(literal=350))
         rev=apply([dict(type='set_gradient',object='path-1',operation='path-1-stroke',gradient=target_replacement)],rev)
         preserved=core('get',ref=target_gradient_ref)['result']
-        assert preserved['authored']==dict(literal=False,driver=dict(link=gradient_enabled_ref)) and preserved['evaluated'] is True
+        assert preserved['authored']==dict(literal=False,driver=None,source_kind='expression',expression=gradient_expression_value) and preserved['evaluated'] is True
         source_off=dict(gradient,enabled=False)
         direct_toggle=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='apply',expected_revision=rev,
             commands=[dict(type='set_gradient',object='path-0',operation='motif-fill',gradient=source_off)])))
         assert direct_toggle['ok'];rev+=1
-        assert core('get',ref=target_gradient_ref)['result']['evaluated'] is False
-        assert not any(target_stop_ref in color['uses'] for color in core('used_colors')['result']['colors'])
+        expression_enabled=core('get',ref=target_gradient_ref)['result']
+        assert expression_enabled['evaluated'] is False and not any(target_stop_ref in color['uses'] for color in core('used_colors')['result']['colors'])
         rev=apply([dict(type='unlink_gradient_enabled',target=target_gradient_ref)],rev)
         frozen=core('get',ref=target_gradient_ref)['result']
         source_on=dict(gradient,enabled=True)
@@ -487,9 +502,9 @@ try:
             commands=[dict(type='set_gradient',object='path-0',operation='motif-fill',gradient=source_on)])))
         assert api_source['ok'];rev+=1
         frozen_after=core('get',ref=target_gradient_ref)['result']
-        assert frozen['authored']==dict(literal=False,driver=None) and frozen['evaluated'] is False and frozen_after==frozen
+        assert frozen['authored']==dict(literal=False,driver=None,source_kind='literal') and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.68' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
+        assert mcp_native['version']=='0.69' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -640,7 +655,7 @@ try:
         grid_columns_native=core('inspect')['result']
         grid_columns_layout=next(board for board in grid_columns_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert grid_columns_native['version']=='0.68' and grid_columns_layout['columns']==2 and \
+        assert grid_columns_native['version']=='0.69' and grid_columns_layout['columns']==2 and \
             grid_columns_layout['columns_driver']==dict(link=grid_columns_source_ref) and \
             grid_columns_layout['rows']==1 and grid_columns_layout['rows_driver']==dict(link=grid_rows_source_ref)
         source_grid_layout=dict(grid=dict(id='mcp-grid-columns-source',bounds=dict(x=0,y=0,width=10,height=20),
@@ -661,7 +676,7 @@ try:
         assert grid_columns_expressed['authored']==dict(literal=2,driver=None,expression=grid_columns_expression,
             source_kind='expression') and grid_columns_expressed['evaluated']==4 and \
             next(item for item in core('properties')['result'] if item['ref']==target_grid_columns_ref)==grid_columns_expressed and \
-            grid_columns_expression_native['version']=='0.68' and \
+            grid_columns_expression_native['version']=='0.69' and \
             grid_columns_expression_layout['columns_expression']==grid_columns_expression and \
             'columns_driver' not in grid_columns_expression_layout
         rows_source_layout=dict(grid=dict(id='mcp-grid-rows-source',bounds=dict(x=0,y=0,width=100,height=100),
@@ -682,7 +697,7 @@ try:
         assert grid_rows_expressed['authored']==dict(literal=1,driver=None,expression=grid_rows_expression,
             source_kind='expression') and grid_rows_expressed['evaluated']==4 and \
             next(item for item in core('properties')['result'] if item['ref']==target_grid_rows_ref)==grid_rows_expressed and \
-            grid_rows_expression_native['version']=='0.68' and \
+            grid_rows_expression_native['version']=='0.69' and \
             grid_rows_expression_layout['rows_expression']==grid_rows_expression and 'rows_driver' not in grid_rows_expression_layout
         rows_source_layout['grid']['rows']=2
         rev=apply([dict(type='set_artboard_layout',composition=comp['id'],
@@ -788,7 +803,7 @@ try:
             if board['id']==first['id'])['layout']['grid']
         margin_top_native=next(board for board in grid_y_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert grid_y_native['version']=='0.68' and grid_y_layout['bounds_y_expression']==dict(
+        assert grid_y_native['version']=='0.69' and grid_y_layout['bounds_y_expression']==dict(
             source=grid_y_expression,version=1) and 'bounds_y_driver' not in grid_y_layout and \
             grid_y_layout['bounds_width_expression']==dict(source=grid_width_expression,version=1) and \
             'bounds_width_driver' not in grid_y_layout and \
@@ -835,7 +850,7 @@ try:
         row_gutter_expression_native=core('inspect')['result']
         row_gutter_expression_layout=next(board for board in row_gutter_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert row_gutter_expression_native['version']=='0.68' and \
+        assert row_gutter_expression_native['version']=='0.69' and \
             row_gutter_expression_layout['row_gutter_expression']==dict(source=grid_row_gutter_expression,version=1) and \
             'row_gutter_driver' not in row_gutter_expression_layout
         blocked_row_gutter_replacement=core('apply',expected_revision=rev,commands=[
@@ -862,7 +877,7 @@ try:
         column_gutter_expression_native=core('inspect')['result']
         column_gutter_expression_layout=next(board for board in column_gutter_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert column_gutter_expression_native['version']=='0.68' and \
+        assert column_gutter_expression_native['version']=='0.69' and \
             column_gutter_expression_layout['column_gutter_expression']==dict(source=grid_column_gutter_expression,version=1) and \
             'column_gutter_driver' not in column_gutter_expression_layout
         blocked_column_gutter_replacement=core('apply',expected_revision=rev,commands=[
@@ -886,7 +901,7 @@ try:
         expression_native=core('inspect')['result']
         expression_layout=next(board for board in expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert expression_native['version']=='0.68' and expression_layout['bounds_x_expression']==dict(
+        assert expression_native['version']=='0.69' and expression_layout['bounds_x_expression']==dict(
             source=grid_expression,version=1) and 'bounds_x_driver' not in expression_layout
         margin_expression='ref("mcp-margin-upstream","","artboard.width") + 10'
         rev=apply([dict(type='set_margin_left_expression',target=target_margin_ref,
@@ -898,7 +913,7 @@ try:
         margin_expression_native=core('inspect')['result']
         margin_expression_layout=next(board for board in margin_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']
-        assert margin_expression_native['version']=='0.68' and margin_expression_layout['margin']['left_expression']==dict(
+        assert margin_expression_native['version']=='0.69' and margin_expression_layout['margin']['left_expression']==dict(
             source=margin_expression,version=1) and 'left_driver' not in margin_expression_layout['margin'] and \
             margin_expression_layout['margin']['top_driver']==dict(link=margin_top_source_ref)
         margin_top_expression='ref("mcp-margin-upstream","","artboard.height") + 10'
@@ -912,7 +927,7 @@ try:
         margin_top_expression_native=core('inspect')['result']
         margin_top_expression_layout=next(board for board in margin_top_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert margin_top_expression_native['version']=='0.68' and margin_top_expression_layout['top_expression']==dict(
+        assert margin_top_expression_native['version']=='0.69' and margin_top_expression_layout['top_expression']==dict(
             source=margin_top_expression,version=1) and 'top_driver' not in margin_top_expression_layout
         margin_right_expression='ref("mcp-margin-source","","artboard.width") + 10'
         rev=apply([dict(type='set_margin_right_expression',target=target_margin_right_ref,
@@ -925,7 +940,7 @@ try:
         margin_right_expression_native=core('inspect')['result']
         margin_right_expression_layout=next(board for board in margin_right_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert margin_right_expression_native['version']=='0.68' and margin_right_expression_layout['right_expression']==dict(
+        assert margin_right_expression_native['version']=='0.69' and margin_right_expression_layout['right_expression']==dict(
             source=margin_right_expression,version=1) and 'right_driver' not in margin_right_expression_layout
         rev=apply([dict(type='unlink_margin_right',target=target_margin_right_ref)],rev)
         margin_right_frozen=core('get',ref=target_margin_right_ref)['result']
@@ -1594,7 +1609,7 @@ try:
         assert core('get',ref=mask_enabled_ref)['result']['authored']==dict(literal=False,driver=None)
         expression_native=core('inspect')['result']
         expression_native_mask=next(o for o in expression_native['objects'] if o['id']=='mcp-masked-group')['compositing']['mask']
-        assert expression_native['version']=='0.68' and expression_native_mask['id']=='mcp-geometry-clip' and \
+        assert expression_native['version']=='0.69' and expression_native_mask['id']=='mcp-geometry-clip' and \
             expression_native_mask['enabled'] is False and expression_native_mask['enabled_expression']==dict(
                 source=mask_expression,version=1) and 'enabled_driver' not in expression_native_mask
         source_mask=core('inspect')['result']
@@ -1875,6 +1890,13 @@ try:
         save_grid=core('get',ref=target_grid_x_ref)['result']
         assert save_grid['authored']==dict(literal=70,driver=None,source_kind='expression',
             expression=dict(source=save_grid_expression,version=1)) and save_grid['evaluated']==70
+        save_gradient_expression_source=' ! ref ( "path-0" , "" , "op.motif-fill.gradient.motif-gradient.enabled" ) '
+        save_gradient_expression=dict(source=save_gradient_expression_source,version=1)
+        rev=apply([dict(type='set_gradient_enabled_expression',target=target_gradient_ref,
+            expression=save_gradient_expression,replace_driver=False)],rev)
+        save_gradient=core('get',ref=target_gradient_ref)['result']
+        assert save_gradient['authored']==dict(literal=False,driver=None,source_kind='expression',
+            expression=save_gradient_expression) and save_gradient['evaluated'] is False
         save_document=core('inspect')['result']
         save_session_id=identity['session_id'];save_document_id=identity['document_id']
         original_native=temp/'mcp-save-as-original.nect'
@@ -1936,8 +1958,13 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.68'
+        assert native_save_as['version']=='0.69'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
+        saved_gradient_operation=next(operation for operation in ordinary_stack_operations(native_objects['path-1'])
+            if operation['id']=='path-1-stroke')
+        assert saved_gradient_operation['gradient']['enabled'] is False and \
+            saved_gradient_operation['gradient']['enabled_expression']==save_gradient_expression and \
+            'enabled_driver' not in saved_gradient_operation['gradient']
         saved_source=native_objects['mcp-save-as-source']['text']
         saved_target=native_objects['mcp-save-as-target']['text']
         saved_guides={guide['id']:guide for composition in native_save_as['compositions']
@@ -1972,6 +1999,8 @@ try:
         assert cold_layout['evaluated']=='auto'
         cold_grid=core('get',ref=target_grid_x_ref)['result']
         assert cold_grid==save_grid
+        cold_gradient=core('get',ref=target_gradient_ref)['result']
+        assert cold_gradient==save_gradient and cold_gradient['authored']['expression']==save_gradient_expression
         cold_guide=core('get',ref=guide_target_ref)['result']
         assert cold_guide['authored']==dict(literal=240,driver=None,source_kind='expression',expression=guide_expression)
         assert cold_guide['evaluated']==140
@@ -2073,7 +2102,7 @@ try:
         native_expression_target=next(operation for operation in ordinary_stack_operations(
             next(obj for obj in operation_expression_native['objects'] if obj['id']=='mcp-fill-target'))
             if operation['id']=='mcp-target-fill')
-        assert operation_expression_native['version']=='0.68' and native_expression_target['enabled'] is True and \
+        assert operation_expression_native['version']=='0.69' and native_expression_target['enabled'] is True and \
             native_expression_target['enabled_expression']==operation_expression and 'enabled_driver' not in native_expression_target
         failed_operation_expression=core('apply',expected_revision=fill_rev,commands=[
             dict(type='enable_operation',object='mcp-fill-source',operation='mcp-source-fill',enabled=False),
@@ -2102,7 +2131,7 @@ try:
         assert isolation_metadata==isolation
         isolation_native=core('inspect')['result']
         native_isolation=next(obj for obj in isolation_native['objects'] if obj['id']=='mcp-fill-target')['compositing']
-        assert isolation_native['version']=='0.68' and native_isolation['isolated'] is False and \
+        assert isolation_native['version']=='0.69' and native_isolation['isolated'] is False and \
             native_isolation['isolated_expression']==isolation_expression and 'isolated_driver' not in native_isolation
         isolation_plan=core('compositing_plan',composition=comp['id'])['result']
         assert next(node for node in isolation_plan['roots'] if node['object']=='mcp-fill-target')['isolated'] is True
@@ -2143,7 +2172,8 @@ try:
             typed_text_save_as=True, stale_save_identity_and_revision_rejected=True, invalid_save_as_atomic=True,
             save_as_recovery_provenance=True, save_as_destination_cold_open=True, fill_rule_link=True,
             operation_enabled_link=True, operation_enabled_expression=True, grid_bounds_width_link=True,
-            composite_isolation_expression=True,
+            composite_isolation_expression=True, gradient_enabled_expression=True,
+            gradient_expression_save_as_cold_open=True,
             gui_save_as_acceptance=False, gui_performance_claim=False)
         print(json.dumps(receipt, indent=2))
 finally:

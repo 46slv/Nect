@@ -198,6 +198,7 @@ struct Gradient {
     Scalar start_x{0,{}},start_y{0,{}},end_x{100,{}},end_y{0,{}};
     std::vector<GradientStop> stops;
     std::optional<Ref> enabled_driver;
+    std::optional<Expression> enabled_expression;
     bool operator==(const Gradient&) const = default;
 };
 struct ShapeOperation {
@@ -597,7 +598,16 @@ struct LinkOperationEnabled {
 };
 using SetOperationEnabledExpression = LinkOperationEnabled;
 struct UnlinkOperationEnabled { Ref target; };
-struct LinkGradientEnabled { Ref target; Ref source; bool replace_driver=false; };
+struct LinkGradientEnabled {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    LinkGradientEnabled(Ref target,Ref source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+    LinkGradientEnabled(Ref target,Expression expression,bool replace=false)
+        :target(std::move(target)),source(std::move(expression)),replace_driver(replace){}
+};
+using SetGradientEnabledExpression = LinkGradientEnabled;
 struct UnlinkGradientEnabled { Ref target; };
 struct LinkMaskEnabled { Ref target; Ref source; bool replace_driver=false; };
 struct SetMaskEnabledExpression { Ref target; Expression expression; bool replace_driver=false; };
@@ -1008,6 +1018,7 @@ bool gradient_enabled_property(const Document&,const Ref&);
 struct GradientEnabledProperty {
     bool literal=true;
     std::optional<Ref> driver;
+    std::optional<Expression> expression;
     bool evaluated=true;
 };
 GradientEnabledProperty gradient_enabled_state(const Document&,const Ref&);

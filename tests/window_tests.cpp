@@ -2081,6 +2081,50 @@ void gradient_authoring(Window& window) {
         linked_status->text().contains("Literal: false")&&linked_status->text().contains("Evaluated: true")&&
         std::abs(linked_preview.red()-solid_preview.red())>25,
         "Inspector displays authored and evaluated Paint separately, and Canvas preview follows the linked source");
+    enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    const auto expression_invalid_before=session.document();const auto expression_invalid_revision=session.revision();
+    bool expression_invalid_refused=false,expression_invalid_canceled=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-expression-dialog-"+QString::fromStdString(op));
+        auto* source=dialog?dialog->findChild<QPlainTextEdit*>("gradient-enabled-expression-source-"+QString::fromStdString(op)):nullptr;
+        auto* replace=dialog?dialog->findChild<QCheckBox*>("gradient-enabled-expression-replace-"+QString::fromStdString(op)):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source||!replace||!buttons)return;
+        source->setPlainText("ref(");replace->setChecked(true);
+        buttons->button(QDialogButtonBox::Apply)->click();
+        expression_invalid_refused=dialog->isVisible()&&session.revision()==expression_invalid_revision&&
+            session.document()==expression_invalid_before&&gradient_enabled_state(session.document(),gradient_enabled_ref).driver==source_enabled_ref;
+        buttons->button(QDialogButtonBox::Cancel)->click();expression_invalid_canceled=!dialog->isVisible();
+    });
+    enabled_driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(expression_invalid_refused&&expression_invalid_canceled&&session.revision()==expression_invalid_revision&&
+        session.document()==expression_invalid_before,
+        "An invalid Inspector expression draft remains uncommitted and Cancel preserves the linked source and revision");
+    const auto stale_expression=" ! ref ( \""+source_enabled_ref.object+"\" , \"\" , \""+source_enabled_ref.field+"\" ) ";
+    const auto expression_stale_revision=session.revision();
+    bool expression_stale_refused=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-expression-dialog-"+QString::fromStdString(op));
+        auto* source=dialog?dialog->findChild<QPlainTextEdit*>("gradient-enabled-expression-source-"+QString::fromStdString(op)):nullptr;
+        auto* replace=dialog?dialog->findChild<QCheckBox*>("gradient-enabled-expression-replace-"+QString::fromStdString(op)):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("gradient-enabled-expression-status-"+QString::fromStdString(op)):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source||!replace||!status||!buttons)return;
+        source->setPlainText(QString::fromStdString(stale_expression));replace->setChecked(true);
+        auto changed=source_gradient;changed.enabled=false;
+        session.apply({SetGradient{object,source_fill.id,changed}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        expression_stale_refused=dialog->isVisible()&&status->text().contains("changed while its editor was open")&&
+            gradient_enabled_state(session.document(),gradient_enabled_ref).driver==source_enabled_ref&&
+            !gradient_enabled_state(session.document(),gradient_enabled_ref).expression;
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    enabled_driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(expression_stale_refused&&session.revision()==expression_stale_revision+1&&
+        gradient_enabled_state(session.document(),gradient_enabled_ref).driver==source_enabled_ref,
+        "A stale Inspector expression draft cannot change its captured target source");
+    session.apply({SetGradient{object,source_fill.id,source_gradient}},session.revision());window.host.edited();QApplication::processEvents();
+    linked_mode=visible_child<QComboBox>(window,("gradient-mode-"+op).c_str());reveal(window,linked_mode);
     const auto driven_toggle_revision=session.revision();linked_mode->setCurrentIndex(0);QApplication::processEvents();
     check(session.revision()==driven_toggle_revision&&gradient_enabled_state(session.document(),gradient_enabled_ref).driver==source_enabled_ref&&
         gradient_enabled_state(session.document(),gradient_enabled_ref).literal==false&&linked_mode->currentIndex()==1,
@@ -2098,10 +2142,57 @@ void gradient_authoring(Window& window) {
     QTest::mouseClick(linked_handles,Qt::LeftButton);QApplication::processEvents();
     check(window.canvas->gradient_operation()==op,
         "Canvas gradient handles can be enabled from the evaluated active gradient while its authored literal is false");
+    const auto expression_source=" ! ref ( \""+source_enabled_ref.object+"\" , \"\" , \""+source_enabled_ref.field+"\" ) ";
+    bool expression_applied=false;
     enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
-    auto* unlink=enabled_driver->menu()->actions().at(1);unlink->trigger();QApplication::processEvents();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-expression-dialog-"+QString::fromStdString(op));
+        auto* source=dialog?dialog->findChild<QPlainTextEdit*>("gradient-enabled-expression-source-"+QString::fromStdString(op)):nullptr;
+        auto* replace=dialog?dialog->findChild<QCheckBox*>("gradient-enabled-expression-replace-"+QString::fromStdString(op)):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source||!replace||!buttons)return;
+        source->setPlainText(QString::fromStdString(expression_source));replace->setChecked(true);
+        buttons->button(QDialogButtonBox::Apply)->click();expression_applied=!dialog->isVisible();
+    });
+    enabled_driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    auto expression_state=gradient_enabled_state(session.document(),gradient_enabled_ref);
+    auto* expression_mode=visible_child<QComboBox>(window,("gradient-mode-"+op).c_str());
+    auto* expression_status=visible_child<QLabel>(window,("gradient-enabled-state-"+op).c_str());
+    const auto expression_preview=pixel(cx-55,cy+10);
+    check(expression_applied&&expression_state.literal==false&&!expression_state.driver&&expression_state.expression&&
+        expression_state.expression->source==expression_source&&!expression_state.evaluated&&
+        !expression_mode->isEnabled()&&expression_mode->currentIndex()==0&&
+        expression_status->text().contains("Source: expression")&&expression_status->text().contains(QString::fromStdString(expression_source))&&
+        std::abs(expression_preview.red()-solid_preview.red())<8&&window.canvas->gradient_operation().empty(),
+        "Inspector Apply retains the exact expression, locks the driven toggle and routes a false value through Canvas");
+    history_action(window,"Undo");
+    const auto expression_undo=gradient_enabled_state(session.document(),gradient_enabled_ref);
+    check(expression_undo.driver==source_enabled_ref&&!expression_undo.expression&&expression_undo.evaluated&&
+        std::abs(pixel(cx-55,cy+10).red()-solid_preview.red())>25,
+        "One Undo restores the captured Gradient link and its active Canvas paint");
+    history_action(window,"Redo");
+    expression_state=gradient_enabled_state(session.document(),gradient_enabled_ref);
+    check(expression_state.expression&&expression_state.expression->source==expression_source&&!expression_state.evaluated&&
+        std::abs(pixel(cx-55,cy+10).red()-solid_preview.red())<8,
+        "Redo restores the exact Gradient expression and evaluated Canvas bypass");
+    const auto expression_direct_toggle_revision=session.revision();
+    expression_mode=visible_child<QComboBox>(window,("gradient-mode-"+op).c_str());expression_mode->setCurrentIndex(1);QApplication::processEvents();
+    check(session.revision()==expression_direct_toggle_revision&&
+        gradient_enabled_state(session.document(),gradient_enabled_ref).expression->source==expression_source&&
+        visible_child<QComboBox>(window,("gradient-mode-"+op).c_str())->currentIndex()==0,
+        "A direct Inspector Paint toggle cannot replace a retained expression");
+    auto expression_source_disabled=source_gradient;expression_source_disabled.enabled=false;
+    session.apply({SetGradient{object,source_fill.id,expression_source_disabled}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto expression_enabled_pixel=pixel(cx-55,cy+10);
+    check(gradient_enabled_state(session.document(),gradient_enabled_ref).evaluated&&
+        std::abs(expression_enabled_pixel.red()-solid_preview.red())>25,
+        "Canvas resumes gradient paint when the retained expression source changes independently");
+    session.apply({SetGradient{object,source_fill.id,source_gradient}},session.revision());window.host.edited();QApplication::processEvents();
+    enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    auto* unlink=enabled_driver->menu()->actions().at(2);unlink->trigger();QApplication::processEvents();
     check(!gradient_enabled_state(session.document(),gradient_enabled_ref).driver&&
-        gradient_enabled_state(session.document(),gradient_enabled_ref).literal&&
+        !gradient_enabled_state(session.document(),gradient_enabled_ref).expression&&
+        !gradient_enabled_state(session.document(),gradient_enabled_ref).literal&&
         visible_child<QComboBox>(window,("gradient-mode-"+op).c_str())->isEnabled(),
         "Inspector unlink freezes the evaluated value and enables direct Paint mode editing again");
     choose(0);choose(1);click("gradient-handles-"+op);

@@ -7,6 +7,21 @@ Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
 same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
+## Retained Gradient enabled expression v1
+
+Native 0.69 adds optional `enabled_expression` to a retained Fill/Stroke Gradient,
+beside its authored enabled literal and existing exact link. Link and expression
+are mutually exclusive. The closed version-1 source is `true`, `false`, a
+same-Composition `Ref{Object ID,"","op.<paint operation ID>.gradient.<gradient ID>.enabled"}`
+on a distinct retained Gradient, or its negation. Pure evaluation drives the
+Gradient's own bypass independently of Object visibility and owning operation
+enablement. The literal, nested IDs and exact expression text remain authored.
+The revisioned Session command sets or explicitly replaces the source; unlink
+freezes the evaluated boolean. Same-ID `SetGradient` edits preserve that source
+and refuse direct driven literal or source changes. Native 0.1–0.68 remain
+readable; an expression under an older version or beside a link is rejected.
+The closed wire shape is `schemas/native-v0.69.schema.json`.
+
 ## Geometry mask enabled expression v1
 
 Native 0.68 adds optional `enabled_expression` to an installed GeometryMask,
