@@ -5,10 +5,10 @@
 #include <utility>
 
 namespace nect::test_support {
-inline void require_native_065(const std::string& encoded) {
-    const std::string current_version = "\"version\":\"0.65\"";
+inline void require_native_current_writer(const std::string& encoded) {
+    const std::string current_version = "\"version\":\"0.66\"";
     if (encoded.find(current_version) == std::string::npos || encoded.empty() || encoded.back() != '}')
-        throw std::runtime_error("Legacy fixture must start from native 0.65 output");
+        throw std::runtime_error("Legacy fixture must start from current native writer output");
 }
 inline void remove_empty_terminal_array(std::string& encoded,const char* field) {
     const auto length=std::char_traits<char>::length(field);
@@ -49,11 +49,11 @@ inline std::string untag_ordinary_processing_entries(std::string encoded) {
     return encoded;
 }
 inline std::string untag_ordinary_processing_entries_for_legacy_fixture(std::string encoded) {
-    require_native_065(encoded);
+    require_native_current_writer(encoded);
     return untag_ordinary_processing_entries(std::move(encoded));
 }
 inline std::string without_empty_macro_and_definition_fields_for_legacy_fixture(std::string encoded) {
-    require_native_065(encoded);
+    require_native_current_writer(encoded);
     remove_empty_terminal_array(encoded,",\"macros\":[]");
     remove_empty_terminal_array(encoded,",\"definitions\":[]");
     return untag_ordinary_processing_entries(std::move(encoded));

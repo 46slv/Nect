@@ -415,11 +415,18 @@ int main(int argc,char** argv) {
 
         trigger(window,"add-rectangle");const auto preset_source=window.canvas->selected_object;
         auto source_offset=default_operation("ui-preset-offset","nect.shape.offset");source_offset.parameters.at("amount").literal=18;
-        auto source_repeater=default_operation("ui-preset-repeater","nect.shape.repeater");
-        source_repeater.parameters.at("copies").literal=4;source_repeater.parameters.at("position_x").literal=36;
-        const auto source_stack_size=session.document().objects.at(preset_source).stack.size();
-        session.apply({AddOperation{preset_source,source_offset,source_stack_size},
-            AddOperation{preset_source,source_repeater,source_stack_size+1}},session.revision());
+        std::vector<Command> remove_source_entries;
+        for(const auto& entry:session.document().objects.at(preset_source).stack) {
+            check(!entry.macro,"Fresh Preset source does not contain an unrelated Macro instance");
+            remove_source_entries.push_back(RemoveOperation{preset_source,entry.id});
+        }
+        if(!remove_source_entries.empty())session.apply(remove_source_entries,session.revision());
+        session.apply({AddOperation{preset_source,source_offset,0}},session.revision());
+        session.apply({MacroCommand{InstantiateMacro{preset_source,"effects-custom-macro","ui-preset-macro",1,1}}},session.revision());
+        session.apply({MacroCommand{SetMacroOverride{preset_source,"ui-preset-macro","macro.offset.amount",27}}},session.revision());
+        const auto source_stroke_id=Id("ui-preset-stroke");
+        auto source_stroke=default_operation(source_stroke_id,"nect.paint.stroke");
+        session.apply({AddOperation{preset_source,source_stroke,2}},session.revision());
         window.host.edited();events();
         auto* preset_tabs=window.findChild<QTabWidget*>("effects-tabs");check(preset_tabs,"Effects dock exposes a Presets tab");
         preset_tabs->setCurrentIndex(1);events();
@@ -432,8 +439,16 @@ int main(int argc,char** argv) {
         const auto preset_id=session.document().preset_definitions.begin()->first;
         auto* preset_status=named<QLabel>(window,"presets-status");
         check(preset_status->text().contains(QString::fromStdString("ui-preset-offset"))&&
-            preset_status->text().contains(QString::fromStdString("ui-preset-repeater")),
+            preset_status->text().contains(QString::fromStdString("ui-preset-macro"))&&
+            preset_status->text().contains(QString::fromStdString(source_stroke_id)),
             "Save status exposes the exact captured source operation IDs");
+        const auto& saved_preset=session.document().preset_definitions.at(preset_id);
+        check(saved_preset.schema_version==2&&saved_preset.entries.size()==3&&
+            saved_preset.entries[0].type=="nect.shape.offset"&&saved_preset.entries[1].kind=="macro"&&
+            saved_preset.entries[1].macro_definition=="effects-custom-macro"&&
+            saved_preset.entries[1].overrides.at("macro.offset.amount")==27&&
+            saved_preset.entries[2].type=="nect.paint.stroke",
+            "Desktop Preset browser captures Offset, Macro, Stroke in processing order");
         preset_search->setText("ui pair");events();
         auto matching_presets=preset_list->findItems("UI Pair",Qt::MatchExactly);
         check(matching_presets.size()==1&&matching_presets.front()->data(Qt::UserRole).toString()==QString::fromStdString(preset_id),
@@ -446,17 +461,21 @@ int main(int argc,char** argv) {
         preset_list->setCurrentItem(matching_presets.front());events();
         const auto apply_preset_revision=session.revision();click(window,"preset-apply");
         const auto target_applied=session.document().objects.at(preset_target).stack;
-          check(session.revision()==apply_preset_revision+1&&target_applied.size()==preset_target_base+2&&
-              target_applied[preset_target_base].type=="nect.shape.offset"&&target_applied[preset_target_base+1].type=="nect.shape.repeater"&&
-              target_applied[preset_target_base].parameters.at("amount").literal==18&&target_applied[preset_target_base+1].parameters.at("position_x").literal==36,
-            "Preset browser appends the captured ordered literal operations to the selected target");
+          check(session.revision()==apply_preset_revision+1&&target_applied.size()==preset_target_base+3&&
+              target_applied[preset_target_base].type=="nect.shape.offset"&&
+              target_applied[preset_target_base+1].macro&&target_applied[preset_target_base+1].macro->definition=="effects-custom-macro"&&
+              target_applied[preset_target_base+1].macro->pinned_revision==1&&
+              target_applied[preset_target_base+1].macro->overrides.at("macro.offset.amount")==27&&
+              target_applied[preset_target_base+2].type=="nect.paint.stroke"&&
+              target_applied[preset_target_base].parameters.at("amount").literal==18,
+            "Preset browser appends fresh Offset, pinned Macro and Stroke entries in order");
         const auto apply_undo_revision=session.revision();
         text_action(window,"Undo")->trigger();events();
           check(session.revision()==apply_undo_revision+1&&session.document().objects.at(preset_target).stack.size()==preset_target_base,
-            "One UI Undo removes both applied preset operations together");
+            "One UI Undo removes all applied preset entries together");
         text_action(window,"Redo")->trigger();events();
-          check(session.document().objects.at(preset_target).stack.size()==preset_target_base+2,
-            "One UI Redo restores the complete applied pair");
+          check(session.document().objects.at(preset_target).stack.size()==preset_target_base+3,
+            "One UI Redo restores the complete ordered Preset stack");
 
         window.canvas->set_selection(preset_source);events();
         const auto source_offset_ref=operation_ref(preset_source,"ui-preset-offset","amount");
@@ -464,15 +483,18 @@ int main(int argc,char** argv) {
         const auto update_revision=session.revision();click(window,"preset-update");
         check(session.revision()==update_revision+1&&
             session.document().preset_definitions.at(preset_id).entries[0].parameters.at("amount")==7&&
+              session.document().preset_definitions.at(preset_id).entries[1].overrides.at("macro.offset.amount")==27&&
               session.document().objects.at(preset_target).stack[preset_target_base].parameters.at("amount").literal==18&&
             named<QLabel>(window,"presets-status")->text().contains("ui-preset-offset"),
-            "Update captures the exact source pair while existing applied snapshots stay unchanged");
+            "Update captures the full ordered source stack while existing applied snapshots stay unchanged");
         window.canvas->set_selection(preset_target);events();
         const auto reapply_revision=session.revision();click(window,"preset-apply");
         const auto& reedited_stack=session.document().objects.at(preset_target).stack;
-          check(session.revision()==reapply_revision+1&&reedited_stack.size()==preset_target_base+4&&
-              reedited_stack[preset_target_base].parameters.at("amount").literal==18&&reedited_stack[preset_target_base+2].parameters.at("amount").literal==7,
-            "Later applications use the re-edited definition without changing the earlier pair");
+          check(session.revision()==reapply_revision+1&&reedited_stack.size()==preset_target_base+6&&
+              reedited_stack[preset_target_base].parameters.at("amount").literal==18&&
+              reedited_stack[preset_target_base+3].parameters.at("amount").literal==7&&
+              reedited_stack[preset_target_base+4].macro->overrides.at("macro.offset.amount")==27,
+            "Later applications use edited built-in values and stable Macro overrides only for new entries");
 
         answer_text_dialog_later(window,"Renamed Pair");click(window,"preset-rename");
         check(session.document().preset_definitions.at(preset_id).label=="Renamed Pair",

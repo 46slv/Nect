@@ -227,19 +227,19 @@ void detach_history_native_api_and_export() {
     check(session.document()==after_source_edit,"Undo/Redo traverses detach and following source edits atomically");
 
     auto native=encode(session.document());
-    check(native.find("\"version\":\"0.65\"")!=std::string::npos&&decode(native)==session.document(),
-        "Native 0.65 cold reopen retains Definitions, Instances and materialized copies");
+    check(native.find("\"version\":\"0.66\"")!=std::string::npos&&decode(native)==session.document(),
+        "Native 0.66 cold reopen retains Definitions, Instances and materialized copies");
     auto legacy=test_support::without_empty_macro_and_definition_fields_for_legacy_fixture(
         encode(empty_document("legacy-doc","legacy-comp","legacy-art")));
-    const auto version=legacy.find("\"version\":\"0.65\"");
+    const auto version=legacy.find("\"version\":\"0.66\"");
     check(version!=std::string::npos&&legacy.find("\"definitions\":")==std::string::npos&&
         legacy.find("\"macros\":")==std::string::npos,
         "Legacy fixture removes the native 0.64 Definition and 0.65 Macro collections");
-    legacy.replace(version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.63\"");
+    legacy.replace(version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.63\"");
     check(decode(legacy)==empty_document("legacy-doc","legacy-comp","legacy-art"),
         "Native 0.63 without Definition/Instance fields remains cold-readable");
-    auto lying=native;const auto current=lying.find("\"version\":\"0.65\"");
-    lying.replace(current,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.63\"");
+    auto lying=native;const auto current=lying.find("\"version\":\"0.66\"");
+    lying.replace(current,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.63\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(lying);});
 
     const auto api_base=fixture();Session api(api_base);

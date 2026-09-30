@@ -3760,9 +3760,51 @@ std::map<Id,double> evaluate_guide_positions(const Document& document,const Id& 
     return result;
 }
 
-static void validate_preset_definition(const Id& map_id,const PresetDefinition& preset) {
+static const MacroPublicParameter* macro_public_parameter(const MacroDefinitionRevision& revision,const std::string& id);
+
+static void validate_preset_builtin_entry(const PresetEntry& entry,const std::string& target_domain,bool v1) {
+    const auto* descriptor=builtin_operation_type(entry.type);
+    require(descriptor&&descriptor->target_kind=="path_or_text"&&
+        (entry.type=="nect.paint.fill"||entry.type=="nect.paint.stroke"||
+         entry.type=="nect.shape.offset"||entry.type=="nect.shape.repeater"),
+        "UNSUPPORTED_PRESET_OPERATION",entry.type);
+    const bool styled_stroke=entry.type=="nect.paint.stroke"&&entry.version==2;
+    require(entry.version==descriptor->version||styled_stroke,"UNSUPPORTED_PRESET_VERSION",entry.type);
+    if(v1)require(entry.type=="nect.shape.offset"||entry.type=="nect.shape.repeater",
+        "UNSUPPORTED_PRESET_OPERATION",entry.type);
+    require(descriptor->input==target_domain,"INVALID_PRESET_DOMAIN",entry.type);
+    auto defaults=default_operation("preset-entry",entry.type).parameters;
+    if(styled_stroke)defaults.emplace("miter_limit",Scalar{4,{}});
+    require(entry.parameters.size()==defaults.size(),"INVALID_PRESET_PARAMETERS",entry.type);
+    for(const auto& [name,value]:entry.parameters) {
+        require(defaults.contains(name),"INVALID_PRESET_PARAMETERS",name);
+        value_range(operation_ref("preset","preset-entry",name),value);
+    }
+    require(entry.composite=="above"||entry.composite=="below","UNSUPPORTED_COMPOSITE",entry.composite);
+    require(entry.fill_rule=="nonzero"||entry.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",entry.fill_rule);
+    if(entry.type=="nect.shape.offset") {
+        require(entry.composite=="below","INVALID_OPERATOR_OPTIONS","Offset has no Above/Below compositing option");
+        require(entry.line_join=="miter"||entry.line_join=="round"||entry.line_join=="bevel",
+            "INVALID_OPERATOR_OPTIONS","Offset joins are miter, round or bevel");
+        require(entry.line_cap=="butt","INVALID_OPERATOR_OPTIONS","Offset does not accept a line cap option");
+    } else {
+        if(entry.type!="nect.paint.fill")
+            require(entry.fill_rule=="nonzero","INVALID_OPERATOR_OPTIONS","Fill rule only applies to Fill or Offset");
+        if(styled_stroke) {
+            require(entry.line_join=="miter"||entry.line_join=="round"||entry.line_join=="bevel",
+                "INVALID_OPERATOR_OPTIONS","Stroke joins are miter, round or bevel");
+            require(entry.line_cap=="butt"||entry.line_cap=="round"||entry.line_cap=="square",
+                "INVALID_OPERATOR_OPTIONS","Stroke caps are butt, round or square");
+        } else {
+            require(entry.line_join=="miter","INVALID_OPERATOR_OPTIONS","Custom line join requires Offset or Stroke v2");
+            require(entry.line_cap=="butt","INVALID_OPERATOR_OPTIONS","Custom line cap requires Stroke v2");
+        }
+    }
+}
+
+static void validate_preset_definition(const Id& map_id,const PresetDefinition& preset,const Document& document) {
     identity(map_id);require(map_id==preset.id,"ID_MISMATCH",map_id);
-    require(preset.schema_version==1,"UNSUPPORTED_PRESET_SCHEMA","Only Preset schema version 1 is supported");
+    require(preset.schema_version==1||preset.schema_version==2,"UNSUPPORTED_PRESET_SCHEMA","Preset schema version must be 1 or 2");
     require(!preset.label.empty()&&preset.label.size()<=256,"INVALID_PRESET_LABEL","Preset label must be 1..256 UTF-8 bytes");
     text_utf8(preset.label);
     require(preset.category.size()<=128,"INVALID_PRESET_METADATA","Preset category is limited to 128 UTF-8 bytes");text_utf8(preset.category);
@@ -3773,32 +3815,39 @@ static void validate_preset_definition(const Id& map_id,const PresetDefinition& 
         text_utf8(tag);require(tags.insert(tag).second,"INVALID_PRESET_METADATA","Preset tags must be unique");
     }
     require(preset.target_domain=="local_paths_and_paint","INVALID_PRESET_DOMAIN",preset.target_domain);
-    require(preset.entries.size()==2,"INVALID_PRESET_ORDER","Preset v1 requires exactly Offset followed by Repeater");
-    require(preset.entries[0].type=="nect.shape.offset"&&preset.entries[1].type=="nect.shape.repeater",
-        "INVALID_PRESET_ORDER","Preset v1 order is nect.shape.offset then nect.shape.repeater");
+    if(preset.schema_version==1) {
+        require(preset.entries.size()==2,"INVALID_PRESET_ORDER","Preset v1 requires exactly Offset followed by Repeater");
+        require(preset.entries[0].kind=="builtin"&&preset.entries[1].kind=="builtin"&&
+            preset.entries[0].type=="nect.shape.offset"&&preset.entries[1].type=="nect.shape.repeater",
+            "INVALID_PRESET_ORDER","Preset v1 order is nect.shape.offset then nect.shape.repeater");
+    } else require(!preset.entries.empty()&&preset.entries.size()<=128,
+        "INVALID_PRESET_ORDER","Preset v2 requires 1..128 ordered processing entries");
     for(const auto& entry:preset.entries) {
-        const auto* descriptor=builtin_operation_type(entry.type);
-        require(descriptor&&(entry.type=="nect.shape.offset"||entry.type=="nect.shape.repeater"),
-            "UNSUPPORTED_PRESET_OPERATION",entry.type);
-        require(entry.version==descriptor->version,"UNSUPPORTED_PRESET_VERSION",entry.type);
-        require(descriptor->input==preset.target_domain,"INVALID_PRESET_DOMAIN",entry.type);
-        const auto defaults=default_operation("preset-entry",entry.type);
-        require(entry.parameters.size()==defaults.parameters.size(),"INVALID_PRESET_PARAMETERS",entry.type);
-        for(const auto& [name,value]:entry.parameters) {
-            require(defaults.parameters.contains(name),"INVALID_PRESET_PARAMETERS",name);
-            value_range(operation_ref("preset","preset-entry",name),value);
-        }
-        require(entry.composite=="above"||entry.composite=="below","UNSUPPORTED_COMPOSITE",entry.composite);
-        require(entry.fill_rule=="nonzero"||entry.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",entry.fill_rule);
-        if(entry.type=="nect.shape.offset") {
-            require(entry.composite=="below","INVALID_OPERATOR_OPTIONS","Offset has no Above/Below compositing option");
-            require(entry.line_join=="miter"||entry.line_join=="round"||entry.line_join=="bevel",
-                "INVALID_OPERATOR_OPTIONS","Offset joins are miter, round or bevel");
-        } else {
-            require(entry.fill_rule=="nonzero"&&entry.line_join=="miter"&&entry.line_cap=="butt",
-                "INVALID_OPERATOR_OPTIONS","Repeater does not accept Fill rule or paint style options");
-        }
-        require(entry.line_cap=="butt","INVALID_OPERATOR_OPTIONS","Preset v1 does not capture Stroke cap options");
+        if(entry.kind=="builtin") {
+            require(entry.macro_definition.empty()&&entry.pinned_revision==1&&entry.overrides.empty(),
+                "INVALID_PRESET_ENTRY","Built-in Preset entries cannot carry Macro reference fields");
+            validate_preset_builtin_entry(entry,preset.target_domain,preset.schema_version==1);
+        } else if(preset.schema_version==2&&entry.kind=="macro") {
+            require(entry.type==macro_entry_type&&entry.version==1&&entry.parameters.empty()&&
+                entry.composite=="below"&&entry.fill_rule=="nonzero"&&entry.line_join=="miter"&&entry.line_cap=="butt",
+                "INVALID_PRESET_ENTRY","Macro Preset entries cannot carry ordinary operation payload fields");
+            identity(entry.macro_definition);
+            require(entry.pinned_revision>0,"INVALID_MACRO_REVISION","Preset Macro revision must be positive");
+            for(const auto& [parameter,value]:entry.overrides) {
+                require(!parameter.empty()&&parameter.size()<=96,"INVALID_MACRO_PARAMETER",parameter);
+                text_utf8(parameter);value_range({preset.id,entry.macro_definition,parameter},value);
+            }
+            // Preserve unavailable or incompatible pinned references read from a
+            // native file. Applying or explicitly editing the Preset performs
+            // the stricter live-document preflight below.
+            const auto definition=document.macro_definitions.find(entry.macro_definition);
+            if(definition!=document.macro_definitions.end()) {
+                const auto revision=definition->second.revisions.find(entry.pinned_revision);
+                if(revision!=definition->second.revisions.end())for(const auto& [parameter,value]:entry.overrides) {
+                    (void)value;(void)macro_public_parameter(revision->second,parameter);
+                }
+            }
+        } else throw Error("INVALID_PRESET_ENTRY",entry.kind);
     }
 }
 
@@ -3806,6 +3855,63 @@ static const MacroPublicParameter* macro_public_parameter(const MacroDefinitionR
     const auto found=std::find_if(revision.public_parameters.begin(),revision.public_parameters.end(),
         [&](const auto& parameter){return parameter.id==id;});
     return found==revision.public_parameters.end()?nullptr:&*found;
+}
+static const MacroDefinitionRevision& preset_macro_revision(const Document& document,const PresetEntry& entry) {
+    const auto definition=document.macro_definitions.find(entry.macro_definition);
+    require(definition!=document.macro_definitions.end(),"MISSING_MACRO_DEFINITION",
+        "Preset references unavailable Macro Definition "+entry.macro_definition);
+    const auto revision=definition->second.revisions.find(entry.pinned_revision);
+    require(revision!=definition->second.revisions.end(),"MISSING_MACRO_REVISION",
+        "Preset pins unavailable Macro revision "+entry.macro_definition+"@"+std::to_string(entry.pinned_revision));
+    return revision->second;
+}
+static void preflight_preset_macro_entries(const Document& document,const PresetDefinition& preset) {
+    if(preset.schema_version!=2)return;
+    for(const auto& entry:preset.entries)if(entry.kind=="macro") {
+        const auto& revision=preset_macro_revision(document,entry);
+        require(revision.input.domain==preset.target_domain&&revision.output.domain==preset.target_domain,
+            "PRESET_MACRO_DOMAIN","Pinned Macro revision has an incompatible Preset target domain");
+        for(const auto& [parameter_id,value]:entry.overrides) {
+            const auto* parameter=macro_public_parameter(revision,parameter_id);
+            require(parameter,"MISSING_MACRO_PARAMETER",
+                "Preset PublicParamID is unavailable in the pinned Macro revision: "+parameter_id);
+            require(parameter->value_type=="number"&&parameter->domain==preset.target_domain,
+                "INCOMPATIBLE_MACRO_PUBLIC_PARAMETER","Preset PublicParamID has an incompatible type or domain: "+parameter_id);
+            value_range({preset.id,entry.macro_definition,parameter_id},value);
+        }
+    }
+}
+static bool same_public_parameter_contract(const MacroPublicParameter& a,const MacroPublicParameter& b) {
+    return a.value_type==b.value_type&&a.unit==b.unit&&a.domain==b.domain;
+}
+static void preflight_preset_revision_edit(const Document& document,const PresetDefinition& current,
+    const PresetDefinition& next) {
+    if(current.schema_version==2&&next.schema_version==2) {
+        std::map<Id,std::vector<const PresetEntry*>> before_by_definition,next_by_definition;
+        for(const auto& entry:current.entries)if(entry.kind=="macro")
+            before_by_definition[entry.macro_definition].push_back(&entry);
+        for(const auto& entry:next.entries)if(entry.kind=="macro")
+            next_by_definition[entry.macro_definition].push_back(&entry);
+        for(const auto& [definition,before_entries]:before_by_definition) {
+            const auto& after_entries=next_by_definition[definition];
+            const auto count=std::min(before_entries.size(),after_entries.size());
+            for(std::size_t i=0;i<count;++i) {
+                const auto& before=*before_entries[i];const auto& after=*after_entries[i];
+                if(before.pinned_revision==after.pinned_revision)continue;
+                const auto& old_revision=preset_macro_revision(document,before);
+                const auto& new_revision=preset_macro_revision(document,after);
+                for(const auto& [parameter_id,value]:before.overrides) {
+                    (void)value;
+                    const auto* old_parameter=macro_public_parameter(old_revision,parameter_id);
+                    const auto* new_parameter=macro_public_parameter(new_revision,parameter_id);
+                    require(old_parameter&&new_parameter&&same_public_parameter_contract(*old_parameter,*new_parameter),
+                        "INCOMPATIBLE_MACRO_PUBLIC_PARAMETER",
+                        "Re-pinning a Preset Macro must retain every captured PublicParamID with compatible type, unit and domain: "+parameter_id);
+                }
+            }
+        }
+    }
+    preflight_preset_macro_entries(document,next);
 }
 static const MacroNode* macro_node(const MacroDefinitionRevision& revision,const Id& id) {
     const auto found=std::find_if(revision.nodes.begin(),revision.nodes.end(),
@@ -3915,7 +4021,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     for(const auto& [id,definition]:d.macro_definitions){add(id);validate_macro_definition(id,definition);}
     require(d.preset_definitions.size()<=128,"LIMIT","Preset definition count limit 128");
     for(const auto& [id,preset]:d.preset_definitions) {
-        add(id);validate_preset_definition(id,preset);
+        add(id);validate_preset_definition(id,preset,d);
     }
     require(d.raster_assets.size()<=128,"LIMIT","Raster asset count limit 128");
     std::size_t raster_bytes=0;std::uint64_t raster_pixels=0;
@@ -5554,6 +5660,9 @@ void edit_macro(Document& candidate,const MacroCommand& command) {
             for(const auto& [object_id,object]:candidate.objects)for(const auto& entry:object.stack)
                 if(entry.macro&&entry.macro->definition==mutation.definition)
                     throw Error("MACRO_IN_USE","Macro "+mutation.definition+" is pinned by instance "+entry.id);
+            for(const auto& [preset_id,preset]:candidate.preset_definitions)for(const auto& entry:preset.entries)
+                if(entry.kind=="macro"&&entry.macro_definition==mutation.definition)
+                    throw Error("MACRO_IN_USE","Macro "+mutation.definition+" is pinned by Preset "+preset_id);
             candidate.macro_definitions.erase(found);
         } else if constexpr(std::is_same_v<T,InstantiateMacro>) {
             require(candidate.objects.contains(mutation.object),"MISSING_OBJECT",mutation.object);
@@ -5850,42 +5959,64 @@ PresetDefinition capture_preset_from_stack(const Document& document,const Create
     require(document.objects.contains(command.object),"MISSING_OBJECT",command.object);
     const auto& object=document.objects.at(command.object);
     require(object.kind==Kind::path||object.kind==Kind::text,"INVALID_DOMAIN","Presets require a Path or Text target");
-    require(std::none_of(object.stack.begin(),object.stack.end(),[](const auto& entry){return entry.macro.has_value();}),
-        "PRESET_NONPORTABLE_SOURCE","Preset v1 cannot flatten Macro instances; detach the Macro or use a future portable Macro preset version");
-    std::vector<const ShapeOperation*> portable_operations;
     std::vector<Ref> driven_fields;
-    for(const auto& operation:object.stack) {
-        if(operation.type!="nect.shape.offset"&&operation.type!="nect.shape.repeater")continue;
-        portable_operations.push_back(&operation);
+    PresetDefinition result=command.metadata;
+    result.entries.clear();
+    const auto capture_builtin=[&](const ShapeOperation& operation) {
+        const auto* descriptor=builtin_operation_type(operation.type);
+        require(descriptor&&descriptor->target_kind=="path_or_text"&&
+            (operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke"||
+             operation.type=="nect.shape.offset"||operation.type=="nect.shape.repeater"),
+            "UNSUPPORTED_PRESET_OPERATION",operation.type);
         if(operation.enabled_driver)driven_fields.push_back(operation_ref(command.object,operation.id,"enabled"));
         if(operation.fill_rule_driver)driven_fields.push_back(operation_ref(command.object,operation.id,"fill_rule"));
         for(const auto& [name,value]:operation.parameters)
             if(driven(value))driven_fields.push_back(operation_ref(command.object,operation.id,name));
-    }
-    if(!driven_fields.empty()) {
-        Error error("PRESET_NONPORTABLE_SOURCE","Preset capture refuses link/expression-driven fields; references identify the exact authored Refs");
-        error.references=std::move(driven_fields);throw error;
-    }
-    PresetDefinition result=command.metadata;
-    result.entries.clear();
-    for(const auto* source:portable_operations) {
-        const auto& operation=*source;
-        require(!operation.gradient,"UNSUPPORTED_PRESET_OPTION","Preset v1 does not capture Gradient payloads");
-        PresetEntry entry;entry.type=operation.type;entry.version=operation.version;entry.enabled=operation.enabled;
+        require(!operation.gradient,"UNSUPPORTED_PRESET_OPTION","Preset entries do not capture Gradient payloads");
+        PresetEntry entry;entry.kind="builtin";entry.type=operation.type;entry.version=operation.version;entry.enabled=operation.enabled;
         for(const auto& [name,value]:operation.parameters)entry.parameters.emplace(name,value.literal);
         entry.composite=operation.composite;entry.fill_rule=operation.fill_rule;
         entry.line_join=operation.line_join;entry.line_cap=operation.line_cap;
         result.entries.push_back(std::move(entry));
+    };
+
+    if(result.schema_version==1) {
+        require(std::none_of(object.stack.begin(),object.stack.end(),[](const auto& entry){return entry.macro.has_value();}),
+            "PRESET_NONPORTABLE_SOURCE","Preset v1 cannot flatten Macro instances; use Preset schema v2");
+        for(const auto& operation:object.stack)
+            if(operation.type=="nect.shape.offset"||operation.type=="nect.shape.repeater")capture_builtin(operation);
+    } else if(result.schema_version==2) {
+        for(const auto& operation:object.stack) {
+            if(operation.macro) {
+                PresetEntry entry;entry.kind="macro";entry.type=macro_entry_type;entry.enabled=operation.enabled;
+                entry.macro_definition=operation.macro->definition;entry.pinned_revision=operation.macro->pinned_revision;
+                entry.overrides=operation.macro->overrides;result.entries.push_back(std::move(entry));
+            } else capture_builtin(operation);
+        }
+    } else throw Error("UNSUPPORTED_PRESET_SCHEMA","Create-from-stack requires Preset schema version 1 or 2");
+
+    if(!driven_fields.empty()) {
+        Error error("PRESET_NONPORTABLE_SOURCE","Preset capture refuses link/expression-driven fields; references identify the exact authored Refs");
+        error.references=std::move(driven_fields);throw error;
     }
+    require(!result.entries.empty(),"INVALID_PRESET_ORDER","Preset capture found no portable processing entries");
+    validate_preset_definition(result.id,result,document);
+    preflight_preset_macro_entries(document,result);
     return result;
 }
 
-ShapeOperation operation_from_preset(const PresetEntry& entry,const Id& id) {
+ProcessingEntry processing_entry_from_preset(const PresetEntry& entry,const Id& id) {
+    if(entry.kind=="macro") {
+        ProcessingEntry result;result.id=id;result.type=macro_entry_type;result.enabled=entry.enabled;
+        result.macro=MacroInstance{entry.macro_definition,entry.pinned_revision,entry.overrides};
+        return result;
+    }
     auto operation=default_operation(id,entry.type);operation.version=entry.version;operation.enabled=entry.enabled;
+    if(entry.type=="nect.paint.stroke"&&entry.version==2)operation.parameters.emplace("miter_limit",Scalar{4,{}});
     for(auto& [name,value]:operation.parameters)value.literal=entry.parameters.at(name);
     operation.composite=entry.composite;operation.fill_rule=entry.fill_rule;
     operation.line_join=entry.line_join;operation.line_cap=entry.line_cap;
-    return operation;
+    return ProcessingEntry{std::move(operation)};
 }
 
 void edit_preset(Document& candidate,const PresetCommand& command) {
@@ -5893,6 +6024,7 @@ void edit_preset(Document& candidate,const PresetCommand& command) {
         using T=std::decay_t<decltype(mutation)>;
         if constexpr(std::is_same_v<T,CreatePreset>) {
             require(!candidate.preset_definitions.contains(mutation.definition.id),"DUPLICATE_ID",mutation.definition.id);
+            preflight_preset_macro_entries(candidate,mutation.definition);
             candidate.preset_definitions.emplace(mutation.definition.id,mutation.definition);
         } else if constexpr(std::is_same_v<T,CreatePresetFromStack>) {
             auto definition=capture_preset_from_stack(candidate,mutation);
@@ -5905,6 +6037,7 @@ void edit_preset(Document& candidate,const PresetCommand& command) {
         } else if constexpr(std::is_same_v<T,UpdatePreset>) {
             const auto found=candidate.preset_definitions.find(mutation.definition.id);
             require(found!=candidate.preset_definitions.end(),"MISSING_PRESET",mutation.definition.id);
+            preflight_preset_revision_edit(candidate,found->second,mutation.definition);
             found->second=mutation.definition;
         } else if constexpr(std::is_same_v<T,DeletePreset>) {
             require(candidate.preset_definitions.erase(mutation.preset)==1,"MISSING_PRESET",mutation.preset);
@@ -5912,7 +6045,8 @@ void edit_preset(Document& candidate,const PresetCommand& command) {
             const auto found=candidate.preset_definitions.find(mutation.preset);
             require(found!=candidate.preset_definitions.end(),"MISSING_PRESET",mutation.preset);
             const auto& definition=found->second;
-            validate_preset_definition(found->first,definition);
+            validate_preset_definition(found->first,definition,candidate);
+            preflight_preset_macro_entries(candidate,definition);
             const auto target=candidate.objects.find(mutation.object);
             require(target!=candidate.objects.end(),"MISSING_OBJECT",mutation.object);
             require(target->second.kind==Kind::path||target->second.kind==Kind::text,
@@ -5921,7 +6055,7 @@ void edit_preset(Document& candidate,const PresetCommand& command) {
                 "LIMIT","Preset application would exceed the 128-operation stack limit");
             const auto ids=preset_operation_ids(definition,mutation.operation_id_prefix);
             for(std::size_t i=0;i<definition.entries.size();++i)
-                target->second.stack.push_back(operation_from_preset(definition.entries[i],ids[i]));
+                target->second.stack.push_back(processing_entry_from_preset(definition.entries[i],ids[i]));
         }
     },command.mutation);
 }

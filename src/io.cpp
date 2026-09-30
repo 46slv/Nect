@@ -895,31 +895,59 @@ ProcessingEntry read_processing_entry(const j::value& value) {
     throw Error("UNSUPPORTED_STACK_ENTRY",kind);
 }
 
-PresetEntry read_preset_entry(const j::value& value) {
-    const auto& o=value.as_object();keys(o,{"type","version","enabled","parameters","composite","fill_rule","line_join","line_cap"});
-    PresetEntry entry;entry.type=text(o.at("type"));entry.version=j::value_to<unsigned>(o.at("version"));
+PresetEntry read_preset_builtin_entry(const j::object& o) {
+    keys(o,{"type","version","enabled","parameters","composite","fill_rule","line_join","line_cap"});
+    PresetEntry entry;entry.kind="builtin";entry.type=text(o.at("type"));entry.version=j::value_to<unsigned>(o.at("version"));
     entry.enabled=o.at("enabled").as_bool();entry.composite=text(o.at("composite"));entry.fill_rule=text(o.at("fill_rule"));
     entry.line_join=text(o.at("line_join"));entry.line_cap=text(o.at("line_cap"));
     for(const auto& parameter:o.at("parameters").as_object())
         entry.parameters.emplace(std::string(parameter.key()),number(parameter.value()));
     return entry;
 }
+PresetEntry read_preset_entry(const j::value& value,unsigned schema_version) {
+    const auto& o=value.as_object();
+    if(schema_version==1)return read_preset_builtin_entry(o);
+    keys(o,{"kind","operation","definition","revision","enabled","overrides"});
+    const auto kind=text(o.at("kind"));
+    if(kind=="builtin") {
+        keys(o,{"kind","operation"});return read_preset_builtin_entry(o.at("operation").as_object());
+    }
+    if(kind=="macro") {
+        keys(o,{"kind","definition","revision","enabled","overrides"});
+        PresetEntry entry;entry.kind="macro";entry.type=macro_entry_type;entry.macro_definition=text(o.at("definition"));
+        entry.pinned_revision=j::value_to<std::uint64_t>(o.at("revision"));entry.enabled=o.at("enabled").as_bool();
+        for(const auto& [parameter,value]:o.at("overrides").as_object())
+            entry.overrides.emplace(std::string(parameter),number(value));
+        return entry;
+    }
+    throw Error("INVALID_PRESET_ENTRY",kind);
+}
 PresetDefinition read_preset_definition(const j::value& value) {
     const auto& o=value.as_object();keys(o,{"id","schema_version","label","category","tags","target_domain","entries"});
     PresetDefinition definition;definition.id=text(o.at("id"));definition.schema_version=j::value_to<unsigned>(o.at("schema_version"));
+    if(definition.schema_version!=1&&definition.schema_version!=2)
+        throw Error("UNSUPPORTED_PRESET_SCHEMA","Preset schema version must be 1 or 2");
     definition.label=text(o.at("label"));if(const auto* category=o.if_contains("category"))definition.category=text(*category);
     if(const auto* tags=o.if_contains("tags"))for(const auto& tag:tags->as_array())definition.tags.push_back(text(tag));
     definition.target_domain=text(o.at("target_domain"));
-    for(const auto& entry:o.at("entries").as_array())definition.entries.push_back(read_preset_entry(entry));
+    for(const auto& entry:o.at("entries").as_array())definition.entries.push_back(read_preset_entry(entry,definition.schema_version));
     return definition;
 }
 j::value preset_json(const PresetDefinition& definition) {
     j::array tags,entries;for(const auto& tag:definition.tags)tags.push_back(j::value(tag));
     for(const auto& entry:definition.entries) {
-        j::object parameters;for(const auto& [name,value]:entry.parameters)parameters[name]=value;
-        entries.push_back(j::object{{"type",entry.type},{"version",entry.version},{"enabled",entry.enabled},
-            {"parameters",parameters},{"composite",entry.composite},{"fill_rule",entry.fill_rule},
-            {"line_join",entry.line_join},{"line_cap",entry.line_cap}});
+        if(definition.schema_version==1||entry.kind=="builtin") {
+            j::object parameters;for(const auto& [name,value]:entry.parameters)parameters[name]=value;
+            j::object builtin{{"type",entry.type},{"version",entry.version},{"enabled",entry.enabled},
+                {"parameters",parameters},{"composite",entry.composite},{"fill_rule",entry.fill_rule},
+                {"line_join",entry.line_join},{"line_cap",entry.line_cap}};
+            entries.push_back(definition.schema_version==1?j::value(std::move(builtin)):
+                j::value(j::object{{"kind","builtin"},{"operation",std::move(builtin)}}));
+        } else {
+            j::object overrides;for(const auto& [name,value]:entry.overrides)overrides[name]=value;
+            entries.push_back(j::object{{"kind","macro"},{"definition",entry.macro_definition},
+                {"revision",entry.pinned_revision},{"enabled",entry.enabled},{"overrides",overrides}});
+        }
     }
     return j::object{{"id",definition.id},{"schema_version",definition.schema_version},{"label",definition.label},
         {"category",definition.category},{"tags",tags},{"target_domain",definition.target_domain},{"entries",entries}};
@@ -1293,7 +1321,8 @@ PresetCommand read_preset_command(const j::value& v) {
         keys(o,{"type","definition"});return PresetCommand{CreatePreset{read_preset_definition(o.at("definition"))}};
     }
     if(type=="create_preset_from_stack") {
-        keys(o,{"type","id","object","label","category","tags"});PresetDefinition metadata;
+        keys(o,{"type","id","object","label","category","tags","schema_version"});PresetDefinition metadata;
+        if(const auto* version=o.if_contains("schema_version"))metadata.schema_version=j::value_to<unsigned>(*version);
         metadata.id=text(o.at("id"));metadata.label=text(o.at("label"));
         if(const auto* category=o.if_contains("category"))metadata.category=text(*category);
         if(const auto* tags=o.if_contains("tags"))for(const auto& tag:tags->as_array())metadata.tags.push_back(text(tag));
@@ -1971,10 +2000,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,65> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65"};
+        constexpr std::array<std::string_view,66> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.65 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.66 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -1989,6 +2018,8 @@ Document decode(std::string_view input) {
         d.id=text(root.at("id"));
         if(minor>=63)for(const auto& value:root.at("presets").as_array()) {
             auto preset=read_preset_definition(value);
+            if(minor<66&&preset.schema_version>=2)
+                throw Error("NATIVE_VERSION_MISMATCH","Preset schema v2 requires native 0.66 or later");
             if(!d.preset_definitions.emplace(preset.id,preset).second)
                 throw Error("DUPLICATE_PRESET_ID",preset.id);
         }
@@ -2879,12 +2910,15 @@ std::string request(Session& session,std::string_view input) {
                     "Preset commands are single Session operations and cannot be mixed into a generic command batch");
                 const auto preset=read_preset_command(wire_commands.front());
                 const auto* apply=std::get_if<ApplyPreset>(&preset.mutation);
-                j::array captured_source_operations;
+                j::array captured_source_operations,captured_source_entries;
                 if(const auto* capture=std::get_if<CreatePresetFromStack>(&preset.mutation)) {
                     if(const auto object=session.document().objects.find(capture->object);object!=session.document().objects.end())
-                        for(const auto& operation:object->second.stack)
-                            if(operation.type=="nect.shape.offset"||operation.type=="nect.shape.repeater")
-                                captured_source_operations.push_back(j::object{{"id",operation.id},{"type",operation.type}});
+                        for(const auto& entry:object->second.stack) {
+                            captured_source_operations.push_back(j::object{{"id",entry.id},{"type",entry.type}});
+                            if(entry.macro)captured_source_entries.push_back(j::object{{"id",entry.id},{"kind","macro"},
+                                {"definition",entry.macro->definition},{"revision",entry.macro->pinned_revision}});
+                            else captured_source_entries.push_back(j::object{{"id",entry.id},{"kind","builtin"},{"type",entry.type}});
+                        }
                 }
                 const auto before=session.revision();
                 session.apply_preset_command(preset,expected);
@@ -2894,10 +2928,10 @@ std::string request(Session& session,std::string_view input) {
                     j::array operation_ids;
                     for(const auto& id:preset_operation_ids(definition,apply->operation_id_prefix))operation_ids.push_back(j::value(id));
                     applied.push_back(j::object{{"preset",preset_json(definition)},
-                        {"target",apply->object},{"operation_ids",operation_ids}});
+                        {"target",apply->object},{"operation_ids",operation_ids},{"processing_entry_ids",operation_ids}});
                 }
                 result=j::object{{"changed",session.revision()!=before},{"applied_presets",applied},
-                    {"captured_source_operations",captured_source_operations}};
+                    {"captured_source_operations",captured_source_operations},{"captured_source_entries",captured_source_entries}};
             } else {
                 std::vector<Command> commands;
                 for(const auto& v:wire_commands)commands.push_back(read_command(v));

@@ -107,15 +107,15 @@ int main(){try{
         "Boolean false expression remains authored as an expression");
     bool_apply({SetTextItalicExpression{italic_b,inverted,true}});
     const auto native16=encode(bool_session.document());
-    check(native16.find("\"version\":\"0.65\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
+    check(native16.find("\"version\":\"0.66\"")!=std::string::npos&&native16.find("\"italic_driver\":{\"expression\"")!=std::string::npos&&
         encode(decode(native16))==native16,"Native 0.43 roundtrip preserves Text italic expression exactly");
     auto invalid_driver=native16;const auto driver_at=invalid_driver.find("\"italic_driver\":{\"expression\":");
     check(driver_at!=std::string::npos,"Native Text italic driver is serialized as the expression alternative");
     invalid_driver.replace(driver_at,std::string("\"italic_driver\":{\"expression\":").size(),"\"italic_driver\":{\"other\":");
     rejects("INVALID_TEXT_ITALIC_DRIVER",[&]{decode(invalid_driver);});
-    auto old_with_driver=test_support::without_empty_presets_for_legacy_fixture(native16);const auto current_version=old_with_driver.find("\"version\":\"0.65\"");
+    auto old_with_driver=test_support::without_empty_presets_for_legacy_fixture(native16);const auto current_version=old_with_driver.find("\"version\":\"0.66\"");
     check(current_version!=std::string::npos,"Native bool driver fixture identifies version 0.23");
-    old_with_driver.replace(current_version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.14\"");
+    old_with_driver.replace(current_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.14\"");
     rejects("UNSUPPORTED_TEXT_ITALIC_DRIVER",[&]{decode(old_with_driver);});
     const auto before_delete=encode(bool_session.document());const auto before_delete_revision=bool_session.revision();
     rejects("MISSING_REFERENCE",[&]{bool_apply({DeleteObjects{{"title"}}});});
@@ -126,8 +126,8 @@ int main(){try{
     auto legacy=empty_document("legacy-doc","legacy-comp","legacy-frame");
     auto legacy_text=default_text("legacy-text","Legacy");legacy_text.italic=true;
     Session legacy_session(legacy);legacy_session.apply({CreateText{"legacy-comp","","legacy-object","Legacy",legacy_text}},legacy_session.revision());
-    auto native14=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_session.document()));const auto version_at=native14.find("\"version\":\"0.65\"");
-    check(version_at!=std::string::npos,"Native writer emits 0.65");native14.replace(version_at,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.14\"");
+    auto native14=test_support::without_empty_presets_for_legacy_fixture(encode(legacy_session.document()));const auto version_at=native14.find("\"version\":\"0.66\"");
+    check(version_at!=std::string::npos,"Native writer emits 0.66");native14.replace(version_at,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.14\"");
     const auto old_text=decode(native14);check(old_text.objects.at("legacy-object").text->italic&&!old_text.objects.at("legacy-object").text->italic_driver,
         "Native 0.14 Text decodes with its literal italic value");
     auto weight_document=empty_document("weight-doc","weight-comp","weight-frame");Session weight_session(weight_document);
@@ -217,14 +217,14 @@ int main(){try{
         linked_weight_property.driver==TextWeightDriver{weight_a_ref},
         "Same-type weight link evaluates through its stable Ref and preserves the target literal");
     const auto weight_link_bytes=encode(weight_session.document());
-    check(weight_link_bytes.find("\"version\":\"0.65\"")!=std::string::npos&&
+    check(weight_link_bytes.find("\"version\":\"0.66\"")!=std::string::npos&&
         weight_link_bytes.find("\"weight_driver\":{\"link\"")!=std::string::npos&&
         weight_link_bytes.find("\"offset\"")==std::string::npos&&
         encode(decode(weight_link_bytes))==weight_link_bytes,
         "Current native writer preserves the legacy zero-offset Text weight Ref shape exactly");
-    auto weight_native_060=test_support::without_empty_presets_for_legacy_fixture(weight_link_bytes);const auto weight_native_060_version=weight_native_060.find("\"version\":\"0.65\"");
+    auto weight_native_060=test_support::without_empty_presets_for_legacy_fixture(weight_link_bytes);const auto weight_native_060_version=weight_native_060.find("\"version\":\"0.66\"");
     check(weight_native_060_version!=std::string::npos,"Native single-target weight link identifies the current writer");
-    weight_native_060.replace(weight_native_060_version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.60\"");
+    weight_native_060.replace(weight_native_060_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.60\"");
     const auto decoded_weight_060=decode(weight_native_060);
     check(decoded_weight_060.objects.at("weight-b").text->weight_driver==TextWeightDriver{weight_a_ref,0},
         "Native 0.60 absolute Text weight links remain readable with an omitted zero offset");
@@ -303,12 +303,12 @@ int main(){try{
     check(target_link_object!=std::string::npos,"Native weight Ref target ID is explicitly present");
     cyclic_weight.replace(target_link_object,std::string("weight-a").size(),"weight-b");
     rejects("DEPENDENCY_CYCLE",[&]{decode(cyclic_weight);});
-    auto old_weight_driver=test_support::without_empty_presets_for_legacy_fixture(weight_link_bytes);const auto weight_version_at=old_weight_driver.find("\"version\":\"0.65\"");
+    auto old_weight_driver=test_support::without_empty_presets_for_legacy_fixture(weight_link_bytes);const auto weight_version_at=old_weight_driver.find("\"version\":\"0.66\"");
     check(weight_version_at!=std::string::npos,"Native weight fixture identifies version 0.23");
-    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.15\"");
+    old_weight_driver.replace(weight_version_at,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.15\"");
     rejects("UNSUPPORTED_TEXT_WEIGHT_DRIVER",[&]{decode(old_weight_driver);});
-    const auto legacy_weight=decode([&]{auto value=test_support::without_empty_presets_for_legacy_fixture(encode(weight_session.document()));const auto at=value.find("\"version\":\"0.65\"");
-        value.replace(at,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.15\"");return value;}());
+    const auto legacy_weight=decode([&]{auto value=test_support::without_empty_presets_for_legacy_fixture(encode(weight_session.document()));const auto at=value.find("\"version\":\"0.66\"");
+        value.replace(at,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.15\"");return value;}());
     check(legacy_weight.objects.at("weight-a").text->weight==500&&!legacy_weight.objects.at("weight-a").text->weight_driver&&
         legacy_weight.objects.at("weight-b").text->weight==300&&!legacy_weight.objects.at("weight-b").text->weight_driver,
         "Native 0.15 Text migrates authored weights as literals");
@@ -326,7 +326,7 @@ int main(){try{
         expression_property.expression==weight_expression&&!expression_property.driver,
         "Text weight expression preserves literal and evaluates the same-Document integer Ref");
     const auto expression_native=encode(expression_session.document());
-    check(expression_native.find("\"version\":\"0.65\"")!=std::string::npos&&
+    check(expression_native.find("\"version\":\"0.66\"")!=std::string::npos&&
         expression_native.find("\"weight_expression\"")!=std::string::npos&&
         encode(decode(expression_native))==expression_native,
         "Native 0.60 preserves exact Text weight expression source and byte-roundtrips");
@@ -363,9 +363,9 @@ int main(){try{
     rejects("DRIVEN_PROPERTY",[&]{expression_apply({UpdateText{"expression-b",weight_smuggled}});});
     expression_unchanged("UpdateText cannot smuggle a replacement expression");
     auto old_expression_version=test_support::without_empty_presets_for_legacy_fixture(expression_native);
-    const auto version_position=old_expression_version.find("\"version\":\"0.65\"");
-    check(version_position!=std::string::npos,"Native Text weight expression identifies writer 0.65");
-    old_expression_version.replace(version_position,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.54\"");
+    const auto version_position=old_expression_version.find("\"version\":\"0.66\"");
+    check(version_position!=std::string::npos,"Native Text weight expression identifies writer 0.66");
+    old_expression_version.replace(version_position,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.54\"");
     rejects("UNSUPPORTED_TEXT_WEIGHT_EXPRESSION",[&]{decode(old_expression_version);});
     auto conflicting_expression=expression_native;
     const auto expression_field=conflicting_expression.find("\"weight_expression\":");
@@ -465,18 +465,18 @@ int main(){try{
     check(weight_batch_session.document().objects.at("weight-batch-b").text->weight_driver==TextWeightDriver{batch_a_ref,40},
         "One Undo restores the prior single-target absolute relationship after relative replacement");
     const auto batch_linked_native=encode(weight_batch_session.document());
-    check(batch_linked_native.find("\"version\":\"0.65\"")!=std::string::npos&&
+    check(batch_linked_native.find("\"version\":\"0.66\"")!=std::string::npos&&
         batch_linked_native.find("\"offset\":40")!=std::string::npos&&
         batch_linked_native.find("\"weight_driver\":{\"link\"")!=std::string::npos&&
         encode(decode(batch_linked_native))==batch_linked_native,
         "Native 0.61 persists nonzero relative weight offset and byte-roundtrips it");
-    auto lied_weight_offset=test_support::without_empty_presets_for_legacy_fixture(batch_linked_native);const auto batch_version_at=lied_weight_offset.find("\"version\":\"0.65\"");
-    check(batch_version_at!=std::string::npos,"Native relative weight fixture identifies writer 0.65");
+    auto lied_weight_offset=test_support::without_empty_presets_for_legacy_fixture(batch_linked_native);const auto batch_version_at=lied_weight_offset.find("\"version\":\"0.66\"");
+    check(batch_version_at!=std::string::npos,"Native relative weight fixture identifies writer 0.66");
     auto malformed_weight_offset=batch_linked_native;const auto batch_offset_at=malformed_weight_offset.find("\"offset\":40");
     check(batch_offset_at!=std::string::npos,"Native relative weight fixture includes a signed offset");
     malformed_weight_offset.replace(batch_offset_at,std::string("\"offset\":40").size(),"\"offset\":40.5");
     rejects("INVALID_INPUT",[&]{decode(malformed_weight_offset);});
-    lied_weight_offset.replace(batch_version_at,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.60\"");
+    lied_weight_offset.replace(batch_version_at,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.60\"");
     rejects("UNSUPPORTED_TEXT_WEIGHT_OFFSET",[&]{decode(lied_weight_offset);});
     weight_batch_apply({TextWeightBatch{TextWeightBatchMode::unlink,{batch_b_ref,batch_c_ref}}});
     check(weight_batch_session.document().objects.at("weight-batch-b").text->weight==170&&
@@ -548,7 +548,7 @@ int main(){try{
         CreatePath{"content-comp","","content-path","Content Path",{{"content-path-contour",false,{content_path_point}}}}});
     const Ref content_a_ref{"content-a","","text.content"},content_b_ref{"content-b","","text.content"};
     const auto literal_bytes=encode(content_session.document());
-    check(literal_bytes.find("\"version\":\"0.65\"")!=std::string::npos&&
+    check(literal_bytes.find("\"version\":\"0.66\"")!=std::string::npos&&
         literal_bytes.find("content_driver")==std::string::npos&&encode(decode(literal_bytes))==literal_bytes,
         "Native 0.43 omits absent Text drivers and preserves literal-only Text");
     const auto content_properties=properties(content_session.document());
@@ -658,12 +658,12 @@ int main(){try{
     else {const auto original_source_at=missing_content_source.find("content-a",content_driver_at);check(original_source_at!=std::string::npos,"Native content source ID is explicit");
         missing_content_source.replace(original_source_at,std::string("content-a").size(),"missing");}
     rejects("MISSING_REFERENCE",[&]{decode(missing_content_source);});
-    auto old_content_driver=test_support::without_empty_presets_for_legacy_fixture(copied_link_bytes);const auto content_version_at=old_content_driver.find("\"version\":\"0.65\"");
+    auto old_content_driver=test_support::without_empty_presets_for_legacy_fixture(copied_link_bytes);const auto content_version_at=old_content_driver.find("\"version\":\"0.66\"");
     check(content_version_at!=std::string::npos,"Native content fixture identifies version 0.23");
-    old_content_driver.replace(content_version_at,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.16\"");
+    old_content_driver.replace(content_version_at,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.16\"");
     rejects("UNSUPPORTED_TEXT_CONTENT_DRIVER",[&]{decode(old_content_driver);});
-    auto legacy_content=test_support::without_empty_presets_for_legacy_fixture(literal_bytes);const auto legacy_version_at=legacy_content.find("\"version\":\"0.65\"");
-    legacy_content.replace(legacy_version_at,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.16\"");
+    auto legacy_content=test_support::without_empty_presets_for_legacy_fixture(literal_bytes);const auto legacy_version_at=legacy_content.find("\"version\":\"0.66\"");
+    legacy_content.replace(legacy_version_at,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.16\"");
     const auto migrated_content=decode(legacy_content);
     check(migrated_content.objects.at("content-b").text->content=="Manual B"&&
         !migrated_content.objects.at("content-b").text->content_driver,
@@ -682,7 +682,7 @@ int main(){try{
         CreatePath{"family-comp","","family-path","Family Path",{{"family-path-contour",false,{family_path_point}}}}});
     const Ref family_a_ref{"family-a","","text.family"},family_b_ref{"family-b","","text.family"},family_c_ref{"family-c","","text.family"};
     const auto family_literal_bytes=encode(family_session.document());
-    check(family_literal_bytes.find("\"version\":\"0.65\"")!=std::string::npos&&
+    check(family_literal_bytes.find("\"version\":\"0.66\"")!=std::string::npos&&
         family_literal_bytes.find("family_driver")==std::string::npos&&encode(decode(family_literal_bytes))==family_literal_bytes,
         "Native 0.43 omits an absent Text family driver and preserves literal-only family values");
     const auto family_refs=properties(family_session.document());
@@ -796,11 +796,11 @@ int main(){try{
     check(copied_source_id!=std::string::npos,"Copied Native family driver identifies its copied source ID");
     missing_family_source.replace(copied_source_id,copied_family_source.size(),"missing-family");
     rejects("MISSING_REFERENCE",[&]{decode(missing_family_source);});
-    auto old_family_driver=test_support::without_empty_presets_for_legacy_fixture(copied_family_bytes);const auto family_version_at=old_family_driver.find("\"version\":\"0.65\"");
-    old_family_driver.replace(family_version_at,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.17\"");
+    auto old_family_driver=test_support::without_empty_presets_for_legacy_fixture(copied_family_bytes);const auto family_version_at=old_family_driver.find("\"version\":\"0.66\"");
+    old_family_driver.replace(family_version_at,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.17\"");
     rejects("UNSUPPORTED_TEXT_FAMILY_DRIVER",[&]{decode(old_family_driver);});
-    auto legacy_family=test_support::without_empty_presets_for_legacy_fixture(family_literal_bytes);const auto legacy_family_version=legacy_family.find("\"version\":\"0.65\"");
-    legacy_family.replace(legacy_family_version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.17\"");
+    auto legacy_family=test_support::without_empty_presets_for_legacy_fixture(family_literal_bytes);const auto legacy_family_version=legacy_family.find("\"version\":\"0.66\"");
+    legacy_family.replace(legacy_family_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.17\"");
     const auto migrated_family=decode(legacy_family);
     check(migrated_family.objects.at("family-b").text->family=="Manual B"&&
         !migrated_family.objects.at("family-b").text->family_driver,
@@ -835,7 +835,7 @@ int main(){try{
     const Ref direction_a_ref{"direction-a","","text.direction"},direction_b_ref{"direction-b","","text.direction"},
         direction_c_ref{"direction-c","","text.direction"};
     const auto direction_literal_bytes=encode(direction_session.document());
-    check(direction_literal_bytes.find("\"version\":\"0.65\"")!=std::string::npos&&
+    check(direction_literal_bytes.find("\"version\":\"0.66\"")!=std::string::npos&&
         direction_literal_bytes.find("direction_driver")==std::string::npos&&encode(decode(direction_literal_bytes))==direction_literal_bytes,
         "Native 0.43 omits an absent Text direction driver and preserves the literal enum");
     const auto direction_refs=properties(direction_session.document());
@@ -962,11 +962,11 @@ int main(){try{
     check(copied_direction_source_at!=std::string::npos,"Copied Native direction link identifies its source ID");
     missing_direction_source.replace(copied_direction_source_at,copied_direction_source.size(),"missing-direction");
     rejects("MISSING_REFERENCE",[&]{decode(missing_direction_source);});
-    auto old_direction_driver=test_support::without_empty_presets_for_legacy_fixture(copied_direction_bytes);const auto direction_version_at=old_direction_driver.find("\"version\":\"0.65\"");
-    old_direction_driver.replace(direction_version_at,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.18\"");
+    auto old_direction_driver=test_support::without_empty_presets_for_legacy_fixture(copied_direction_bytes);const auto direction_version_at=old_direction_driver.find("\"version\":\"0.66\"");
+    old_direction_driver.replace(direction_version_at,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.18\"");
     rejects("UNSUPPORTED_TEXT_DIRECTION_DRIVER",[&]{decode(old_direction_driver);});
-    auto legacy_direction=test_support::without_empty_presets_for_legacy_fixture(direction_literal_bytes);const auto legacy_direction_version=legacy_direction.find("\"version\":\"0.65\"");
-    legacy_direction.replace(legacy_direction_version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.18\"");
+    auto legacy_direction=test_support::without_empty_presets_for_legacy_fixture(direction_literal_bytes);const auto legacy_direction_version=legacy_direction.find("\"version\":\"0.66\"");
+    legacy_direction.replace(legacy_direction_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.18\"");
     const auto migrated_direction=decode(legacy_direction);
     check(migrated_direction.objects.at("direction-b").text->direction=="vertical"&&
         !migrated_direction.objects.at("direction-b").text->direction_driver,
@@ -1006,7 +1006,7 @@ int main(){try{
         CreateText{"layout-link-comp","","layout-c","Layout C",layout_alternate},
         CreatePrimitive{"layout-link-comp","","layout-path","Layout path",default_primitive("layout-path-source","nect.shape.circle")}});
     const auto layout_literal_bytes=encode(layout_session.document());
-    check(layout_literal_bytes.find("\"version\":\"0.65\"")!=std::string::npos&&
+    check(layout_literal_bytes.find("\"version\":\"0.66\"")!=std::string::npos&&
         layout_literal_bytes.find("\"layout_driver\"")==std::string::npos,
         "Native 0.43 omits an absent Text layout driver and retains literal-only layout choices");
     const auto discovered_layout_properties=properties(layout_session.document());
@@ -1107,11 +1107,11 @@ int main(){try{
     auto wrong_layout_ref=layout_link_bytes;const auto layout_field_at=wrong_layout_ref.find("text.layout",layout_driver_at);
     wrong_layout_ref.replace(layout_field_at,std::string("text.layout").size(),"text.direction");
     rejects("TYPE_MISMATCH",[&]{decode(wrong_layout_ref);});
-    auto old_layout_driver=test_support::without_empty_presets_for_legacy_fixture(layout_link_bytes);const auto old_layout_version=old_layout_driver.find("\"version\":\"0.65\"");
-    old_layout_driver.replace(old_layout_version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.19\"");
+    auto old_layout_driver=test_support::without_empty_presets_for_legacy_fixture(layout_link_bytes);const auto old_layout_version=old_layout_driver.find("\"version\":\"0.66\"");
+    old_layout_driver.replace(old_layout_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.19\"");
     rejects("UNSUPPORTED_TEXT_LAYOUT_DRIVER",[&]{decode(old_layout_driver);});
-    auto legacy_layout=test_support::without_empty_presets_for_legacy_fixture(layout_literal_bytes);const auto legacy_layout_version=legacy_layout.find("\"version\":\"0.65\"");
-    legacy_layout.replace(legacy_layout_version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.20\"");
+    auto legacy_layout=test_support::without_empty_presets_for_legacy_fixture(layout_literal_bytes);const auto legacy_layout_version=legacy_layout.find("\"version\":\"0.66\"");
+    legacy_layout.replace(legacy_layout_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.20\"");
     check(decode(legacy_layout).objects.at("layout-b").text->layout=="frame",
         "Native 0.19 migrates Text layout literals without creating a driver");
     layout_apply({LinkTextLayout{layout_b_ref,layout_c_ref,true}});
@@ -1150,7 +1150,7 @@ int main(){try{
         CreateText{"alignment-link-comp","","alignment-c","Alignment C",alignment_end_source},
         CreatePrimitive{"alignment-link-comp","","alignment-path","Alignment path",default_primitive("alignment-path-source","nect.shape.circle")}});
     const auto alignment_literal_bytes=encode(alignment_session.document());
-    check(alignment_literal_bytes.find("\"version\":\"0.65\"")!=std::string::npos&&
+    check(alignment_literal_bytes.find("\"version\":\"0.66\"")!=std::string::npos&&
         alignment_literal_bytes.find("\"alignment_driver\"")==std::string::npos,
         "Native 0.43 omits an absent Text alignment driver and retains literal-only enum state");
     const auto alignment_discovered_properties=properties(alignment_session.document());
@@ -1231,11 +1231,11 @@ int main(){try{
     auto wrong_alignment_ref=alignment_link_bytes;const auto alignment_field_at=wrong_alignment_ref.find("text.alignment",alignment_driver_at);
     wrong_alignment_ref.replace(alignment_field_at,std::string("text.alignment").size(),"text.layout");
     rejects("TYPE_MISMATCH",[&]{decode(wrong_alignment_ref);});
-    auto old_alignment_driver=test_support::without_empty_presets_for_legacy_fixture(alignment_link_bytes);const auto old_alignment_version=old_alignment_driver.find("\"version\":\"0.65\"");
-    old_alignment_driver.replace(old_alignment_version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.20\"");
+    auto old_alignment_driver=test_support::without_empty_presets_for_legacy_fixture(alignment_link_bytes);const auto old_alignment_version=old_alignment_driver.find("\"version\":\"0.66\"");
+    old_alignment_driver.replace(old_alignment_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.20\"");
     rejects("UNSUPPORTED_TEXT_ALIGNMENT_DRIVER",[&]{decode(old_alignment_driver);});
-    auto legacy_alignment=test_support::without_empty_presets_for_legacy_fixture(alignment_literal_bytes);const auto legacy_alignment_version=legacy_alignment.find("\"version\":\"0.65\"");
-    legacy_alignment.replace(legacy_alignment_version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.20\"");
+    auto legacy_alignment=test_support::without_empty_presets_for_legacy_fixture(alignment_literal_bytes);const auto legacy_alignment_version=legacy_alignment.find("\"version\":\"0.66\"");
+    legacy_alignment.replace(legacy_alignment_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.20\"");
     check(decode(legacy_alignment).objects.at("alignment-b").text->alignment=="end"&&
         !decode(legacy_alignment).objects.at("alignment-b").text->alignment_driver,
         "Native 0.23 alignment literals migrate without creating a driver");
@@ -1275,7 +1275,7 @@ int main(){try{
     const Ref locale_a_ref{"locale-a","","text.locale"},locale_b_ref{"locale-b","","text.locale"},
         locale_c_ref{"locale-c","","text.locale"};
     const auto locale_literal_bytes=encode(locale_session.document());
-    check(locale_literal_bytes.find("\"version\":\"0.65\"")!=std::string::npos&&
+    check(locale_literal_bytes.find("\"version\":\"0.66\"")!=std::string::npos&&
         locale_literal_bytes.find("\"locale_driver\"")==std::string::npos,
         "Native 0.43 omits an absent Text locale driver and preserves literal-only Text");
     const auto locale_properties=properties(locale_session.document());
@@ -1335,13 +1335,13 @@ int main(){try{
         evaluate_text_locale(reopened_locale,"locale-b")=="ja-JP"&&
         same_locale_layout(locale_layout(reopened_locale,"locale-b"),locale_layout(reopened_locale,"locale-japanese-twin")),
         "Cold codec reopen retains authored locales, stable Ref and evaluated Arabic-capable layout state");
-    auto legacy_locale=test_support::without_empty_presets_for_legacy_fixture(locale_literal_bytes);const auto legacy_locale_version=legacy_locale.find("\"version\":\"0.65\"");
-    legacy_locale.replace(legacy_locale_version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.21\"");
+    auto legacy_locale=test_support::without_empty_presets_for_legacy_fixture(locale_literal_bytes);const auto legacy_locale_version=legacy_locale.find("\"version\":\"0.66\"");
+    legacy_locale.replace(legacy_locale_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.21\"");
     check(decode(legacy_locale).objects.at("locale-b").text->locale=="ja-JP"&&
         !decode(legacy_locale).objects.at("locale-b").text->locale_driver,
         "Native 0.23 and earlier retain Text locale literals without creating a driver");
-    auto false_locale_version=test_support::without_empty_presets_for_legacy_fixture(locale_link_bytes);const auto false_locale_at=false_locale_version.find("\"version\":\"0.65\"");
-    false_locale_version.replace(false_locale_at,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.21\"");
+    auto false_locale_version=test_support::without_empty_presets_for_legacy_fixture(locale_link_bytes);const auto false_locale_at=false_locale_version.find("\"version\":\"0.66\"");
+    false_locale_version.replace(false_locale_at,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.21\"");
     rejects("UNSUPPORTED_TEXT_LOCALE_DRIVER",[&]{decode(false_locale_version);});
     auto malformed_locale=locale_link_bytes;const auto locale_driver_at=malformed_locale.find("\"locale_driver\":{\"link\":");
     check(locale_driver_at!=std::string::npos,"Native Text locale driver uses one link alternative");
@@ -1532,7 +1532,7 @@ int main(){try{
     attached.apply({CreatePath{"attach-comp","","attach-path","Source Path",{{"attach-contour",false,{path_start,path_end}}}},
         CreateText{"attach-comp","","attached-text","Attached Text",attached_source}},0);
     const auto attached_native=encode(attached.document());
-    check(attached_native.find("\"version\":\"0.65\"")!=std::string::npos&&
+    check(attached_native.find("\"version\":\"0.66\"")!=std::string::npos&&
         attached_native.find("\"path_attachment\"")!=std::string::npos&&decode(attached_native)==attached.document(),
         "Native 0.43 codec roundtrip retains exact editable Text, Path and Contour attachment data");
     const auto native_path=std::filesystem::temp_directory_path()/
@@ -1558,16 +1558,16 @@ int main(){try{
     auto legacy_doc=empty_document("legacy23-doc","legacy23-comp","legacy23-frame");Session legacy23(legacy_doc);
     auto legacy23_source=default_text("legacy23-source","Legacy 0.23 Text");
     legacy23.apply({CreateText{"legacy23-comp","","legacy23-text","Legacy",legacy23_source}},0);
-    auto native23=test_support::without_empty_presets_for_legacy_fixture(encode(legacy23.document()));const auto version25=native23.find("\"version\":\"0.65\"");
-    check(version25!=std::string::npos,"Native writer emits 0.65 before the explicit 0.23 migration fixture");
-    native23.replace(version25,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.23\"");
+    auto native23=test_support::without_empty_presets_for_legacy_fixture(encode(legacy23.document()));const auto version25=native23.find("\"version\":\"0.66\"");
+    check(version25!=std::string::npos,"Native writer emits 0.66 before the explicit 0.23 migration fixture");
+    native23.replace(version25,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.23\"");
     const auto migrated23=decode(native23);
     check(migrated23.objects.at("legacy23-text").text->id=="legacy23-source"&&
         migrated23.objects.at("legacy23-text").text->content=="Legacy 0.23 Text"&&
         !migrated23.objects.at("legacy23-text").text->path_attachment,
         "Native 0.23 readback migrates to detached Text without changing source ID or content");
-    auto illegal23=test_support::without_empty_presets_for_legacy_fixture(attached_native);const auto attached_version=illegal23.find("\"version\":\"0.65\"");
-    illegal23.replace(attached_version,std::string("\"version\":\"0.65\"").size(),"\"version\":\"0.23\"");
+    auto illegal23=test_support::without_empty_presets_for_legacy_fixture(attached_native);const auto attached_version=illegal23.find("\"version\":\"0.66\"");
+    illegal23.replace(attached_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.23\"");
     rejects("UNSUPPORTED_TEXT_PATH_ATTACHMENT",[&]{(void)decode(illegal23);});
 
     const auto attached_history=attached.history();

@@ -280,6 +280,10 @@ struct ProcessingEntry : ShapeOperation {
 };
 inline constexpr const char* macro_entry_type="nect.macro.instance";
 struct PresetEntry {
+    // Schema v1 entries are projected to kind="builtin" without changing their
+    // authored fields. Schema v2 uses one tagged sequence for built-ins and
+    // pinned, document-local Macro instances.
+    std::string kind="builtin";
     std::string type;
     unsigned version=1;
     bool enabled=true;
@@ -288,6 +292,9 @@ struct PresetEntry {
     std::string fill_rule="nonzero";
     std::string line_join="miter";
     std::string line_cap="butt";
+    Id macro_definition;
+    std::uint64_t pinned_revision=1;
+    std::map<std::string,double> overrides;
     bool operator==(const PresetEntry&) const = default;
 };
 struct PresetDefinition {

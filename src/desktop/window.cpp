@@ -632,7 +632,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* presets_page=new QWidget(effects_tabs_);
     auto* presets_layout=new QVBoxLayout(presets_page);
     presets_layout->setContentsMargins(4,4,4,4);presets_layout->setSpacing(6);
-    auto* presets_heading=new QLabel("Document Presets · Offset then Repeater",presets_page);
+    auto* presets_heading=new QLabel("Document Presets · ordered Path/Text stack",presets_page);
     presets_heading->setObjectName("presets-heading");presets_layout->addWidget(presets_heading);
     presets_search_=new QLineEdit(presets_page);presets_search_->setObjectName("presets-search");
     presets_search_->setPlaceholderText("Search presets by name, category, tag, or ID…");
@@ -642,7 +642,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     presets_status_=new QLabel(presets_page);presets_status_->setObjectName("presets-status");
     presets_status_->setWordWrap(true);presets_status_->setTextFormat(Qt::PlainText);presets_layout->addWidget(presets_status_);
     presets_save_=new QPushButton("Save Current Stack as Preset",presets_page);presets_save_->setObjectName("preset-save");
-    presets_save_->setToolTip("Captures the supported Offset and Repeater operations in their current stack order. Other paint operations are not included.");
+    presets_save_->setToolTip("Captures the supported built-in and pinned Macro entries in the current Path/Text processing order. Driven or unsupported entries are reported.");
     presets_layout->addWidget(presets_save_);
     presets_apply_=new QPushButton("Apply Preset",presets_page);presets_apply_->setObjectName("preset-apply");
     presets_layout->addWidget(presets_apply_);
@@ -709,17 +709,19 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         const auto generation=effects_generation_;const auto session=effects_session_;const auto target=effects_target_id_;
         const auto revision=effects_revision_;
         const auto object=host.session.document().objects.find(target);
-        if(object==host.session.document().objects.end()) {set_preset_status("Select a Path or Text with the v1 Offset → Repeater stack.");return;}
+        if(object==host.session.document().objects.end()) {set_preset_status("Select a Path or Text with supported processing entries.");return;}
         bool accepted=false;
         const auto label=QInputDialog::getText(this,"Save Preset","Preset name:",QLineEdit::Normal,{},&accepted);
         if(!accepted)return;
         try {
             preset_context_current(generation,session,target,revision);
             QStringList source_operations;
-            for(const auto& operation:host.session.document().objects.at(target).stack)
-                if(operation.type=="nect.shape.offset"||operation.type=="nect.shape.repeater")
-                    source_operations.push_back(qs(operation.id)+" ("+qs(operation.type)+")");
-            PresetDefinition metadata;metadata.id=new_id();metadata.label=label.toStdString();
+            for(const auto& operation:host.session.document().objects.at(target).stack) {
+                if(operation.macro)source_operations.push_back(qs(operation.id)+" (Macro "+qs(operation.macro->definition)+
+                    "@"+QString::number(operation.macro->pinned_revision)+")");
+                else source_operations.push_back(qs(operation.id)+" ("+qs(operation.type)+")");
+            }
+            PresetDefinition metadata;metadata.id=new_id();metadata.schema_version=2;metadata.label=label.toStdString();
             host.session.apply_preset_command(PresetCommand{CreatePresetFromStack{metadata,target}},revision);
             host.edited();set_preset_status("Saved “"+label+"” from these source operations: "+source_operations.join(" → ")+".");
         } catch(const Error& error) {
@@ -737,7 +739,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         try {
             preset_context_current(generation,session,target,revision);
             host.session.apply_preset_command(PresetCommand{ApplyPreset{preset,target,new_id()}},revision);
-            host.edited();set_preset_status("Applied “"+label+"” as a fresh Offset → Repeater stack.");
+            host.edited();set_preset_status("Applied “"+label+"” as fresh ordered processing entries.");
         } catch(const Error& error) {set_preset_status(qs(error.code)+": "+QString::fromUtf8(error.what()));}
         catch(const std::exception& error) {set_preset_status(QString::fromUtf8(error.what()));}
     });
@@ -763,12 +765,14 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         try {
             preset_context_current(generation,session,target,revision);
             const auto& current=host.session.document().preset_definitions.at(id);
-            auto metadata=current;metadata.entries.clear();
+            auto metadata=current;metadata.schema_version=2;metadata.entries.clear();
             auto definition=capture_preset_definition(host.session.document(),std::move(metadata),target);
             QStringList source_operations;
-            for(const auto& operation:host.session.document().objects.at(target).stack)
-                if(operation.type=="nect.shape.offset"||operation.type=="nect.shape.repeater")
-                    source_operations.push_back(qs(operation.id)+" ("+qs(operation.type)+")");
+            for(const auto& operation:host.session.document().objects.at(target).stack) {
+                if(operation.macro)source_operations.push_back(qs(operation.id)+" (Macro "+qs(operation.macro->definition)+
+                    "@"+QString::number(operation.macro->pinned_revision)+")");
+                else source_operations.push_back(qs(operation.id)+" ("+qs(operation.type)+")");
+            }
             host.session.apply_preset_command(PresetCommand{UpdatePreset{std::move(definition)}},revision);
             host.edited();set_preset_status("Updated “"+label+"” from source operations "+source_operations.join(" → ")+"; existing applied snapshots are unchanged.");
         } catch(const Error& error) {
@@ -1554,7 +1558,7 @@ void Window::rebuild_effects_panel() {
             const auto entry_summary=QString("%1 entries · schema v%2 · %3")
                 .arg(definition.entries.size()).arg(definition.schema_version).arg(qs(definition.target_domain));
             item->setToolTip("ID: "+qs(id)+"\nCategory: "+qs(definition.category)+"\n"+entry_summary+
-                "\nOffset then Repeater · literal snapshot · editing this definition does not change applied stacks");
+                "\nOrdered literal processing snapshot · editing this definition does not change applied stacks");
             if(id==old_preset_id.toStdString())matching_preset=item;
             if(!matching_preset)matching_preset=item;
         }
@@ -1571,14 +1575,14 @@ void Window::rebuild_effects_panel() {
     presets_delete_->setEnabled(has_preset);
     if(!has_preset) {
         presets_status_->setText(document.preset_definitions.empty()?
-            "No document presets yet. Save a selected Path or Text with exactly one Offset then one Repeater; other paint operations are excluded.":
+            "No document presets yet. Save a selected Path or Text with supported literal built-in and Macro entries.":
             "No presets match “"+preset_query+"”.");
     } else {
         const auto id=selected_preset->data(Qt::UserRole).toString().toStdString();
         const auto& definition=document.preset_definitions.at(id);
         if(target_supports_presets)
             presets_status_->setText("Selected “"+qs(definition.label)+"” · applies to "+qs(selected->second.name)+
-                " · Offset then Repeater · append only");
+                " · "+QString::number(definition.entries.size())+" ordered entries · append only");
         else presets_status_->setText("Selected “"+qs(definition.label)+"” · choose a Path or Text target to apply or update it.");
     }
 }

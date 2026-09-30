@@ -36,6 +36,34 @@ Revision 1 publishes the stable public parameter ID `macro.offset.amount`, mappe
 
 Native v0.65 requires the `macros` root array and tagged Path/Text stack entries. Native v0.64 and older continue to decode with no Macro definitions, and legacy untagged stack operations retain their ordinary operation meaning. A Macro-bearing payload that claims an earlier native version is rejected. PresetDefinition v1 does not flatten or capture mixed Macro stacks.
 
+## PresetDefinition v2 — ordered built-in and Macro entries
+
+Native 0.66 adds PresetDefinition schema v2 while retaining the v1 representation
+and its Offset@1 → Repeater@1 semantics. A v1 Preset read into memory is still
+written as v1 with the same stable Preset ID and literal values. Schema v2 stores
+one ordered tagged sequence: supported built-in operation payloads or a Macro
+Definition ID, pinned revision, enabled literal, and literal overrides keyed by
+stable PublicParamID. The Macro graph and its internal node IDs are not copied.
+
+Capture records the complete supported Path/Text processing sequence in its
+authored order. Built-in enabled/options/parameter fields must be literal, and
+gradient payloads or unsupported stack entries refuse capture. JSON-lines/formal
+MCP `create_preset_from_stack` defaults to v1 for existing callers; pass
+`schema_version: 2` to capture the complete tagged sequence. The Desktop Preset
+action requests v2 explicitly. Applying first preflights the entire sequence,
+target domain, pinned Macro revisions and public
+parameter contracts, then appends fresh processing-entry IDs and Macro instance
+IDs in one Session revision. Failure leaves the target, revision and history
+unchanged. Re-editing changes later applications only. Changing a Macro pin
+requires every captured PublicParamID to remain present with compatible type,
+unit and domain.
+
+An unavailable or incompatible Macro pin can be retained when reading a native
+document; application reports the exact unavailable definition, revision or
+parameter. Deleting a Macro Definition referenced by a Preset is refused. Native
+0.65 and older reject Preset v2 as a version lie. The closed native 0.66 shape is
+defined in `schemas/native-v0.66.schema.json`.
+
 ## Definition / Instance v1
 
 Native 0.64 extends the 0.63 native schema with stable-ID `Definition`s and
