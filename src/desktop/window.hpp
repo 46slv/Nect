@@ -1,4 +1,5 @@
 #pragma once
+#include "folder_library.hpp"
 #include "host.hpp"
 #include "canvas.hpp"
 #include <QMainWindow>
@@ -24,7 +25,7 @@ namespace nect::desktop {
 class ColorTools;
 class Window : public QMainWindow {
 public:
-    explicit Window(QString recovery_directory);
+    explicit Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library = {});
     ~Window() override;
     Host host;
     Canvas* canvas;
@@ -35,6 +36,7 @@ protected:
     bool eventFilter(QObject* watched,QEvent* event) override;
 private:
     ColorTools* color_tools_;
+    std::unique_ptr<FolderLibrary> folder_library_;
     QStringListModel* font_families_=nullptr;
     QPointer<QDialog> history_dialog_;
     QPointer<QDialog> utility_setup_dialog_;
@@ -142,6 +144,7 @@ private:
     void add_text();
     void import_image(bool linked);
     void show_assets();
+    void show_folder_library();
     void add_image_properties(QVBoxLayout*,const Object&);
     void add_text_properties(QVBoxLayout* layout,const Object& object);
     void add_transform_properties(QVBoxLayout* layout,const Object& object);

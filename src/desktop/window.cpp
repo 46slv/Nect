@@ -6,6 +6,7 @@
 #include <QClipboard>
 #include <QCheckBox>
 #include <QColorDialog>
+#include <QColor>
 #include <QComboBox>
 #include <QCompleter>
 #include <QCloseEvent>
@@ -18,6 +19,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGroupBox>
+#include <QHash>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -35,6 +37,7 @@
 #include <QSaveFile>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSet>
 #include <QScreen>
 #include <QTimer>
 #include <QWheelEvent>
@@ -530,7 +533,9 @@ private:
 };
 }
 
-Window::Window(QString recovery_directory):host(std::move(recovery_directory),this) {
+Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library)
+    : host(std::move(recovery_directory),this), folder_library_(std::move(folder_library)) {
+    if (!folder_library_) folder_library_ = std::make_unique<FolderLibrary>();
     resize(1400,900);
     setMinimumSize(1000,650);
     canvas=new Canvas(host.session,this);
@@ -799,12 +804,14 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* edit=menuBar()->addMenu("&Edit");
     auto* add=menuBar()->addMenu("&Add");
     auto* view=menuBar()->addMenu("&View");
+    auto* library_menu=menuBar()->addMenu("&Library");
     auto* definitions=menuBar()->addMenu("&Definitions");
     auto* collections_menu=menuBar()->addMenu("&Collections");
     auto action=[this](QMenu* menu,const QString& label,const QKeySequence& shortcut,auto fn) {
         auto* a=menu->addAction(label); a->setShortcut(shortcut);
         connect(a,&QAction::triggered,this,[this,fn]{perform(fn);}); return a;
     };
+    action(library_menu,"Folder Library…",{},[this]{show_folder_library();})->setObjectName("folder-library");
     action(definitions,"Create Definition from selected Group…",{},[this]{create_definition_from_selection();})
         ->setObjectName("create-definition-from-selection");
     action(definitions,"Rename Definition…",{},[this]{rename_definition();})
@@ -4138,6 +4145,183 @@ void Window::show_assets() {
         host.session.apply({DeleteRasterAsset{id}},revision);host.edited();refresh();
     });});
     connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);refresh();dialog.exec();
+}
+void Window::show_folder_library() {
+    canvas->cancel_interaction();
+    auto& library=*folder_library_;
+
+    QDialog dialog(this);dialog.setWindowTitle("Folder Library");dialog.setObjectName("folder-library-dialog");dialog.resize(900,560);
+    auto* layout=new QVBoxLayout(&dialog);
+    auto* hint=new QLabel("Browse only registered folders. Refresh updates this read-only index; placing an image uses the existing document asset import path.",&dialog);
+    hint->setWordWrap(true);layout->addWidget(hint);
+
+    auto* toolbar=new QHBoxLayout;layout->addLayout(toolbar);
+    auto* add_root=new QPushButton("Add folder…",&dialog);add_root->setObjectName("folder-library-add-root");toolbar->addWidget(add_root);
+    auto* remove_root=new QPushButton("Unregister selected root",&dialog);remove_root->setObjectName("folder-library-remove-root");toolbar->addWidget(remove_root);
+    auto* refresh_button=new QPushButton("Refresh",&dialog);refresh_button->setObjectName("folder-library-refresh");toolbar->addWidget(refresh_button);
+    auto* search=new QLineEdit(&dialog);search->setObjectName("folder-library-search");search->setPlaceholderText("Search registered folders…");search->setClearButtonEnabled(true);toolbar->addWidget(search,1);
+
+    auto* panes=new QHBoxLayout;layout->addLayout(panes,1);
+    auto* tree=new QTreeWidget(&dialog);tree->setObjectName("folder-library-tree");tree->setHeaderLabel("Registered folders");
+    tree->setSelectionMode(QAbstractItemView::SingleSelection);panes->addWidget(tree,3);
+    auto* favorites=new QListWidget(&dialog);favorites->setObjectName("folder-library-favorites");favorites->setSelectionMode(QAbstractItemView::SingleSelection);
+    favorites->setMinimumWidth(280);panes->addWidget(favorites,2);
+
+    auto* status=new QLabel("Select an image or folder. Favorites keep stable references and show broken items explicitly.",&dialog);
+    status->setObjectName("folder-library-status");status->setWordWrap(true);status->setTextFormat(Qt::PlainText);layout->addWidget(status);
+
+    auto* controls=new QHBoxLayout;layout->addLayout(controls);
+    auto* add_favorite=new QPushButton("Add Favorite",&dialog);add_favorite->setObjectName("folder-library-favorite-add");controls->addWidget(add_favorite);
+    auto* remove_favorite=new QPushButton("Remove Favorite",&dialog);remove_favorite->setObjectName("folder-library-favorite-remove");controls->addWidget(remove_favorite);
+    auto* slot=new QComboBox(&dialog);slot->setObjectName("folder-library-slot");slot->addItem("No slot",0);
+    for(int number=1;number<=9;++number)slot->addItem("Quick slot "+QString::number(number),number);
+    controls->addWidget(slot);
+    auto* assign_slot=new QPushButton("Set slot",&dialog);assign_slot->setObjectName("folder-library-slot-set");controls->addWidget(assign_slot);
+    auto* place_linked=new QPushButton("Place Linked",&dialog);place_linked->setObjectName("folder-library-place-linked");controls->addWidget(place_linked);
+    auto* place_embedded=new QPushButton("Place Embedded",&dialog);place_embedded->setObjectName("folder-library-place-embedded");controls->addWidget(place_embedded);
+    auto* use_slot=new QPushButton("Use Quick Access",&dialog);use_slot->setObjectName("folder-library-use-slot");controls->addWidget(use_slot);
+    auto* close=new QPushButton("Close",&dialog);close->setObjectName("folder-library-close");controls->addWidget(close);
+
+    QHash<QString,QTreeWidgetItem*> node_by_identity;
+    const auto relative_parent=[](const QString& path) {
+        const auto slash=path.lastIndexOf('/');return slash<0?QString{}:path.left(slash);
+    };
+    const auto relative_leaf=[](const QString& path) {
+        const auto slash=path.lastIndexOf('/');return slash<0?path:path.mid(slash+1);
+    };
+    auto ref_for_item=[](const QTreeWidgetItem* item) {
+        if(!item)throw Error("NO_SELECTION","Choose a visible Folder Library item");
+        return FolderLibrary::ref_from_json(QJsonDocument::fromJson(item->data(0,Qt::UserRole).toByteArray()).object());
+    };
+    auto display_ref=[&](const LibraryItemRefV1& ref) {
+        const auto found=std::find_if(library.roots().begin(),library.roots().end(),[&](const auto& root){return root.root_id==ref.root_id;});
+        const auto root_label=found==library.roots().end()?QString("Missing root · ")+ref.root_id:found->display_name;
+        return ref.normalized_relative_path.isEmpty()?root_label:root_label+" / "+ref.normalized_relative_path;
+    };
+    auto rebuild_favorites=[&] {
+        const auto selected=favorites->currentItem()?favorites->currentItem()->data(Qt::UserRole).toString():QString{};
+        favorites->clear();
+        for(const auto& favorite:library.favorites()) {
+            const auto state=library.favorite_status(favorite);
+            const auto label=display_ref(favorite.ref);
+            auto* item=new QListWidgetItem(label+QString(" · %1%2").arg(state,
+                favorite.quick_slot?" · Quick slot "+QString::number(favorite.quick_slot):QString{}),favorites);
+            item->setData(Qt::UserRole,favorite.favorite_id);
+            item->setData(Qt::UserRole+1,QJsonDocument(FolderLibrary::ref_to_json(favorite.ref)).toJson(QJsonDocument::Compact));
+            item->setData(Qt::UserRole+2,favorite.quick_slot);
+            item->setToolTip(display_ref(favorite.ref)+"\n"+state);
+            if(state!="Available")item->setForeground(QColor(226,143,143));
+            if(favorite.favorite_id==selected)favorites->setCurrentItem(item);
+        }
+    };
+    auto rebuild_tree=[&] {
+        tree->clear();node_by_identity.clear();
+        QHash<QString,QTreeWidgetItem*> root_nodes;
+        for(const auto& root:library.roots()) {
+            const LibraryItemRefV1 ref{root.root_id,{},"folder"};
+            auto* item=new QTreeWidgetItem(tree,{root.display_name});
+            const auto identity=library.comparison_key(ref);
+            item->setData(0,Qt::UserRole,QJsonDocument(FolderLibrary::ref_to_json(ref)).toJson(QJsonDocument::Compact));
+            item->setData(0,Qt::UserRole+1,identity);item->setToolTip(0,root.absolute_path);
+            node_by_identity.insert(identity,item);root_nodes.insert(root.root_id,item);
+        }
+        for(const auto& entry:library.items()) {
+            if(entry.ref.normalized_relative_path.isEmpty()) {
+                if(!entry.available) {
+                    auto* item=root_nodes.value(entry.ref.root_id,nullptr);
+                    if(item){item->setText(0,item->text(0)+" · missing");item->setForeground(0,QColor(226,143,143));item->setToolTip(0,entry.problem+"\n"+entry.absolute_path);}
+                }
+                continue;
+            }
+            auto* root_node=root_nodes.value(entry.ref.root_id,nullptr);if(!root_node)continue;
+            const auto identity=library.comparison_key(entry.ref);
+            const auto parent_ref=LibraryItemRefV1{entry.ref.root_id,relative_parent(entry.ref.normalized_relative_path),"folder"};
+            auto* parent=relative_parent(entry.ref.normalized_relative_path).isEmpty()?root_node:node_by_identity.value(library.comparison_key(parent_ref),root_node);
+            auto* item=new QTreeWidgetItem(parent,{relative_leaf(entry.ref.normalized_relative_path)});
+            item->setData(0,Qt::UserRole,QJsonDocument(FolderLibrary::ref_to_json(entry.ref)).toJson(QJsonDocument::Compact));
+            item->setData(0,Qt::UserRole+1,identity);item->setData(0,Qt::UserRole+2,entry.available);
+            item->setToolTip(0,entry.available?entry.absolute_path:entry.problem+"\n"+entry.absolute_path);
+            if(!entry.available)item->setForeground(0,QColor(226,143,143));
+            node_by_identity.insert(identity,item);
+        }
+        tree->expandToDepth(1);
+        rebuild_favorites();
+    };
+    auto apply_search=[&](const QString& query) {
+        const auto found=library.search(query);
+        QSet<QString> matched;
+        for(const auto& entry:found)matched.insert(library.comparison_key(entry.ref));
+        std::function<bool(QTreeWidgetItem*)> filter=[&](QTreeWidgetItem* item) {
+            bool child_match=false;
+            for(int index=0;index<item->childCount();++index)child_match=filter(item->child(index))||child_match;
+            const bool self_match=query.trimmed().isEmpty()||matched.contains(item->data(0,Qt::UserRole+1).toString());
+            item->setHidden(!self_match&&!child_match);
+            return self_match||child_match;
+        };
+        for(int index=0;index<tree->topLevelItemCount();++index)filter(tree->topLevelItem(index));
+    };
+    auto place_ref=[&](const LibraryItemRefV1& ref,const QString& mode,QString frozen_session,std::uint64_t& expected_revision) {
+        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Document changed while the Folder Library was open");
+        if(host.session.revision()!=expected_revision)throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open");
+        const auto resolved=library.resolve(ref);
+        if(resolved.ref.kind!="raster")throw Error("UNSUPPORTED_LIBRARY_ITEM","Choose a PNG or JPEG file to place");
+        const auto composition=canvas->active_composition();
+        const auto board=evaluate_artboard(find_composition(host.session.document(),composition),canvas->active_artboard());
+        const auto object_id=new_id();
+        host.import_image(resolved.absolute_path,mode.toStdString(),composition,"",new_id(),object_id,
+            QFileInfo(resolved.absolute_path).completeBaseName().toStdString(),board.x,board.y,expected_revision);
+        expected_revision=host.session.revision();
+        canvas->set_selection(object_id);canvas->setFocus();
+        status->setText("Placed "+display_ref(resolved.ref)+" as "+mode+"; source files are read-only inputs.");
+    };
+    QString frozen_session=host.session_id;
+    std::uint64_t expected_revision=host.session.revision();
+    connect(add_root,&QPushButton::clicked,&dialog,[&,this] {
+        const auto path=QFileDialog::getExistingDirectory(&dialog,"Register Folder Library root");if(path.isEmpty())return;
+        perform([&]{const auto created=library.register_root(path);rebuild_tree();apply_search(search->text());status->setText("Registered "+created.display_name+". Click Refresh to index this folder and its descendants.");});
+    });
+    connect(remove_root,&QPushButton::clicked,&dialog,[&,this] {
+        const auto* current=tree->currentItem();if(!current)return;
+        perform([&]{const auto ref=ref_for_item(current);library.unregister_root(ref.root_id);rebuild_tree();apply_search(search->text());status->setText("Unregistered the folder. Favorites remain as explicit broken references.");});
+    });
+    connect(refresh_button,&QPushButton::clicked,&dialog,[&,this] {
+        perform([&]{library.refresh();rebuild_tree();apply_search(search->text());status->setText("Registered folders refreshed.");});
+    });
+    connect(search,&QLineEdit::textChanged,&dialog,[&](const QString& query){apply_search(query);});
+    connect(add_favorite,&QPushButton::clicked,&dialog,[&,this] {
+        const auto* current=tree->currentItem();if(!current)return;
+        perform([&]{const auto created=library.add_favorite(ref_for_item(current));rebuild_favorites();status->setText("Favorite saved: "+display_ref(created.ref));});
+    });
+    connect(remove_favorite,&QPushButton::clicked,&dialog,[&,this] {
+        const auto* current=favorites->currentItem();if(!current)return;
+        perform([&]{library.remove_favorite(current->data(Qt::UserRole).toString());rebuild_favorites();status->setText("Favorite removed.");});
+    });
+    connect(assign_slot,&QPushButton::clicked,&dialog,[&,this] {
+        const auto* current=favorites->currentItem();if(!current)return;
+        perform([&]{const auto favorite_id=current->data(Qt::UserRole).toString();library.assign_quick_slot(favorite_id,slot->currentData().toInt());rebuild_favorites();
+            status->setText(slot->currentData().toInt()?"Quick Access slot saved.":"Quick Access slot cleared.");});
+    });
+    connect(place_linked,&QPushButton::clicked,&dialog,[&,this] {
+        const auto* current=tree->currentItem();if(!current)return;
+        perform([&]{place_ref(ref_for_item(current),"linked",frozen_session,expected_revision);});
+    });
+    connect(place_embedded,&QPushButton::clicked,&dialog,[&,this] {
+        const auto* current=tree->currentItem();if(!current)return;
+        perform([&]{place_ref(ref_for_item(current),"embedded",frozen_session,expected_revision);});
+    });
+    connect(use_slot,&QPushButton::clicked,&dialog,[&,this] {
+        perform([&]{const auto favorite=library.favorite_for_slot(slot->currentData().toInt());
+            if(!favorite)throw Error("EMPTY_QUICK_SLOT","Choose a Quick Access slot that has a Favorite");
+            if(favorite->ref.kind=="folder") {
+                const auto identity=library.comparison_key(favorite->ref);auto* item=node_by_identity.value(identity,nullptr);
+                if(!item)throw Error("MISSING_LIBRARY_ROOT","The Quick Access folder is no longer registered");
+                tree->setCurrentItem(item);tree->scrollToItem(item);status->setText("Quick Access opened "+display_ref(favorite->ref));return;
+            }
+            place_ref(favorite->ref,"linked",frozen_session,expected_revision);
+        });
+    });
+    connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);
+    rebuild_tree();apply_search({});dialog.exec();
 }
 void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const auto id=object.id;const auto frozen_session=host.session_id;

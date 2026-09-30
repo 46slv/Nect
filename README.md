@@ -370,6 +370,13 @@ deleting a placement alone keeps its asset. Reopening starts link status at
 `unchecked` and never fetches external files. Missing/unreadable files leave
 accepted pixels available for editing, export and recovery.
 
+**Library → Folder Library…** registers selected local folders for hierarchical
+browse, search and explicit Refresh. Choose a PNG/JPEG item to Place Linked or
+Place Embedded through the same image import path. Favorites retain their exact
+folder/file reference and may use Quick Access slots 1–9; missing or moved
+sources remain visibly broken until you update the source. The folder registry
+and Favorites are workspace settings, separate from document assets.
+
 Windows WIC uses only its built-in PNG/JPEG codecs from bounded memory. Eight-bit
 RGB/gray/palette sources, alpha, JPEG EXIF orientations1–8 and usable bounded
 RGB/gray ICC profiles are supported. Accepted data includes its color interpretation:
