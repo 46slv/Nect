@@ -4571,9 +4571,12 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         if(composite.mask) {
             const auto& mask=*composite.mask;add(mask.id);identity(mask.source);
             require(mask.version==1,"UNSUPPORTED_MASK_VERSION","Only mask version 1 is supported");
-            require(mask.mode=="geometry"||mask.mode=="alpha",mask.mode=="luma"?"UNSUPPORTED_MASK_MODE":"INVALID_MASK_MODE",
-                mask.mode=="luma"?"Luma masks are not supported in Alpha Mask v1":"Mask mode must be geometry or alpha");
-            require(mask.mode=="alpha"||!mask.invert,"UNSUPPORTED_MASK_INVERT","Invert is available only for Alpha masks");
+            require(mask.mode=="geometry"||mask.mode=="alpha"||mask.mode=="luma","INVALID_MASK_MODE",
+                "Mask mode must be geometry, alpha, or luma");
+            require(mask.mask_color_space=="srgb","UNSUPPORTED_MASK_COLOR_SPACE",
+                "Only the versioned 8-bit sRGB mask profile is supported");
+            require((mask.mode=="alpha"||mask.mode=="luma")||!mask.invert,
+                "UNSUPPORTED_MASK_INVERT","Invert is available only for Alpha or Luma masks");
             require(mask.fill_rule=="nonzero"||mask.fill_rule=="evenodd","UNSUPPORTED_FILL_RULE",mask.fill_rule);
             require(mask.source!=id,"INVALID_MASK_SOURCE","A geometry mask cannot reference its owner");
             require(d.objects.contains(mask.source),"MISSING_MASK_SOURCE",mask.source);
@@ -4762,7 +4765,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             visit_appearance(child,depth+1);
             remaining=std::max(remaining,appearance_remaining.at(child)+1);
         }
-        if(object.compositing.mask&&object.compositing.mask->mode=="alpha"&&
+        if(object.compositing.mask&&(object.compositing.mask->mode=="alpha"||object.compositing.mask->mode=="luma")&&
             evaluated_mask_enabled.at(geometry_mask_enabled_ref(id,object.compositing.mask->id))) {
             visit_appearance(object.compositing.mask->source,depth+1);
             remaining=std::max(remaining,appearance_remaining.at(object.compositing.mask->source)+1);
@@ -4837,7 +4840,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     const auto operation_enabled_values=evaluate_operation_enableds(d);
     const auto gradient_enabled_values=evaluate_gradient_enableds(d);
     const auto transforms=evaluate_transforms(d,values);
-    for(const auto& [id,object]:d.objects)if(object.compositing.mask&&object.compositing.mask->mode=="alpha") {
+    for(const auto& [id,object]:d.objects)if(object.compositing.mask&&
+        (object.compositing.mask->mode=="alpha"||object.compositing.mask->mode=="luma")) {
         (void)id;
         (void)inverse_affine(transforms.at(object.compositing.mask->source).world);
     }

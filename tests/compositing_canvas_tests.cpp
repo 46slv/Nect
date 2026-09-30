@@ -7,6 +7,7 @@
 #include <QTest>
 #include <QWheelEvent>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -306,6 +307,85 @@ void alpha_mask_path_and_group_pixel_oracle() {
     check(half_alpha==64&&full_alpha==127,
         "Source Group opacity scales the isolated alpha projection before target opacity");
 }
+void luma_mask_srgb_pixel_oracle() {
+    auto d=document(false);
+    add(d,rectangle("target-content",0,0,80,10,QColor(0,0,0,255)));group(d,"target",{"target-content"});
+    const std::array<QColor,6> colors{{QColor(255,0,0),QColor(54,54,54),QColor(0,255,0),
+        QColor(0,0,255),QColor(255,255,255,0),QColor(255,255,255)}};
+    const std::array<int,6> reference_expected{{54,54,182,18,0,128}};
+    std::array<int,6> expected=reference_expected;
+    std::array<int,6> source_alpha{{255,255,255,255,0,0}};
+    const std::array<int,6> x_samples{{15,25,35,45,55,65}};
+    std::vector<Id> children;
+    for(std::size_t i=0;i<colors.size();++i) {
+        const auto id="luma-source-"+std::to_string(i);
+        auto source=rectangle(id,static_cast<double>(i*10),0,10,10,colors[i]);
+        if(i==5)source.compositing.opacity.literal=.5;
+        add(d,std::move(source));children.push_back(id);
+    }
+    group(d,"luma-source",children);d.objects.at("luma-source").visible=false;
+    d.objects.at("luma-source").transform[4].literal=10;
+    d.objects.at("target").compositing.mask=GeometryMask{"luma-mask","luma-source",1,true,
+        "nonzero",std::nullopt,std::nullopt,"luma",false};
+
+    auto source_only=d;source_only.objects.at("luma-source").visible=true;
+    source_only.objects.at("target").visible=false;
+    const auto source_projection=Canvas::render_artboard(source_only,"composition","artboard",1,false);
+    source_alpha[5]=source_projection.pixelColor(x_samples[5],5).alpha();
+    check(source_alpha[5]==127&&std::abs(source_alpha[5]-reference_expected[5])<=1,
+        "Half-opacity white projects alpha 127, within one byte of the independent 128 reference");
+    expected[5]=static_cast<int>(std::lround((0.2125*colors[5].red()+0.7154*colors[5].green()+
+        0.0721*colors[5].blue())*source_alpha[5]/255.0));
+    check(expected[5]==127&&std::abs(expected[5]-reference_expected[5])<=1,
+        "Independent SVG coefficients derive the half-white mask byte from the observed source alpha");
+    for(std::size_t i=0;i<colors.size();++i) {
+        const auto pixel=source_projection.pixelColor(x_samples[i],5);
+        const int numeric=static_cast<int>(std::lround((0.2125*colors[i].red()+0.7154*colors[i].green()+
+            0.0721*colors[i].blue())*source_alpha[i]/255.0));
+        check(numeric==expected[i],"Independent SVG luminance oracle has the fixed expected 8-bit value");
+        const auto detail="fixture="+std::to_string(i)+" sample="+std::to_string(x_samples[i])+
+            " rgba="+std::to_string(pixel.red())+"/"+std::to_string(pixel.green())+"/"+
+            std::to_string(pixel.blue())+"/"+std::to_string(pixel.alpha());
+        check(pixel.alpha()==source_alpha[i]&&
+            (source_alpha[i]==0||pixel.red()==colors[i].red()),
+            "Isolated RGBA fixture exposes the expected straight color and source alpha bytes: "+detail);
+    }
+    const auto pixels=Canvas::render_artboard(d,"composition","artboard",1,false);
+    for(std::size_t i=0;i<expected.size();++i)
+        check(pixels.pixelColor(x_samples[i],5).alpha()==expected[i],
+            "Luma mask output alpha matches the independent sRGB red/gray/green/blue/transparent/half-alpha oracle");
+
+    d.objects.at("target").compositing.mask->invert=true;
+    const auto inverted=Canvas::render_artboard(d,"composition","artboard",1,false);
+    for(std::size_t i=0;i<expected.size();++i)
+        check(inverted.pixelColor(x_samples[i],5).alpha()==255-expected[i],
+            "Luma inversion is applied after luminance and alpha multiplication");
+    check(inverted.pixelColor(75,5).alpha()==255,
+        "Inverted Luma fills target coverage outside the source projection");
+}
+void luma_source_internal_mask_and_effect() {
+    auto d=document(false);
+    add(d,rectangle("target-content",100,100,40,20,Qt::red));group(d,"target",{"target-content"});
+    add(d,rectangle("gray",100,100,40,20,QColor(54,54,54)));
+    group(d,"luma-source",{"gray"});d.objects.at("luma-source").visible=false;
+    add(d,rectangle("matte",100,100,20,20,Qt::black));d.objects.at("matte").visible=false;
+    d.objects.at("target").compositing.mask=GeometryMask{"outer-luma","luma-source",1,true,
+        "nonzero",std::nullopt,std::nullopt,"luma",false};
+    const auto unmasked=Canvas::render_artboard(d,"composition","artboard",1,false);
+    check(unmasked.pixelColor(110,110).alpha()==54&&unmasked.pixelColor(130,110).alpha()==54,
+        "Independent gray fixture produces 54/255 Luma coverage across the source Group");
+
+    d.objects.at("luma-source").compositing.mask=GeometryMask{"inner-alpha","matte",1,true,
+        "nonzero",std::nullopt,std::nullopt,"alpha",false};
+    const auto clipped=Canvas::render_artboard(d,"composition","artboard",1,false);
+    check(clipped.pixelColor(110,110).alpha()==54&&clipped.pixelColor(130,110).alpha()==0,
+        "The source Group's internal Alpha mask clips its Luma projection before outer extraction");
+
+    Session session(d);session.apply({AddOperation{"luma-source",default_operation("posterize","nect.group.posterize"),0}},0);
+    const auto effected=Canvas::render_artboard(session.document(),"composition","artboard",1,false);
+    check(effected.pixelColor(110,110).alpha()==0&&effected.pixelColor(130,110).alpha()==0,
+        "Two-level Group Posterize turns gray 54 to black before Luma extraction without changing authored source");
+}
 void alpha_mask_image_source_pixel_oracle() {
     auto d=document(false);
     add(d,rectangle("target-content",90,90,30,30,Qt::red));group(d,"target",{"target-content"});
@@ -462,7 +542,9 @@ int main(int argc,char** argv) {
     try {
         group_opacity_is_applied_once();group_posterize_uses_independent_postcomposite_pixel_oracle();pass_through_and_isolation_have_distinct_backdrops();blend_alpha_and_transparent_root();
         all_supported_blends_match_independent_channel_formulas();
-        open_mask_hole_and_fill_rule();alpha_mask_path_and_group_pixel_oracle();alpha_mask_image_source_pixel_oracle();alpha_mask_invert_uses_target_bounds_and_source_world();
+        open_mask_hole_and_fill_rule();alpha_mask_path_and_group_pixel_oracle();luma_mask_srgb_pixel_oracle();
+        luma_source_internal_mask_and_effect();
+        alpha_mask_image_source_pixel_oracle();alpha_mask_invert_uses_target_bounds_and_source_world();
         linked_visibility_controls_canvas_pixels();expression_visibility_projects_own_value_to_canvas();linked_fill_rule_projects_to_canvas_and_svg();
         linked_mask_enabled_projects_to_canvas_and_svg();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
         mask_outline_is_separate_from_inherited_selection();cropped_unmasked_scope_preserves_stroke_gradient_and_repeater();

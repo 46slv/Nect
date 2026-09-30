@@ -807,7 +807,7 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                     QRectF result;
                     if(node.mask) {
                         if(node.mask->mode=="geometry")result=mask_paths_.at(node.id).boundingRect();
-                        else if(node.mask->mode=="alpha") {
+                        else if(node.mask->mode=="alpha"||node.mask->mode=="luma") {
                             if(node.mask->invert)result=content_bounds(node);
                             else {
                                 const auto source=scene_nodes.find(node.mask->source);
@@ -854,7 +854,9 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                                 QPainter mask(&coverage);mask.setRenderHint(QPainter::Antialiasing);
                                 mask.setWorldTransform(transform*QTransform::fromTranslate(-offset.x(),-offset.y()));
                                 mask.setPen(Qt::NoPen);mask.setBrush(Qt::white);mask.drawPath(mask_paths_.at(node.id));
-                            } else if(node.mask->mode=="alpha") {
+                            } else if(node.mask->mode=="alpha"||node.mask->mode=="luma") {
+                                if(node.mask->mode=="luma"&&node.mask->mask_color_space!="srgb")
+                                    throw Error("UNSUPPORTED_MASK_COLOR_SPACE",node.mask->mask_color_space);
                                 const auto source=scene_nodes.find(node.mask->source);
                                 if(source==scene_nodes.end())throw Error("MISSING_MASK_SOURCE",node.mask->source);
                                 auto projected=surface(region);
@@ -864,8 +866,20 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                                     const auto* source_row=reinterpret_cast<const QRgb*>(projected.constScanLine(y));
                                     auto* coverage_row=reinterpret_cast<QRgb*>(coverage.scanLine(y));
                                     for(int x=0;x<region.width();++x) {
-                                        const int alpha=qAlpha(source_row[x]);
-                                        const int value=node.mask->invert?255-alpha:alpha;
+                                        const QRgb source_pixel=source_row[x];
+                                        const int alpha=qAlpha(source_pixel);
+                                        int value=alpha;
+                                        if(node.mask->mode=="luma"&&alpha>0) {
+                                            // The projection is premultiplied RGBA8. Recover the
+                                            // straight sRGB bytes explicitly before luminance.
+                                            const auto straight=[alpha](int channel) {
+                                                return std::min(255,(channel*255+alpha/2)/alpha);
+                                            };
+                                            const double luminance=0.2125*straight(qRed(source_pixel))+
+                                                0.7154*straight(qGreen(source_pixel))+0.0721*straight(qBlue(source_pixel));
+                                            value=static_cast<int>(std::lround(luminance*alpha/255.0));
+                                        }
+                                        if(node.mask->invert)value=255-value;
                                         coverage_row[x]=qRgba(value,value,value,value);
                                     }
                                 }

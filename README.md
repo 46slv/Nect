@@ -147,7 +147,9 @@ siblings into the top selected Group, preserving world placement and order.
 Every object/Group has visibility, ordinary linkable/expression opacity, twelve
 blend modes and explicit isolation. Neutral Groups pass through; masks, opacity
 and blend aggregate the children. Geometry masks use final Path/Text contours;
-alpha/luma masks and full AE blend parity remain unsupported. SVG retains vector
+Alpha masks use isolated RGBA coverage and Luma masks use the declared 8-bit
+sRGB profile; enabled Alpha/Luma masks remain unsupported by SVG without a
+lossless projection. Full AE blend parity remains unsupported. SVG retains vector
 clips, Group opacity and CSS blend/isolation, so the reader must support those
 SVG/CSS features. `examples/colour-cut.nect` demonstrates the retained workflow.
 

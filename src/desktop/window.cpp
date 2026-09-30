@@ -3850,19 +3850,22 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     if(!object.compositing.mask)return;
     const auto mask=*object.compositing.mask;
     auto* mask_box=new QGroupBox("Mask");auto* mask_form=new QFormLayout(mask_box);mask_form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(mask_box);
-    auto* mode=new QComboBox(mask_box);mode->setObjectName("mask-mode");mode->addItem("Geometry","geometry");mode->addItem("Alpha","alpha");
-    mode->setCurrentIndex(mask.mode=="alpha"?1:0);mask_form->addRow("Mode",mode);
-    auto* invert=new QCheckBox("Invert alpha",mask_box);invert->setObjectName("mask-invert");invert->setChecked(mask.invert);
-    invert->setEnabled(mask.mode=="alpha");mask_form->addRow(invert);
+    auto* mode=new QComboBox(mask_box);mode->setObjectName("mask-mode");
+    mode->addItem("Geometry","geometry");mode->addItem("Alpha","alpha");mode->addItem("Luma","luma");
+    mode->setCurrentIndex(mask.mode=="alpha"?1:mask.mode=="luma"?2:0);mask_form->addRow("Mode",mode);
+    auto* profile=new QLabel(QString::fromStdString(mask.mask_color_space)+" · 8-bit",mask_box);
+    profile->setObjectName("mask-color-space");mask_form->addRow("Color profile",profile);
+    auto* invert=new QCheckBox("Invert mask",mask_box);invert->setObjectName("mask-invert");invert->setChecked(mask.invert);
+    invert->setEnabled(mask.mode=="alpha"||mask.mode=="luma");mask_form->addRow(invert);
       connect(mode,&QComboBox::currentIndexChanged,this,[this,mode,invert,id,apply](int) {
           const auto requested=mode->currentData().toString().toStdString();
-          invert->setEnabled(requested=="alpha");bool ok=false;
+          invert->setEnabled(requested=="alpha"||requested=="luma");bool ok=false;
           perform([&]{auto current=*host.session.document().objects.at(id).compositing.mask;current.mode=requested;
-              if(requested!="alpha")current.invert=false;apply(SetMask{id,current});ok=true;});
+              if(requested=="geometry")current.invert=false;apply(SetMask{id,current});ok=true;});
         if(!ok) {
             const auto current=host.session.document().objects.at(id).compositing.mask->mode;
-            QSignalBlocker blocker(mode);mode->setCurrentIndex(current=="alpha"?1:0);
-            invert->setEnabled(current=="alpha");
+            QSignalBlocker blocker(mode);mode->setCurrentIndex(current=="alpha"?1:current=="luma"?2:0);
+            invert->setEnabled(current=="alpha"||current=="luma");
         }
     });
     connect(invert,&QCheckBox::toggled,this,[this,invert,id,apply](bool value){bool ok=false;perform([&]{
@@ -3967,7 +3970,9 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     connect(remove,&QPushButton::clicked,this,[this,id,apply]{perform([&]{apply(SetMask{id,{}});});});
     auto* note=new QLabel(mask.mode=="alpha"
         ?"Uses the source's isolated RGBA appearance in Composition space. Source root visibility and blend are ignored; source opacity and internal Group content are included."
-        :"Uses final source geometry in Composition space. Source paint and opacity do not affect this mask; open paths close implicitly.");
+        :mask.mode=="luma"
+            ?"Uses isolated source RGBA in 8-bit sRGB. Luminance coefficients 0.2125, 0.7154 and 0.0721 are multiplied by source alpha before optional inversion."
+            :"Uses final source geometry in Composition space. Source paint and opacity do not affect this mask; open paths close implicitly.");
     note->setWordWrap(true);note->setStyleSheet("color:#9ea7b4;");mask_form->addRow(note);
 }
 void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) {

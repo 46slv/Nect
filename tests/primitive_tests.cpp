@@ -50,13 +50,13 @@ void point_edit_enabled_links() {
     check(resolve_name(s.document(),"Target","","point_edit.circle-source-point-edit.enabled")==target_ref,
         "Unique-name resolution finds the exact retained correction Ref");
     const auto linked_bytes=encode(s.document());
-    check(linked_bytes.find("\"version\":\"0.71\"")!=std::string::npos&&
+    check(linked_bytes.find("\"version\":\"0.72\"")!=std::string::npos&&
         linked_bytes.find("\"enabled_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"point_edit.source-generator-point-edit.enabled\"}}")!=std::string::npos&&
         encode(decode(linked_bytes))==linked_bytes,
         "Native 0.70 retains the optional closed driver and roundtrips without byte drift");
     auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_bytes);
-    const auto version_at=false_version.find("\"version\":\"0.71\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.31\"");
+    const auto version_at=false_version.find("\"version\":\"0.72\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.72\"").size(),"\"version\":\"0.31\"");
     rejects("UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER",[&]{(void)decode(false_version);});
     auto malformed=linked_bytes;
     const auto ref_at=malformed.find("point_edit.source-generator-point-edit.enabled");
@@ -194,13 +194,13 @@ void point_edit_enabled_expressions() {
         "Source false restores the same correction override");
 
     auto native=encode(session.document());
-    check(native.find("\"version\":\"0.71\"")!=std::string::npos&&
+    check(native.find("\"version\":\"0.72\"")!=std::string::npos&&
         native.find("\"enabled_expression\":{\"source\":\" ! ref (")!=std::string::npos&&
         encode(decode(native))==native,
         "Native 0.70 retains the exact expression and cold codec roundtrip without byte drift");
     auto false_version=native;
-    const auto version_at=false_version.find("\"version\":\"0.71\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.71\"").size(),"\"version\":\"0.69\"");
+    const auto version_at=false_version.find("\"version\":\"0.72\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.72\"").size(),"\"version\":\"0.69\"");
     rejects("UNSUPPORTED_POINT_EDIT_ENABLED_EXPRESSION",[&]{(void)decode(false_version);});
 
     auto atomic=[&](const char* code,std::vector<Command> commands) {

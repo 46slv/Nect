@@ -7,7 +7,7 @@ Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
 same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
-The current native writer is 0.71.
+The current native writer is 0.72.
 
 ## Point Edit enabled expression v1
 
@@ -832,6 +832,32 @@ The first Alpha slice accepts Path, Text, Image and Group sources. SVG explicitl
 refuses a document containing an Alpha mask until it can project that mask
 without loss. Native, Session/API, MCP and the desktop inspector expose the same
 mode and invert fields.
+
+## Native 0.72 sRGB Luma mask
+
+Native 0.72 extends the same mask record with `mode:geometry|alpha|luma`,
+`invert:bool`, and required `mask_color_space:"srgb"`. Readers of 0.1–0.70
+migrate masks to Geometry, non-inverted, sRGB. Readers of 0.71 retain their
+saved Geometry/Alpha mode and invert bit while defaulting the profile to sRGB.
+Newer mask fields under an older version are rejected. Geometry remains the
+existing Path/Text fill-rule clip. Invert is valid for Alpha and Luma only.
+
+Luma uses the same isolated source RGBA projection as Alpha: retained Path,
+Text, Image or Group appearance in Composition space, including source effects,
+internal masks, child visibility and opacity, while ignoring only source-root
+visibility and blend. From premultiplied 8-bit sRGB projection bytes, RGB is
+unpremultiplied only when alpha is nonzero. For straight channels normalized to
+`[0,1]`, coverage is
+`(0.2125 R + 0.7154 G + 0.0721 B) * A`; zero-alpha pixels yield zero. Optional
+inversion follows this calculation and fills outside-source pixels within the
+target content bounds. The result is rounded to the nearest byte and applied at
+the existing postchildren mask stage before target opacity and blend.
+
+Enabled Luma masks are refused by SVG until an exact projection is available;
+disabled masks may export their matching visible output. Native, Session/API,
+MCP and the desktop Inspector expose mode, invert, source, enabled state and
+the explicit sRGB profile. This is an 8-bit sRGB subset and makes no claim for
+linearRGB, ICC-managed, high-dynamic-range, After Effects or hands-on GUI parity.
 
 `set_visibility`, `set_compositing` and `set_mask` use the normal Session boundary.
 `mask_objects` accepts at least two ordered contiguous siblings and an explicit

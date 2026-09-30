@@ -331,10 +331,12 @@ struct GeometryMask {
     std::string fill_rule="nonzero";
     std::optional<Ref> enabled_driver;
     std::optional<Expression> enabled_expression;
-    // A missing mode in native documents predating 0.71 is Geometry. Alpha
-    // uses the source's isolated RGBA projection; fill_rule is Geometry-only.
+    // Missing native mode/profile fields migrate to Geometry/sRGB. Alpha and
+    // Luma use the source's isolated RGBA projection; fill_rule is Geometry-only.
     std::string mode="geometry";
     bool invert=false;
+    // A missing profile in native documents predating 0.72 migrates to sRGB.
+    std::string mask_color_space="srgb";
     bool operator==(const GeometryMask&) const = default;
 };
 struct Compositing {
@@ -979,6 +981,7 @@ struct EvaluatedMask {
     Id source;
     std::string mode="geometry";
     std::string fill_rule;
+    std::string mask_color_space="srgb";
     bool invert=false;
     std::vector<PathInstance> paths; // transforms already map to Composition/world
 };

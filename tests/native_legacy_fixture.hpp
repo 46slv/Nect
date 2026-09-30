@@ -6,7 +6,7 @@
 
 namespace nect::test_support {
 inline void require_native_current_writer(const std::string& encoded) {
-    const std::string current_version = "\"version\":\"0.71\"";
+    const std::string current_version = "\"version\":\"0.72\"";
     if (encoded.find(current_version) == std::string::npos || encoded.empty() || encoded.back() != '}')
         throw std::runtime_error("Legacy fixture must start from current native writer output");
 }
@@ -25,10 +25,15 @@ inline void remove_member(std::string& encoded,const std::string& member) {
     }
 }
 inline void remove_native_071_mask_defaults_for_legacy_fixture(std::string& encoded) {
-    if(encoded.find("\"mode\":\"alpha\"")!=std::string::npos||encoded.find("\"invert\":true")!=std::string::npos)
-        throw std::runtime_error("Alpha masks cannot be downgraded to a pre-0.71 native fixture");
+    if(encoded.find("\"mode\":\"alpha\"")!=std::string::npos||encoded.find("\"mode\":\"luma\"")!=std::string::npos||
+        encoded.find("\"invert\":true")!=std::string::npos)
+        throw std::runtime_error("Appearance masks cannot be downgraded to a pre-0.71 native fixture");
     remove_member(encoded,"\"mode\":\"geometry\"");
     remove_member(encoded,"\"invert\":false");
+    remove_member(encoded,"\"mask_color_space\":\"srgb\"");
+}
+inline void remove_native_072_mask_profile_for_071_fixture(std::string& encoded) {
+    remove_member(encoded,"\"mask_color_space\":\"srgb\"");
 }
 inline std::string untag_ordinary_processing_entries(std::string encoded) {
     if(encoded.find("\"kind\":\"macro\"")!=std::string::npos)
