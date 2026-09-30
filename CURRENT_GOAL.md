@@ -12,20 +12,20 @@
 
 ## ACTIVE CHECKPOINT
 
-**Goal:** Select and execute the next bounded R02 typed-property source-selection/dependency slice without changing accepted source identity or atomic Session semantics.
+**Goal:** Implement and qualify one instance-qualified GeometryMask enabled expression while preserving authored mask identity and atomic Session semantics.
 
-**Current phase:** `R02-OPERATION-ENABLED-EXPRESSION-01` is implemented and Sol-reviewed on the primary C0 worktree. The Worker returned a terminal candidate and released code ownership. Native writer is 0.67. The semantic candidate is ready for coherent commit and remote synchronization. Objective Preset and R02 hands-on GUI remain `LOCAL_WAIT`; REQ-23 is not promoted. The G3 Macro incompatible-public-contract update oracle remains a separate design residual.
+**Current phase:** `R02-OPERATION-ENABLED-EXPRESSION-01` is implemented, Sol-reviewed and synchronized at `6f4bd65f8a2ae1045ff897242acd825f54a6e638`, native writer 0.67. The next exact packet `R02-MASK-ENABLED-EXPRESSION-01` is frozen in `docs/r02-property-boundary.md` for a single code writer. Objective Preset and R02 hands-on GUI remain `LOCAL_WAIT`; REQ-23 is not promoted. The G3 Macro incompatible-public-contract update oracle remains a separate design residual.
 
 **Proven:** The prior R07 Macro/Preset state is synchronized at `613716705bd6ea8ddf18d933e40f710ace5562ee`. R02 operation enabled expression retains authored literal and stable built-in operation Ref, rejects invalid/mixed/old-version sources atomically, and preserves exact expression/native 0.67 through Save As and cold reopen. Sol review fixed typed expression capability, Macro-instance Inspector scope, and MCP test teardown ordering. All-target Release build PASS (`build/manual-recipes/r02-operation-expression-sol-review-build.log`, SHA-256 `FAD25C3573CD44718E70031A226E4CFD6D0EA3C7DB62256726611EFBCE15ABF3`); final serial Release CTest **53/53 PASS** (`build/manual-recipes/r02-operation-expression-sol-final-ctest.log`, SHA-256 `9A33516E93961B6C9B4ABA7E58E268A8CFF1195A5495A32FC8A9815267CD0D1D`). Tests include core/native/API/MCP and offscreen Window; no hands-on GUI proof is claimed.
 
-**Next task:** Commit and non-force push the reviewed `R02-OPERATION-ENABLED-EXPRESSION-01` candidate, read back exact remote SHA, then fresh-rank the next eligible R02 typed source/dependency slice. A nested gradient enabled expression is one candidate because the existing link has a stable instance-qualified Ref and real paint consumers; confirm the live boundary before freezing it.
+**Next task:** Execute `R02-MASK-ENABLED-EXPRESSION-01` with one bounded code writer, review the terminal candidate, repair against positive/negative oracles, run Release/native/API/offscreen checks, commit and non-force push, then read back exact remote SHA.
 
-**Approach:** Keep stable typed Refs, captured target/Session/revision, and one Session/Undo authority. Browse or inspect sources without retargeting an in-flight command. Preserve pure binding/evaluation and native authored values. Qualify the exact current source and UI path before choosing the next narrow R02 implementation.
+**Approach:** Keep the exact installed mask ID in typed Refs and captured target/Session/revision. Preserve the owner-slot read as literal-only, one Session/Undo authority, pure source evaluation and native authored values. Do not retarget an in-flight command while browsing other masks.
 
-**Done for next:** This candidate is committed, pushed and exact remote-read back. A next bounded packet is selected from fresh Route and live code evidence, with Preset GUI and Macro design residuals explicit.
+**Done for next:** The mask expression positive/negative oracle passes through real Session, compositing/Canvas/SVG, typed API/MCP, Inspector, native Save As and cold reopen; the candidate is reviewed, repaired, committed and exact remote-read back. Preset GUI and Macro design residuals remain explicit.
 
-**State:** Repository D:\Documents\Nect, branch `codex/practical-alpha`, synchronized base `613716705bd6ea8ddf18d933e40f710ace5562ee` before this reviewed candidate; worktree contains this packet's code, tests, schema and docs pending commit. Native writer 0.67. The ignored build uses `/EHsc /bigobj` for VS2019/Boost. This Sol is sole C0 writer after Worker terminal release.
+**State:** Repository D:\Documents\Nect, branch `codex/practical-alpha`, clean synchronized base `6f4bd65f8a2ae1045ff897242acd825f54a6e638` before the next packet docs. Native writer 0.67. The ignored build uses `/EHsc /bigobj` for VS2019/Boost. This Sol is sole C0 writer; one bounded code mutation scope will transfer to a disposable Worker.
 
 **Authority:** Current user instruction and DEC-71 authorize Mission continuity, technical decisions within accepted intent, reversible implementation and non-force branch sync. Completion Route and exact Confirmed Acceptance govern the R02 slice. Major structure/save redesign, external dependencies, hands-on/subjective acceptance and destructive/public action remain protected.
 
-**Handoff:** CONTINUE_CURRENT_TASK. Commit/sync and nearby R02 qualification remain coherent in this context.
+**Handoff:** CONTINUE_CURRENT_TASK. The next R02 mask expression is an adjacent typed bool dependency with useful context reuse.
