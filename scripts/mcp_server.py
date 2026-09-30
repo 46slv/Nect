@@ -2,7 +2,8 @@
 
 Run: python scripts/mcp_server.py --endpoint <desktop pipe/socket>
 The local JSON-lines Session API itself is not MCP. This process implements
-initialize, initialized, ping, tools/list and tools/call; it never loads a document.
+initialize, initialized, ping, tools/list, tools/call and read-only resources;
+it never loads a document.
 """
 import argparse
 import json
@@ -10,6 +11,19 @@ import sys
 from session_client import call, LIMIT
 
 IDENTITY = {'session_id': {'type': 'string'}, 'document_id': {'type': 'string'}}
+PROTOCOL_VERSION = '2025-06-18'
+SERVER_INFO = {'name': 'nect-desktop', 'version': '0.1.0'}
+SERVER_CAPABILITIES = {'tools': {'listChanged': False}, 'resources': {}}
+SESSION_RESOURCE_URI = 'nect://session'
+CAPABILITIES_RESOURCE_URI = 'nect://capabilities'
+RESOURCES = [
+    {'uri': SESSION_RESOURCE_URI, 'name': 'Nect desktop Session',
+     'description': 'Live desktop Session identity, revision, save status and persistence receipts.',
+     'mimeType': 'application/json'},
+    {'uri': CAPABILITIES_RESOURCE_URI, 'name': 'Nect MCP capabilities',
+     'description': 'MCP protocol and semantic capabilities derived from the active server definitions.',
+     'mimeType': 'application/json'},
+]
 TOOLS = [
     {'name': 'nect_session', 'description': 'Read live desktop identity, revision and persistence receipts: pending/writing/native saved/recovery revisions and explicit errors.',
      'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False},
@@ -190,8 +204,52 @@ TOOLS = [
 
 
 class ProtocolError(Exception):
-    def __init__(self, code, message):
-        self.code, self.message = code, message
+    def __init__(self, code, message, data=None):
+        self.code, self.message, self.data = code, message, data
+
+
+def capabilities_resource():
+    tool_names = [tool['name'] for tool in TOOLS]
+    capability_groups = []
+    semantic_operations = []
+    unsupported_groups = []
+    for tool in TOOLS:
+        description = tool['description']
+        request_schema = tool.get('inputSchema', {}).get('properties', {}).get('request')
+        purpose = description.partition(' request.op:')[0].strip()
+        capability_groups.append({'name': tool['name'], 'tools': [tool['name']],
+                                  'description': purpose})
+        if request_schema is not None:
+            marker = 'request.op: '
+            if marker in description:
+                operation_text = description.split(marker, 1)[1].partition('. ')[0]
+                semantic_operations = [operation.strip() for operation in operation_text.split(',')
+                                       if operation.strip()]
+        for sentence in description.split('. '):
+            if 'unsupported' in sentence.casefold():
+                unsupported_groups.append({'tool': tool['name'], 'statement': sentence.strip()})
+    return {
+        'protocolVersion': PROTOCOL_VERSION,
+        'serverInfo': SERVER_INFO,
+        'capabilities': SERVER_CAPABILITIES,
+        'toolNames': tool_names,
+        'capabilityGroups': capability_groups,
+        'semanticRequestOperations': semantic_operations,
+        'unsupportedCapabilityGroups': unsupported_groups,
+    }
+
+
+def read_resource(endpoint, uri):
+    if uri == SESSION_RESOURCE_URI:
+        try:
+            # Always query the desktop-owned Session. Never retain a sidecar snapshot.
+            payload = call(endpoint, {'op': 'hello'})
+        except (OSError, ValueError, TimeoutError):
+            raise ProtocolError(-32603, 'Unable to read the live Session resource', {'uri': uri})
+    else:
+        payload = capabilities_resource()
+    return {'contents': [{'uri': uri, 'mimeType': 'application/json',
+                          'text': json.dumps(payload, ensure_ascii=False, allow_nan=False)}]}
 
 
 def unique(pairs):
@@ -240,8 +298,8 @@ def run(endpoint):
                 if not isinstance(params.get('protocolVersion'), str) or not isinstance(params.get('capabilities'), dict) or not isinstance(params.get('clientInfo'), dict):
                     raise ProtocolError(-32602, 'Initialization requires protocolVersion, capabilities and clientInfo')
                 initialized = True
-                result = {'protocolVersion': '2025-06-18', 'capabilities': {'tools': {'listChanged': False}},
-                          'serverInfo': {'name': 'nect-desktop', 'version': '0.1.0'},
+                result = {'protocolVersion': PROTOCOL_VERSION, 'capabilities': SERVER_CAPABILITIES,
+                          'serverInfo': SERVER_INFO,
                           'instructions': 'Read nect_session first. Keep identity and expected revision explicit. Never blindly retry a failed transport mutation.'}
             elif not ready:
                 raise ProtocolError(-32002, 'Initialize and send notifications/initialized first')
@@ -249,6 +307,19 @@ def run(endpoint):
                 if params:
                     raise ProtocolError(-32602, 'No pagination cursor is supported')
                 result = {'tools': TOOLS}
+            elif method == 'resources/list':
+                if params:
+                    raise ProtocolError(-32602, 'No pagination cursor is supported')
+                result = {'resources': RESOURCES}
+            elif method == 'resources/read':
+                if set(params) != {'uri'}:
+                    raise ProtocolError(-32602, 'Resource read requires only a uri')
+                uri = params['uri']
+                if not isinstance(uri, str):
+                    raise ProtocolError(-32602, 'Resource URI must be a string')
+                if uri not in {resource['uri'] for resource in RESOURCES}:
+                    raise ProtocolError(-32002, 'Resource not found', {'uri': uri})
+                result = read_resource(endpoint, uri)
             elif method == 'tools/call':
                 name = params.get('name')
                 arguments = params.get('arguments', {})
@@ -285,7 +356,10 @@ def run(endpoint):
         except ProtocolError as error:
             if notification:
                 continue
-            response = {'jsonrpc': '2.0', 'id': request_id, 'error': {'code': error.code, 'message': error.message}}
+            body = {'code': error.code, 'message': error.message}
+            if error.data is not None:
+                body['data'] = error.data
+            response = {'jsonrpc': '2.0', 'id': request_id, 'error': body}
         sys.stdout.buffer.write(json.dumps(response, ensure_ascii=False, allow_nan=False).encode('utf-8') + b'\n')
         sys.stdout.buffer.flush()
         if len(line) > LIMIT:

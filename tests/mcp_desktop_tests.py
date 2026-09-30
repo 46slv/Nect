@@ -101,6 +101,15 @@ def tool(name, arguments=None):
     return result['structuredContent']
 
 
+def resource(uri):
+    reply = rpc('resources/read', {'uri': uri})
+    assert 'result' in reply, reply
+    contents = reply['result']['contents']
+    assert len(contents) == 1 and contents[0]['uri'] == uri
+    assert contents[0]['mimeType'] == 'application/json'
+    return json.loads(contents[0]['text'])
+
+
 def ordinary_stack_operations(obj):
     operations = []
     for entry in obj['stack']:
@@ -160,9 +169,22 @@ try:
         assert rpc('tools/list')['error']['code'] == -32002
         init = rpc('initialize', dict(protocolVersion='2025-06-18', capabilities={}, clientInfo=dict(name='nect-scenario', version='1')))
         assert init['result']['protocolVersion'] == '2025-06-18'
+        assert init['result']['capabilities']['resources'] == {}
         mcp.stdin.write(json.dumps(dict(jsonrpc='2.0', method='notifications/initialized')) + '\n'); mcp.stdin.flush()
         listed_tools = rpc('tools/list')['result']['tools']
         assert {t['name'] for t in listed_tools} == {'nect_session', 'nect_command', 'nect_file', 'nect_image', 'nect_export_png', 'nect_analyze_regions', 'nect_analyze_dataset', 'nect_import_svg'}
+        listed_resources = rpc('resources/list')['result']['resources']
+        assert listed_resources == rpc('resources/list')['result']['resources']
+        assert [(r['uri'], r['name'], r['mimeType']) for r in listed_resources] == [
+            ('nect://session', 'Nect desktop Session', 'application/json'),
+            ('nect://capabilities', 'Nect MCP capabilities', 'application/json')]
+        capability_record = resource('nect://capabilities')
+        assert capability_record['protocolVersion'] == init['result']['protocolVersion']
+        assert capability_record['serverInfo'] == init['result']['serverInfo']
+        assert capability_record['toolNames'] == [t['name'] for t in listed_tools]
+        assert {'inspect', 'apply', 'undo'} <= set(capability_record['semanticRequestOperations'])
+        assert any('Full AE blend parity remains unsupported' in item['statement']
+                   for item in capability_record['unsupportedCapabilityGroups'])
         analyze_schema = next(t for t in listed_tools if t['name'] == 'nect_analyze_regions')['inputSchema']
         dataset_schema = next(t for t in listed_tools if t['name'] == 'nect_analyze_dataset')['inputSchema']
         assert dataset_schema['properties']['operator_type_id']['enum'] == [
@@ -184,6 +206,54 @@ try:
         assert 'intersect_color_component_id' not in analyze_schema['required']
         live = tool('nect_session')
         identity = {key: live[key] for key in ('session_id', 'document_id')}
+        session_resource = resource('nect://session')
+        assert session_resource == live
+        document_before_resource_errors = core('inspect')['result']
+        history_before_resource_errors = core('history')['result']
+        for params, code, message in [
+            ({}, -32602, 'Resource read requires only a uri'),
+            ({'uri': 17}, -32602, 'Resource URI must be a string'),
+            ({'uri': 'nect://session', 'session_id': live['session_id']},
+             -32602, 'Resource read requires only a uri'),
+            ({'uri': 'nect://session/'}, -32002, 'Resource not found'),
+        ]:
+            reply = rpc('resources/read', params)
+            assert reply['error']['code'] == code and reply['error']['message'] == message, reply
+            if code == -32002:
+                assert reply['error']['data'] == {'uri': params['uri']}, reply
+        assert rpc('resources/read', [])['error'] == {
+            'code': -32602, 'message': 'Named parameters required'}
+        assert rpc('resources/list', {'cursor': 'unsupported'})['error'] == {
+            'code': -32602, 'message': 'No pagination cursor is supported'}
+        assert core('inspect')['result'] == document_before_resource_errors
+        assert core('history')['result'] == history_before_resource_errors
+        assert tool('nect_session') == live
+
+        stale_endpoint = 'nect-stale-' + uuid.uuid4().hex
+        stale_mcp = subprocess.Popen([sys.executable, str(ROOT / 'scripts/mcp_server.py'), '--endpoint', stale_endpoint],
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     text=True, encoding='utf-8')
+        try:
+            stale_init = dict(jsonrpc='2.0', id=1, method='initialize', params=dict(
+                protocolVersion='2025-06-18', capabilities={}, clientInfo=dict(name='nect-stale-resource', version='1')))
+            stale_mcp.stdin.write(json.dumps(stale_init) + '\n')
+            stale_mcp.stdin.write(json.dumps(dict(jsonrpc='2.0', method='notifications/initialized')) + '\n')
+            stale_mcp.stdin.write(json.dumps(dict(jsonrpc='2.0', id=2, method='resources/read',
+                                                  params={'uri': 'nect://session'})) + '\n')
+            stale_mcp.stdin.flush()
+            assert json.loads(stale_mcp.stdout.readline())['id'] == 1
+            stale_reply = json.loads(stale_mcp.stdout.readline())
+            assert stale_reply['error'] == {
+                'code': -32603, 'message': 'Unable to read the live Session resource',
+                'data': {'uri': 'nect://session'}}
+        finally:
+            stale_mcp.stdin.close()
+            try:
+                stale_mcp.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                stale_mcp.kill(); stale_mcp.wait()
+        assert tool('nect_session') == live
+        assert core('inspect')['result'] == document_before_resource_errors
         comp = core('inspect')['result']['compositions'][0]
         region_request = dict(identity, op='analyze_regions', expected_revision=live['revision'],
             composition=comp['id'], artboard=comp['artboards'][0]['id'], scale=1, threshold=128)
@@ -212,6 +282,11 @@ try:
                 id='dataset-group',name='Dataset group'),
             dict(type='set_transform_parent',object='dataset-text',parent='dataset-path',preserve_world=False),
             dict(type='create_collection',id='dataset-collection',name='Dataset collection',members=['dataset-path'])],live['revision'])
+        session_after_edit = resource('nect://session')
+        tool_session_after_edit = tool('nect_session')
+        for key in ('session_id', 'document_id', 'revision', 'file', 'save_status', 'persistence'):
+            assert session_after_edit[key] == tool_session_after_edit[key]
+        assert session_after_edit['revision'] == dataset_setup > live['revision']
         dataset_image_path = temp / 'mcp-analysis-dataset.png'
         dataset_image_path.write_bytes(make_png((255,0,0),width=1,height=1))
         dataset_image = tool('nect_image',dict(identity,op='import_image',expected_revision=dataset_setup,

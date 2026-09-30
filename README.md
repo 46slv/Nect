@@ -260,11 +260,14 @@ python scripts/mcp_server.py --endpoint nect-local
 ```
 
 The second process is a formal MCP 2025-06-18 stdio server. Configure it as a
-stdio command in your MCP client, initialize and list tools, then use
-`nect_session`, `nect_command` and `nect_file`. Mutations require the returned
-session/document identity and current revision. Opening/new rotates the session
-identity; a stale client cannot edit the replacement document. The local endpoint
-is opt-in and restricted to the current user; there is no TCP listener.
+stdio command in your MCP client, initialize and discover its tools and resources,
+then use `nect_session`, `nect_command` and `nect_file`. The read-only
+`nect://session` resource reports the live Session identity, revision and
+persistence receipts; `nect://capabilities` describes the active MCP and semantic
+capabilities. Mutations require the returned session/document identity and current
+revision. Opening/new rotates the session identity; a stale client cannot edit the
+replacement document. The local endpoint is opt-in and restricted to the current
+user; there is no TCP listener.
 
 `scripts/create_radial_demo.py --endpoint <name> --output <file.nect> --gradients`
 authors the linked linear/radial gradient variant from an empty live document.
