@@ -299,5 +299,46 @@ void point_edit_enabled_driver_remapping() {
     check(evaluate_point_edit_enabled(s.document(),remapped_target)&&!evaluate_point_edit_enabled(s.document(),target_only_ref),
         "The copied target follows its copied source while the target-only copy follows the external original");
 }
+void point_edit_enabled_expression_remapping() {
+    Session s(empty_document("point-edit-expression-duplicate-doc","point-edit-expression-duplicate-comp",
+        "point-edit-expression-duplicate-art"));
+    auto source=default_primitive("expression-source-generator","nect.shape.circle");
+    auto target=default_primitive("expression-target-generator","nect.shape.circle");
+    apply(s,{CreatePrimitive{"point-edit-expression-duplicate-comp","","source","Source",source},
+        CreatePrimitive{"point-edit-expression-duplicate-comp","","target","Target",target},
+        Set{{"source","expression-source-generator-east","x"},360},
+        Set{{"target","expression-target-generator-east","x"},230},
+        EnablePointEdit{"source",false},EnablePointEdit{"target",false}});
+    const auto source_ref=point_edit_enabled_ref("source","expression-source-generator-point-edit");
+    const auto target_ref=point_edit_enabled_ref("target","expression-target-generator-point-edit");
+    const Expression expression{" ! ref ( \"source\" , \"\" , \"point_edit.expression-source-generator-point-edit.enabled\" ) ",1};
+    apply(s,{SetPointEditEnabledExpression{target_ref,expression}});
+    apply(s,{DuplicateObjects{{"target","source"},"both-expression-copy"}});
+    const auto source_copy=copy_of(s.document(),"source"),target_copy=copy_of(s.document(),"target");
+    const auto copied_source=point_edit_enabled_ref(source_copy,s.document().objects.at(source_copy).point_edit->id);
+    const auto copied_target=point_edit_enabled_ref(target_copy,s.document().objects.at(target_copy).point_edit->id);
+    auto expected=expression;
+    const auto source_object_at=expected.source.find("\"source\"");
+    expected.source.replace(source_object_at+1,std::string("source").size(),source_copy);
+    const std::string source_field="point_edit.expression-source-generator-point-edit.enabled";
+    const auto source_field_at=expected.source.find(source_field);
+    expected.source.replace(source_field_at,source_field.size(),copied_source.field);
+    check(s.document().objects.at(target_copy).point_edit->enabled_expression==expected&&
+        evaluate_point_edit_enabled(s.document(),copied_target),
+        "Duplicating both expression endpoints remaps only copied Object and correction IDs while preserving exact surrounding text");
+    check(s.document().objects.at("target").point_edit->enabled_expression==expression&&
+        point_edit_enabled_state(s.document(),target_ref).expression==expression,
+        "Expression duplication leaves original authored source untouched");
+    const auto before_target_only=s.document();
+    apply(s,{DuplicateObjects{{"target"},"target-expression-only"}});
+    Id target_only;
+    for(const auto& [id,object]:s.document().objects)if(!before_target_only.objects.contains(id)) {
+        target_only=id;break;
+    }
+    const auto target_only_ref=point_edit_enabled_ref(target_only,s.document().objects.at(target_only).point_edit->id);
+    check(s.document().objects.at(target_only).point_edit->enabled_expression==expression&&
+        evaluate_point_edit_enabled(s.document(),target_only_ref),
+        "Duplicating only the expression target keeps its external source ID and exact expression text");
 }
-int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();geometry_mask_enabled_driver_remapping();geometry_mask_enabled_expression_remapping();point_edit_enabled_driver_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}
+}
+int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();geometry_mask_enabled_driver_remapping();geometry_mask_enabled_expression_remapping();point_edit_enabled_driver_remapping();point_edit_enabled_expression_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

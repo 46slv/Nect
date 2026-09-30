@@ -1878,7 +1878,7 @@ void point_edit_enabled_source(Window& window) {
         window.canvas->evaluated_values().at(target_point)==260,
         "Re-enabling the source restores the same Point Edit override in Canvas");
     driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
-    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    driver->menu()->actions().at(2)->trigger();QApplication::processEvents();
     auto frozen=point_edit_enabled_state(session.document(),target);
     checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
     check(!frozen.driver&&frozen.literal&&frozen.evaluated&&checkbox->isEnabled()&&checkbox->isChecked(),
@@ -1894,6 +1894,149 @@ void point_edit_enabled_source(Window& window) {
         point_edit_enabled_state(session.document(),target).literal&&
         window.canvas->evaluated_values().at(target_point)==260,
         "Inspector Redo keeps its frozen target independent of later source changes");
+}
+void point_edit_enabled_expression(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    auto target_source=default_primitive("window-expression-target-generator","nect.shape.circle");
+    auto source_source=default_primitive("window-expression-source-generator","nect.shape.circle");
+    const Ref target_point{"window-expression-target","window-expression-target-generator-east","x"};
+    const Ref source_point{"window-expression-source","window-expression-source-generator-east","x"};
+    session.apply({CreatePrimitive{composition,"","window-expression-target","Expression target",target_source},
+        CreatePrimitive{composition,"","window-expression-source","Expression source",source_source},
+        Set{target_point,260},Set{source_point,360},EnablePointEdit{"window-expression-target",false},
+        EnablePointEdit{"window-expression-source",false}},session.revision());
+    const auto target=point_edit_enabled_ref("window-expression-target","window-expression-target-generator-point-edit");
+    const auto source=point_edit_enabled_ref("window-expression-source","window-expression-source-generator-point-edit");
+    const Expression expression{" ! ref ( \"window-expression-source\" , \"\" , \"point_edit.window-expression-source-generator-point-edit.enabled\" ) ",1};
+    const auto fallback=evaluate(session.document()).at(target_point);
+    window.canvas->set_selection(target.object);window.host.edited();QApplication::processEvents();
+    auto* driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    const auto before_cancel=session.document();const auto cancel_revision=session.revision();
+    bool cancel_ok=false,replace_disabled=false,target_captured=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-expression-dialog");
+        auto* source_edit=dialog?dialog->findChild<QPlainTextEdit*>("point-edit-enabled-expression-source"):nullptr;
+        auto* replace=dialog?dialog->findChild<QCheckBox*>("point-edit-enabled-expression-replace"):nullptr;
+        auto* label=dialog?dialog->findChild<QLabel*>(QString(),Qt::FindDirectChildrenOnly):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_edit||!replace||!buttons)return;
+        replace_disabled=!replace->isEnabled();
+        target_captured=dialog->windowTitle().contains("Point Edit enabled expression");
+        source_edit->setPlainText("false");
+        buttons->button(QDialogButtonBox::Cancel)->click();cancel_ok=!dialog->isVisible();
+        (void)label;
+    });
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(cancel_ok&&replace_disabled&&target_captured&&session.revision()==cancel_revision&&
+        session.document()==before_cancel,
+        "Inspector expression Cancel leaves the Session unchanged and disables replacement when no source exists");
+
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    const auto original_session=window.host.session_id;bool session_refused=false,session_cancelled=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-expression-dialog");
+        auto* source_edit=dialog?dialog->findChild<QPlainTextEdit*>("point-edit-enabled-expression-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("point-edit-enabled-expression-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_edit||!status||!buttons)return;
+        source_edit->setPlainText(QString::fromStdString(expression.source));
+        window.host.session_id=original_session+"-stale";
+        buttons->button(QDialogButtonBox::Apply)->click();
+        session_refused=dialog->isVisible()&&status->text().contains("SESSION_CONFLICT");
+        window.host.session_id=original_session;
+        buttons->button(QDialogButtonBox::Cancel)->click();session_cancelled=!dialog->isVisible();
+    });
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(session_refused&&session_cancelled&&session.revision()==cancel_revision&&session.document()==before_cancel,
+        "Inspector expression Apply rejects a stale Session identity without changing the captured draft target");
+
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    bool stale_refused=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-expression-dialog");
+        auto* source_edit=dialog?dialog->findChild<QPlainTextEdit*>("point-edit-enabled-expression-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("point-edit-enabled-expression-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_edit||!status||!buttons)return;
+        source_edit->setPlainText(QString::fromStdString(expression.source));
+        session.apply({EnablePointEdit{"window-expression-source",true}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        stale_refused=dialog->isVisible()&&status->text().contains("REVISION_CONFLICT")&&
+            !point_edit_enabled_state(session.document(),target).expression;
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(stale_refused&&session.revision()==cancel_revision+1,
+        "Inspector expression Apply rejects a stale revision without committing its captured target draft");
+    session.apply({EnablePointEdit{"window-expression-source",false}},session.revision());
+    window.host.edited();QApplication::processEvents();
+
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    bool syntax_refused=false,applied=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-expression-dialog");
+        auto* source_edit=dialog?dialog->findChild<QPlainTextEdit*>("point-edit-enabled-expression-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("point-edit-enabled-expression-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_edit||!status||!buttons)return;
+        source_edit->setPlainText("true || false");buttons->button(QDialogButtonBox::Apply)->click();
+        syntax_refused=dialog->isVisible()&&status->text().contains("BOOLEAN_EXPRESSION_SYNTAX")&&
+            !point_edit_enabled_state(session.document(),target).expression;
+        source_edit->setPlainText(QString::fromStdString(expression.source));
+        buttons->button(QDialogButtonBox::Apply)->click();applied=!dialog->isVisible();
+    });
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    auto state=point_edit_enabled_state(session.document(),target);
+    auto* checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
+    auto* status=visible_child<QLabel>(window,"point-edit-enabled-state");
+    check(syntax_refused&&applied&&state.literal==false&&!state.driver&&state.expression==expression&&state.evaluated&&
+        !checkbox->isEnabled()&&!checkbox->isChecked()&&status->text().contains("Authored literal: false")&&
+        status->text().contains("Evaluated enabled: true")&&window.canvas->evaluated_values().at(target_point)==260,
+        "Inspector Apply stores exact instance-qualified source, disables the driven toggle and applies saved Canvas overrides");
+    session.apply({EnablePointEdit{"window-expression-source",true}},session.revision());window.host.edited();QApplication::processEvents();
+    state=point_edit_enabled_state(session.document(),target);
+    check(state.expression==expression&&!state.evaluated&&window.canvas->evaluated_values().at(target_point)==fallback,
+        "Inspector Canvas follows the Point Edit expression to generator fallback when its source turns on");
+    session.apply({EnablePointEdit{"window-expression-source",false}},session.revision());window.host.edited();QApplication::processEvents();
+    check(point_edit_enabled_state(session.document(),target).evaluated&&
+        window.canvas->evaluated_values().at(target_point)==260,
+        "Turning the expression source off restores the same retained Canvas override");
+
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    bool replacement_required=false,replaced=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-expression-dialog");
+        auto* source_edit=dialog?dialog->findChild<QPlainTextEdit*>("point-edit-enabled-expression-source"):nullptr;
+        auto* replace=dialog?dialog->findChild<QCheckBox*>("point-edit-enabled-expression-replace"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("point-edit-enabled-expression-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_edit||!replace||!status||!buttons)return;
+        source_edit->setPlainText("false");
+        buttons->button(QDialogButtonBox::Apply)->click();
+        replacement_required=dialog->isVisible()&&status->text().contains("DRIVEN_PROPERTY")&&
+            point_edit_enabled_state(session.document(),target).expression==expression;
+        replace->setChecked(true);buttons->button(QDialogButtonBox::Apply)->click();replaced=!dialog->isVisible();
+    });
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    state=point_edit_enabled_state(session.document(),target);
+    check(replacement_required&&replaced&&state.literal==false&&state.expression==Expression{"false",1}&&
+        !state.evaluated&&!visible_child<QCheckBox>(window,"point-edit-enabled")->isEnabled(),
+        "Inspector requires explicit replacement and preserves the authored literal when replacing the expression");
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    driver->menu()->actions().at(2)->trigger();QApplication::processEvents();
+    state=point_edit_enabled_state(session.document(),target);checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
+    check(!state.expression&&!state.driver&&!state.literal&&!checkbox->isChecked()&&checkbox->isEnabled(),
+        "Inspector unlink freezes the evaluated expression and returns the literal checkbox to editing");
+    history_action(window,"Undo");
+    check(point_edit_enabled_state(session.document(),target).expression==Expression{"false",1}&&
+        !point_edit_enabled_state(session.document(),target).evaluated,
+        "Undo restores the exact replaced Point Edit expression source");
+    history_action(window,"Redo");
+    session.apply({EnablePointEdit{"window-expression-source",true}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!point_edit_enabled_state(session.document(),target).expression&&
+        !point_edit_enabled_state(session.document(),target).literal&&
+        window.canvas->evaluated_values().at(target_point)==fallback,
+        "Redo keeps the frozen target independent of later source changes");
 }
 void gradient_authoring(Window& window) {
     auto& session=window.host.session;
@@ -5205,7 +5348,8 @@ int main(int argc,char** argv) {
         Window source_picker(temp.path()+"/source-picker");source_picker.show();QApplication::processEvents();
         scalar_source_path_picker(source_picker);source_picker.hide();
         {Window enabled_links(temp.path()+"/enabled-links");enabled_links.show();QApplication::processEvents();
-            single_operation_enabled_source(enabled_links);point_edit_enabled_source(enabled_links);enabled_links.hide();}
+            single_operation_enabled_source(enabled_links);point_edit_enabled_source(enabled_links);
+            point_edit_enabled_expression(enabled_links);enabled_links.hide();}
         Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
         gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
         boards.hide();

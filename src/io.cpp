@@ -688,10 +688,13 @@ j::object point_edit_enabled_property_json(const Document& d,const Ref& ref,bool
 }
 j::object point_edit_enabled_state_json(const Document& d,const Ref& ref,const PointEditEnabledProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
+    j::object authored{{"literal",value.literal},{"driver",std::move(driver)},
+        {"source_kind",value.driver?"link":value.expression?"expression":"literal"}};
+    if(value.expression)authored["expression"]=expression_json(*value.expression);
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
         {"unit","boolean"},{"space","local"},{"origin","authored"},
-        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
-        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+        {"authored",std::move(authored)},
+        {"evaluated",value.evaluated},{"link",true},{"expression",true}};
 }
 j::object text_readonly_property_json(const Document& d,const Ref& ref,const TextPropertyValue& value) {
     const auto type=value.kind==TextPropertyKind::string?"string":"enum";
@@ -727,17 +730,24 @@ Primitive read_primitive(const j::value& v,bool allow_polystar=true,bool allow_e
         s.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
     return s;
 }
-PointEdit read_point_edit(const j::value& v,bool allow_expression=true,bool allow_enabled_driver=false) {
+PointEdit read_point_edit(const j::value& v,bool allow_expression=true,bool allow_enabled_driver=false,
+    bool allow_enabled_expression=false) {
     const auto& o=v.as_object();
     if(!allow_enabled_driver&&o.contains("enabled_driver"))
         throw Error("UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER","Point Edit enabled drivers require native 0.32 and the dedicated link command");
-    if(allow_enabled_driver)keys(o,{"id","type","version","enabled","overrides","enabled_driver"});
+    if(!allow_enabled_expression&&o.contains("enabled_expression"))
+        throw Error("UNSUPPORTED_POINT_EDIT_ENABLED_EXPRESSION","Point Edit enabled expressions require native 0.70 and the dedicated expression command");
+    if(allow_enabled_expression)keys(o,{"id","type","version","enabled","overrides","enabled_driver","enabled_expression"});
+    else if(allow_enabled_driver)keys(o,{"id","type","version","enabled","overrides","enabled_driver"});
     else keys(o,{"id","type","version","enabled","overrides"});
     if(text(o.at("type"))!="nect.path.point-edit")throw Error("UNSUPPORTED_OPERATOR",text(o.at("type")));
     PointEdit edit{text(o.at("id")),j::value_to<unsigned>(o.at("version")),o.at("enabled").as_bool(),{}};
     if(const auto* driver=o.if_contains("enabled_driver")) {
         const auto& wrapper=driver->as_object();keys(wrapper,{"link"});edit.enabled_driver=read_ref(wrapper.at("link"));
     }
+    if(const auto* expression=o.if_contains("enabled_expression"))edit.enabled_expression=read_expression(*expression);
+    if(edit.enabled_driver&&edit.enabled_expression)
+        throw Error("INVALID_POINT_EDIT_ENABLED_SOURCE","Point Edit enabled link and expression are mutually exclusive");
     for(const auto& p:o.at("overrides").as_object()) {
         auto& fields=edit.overrides[std::string(p.key())];
         for(const auto& f:p.value().as_object())fields.emplace(std::string(f.key()),read_scalar(f.value(),allow_expression));
@@ -757,6 +767,7 @@ j::value point_edit_json(const PointEdit& edit) {
     j::object result{{"id",edit.id},{"type","nect.path.point-edit"},{"version",edit.version},
         {"enabled",edit.enabled},{"overrides",overrides}};
     if(edit.enabled_driver)result["enabled_driver"]=j::object{{"link",ref_json(*edit.enabled_driver)}};
+    if(edit.enabled_expression)result["enabled_expression"]=expression_json(*edit.enabled_expression);
     return result;
 }
 
@@ -1898,6 +1909,11 @@ Command read_command(const j::value& v) {
         keys(o,{"type","target","source","replace_driver"});
         return LinkPointEditEnabled{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
     }
+    if(type=="set_point_edit_enabled_expression") {
+        keys(o,{"type","target","expression","replace_driver"});
+        return SetPointEditEnabledExpression{read_ref(o.at("target")),read_expression(o.at("expression")),
+            o.at("replace_driver").as_bool()};
+    }
     if(type=="unlink_point_edit_enabled") {
         keys(o,{"type","target"});return UnlinkPointEditEnabled{read_ref(o.at("target"))};
     }
@@ -2054,10 +2070,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,69> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69"};
+        constexpr std::array<std::string_view,70> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.69 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.70 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -2187,7 +2203,7 @@ Document decode(std::string_view input) {
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
                     obj.source=read_primitive(o.at("source"),minor>=8,minor>=10);
-                    if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"),minor>=10,minor>=32);
+                    if(o.contains("point_edit"))obj.point_edit=read_point_edit(o.at("point_edit"),minor>=10,minor>=32,minor>=70);
                 } else {
                     if(o.contains("point_edit"))throw Error("INVALID_POINT_EDIT","Point Edit needs a retained generator");
                     for(const auto& c:o.at("contours").as_array())obj.contours.push_back(read_contour(c,minor>=10));
@@ -2653,7 +2669,8 @@ std::string request(Session& session,std::string_view input) {
                 if(ref.field.starts_with("point_edit.")&&ref.field.ends_with(".enabled")) {
                     const auto& point_edit=*session.document().objects.at(ref.object).point_edit;
                     list.push_back(point_edit_enabled_state_json(session.document(),ref,
-                        {point_edit.enabled,point_edit.enabled_driver,point_edit_enabled_values.at(ref)}));
+                        {point_edit.enabled,point_edit.enabled_driver,point_edit.enabled_expression,
+                            point_edit_enabled_values.at(ref)}));
                     continue;
                 }
                 if(ref.field.starts_with("op.")&&ref.field.find(".gradient.")!=std::string::npos&&ref.field.ends_with(".enabled")) {

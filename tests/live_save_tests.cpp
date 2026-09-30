@@ -214,7 +214,7 @@ void text_weight_expression_save_as(const QString& directory,const QString& nect
     const auto destination=directory+"/weight-expression-destination.nect";
     host.save(destination);const auto destination_bytes=bytes(destination);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.69\"")&&
+        destination_bytes.contains("\"version\":\"0.70\"")&&
         destination_bytes.contains("\"offset\":200")&&
         load_native(destination).document.objects.at("weight-target").text->weight_expression==expression&&
         load_native(destination).document.objects.at("weight-relative-target").text->weight_driver==
@@ -272,7 +272,7 @@ void object_visibility_expression_save_as(const QString& directory,const QString
     const auto saved=load_native(destination).document;
     const auto saved_state=object_visibility_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.69\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.70\"")&&saved==committed&&
         saved_state.literal&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated,
         "Host Save As keeps the exact Object visibility expression and leaves original bytes unchanged");
     Host reopened(directory+"/visibility-expression-cold-recovery");reopened.open(destination);
@@ -314,7 +314,7 @@ void composite_isolation_expression_save_as(const QString& directory,const QStri
     const auto saved=load_native(destination).document;
     const auto saved_state=composite_isolation_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.69\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.70\"")&&saved==committed&&
         saved_state.literal==false&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated&&
         saved.objects.at("composite-isolation-target").compositing.isolated_expression==expression,
         "Host Save As keeps exact Composite isolation expression and leaves original bytes unchanged");
@@ -367,7 +367,7 @@ void operation_enabled_expression_save_as(const QString& directory,const QString
     host.save(destination);const auto destination_bytes=bytes(destination);
     const auto saved=load_native(destination).document;const auto saved_state=operation_enabled_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-          destination_bytes.contains("\"version\":\"0.69\"")&&saved==committed&&
+          destination_bytes.contains("\"version\":\"0.70\"")&&saved==committed&&
           saved_state.literal==false&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated,
           "Host Save As preserves the authored operation literal, exact expression and original file bytes");
     Host reopened(directory+"/operation-enabled-expression-cold-recovery");reopened.open(destination);
@@ -415,7 +415,7 @@ void mask_enabled_expression_save_as(const QString& directory,const QString& nec
     host.save(destination);const auto destination_bytes=bytes(destination);
     const auto saved=load_native(destination).document;const auto saved_state=geometry_mask_enabled_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.69\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.70\"")&&saved==committed&&
         saved_state.literal==false&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated&&
         saved.objects.at("mask-expression-target").compositing.mask->id=="mask-expression-target-id",
         "Host Save As preserves mask ID, authored literal, exact expression and original source bytes");
@@ -1007,7 +1007,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_width=artboard_layout_property(persisted,grid_width_ref);
     const auto persisted_grid_height=artboard_layout_property(persisted,grid_height_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.69\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.70\"")&&
         bytes(original)==original_bytes&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&
@@ -1191,6 +1191,80 @@ void linked_point_edit_save_as(const QString& directory) {
           bytes(destination)==destination_bytes,
           "Re-enabling the cold-opened source restores the target override without changing destination bytes");
 }
+void point_edit_enabled_expression_save_as(const QString& directory) {
+    Host host(directory+"/point-edit-expression-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    const Id source_object="expression-save-source",source_generator="expression-save-source-generator";
+    const Id target_object="expression-save-target",target_generator="expression-save-target-generator";
+    const Ref source_point{source_object,source_generator+"-east","x"};
+    const Ref target_point{target_object,target_generator+"-east","x"};
+    host.session.apply({CreatePrimitive{composition,"",source_object,"Source",default_primitive(source_generator,"nect.shape.circle")},
+        CreatePrimitive{composition,"",target_object,"Target",default_primitive(target_generator,"nect.shape.circle")}},
+        host.session.revision());host.edited();
+    const auto fallback=evaluate(host.session.document()).at(target_point);
+    const auto target_override=fallback+44;
+    host.session.apply({Set{source_point,380},Set{target_point,target_override},EnablePointEdit{source_object,false},
+        EnablePointEdit{target_object,false}},host.session.revision());host.edited();
+    const auto source_ref=point_edit_enabled_ref(source_object,source_generator+"-point-edit");
+    const auto target_ref=point_edit_enabled_ref(target_object,target_generator+"-point-edit");
+    const Expression expression{"!ref(\""+source_object+"\",\"\",\"point_edit."+
+        source_generator+"-point-edit.enabled\")",1};
+    host.session.apply({SetPointEditEnabledExpression{target_ref,expression}},host.session.revision());host.edited();
+    const auto initial=host.session.document();
+    check(point_edit_enabled_state(initial,target_ref).expression==expression&&
+          !point_edit_enabled_state(initial,target_ref).literal&&point_edit_enabled_state(initial,target_ref).evaluated&&
+          evaluate(initial).at(target_point)==target_override,
+          "Point Edit expression enables the exact saved target override while retaining the authored literal");
+    const auto original=directory+"/point-edit-expression-source.nect";
+    host.save(original);host.recover();
+    const auto original_bytes=bytes(original);
+    check(original_bytes==QByteArray::fromStdString(encode(initial)),
+          "Original expression source bytes match the committed Document");
+
+    host.session.apply({EnablePointEdit{source_object,true}},host.session.revision());host.edited();
+    const auto committed=host.session.document();
+    const auto committed_revision=host.session.revision();
+    const auto saved_revision=host.persistence()["saved_revision"].toInteger(-1);
+    check(point_edit_enabled_state(committed,target_ref).expression==expression&&
+          !point_edit_enabled_state(committed,target_ref).literal&&
+          !point_edit_enabled_state(committed,target_ref).evaluated&&
+          evaluate(committed).at(target_point)==fallback&&host.dirty(),
+          "Source true bypasses the target while preserving its exact expression, literal and overrides");
+    const auto invalid=directory+"/missing-point-edit-expression-parent/failed.nect";
+    rejects("IO_ERROR",[&]{host.save(invalid);});
+    check(!QFile::exists(invalid)&&host.file_path==native_path(original)&&host.dirty()&&
+          host.session.revision()==committed_revision&&host.session.document()==committed&&
+          host.persistence()["saved_revision"].toInteger(-1)==saved_revision&&bytes(original)==original_bytes,
+          "Failed expression Save As preserves the active binding, authored bytes and persistence state");
+
+    const auto destination=directory+"/point-edit-expression-destination.nect";
+    host.save(destination);host.recover();
+    const auto destination_bytes=bytes(destination);
+    const auto saved=load_native(destination).document;
+    const auto saved_state=point_edit_enabled_state(saved,target_ref);
+    check(host.file_path==native_path(destination)&&!host.dirty()&&saved==committed&&
+          destination_bytes==QByteArray::fromStdString(encode(committed))&&bytes(original)==original_bytes&&
+          saved.objects.at(source_object).point_edit->id==source_generator+"-point-edit"&&
+          saved.objects.at(target_object).point_edit->id==target_generator+"-point-edit"&&
+          saved.objects.at(target_object).point_edit->overrides.at(target_point.point).at("x").literal==target_override&&
+          !saved_state.literal&&!saved_state.evaluated&&saved_state.expression==expression&&
+          evaluate(saved).at(target_point)==fallback,
+          "Save As retains both stable correction IDs, exact expression, false literal and generator fallback");
+
+    Host reopened(directory+"/point-edit-expression-cold-recovery");reopened.open(destination);
+    check(reopened.session.document()==committed&&reopened.session.revision()==0&&
+          point_edit_enabled_state(reopened.session.document(),target_ref).expression==expression&&
+          !point_edit_enabled_state(reopened.session.document(),target_ref).evaluated&&
+          evaluate(reopened.session.document()).at(target_point)==fallback,
+          "Cold destination reopen restores the exact Point Edit expression and bypass result");
+    reopened.session.apply({EnablePointEdit{source_object,false}},reopened.session.revision());
+    check(point_edit_enabled_state(reopened.session.document(),target_ref).evaluated&&
+          evaluate(reopened.session.document()).at(target_point)==target_override&&
+          reopened.session.document().objects.at(target_object).point_edit->id==target_generator+"-point-edit"&&
+          bytes(destination)==destination_bytes,
+          "Re-enabling the cold-opened source restores the target override without changing saved bytes");
+    (void)source_ref;
+}
 void linked_mask_save_as(const QString& directory) {
     Host host(directory+"/linked-mask-recovery");
     const auto composition=host.session.document().compositions.front().id;
@@ -1352,7 +1426,8 @@ int main(int argc,char** argv) {
         point_edit_save_as(temp.path());artboard_size_save_as(temp.path());
         layout_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         linked_margin_left_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
-        linked_point_edit_save_as(temp.path());linked_mask_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
+        linked_point_edit_save_as(temp.path());point_edit_enabled_expression_save_as(temp.path());
+        linked_mask_save_as(temp.path());independent_failures(temp.path());identity_drain(temp.path());
         std::cout<<"PASS asynchronous snapshots, typed expression and linked Margin, Grid, Point Edit and mask Save As preservation, failure atomicity, conflict recovery and Session drain\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

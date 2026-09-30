@@ -504,7 +504,7 @@ try:
         frozen_after=core('get',ref=target_gradient_ref)['result']
         assert frozen['authored']==dict(literal=False,driver=None,source_kind='literal') and frozen['evaluated'] is False and frozen_after==frozen
         mcp_native=core('inspect')['result']
-        assert mcp_native['version']=='0.69' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
+        assert mcp_native['version']=='0.70' and core('get',ref=target_gradient_ref)['result']==frozen, (mcp_native.get('version'),core('get',ref=target_gradient_ref)['result'],frozen)
         stop_ref=dict(object='path-0',point='',field='op.motif-fill.gradient.motif-gradient.stop.start-stop.r')
         rev=apply([dict(type='set',ref=stop_ref,value=.75),dict(type='link',
             target=dict(object='path-1',point='',field='stroke.r'),
@@ -655,7 +655,7 @@ try:
         grid_columns_native=core('inspect')['result']
         grid_columns_layout=next(board for board in grid_columns_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert grid_columns_native['version']=='0.69' and grid_columns_layout['columns']==2 and \
+        assert grid_columns_native['version']=='0.70' and grid_columns_layout['columns']==2 and \
             grid_columns_layout['columns_driver']==dict(link=grid_columns_source_ref) and \
             grid_columns_layout['rows']==1 and grid_columns_layout['rows_driver']==dict(link=grid_rows_source_ref)
         source_grid_layout=dict(grid=dict(id='mcp-grid-columns-source',bounds=dict(x=0,y=0,width=10,height=20),
@@ -676,7 +676,7 @@ try:
         assert grid_columns_expressed['authored']==dict(literal=2,driver=None,expression=grid_columns_expression,
             source_kind='expression') and grid_columns_expressed['evaluated']==4 and \
             next(item for item in core('properties')['result'] if item['ref']==target_grid_columns_ref)==grid_columns_expressed and \
-            grid_columns_expression_native['version']=='0.69' and \
+            grid_columns_expression_native['version']=='0.70' and \
             grid_columns_expression_layout['columns_expression']==grid_columns_expression and \
             'columns_driver' not in grid_columns_expression_layout
         rows_source_layout=dict(grid=dict(id='mcp-grid-rows-source',bounds=dict(x=0,y=0,width=100,height=100),
@@ -697,7 +697,7 @@ try:
         assert grid_rows_expressed['authored']==dict(literal=1,driver=None,expression=grid_rows_expression,
             source_kind='expression') and grid_rows_expressed['evaluated']==4 and \
             next(item for item in core('properties')['result'] if item['ref']==target_grid_rows_ref)==grid_rows_expressed and \
-            grid_rows_expression_native['version']=='0.69' and \
+            grid_rows_expression_native['version']=='0.70' and \
             grid_rows_expression_layout['rows_expression']==grid_rows_expression and 'rows_driver' not in grid_rows_expression_layout
         rows_source_layout['grid']['rows']=2
         rev=apply([dict(type='set_artboard_layout',composition=comp['id'],
@@ -803,7 +803,7 @@ try:
             if board['id']==first['id'])['layout']['grid']
         margin_top_native=next(board for board in grid_y_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert grid_y_native['version']=='0.69' and grid_y_layout['bounds_y_expression']==dict(
+        assert grid_y_native['version']=='0.70' and grid_y_layout['bounds_y_expression']==dict(
             source=grid_y_expression,version=1) and 'bounds_y_driver' not in grid_y_layout and \
             grid_y_layout['bounds_width_expression']==dict(source=grid_width_expression,version=1) and \
             'bounds_width_driver' not in grid_y_layout and \
@@ -850,7 +850,7 @@ try:
         row_gutter_expression_native=core('inspect')['result']
         row_gutter_expression_layout=next(board for board in row_gutter_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert row_gutter_expression_native['version']=='0.69' and \
+        assert row_gutter_expression_native['version']=='0.70' and \
             row_gutter_expression_layout['row_gutter_expression']==dict(source=grid_row_gutter_expression,version=1) and \
             'row_gutter_driver' not in row_gutter_expression_layout
         blocked_row_gutter_replacement=core('apply',expected_revision=rev,commands=[
@@ -877,7 +877,7 @@ try:
         column_gutter_expression_native=core('inspect')['result']
         column_gutter_expression_layout=next(board for board in column_gutter_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert column_gutter_expression_native['version']=='0.69' and \
+        assert column_gutter_expression_native['version']=='0.70' and \
             column_gutter_expression_layout['column_gutter_expression']==dict(source=grid_column_gutter_expression,version=1) and \
             'column_gutter_driver' not in column_gutter_expression_layout
         blocked_column_gutter_replacement=core('apply',expected_revision=rev,commands=[
@@ -901,7 +901,7 @@ try:
         expression_native=core('inspect')['result']
         expression_layout=next(board for board in expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['grid']
-        assert expression_native['version']=='0.69' and expression_layout['bounds_x_expression']==dict(
+        assert expression_native['version']=='0.70' and expression_layout['bounds_x_expression']==dict(
             source=grid_expression,version=1) and 'bounds_x_driver' not in expression_layout
         margin_expression='ref("mcp-margin-upstream","","artboard.width") + 10'
         rev=apply([dict(type='set_margin_left_expression',target=target_margin_ref,
@@ -913,7 +913,7 @@ try:
         margin_expression_native=core('inspect')['result']
         margin_expression_layout=next(board for board in margin_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']
-        assert margin_expression_native['version']=='0.69' and margin_expression_layout['margin']['left_expression']==dict(
+        assert margin_expression_native['version']=='0.70' and margin_expression_layout['margin']['left_expression']==dict(
             source=margin_expression,version=1) and 'left_driver' not in margin_expression_layout['margin'] and \
             margin_expression_layout['margin']['top_driver']==dict(link=margin_top_source_ref)
         margin_top_expression='ref("mcp-margin-upstream","","artboard.height") + 10'
@@ -927,7 +927,7 @@ try:
         margin_top_expression_native=core('inspect')['result']
         margin_top_expression_layout=next(board for board in margin_top_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert margin_top_expression_native['version']=='0.69' and margin_top_expression_layout['top_expression']==dict(
+        assert margin_top_expression_native['version']=='0.70' and margin_top_expression_layout['top_expression']==dict(
             source=margin_top_expression,version=1) and 'top_driver' not in margin_top_expression_layout
         margin_right_expression='ref("mcp-margin-source","","artboard.width") + 10'
         rev=apply([dict(type='set_margin_right_expression',target=target_margin_right_ref,
@@ -940,7 +940,7 @@ try:
         margin_right_expression_native=core('inspect')['result']
         margin_right_expression_layout=next(board for board in margin_right_expression_native['compositions'][0]['artboards']
             if board['id']==first['id'])['layout']['margin']
-        assert margin_right_expression_native['version']=='0.69' and margin_right_expression_layout['right_expression']==dict(
+        assert margin_right_expression_native['version']=='0.70' and margin_right_expression_layout['right_expression']==dict(
             source=margin_right_expression,version=1) and 'right_driver' not in margin_right_expression_layout
         rev=apply([dict(type='unlink_margin_right',target=target_margin_right_ref)],rev)
         margin_right_frozen=core('get',ref=target_margin_right_ref)['result']
@@ -1609,7 +1609,7 @@ try:
         assert core('get',ref=mask_enabled_ref)['result']['authored']==dict(literal=False,driver=None)
         expression_native=core('inspect')['result']
         expression_native_mask=next(o for o in expression_native['objects'] if o['id']=='mcp-masked-group')['compositing']['mask']
-        assert expression_native['version']=='0.69' and expression_native_mask['id']=='mcp-geometry-clip' and \
+        assert expression_native['version']=='0.70' and expression_native_mask['id']=='mcp-geometry-clip' and \
             expression_native_mask['enabled'] is False and expression_native_mask['enabled_expression']==dict(
                 source=mask_expression,version=1) and 'enabled_driver' not in expression_native_mask
         source_mask=core('inspect')['result']
@@ -1665,7 +1665,7 @@ try:
                         source=point_edit_source_ref,replace_driver=False)],rev)
         linked_point_edit=core('get',ref=point_edit_target_ref)['result']
         direct_point_edit=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=point_edit_target_ref)))
-        assert linked_point_edit['authored']==dict(literal=False,driver=dict(link=point_edit_source_ref))
+        assert linked_point_edit['authored']==dict(literal=False,driver=dict(link=point_edit_source_ref),source_kind='link')
         assert linked_point_edit['evaluated'] is True and linked_point_edit['link'] is True
         assert direct_point_edit['ok'] and direct_point_edit['result']==linked_point_edit
         assert next(value for value in core('properties')['result'] if value['ref']==point_edit_target_ref)==linked_point_edit
@@ -1675,7 +1675,7 @@ try:
         rev=apply([dict(type='enable_point_edit',object='mcp-point-edit-source',enabled=False)],rev)
         bypassed_point_edit=core('get',ref=point_edit_target_ref)['result']
         bypassed_point=core('get',ref=point_edit_target_point)['result']
-        assert bypassed_point_edit['authored']==dict(literal=False,driver=dict(link=point_edit_source_ref))
+        assert bypassed_point_edit['authored']==dict(literal=False,driver=dict(link=point_edit_source_ref),source_kind='link')
         assert bypassed_point_edit['evaluated'] is False and bypassed_point['evaluated']!=123
         rev=apply([dict(type='enable_point_edit',object='mcp-point-edit-source',enabled=True)],rev)
         assert core('get',ref=point_edit_target_ref)['result']['evaluated'] is True
@@ -1684,17 +1684,49 @@ try:
             expected_revision=rev,commands=[dict(type='unlink_point_edit_enabled',target=point_edit_target_ref)])))
         assert point_edit_unlink['ok'];rev=point_edit_unlink['revision']
         frozen_point_edit=core('get',ref=point_edit_target_ref)['result']
-        assert frozen_point_edit['authored']==dict(literal=True,driver=None) and frozen_point_edit['evaluated'] is True
+        assert frozen_point_edit['authored']==dict(literal=True,driver=None,source_kind='literal') and frozen_point_edit['evaluated'] is True
         assert core('undo',expected_revision=rev)['ok'];rev+=1
         undone_point_edit=core('get',ref=point_edit_target_ref)['result']
-        assert undone_point_edit['authored']==dict(literal=False,driver=dict(link=point_edit_source_ref))
+        assert undone_point_edit['authored']==dict(literal=False,driver=dict(link=point_edit_source_ref),source_kind='link')
         assert undone_point_edit['evaluated'] is True
         assert core('redo',expected_revision=rev)['ok'];rev+=1
-        assert core('get',ref=point_edit_target_ref)['result']['authored']==dict(literal=True,driver=None)
+        assert core('get',ref=point_edit_target_ref)['result']['authored']==dict(literal=True,driver=None,source_kind='literal')
         assert core('get',ref=point_edit_target_ref)['result']['evaluated'] is True
         rev=apply([dict(type='enable_point_edit',object='mcp-point-edit-source',enabled=False)],rev)
         assert core('get',ref=point_edit_target_ref)['result']['evaluated'] is True
         assert core('get',ref=point_edit_target_point)['result']['evaluated']==123
+        # The exact Point Edit expression also uses the formal MCP Session command.
+        rev=apply([dict(type='enable_point_edit',object='mcp-mask',enabled=False)],rev)
+        point_edit_expression=dict(source=f'!ref("mcp-point-edit-source","","{point_edit_source_ref["field"]}")',version=1)
+        expressed_point_edit=core('apply',expected_revision=rev,commands=[dict(type='set_point_edit_enabled_expression',
+            target=point_edit_target_ref,expression=point_edit_expression,replace_driver=False)])
+        assert expressed_point_edit['ok'] and expressed_point_edit['revision']==rev+1;rev=expressed_point_edit['revision']
+        expression_target=core('get',ref=point_edit_target_ref)['result']
+        direct_expression_target=desktop_api_call(endpoint,dict(identity,op='core',request=dict(op='get',ref=point_edit_target_ref)))
+        assert expression_target['authored']==dict(literal=False,driver=None,source_kind='expression',expression=point_edit_expression)
+        assert expression_target['evaluated'] is True and expression_target['expression'] is True
+        assert direct_expression_target['ok'] and direct_expression_target['result']==expression_target
+        assert next(value for value in core('properties')['result'] if value['ref']==point_edit_target_ref)==expression_target
+        assert core('get',ref=dict(object='mcp-mask',point='',field='point_edit.enabled'))['result']['expression'] is False
+        rev=apply([dict(type='enable_point_edit',object='mcp-point-edit-source',enabled=True)],rev)
+        expression_bypassed=core('get',ref=point_edit_target_ref)['result']
+        assert expression_bypassed['authored']['expression']==point_edit_expression and expression_bypassed['evaluated'] is False
+        assert core('get',ref=point_edit_target_point)['result']['evaluated']!=123
+        rev=apply([dict(type='enable_point_edit',object='mcp-point-edit-source',enabled=False)],rev)
+        assert core('get',ref=point_edit_target_ref)['result']['evaluated'] is True
+        assert core('get',ref=point_edit_target_point)['result']['evaluated']==123
+        point_edit_expression_unlink=core('apply',expected_revision=rev,commands=[dict(type='unlink_point_edit_enabled',
+            target=point_edit_target_ref)])
+        assert point_edit_expression_unlink['ok'];rev=point_edit_expression_unlink['revision']
+        frozen_expression_point_edit=core('get',ref=point_edit_target_ref)['result']
+        assert frozen_expression_point_edit['authored']==dict(literal=True,driver=None,source_kind='literal')
+        assert frozen_expression_point_edit['evaluated'] is True
+        expression_undo=core('undo',expected_revision=rev)
+        assert expression_undo['ok'];rev=expression_undo['revision']
+        assert core('get',ref=point_edit_target_ref)['result']==expression_target
+        expression_redo=core('redo',expected_revision=rev)
+        assert expression_redo['ok'];rev=expression_redo['revision']
+        assert core('get',ref=point_edit_target_ref)['result']==frozen_expression_point_edit
         # Retained Offset also shapes a hidden mask source through formal MCP.
         offset_template=next(v['template'] for v in core('operator_types')['result'] if v['type']=='nect.shape.offset')
         offset_template['id']='mcp-offset';offset_template['line_join']='round'
@@ -1958,7 +1990,7 @@ try:
         assert recovery_receipt['source_file']==destination_live['file']
         assert recovery_receipt['revision']==rev and recovery_receipt['sha256']==hashlib.sha256(original_recovery.read_bytes()).hexdigest()
         native_save_as=json.loads(destination_bytes.decode('utf-8'))
-        assert native_save_as['version']=='0.69'
+        assert native_save_as['version']=='0.70'
         native_objects={obj['id']:obj for obj in native_save_as['objects']}
         saved_gradient_operation=next(operation for operation in ordinary_stack_operations(native_objects['path-1'])
             if operation['id']=='path-1-stroke')
@@ -2102,7 +2134,7 @@ try:
         native_expression_target=next(operation for operation in ordinary_stack_operations(
             next(obj for obj in operation_expression_native['objects'] if obj['id']=='mcp-fill-target'))
             if operation['id']=='mcp-target-fill')
-        assert operation_expression_native['version']=='0.69' and native_expression_target['enabled'] is True and \
+        assert operation_expression_native['version']=='0.70' and native_expression_target['enabled'] is True and \
             native_expression_target['enabled_expression']==operation_expression and 'enabled_driver' not in native_expression_target
         failed_operation_expression=core('apply',expected_revision=fill_rev,commands=[
             dict(type='enable_operation',object='mcp-fill-source',operation='mcp-source-fill',enabled=False),
@@ -2131,7 +2163,7 @@ try:
         assert isolation_metadata==isolation
         isolation_native=core('inspect')['result']
         native_isolation=next(obj for obj in isolation_native['objects'] if obj['id']=='mcp-fill-target')['compositing']
-        assert isolation_native['version']=='0.69' and native_isolation['isolated'] is False and \
+        assert isolation_native['version']=='0.70' and native_isolation['isolated'] is False and \
             native_isolation['isolated_expression']==isolation_expression and 'isolated_driver' not in native_isolation
         isolation_plan=core('compositing_plan',composition=comp['id'])['result']
         assert next(node for node in isolation_plan['roots'] if node['object']=='mcp-fill-target')['isolated'] is True
@@ -2171,7 +2203,8 @@ try:
             automatic_native_and_recovery_receipts=True, recovery_op_detaches_source=True, image_lifecycle_native_recovery=True,
             typed_text_save_as=True, stale_save_identity_and_revision_rejected=True, invalid_save_as_atomic=True,
             save_as_recovery_provenance=True, save_as_destination_cold_open=True, fill_rule_link=True,
-            operation_enabled_link=True, operation_enabled_expression=True, grid_bounds_width_link=True,
+            operation_enabled_link=True, operation_enabled_expression=True, point_edit_enabled_expression=True,
+            grid_bounds_width_link=True,
             composite_isolation_expression=True, gradient_enabled_expression=True,
             gradient_expression_save_as_cold_open=True,
             gui_save_as_acceptance=False, gui_performance_claim=False)

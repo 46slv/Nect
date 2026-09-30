@@ -7,6 +7,24 @@ Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
 same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
+## Point Edit enabled expression v1
+
+Native 0.70 adds optional `enabled_expression` to an installed procedural Path
+Point Edit, beside its authored enabled literal and existing exact link. Link
+and expression are mutually exclusive. The closed version-1 source is `true`,
+`false`, a same-Composition `Ref{Object ID,"","point_edit.<correction ID>.enabled"}`
+on a distinct installed correction, or its negation. Evaluation uses the source
+correction's evaluated enabled result and is independent of visibility and
+generated geometry. The literal, correction ID, overrides and exact expression
+text remain authored. The qualified Ref exposes the expression source; the
+unqualified owner slot `point_edit.enabled` remains literal-only. Linking with
+explicit replacement clears an expression, while unlink freezes the evaluated
+boolean in one Session command. Clearing, converting or deleting a referenced
+correction is refused while a dependent survives, including a same-batch
+clear-and-recreate that would reuse the deterministic correction ID. Native
+0.1–0.69 remain readable; an expression under an older version or beside a
+link is rejected. The closed wire shape is `schemas/native-v0.70.schema.json`.
+
 ## Retained Gradient enabled expression v1
 
 Native 0.69 adds optional `enabled_expression` to a retained Fill/Stroke Gradient,

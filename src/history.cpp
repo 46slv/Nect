@@ -104,7 +104,7 @@ std::size_t extra(const Point& v){return total(extra(v.id),extra(v.x),extra(v.y)
 std::size_t extra(const Contour& v){return total(extra(v.id),extra(v.points));}
 std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content),extra(v.family),extra(v.locale),extra(v.layout),extra(v.direction),extra(v.alignment),extra(v.content_driver),extra(v.family_driver),extra(v.locale_driver),extra(v.direction_driver),extra(v.layout_driver),extra(v.alignment_driver),extra(v.weight_driver),extra(v.weight_expression),extra(v.italic_driver),extra(v.parameters));}
 std::size_t extra(const Primitive& v){return total(extra(v.id),extra(v.type),extra(v.parameters));}
-std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides),extra(v.enabled_driver));}
+std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides),extra(v.enabled_driver),extra(v.enabled_expression));}
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
 std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops),extra(v.enabled_driver),extra(v.enabled_expression));}
 std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.enabled_driver),extra(v.enabled_expression),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.fill_rule_driver),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
@@ -188,7 +188,8 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
     if(const auto* command=std::get_if<UnlinkGradientEnabled>(&commands.front()))
         return "Unlink Gradient enabled: "+property_label(command->target);
     if(const auto* command=std::get_if<LinkPointEditEnabled>(&commands.front()))
-        return "Link Point Edit enabled: "+property_label(command->target);
+        return std::string(std::holds_alternative<Expression>(command->source)?
+            "Set Point Edit enabled expression: ":"Link Point Edit enabled: ")+property_label(command->target);
     if(const auto* command=std::get_if<UnlinkPointEditEnabled>(&commands.front()))
         return "Unlink Point Edit enabled: "+property_label(command->target);
     if(const auto* command=std::get_if<LinkArtboardSize>(&commands.front()))

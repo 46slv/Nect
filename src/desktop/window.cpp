@@ -3509,16 +3509,20 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         enabled->setObjectName("point-edit-enabled");
         enabled->setAccessibleName("Point Edit enabled");
         enabled->setChecked(o.point_edit && o.point_edit->enabled);
-        enabled->setEnabled(o.point_edit.has_value()&&(!point_edit_state||!point_edit_state->driver));
+        const bool point_edit_driven=point_edit_state&&(point_edit_state->driver||point_edit_state->expression);
+        enabled->setEnabled(o.point_edit.has_value()&&!point_edit_driven);
         enabled_layout->addWidget(enabled);
         auto* enabled_driver=new QToolButton(enabled_row);enabled_driver->setObjectName("point-edit-enabled-driver");
-        enabled_driver->setText(point_edit_state&&point_edit_state->driver?"Driver…":"Link…");
+        enabled_driver->setText(point_edit_state&&point_edit_state->expression?"Expression…":
+            point_edit_state&&point_edit_state->driver?"Driver…":"Link…");
         enabled_driver->setPopupMode(QToolButton::InstantPopup);
         auto* enabled_driver_menu=new QMenu(enabled_driver);enabled_driver->setMenu(enabled_driver_menu);
-        auto* link_enabled=enabled_driver_menu->addAction(point_edit_state&&point_edit_state->driver
+        auto* link_enabled=enabled_driver_menu->addAction(point_edit_driven
             ?"Replace enabled source…":"Link enabled source…");
+        auto* expression_enabled=enabled_driver_menu->addAction(point_edit_driven
+            ?"Replace enabled source with expression…":"Set enabled expression…");
         auto* unlink_enabled=enabled_driver_menu->addAction("Unlink and freeze evaluated value");
-        unlink_enabled->setEnabled(point_edit_state&&point_edit_state->driver.has_value());
+        unlink_enabled->setEnabled(point_edit_driven);
         enabled_layout->addWidget(enabled_driver);enabled_layout->addStretch();correction->addRow(enabled_row);
         auto* enabled_status=new QLabel;enabled_status->setObjectName("point-edit-enabled-state");
         enabled_status->setWordWrap(true);
@@ -3531,7 +3535,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             const auto point_edit_id=field.substr(std::string("point_edit.").size(),
                 field.size()-std::string("point_edit.").size()-std::string(".enabled").size());
             enabled_source=source_name+" / Point Edit ["+qs(point_edit_id)+"]";
-        }
+        } else if(point_edit_state&&point_edit_state->expression)
+            enabled_source="expression: "+qs(point_edit_state->expression->source);
         enabled_status->setText(point_edit_state
             ?QString("Correction: present · Authored literal: %1 · Evaluated enabled: %2 · Source: %3")
                 .arg(point_edit_state->literal?"true":"false",point_edit_state->evaluated?"true":"false",enabled_source)
@@ -3560,7 +3565,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         const auto point_edit_revision=host.session.revision();
         connect(link_enabled,&QAction::triggered,this,[this,point_edit_ref,point_edit_session,
             point_edit_revision,point_edit_sources,point_edit_source_labels,
-            replace=point_edit_state&&point_edit_state->driver.has_value()]( ) {
+            replace=point_edit_driven]( ) {
             choose_boolean_source(this,"point-edit-enabled-source-dialog",
                 replace?"Replace Point Edit enabled link":"Link Point Edit enabled",
                 qs(point_edit_ref.object)+" / "+qs(point_edit_ref.field),point_edit_sources,point_edit_source_labels,
@@ -3570,6 +3575,43 @@ void Window::rebuild_inspector(bool use_canvas_values) {
                 host.session.apply({LinkPointEditEnabled{point_edit_ref,source,replace}},point_edit_revision);
                 host.edited();
             });
+        });
+        connect(expression_enabled,&QAction::triggered,this,[this,point_edit_ref,point_edit_session,
+            point_edit_revision,initial=point_edit_state?point_edit_state->expression:std::optional<Expression>{},
+            replace_available=point_edit_driven] {
+            if(host.session_id!=point_edit_session) {
+                statusBar()->showMessage("SESSION_CONFLICT: Point Edit belongs to another document",12000);return;
+            }
+            QDialog dialog(this);dialog.setObjectName("point-edit-enabled-expression-dialog");
+            dialog.setWindowTitle(replace_available?"Replace Point Edit enabled source":"Set Point Edit enabled expression");
+            dialog.resize(560,220);auto* draft_layout=new QVBoxLayout(&dialog);
+            auto* target_label=new QLabel("Target: "+qs(point_edit_ref.object)+" / "+qs(point_edit_ref.field),&dialog);
+            target_label->setWordWrap(true);draft_layout->addWidget(target_label);
+            auto* source=new QPlainTextEdit(&dialog);source->setObjectName("point-edit-enabled-expression-source");
+            source->setPlaceholderText("true, false, ref(\"object-id\",\"\",\"point_edit.correction-id.enabled\"), or !ref(…)");
+            source->setPlainText(initial?qs(initial->source):"true");source->setMinimumHeight(58);draft_layout->addWidget(source);
+            auto* replace=new QCheckBox("Replace existing enabled source",&dialog);
+            replace->setObjectName("point-edit-enabled-expression-replace");replace->setEnabled(replace_available);
+            draft_layout->addWidget(replace);
+            auto* status=new QLabel("Version 1 accepts true, false, or an optional negation of a distinct installed Point Edit enabled Ref in this Composition. Apply commits one Session command; Cancel leaves the Session unchanged.",&dialog);
+            status->setObjectName("point-edit-enabled-expression-status");status->setWordWrap(true);
+            status->setTextFormat(Qt::PlainText);draft_layout->addWidget(status);
+            auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);draft_layout->addWidget(buttons);
+            connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+            connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
+                [this,&dialog,point_edit_ref,point_edit_session,point_edit_revision,source,replace,status] {
+                    try {
+                        if(host.session_id!=point_edit_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
+                        if(host.session.revision()!=point_edit_revision)
+                            throw Error("REVISION_CONFLICT","Point Edit enabled state changed while its expression draft was open");
+                        host.session.apply({SetPointEditEnabledExpression{point_edit_ref,
+                            {source->toPlainText().toStdString(),1},replace->isChecked()}},point_edit_revision);
+                        host.edited();dialog.accept();
+                    } catch(const Error& error) {
+                        status->setText(QString::fromLatin1(error.code.c_str())+": "+QString::fromUtf8(error.what()));
+                    }
+                });
+            dialog.exec();
         });
         connect(unlink_enabled,&QAction::triggered,this,[this,point_edit_ref,point_edit_session,point_edit_revision]{perform([&]{
             if(host.session_id!=point_edit_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
@@ -3584,8 +3626,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             : QString("No overrides yet. Edit a point or handle to add a correction."));
         summary->setObjectName("point-edit-summary");
         summary->setWordWrap(true);correction->addRow(summary);
-        const auto semantics_text=point_edit_state&&point_edit_state->driver
-            ?"The linked value selects saved overrides or generator fallback. Unlink freezes the evaluated bypass value."
+        const auto semantics_text=point_edit_driven
+            ?"The driven value selects saved overrides or generator fallback. Unlink freezes the evaluated bypass value."
             :point_edit_state&&!point_edit_state->evaluated
                 ?"Bypassed: the source shape is visible. Editing a point enables its correction again."
                 :"Edited fields hold absolute local values. Other fields continue to follow the source. Disable Point Edit to see the source shape.";

@@ -181,6 +181,7 @@ struct PointEdit {
     // Fields not present continue to evaluate from the source generator.
     std::map<Id,std::map<std::string,Scalar>> overrides;
     std::optional<Ref> enabled_driver;
+    std::optional<Expression> enabled_expression;
     bool operator==(const PointEdit&) const = default;
 };
 
@@ -533,7 +534,16 @@ struct ReorderObjects { Id composition; Id parent; std::vector<Id> order; };
 struct CreatePrimitive { Id composition; Id parent; Id id; std::string name; Primitive source; };
 struct EnablePointEdit { Id object; bool enabled; };
 struct ClearPointEdit { Id object; };
-struct LinkPointEditEnabled { Ref target; Ref source; bool replace_driver=false; };
+struct LinkPointEditEnabled {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    LinkPointEditEnabled(Ref target,Ref source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+    LinkPointEditEnabled(Ref target,Expression expression,bool replace=false)
+        :target(std::move(target)),source(std::move(expression)),replace_driver(replace){}
+};
+using SetPointEditEnabledExpression = LinkPointEditEnabled;
 struct UnlinkPointEditEnabled { Ref target; };
 struct ConvertToPath { Id object; };
 struct AddOperation { Id object; ShapeOperation operation; std::size_t index; };
@@ -1071,6 +1081,7 @@ Ref point_edit_enabled_ref(const Id& object,const Id& point_edit);
 struct PointEditEnabledProperty {
     bool literal=true;
     std::optional<Ref> driver;
+    std::optional<Expression> expression;
     bool evaluated=true;
 };
 PointEditEnabledProperty point_edit_enabled_state(const Document&,const Ref&);

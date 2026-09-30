@@ -16,14 +16,22 @@ Primitive circle() {return {"circle-source","nect.shape.circle",1,
 void point_edit_enabled_links() {
     Session s(empty_document("edit-doc","edit-comp","edit-art"));
     auto source_circle=circle();source_circle.id="source-generator";
+    auto other_circle=circle();other_circle.id="other-generator";
     s.apply({CreatePrimitive{"edit-comp","","target","Target",circle()},
-        CreatePrimitive{"edit-comp","","source","Source",source_circle}},0);
+        CreatePrimitive{"edit-comp","","source","Source",source_circle},
+        CreatePrimitive{"edit-comp","","other","Other",other_circle}},0);
     const Ref target_point{"target","circle-source-east","x"},source_point{"source","source-generator-east","x"};
-    s.apply({Set{target_point,210},Set{source_point,310}},1);
+    s.apply({Set{target_point,210},Set{source_point,310},
+        Set{{"other","other-generator-east","x"},320},EnablePointEdit{"other",false}},1);
     const auto target_ref=point_edit_enabled_ref("target","circle-source-point-edit");
     const auto source_ref=point_edit_enabled_ref("source","source-generator-point-edit");
+    const auto other_ref=point_edit_enabled_ref("other","other-generator-point-edit");
     s.apply({EnablePointEdit{"target",false}},2);
     s.apply({LinkPointEditEnabled{target_ref,source_ref}},3);
+    const auto linked_document=s.document();const auto linked_history=s.history();const auto linked_revision=s.revision();
+    s.apply({LinkPointEditEnabled{target_ref,source_ref}},linked_revision);
+    check(s.document()==linked_document&&s.history()==linked_history&&s.revision()==linked_revision,
+        "Exact Point Edit enabled link reapply is idempotent");
     auto state=point_edit_enabled_state(s.document(),target_ref);
     check(state.literal==false&&state.driver==source_ref&&state.evaluated&&
         evaluate(s.document()).at(target_point)==210&&property_origin(s.document(),target_point)=="point_edit",
@@ -42,13 +50,13 @@ void point_edit_enabled_links() {
     check(resolve_name(s.document(),"Target","","point_edit.circle-source-point-edit.enabled")==target_ref,
         "Unique-name resolution finds the exact retained correction Ref");
     const auto linked_bytes=encode(s.document());
-    check(linked_bytes.find("\"version\":\"0.69\"")!=std::string::npos&&
+    check(linked_bytes.find("\"version\":\"0.70\"")!=std::string::npos&&
         linked_bytes.find("\"enabled_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"point_edit.source-generator-point-edit.enabled\"}}")!=std::string::npos&&
         encode(decode(linked_bytes))==linked_bytes,
-        "Native 0.43 retains the optional closed driver and roundtrips without byte drift");
+        "Native 0.70 retains the optional closed driver and roundtrips without byte drift");
     auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_bytes);
-    const auto version_at=false_version.find("\"version\":\"0.69\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.69\"").size(),"\"version\":\"0.31\"");
+    const auto version_at=false_version.find("\"version\":\"0.70\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.31\"");
     rejects("UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER",[&]{(void)decode(false_version);});
     auto malformed=linked_bytes;
     const auto ref_at=malformed.find("point_edit.source-generator-point-edit.enabled");
@@ -57,7 +65,7 @@ void point_edit_enabled_links() {
 
     const auto prior_document=s.document();const auto prior_history=s.history();const auto prior_revision=s.revision();
     rejects("DRIVEN_PROPERTY",[&]{s.apply({EnablePointEdit{"target",true}},prior_revision);});
-    rejects("DRIVEN_PROPERTY",[&]{s.apply({LinkPointEditEnabled{target_ref,source_ref}},prior_revision);});
+    rejects("DRIVEN_PROPERTY",[&]{s.apply({LinkPointEditEnabled{target_ref,other_ref}},prior_revision);});
     rejects("REVISION_CONFLICT",[&]{s.apply({UnlinkPointEditEnabled{target_ref}},prior_revision-1);});
     rejects("DRIVEN_PROPERTY",[&]{s.apply({Set{target_point,220}},prior_revision);});
     check(s.document()==prior_document&&s.history()==prior_history&&s.revision()==prior_revision,
@@ -76,7 +84,7 @@ void point_edit_enabled_links() {
 
     const auto linked_before_same_id_edit=s.document();const auto same_id_revision=s.revision();
     s.apply({Set{{"source","","generator.radius"},60},Rename{"source","Renamed source"},
-        ReorderObjects{"edit-comp","",{"source","target"}}},same_id_revision);
+        ReorderObjects{"edit-comp","",{"source","target","other"}}},same_id_revision);
     check(point_edit_enabled_state(s.document(),target_ref).driver==source_ref&&
         point_edit_enabled_state(s.document(),target_ref).evaluated&&
         s.document().objects.at("source").point_edit->id=="source-generator-point-edit",
@@ -133,6 +141,126 @@ void point_edit_enabled_links() {
     }
     for(int i=0;i<chain-1;++i)deep.objects.at("node"+std::to_string(i)).point_edit->enabled_driver=
         point_edit_enabled_ref("node"+std::to_string(i+1),"generator"+std::to_string(i+1)+"-point-edit");
+    rejects("DEPENDENCY_DEPTH",[&]{validate(deep);});
+}
+void point_edit_enabled_expressions() {
+    Session session(empty_document("point-edit-expression-doc","point-edit-expression-comp","point-edit-expression-art"));
+    auto target_source=circle();target_source.id="expr-target-generator";
+    auto source_source=circle();source_source.id="expr-source-generator";
+    session.apply({CreatePrimitive{"point-edit-expression-comp","","expr-target","Target",target_source},
+        CreatePrimitive{"point-edit-expression-comp","","expr-source","Source",source_source}},0);
+    const Ref target_point{"expr-target","expr-target-generator-east","x"};
+    const Ref source_point{"expr-source","expr-source-generator-east","x"};
+    session.apply({Set{target_point,260},Set{source_point,360},EnablePointEdit{"expr-target",false},
+        EnablePointEdit{"expr-source",false}},1);
+    const auto target=point_edit_enabled_ref("expr-target","expr-target-generator-point-edit");
+    const auto source=point_edit_enabled_ref("expr-source","expr-source-generator-point-edit");
+    const Expression expression{" ! ref ( \"expr-source\" , \"\" , \"point_edit.expr-source-generator-point-edit.enabled\" ) ",1};
+    session.apply({SetPointEditEnabledExpression{target,expression}},2);
+    const auto state=point_edit_enabled_state(session.document(),target);
+    check(!state.literal&&!state.driver&&state.expression==expression&&state.evaluated&&
+        evaluate(session.document()).at(target_point)==260&&
+        session.document().objects.at("expr-target").point_edit->overrides.at(target_point.point).at("x").literal==260,
+        "Negated exact correction Ref enables the target override while retaining its false literal and exact source");
+    check(point_edit_enabled_property(session.document(),{"expr-target","","point_edit.enabled"})==false,
+        "The unqualified owner slot remains a literal-only read");
+    const auto qualified=request(session,R"({"op":"get","ref":{"object":"expr-target","point":"","field":"point_edit.expr-target-generator-point-edit.enabled"}})");
+    const auto owner=request(session,R"({"op":"get","ref":{"object":"expr-target","point":"","field":"point_edit.enabled"}})");
+    const auto list=request(session,R"({"op":"properties"})");
+    check(qualified.find("\"source_kind\":\"expression\"")!=std::string::npos&&
+        qualified.find("\"source\":\" ! ref ( \\\"expr-source\\\" , \\\"\\\" , \\\"point_edit.expr-source-generator-point-edit.enabled\\\" ) \"")!=std::string::npos&&
+        qualified.find("\"expression\":true")!=std::string::npos&&
+        owner.find("\"literal\":false")!=std::string::npos&&owner.find("\"expression\":false")!=std::string::npos&&
+        list.find("point_edit.expr-target-generator-point-edit.enabled")!=std::string::npos,
+        "Qualified reads expose exact expression capability while the owner slot stays literal-only");
+    const auto original=session.document();const auto original_history=session.history();const auto expression_revision=session.revision();
+    session.apply({SetPointEditEnabledExpression{target,expression}},expression_revision);
+    check(session.document()==original&&session.history()==original_history&&session.revision()==expression_revision,
+        "Exact expression reapply is idempotent");
+    rejects("DRIVEN_PROPERTY",[&]{session.apply({SetPointEditEnabledExpression{target,Expression{"false",1}}},expression_revision);});
+    rejects("DRIVEN_PROPERTY",[&]{session.apply({LinkPointEditEnabled{target,source}},expression_revision);});
+    rejects("DRIVEN_PROPERTY",[&]{session.apply({EnablePointEdit{"expr-target",true}},expression_revision);});
+    rejects("DRIVEN_PROPERTY",[&]{session.apply({Set{target_point,280}},expression_revision);});
+    check(session.document()==original&&session.history()==original_history&&session.revision()==expression_revision,
+        "Implicit source replacement, driven toggle, false-literal point edit and stale mutation preserve authored state and history");
+
+    session.apply({EnablePointEdit{"expr-source",true}},expression_revision);
+    check(!point_edit_enabled_state(session.document(),target).evaluated&&evaluate(session.document()).at(target_point)==150&&
+        session.document().objects.at("expr-target").point_edit->enabled==false&&
+        session.document().objects.at("expr-target").point_edit->enabled_expression==expression,
+        "Changing the source bypasses to generator geometry without modifying the target literal, expression or overrides");
+    session.apply({EnablePointEdit{"expr-source",false}},session.revision());
+    check(point_edit_enabled_state(session.document(),target).evaluated&&evaluate(session.document()).at(target_point)==260,
+        "Source false restores the same correction override");
+
+    auto native=encode(session.document());
+    check(native.find("\"version\":\"0.70\"")!=std::string::npos&&
+        native.find("\"enabled_expression\":{\"source\":\" ! ref (")!=std::string::npos&&
+        encode(decode(native))==native,
+        "Native 0.70 retains the exact expression and cold codec roundtrip without byte drift");
+    auto false_version=native;
+    const auto version_at=false_version.find("\"version\":\"0.70\"");
+    false_version.replace(version_at,std::string("\"version\":\"0.70\"").size(),"\"version\":\"0.69\"");
+    rejects("UNSUPPORTED_POINT_EDIT_ENABLED_EXPRESSION",[&]{(void)decode(false_version);});
+
+    auto atomic=[&](const char* code,std::vector<Command> commands) {
+        const auto before=session.document();const auto history=session.history();const auto revision=session.revision();
+        rejects(code,[&]{session.apply(std::move(commands),revision);});
+        check(session.document()==before&&session.history()==history&&session.revision()==revision,
+            "Rejected Point Edit expression command preserves Document, revision and history");
+    };
+    atomic("BOOLEAN_EXPRESSION_TYPE",{SetPointEditEnabledExpression{target,
+        Expression{"ref(\"expr-source\",\"\",\"point_edit.enabled\")",1}}});
+    atomic("BOOLEAN_EXPRESSION_TYPE",{SetPointEditEnabledExpression{target,
+        Expression{"ref(\"expr-source\",\"expr-source-generator-east\",\"point_edit.expr-source-generator-point-edit.enabled\")",1}}});
+    atomic("MISSING_POINT_EDIT",{SetPointEditEnabledExpression{target,
+        Expression{"ref(\"expr-source\",\"\",\"point_edit.missing-correction.enabled\")",1}}});
+    atomic("UNSUPPORTED_EXPRESSION_VERSION",{SetPointEditEnabledExpression{target,Expression{"true",2}}});
+    atomic("BOOLEAN_EXPRESSION_SYNTAX",{SetPointEditEnabledExpression{target,Expression{"true || false",1}}});
+    atomic("DEPENDENCY_CYCLE",{SetPointEditEnabledExpression{target,
+        Expression{"ref(\"expr-target\",\"\",\"point_edit.expr-target-generator-point-edit.enabled\")",1},true}});
+    atomic("POINT_EDIT_IN_USE",{ClearPointEdit{"expr-source"},Set{source_point,380}});
+    atomic("POINT_EDIT_IN_USE",{ConvertToPath{"expr-source"}});
+    atomic("POINT_EDIT_IN_USE",{DeleteObjects{{"expr-source"}}});
+
+    session.apply({LinkPointEditEnabled{target,source,true}},session.revision());
+    check(point_edit_enabled_state(session.document(),target).driver==source&&
+        !point_edit_enabled_state(session.document(),target).expression,
+        "Explicit link replacement clears the prior expression source");
+    const auto frozen=point_edit_enabled_state(session.document(),target).evaluated;
+    session.apply({UnlinkPointEditEnabled{target}},session.revision());
+    check(!point_edit_enabled_state(session.document(),target).driver&&
+        !point_edit_enabled_state(session.document(),target).expression&&
+        point_edit_enabled_state(session.document(),target).literal==frozen,
+        "Unlink freezes the evaluated value and clears either source kind in one Session edit");
+
+    auto cyclic=session.document();
+    cyclic.objects.at("expr-target").point_edit->enabled_expression=Expression{
+        "ref(\"expr-source\",\"\",\"point_edit.expr-source-generator-point-edit.enabled\")",1};
+    cyclic.objects.at("expr-source").point_edit->enabled_driver=target;
+    rejects("DEPENDENCY_CYCLE",[&]{validate(cyclic);});
+    auto foreign=cyclic;foreign.objects.at("expr-source").point_edit->enabled_driver.reset();
+    Object foreign_object;foreign_object.id="expr-foreign";foreign_object.name="Foreign";
+    foreign_object.source=circle();foreign_object.source->id="expr-foreign-generator";
+    foreign_object.point_edit=PointEdit{"expr-foreign-generator-point-edit",1,true,{}};
+    foreign.objects.emplace(foreign_object.id,foreign_object);
+    foreign.compositions.push_back(Composition{"expr-foreign-comp","Foreign",{"expr-foreign"},{},{}});
+    foreign.objects.at("expr-target").point_edit->enabled_expression=Expression{
+        "ref(\"expr-foreign\",\"\",\"point_edit.expr-foreign-generator-point-edit.enabled\")",1};
+    rejects("CROSS_COMPOSITION",[&]{validate(foreign);});
+    auto deep=empty_document("point-edit-expression-deep-doc","point-edit-expression-deep-comp","point-edit-expression-deep-art");
+    constexpr int chain=130;
+    for(int i=0;i<chain;++i) {
+        const auto id="expr-node"+std::to_string(i),generator="expr-generator"+std::to_string(i);
+        Object object;object.id=id;object.name=id;object.source=circle();object.source->id=generator;
+        object.point_edit=PointEdit{generator+"-point-edit",1,true,{}};
+        deep.objects.emplace(id,std::move(object));deep.compositions.front().roots.push_back(id);
+    }
+    for(int i=0;i<chain-1;++i) {
+        const auto target_id="expr-node"+std::to_string(i+1),source_id="expr-node"+std::to_string(i);
+        deep.objects.at(target_id).point_edit->enabled_expression=Expression{"!ref(\""+source_id+
+            "\",\"\",\"point_edit.expr-generator"+std::to_string(i)+"-point-edit.enabled\")",1};
+    }
     rejects("DEPENDENCY_DEPTH",[&]{validate(deep);});
 }
 }
@@ -223,6 +351,7 @@ int main() {
         invalid=decode(generated);invalid.objects.at("circle").source->parameters.emplace("future",Scalar{});
         rejects("INVALID_GENERATOR_PARAMETERS",[&]{validate(invalid);});
         point_edit_enabled_links();
+        point_edit_enabled_expressions();
         std::cout<<"PASS "<<checks<<" primitive, correction and conversion checks\n";return 0;
     }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}
 }

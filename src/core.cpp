@@ -68,6 +68,7 @@ class BooleanPropertyExpressionParser {
     bool operation_enabled_=false;
     bool mask_enabled_=false;
     bool gradient_enabled_=false;
+    bool point_edit_enabled_=false;
     std::size_t cursor_=0;
     void whitespace(){while(cursor_<source_.size()&&(source_[cursor_]==' '||source_[cursor_]=='\t'||source_[cursor_]=='\n'||source_[cursor_]=='\r'))++cursor_;}
     bool take(char c){whitespace();if(cursor_<source_.size()&&source_[cursor_]==c){++cursor_;return true;}return false;}
@@ -92,9 +93,9 @@ class BooleanPropertyExpressionParser {
     }
 public:
     BooleanPropertyExpressionParser(std::string_view source,std::string_view field,std::string_view property,
-        bool operation_enabled=false,bool mask_enabled=false,bool gradient_enabled=false)
+        bool operation_enabled=false,bool mask_enabled=false,bool gradient_enabled=false,bool point_edit_enabled=false)
         :source_(source),field_(field),property_(property),operation_enabled_(operation_enabled),mask_enabled_(mask_enabled),
-         gradient_enabled_(gradient_enabled){}
+         gradient_enabled_(gradient_enabled),point_edit_enabled_(point_edit_enabled){}
     ParsedBooleanExpression parse() {
         ParsedBooleanExpression result;whitespace();
         if(word("true")){result.is_literal=true;result.literal=true;}
@@ -148,9 +149,20 @@ public:
                     }
                 }
             }
+            if(point_edit_enabled_&&result.source.field.starts_with("point_edit.")&&result.source.field.ends_with(".enabled")&&
+                result.source.field.size()>std::string_view("point_edit.").size()+std::string_view(".enabled").size()) {
+                const auto correction_id=std::string_view(result.source.field).substr(
+                    std::string_view("point_edit.").size(),
+                    result.source.field.size()-std::string_view("point_edit.").size()-std::string_view(".enabled").size());
+                supported_field=!correction_id.empty()&&correction_id.size()<=96&&std::all_of(
+                    correction_id.begin(),correction_id.end(),[](char c) {
+                        return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-';
+                    });
+            }
             require(result.source.point.empty()&&supported_field,"BOOLEAN_EXPRESSION_TYPE",
                 operation_enabled_?std::string(property_)+" expressions may reference only an operation enabled Ref":
                 gradient_enabled_?std::string(property_)+" expressions may reference only a Gradient enabled Ref":
+                point_edit_enabled_?std::string(property_)+" expressions may reference only a qualified Point Edit enabled Ref":
                 std::string(property_)+" expressions may reference only "+std::string(field_));
         }
         whitespace();require(cursor_==source_.size(),"BOOLEAN_EXPRESSION_SYNTAX","Unexpected trailing boolean property expression text");
@@ -189,6 +201,12 @@ ParsedBooleanExpression parse_gradient_enabled_expression(const Expression& expr
     require(!expression.source.empty()&&expression.source.size()<=4096,"EXPRESSION_LIMIT",
         "Gradient enabled expression source must contain 1..4096 bytes");
     return BooleanPropertyExpressionParser(expression.source,"","Gradient enabled",false,false,true).parse();
+}
+ParsedBooleanExpression parse_point_edit_enabled_expression(const Expression& expression) {
+    require(expression.version==1,"UNSUPPORTED_EXPRESSION_VERSION","Only expression version 1 is supported for Point Edit enabled");
+    require(!expression.source.empty()&&expression.source.size()<=4096,"EXPRESSION_LIMIT",
+        "Point Edit enabled expression source must contain 1..4096 bytes");
+    return BooleanPropertyExpressionParser(expression.source,"","Point Edit enabled",false,false,false,true).parse();
 }
 const TextSource& text_italic_source(const Document& document,const Ref& ref) {
     require(ref.point.empty()&&ref.field=="text.italic","TYPE_MISMATCH","Only Text italic accepts a boolean property Ref");
@@ -871,6 +889,8 @@ class PointEditEnabledEvaluator {
         require(active_.insert(ref).second,"DEPENDENCY_CYCLE","Point Edit enabled dependency cycle");
         const auto& point_edit=point_edit_enabled_source(document_,ref);
         PointEditEnabledEvaluation result{point_edit.enabled,0};
+        require(!(point_edit.enabled_driver&&point_edit.enabled_expression),"MULTIPLE_DRIVERS",
+            "Point Edit enabled may have only one active source");
         if(point_edit.enabled_driver) {
             (void)point_edit_enabled_source(document_,*point_edit.enabled_driver);
             require(*point_edit.enabled_driver!=ref,"DEPENDENCY_CYCLE","Point Edit enabled cannot link to itself");
@@ -881,6 +901,20 @@ class PointEditEnabledEvaluator {
                 "Point Edit enabled links must stay in one Composition");
             const auto upstream=visit(*point_edit.enabled_driver,depth+1);
             result={upstream.value,upstream.remaining_edges+1};
+        } else if(point_edit.enabled_expression) {
+            const auto parsed=parse_point_edit_enabled_expression(*point_edit.enabled_expression);
+            if(parsed.is_literal)result.value=parsed.literal;
+            else {
+                (void)point_edit_enabled_source(document_,parsed.source);
+                require(parsed.source!=ref,"DEPENDENCY_CYCLE","Point Edit enabled expression cannot reference itself");
+                const auto target_owner=compositions_.find(ref.object),source_owner=compositions_.find(parsed.source.object);
+                require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                    "ORPHAN_OBJECT","Point Edit enabled expressions require objects owned by a Composition");
+                require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                    "Point Edit enabled expressions must stay in one Composition");
+                const auto upstream=visit(parsed.source,depth+1);
+                result={parsed.negate?!upstream.value:upstream.value,upstream.remaining_edges+1};
+            }
         }
         require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Point Edit enabled dependency depth limit 128");
         active_.erase(ref);values_.emplace(ref,result);return result;
@@ -968,6 +1002,17 @@ Expression remap_mask_enabled_expression(const Expression& expression,const std:
     result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
     (void)parse_mask_enabled_expression(result);return result;
 }
+Expression remap_point_edit_enabled_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
+    const auto parsed=parse_point_edit_enabled_expression(expression);
+    if(parsed.is_literal)return expression;
+    const auto target=remap(parsed.source);if(target==parsed.source)return expression;
+    require(target.point.empty()&&target.field.starts_with("point_edit.")&&target.field.ends_with(".enabled"),
+        "TYPE_MISMATCH","Duplicated Point Edit enabled Ref changed type");
+    auto result=expression;
+    result.source.replace(parsed.field_begin,parsed.field_end-parsed.field_begin,target.field);
+    result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
+    (void)parse_point_edit_enabled_expression(result);return result;
+}
 const std::array<std::string,6> point_fields{"x","y","in.angle","in.length","out.angle","out.length"};
 bool polystar(const Primitive& source){return source.type=="nect.shape.polygon"||source.type=="nect.shape.star";}
 unsigned primitive_point_count(const Primitive& source,double value) {
@@ -1022,7 +1067,7 @@ void prepare_point_edit(Document& d,const Ref& ref) {
     require(generated_point(o,ref.point)&&std::find(point_fields.begin(),point_fields.end(),ref.field)!=point_fields.end(),
         "MISSING_REFERENCE",ref.point+"/"+ref.field);
     if(!o.point_edit)o.point_edit=PointEdit{o.source->id+"-point-edit",1,true,{}};
-    require(!o.point_edit->enabled_driver||o.point_edit->enabled,"DRIVEN_PROPERTY",
+    require((!o.point_edit->enabled_driver&&!o.point_edit->enabled_expression)||o.point_edit->enabled,"DRIVEN_PROPERTY",
         "Unlink Point Edit enabled before editing generated points when its authored literal is false");
     o.point_edit->enabled=true;
     o.point_edit->overrides[ref.point].try_emplace(ref.field,Scalar{});
@@ -1916,7 +1961,8 @@ Ref point_edit_enabled_ref(const Id& object,const Id& point_edit) {
 }
 PointEditEnabledProperty point_edit_enabled_state(const Document& document,const Ref& ref) {
     const auto& point_edit=point_edit_enabled_source(document,ref);
-    return {point_edit.enabled,point_edit.enabled_driver,PointEditEnabledEvaluator(document).value(ref)};
+    return {point_edit.enabled,point_edit.enabled_driver,point_edit.enabled_expression,
+        PointEditEnabledEvaluator(document).value(ref)};
 }
 bool evaluate_point_edit_enabled(const Document& document,const Ref& ref) {
     return PointEditEnabledEvaluator(document).value(ref);
@@ -4873,7 +4919,13 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     else require_expression_members(std::get<Expression>(*text.italic_driver));
                 }
             }
-            if(object.point_edit&&object.point_edit->enabled_driver)require_member(*object.point_edit->enabled_driver);
+            if(object.point_edit) {
+                if(object.point_edit->enabled_driver)require_member(*object.point_edit->enabled_driver);
+                if(object.point_edit->enabled_expression) {
+                    const auto parsed=parse_point_edit_enabled_expression(*object.point_edit->enabled_expression);
+                    if(!parsed.is_literal)require_member(parsed.source);
+                }
+            }
             for(const auto& operation:object.stack) {
                 if(operation.enabled_driver)require_member(*operation.enabled_driver);
                 if(operation.enabled_expression)require_expression_members(*operation.enabled_expression);
@@ -5629,6 +5681,8 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         if(object.point_edit) {
             auto& edit=*object.point_edit;
             if(edit.enabled_driver)edit.enabled_driver=remap(*edit.enabled_driver);
+            if(edit.enabled_expression)
+                edit.enabled_expression=remap_point_edit_enabled_expression(*edit.enabled_expression,remap);
             edit.id=plan.ids.at(edit.id);
             auto overrides=std::move(edit.overrides);edit.overrides.clear();
             for(auto& [point,fields]:overrides)edit.overrides.emplace(remap({id,point,"x"}).point,std::move(fields));
@@ -5914,9 +5968,14 @@ void edit_structural_command(Document& candidate,const CloseContour& command) {
     contour(candidate,command.object,command.contour).closed=command.closed;
 }
 void require_no_point_edit_dependents(const Document& document,const Ref& source,const std::set<Id>* departing=nullptr) {
-    for(const auto& [id,object]:document.objects)if(object.point_edit&&object.point_edit->enabled_driver==source&&
-        (!departing||!departing->contains(id)))
-        throw Error("POINT_EDIT_IN_USE","Unlink or remove dependent Point Edit before removing "+source.field);
+    for(const auto& [id,object]:document.objects)if(object.point_edit&&(!departing||!departing->contains(id))) {
+        bool depends=object.point_edit->enabled_driver==source;
+        if(object.point_edit->enabled_expression) {
+            const auto parsed=parse_point_edit_enabled_expression(*object.point_edit->enabled_expression);
+            depends=depends||(!parsed.is_literal&&parsed.source==source);
+        }
+        if(depends)throw Error("POINT_EDIT_IN_USE","Unlink or remove dependent Point Edit before removing "+source.field);
+    }
 }
 void edit_structural_command(Document& candidate,const ReorderObjects& command) {
     auto& list=siblings(candidate,command.composition,command.parent);
@@ -5986,18 +6045,34 @@ void edit_mask_enabled(Document& candidate,const UnlinkMaskEnabled& command) {
 }
 void edit_point_edit_enabled(Document& candidate,const LinkPointEditEnabled& command) {
     const auto& target=point_edit_enabled_source(candidate,command.target);
-    (void)point_edit_enabled_source(candidate,command.source);
-    require(command.target!=command.source,"DEPENDENCY_CYCLE","Point Edit enabled cannot link to itself");
-    require(!target.enabled_driver||command.replace_driver,"DRIVEN_PROPERTY",
-        "Replacing a Point Edit enabled driver requires replace_driver=true");
-    candidate.objects.at(command.target.object).point_edit->enabled_driver=command.source;
+    auto& point_edit=*candidate.objects.at(command.target.object).point_edit;
+    if(const auto* source=std::get_if<Ref>(&command.source)) {
+        (void)point_edit_enabled_source(candidate,*source);
+        require(command.target!=*source,"DEPENDENCY_CYCLE","Point Edit enabled cannot link to itself");
+        const auto same_source=target.enabled_driver==std::optional<Ref>{*source}&&!target.enabled_expression;
+        require(same_source||(!target.enabled_driver&&!target.enabled_expression)||command.replace_driver,"DRIVEN_PROPERTY",
+            "Replacing a Point Edit enabled source requires replace_driver=true");
+        point_edit.enabled_driver=*source;point_edit.enabled_expression.reset();
+    } else {
+        const auto& expression=std::get<Expression>(command.source);
+        const auto parsed=parse_point_edit_enabled_expression(expression);
+        if(!parsed.is_literal) {
+            (void)point_edit_enabled_source(candidate,parsed.source);
+            require(command.target!=parsed.source,"DEPENDENCY_CYCLE","Point Edit enabled expression cannot reference itself");
+        }
+        const auto same_expression=target.enabled_expression==std::optional<Expression>{expression}&&!target.enabled_driver;
+        require(same_expression||(!target.enabled_driver&&!target.enabled_expression)||command.replace_driver,"DRIVEN_PROPERTY",
+            "Replacing a Point Edit enabled source requires replace_driver=true");
+        point_edit.enabled_driver.reset();point_edit.enabled_expression=expression;
+    }
 }
 void edit_point_edit_enabled(Document& candidate,const UnlinkPointEditEnabled& command) {
     const auto& target=point_edit_enabled_source(candidate,command.target);
-    require(target.enabled_driver.has_value(),"PROPERTY_NOT_LINKED","Point Edit enabled has no driver to unlink");
+    require(target.enabled_driver.has_value()||target.enabled_expression.has_value(),"PROPERTY_NOT_LINKED",
+        "Point Edit enabled has no source to unlink");
     const auto frozen=evaluate_point_edit_enabled(candidate,command.target);
     auto& point_edit=*candidate.objects.at(command.target.object).point_edit;
-    point_edit.enabled=frozen;point_edit.enabled_driver.reset();
+    point_edit.enabled=frozen;point_edit.enabled_driver.reset();point_edit.enabled_expression.reset();
 }
 void edit_guide_position_expression(Document& candidate,const SetGuidePositionExpression& command) {
     require(command.target.point.empty()&&command.target.field=="guide.position","INVALID_GUIDE_REF",
@@ -7200,7 +7275,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);
             require(o.point_edit.has_value(),"NO_POINT_EDIT","Primitive has no authored point corrections");
-            require(!o.point_edit->enabled_driver,"DRIVEN_PROPERTY","Unlink Point Edit enabled before changing its authored literal");
+            require(!o.point_edit->enabled_driver&&!o.point_edit->enabled_expression,"DRIVEN_PROPERTY",
+                "Unlink Point Edit enabled before changing its authored literal");
             o.point_edit->enabled=c.enabled;
         } else if constexpr(std::is_same_v<T,ClearPointEdit>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
@@ -7354,6 +7430,7 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
             operation_enabled&&std::holds_alternative<Expression>(operation_enabled->source))return;
         if(std::holds_alternative<LinkGradientEnabled>(commands.front()))return;
         if(std::holds_alternative<SetMaskEnabledExpression>(commands.front()))return;
+        if(std::holds_alternative<LinkPointEditEnabled>(commands.front()))return;
         if(std::holds_alternative<LinkObjectVisibility>(commands.front()))return;
         if(std::holds_alternative<LinkCompositeIsolated>(commands.front()))return;
         if(const auto* layout_source=std::get_if<LayoutDependencyCommand>(&commands.front())) {
