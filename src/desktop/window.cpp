@@ -4953,10 +4953,11 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         auto* controls=new QWidget;auto* row=new QHBoxLayout(controls);row->setContentsMargins(0,0,0,0);
         const auto enabled_ref=operation_ref(object.id,operation.id,"enabled");
         const auto enabled_state=operation_enabled_state(host.session.document(),enabled_ref);
-        auto* enabled=new QCheckBox("Enabled");enabled->setChecked(enabled_state.literal);enabled->setEnabled(!enabled_state.driver);
+        const bool enabled_driven=enabled_state.driver.has_value()||enabled_state.expression.has_value();
+        auto* enabled=new QCheckBox("Enabled");enabled->setChecked(enabled_state.literal);enabled->setEnabled(!enabled_driven);
         enabled->setObjectName("operation-enabled-"+qs(operation.id));
         enabled->setAccessibleName(name+" enabled");row->addWidget(enabled);row->addStretch();
-        auto* enabled_driver=new QPushButton(enabled_state.driver?"Driver…":"Link…");
+        auto* enabled_driver=new QPushButton(enabled_state.driver?"Driver…":enabled_state.expression?"Expression…":"Link…");
         enabled_driver->setObjectName("operation-enabled-driver-"+qs(operation.id));
         enabled_driver->setEnabled(true);
         row->addWidget(enabled_driver);
@@ -4982,13 +4983,14 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             const auto source_object=host.session.document().objects.find(enabled_state.driver->object);
             const auto source_name=source_object==host.session.document().objects.end()?qs(enabled_state.driver->object):qs(source_object->second.name);
             enabled_source_name=QString("%1 / %2").arg(source_name,qs(enabled_state.driver->field));
-        }
+        } else if(enabled_state.expression)enabled_source_name="expression: "+qs(enabled_state.expression->source);
         auto* enabled_state_label=new QLabel(QString("Literal: %1 · Source: %2 · Evaluated: %3")
             .arg(enabled_state.literal?"true":"false",enabled_source_name,enabled_state.evaluated?"true":"false"));
         enabled_state_label->setObjectName("operation-enabled-state-"+qs(operation.id));
         enabled_state_label->setWordWrap(true);enabled_state_label->setTextFormat(Qt::PlainText);
         form->addRow("",enabled_state_label);
         connect(enabled_driver,&QPushButton::clicked,this,[this,object_id=object.id,operation_id=operation.id,
+            macro_entry=operation.macro.has_value(),
             enabled_ref,enabled_state,frozen_session,enabled_composition,frozen_revision=host.session.revision()] {
             QDialog dialog(this);dialog.setObjectName("operation-enabled-dialog-"+qs(operation_id));
             dialog.setWindowTitle("Operation enabled dependency");auto* dialog_layout=new QVBoxLayout(&dialog);
@@ -5009,8 +5011,10 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 for(const auto& child:source_object.children)collect(child);
             };
             for(const auto& root:composition.roots)collect(root);
-            if(!source_refs.empty())mode->addItem(enabled_state.driver?"Replace with another operation":"Link to another operation","link");
-            if(enabled_state.driver)mode->addItem("Unlink and freeze evaluated value","unlink");
+            const bool has_source=enabled_state.driver.has_value()||enabled_state.expression.has_value();
+            if(!source_refs.empty())mode->addItem(has_source?"Replace with another operation":"Link to another operation","link");
+            if(!macro_entry)mode->addItem(has_source?"Replace with an expression":"Set an expression","expression");
+            if(has_source)mode->addItem("Unlink and freeze evaluated value","unlink");
             dialog_layout->addWidget(mode);
             auto* source_search=new QLineEdit(&dialog);
             source_search->setObjectName("operation-enabled-source-search-"+qs(operation_id));
@@ -5037,16 +5041,28 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 const auto retained=had_selection?source->findData(selected):-1;
                 source->setCurrentIndex(retained);
             });
-            auto* status=new QLabel("Linking follows another operation's enabled state. Unlink freezes the current evaluated value; Cancel leaves the Session unchanged.",&dialog);
-            if(source_refs.empty()&&!enabled_state.driver)
-                status->setText("No other operation in this Composition can drive the enabled state. Cancel leaves the Session unchanged.");
+            auto* expression=new QPlainTextEdit(&dialog);
+            expression->setObjectName("operation-enabled-expression-source-"+qs(operation_id));
+            expression->setPlaceholderText("true, false, ref(\"object-id\",\"\",\"op.operation-id.enabled\"), or !ref(…)");
+            if(enabled_state.expression)expression->setPlainText(qs(enabled_state.expression->source));
+            else expression->setPlainText("true");
+            expression->setMinimumHeight(64);dialog_layout->addWidget(expression);
+            auto* status=new QLabel("The expression can use true, false, or an optional negation of a built-in operation enabled Ref in this Composition. Apply commits one Session command; Cancel leaves it unchanged.",&dialog);
+            if(source_refs.empty()&&!has_source)
+                status->setText(macro_entry?
+                    "No other operation in this Composition can drive the enabled state. Cancel leaves the Session unchanged.":
+                    "No link source is available in this Composition. An expression can still use true or false; Cancel leaves the Session unchanged.");
             status->setObjectName("operation-enabled-status-"+qs(operation_id));status->setWordWrap(true);dialog_layout->addWidget(status);
-            const auto update_mode=[mode,source] {source->setEnabled(mode->currentData().toString()=="link");};
+            const auto update_mode=[mode,source,source_search,expression] {
+                const auto selected=mode->currentData().toString();
+                source->setVisible(selected=="link");source_search->setVisible(selected=="link");
+                expression->setVisible(selected=="expression");
+            };
             connect(mode,&QComboBox::currentIndexChanged,&dialog,[update_mode](int){update_mode();});update_mode();
             auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);dialog_layout->addWidget(buttons);
             connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
             connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-                [this,&dialog,object_id,operation_id,enabled_ref,enabled_state,frozen_session,frozen_revision,mode,source,source_refs,status] {
+                [this,&dialog,object_id,operation_id,enabled_ref,enabled_state,frozen_session,frozen_revision,mode,source,source_refs,expression,status] {
                     try {
                         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Operation stack belongs to another document");
                         if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","Operation enabled source changed while its editor was open; reopen it");
@@ -5056,7 +5072,12 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                             const auto source_index=source->currentData().toInt();
                             if(source_index<0||static_cast<std::size_t>(source_index)>=source_refs.size())
                                 throw Error("MISSING_REFERENCE","Choose a valid operation enabled source");
-                            commands.push_back(LinkOperationEnabled{enabled_ref,source_refs.at(static_cast<std::size_t>(source_index)),enabled_state.driver.has_value()});
+                            commands.push_back(LinkOperationEnabled{enabled_ref,source_refs.at(static_cast<std::size_t>(source_index)),
+                                enabled_state.driver.has_value()||enabled_state.expression.has_value()});
+                        } else if(selected=="expression") {
+                            commands.push_back(SetOperationEnabledExpression{enabled_ref,
+                                {expression->toPlainText().toStdString(),1},
+                                enabled_state.driver.has_value()||enabled_state.expression.has_value()});
                         } else if(selected=="unlink")commands.push_back(UnlinkOperationEnabled{enabled_ref});
                         else throw Error("INVALID_COMMAND","Choose a link or unlink action");
                         host.session.apply(commands,frozen_revision);host.edited();dialog.accept();

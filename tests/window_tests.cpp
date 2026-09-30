@@ -1724,6 +1724,74 @@ void single_operation_enabled_source(Window& window) {
     session.redo(session.revision());window.host.edited();
     check(operation_enabled_state(session.document(),target).driver==source,
         "Redo restores the exact boolean source link");
+    session.apply({UnlinkOperationEnabled{target}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!operation_enabled_state(session.document(),target).driver&&!operation_enabled_state(session.document(),target).expression&&
+        !operation_enabled_state(session.document(),target).literal,
+        "Unlinking the false source prepares an authored false literal for the expression draft");
+    const Expression expression{" ! ref ( \"single-source\" , \"\" , \"op."+source_operation+".enabled\" ) ",1};
+    auto* expression_button=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());reveal(window,expression_button);
+    const auto cancel_revision=session.revision();bool expression_cancel_staged=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>(QString::fromStdString("operation-enabled-expression-source-"+target_operation)):nullptr;
+        if(!dialog||!mode||!source_editor){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("expression"));source_editor->setPlainText(QString::fromStdString(expression.source));
+        expression_cancel_staged=session.revision()==cancel_revision&&
+            !operation_enabled_state(session.document(),target).expression&&
+            session.document().objects.at("single-target").stack.front().id==target_operation;
+        dialog->reject();});
+    QTest::mouseClick(expression_button,Qt::LeftButton);QApplication::processEvents();
+    check(expression_cancel_staged&&session.revision()==cancel_revision&&
+        !operation_enabled_state(session.document(),target).expression,
+        "Cancel leaves the captured operation target and expression source untouched");
+    expression_button=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());reveal(window,expression_button);
+    bool stale_expression_refused=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>(QString::fromStdString("operation-enabled-expression-source-"+target_operation)):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>(QString::fromStdString("operation-enabled-status-"+target_operation)):nullptr;
+        if(!dialog||!mode||!source_editor||!status){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("expression"));source_editor->setPlainText(QString::fromStdString(expression.source));
+        session.apply({EnableOperation{"single-source",source_operation,true}},session.revision());
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        stale_expression_refused=dialog->isVisible()&&status->text().contains("changed while its editor was open")&&
+            !operation_enabled_state(session.document(),target).expression&&window.canvas->selected_object=="single-target";
+        dialog->reject();});
+    QTest::mouseClick(expression_button,Qt::LeftButton);QApplication::processEvents();
+    check(stale_expression_refused,"A stale operation expression draft cannot retarget or mutate its captured target");
+    session.apply({EnableOperation{"single-source",source_operation,false}},session.revision());window.host.edited();QApplication::processEvents();
+    expression_button=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());reveal(window,expression_button);
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>(QString::fromStdString("operation-enabled-expression-source-"+target_operation)):nullptr;
+        if(!dialog||!mode||!source_editor){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("expression"));source_editor->setPlainText(QString::fromStdString(expression.source));
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    QTest::mouseClick(expression_button,Qt::LeftButton);QApplication::processEvents();
+    auto state=operation_enabled_state(session.document(),target);
+    check(state.literal==false&&!state.driver&&state.expression==expression&&state.evaluated,
+        "Inspector Apply stores the exact same-Composition operation expression beside its authored literal");
+    auto* driven_checkbox=visible_child<QCheckBox>(window,("operation-enabled-"+target_operation).c_str());
+    check(!driven_checkbox->isEnabled(),"An expression-driven operation enabled checkbox is read-only");
+    session.apply({EnableOperation{"single-source",source_operation,true}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!operation_enabled_state(session.document(),target).evaluated,
+        "Inspector expression follows a source toggle through the shared Session");
+    session.undo(session.revision());window.host.edited();
+    check(operation_enabled_state(session.document(),target).expression==expression&&
+        operation_enabled_state(session.document(),target).evaluated,
+        "Undo restores source evaluation without changing the Inspector expression");
+    session.undo(session.revision());window.host.edited();
+    check(!operation_enabled_state(session.document(),target).expression&&!operation_enabled_state(session.document(),target).literal,
+        "Undo removes the Inspector expression and restores the literal target");
+    session.redo(session.revision());window.host.edited();
+    check(operation_enabled_state(session.document(),target).expression==expression&&
+        operation_enabled_state(session.document(),target).evaluated,
+        "Redo restores the exact Inspector expression");
+    session.apply({UnlinkOperationEnabled{target}},session.revision());window.host.edited();
+    session.apply({EnableOperation{"single-source",source_operation,true}},session.revision());window.host.edited();
+    check(!operation_enabled_state(session.document(),target).expression&&
+        operation_enabled_state(session.document(),target).literal&&operation_enabled_state(session.document(),target).evaluated,
+        "Inspector unlink freezes the evaluated expression value against later source edits");
 }
 void point_edit_enabled_source(Window& window) {
     auto& session=window.host.session;const auto composition=session.document().compositions.front().id;

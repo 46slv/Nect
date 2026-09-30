@@ -204,8 +204,8 @@ void revisions_detach_and_native_contract() {
         "Public ID remains canonical after migration removes the parameter from revision 2");
 
     const auto macro_native=encode(session.document());
-    check(macro_native.find("\"version\":\"0.66\"")!=std::string::npos&&
-        decode(macro_native)==session.document(),"Native 0.66 roundtrips Macro definitions and tagged mixed stacks");
+    check(macro_native.find("\"version\":\"0.67\"")!=std::string::npos&&
+        decode(macro_native)==session.document(),"Native 0.67 roundtrips Macro definitions and tagged mixed stacks");
     auto lied=boost::json::parse(macro_native).as_object();lied["version"]="0.64";
     rejects("UNKNOWN_FIELD",[&]{(void)decode(boost::json::serialize(lied));});
 
@@ -288,6 +288,8 @@ void invalid_graphs_and_stale_commands_are_atomic() {
     reject_definition(missing_type,"INVALID_MACRO_ORDER");
     auto unsupported_version=macro_definition();unsupported_version.revisions.at(1).nodes[0].operation.version=2;
     reject_definition(unsupported_version,"UNSUPPORTED_MACRO_NODE_VERSION");
+    auto driven_node=macro_definition();driven_node.revisions.at(1).nodes[0].operation.enabled_expression=Expression{"false",1};
+    reject_definition(driven_node,"INVALID_MACRO_NODE");
     auto incompatible_domain=macro_definition();incompatible_domain.revisions.at(1).input.domain="local_paths";
     reject_definition(incompatible_domain,"INVALID_MACRO_DOMAIN");
     auto cycle=macro_definition();cycle.revisions.at(1).edges[2]={
@@ -303,6 +305,11 @@ void invalid_graphs_and_stale_commands_are_atomic() {
     const auto stale_revision=session.revision();
     apply(session,{MacroCommand{CreateMacroDefinition{definition}},
         MacroCommand{InstantiateMacro{"path",definition.id,"macro-instance",1,1}}});
+    const Ref macro_enabled=operation_ref("path","macro-instance","enabled");
+    const Ref builtin_enabled=operation_ref("path","fill","enabled");
+    atomic(session,"INVALID_DOMAIN",{SetOperationEnabledExpression{macro_enabled,Expression{"false",1}}});
+    atomic(session,"INVALID_DOMAIN",{SetOperationEnabledExpression{builtin_enabled,
+        Expression{"ref(\"path\",\"\",\"op.macro-instance.enabled\")",1}}});
     const auto before=session.document();const auto revision=session.revision();const auto history=session.history();
     const auto native=encode(session.document());
     rejects("REVISION_CONFLICT",[&]{session.apply({MacroCommand{SetMacroOverride{

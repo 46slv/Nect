@@ -206,6 +206,7 @@ struct ShapeOperation {
     unsigned version=1;
     bool enabled=true;
     std::optional<Ref> enabled_driver;
+    std::optional<Expression> enabled_expression;
     std::map<std::string,Scalar> parameters;
     std::string composite="below";
     std::string fill_rule="nonzero";
@@ -584,7 +585,16 @@ struct MacroCommand {
 };
 using StructuralCommand=std::variant<DefinitionCommand,CollectionCommand,MacroCommand>;
 struct EnableOperation { Id object; Id operation; bool enabled; };
-struct LinkOperationEnabled { Ref target; Ref source; bool replace_driver=false; };
+struct LinkOperationEnabled {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    LinkOperationEnabled(Ref target,Ref source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+    LinkOperationEnabled(Ref target,Expression expression,bool replace=false)
+        :target(std::move(target)),source(std::move(expression)),replace_driver(replace){}
+};
+using SetOperationEnabledExpression = LinkOperationEnabled;
 struct UnlinkOperationEnabled { Ref target; };
 struct LinkGradientEnabled { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkGradientEnabled { Ref target; };
@@ -1006,6 +1016,7 @@ bool operation_enabled_property(const Document&,const Ref&);
 struct OperationEnabledProperty {
     bool literal=true;
     std::optional<Ref> driver;
+    std::optional<Expression> expression;
     bool evaluated=true;
 };
 OperationEnabledProperty operation_enabled_state(const Document&,const Ref&);

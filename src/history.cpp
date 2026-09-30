@@ -107,7 +107,7 @@ std::size_t extra(const Primitive& v){return total(extra(v.id),extra(v.type),ext
 std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides),extra(v.enabled_driver));}
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
 std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extra(v.start_x),extra(v.start_y),extra(v.end_x),extra(v.end_y),extra(v.stops));}
-std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.enabled_driver),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.fill_rule_driver),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
+std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.enabled_driver),extra(v.enabled_expression),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.fill_rule_driver),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
 std::size_t extra(const MacroPort& v){return total(extra(v.id),extra(v.domain));}
 std::size_t extra(const MacroEndpoint& v){return total(extra(v.node),extra(v.port));}
 std::size_t extra(const MacroEdge& v){return total(extra(v.from),extra(v.to));}
@@ -327,7 +327,8 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,RemoveOperation>)return "Remove operation: "+name(c.object);
         else if constexpr(std::is_same_v<T,ReorderOperations>)return "Reorder operations: "+name(c.object);
         else if constexpr(std::is_same_v<T,EnableOperation>)return std::string(c.enabled?"Enable operation: ":"Bypass operation: ")+name(c.object);
-        else if constexpr(std::is_same_v<T,LinkOperationEnabled>)return "Link operation enabled: "+name(c.target.object);
+        else if constexpr(std::is_same_v<T,LinkOperationEnabled>)return std::holds_alternative<Ref>(c.source)
+            ?"Link operation enabled: "+name(c.target.object):"Set operation enabled expression: "+name(c.target.object);
         else if constexpr(std::is_same_v<T,UnlinkOperationEnabled>)return "Unlink operation enabled: "+name(c.target.object);
         else if constexpr(std::is_same_v<T,OperationOptions>)return "Edit operation options: "+name(c.object);
         else if constexpr(std::is_same_v<T,SetGradient>)return "Edit Gradient: "+name(c.object);

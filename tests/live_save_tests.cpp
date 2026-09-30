@@ -214,7 +214,7 @@ void text_weight_expression_save_as(const QString& directory,const QString& nect
     const auto destination=directory+"/weight-expression-destination.nect";
     host.save(destination);const auto destination_bytes=bytes(destination);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.66\"")&&
+        destination_bytes.contains("\"version\":\"0.67\"")&&
         destination_bytes.contains("\"offset\":200")&&
         load_native(destination).document.objects.at("weight-target").text->weight_expression==expression&&
         load_native(destination).document.objects.at("weight-relative-target").text->weight_driver==
@@ -272,7 +272,7 @@ void object_visibility_expression_save_as(const QString& directory,const QString
     const auto saved=load_native(destination).document;
     const auto saved_state=object_visibility_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.66\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.67\"")&&saved==committed&&
         saved_state.literal&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated,
         "Host Save As keeps the exact Object visibility expression and leaves original bytes unchanged");
     Host reopened(directory+"/visibility-expression-cold-recovery");reopened.open(destination);
@@ -314,7 +314,7 @@ void composite_isolation_expression_save_as(const QString& directory,const QStri
     const auto saved=load_native(destination).document;
     const auto saved_state=composite_isolation_state(saved,target);
     check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
-        destination_bytes.contains("\"version\":\"0.66\"")&&saved==committed&&
+        destination_bytes.contains("\"version\":\"0.67\"")&&saved==committed&&
         saved_state.literal==false&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated&&
         saved.objects.at("composite-isolation-target").compositing.isolated_expression==expression,
         "Host Save As keeps exact Composite isolation expression and leaves original bytes unchanged");
@@ -338,6 +338,57 @@ void composite_isolation_expression_save_as(const QString& directory,const QStri
         authored["expression"].toObject()["version"].toInt()==1&&authored["source_kind"]=="expression"&&
         reply["evaluated"].toBool()&&reply["expression"].toBool()&&reply["link"].toBool(),
         "Separate process reads exact Composite isolation source, source kind and evaluated value");
+}
+void operation_enabled_expression_save_as(const QString& directory,const QString& nect_cli) {
+    Host host(directory+"/operation-enabled-expression-recovery");
+    const auto composition=host.session.document().compositions.front().id;
+    host.session.apply({
+        CreatePrimitive{composition,"","operation-expression-source","Source",default_primitive("operation-expression-source-primitive","nect.shape.rectangle")},
+        CreatePrimitive{composition,"","operation-expression-target","Target",default_primitive("operation-expression-target-primitive","nect.shape.rectangle")}},
+        host.session.revision());host.edited();
+    auto source_operation=default_operation("operation-expression-source-fill","nect.paint.fill");source_operation.enabled=false;
+    auto target_operation=default_operation("operation-expression-target-fill","nect.paint.fill");target_operation.enabled=false;
+    const auto source_index=host.session.document().objects.at("operation-expression-source").stack.size();
+    const auto target_index=host.session.document().objects.at("operation-expression-target").stack.size();
+    host.session.apply({AddOperation{"operation-expression-source",source_operation,source_index},
+        AddOperation{"operation-expression-target",target_operation,target_index}},host.session.revision());host.edited();
+    const auto target=operation_ref("operation-expression-target","operation-expression-target-fill","enabled");
+    const auto source=operation_ref("operation-expression-source","operation-expression-source-fill","enabled");
+    const Expression expression{" ! ref ( \""+source.object+"\" , \"\" , \""+source.field+"\" ) ",1};
+    const auto original=directory+"/operation-enabled-expression-original.nect";
+    host.save(original);const auto original_bytes=bytes(original);
+    host.session.apply({SetOperationEnabledExpression{target,expression,false}},host.session.revision());host.edited();
+    check(operation_enabled_state(host.session.document(),target).literal==false&&
+          operation_enabled_state(host.session.document(),target).expression==expression&&
+          operation_enabled_state(host.session.document(),target).evaluated,
+          "A false authored operation literal follows the exact built-in source expression before Save As");
+    const auto committed=host.session.document();
+    const auto destination=directory+"/operation-enabled-expression-destination.nect";
+    host.save(destination);const auto destination_bytes=bytes(destination);
+    const auto saved=load_native(destination).document;const auto saved_state=operation_enabled_state(saved,target);
+    check(bytes(original)==original_bytes&&destination_bytes==QByteArray::fromStdString(encode(committed))&&
+          destination_bytes.contains("\"version\":\"0.67\"")&&saved==committed&&
+          saved_state.literal==false&&!saved_state.driver&&saved_state.expression==expression&&saved_state.evaluated,
+          "Host Save As preserves the authored operation literal, exact expression and original file bytes");
+    Host reopened(directory+"/operation-enabled-expression-cold-recovery");reopened.open(destination);
+    const auto cold=operation_enabled_state(reopened.session.document(),target);
+    check(reopened.session.document()==committed&&reopened.session.revision()==0&&cold.literal==false&&
+          !cold.driver&&cold.expression==expression&&cold.evaluated&&bytes(original)==original_bytes,
+          "Cold Host reopen restores the exact operation expression and evaluated value");
+    QProcess process;process.start(nect_cli,{"--serve",destination});
+    check(process.waitForStarted(5000),"Start a separate Nect process on the operation expression Save As destination");
+    const auto query=QByteArray("{\"op\":\"get\",\"ref\":{\"object\":\"operation-expression-target\",\"point\":\"\",\"field\":\"op.operation-expression-target-fill.enabled\"}}\n");
+    check(process.write(query)==query.size(),"Query operation expression from the separate cold Nect process");
+    process.closeWriteChannel();
+    check(process.waitForFinished(10000)&&process.exitStatus()==QProcess::NormalExit&&process.exitCode()==0,
+        "Cold Nect process exits after operation expression readback");
+    const auto reply=QJsonDocument::fromJson(process.readAllStandardOutput().trimmed()).object()["result"].toObject();
+    const auto authored=reply["authored"].toObject();
+    check(authored["literal"].toBool()==false&&authored["driver"].isNull()&&
+          authored["expression"].toObject()["source"].toString()==QString::fromStdString(expression.source)&&
+          authored["expression"].toObject()["version"].toInt()==1&&authored["source_kind"]=="expression"&&
+          reply["evaluated"].toBool()&&reply["expression"].toBool()&&reply["link"].toBool(),
+          "Separate process reads exact built-in operation expression, authored source kind and evaluation");
 }
 void point_edit_save_as(const QString& directory) {
     Host host(directory+"/point-edit-recovery");
@@ -906,7 +957,7 @@ void linked_margin_left_save_as(const QString& directory,const QString& nect_cli
     const auto persisted_grid_width=artboard_layout_property(persisted,grid_width_ref);
     const auto persisted_grid_height=artboard_layout_property(persisted,grid_height_ref);
     check(host.file_path==native_path(destination)&&!host.dirty()&&persisted==committed&&
-        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.66\"")&&
+        destination_bytes==committed_bytes&&destination_bytes.contains("\"version\":\"0.67\"")&&
         bytes(original)==original_bytes&&
         std::get<double>(persisted_link.literal)==40&&!persisted_link.driver&&persisted_link.expression==margin_expression&&
         std::get<double>(persisted_link.evaluated)==70&&
@@ -1246,6 +1297,7 @@ int main(int argc,char** argv) {
         text_weight_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         object_visibility_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         composite_isolation_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
+        operation_enabled_expression_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         point_edit_save_as(temp.path());artboard_size_save_as(temp.path());
         layout_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));
         linked_margin_left_save_as(temp.path(),QString::fromLocal8Bit(argv[1]));

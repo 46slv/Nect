@@ -59,12 +59,13 @@ struct ParsedBooleanExpression {
     bool literal=false;
     bool negate=false;
     Ref source;
-    std::size_t object_begin=0,object_end=0;
+    std::size_t object_begin=0,object_end=0,field_begin=0,field_end=0;
 };
 class BooleanPropertyExpressionParser {
     std::string_view source_;
     std::string_view field_;
     std::string_view property_;
+    bool operation_enabled_=false;
     std::size_t cursor_=0;
     void whitespace(){while(cursor_<source_.size()&&(source_[cursor_]==' '||source_[cursor_]=='\t'||source_[cursor_]=='\n'||source_[cursor_]=='\r'))++cursor_;}
     bool take(char c){whitespace();if(cursor_<source_.size()&&source_[cursor_]==c){++cursor_;return true;}return false;}
@@ -88,8 +89,9 @@ class BooleanPropertyExpressionParser {
         return std::string(source_.substr(start,length));
     }
 public:
-    BooleanPropertyExpressionParser(std::string_view source,std::string_view field,std::string_view property)
-        :source_(source),field_(field),property_(property){}
+    BooleanPropertyExpressionParser(std::string_view source,std::string_view field,std::string_view property,
+        bool operation_enabled=false)
+        :source_(source),field_(field),property_(property),operation_enabled_(operation_enabled){}
     ParsedBooleanExpression parse() {
         ParsedBooleanExpression result;whitespace();
         if(word("true")){result.is_literal=true;result.literal=true;}
@@ -100,8 +102,24 @@ public:
             expect('(');
             result.source.object=quoted(true,&result.object_begin,&result.object_end);
             expect(',');result.source.point=quoted(true,nullptr,nullptr,true);
-            expect(',');result.source.field=quoted(false);expect(')');
-            require(result.source.point.empty()&&result.source.field==field_,"BOOLEAN_EXPRESSION_TYPE",
+            expect(',');result.source.field=quoted(false,&result.field_begin,&result.field_end);expect(')');
+            bool supported_field=result.source.field==field_;
+            if(operation_enabled_&&result.source.field.starts_with("op.")) {
+                const auto separator=result.source.field.find('.',3);
+                if(separator!=std::string::npos&&separator>3) {
+                    const auto operation_id=std::string_view(result.source.field).substr(3,separator-3);
+                    const auto parameter=std::string_view(result.source.field).substr(separator+1);
+                    const auto valid_id=[](std::string_view id) {
+                        if(id.empty()||id.size()>96)return false;
+                        return std::all_of(id.begin(),id.end(),[](char c) {
+                            return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-';
+                        });
+                    };
+                    supported_field=parameter=="enabled"&&valid_id(operation_id);
+                }
+            }
+            require(result.source.point.empty()&&supported_field,"BOOLEAN_EXPRESSION_TYPE",
+                operation_enabled_?std::string(property_)+" expressions may reference only an operation enabled Ref":
                 std::string(property_)+" expressions may reference only "+std::string(field_));
         }
         whitespace();require(cursor_==source_.size(),"BOOLEAN_EXPRESSION_SYNTAX","Unexpected trailing boolean property expression text");
@@ -122,6 +140,12 @@ ParsedBooleanExpression parse_object_visibility_expression(const Expression& exp
 }
 ParsedBooleanExpression parse_composite_isolation_expression(const Expression& expression) {
     return parse_boolean_expression(expression,"composite.isolated","Composite isolation");
+}
+ParsedBooleanExpression parse_operation_enabled_expression(const Expression& expression) {
+    require(expression.version==1,"UNSUPPORTED_EXPRESSION_VERSION","Only expression version 1 is supported for Operation enabled");
+    require(!expression.source.empty()&&expression.source.size()<=4096,"EXPRESSION_LIMIT",
+        "Operation enabled expression source must contain 1..4096 bytes");
+    return BooleanPropertyExpressionParser(expression.source,"","Operation enabled",true).parse();
 }
 const TextSource& text_italic_source(const Document& document,const Ref& ref) {
     require(ref.point.empty()&&ref.field=="text.italic","TYPE_MISMATCH","Only Text italic accepts a boolean property Ref");
@@ -214,6 +238,15 @@ const ShapeOperation& operation_enabled_source(const Document& document,const Re
         [&](const auto& operation){return operation.id==operation_id;});
     require(found!=object->second.stack.end(),"MISSING_OPERATION",operation_id);
     return *found;
+}
+void require_builtin_operation_enabled_expression_target(const Document& document,const Ref& ref) {
+    (void)operation_enabled_source(document,ref);
+    const auto [operation_id,parameter]=operation_address(ref.field);(void)parameter;
+    const auto& object=document.objects.at(ref.object);
+    const auto found=std::find_if(object.stack.begin(),object.stack.end(),
+        [&](const auto& operation){return operation.id==operation_id;});
+    require(found!=object.stack.end()&&!found->macro,"INVALID_DOMAIN",
+        "Operation enabled expressions address built-in ShapeOperation entries only");
 }
 std::pair<Id,std::string> geometry_mask_enabled_address(const std::string& field) {
     constexpr std::string_view prefix="mask.";
@@ -572,6 +605,8 @@ class OperationEnabledEvaluator {
         require(active_.insert(ref).second,"DEPENDENCY_CYCLE","Operation enabled dependency cycle");
         const auto& operation=operation_enabled_source(document_,ref);
         OperationEnabledEvaluation result{operation.enabled,0};
+        require(!(operation.enabled_driver&&operation.enabled_expression),"MULTIPLE_DRIVERS",
+            "Operation enabled may have only one active source");
         if(operation.enabled_driver) {
             (void)operation_enabled_source(document_,*operation.enabled_driver);
             require(*operation.enabled_driver!=ref,"DEPENDENCY_CYCLE","Operation enabled cannot link to itself");
@@ -582,6 +617,21 @@ class OperationEnabledEvaluator {
                 "Operation enabled links must stay in one Composition");
             const auto upstream=visit(*operation.enabled_driver,depth+1);
             result={upstream.value,upstream.remaining_edges+1};
+        } else if(operation.enabled_expression) {
+            require_builtin_operation_enabled_expression_target(document_,ref);
+            const auto parsed=parse_operation_enabled_expression(*operation.enabled_expression);
+            if(parsed.is_literal)result.value=parsed.literal;
+            else {
+                require_builtin_operation_enabled_expression_target(document_,parsed.source);
+                require(parsed.source!=ref,"DEPENDENCY_CYCLE","Operation enabled cannot reference itself");
+                const auto target_owner=compositions_.find(ref.object),source_owner=compositions_.find(parsed.source.object);
+                require(target_owner!=compositions_.end()&&source_owner!=compositions_.end(),
+                    "ORPHAN_OBJECT","Operation enabled expressions require operations owned by a Composition");
+                require(target_owner->second==source_owner->second,"CROSS_COMPOSITION",
+                    "Operation enabled expressions must stay in one Composition");
+                const auto upstream=visit(parsed.source,depth+1);
+                result={parsed.negate?!upstream.value:upstream.value,upstream.remaining_edges+1};
+            }
         }
         require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Operation enabled dependency depth limit 128");
         active_.erase(ref);
@@ -808,6 +858,17 @@ Expression remap_composite_isolation_expression(const Expression& expression,con
         "Duplicated Composite isolation Ref changed type");
     auto result=expression;result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
     (void)parse_composite_isolation_expression(result);return result;
+}
+Expression remap_operation_enabled_expression(const Expression& expression,const std::function<Ref(const Ref&)>& remap) {
+    const auto parsed=parse_operation_enabled_expression(expression);
+    if(parsed.is_literal)return expression;
+    const auto target=remap(parsed.source);if(target==parsed.source)return expression;
+    require(target.point.empty()&&target.field.starts_with("op.")&&target.field.ends_with(".enabled"),
+        "TYPE_MISMATCH","Duplicated Operation enabled Ref changed type");
+    auto result=expression;
+    result.source.replace(parsed.field_begin,parsed.field_end-parsed.field_begin,target.field);
+    result.source.replace(parsed.object_begin,parsed.object_end-parsed.object_begin,target.object);
+    (void)parse_operation_enabled_expression(result);return result;
 }
 const std::array<std::string,6> point_fields{"x","y","in.angle","in.length","out.angle","out.length"};
 bool polystar(const Primitive& source){return source.type=="nect.shape.polygon"||source.type=="nect.shape.star";}
@@ -1505,7 +1566,8 @@ std::map<Ref,std::string> evaluate_fill_rules(const Document& document) {
 }
 OperationEnabledProperty operation_enabled_state(const Document& document,const Ref& ref) {
     const auto& operation=operation_enabled_source(document,ref);
-    return {operation.enabled,operation.enabled_driver,OperationEnabledEvaluator(document).value(ref)};
+    return {operation.enabled,operation.enabled_driver,operation.enabled_expression,
+        OperationEnabledEvaluator(document).value(ref)};
 }
 bool evaluate_operation_enabled(const Document& document,const Ref& ref) {
     return OperationEnabledEvaluator(document).value(ref);
@@ -3952,7 +4014,8 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
         for(const auto* node:{&offset,&repeater}) {
             local(node->operation.id);local(node->input_port);local(node->output_port);
             require(node->operation.version==1,"UNSUPPORTED_MACRO_NODE_VERSION",node->operation.type);
-            require(!node->operation.enabled_driver&&!node->operation.fill_rule_driver&&!node->operation.gradient,
+            require(!node->operation.enabled_driver&&!node->operation.enabled_expression&&
+                !node->operation.fill_rule_driver&&!node->operation.gradient,
                 "INVALID_MACRO_NODE","Macro nodes cannot retain property links, gradients or driver state");
             require(node->operation.type=="nect.shape.offset"||node->operation.type=="nect.shape.repeater",
                 "UNSUPPORTED_MACRO_NODE",node->operation.type);
@@ -4425,6 +4488,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                 add(op.id);
                 if(op.macro) {
                     require(op.type==macro_entry_type&&op.version==1&&op.parameters.empty()&&!op.enabled_driver&&
+                        !op.enabled_expression&&
                         !op.fill_rule_driver&&!op.gradient&&op.composite=="below"&&op.fill_rule=="nonzero"&&
                         op.line_join=="miter"&&op.line_cap=="butt",
                         "INVALID_MACRO_INSTANCE","Macro entries must use the strict Macro instance tag without operation payload fields");
@@ -4710,6 +4774,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             if(object.point_edit&&object.point_edit->enabled_driver)require_member(*object.point_edit->enabled_driver);
             for(const auto& operation:object.stack) {
                 if(operation.enabled_driver)require_member(*operation.enabled_driver);
+                if(operation.enabled_expression)require_expression_members(*operation.enabled_expression);
                 if(operation.fill_rule_driver)require_member(operation.fill_rule_driver->link);
                 if(operation.gradient&&operation.gradient->enabled_driver)require_member(*operation.gradient->enabled_driver);
             }
@@ -5462,6 +5527,8 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         for(auto& contour:object.contours){contour.id=plan.ids.at(contour.id);for(auto& point:contour.points)point.id=plan.ids.at(point.id);}
         for(auto& op:object.stack) {
             if(op.enabled_driver)op.enabled_driver=remap(*op.enabled_driver);
+            if(op.enabled_expression)
+                op.enabled_expression=remap_operation_enabled_expression(*op.enabled_expression,remap);
             if(op.fill_rule_driver)op.fill_rule_driver->link=remap(op.fill_rule_driver->link);
             op.id=plan.ids.at(op.id);if(op.gradient){
                 if(op.gradient->enabled_driver)op.gradient->enabled_driver=remap(*op.gradient->enabled_driver);
@@ -5968,7 +6035,8 @@ PresetDefinition capture_preset_from_stack(const Document& document,const Create
             (operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke"||
              operation.type=="nect.shape.offset"||operation.type=="nect.shape.repeater"),
             "UNSUPPORTED_PRESET_OPERATION",operation.type);
-        if(operation.enabled_driver)driven_fields.push_back(operation_ref(command.object,operation.id,"enabled"));
+        if(operation.enabled_driver||operation.enabled_expression)
+            driven_fields.push_back(operation_ref(command.object,operation.id,"enabled"));
         if(operation.fill_rule_driver)driven_fields.push_back(operation_ref(command.object,operation.id,"fill_rule"));
         for(const auto& [name,value]:operation.parameters)
             if(driven(value))driven_fields.push_back(operation_ref(command.object,operation.id,name));
@@ -6105,7 +6173,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         else if constexpr(std::is_same_v<T,LinkObjectVisibility>||std::is_same_v<T,UnlinkObjectVisibility>)
             require(visibility_targets.insert(value.target).second,"DUPLICATE_TARGET","An Object visibility target may be changed only once per batch");
         else if constexpr(std::is_same_v<T,LinkOperationEnabled>||std::is_same_v<T,UnlinkOperationEnabled>)
-            require(operation_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","An operation enabled target may be linked or unlinked only once per batch");
+            require(operation_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","An operation enabled target may be changed only once per batch");
         else if constexpr(std::is_same_v<T,LinkGradientEnabled>||std::is_same_v<T,UnlinkGradientEnabled>)
             require(gradient_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A Gradient enabled target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkMaskEnabled>||std::is_same_v<T,UnlinkMaskEnabled>)
@@ -6238,18 +6306,35 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             }
         } else if constexpr(std::is_same_v<T,LinkOperationEnabled>) {
             const auto& target=operation_enabled_source(candidate,c.target);
-            (void)operation_enabled_source(candidate,c.source);
-            require(c.target!=c.source,"DEPENDENCY_CYCLE","Operation enabled cannot link to itself");
-            require(!target.enabled_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing an operation enabled driver requires replace_driver=true");
-            const auto [operation_id,parameter]=operation_address(c.target.field);(void)parameter;
-            operation(candidate.objects.at(c.target.object),operation_id).enabled_driver=c.source;
+            auto& source=operation(candidate.objects.at(c.target.object),operation_address(c.target.field).first);
+            if(const auto* link=std::get_if<Ref>(&c.source)) {
+                (void)operation_enabled_source(candidate,*link);
+                require(c.target!=*link,"DEPENDENCY_CYCLE","Operation enabled cannot link to itself");
+                const auto same_source=target.enabled_driver==std::optional<Ref>{*link}&&!target.enabled_expression;
+                require(same_source||(!target.enabled_driver&&!target.enabled_expression)||c.replace_driver,
+                    "DRIVEN_PROPERTY","Replacing an operation enabled source requires replace_driver=true");
+                source.enabled_driver=*link;source.enabled_expression.reset();
+            } else {
+                const auto& expression=std::get<Expression>(c.source);
+                require_builtin_operation_enabled_expression_target(candidate,c.target);
+                const auto parsed=parse_operation_enabled_expression(expression);
+                if(!parsed.is_literal) {
+                    require_builtin_operation_enabled_expression_target(candidate,parsed.source);
+                    require(c.target!=parsed.source,"DEPENDENCY_CYCLE","Operation enabled cannot reference itself");
+                }
+                const auto same_expression=target.enabled_expression==std::optional<Expression>{expression}&&!target.enabled_driver;
+                require(same_expression||(!target.enabled_driver&&!target.enabled_expression)||c.replace_driver,
+                    "DRIVEN_PROPERTY","Replacing an operation enabled source requires replace_driver=true");
+                source.enabled_driver.reset();source.enabled_expression=expression;
+            }
         } else if constexpr(std::is_same_v<T,UnlinkOperationEnabled>) {
             const auto& target=operation_enabled_source(candidate,c.target);
-            require(target.enabled_driver.has_value(),"PROPERTY_NOT_LINKED","Operation enabled has no driver to unlink");
+            require(target.enabled_driver.has_value()||target.enabled_expression.has_value(),
+                "PROPERTY_NOT_LINKED","Operation enabled has no source to unlink");
             const auto frozen=evaluate_operation_enabled(candidate,c.target);
             const auto [operation_id,parameter]=operation_address(c.target.field);(void)parameter;
             auto& source=operation(candidate.objects.at(c.target.object),operation_id);
-            source.enabled=frozen;source.enabled_driver.reset();
+            source.enabled=frozen;source.enabled_driver.reset();source.enabled_expression.reset();
         } else if constexpr(std::is_same_v<T,LinkGradientEnabled>) {
             const auto& target=gradient_enabled_source(candidate,c.target);
             (void)gradient_enabled_source(candidate,c.source);
@@ -6905,6 +6990,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             auto& o=candidate.objects.at(c.object);
             require(!c.operation.fill_rule_driver,"USE_TYPED_COMMAND","Create Fill rule links with link_fill_rule");
             require(!c.operation.enabled_driver,"USE_TYPED_COMMAND","Create operation enabled links with link_operation_enabled");
+            require(!c.operation.enabled_expression,"USE_TYPED_COMMAND","Create operation enabled expressions with set_operation_enabled_expression");
             require(!c.operation.gradient||!c.operation.gradient->enabled_driver,"USE_TYPED_COMMAND","Create Gradient enabled links with link_gradient_enabled");
             require(o.kind==Kind::path||o.kind==Kind::text||(o.kind==Kind::group&&c.operation.type=="nect.group.posterize"),
                 "INVALID_DOMAIN","Shape operations require a Path or Text; Group postchildren operations require nect.group.posterize");
@@ -6924,7 +7010,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         } else if constexpr(std::is_same_v<T,EnableOperation>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& target=operation(candidate.objects.at(c.object),c.operation);
-            require(!target.enabled_driver,"DRIVEN_PROPERTY","Unlink the operation enabled driver before changing its authored literal");
+            require(!target.enabled_driver&&!target.enabled_expression,"DRIVEN_PROPERTY",
+                "Unlink the operation enabled source before changing its authored literal");
             target.enabled=c.enabled;
         } else if constexpr(std::is_same_v<T,OperationOptions>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
@@ -7109,6 +7196,8 @@ void Session::apply(const std::vector<Command>& commands,std::uint64_t expected)
     if(candidate==document_&&commands.size()==1) {
         if(const auto* text_weight=std::get_if<LinkTextWeight>(&commands.front());
             text_weight&&(!text_weight->batch||text_weight->batch->mode==TextWeightBatchMode::link))return;
+        if(const auto* operation_enabled=std::get_if<LinkOperationEnabled>(&commands.front());
+            operation_enabled&&std::holds_alternative<Expression>(operation_enabled->source))return;
         if(std::holds_alternative<LinkObjectVisibility>(commands.front()))return;
         if(std::holds_alternative<LinkCompositeIsolated>(commands.front()))return;
         if(const auto* layout_source=std::get_if<LayoutDependencyCommand>(&commands.front())) {

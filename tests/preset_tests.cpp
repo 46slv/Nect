@@ -115,10 +115,10 @@ void macro_capture_apply_and_pinned_revision_contract() {
     auto malformed_macro=captured;malformed_macro.entries[1].parameters["amount"]=9;
     expect_atomic(session,"INVALID_PRESET_ENTRY",PresetCommand{UpdatePreset{malformed_macro}},session.revision());
     const auto bytes=encode(session.document());
-    check(decode(bytes)==session.document(),"Native 0.66 roundtrip preserves tagged v2 Macro preset entries");
-    auto lied=bytes;const auto native_version=lied.find("\"version\":\"0.66\"");
+    check(decode(bytes)==session.document(),"Native 0.67 roundtrip preserves tagged v2 Macro preset entries");
+    auto lied=bytes;const auto native_version=lied.find("\"version\":\"0.67\"");
     check(native_version!=std::string::npos,"Native Macro Preset fixture uses the current writer version");
-    lied.replace(native_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.65\"");
+    lied.replace(native_version,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.65\"");
     rejects("NATIVE_VERSION_MISMATCH",[&]{(void)decode(lied);});
 
     auto compatible=definition.revisions.at(1);compatible.revision=2;
@@ -254,21 +254,21 @@ void stack_parity_snapshot_undo_and_native_reopen() {
         stack[4].parameters.at("position_x").literal==36,
         "Later applications use edited literal parameters and options");
     const auto bytes=encode(preset.document());
-    check(decode(bytes)==preset.document(),"Native 0.66 cold reopen preserves preset definitions and applied stacks");
-    auto native_065=bytes;const auto current_version=native_065.find("\"version\":\"0.66\"");
+    check(decode(bytes)==preset.document(),"Native 0.67 cold reopen preserves preset definitions and applied stacks");
+    auto native_065=bytes;const auto current_version=native_065.find("\"version\":\"0.67\"");
     check(current_version!=std::string::npos,"Schema v1 Preset fixture identifies current native version");
-    native_065.replace(current_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.65\"");
+    native_065.replace(current_version,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.65\"");
     check(decode(native_065)==preset.document(),"Native 0.65 remains compatible with Preset schema v1");
     auto populated_previous=test_support::without_empty_macro_and_definition_fields_for_legacy_fixture(bytes);
     check(populated_previous.find("\"definitions\"")==std::string::npos,"Downgraded native has no Definition field");
-    const auto populated_version=populated_previous.find("\"version\":\"0.66\"");
-    check(populated_version!=std::string::npos,"Preset-only native document writes 0.66");
-    populated_previous.replace(populated_version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.63\"");
+    const auto populated_version=populated_previous.find("\"version\":\"0.67\"");
+    check(populated_version!=std::string::npos,"Preset-only native document writes 0.67");
+    populated_previous.replace(populated_version,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.63\"");
     check(decode(populated_previous)==preset.document(),"Native 0.63 with populated Presets remains cold-readable");
     auto previous=test_support::without_empty_presets_for_legacy_fixture(encode(fixture()));
-    const auto version=previous.find("\"version\":\"0.66\"");
-    check(version!=std::string::npos,"Fresh native fixture writes v0.66 and empty extension arrays");
-    previous.replace(version,std::string("\"version\":\"0.66\"").size(),"\"version\":\"0.62\"");
+    const auto version=previous.find("\"version\":\"0.67\"");
+    check(version!=std::string::npos,"Fresh native fixture writes v0.67 and empty extension arrays");
+    previous.replace(version,std::string("\"version\":\"0.67\"").size(),"\"version\":\"0.62\"");
     check(decode(previous)==fixture(),"Native 0.62 remains readable with an empty preset map");
 }
 void validation_and_apply_failures_are_atomic() {
@@ -335,6 +335,7 @@ void capture_refusal_lists_exact_source_refs() {
     offset.parameters.at("amount").expression=Expression{"2 + 3"};
     auto repeater=default_operation("source-repeater","nect.shape.repeater");
     repeater.parameters.at("copies").expression=Expression{"4"};
+    repeater.enabled_expression=Expression{"false",1};
     stack.push_back(offset);stack.push_back(repeater);
     Session session(document);const auto before=session.document();const auto revision=session.revision();const auto history=session.history();
     try {
@@ -344,6 +345,7 @@ void capture_refusal_lists_exact_source_refs() {
         const std::vector<Ref> expected{
             operation_ref("path","source-offset","enabled"),
             operation_ref("path","source-offset","amount"),
+            operation_ref("path","source-repeater","enabled"),
             operation_ref("path","source-repeater","copies")};
         std::string actual=error.code;
         for(const auto& ref:error.references)actual+=" "+ref.object+"/"+ref.point+"/"+ref.field;

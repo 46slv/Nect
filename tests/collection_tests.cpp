@@ -49,7 +49,7 @@ void membership_native_and_history() {
     check(session.document().collections.size()==1&&session.document().collections.front().members==std::vector<Id>({"A","B"}),
         "Create Collection stores ordered stable Object IDs without expanding Group descendants");
     const auto first=encode(session.document());
-    check(decode(first)==session.document(),"Native 0.66 cold reopen preserves Collection identity and member order");
+    check(decode(first)==session.document(),"Native 0.67 cold reopen preserves Collection identity and member order");
     apply(session,{CollectionCommand{SetCollectionMembers{"K",{"A","B","C","D"}}}});
     check(session.document().collections.front().members==std::vector<Id>({"A","B","C","D"}),
         "Explicit D membership does not imply G membership");

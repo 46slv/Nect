@@ -608,10 +608,20 @@ j::object fill_rule_property_json(const Document& d,const Ref& ref,const FillRul
 }
 j::object operation_enabled_property_json(const Document& d,const Ref& ref,const OperationEnabledProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
+    const auto& operations=d.objects.at(ref.object).stack;
+    const auto entry=std::find_if(operations.begin(),operations.end(),[&](const auto& candidate) {
+        return operation_ref(ref.object,candidate.id,"enabled")==ref;
+    });
+    const bool expression_capable=entry!=operations.end()&&!entry->macro;
+    j::object authored{{"literal",value.literal},{"driver",std::move(driver)}};
+    if(value.expression) {
+        authored["source_kind"]="expression";
+        authored["expression"]=expression_json(*value.expression);
+    }
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","bool"},
         {"unit","boolean"},{"space","local"},{"origin","authored"},
-        {"authored",j::object{{"literal",value.literal},{"driver",std::move(driver)}}},
-        {"evaluated",value.evaluated},{"link",true},{"expression",false}};
+        {"authored",std::move(authored)},
+        {"evaluated",value.evaluated},{"link",true},{"expression",expression_capable}};
 }
 j::object gradient_enabled_property_json(const Document& d,const Ref& ref,const GradientEnabledProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=j::object{{"link",ref_json(*value.driver)}};
@@ -772,17 +782,20 @@ j::value gradient_json(const Gradient& g) {
 }
 ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool allow_expression=true,bool allow_offset=true,
     bool allow_stroke_style=true,bool allow_fill_rule_driver=false,bool allow_enabled_driver=false,
-    bool allow_gradient_enabled_driver=false) {
+    bool allow_gradient_enabled_driver=false,bool allow_enabled_expression=false) {
     const auto& o=v.as_object();
     if(!allow_fill_rule_driver&&o.contains("fill_rule_driver"))throw Error("UNSUPPORTED_FILL_RULE_DRIVER","Fill rule drivers require native 0.26 and the dedicated link command");
     if(!allow_enabled_driver&&o.contains("enabled_driver"))
         throw Error("UNSUPPORTED_OPERATION_ENABLED_DRIVER","Operation enabled drivers require native 0.28 and the dedicated link command");
+    if(!allow_enabled_expression&&o.contains("enabled_expression"))
+        throw Error("UNSUPPORTED_OPERATION_ENABLED_EXPRESSION","Operation enabled expressions require native 0.67 and the dedicated expression command");
     std::vector<std::string_view> allowed{"id","type","version","enabled","parameters","composite","fill_rule"};
     if(allow_fill_rule_driver)allowed.push_back("fill_rule_driver");
     if(allow_gradient)allowed.push_back("gradient");
     if(allow_offset||allow_stroke_style)allowed.push_back("line_join");
     if(allow_stroke_style)allowed.push_back("line_cap");
     if(allow_enabled_driver)allowed.push_back("enabled_driver");
+    if(allow_enabled_expression)allowed.push_back("enabled_expression");
     keys(o,allowed);
     ShapeOperation op;op.id=text(o.at("id"));op.type=text(o.at("type"));
     op.version=j::value_to<unsigned>(o.at("version"));op.enabled=o.at("enabled").as_bool();
@@ -792,6 +805,9 @@ ShapeOperation read_operation(const j::value& v,bool allow_gradient=true,bool al
         const auto& wrapper=driver->as_object();keys(wrapper,{"link"});
         op.enabled_driver=read_ref(wrapper.at("link"));
     }
+    if(const auto* expression=o.if_contains("enabled_expression"))op.enabled_expression=read_expression(*expression);
+    if(op.enabled_driver&&op.enabled_expression)
+        throw Error("INVALID_OPERATION_ENABLED_SOURCE","Operation enabled link and expression are mutually exclusive");
     if(op.type=="nect.shape.offset") {
         if(!allow_offset)throw Error("UNSUPPORTED_OPERATOR","Offset Paths requires native 0.12");
         op.line_join=text(o.at("line_join"));
@@ -810,6 +826,7 @@ j::value operation_json(const ShapeOperation& op) {
         {"parameters",parameters},{"composite",op.composite},{"fill_rule",op.fill_rule}};
     if(op.fill_rule_driver)result["fill_rule_driver"]=fill_rule_driver_json(*op.fill_rule_driver);
     if(op.enabled_driver)result["enabled_driver"]=j::object{{"link",ref_json(*op.enabled_driver)}};
+    if(op.enabled_expression)result["enabled_expression"]=expression_json(*op.enabled_expression);
     if(op.gradient)result["gradient"]=gradient_json(*op.gradient);
     if(op.type=="nect.shape.offset")result["line_join"]=op.line_join;
     if(op.type=="nect.paint.stroke"&&op.version==2){result["line_join"]=op.line_join;result["line_cap"]=op.line_cap;}
@@ -880,10 +897,10 @@ j::value processing_entry_json(const ProcessingEntry& entry) {
     return j::object{{"kind","macro"},{"id",entry.id},{"enabled",entry.enabled},
         {"definition",entry.macro->definition},{"revision",entry.macro->pinned_revision},{"overrides",overrides}};
 }
-ProcessingEntry read_processing_entry(const j::value& value) {
+ProcessingEntry read_processing_entry(const j::value& value,bool allow_enabled_expression=false) {
     const auto& object=value.as_object();const auto kind=text(object.at("kind"));
     if(kind=="operation") {
-        keys(object,{"kind","operation"});return ProcessingEntry{read_operation(object.at("operation"),true,true,true,true,true,true,true)};
+        keys(object,{"kind","operation"});return ProcessingEntry{read_operation(object.at("operation"),true,true,true,true,true,true,true,allow_enabled_expression)};
     }
     if(kind=="macro") {
         keys(object,{"kind","id","enabled","definition","revision","overrides"});
@@ -1589,6 +1606,10 @@ Command read_command(const j::value& v) {
         keys(o,{"type","target","source","replace_driver"});
         return LinkOperationEnabled{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
     }
+    if(type=="set_operation_enabled_expression") {
+        keys(o,{"type","target","expression","replace_driver"});
+        return SetOperationEnabledExpression{read_ref(o.at("target")),read_expression(o.at("expression")),o.at("replace_driver").as_bool()};
+    }
     if(type=="unlink_operation_enabled") {
         keys(o,{"type","target"});return UnlinkOperationEnabled{read_ref(o.at("target"))};
     }
@@ -2000,10 +2021,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,66> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66"};
+        constexpr std::array<std::string_view,67> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.66 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.67 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -2103,15 +2124,15 @@ Document decode(std::string_view input) {
                     throw Error("INVALID_OBJECT","Group has path-only fields");
                 if(minor>=25) {
                     if(!o.contains("stack"))throw Error("INVALID_OBJECT","Native 0.25 Group requires an operation stack");
-                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,true,true,true,true,minor>=26,minor>=28,minor>=29));
+                    for(const auto& entry:o.at("stack").as_array())obj.stack.push_back(read_operation(entry,true,true,true,true,minor>=26,minor>=28,minor>=29,minor>=67));
                 } else if(o.contains("stack"))throw Error("INVALID_OBJECT","Group operation stacks require native 0.25");
                 obj.children=ids(o.at("children"));
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
                 if(minor>=3) {
                     for(const auto& entry:o.at("stack").as_array()) {
-                        if(minor>=65)obj.stack.push_back(read_processing_entry(entry));
-                        else obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12,minor>=13,minor>=26,minor>=28,minor>=29));
+                        if(minor>=65)obj.stack.push_back(read_processing_entry(entry,minor>=67));
+                        else obj.stack.push_back(read_operation(entry,minor>=4,minor>=10,minor>=12,minor>=13,minor>=26,minor>=28,minor>=29,minor>=67));
                     }
                     obj.legacy_stroke=text(o.at("legacy_stroke"));
                 } else {
@@ -2610,7 +2631,8 @@ std::string request(Session& session,std::string_view input) {
                         return operation_ref(ref.object,candidate.id,"enabled")==ref;
                     });
                     list.push_back(operation_enabled_property_json(session.document(),ref,
-                        {operation->enabled,operation->enabled_driver,operation_enabled_values.at(ref)}));
+                        {operation->enabled,operation->enabled_driver,operation->enabled_expression,
+                            operation_enabled_values.at(ref)}));
                     continue;
                 }
                 if(ref.field.starts_with("op.")&&ref.field.ends_with(".fill_rule")) {
@@ -2785,11 +2807,13 @@ std::string request(Session& session,std::string_view input) {
                 const auto& object=render_document.objects.at(node.id);
                 for(const auto& operation:object.stack)if(operation.type=="nect.group.posterize") {
                     j::value driver=nullptr;if(operation.enabled_driver)driver=j::object{{"link",ref_json(*operation.enabled_driver)}};
-                    effects.push_back(j::object{
+                    j::object effect{
                         {"id",operation.id},{"type",operation.type},{"version",operation.version},
                         {"authored_enabled",operation.enabled},{"enabled_driver",std::move(driver)},
                         {"enabled",operation_enabled.at(operation_ref(node.id,operation.id,"enabled"))},
-                        {"levels",render_values.at(operation_ref(node.id,operation.id,"levels"))}});
+                        {"levels",render_values.at(operation_ref(node.id,operation.id,"levels"))}};
+                    if(operation.enabled_expression)effect["enabled_expression"]=expression_json(*operation.enabled_expression);
+                    effects.push_back(std::move(effect));
                 }
                 j::value mask=nullptr;if(node.mask)mask=j::object{{"source",node.mask->source},{"fill_rule",node.mask->fill_rule},{"space","composition"},{"path_instances",node.mask->paths.size()}};
                 return j::object{{"object",node.id},{"world",world},{"visible",node.visible},{"opacity",node.opacity},{"blend",node.blend},

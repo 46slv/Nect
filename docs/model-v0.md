@@ -7,6 +7,19 @@ Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
 same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
+## Operation enabled expression v1
+
+Native 0.67 adds an optional `enabled_expression` beside the authored enabled
+literal on built-in ShapeOperation entries. It is mutually exclusive with the
+existing `enabled_driver`. The closed version-1 source is `true`, `false`, an
+exact same-Composition built-in `op.<stable ID>.enabled` Ref, or its negation.
+The literal and exact expression text remain authored; pure evaluation drives
+shape, paint, compositing and export bypass. Unlink freezes the evaluated bool
+in one Session command. Tagged Macro instances and Macro graph nodes cannot
+own this expression. Native 0.1–0.66 remain readable; an expression carried
+under an older version or alongside a link is rejected. The closed wire shape
+is `schemas/native-v0.67.schema.json`.
+
 ## PresetDefinition v1
 
 Native 0.63 adds a document-owned map of stable-ID `PresetDefinition`s. The bounded
