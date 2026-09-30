@@ -167,6 +167,13 @@ private:
     void reset_instance_override();
     void detach_instance();
     void delete_definition();
+    void create_collection_from_selection();
+    void browse_collections();
+    void rename_collection();
+    void add_selection_to_collection();
+    void remove_selection_from_collection();
+    void delete_collection();
+    std::optional<Id> choose_collection(const QString& title,const std::vector<Collection>& collections);
     void choose_transform_parent();
     void edit_text_content(const Id& object);
     void convert_to_path();

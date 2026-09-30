@@ -1268,6 +1268,27 @@ DefinitionCommand read_definition_command(const j::value& v) {
     throw Error("UNSUPPORTED_DEFINITION_OPERATION",type);
 }
 
+CollectionCommand read_collection_command(const j::value& v) {
+    const auto& o=v.as_object();const auto type=text(o.at("type"));
+    if(type=="create_collection") {
+        keys(o,{"type","id","name","members"});
+        return CollectionCommand{CreateCollection{{text(o.at("id")),text(o.at("name")),ids(o.at("members"))}}};
+    }
+    if(type=="rename_collection") {
+        keys(o,{"type","collection","name"});
+        return CollectionCommand{RenameCollection{text(o.at("collection")),text(o.at("name"))}};
+    }
+    if(type=="set_collection_members") {
+        keys(o,{"type","collection","members"});
+        return CollectionCommand{SetCollectionMembers{text(o.at("collection")),ids(o.at("members"))}};
+    }
+    if(type=="delete_collection") {
+        keys(o,{"type","collection"});
+        return CollectionCommand{DeleteCollection{text(o.at("collection"))}};
+    }
+    throw Error("UNSUPPORTED_COLLECTION_OPERATION",type);
+}
+
 bool is_preset_command(const j::value& v) {
     const auto type=text(v.as_object().at("type"));
     return type=="create_preset"||type=="create_preset_from_stack"||type=="rename_preset"||
@@ -1279,6 +1300,8 @@ Command read_command(const j::value& v) {
     auto type=text(o.at("type"));
     if(type.ends_with("_definition")||type=="create_instance"||type=="set_instance_override"||
         type=="reset_instance_override"||type=="detach_instance")return read_definition_command(v);
+    if(type=="create_collection"||type=="rename_collection"||type=="set_collection_members"||
+        type=="delete_collection")return read_collection_command(v);
     if(type=="add_raster_asset"||type=="replace_raster_asset") {
         keys(o,{"type","asset"});auto asset=read_asset(o.at("asset"));
         if(type=="add_raster_asset")return AddRasterAsset{std::move(asset)};return ReplaceRasterAsset{std::move(asset)};
@@ -2309,6 +2332,17 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op"});j::array definitions;
             for(const auto& [id,definition]:session.document().definitions){(void)id;definitions.push_back(definition_json(definition));}
             result=std::move(definitions);
+        } else if(op=="collections") {
+            keys(o,{"op"});j::array collections;
+            for(const auto& collection:session.document().collections)
+                collections.push_back({{"id",collection.id},{"name",collection.name},{"members",ids_json(collection.members)}});
+            result=std::move(collections);
+        } else if(op=="collection") {
+            keys(o,{"op","id"});const auto id=text(o.at("id"));
+            const auto found=std::find_if(session.document().collections.begin(),session.document().collections.end(),
+                [&](const Collection& item){return item.id==id;});
+            if(found==session.document().collections.end())throw Error("MISSING_COLLECTION",id);
+            result=j::object{{"id",found->id},{"name",found->name},{"members",ids_json(found->members)}};
         } else if(op=="definition") {
             keys(o,{"op","id"});const auto id=text(o.at("id"));
             const auto found=session.document().definitions.find(id);

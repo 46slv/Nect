@@ -187,6 +187,14 @@ Reset restores source evaluation; Detach materializes a frozen copy in one Undo.
 Dependencies must stay within the source subtree, and nested/cross-Composition use
 reject. Native 0.64 stores Definitions and Instances; 0.63 and older remain readable.
 
+Collections use the existing native ordered Object-ID membership. The Collections
+menu creates one from the current whole-Object selection, lists its members and
+supports rename, add/remove selected Objects and delete. Membership does not
+reparent or render Objects. The same Session commands are available through the
+JSON-lines API and formal MCP adapter as `create_collection`,
+`rename_collection`, `set_collection_members` and `delete_collection`; read with
+`collections` or `collection`. Native 0.64 already stores Collection records.
+
 Add Text creates an editable source. Use Edit text to compose Japanese or other
 Unicode content, then Apply for one undo step. Select font, writing direction,
 alignment and sizing in Properties; numeric text fields also support links.

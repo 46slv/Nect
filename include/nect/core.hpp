@@ -483,6 +483,12 @@ struct DetachInstance { Id instance; Id id_prefix; };
 using DefinitionMutation=std::variant<CreateDefinition,RenameDefinition,DeleteDefinition,CreateInstance,
     SetInstanceOverride,ResetInstanceOverride,DetachInstance>;
 struct DefinitionCommand { DefinitionMutation mutation; };
+struct CreateCollection { Collection collection; };
+struct RenameCollection { Id collection; std::string name; };
+struct SetCollectionMembers { Id collection; std::vector<Id> members; };
+struct DeleteCollection { Id collection; };
+using CollectionMutation=std::variant<CreateCollection,RenameCollection,SetCollectionMembers,DeleteCollection>;
+struct CollectionCommand { CollectionMutation mutation; };
 struct EnableOperation { Id object; Id operation; bool enabled; };
 struct LinkOperationEnabled { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkOperationEnabled { Ref target; };
@@ -733,7 +739,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     LinkMaskEnabled,UnlinkMaskEnabled,
     SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
     AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects,
-    DefinitionCommand>;
+    DefinitionCommand,CollectionCommand>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};

@@ -4317,6 +4317,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
 
     for(const auto& c:d.collections) {
         add(c.id);
+        require(c.members.size()<=10000,"LIMIT","Collection member limit 10000");
         std::set<Id> members;
         for(const auto& m:c.members) {
             require(d.objects.contains(m),"MISSING_OBJECT",m);
@@ -5240,6 +5241,25 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
     };
     for(auto& comp:document.compositions)insert(comp.roots);
     for(const auto& [id,object]:original.objects){(void)object;if(!plan.objects.contains(id))insert(document.objects.at(id).children);}
+}
+
+void edit_collection(Document& candidate,const CollectionCommand& command) {
+    std::visit([&](const auto& mutation) {
+        using T=std::decay_t<decltype(mutation)>;
+        if constexpr(std::is_same_v<T,CreateCollection>) {
+            identity(mutation.collection.id);
+            require(std::none_of(candidate.collections.begin(),candidate.collections.end(),
+                [&](const Collection& item){return item.id==mutation.collection.id;}),"DUPLICATE_ID",mutation.collection.id);
+            candidate.collections.push_back(mutation.collection);
+        } else {
+            const auto found=std::find_if(candidate.collections.begin(),candidate.collections.end(),
+                [&](const Collection& item){return item.id==mutation.collection;});
+            require(found!=candidate.collections.end(),"MISSING_COLLECTION",mutation.collection);
+            if constexpr(std::is_same_v<T,RenameCollection>) found->name=mutation.name;
+            else if constexpr(std::is_same_v<T,SetCollectionMembers>) found->members=mutation.members;
+            else if constexpr(std::is_same_v<T,DeleteCollection>) candidate.collections.erase(found);
+        }
+    },command.mutation);
 }
 
 void edit_definition(Document& candidate,const DefinitionCommand& command) {
@@ -6554,6 +6574,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             edit_structural_command(candidate,c);
         } else if constexpr(std::is_same_v<T,DefinitionCommand>) {
             edit_definition(candidate,c);
+        } else if constexpr(std::is_same_v<T,CollectionCommand>) {
+            edit_collection(candidate,c);
         }
     },command);
 

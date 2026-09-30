@@ -784,6 +784,7 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* add=menuBar()->addMenu("&Add");
     auto* view=menuBar()->addMenu("&View");
     auto* definitions=menuBar()->addMenu("&Definitions");
+    auto* collections_menu=menuBar()->addMenu("&Collections");
     auto action=[this](QMenu* menu,const QString& label,const QKeySequence& shortcut,auto fn) {
         auto* a=menu->addAction(label); a->setShortcut(shortcut);
         connect(a,&QAction::triggered,this,[this,fn]{perform(fn);}); return a;
@@ -802,6 +803,18 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
         ->setObjectName("detach-instance");
     action(definitions,"Delete Definition…",{},[this]{delete_definition();})
         ->setObjectName("delete-definition");
+    action(collections_menu,"Browse Collections…",{},[this]{browse_collections();})
+        ->setObjectName("browse-collections");
+    action(collections_menu,"Create from selection…",{},[this]{create_collection_from_selection();})
+        ->setObjectName("create-collection-from-selection");
+    action(collections_menu,"Rename Collection…",{},[this]{rename_collection();})
+        ->setObjectName("rename-collection");
+    action(collections_menu,"Add selection to Collection…",{},[this]{add_selection_to_collection();})
+        ->setObjectName("add-selection-to-collection");
+    action(collections_menu,"Remove selection from Collection…",{},[this]{remove_selection_from_collection();})
+        ->setObjectName("remove-selection-from-collection");
+    action(collections_menu,"Delete Collection…",{},[this]{delete_collection();})
+        ->setObjectName("delete-collection");
     action(file,"New",QKeySequence::New,[this]{canvas->cancel_interaction();host.create_document();canvas->fit_artboard();});
     action(file,"Open…",QKeySequence::Open,[this]{
         const auto path=QFileDialog::getOpenFileName(this,"Open Nect document",{},"Nect (*.nect *.json)");
@@ -6991,6 +7004,87 @@ void Window::delete_definition() {
         throw Error("REVISION_CONFLICT","Document changed while choosing a Definition");
     host.session.apply({DefinitionCommand{DeleteDefinition{ids.at(static_cast<std::size_t>(index))}}},revision);
     host.edited();statusBar()->showMessage("Definition deleted; Undo restores the named source",6000);
+}
+std::optional<Id> Window::choose_collection(const QString& title,const std::vector<Collection>& collections) {
+    if(collections.empty())throw Error("MISSING_COLLECTION","There are no Collections");
+    QStringList labels;
+    for(const auto& collection:collections)
+        labels.push_back(qs(collection.name)+" · "+qs(collection.id)+" ("+QString::number(collection.members.size())+")");
+    bool accepted=false;const auto chosen=QInputDialog::getItem(this,title,"Collection:",labels,0,false,&accepted);
+    if(!accepted)return std::nullopt;
+    const auto index=labels.indexOf(chosen);
+    if(index<0||static_cast<std::size_t>(index)>=collections.size())throw Error("MISSING_COLLECTION","Choose a Collection");
+    return collections.at(static_cast<std::size_t>(index)).id;
+}
+void Window::browse_collections() {
+    const auto collections=host.session.document().collections;
+    const auto chosen=choose_collection("Browse Collections",collections);if(!chosen)return;
+    const auto found=std::find_if(collections.begin(),collections.end(),[&](const Collection& item){return item.id==*chosen;});
+    QStringList members;for(const auto& id:found->members)members.push_back(qs(id));
+    QMessageBox::information(this,"Collection members",qs(found->name)+" · "+qs(found->id)+"\n\n"+
+        (members.empty()?QString("No members"):members.join("\n")));
+}
+void Window::create_collection_from_selection() {
+    const auto selected=canvas->selected_objects();
+    if(selected.empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select whole Objects to create a Collection");
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    bool accepted=false;const auto name=QInputDialog::getText(this,"Create Collection","Collection name:",
+        QLineEdit::Normal,{},&accepted).trimmed();if(!accepted)return;
+    if(name.isEmpty())throw Error("INVALID_COLLECTION","Enter a Collection name");
+    if(host.session_id!=frozen_session||host.session.revision()!=revision||canvas->selected_objects()!=selected)
+        throw Error("REVISION_CONFLICT","Selection or document changed while creating the Collection");
+    host.session.apply({CollectionCommand{CreateCollection{{new_id(),name.toStdString(),selected}}}},revision);
+    host.edited();statusBar()->showMessage("Collection created; selected Objects remain in place",6000);
+}
+void Window::rename_collection() {
+    const auto collections=host.session.document().collections;
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto chosen=choose_collection("Rename Collection",collections);if(!chosen)return;
+    const auto found=std::find_if(collections.begin(),collections.end(),[&](const Collection& item){return item.id==*chosen;});
+    bool accepted=false;const auto name=QInputDialog::getText(this,"Rename Collection","New name:",
+        QLineEdit::Normal,qs(found->name),&accepted).trimmed();if(!accepted)return;
+    if(name.isEmpty())throw Error("INVALID_COLLECTION","Enter a Collection name");
+    if(host.session_id!=frozen_session||host.session.revision()!=revision)
+        throw Error("REVISION_CONFLICT","Document changed while renaming the Collection");
+    host.session.apply({CollectionCommand{RenameCollection{*chosen,name.toStdString()}}},revision);
+    host.edited();statusBar()->showMessage("Collection renamed; member IDs are unchanged",6000);
+}
+void Window::add_selection_to_collection() {
+    const auto selected=canvas->selected_objects();
+    if(selected.empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select whole Objects to add to a Collection");
+    const auto collections=host.session.document().collections;
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto chosen=choose_collection("Add to Collection",collections);if(!chosen)return;
+    const auto found=std::find_if(collections.begin(),collections.end(),[&](const Collection& item){return item.id==*chosen;});
+    auto members=found->members;
+    for(const auto& id:selected)if(std::find(members.begin(),members.end(),id)==members.end())members.push_back(id);
+    if(host.session_id!=frozen_session||host.session.revision()!=revision||canvas->selected_objects()!=selected)
+        throw Error("REVISION_CONFLICT","Selection or document changed while adding Collection members");
+    host.session.apply({CollectionCommand{SetCollectionMembers{*chosen,std::move(members)}}},revision);
+    host.edited();statusBar()->showMessage("Selected Objects added to Collection without moving artwork",6000);
+}
+void Window::remove_selection_from_collection() {
+    const auto selected=canvas->selected_objects();
+    if(selected.empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select whole Objects to remove from a Collection");
+    const auto collections=host.session.document().collections;
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto chosen=choose_collection("Remove from Collection",collections);if(!chosen)return;
+    const auto found=std::find_if(collections.begin(),collections.end(),[&](const Collection& item){return item.id==*chosen;});
+    auto members=found->members;
+    for(const auto& id:selected)std::erase(members,id);
+    if(host.session_id!=frozen_session||host.session.revision()!=revision||canvas->selected_objects()!=selected)
+        throw Error("REVISION_CONFLICT","Selection or document changed while removing Collection members");
+    host.session.apply({CollectionCommand{SetCollectionMembers{*chosen,std::move(members)}}},revision);
+    host.edited();statusBar()->showMessage("Selected Objects removed from Collection without moving artwork",6000);
+}
+void Window::delete_collection() {
+    const auto collections=host.session.document().collections;
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto chosen=choose_collection("Delete Collection",collections);if(!chosen)return;
+    if(host.session_id!=frozen_session||host.session.revision()!=revision)
+        throw Error("REVISION_CONFLICT","Document changed while deleting the Collection");
+    host.session.apply({CollectionCommand{DeleteCollection{*chosen}}},revision);
+    host.edited();statusBar()->showMessage("Collection deleted; member Objects remain in place",6000);
 }
 void Window::duplicate_selection() {
     if(canvas->selected_objects().empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select objects or Groups to duplicate");

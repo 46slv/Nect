@@ -82,6 +82,15 @@ Rename and point reorder do not retarget references.
 Objects are owned exactly once by a Composition root or Group child. Ownership is derived from roots/children, not duplicated in a parent field.
 
 Collections are non-owning ordered sets. Collection membership does not alter the source object's parent or transform inheritance.
+`CollectionCommand` creates, renames, replaces ordered members and deletes a
+Collection through the ordinary atomic Session revision/Undo path. A member is
+an exact existing Object ID; membership is unique and limited to 10,000 IDs.
+Groups and descendants are independent membership choices. One Object may be in
+multiple Collections, and deleting an Object prunes all memberships. The Desktop
+Collections menu and JSON-lines/formal MCP commands use this same authority.
+Collection-only edits do not change draw order, transforms, visibility or Canvas
+pixels. Native 0.64 already stores Collection IDs, names and member order, so this
+command surface does not change the save format.
 
 ## Coordinates / handles
 
