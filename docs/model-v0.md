@@ -5,7 +5,7 @@
 Implemented: Document, Composition, Artboard, Group, Path, Text, Contour, Point,
 Scalar, Binding, Expression, Collection, Named Color, retained Circle/Rectangle/Polygon/Star sources,
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
-geometry masks and common compositing.
+same-document Definitions/Instances, geometry masks and common compositing.
 
 ## PresetDefinition v1
 
@@ -15,7 +15,8 @@ v1 schema accepts exactly one `nect.shape.offset@1` entry followed by one
 stores enabled literals, every built-in Scalar parameter, and the supported literal
 options; it stores no object references, expressions, gradients or executable code.
 `schemas/native-v0.63.schema.json` describes the serialized form. Native 0.62 and
-older documents remain readable with an empty definition map.
+older documents remain readable with an empty PresetDefinition map. Native 0.64
+extends that format with same-document Definitions and Instances.
 
 Create-from-stack selects these two built-ins in their source stack order and
 reports the exact captured source operation IDs. Missing, reversed, or repeated
@@ -29,9 +30,48 @@ definition does not alter operation snapshots already applied to Objects. This
 bounded vertical does not define Macros, Actions, published parameters or a
 cross-document preset library.
 
+## Definition / Instance v1
+
+Native 0.64 extends the 0.63 native schema with stable-ID `Definition`s and
+`Instances` in the same Document. `schemas/native-v0.64.schema.json` describes the
+combined serialized form.
+A Definition points at an existing authored Object subtree; its source Items keep
+their existing stable Object IDs and remain the only authored source Objects.
+Creating, renaming and deleting a Definition and placing, overriding, resetting or
+detaching an Instance use the shared Session command boundary and one atomic history
+entry. Deleting a Definition with a live Instance returns `DEFINITION_IN_USE`.
+
+The first vertical accepts one source subtree and one Composition. Definition
+dependencies must stay inside that subtree; dangling dependencies, escaping links,
+expressions, masks or transform parents, nested Instances and cross-Composition
+placement reject. Instance identity is stable and separate from source identity.
+Each Instance keeps its own authored placement transform, visibility, order and
+compositing. Source edits to geometry, text content, descendant transforms,
+descendant visibility and root compositing/content flow into every Instance.
+
+Definition evaluation ignores the source root's affine transform, anchor, transform
+parent and visibility source. The source root's content and compositing—including
+its opacity, blend, mask and isolation—remain part of the evaluated Definition.
+Descendant authored transforms and visibility remain in the source subtree. Scene
+projection expands unique transient proxy IDs for render/export/Canvas lookup;
+these proxy Objects are evaluated state and are never added to the native Document.
+Each Composition render's combined authored and transient projected Object count
+must stay within 10,000. Exceeding that render bound returns
+`INSTANCE_RENDER_LIMIT`. A Document supports at most 10,000 Definition records.
+
+Scalar Instance overrides are limited to source `composite.opacity` and Text
+`text.font_size`. Keys use stable source Object IDs and empty point IDs. Other scalar,
+typed, structured and nested overrides are unsupported. Reset removes one local key
+so the current source value flows through again. Detach copies the current source
+subtree and overrides into ordinary Objects under the Instance's existing layer ID,
+resets copied source-root affine/anchor/transform-parent/visibility, and preserves
+source-root content/compositing. The materialized copy no longer changes with source
+edits. One Undo restores the live Instance and one Redo restores the exact copy.
+
 Layer is the UI presentation of an Object; there is no duplicate Layer state model.
 
-Raster, Resource, general node graphs, addressable generated Instances and full compositing are not stubbed ahead of real callers.
+Raster, Resource, general node graphs, addressable procedural generated Instances
+and full compositing are not stubbed ahead of real callers.
 
 ## Identity / ownership
 

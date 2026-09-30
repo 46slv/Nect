@@ -3793,6 +3793,7 @@ static void validate_preset_definition(const Id& map_id,const PresetDefinition& 
 
 static std::map<Ref,double> validate_evaluated(const Document& d) {
     require(d.objects.size()<=10000 && d.compositions.size()<=128,"LIMIT","Document size limit");
+    require(d.definitions.size()<=10000,"LIMIT","Definition count limit 10000");
     std::set<Id> ids;
     auto add=[&](const Id& id) {
         identity(id);
@@ -3800,6 +3801,13 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     };
 
     add(d.id);
+    for(const auto& [id,definition]:d.definitions) {
+        add(id);require(id==definition.id,"ID_MISMATCH",id);
+        identity(definition.root);
+        require(!definition.name.empty()&&definition.name.size()<=4096,"INVALID_DEFINITION","Definition requires a name of 1..4096 bytes");
+        text_utf8(definition.name);
+        require(d.objects.contains(definition.root),"MISSING_DEFINITION_ROOT",definition.root);
+    }
     require(d.preset_definitions.size()<=128,"LIMIT","Preset definition count limit 128");
     for(const auto& [id,preset]:d.preset_definitions) {
         add(id);validate_preset_definition(id,preset);
@@ -4155,15 +4163,23 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         for(unsigned char ch:o.name)
             require(ch>=32||ch==9||ch==10||ch==13,"INVALID_NAME","XML-incompatible control character");
 
-        require(o.kind==Kind::group||o.kind==Kind::path||o.kind==Kind::text||o.kind==Kind::image,"INVALID_OBJECT","Unknown object kind");
+        require(o.kind==Kind::group||o.kind==Kind::path||o.kind==Kind::text||o.kind==Kind::image||o.kind==Kind::instance,"INVALID_OBJECT","Unknown object kind");
         require(o.kind==Kind::image||!o.image,"INVALID_OBJECT","Only Image owns an image source");
         if(o.kind==Kind::image) {
             require(o.image.has_value()&&!o.text&&!o.source&&!o.point_edit&&o.contours.empty()&&o.children.empty(),"INVALID_IMAGE","Image requires exactly one image source");
             require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Image shape stacks are unsupported");
             require(d.raster_assets.contains(o.image->asset),"MISSING_ASSET",o.image->asset);
+            require(!o.instance,"INVALID_OBJECT","Image cannot carry Instance state");
+        } else if(o.kind==Kind::instance) {
+            require(o.instance.has_value()&&!o.text&&!o.source&&!o.point_edit&&o.contours.empty()&&o.children.empty(),
+                "INVALID_INSTANCE","Instance requires a Definition reference and cannot own source content");
+            require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Instances do not own operator stacks");
+            require(d.definitions.contains(o.instance->definition),"MISSING_DEFINITION",o.instance->definition);
+            require(o.instance->overrides.size()<=4096,"LIMIT","Instance override limit 4096");
         } else if(o.kind==Kind::group) {
             require(o.contours.empty(),"INVALID_OBJECT","Group cannot own path geometry");
             require(!o.source&&!o.point_edit&&!o.text,"INVALID_OBJECT","Group cannot own a geometry source");
+            require(!o.instance,"INVALID_OBJECT","Group cannot carry Instance state");
             require(o.legacy_stroke.empty(),"INVALID_DOMAIN","Groups do not own legacy Stroke addresses");
             require(o.stack.size()<=128,"LIMIT","Group operation stack limit 128");
             for(const auto& op:o.stack) {
@@ -4177,6 +4193,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     "INVALID_OPERATOR_OPTIONS","Group Posterize has no shape compositing, fill, stroke or gradient options");
             }
         } else {
+            require(!o.instance,"INVALID_OBJECT","Path and Text cannot carry Instance state");
             require(o.children.empty(),"INVALID_OBJECT","Path cannot own children");
             if(o.kind==Kind::text) {
                 require(o.text.has_value()&&!o.source&&!o.point_edit&&o.contours.empty(),"INVALID_TEXT","Text owns one editable text source only");
@@ -4267,6 +4284,15 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
     };
     for(const auto& comp:d.compositions) for(const auto& id:comp.roots) own(id,comp.id,0);
     require(owned.size()==d.objects.size(),"ORPHAN_OBJECT","Every object requires exactly one composition/tree owner");
+    for(const auto& [definition_id,definition]:d.definitions) {
+        (void)definition_id;
+        require(compositions.contains(definition.root),"MISSING_DEFINITION_ROOT",definition.root);
+    }
+    for(const auto& [instance_id,object]:d.objects)if(object.instance) {
+        const auto& definition=d.definitions.at(object.instance->definition);
+        require(compositions.at(instance_id)==compositions.at(definition.root),"CROSS_COMPOSITION",
+            "Definition source and Instance must belong to the same Composition");
+    }
     for(const auto& [id,object]:d.objects)if(object.compositing.mask)
         require(compositions.at(id)==compositions.at(object.compositing.mask->source),"CROSS_COMPOSITION","Geometry mask source must belong to the same Composition");
     (void)evaluate_object_visibilities(d);
@@ -4395,6 +4421,94 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
 #endif
         if(check_shape)
             (void)evaluate_shape(d,id,values,&fill_rule_values,&operation_enabled_values,&gradient_enabled_values);
+    }
+
+    const auto definition_members=[&](const Definition& definition) {
+        std::set<Id> members;
+        std::function<void(const Id&)> visit=[&](const Id& id) {
+            require(d.objects.contains(id),"MISSING_DEFINITION_ITEM",id);
+            if(!members.insert(id).second)return;
+            const auto& object=d.objects.at(id);
+            require(object.kind!=Kind::instance,"NESTED_INSTANCE_UNSUPPORTED","Nested Definition Instances are not supported in this vertical");
+            for(const auto& child:object.children)visit(child);
+        };
+        visit(definition.root);
+        return members;
+    };
+    for(const auto& [definition_id,definition]:d.definitions) {
+        (void)definition_id;
+        const auto members=definition_members(definition);
+        const auto require_member=[&](const Ref& ref) {
+            if(!members.contains(ref.object)) {
+                Error error("DEFINITION_DEPENDENCY_ESCAPE","Definition dependencies must remain inside the source subtree");
+                error.references.push_back(ref);throw error;
+            }
+        };
+        const auto require_expression_members=[&](const Expression& expression) {
+            for(const auto& ref:expression_dependencies(expression))require_member(ref);
+        };
+        for(const auto& id:members) {
+            const auto& object=d.objects.at(id);const bool source_root=id==definition.root;
+            if(!source_root&&object.transform_parent)require_member({*object.transform_parent,"","transform.a"});
+            if(!source_root) {
+                if(object.visibility_driver)require_member(*object.visibility_driver);
+                if(object.visibility_expression)require_expression_members(*object.visibility_expression);
+            }
+            if(object.compositing.isolated_driver)require_member(*object.compositing.isolated_driver);
+            if(object.compositing.isolated_expression)require_expression_members(*object.compositing.isolated_expression);
+            if(object.compositing.mask) {
+                require_member({object.compositing.mask->source,"","composite.opacity"});
+                if(object.compositing.mask->enabled_driver)require_member(*object.compositing.mask->enabled_driver);
+            }
+            if(object.text) {
+                const auto& text=*object.text;
+                if(text.path_attachment)require_member({text.path_attachment->path,"","transform.a"});
+                if(text.content_driver)require_member(text.content_driver->link);
+                if(text.family_driver)require_member(text.family_driver->link);
+                if(text.locale_driver)require_member(text.locale_driver->link);
+                if(text.direction_driver)require_member(text.direction_driver->link);
+                if(text.layout_driver)require_member(text.layout_driver->link);
+                if(text.alignment_driver)require_member(text.alignment_driver->link);
+                if(text.weight_driver)require_member(text.weight_driver->link);
+                if(text.weight_expression)require_expression_members(*text.weight_expression);
+                if(text.italic_driver) {
+                    if(const auto* link=std::get_if<Ref>(&*text.italic_driver))require_member(*link);
+                    else require_expression_members(std::get<Expression>(*text.italic_driver));
+                }
+            }
+            if(object.point_edit&&object.point_edit->enabled_driver)require_member(*object.point_edit->enabled_driver);
+            for(const auto& operation:object.stack) {
+                if(operation.enabled_driver)require_member(*operation.enabled_driver);
+                if(operation.fill_rule_driver)require_member(operation.fill_rule_driver->link);
+                if(operation.gradient&&operation.gradient->enabled_driver)require_member(*operation.gradient->enabled_driver);
+            }
+            for(const auto& [ref,scalar]:authored)if(ref.object==id&&scalar) {
+                const bool root_placement=source_root&&(ref.field.starts_with("transform.")||ref.field=="object.visible");
+                if(root_placement)continue;
+                if(scalar->binding)require_member(scalar->binding->source);
+                if(scalar->expression)require_expression_members(*scalar->expression);
+            }
+        }
+    }
+    for(const auto& [instance_id,instance_object]:d.objects)if(instance_object.instance) {
+        const auto& instance=*instance_object.instance;
+        const auto& definition=d.definitions.at(instance.definition);
+        std::set<Id> members;
+        std::function<void(const Id&)> visit=[&](const Id& id) {
+            members.insert(id);for(const auto& child:d.objects.at(id).children)visit(child);
+        };
+        visit(definition.root);
+        for(const auto& [ref,value]:instance.overrides) {
+            require(ref.point.empty(),"INVALID_OVERRIDE","Definition overrides address whole-object Scalar properties only");
+            require(members.contains(ref.object),"DANGLING_OVERRIDE",ref.object);
+            const auto& source=d.objects.at(ref.object);
+            require(ref.field=="composite.opacity"||
+                (ref.field=="text.font_size"&&source.kind==Kind::text&&source.text.has_value()),
+                "UNSUPPORTED_OVERRIDE","Only composite.opacity and Text text.font_size Scalar overrides are supported");
+            (void)property(d,ref);
+            value_range(ref,value);
+        }
+        (void)instance_id;
     }
     return values;
 }
@@ -5127,6 +5241,76 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
     for(auto& comp:document.compositions)insert(comp.roots);
     for(const auto& [id,object]:original.objects){(void)object;if(!plan.objects.contains(id))insert(document.objects.at(id).children);}
 }
+
+void edit_definition(Document& candidate,const DefinitionCommand& command) {
+    std::visit([&](const auto& mutation) {
+        using T=std::decay_t<decltype(mutation)>;
+        if constexpr(std::is_same_v<T,CreateDefinition>) {
+            const auto& definition=mutation.definition;identity(definition.id);
+            require(!candidate.definitions.contains(definition.id),"DUPLICATE_ID",definition.id);
+            require(candidate.objects.contains(definition.root),"MISSING_OBJECT",definition.root);
+            candidate.definitions.emplace(definition.id,definition);
+        } else if constexpr(std::is_same_v<T,RenameDefinition>) {
+            const auto found=candidate.definitions.find(mutation.definition);
+            require(found!=candidate.definitions.end(),"MISSING_DEFINITION",mutation.definition);
+            found->second.name=mutation.name;
+        } else if constexpr(std::is_same_v<T,DeleteDefinition>) {
+            const auto found=candidate.definitions.find(mutation.definition);
+            require(found!=candidate.definitions.end(),"MISSING_DEFINITION",mutation.definition);
+            for(const auto& [id,object]:candidate.objects)if(object.instance&&object.instance->definition==mutation.definition)
+                throw Error("DEFINITION_IN_USE","Definition "+mutation.definition+" is still used by Instance "+id);
+            candidate.definitions.erase(found);
+        } else if constexpr(std::is_same_v<T,CreateInstance>) {
+            require(candidate.definitions.contains(mutation.definition),"MISSING_DEFINITION",mutation.definition);
+            require(!candidate.objects.contains(mutation.id),"DUPLICATE_ID",mutation.id);
+            Object object;object.id=mutation.id;object.name=mutation.name;object.kind=Kind::instance;
+            object.instance=DefinitionInstance{mutation.definition,{}};
+            siblings(candidate,mutation.composition,mutation.parent).push_back(mutation.id);
+            candidate.objects.emplace(mutation.id,std::move(object));
+        } else if constexpr(std::is_same_v<T,SetInstanceOverride>) {
+            const auto found=candidate.objects.find(mutation.instance);
+            require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
+            require(found->second.kind==Kind::instance&&found->second.instance.has_value(),"TYPE_MISMATCH","Override target must be a Definition Instance");
+            found->second.instance->overrides.insert_or_assign(mutation.target,mutation.value);
+        } else if constexpr(std::is_same_v<T,ResetInstanceOverride>) {
+            const auto found=candidate.objects.find(mutation.instance);
+            require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
+            require(found->second.kind==Kind::instance&&found->second.instance.has_value(),"TYPE_MISMATCH","Override target must be a Definition Instance");
+            require(found->second.instance->overrides.erase(mutation.target)==1,"NO_OVERRIDE","Instance has no local override for the requested property");
+        } else if constexpr(std::is_same_v<T,DetachInstance>) {
+            const auto found=candidate.objects.find(mutation.instance);
+            require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
+            require(found->second.kind==Kind::instance&&found->second.instance.has_value(),"TYPE_MISMATCH","Detach target must be a Definition Instance");
+            const auto instance=*found->second.instance;
+            const auto& definition=candidate.definitions.at(instance.definition);
+            const auto original=candidate;
+            const DuplicateObjects duplicate{{definition.root},mutation.id_prefix};
+            const auto plan=plan_duplication(candidate,duplicate);
+            require(plan.roots.size()==1,"INVALID_DEFINITION","Definition root is not a unique scene item");
+            const auto materialized_root=plan.ids.at(definition.root);
+            duplicate_objects(candidate,duplicate);
+            for(const auto& [source_id,copy_id]:plan.ids) {
+                if(!plan.objects.contains(source_id))continue;
+                const auto source=original.objects.find(source_id);
+                const auto copy=candidate.objects.find(copy_id);
+                if(source!=original.objects.end()&&copy!=candidate.objects.end())copy->second.name=source->second.name;
+            }
+            for(auto& composition:candidate.compositions)std::erase(composition.roots,materialized_root);
+            for(auto& [id,object]:candidate.objects)if(id!=mutation.instance)std::erase(object.children,materialized_root);
+            auto& root=candidate.objects.at(materialized_root);
+            root.transform={Scalar{1,{},{}},Scalar{0,{},{}},Scalar{0,{},{}},Scalar{1,{},{}},Scalar{0,{},{}},Scalar{0,{},{}}};
+            root.anchor={Scalar{0,{},{}},Scalar{0,{},{}}};root.transform_parent.reset();
+            root.visible=true;root.visibility_driver.reset();root.visibility_expression.reset();
+            for(const auto& [source_ref,value]:instance.overrides) {
+                auto copy_ref=duplicate_ref(original,plan,source_ref);
+                auto& scalar=lookup_property(candidate,copy_ref);scalar=Scalar{value,{},{}};
+            }
+            auto& placed=candidate.objects.at(mutation.instance);
+            placed.kind=Kind::group;placed.instance.reset();placed.children={materialized_root};
+        }
+    },command.mutation);
+}
+
 void edit_structural_command(Document& candidate,const CreatePath& command) {
     require(!candidate.objects.contains(command.id),"DUPLICATE_ID",command.id);
     require(!command.contours.empty(),"INVALID_PATH","Create Path needs a contour");
@@ -6368,6 +6552,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             std::is_same_v<T,ReorderObjects>||std::is_same_v<T,DeleteObjects>||
             std::is_same_v<T,GroupContiguous>||std::is_same_v<T,CreateFolder>) {
             edit_structural_command(candidate,c);
+        } else if constexpr(std::is_same_v<T,DefinitionCommand>) {
+            edit_definition(candidate,c);
         }
     },command);
 
@@ -6384,6 +6570,98 @@ PresetDefinition capture_preset_definition(const Document& document,PresetDefini
 std::vector<Id> duplicated_roots(const Document& document,const DuplicateObjects& command) {
     const auto plan=plan_duplication(document,command);std::vector<Id> result;
     for(const auto& id:plan.roots)result.push_back(plan.ids.at(id));return result;
+}
+
+SceneProjection project_definition_instances(const Document& document,const Id& composition,
+    const std::map<Ref,double>& values,const std::map<Id,EvaluatedTransform>& transforms) {
+    (void)transforms;
+    const auto plane=std::find_if(document.compositions.begin(),document.compositions.end(),
+        [&](const auto& item){return item.id==composition;});
+    if(plane==document.compositions.end())throw Error("MISSING_COMPOSITION",composition);
+    std::vector<Id> instances;
+    std::function<void(const Id&)> find_instances=[&](const Id& id) {
+        const auto& object=document.objects.at(id);
+        if(object.kind==Kind::instance)instances.push_back(id);
+        for(const auto& child:object.children)find_instances(child);
+    };
+    for(const auto& root:plane->roots)find_instances(root);
+    if(instances.empty())return {};
+
+    auto projected=std::make_shared<Document>(document);
+    auto projected_values=std::make_shared<std::map<Ref,double>>(values);
+    std::map<Id,Id> owners;
+    std::map<Id,Id> sources;
+    std::uint64_t serial=0;
+    for(const auto& instance_id:instances) {
+        const auto& instance_object=projected->objects.at(instance_id);
+        if(!instance_object.instance)throw Error("INVALID_INSTANCE",instance_id);
+        const auto instance=*instance_object.instance;
+        const auto definition=projected->definitions.find(instance.definition);
+        if(definition==projected->definitions.end())throw Error("MISSING_DEFINITION",instance.definition);
+        const auto root_id=definition->second.root;
+        std::size_t source_object_count=0;
+        std::function<void(const Id&)> count_source=[&](const Id& id) {
+            ++source_object_count;
+            for(const auto& child:projected->objects.at(id).children)count_source(child);
+        };
+        count_source(root_id);
+        if(source_object_count>10000||projected->objects.size()>10000-source_object_count)
+            throw Error("INSTANCE_RENDER_LIMIT","Combined authored and projected Objects exceed the 10000 Object Composition render limit");
+        const DuplicateObjects duplicate{{root_id},"r04proxy"};
+        bool projected_one=false;
+        for(unsigned attempt=0;attempt<10000&&!projected_one;++attempt) {
+            auto trial=*projected;
+            const auto prefix="r04proxy-"+std::to_string(++serial);
+            const DuplicateObjects with_prefix{duplicate.objects,prefix};
+            DuplicationPlan plan;
+            try {
+                plan=plan_duplication(trial,with_prefix);
+                if(plan.roots.size()!=1)throw Error("INVALID_DEFINITION","Definition root is not a unique scene item");
+                duplicate_objects(trial,with_prefix);
+                const auto copy_root=plan.ids.at(root_id);
+                for(auto& composition_item:trial.compositions)std::erase(composition_item.roots,copy_root);
+                for(auto& [id,object]:trial.objects)if(id!=instance_id)std::erase(object.children,copy_root);
+                for(const auto& [source_id,copy_id]:plan.ids)if(plan.objects.contains(source_id)) {
+                    const auto source=projected->objects.find(source_id);
+                    const auto copy=trial.objects.find(copy_id);
+                    if(source!=projected->objects.end()&&copy!=trial.objects.end())copy->second.name=source->second.name;
+                }
+                auto& root=trial.objects.at(copy_root);
+                root.transform={Scalar{1,{},{}},Scalar{0,{},{}},Scalar{0,{},{}},Scalar{1,{},{}},Scalar{0,{},{}},Scalar{0,{},{}}};
+                root.anchor={Scalar{0,{},{}},Scalar{0,{},{}}};root.transform_parent.reset();
+                root.visible=true;root.visibility_driver.reset();root.visibility_expression.reset();
+                for(const auto& [source_ref,value]:instance.overrides) {
+                    const auto copy_ref=duplicate_ref(*projected,plan,source_ref);
+                    auto& scalar=lookup_property(trial,copy_ref);scalar=Scalar{value,{},{}};
+                }
+                auto& placed=trial.objects.at(instance_id);
+                placed.kind=Kind::group;placed.instance.reset();placed.children={copy_root};
+                auto next_values=*projected_values;
+                for(const auto& [ref,value]:values)if(plan.objects.contains(ref.object))
+                    next_values.insert_or_assign(duplicate_ref(*projected,plan,ref),value);
+                for(const auto& [source_ref,value]:instance.overrides)
+                    next_values.insert_or_assign(duplicate_ref(*projected,plan,source_ref),value);
+                const std::array<std::pair<const char*,double>,6> root_matrix{{
+                    {"transform.a",1},{"transform.b",0},{"transform.c",0},{"transform.d",1},{"transform.tx",0},{"transform.ty",0}}};
+                for(const auto& [field,value]:root_matrix)next_values.insert_or_assign(Ref{copy_root,"",field},value);
+                next_values.insert_or_assign(Ref{copy_root,"","transform.anchor_x"},0);
+                next_values.insert_or_assign(Ref{copy_root,"","transform.anchor_y"},0);
+                for(const auto& source_id:plan.objects) {
+                    const auto proxy_id=plan.ids.at(source_id);
+                    owners.insert_or_assign(proxy_id,instance_id);
+                    sources.insert_or_assign(proxy_id,source_id);
+                }
+                *projected=std::move(trial);*projected_values=std::move(next_values);projected_one=true;
+            } catch(const Error& error) {
+                if(error.code=="DUPLICATE_ID")continue;
+                throw;
+            }
+        }
+        if(!projected_one)throw Error("INSTANCE_PROXY_ID_EXHAUSTED","Could not allocate unique render identities for Definition Instance");
+    }
+    auto projected_transforms=std::make_shared<std::map<Id,EvaluatedTransform>>(
+        evaluate_transforms(*projected,*projected_values));
+    return {std::move(projected),std::move(projected_values),std::move(projected_transforms),std::move(owners),std::move(sources)};
 }
 
 void Session::apply(const std::vector<Command>& commands,std::uint64_t expected) {

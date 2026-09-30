@@ -783,10 +783,25 @@ Window::Window(QString recovery_directory):host(std::move(recovery_directory),th
     auto* edit=menuBar()->addMenu("&Edit");
     auto* add=menuBar()->addMenu("&Add");
     auto* view=menuBar()->addMenu("&View");
+    auto* definitions=menuBar()->addMenu("&Definitions");
     auto action=[this](QMenu* menu,const QString& label,const QKeySequence& shortcut,auto fn) {
         auto* a=menu->addAction(label); a->setShortcut(shortcut);
         connect(a,&QAction::triggered,this,[this,fn]{perform(fn);}); return a;
     };
+    action(definitions,"Create Definition from selected Group…",{},[this]{create_definition_from_selection();})
+        ->setObjectName("create-definition-from-selection");
+    action(definitions,"Rename Definition…",{},[this]{rename_definition();})
+        ->setObjectName("rename-definition");
+    action(definitions,"Place Definition Instance…",{},[this]{place_definition_instance();})
+        ->setObjectName("place-definition-instance");
+    action(definitions,"Set selected Instance override…",{},[this]{set_instance_override();})
+        ->setObjectName("set-instance-override");
+    action(definitions,"Reset selected Instance override…",{},[this]{reset_instance_override();})
+        ->setObjectName("reset-instance-override");
+    action(definitions,"Detach selected Instance",{},[this]{detach_instance();})
+        ->setObjectName("detach-instance");
+    action(definitions,"Delete Definition…",{},[this]{delete_definition();})
+        ->setObjectName("delete-definition");
     action(file,"New",QKeySequence::New,[this]{canvas->cancel_interaction();host.create_document();canvas->fit_artboard();});
     action(file,"Open…",QKeySequence::Open,[this]{
         const auto path=QFileDialog::getOpenFileName(this,"Open Nect document",{},"Nect (*.nect *.json)");
@@ -6810,6 +6825,172 @@ void Window::selection_menu(const QPoint& global) {
     } catch(const Error&) {group->setEnabled(false);top->setEnabled(false);bottom->setEnabled(false);inside->setEnabled(false);}
     auto* chosen=menu.exec(global);if(!chosen)return;
     perform([&]{if(host.session_id!=menu_session||host.session.revision()!=menu_revision)throw Error("STALE_CONTEXT","Document changed while the menu was open; reopen the selection menu");if(stack_actions.contains(chosen)){const auto [direction,edge]=stack_actions.at(chosen);stack_selection(direction,edge);}else if(chosen==transform)transform_selection();else if(chosen==duplicate)duplicate_selection();else if(chosen==top)mask_selection(true);else if(chosen==bottom)mask_selection(false);else if(chosen==inside)put_selection_inside();else if(chosen==move_out)move_selection_out();else if(chosen==move_to_next)move_selection_to_next_folder();else if(chosen==move_to_previous)move_selection_to_previous_folder();else if(chosen==move_to_folder)move_selection_to_folder();else if(chosen==folder_from_selection)create_folder_from_selection();else if(chosen==group)group_selection();else if(chosen==ungroup)ungroup_selection();else if(chosen==batch_rename)batch_rename_selection();else if(chosen==sort_paint_order)sort_selection_by_name_paint_order();});
+}
+void Window::create_definition_from_selection() {
+    const auto selected=canvas->selected_objects();
+    if(selected.size()!=1||!canvas->selected_point.empty())throw Error("INVALID_DEFINITION","Select one whole Group to create a Definition");
+    const auto& document=host.session.document();const auto& source=document.objects.at(selected.front());
+    if(source.kind!=Kind::group)throw Error("INVALID_DEFINITION","A Definition must use an existing Group as its source root");
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    bool accepted=false;const auto name=QInputDialog::getText(this,"Create Definition","Definition name:",
+        QLineEdit::Normal,qs(source.name),&accepted).trimmed();
+    if(!accepted)return;
+    if(name.isEmpty())throw Error("INVALID_DEFINITION","Enter a Definition name");
+    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Selection belongs to another document");
+    if(host.session.revision()!=revision||canvas->selected_objects()!=selected)
+        throw Error("REVISION_CONFLICT","Selection or document changed while naming the Definition");
+    const auto id=new_id();
+    host.session.apply({DefinitionCommand{CreateDefinition{Definition{id,name.toStdString(),selected.front()}}}},revision);
+    host.edited();statusBar()->showMessage("Definition created from the selected Group; its source remains in place",6000);
+}
+void Window::rename_definition() {
+    const auto document=host.session.document();
+    if(document.definitions.empty())throw Error("MISSING_DEFINITION","There are no Definitions to rename");
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    QStringList labels;std::vector<Id> ids;
+    for(const auto& [id,definition]:document.definitions){ids.push_back(id);labels.push_back(qs(definition.name)+" · "+qs(id));}
+    bool accepted=false;const auto chosen=QInputDialog::getItem(this,"Rename Definition","Definition:",labels,0,false,&accepted);
+    if(!accepted)return;
+    const auto index=labels.indexOf(chosen);
+    if(index<0||static_cast<std::size_t>(index)>=ids.size())throw Error("MISSING_DEFINITION","Choose a Definition");
+    const auto id=ids.at(static_cast<std::size_t>(index));
+    const auto previous=document.definitions.at(id).name;
+    const auto name=QInputDialog::getText(this,"Rename Definition","New name:",QLineEdit::Normal,qs(previous),&accepted).trimmed();
+    if(!accepted)return;
+    if(name.isEmpty())throw Error("INVALID_DEFINITION","Enter a Definition name");
+    if(host.session_id!=frozen_session||host.session.revision()!=revision)
+        throw Error("REVISION_CONFLICT","Document changed while renaming the Definition");
+    host.session.apply({DefinitionCommand{RenameDefinition{id,name.toStdString()}}},revision);
+    host.edited();statusBar()->showMessage("Definition renamed; its stable ID and placed Instances are unchanged",6000);
+}
+void Window::place_definition_instance() {
+    const auto document=host.session.document();
+    if(document.definitions.empty())throw Error("MISSING_DEFINITION","Create a Definition before placing an Instance");
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    QStringList labels;std::vector<Id> ids;
+    for(const auto& [id,definition]:document.definitions){ids.push_back(id);labels.push_back(qs(definition.name)+" · "+qs(id));}
+    bool accepted=false;const auto chosen=QInputDialog::getItem(this,"Place Definition Instance","Definition:",labels,0,false,&accepted);
+    if(!accepted)return;
+    const auto index=labels.indexOf(chosen);
+    if(index<0||static_cast<std::size_t>(index)>=ids.size())throw Error("MISSING_DEFINITION","Choose a Definition");
+    if(host.session_id!=frozen_session||host.session.revision()!=revision)
+        throw Error("REVISION_CONFLICT","Document changed while choosing a Definition");
+    const auto definition_id=ids.at(static_cast<std::size_t>(index));
+    const auto composition=canvas->active_composition(),parent=canvas->drill_scope();
+    const auto instance_id=new_id();
+    host.session.apply({DefinitionCommand{CreateInstance{composition,parent,instance_id,definition_id,
+        document.definitions.at(definition_id).name+" Instance"}}},revision);
+    canvas->set_selection(instance_id);host.edited();
+    statusBar()->showMessage("Placed a live Definition Instance; source edits continue to flow through",6000);
+}
+void Window::set_instance_override() {
+    const auto selected=canvas->selected_objects();
+    if(selected.size()!=1||!canvas->selected_point.empty())throw Error("INVALID_INSTANCE","Select one whole Instance");
+    const auto document=host.session.document();const auto instance_it=document.objects.find(selected.front());
+    if(instance_it==document.objects.end()||instance_it->second.kind!=Kind::instance||!instance_it->second.instance)
+        throw Error("TYPE_MISMATCH","Set override requires a Definition Instance");
+    const auto definition_it=document.definitions.find(instance_it->second.instance->definition);
+    if(definition_it==document.definitions.end())throw Error("MISSING_DEFINITION",instance_it->second.instance->definition);
+    std::vector<Id> source_ids;
+    std::function<void(const Id&)> append_source=[&](const Id& id) {
+        const auto& source=document.objects.at(id);
+        if(source.kind==Kind::path||source.kind==Kind::group||source.kind==Kind::text)source_ids.push_back(id);
+        for(const auto& child:source.children)append_source(child);
+    };
+    append_source(definition_it->second.root);
+    if(source_ids.empty())throw Error("UNSUPPORTED_OVERRIDE","Definition contains no supported scalar property targets");
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    QDialog dialog(this);dialog.setObjectName("set-instance-override-dialog");dialog.setWindowTitle("Set Instance override");
+    auto* layout=new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel("Choose one source item and a supported Scalar. The value is local to this Instance.",&dialog));
+    auto* source=new QComboBox(&dialog);source->setObjectName("set-instance-override-source");layout->addWidget(source);
+    for(const auto& id:source_ids) {
+        const auto& object=document.objects.at(id);
+        const auto kind=object.kind==Kind::group?QStringLiteral("Group"):
+            object.kind==Kind::text?QStringLiteral("Text"):QStringLiteral("Path");
+        source->addItem(qs(object.name)+" · "+kind+" · "+qs(id),qs(id));
+    }
+    auto* property=new QComboBox(&dialog);property->setObjectName("set-instance-override-property");layout->addWidget(property);
+    auto* value=new QDoubleSpinBox(&dialog);value->setObjectName("set-instance-override-value");
+    value->setDecimals(4);value->setSingleStep(0.1);layout->addWidget(value);
+    const auto refresh_fields=[this,&document,source,property,value,instance_id=selected.front()] {
+        const auto source_id=source->currentData().toString().toStdString();
+        const auto& object=document.objects.at(source_id);const QSignalBlocker block(property);property->clear();
+        property->addItem("composite.opacity","composite.opacity");
+        if(object.kind==Kind::text&&object.text)property->addItem("text.font_size","text.font_size");
+        const auto initialize_value=[this,&document,value,instance_id,source_id](const QString& field) {
+            const auto key=Ref{source_id,"",field.toStdString()};
+            if(field=="composite.opacity"){value->setRange(0,1);value->setSingleStep(0.05);}
+            else {value->setRange(0.0001,10000);value->setSingleStep(1);}
+            const auto& overrides=document.objects.at(instance_id).instance->overrides;
+            const auto override=overrides.find(key);
+            value->setValue(override==overrides.end()?evaluate(document).at(key):override->second);
+        };
+        initialize_value(property->currentData().toString());
+        QObject::disconnect(property,nullptr,nullptr,nullptr);
+        QObject::connect(property,qOverload<int>(&QComboBox::currentIndexChanged),property,
+            [initialize_value,property](int){initialize_value(property->currentData().toString());});
+    };
+    QObject::connect(source,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[refresh_fields](int){refresh_fields();});
+    refresh_fields();
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
+    QObject::connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);
+    QObject::connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    if(host.session_id!=frozen_session||host.session.revision()!=revision||canvas->selected_objects()!=selected)
+        throw Error("REVISION_CONFLICT","Instance selection or document changed while setting an override");
+    const auto source_id=source->currentData().toString().toStdString();
+    const Ref target{source_id,"",property->currentData().toString().toStdString()};
+    host.session.apply({DefinitionCommand{SetInstanceOverride{selected.front(),target,value->value()}}},revision);
+    host.edited();statusBar()->showMessage("Local Instance override set; source values remain live for other properties",6000);
+}
+void Window::reset_instance_override() {
+    const auto selected=canvas->selected_objects();
+    if(selected.size()!=1||!canvas->selected_point.empty())throw Error("INVALID_INSTANCE","Select one whole Instance");
+    const auto& document=host.session.document();const auto found=document.objects.find(selected.front());
+    if(found==document.objects.end()||found->second.kind!=Kind::instance||!found->second.instance)
+        throw Error("TYPE_MISMATCH","Reset override requires a Definition Instance");
+    if(found->second.instance->overrides.empty())throw Error("MISSING_OVERRIDE","The selected Instance has no local overrides");
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    std::vector<Ref> refs;QStringList labels;
+    for(const auto& [ref,value]:found->second.instance->overrides) {
+        (void)value;refs.push_back(ref);
+        const auto source=document.objects.find(ref.object);
+        labels.push_back((source==document.objects.end()?qs(ref.object):qs(source->second.name))+" · "+qs(ref.field));
+    }
+    bool accepted=false;const auto chosen=QInputDialog::getItem(this,"Reset Instance override","Override:",labels,0,false,&accepted);
+    if(!accepted)return;
+    const auto index=labels.indexOf(chosen);
+    if(index<0||static_cast<std::size_t>(index)>=refs.size())throw Error("MISSING_OVERRIDE","Choose an override");
+    if(host.session_id!=frozen_session||host.session.revision()!=revision||canvas->selected_objects()!=selected)
+        throw Error("REVISION_CONFLICT","Instance selection or document changed while choosing an override");
+    host.session.apply({DefinitionCommand{ResetInstanceOverride{selected.front(),refs.at(static_cast<std::size_t>(index))}}},revision);
+    host.edited();statusBar()->showMessage("Local override reset to the current Definition source value",6000);
+}
+void Window::detach_instance() {
+    const auto selected=canvas->selected_objects();
+    if(selected.size()!=1||!canvas->selected_point.empty())throw Error("INVALID_INSTANCE","Select one whole Instance to detach");
+    const auto& object=host.session.document().objects.at(selected.front());
+    if(object.kind!=Kind::instance||!object.instance)throw Error("TYPE_MISMATCH","Detach requires a Definition Instance");
+    canvas->cancel_interaction();host.session.apply({DefinitionCommand{DetachInstance{selected.front(),"detach-"+new_id()}}},
+        host.session.revision());
+    canvas->set_selection(selected.front());host.edited();
+    statusBar()->showMessage("Detached to independent editable Objects; Undo restores the live Instance",7000);
+}
+void Window::delete_definition() {
+    const auto& document=host.session.document();
+    if(document.definitions.empty())throw Error("MISSING_DEFINITION","There are no Definitions to delete");
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    QStringList labels;std::vector<Id> ids;
+    for(const auto& [id,definition]:document.definitions){ids.push_back(id);labels.push_back(qs(definition.name)+" · "+qs(id));}
+    bool accepted=false;const auto chosen=QInputDialog::getItem(this,"Delete Definition","Definition:",labels,0,false,&accepted);
+    if(!accepted)return;
+    const auto index=labels.indexOf(chosen);
+    if(index<0||static_cast<std::size_t>(index)>=ids.size())throw Error("MISSING_DEFINITION","Choose a Definition");
+    if(host.session_id!=frozen_session||host.session.revision()!=revision)
+        throw Error("REVISION_CONFLICT","Document changed while choosing a Definition");
+    host.session.apply({DefinitionCommand{DeleteDefinition{ids.at(static_cast<std::size_t>(index))}}},revision);
+    host.edited();statusBar()->showMessage("Definition deleted; Undo restores the named source",6000);
 }
 void Window::duplicate_selection() {
     if(canvas->selected_objects().empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select objects or Groups to duplicate");

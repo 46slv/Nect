@@ -160,6 +160,13 @@ private:
     void move_selection_to_folder();
     void create_folder_from_selection();
     void selection_menu(const QPoint& global);
+    void create_definition_from_selection();
+    void rename_definition();
+    void place_definition_instance();
+    void set_instance_override();
+    void reset_instance_override();
+    void detach_instance();
+    void delete_definition();
     void choose_transform_parent();
     void edit_text_content(const Id& object);
     void convert_to_path();

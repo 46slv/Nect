@@ -16,7 +16,7 @@ TOOLS = [
      'annotations': {'readOnlyHint': True, 'openWorldHint': False}},
     {'name': 'nect_command',
      'description': ('Inspect/evaluate/export_svg or edit the desktop-owned Session. request.op: '
-                     'inspect, properties, get, resolve_name, evaluate, expression_language, compositing_types, compositing_plan, export_svg, artboards, operator_types, gradient_types, render_plan, conversion_plan, presets, preset, apply, undo, redo, history, restore_history. '
+                     'inspect, properties, get, resolve_name, evaluate, expression_language, compositing_types, compositing_plan, export_svg, artboards, operator_types, gradient_types, render_plan, conversion_plan, definitions, definition, presets, preset, apply, undo, redo, history, restore_history. '
                      'history lists stable state IDs and bounded retained memory estimates for this live Session only. '
                      'restore_history takes state_id and expected_revision, atomically returns to a retained state in one revision, '
                      'and keeps future states available until a new edit replaces the redo branch. '
@@ -36,6 +36,7 @@ TOOLS = [
                      'Generated point IDs preserve reduced angular phase and outer/inner role across count changes. '
                      'Count changes reject if a corrected or referenced point disappears; they never retarget by list index. '
                      'clear_point_edit {object} explicitly removes all point overrides and their bindings in one undoable edit. '
+                     'Definition/Instance v1: create_definition {id,name,root} gives a stable Definition ID for an existing same-Composition Object subtree; definitions lists and definition {id} reads definitions. rename_definition {definition,name} changes metadata without changing the ID. create_instance {composition,parent,id,definition,name} places a stable Instance; its own transform, visibility, opacity/blend and order apply at the placement. Source-root affine and visibility are excluded, while root content/compositing and descendant authored content/visibility remain live. Only Scalar composite.opacity and Text text.font_size overrides are supported with set_instance_override {instance,target:Ref,value}; reset_instance_override restores source values. detach_instance {instance,id_prefix} materializes the current source and overrides as independent Objects in one Undo. delete_definition refuses while any Instance uses it. Nested Instances/external dependencies reject. A Composition render caps the combined authored and transient projected Object count at 10000 and returns INSTANCE_RENDER_LIMIT when exceeded; Definitions are capped at 10000 per Document. '
                      'Anchor refs transform.anchor_x/y are local du; changing them preserves artwork. center_anchor {object} uses evaluated geometric bounds excluding stroke width. '
                      'set_position {object,x,y} sets the anchor position in effective-parent coordinates; transform_around_anchor {object,rotation,scale_x,scale_y} applies degree rotation and local-axis scale factors once about it. '
                      'These edit the canonical affine Scalars, reject changed driven fields, and do not create independent TRS properties. '

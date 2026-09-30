@@ -119,7 +119,7 @@ struct Contour {
     bool operator==(const Contour&) const = default;
 };
 
-enum class Kind { group, path, text, image };
+enum class Kind { group, path, text, image, instance };
 
 inline constexpr std::size_t document_raster_bytes_limit=24*1024*1024;
 inline constexpr std::uint64_t document_raster_pixels_limit=33554432;
@@ -269,6 +269,15 @@ struct Compositing {
     std::optional<GeometryMask> mask;
     bool operator==(const Compositing&) const = default;
 };
+struct Definition {
+    Id id,name,root;
+    bool operator==(const Definition&) const = default;
+};
+struct DefinitionInstance {
+    Id definition;
+    std::map<Ref,double> overrides;
+    bool operator==(const DefinitionInstance&) const = default;
+};
 struct Object {
     Id id;
     std::string name;
@@ -295,6 +304,7 @@ struct Object {
     std::optional<Expression> visibility_expression;
     Compositing compositing;
     std::optional<ImageSource> image;
+    std::optional<DefinitionInstance> instance;
     bool operator==(const Object&) const = default;
 };
 
@@ -412,6 +422,7 @@ struct Document {
     std::map<Id,NamedColor> named_colors;
     std::map<Id,RasterAsset> raster_assets;
     std::map<Id,PresetDefinition> preset_definitions;
+    std::map<Id,Definition> definitions;
     bool operator==(const Document&) const = default;
 };
 
@@ -462,6 +473,16 @@ struct DeletePreset { Id preset; };
 struct ApplyPreset { Id preset; Id object; Id operation_id_prefix; };
 using PresetMutation=std::variant<CreatePreset,CreatePresetFromStack,RenamePreset,UpdatePreset,DeletePreset,ApplyPreset>;
 struct PresetCommand { PresetMutation mutation; };
+struct CreateDefinition { Definition definition; };
+struct RenameDefinition { Id definition; std::string name; };
+struct DeleteDefinition { Id definition; };
+struct CreateInstance { Id composition,parent,id,definition; std::string name; };
+struct SetInstanceOverride { Id instance; Ref target; double value=0; };
+struct ResetInstanceOverride { Id instance; Ref target; };
+struct DetachInstance { Id instance; Id id_prefix; };
+using DefinitionMutation=std::variant<CreateDefinition,RenameDefinition,DeleteDefinition,CreateInstance,
+    SetInstanceOverride,ResetInstanceOverride,DetachInstance>;
+struct DefinitionCommand { DefinitionMutation mutation; };
 struct EnableOperation { Id object; Id operation; bool enabled; };
 struct LinkOperationEnabled { Ref target; Ref source; bool replace_driver=false; };
 struct UnlinkOperationEnabled { Ref target; };
@@ -711,7 +732,8 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     SetVisibility,LinkObjectVisibility,UnlinkObjectVisibility,LinkCompositeIsolated,UnlinkCompositeIsolated,
     LinkMaskEnabled,UnlinkMaskEnabled,
     SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
-    AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects>;
+    AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects,
+    DefinitionCommand>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
@@ -837,8 +859,24 @@ struct EvaluatedScene {
     std::vector<EvaluatedSceneNode> roots;
     std::map<Id,EvaluatedShape> shapes;
     std::map<Id,EvaluatedImage> images;
+    // Present only when same-document Definition Instances required a transient
+    // expansion. Proxy Objects and their IDs are derived render state.
+    std::shared_ptr<const Document> expanded_document;
+    std::shared_ptr<const std::map<Ref,double>> expanded_values;
+    std::shared_ptr<const std::map<Id,EvaluatedTransform>> expanded_transforms;
+    std::map<Id,Id> instance_owners;
+    std::map<Id,Id> instance_sources; // proxy Object ID -> authored source Object ID
     bool requires_compositing=false;
 };
+struct SceneProjection {
+    std::shared_ptr<const Document> document;
+    std::shared_ptr<const std::map<Ref,double>> values;
+    std::shared_ptr<const std::map<Id,EvaluatedTransform>> transforms;
+    std::map<Id,Id> instance_owners;
+    std::map<Id,Id> instance_sources;
+};
+SceneProjection project_definition_instances(const Document&,const Id& composition,const std::map<Ref,double>&,
+    const std::map<Id,EvaluatedTransform>&);
 EvaluatedScene evaluate_scene(const Document&,const Id& composition,const std::map<Ref,double>&,
     const std::map<Id,EvaluatedTransform>&);
 // Used by creation and legacy readers; creates one real stack operation.
@@ -1082,6 +1120,7 @@ private:
         std::vector<HistoryChange<NamedColor>> colors;
         std::vector<HistoryChange<RasterAsset>> assets;
         std::vector<HistoryChange<PresetDefinition>> presets;
+        std::vector<HistoryChange<Definition>> definitions;
         std::optional<std::pair<std::vector<Composition>,std::vector<Composition>>> compositions;
         std::optional<std::pair<std::vector<Collection>,std::vector<Collection>>> collections;
     };

@@ -846,6 +846,31 @@ j::value preset_json(const PresetDefinition& definition) {
         {"category",definition.category},{"tags",tags},{"target_domain",definition.target_domain},{"entries",entries}};
 }
 
+Definition read_definition(const j::value& value) {
+    const auto& o=value.as_object();keys(o,{"id","name","root"});
+    return {text(o.at("id")),text(o.at("name")),text(o.at("root"))};
+}
+j::value definition_json(const Definition& definition) {
+    return j::object{{"id",definition.id},{"name",definition.name},{"root",definition.root}};
+}
+DefinitionInstance read_instance(const j::value& value) {
+    const auto& o=value.as_object();keys(o,{"definition","overrides"});
+    DefinitionInstance instance;instance.definition=text(o.at("definition"));
+    for(const auto& item:o.at("overrides").as_array()) {
+        const auto& entry=item.as_object();keys(entry,{"target","value"});
+        auto target=read_ref(entry.at("target"));
+        if(!instance.overrides.emplace(std::move(target),number(entry.at("value"))).second)
+            throw Error("DUPLICATE_OVERRIDE_KEY","Instance contains the same OverrideKey more than once");
+    }
+    return instance;
+}
+j::value instance_json(const DefinitionInstance& instance) {
+    j::array overrides;
+    for(const auto& [target,value]:instance.overrides)
+        overrides.push_back(j::object{{"target",ref_json(target)},{"value",value}});
+    return j::object{{"definition",instance.definition},{"overrides",overrides}};
+}
+
 double layout_number(const j::value& value) {
     if(!value.is_number())throw Error("INVALID_LAYOUT","Layout values must be JSON numbers");
     return number(value);
@@ -1211,6 +1236,38 @@ PresetCommand read_preset_command(const j::value& v) {
     throw Error("UNSUPPORTED_PRESET_OPERATION",type);
 }
 
+DefinitionCommand read_definition_command(const j::value& v) {
+    const auto& o=v.as_object();const auto type=text(o.at("type"));
+    if(type=="create_definition") {
+        keys(o,{"type","id","name","root"});
+        return DefinitionCommand{CreateDefinition{{text(o.at("id")),text(o.at("name")),text(o.at("root"))}}};
+    }
+    if(type=="rename_definition") {
+        keys(o,{"type","definition","name"});return DefinitionCommand{RenameDefinition{text(o.at("definition")),text(o.at("name"))}};
+    }
+    if(type=="delete_definition") {
+        keys(o,{"type","definition"});return DefinitionCommand{DeleteDefinition{text(o.at("definition"))}};
+    }
+    if(type=="create_instance") {
+        keys(o,{"type","composition","parent","id","definition","name"});
+        return DefinitionCommand{CreateInstance{text(o.at("composition")),text(o.at("parent")),text(o.at("id")),
+            text(o.at("definition")),text(o.at("name"))}};
+    }
+    if(type=="set_instance_override") {
+        keys(o,{"type","instance","target","value"});
+        return DefinitionCommand{SetInstanceOverride{text(o.at("instance")),read_ref(o.at("target")),number(o.at("value"))}};
+    }
+    if(type=="reset_instance_override") {
+        keys(o,{"type","instance","target"});
+        return DefinitionCommand{ResetInstanceOverride{text(o.at("instance")),read_ref(o.at("target"))}};
+    }
+    if(type=="detach_instance") {
+        keys(o,{"type","instance","id_prefix"});
+        return DefinitionCommand{DetachInstance{text(o.at("instance")),text(o.at("id_prefix"))}};
+    }
+    throw Error("UNSUPPORTED_DEFINITION_OPERATION",type);
+}
+
 bool is_preset_command(const j::value& v) {
     const auto type=text(v.as_object().at("type"));
     return type=="create_preset"||type=="create_preset_from_stack"||type=="rename_preset"||
@@ -1220,6 +1277,8 @@ bool is_preset_command(const j::value& v) {
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type.ends_with("_definition")||type=="create_instance"||type=="set_instance_override"||
+        type=="reset_instance_override"||type=="detach_instance")return read_definition_command(v);
     if(type=="add_raster_asset"||type=="replace_raster_asset") {
         keys(o,{"type","asset"});auto asset=read_asset(o.at("asset"));
         if(type=="add_raster_asset")return AddRasterAsset{std::move(asset)};return ReplaceRasterAsset{std::move(asset)};
@@ -1771,12 +1830,13 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,63> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63"};
+        constexpr std::array<std::string_view,64> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.63 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.64 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
-        if(minor>=63)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets"});
+        if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
+        else if(minor>=63)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets"});
         else if(minor>=13)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets"});
         else if(minor>=7)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors"});
         else keys(root,{"format","version","id","units","color_space","compositions","objects","collections"});
@@ -1789,6 +1849,11 @@ Document decode(std::string_view input) {
             auto preset=read_preset_definition(value);
             if(!d.preset_definitions.emplace(preset.id,preset).second)
                 throw Error("DUPLICATE_PRESET_ID",preset.id);
+        }
+        if(minor>=64)for(const auto& value:root.at("definitions").as_array()) {
+            auto definition=read_definition(value);
+            if(!d.definitions.emplace(definition.id,definition).second)
+                throw Error("DUPLICATE_DEFINITION_ID",definition.id);
         }
         std::map<Id,ShapeOperation> legacy_paints;
 
@@ -1810,6 +1875,7 @@ Document decode(std::string_view input) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
             else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
+            else if(minor>=64)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image","visibility_driver","visibility_expression","instance"});
             else if(minor>=60)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image","visibility_driver","visibility_expression"});
             else if(minor>=27)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image","visibility_driver"});
             else if(minor>=13)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image"});
@@ -1831,8 +1897,8 @@ Document decode(std::string_view input) {
                 throw Error("INVALID_VISIBILITY_SOURCE","Object visibility link and expression are mutually exclusive");
 
             auto kind=text(o.at("kind"));
-            if(kind!="group"&&kind!="path"&&!((minor>=6)&&kind=="text")&&!((minor>=13)&&kind=="image")) throw Error("UNSUPPORTED_OBJECT",kind);
-            obj.kind=kind=="group"?Kind::group:kind=="text"?Kind::text:kind=="image"?Kind::image:Kind::path;
+            if(kind!="group"&&kind!="path"&&!((minor>=6)&&kind=="text")&&!((minor>=13)&&kind=="image")&&!((minor>=64)&&kind=="instance")) throw Error("UNSUPPORTED_OBJECT",kind);
+            obj.kind=kind=="group"?Kind::group:kind=="text"?Kind::text:kind=="image"?Kind::image:kind=="instance"?Kind::instance:Kind::path;
             if(o.contains("image")&&obj.kind!=Kind::image)throw Error("INVALID_OBJECT","Only Image may carry an image source");
             if(o.contains("text")&&obj.kind!=Kind::text)throw Error("INVALID_OBJECT","Only Text may carry a text source");
 
@@ -1846,7 +1912,11 @@ Document decode(std::string_view input) {
                 if(!o.at("transform_parent").is_null())obj.transform_parent=text(o.at("transform_parent"));
             }
 
-            if(obj.kind==Kind::image) {
+            if(obj.kind==Kind::instance) {
+                for(const auto* field:{"children","contours","stroke","fill","source","point_edit","text","stack","legacy_stroke","image"})
+                    if(o.contains(field))throw Error("INVALID_INSTANCE","Instance cannot carry source content");
+                obj.instance=read_instance(o.at("instance"));
+            } else if(obj.kind==Kind::image) {
                 for(const auto* field:{"children","contours","stroke","fill","source","point_edit","text","stack","legacy_stroke"})
                     if(o.contains(field))throw Error("INVALID_IMAGE","Image has incompatible vector fields");
                 obj.image=read_image(o.at("image"));
@@ -1925,10 +1995,11 @@ Document decode(std::string_view input) {
 std::string encode(const Document& d) {
     validate(d);
 
-    j::array comps,objects,collections,named_colors,raster_assets,presets;
+    j::array comps,objects,collections,named_colors,raster_assets,presets,definitions;
     for(const auto& [id,asset]:d.raster_assets){(void)id;raster_assets.push_back(asset_json(asset,true));}
     for(const auto& [id,color]:d.named_colors){(void)id;named_colors.push_back(named_color_json(color));}
     for(const auto& [id,preset]:d.preset_definitions){(void)id;presets.push_back(preset_json(preset));}
+    for(const auto& [id,definition]:d.definitions){(void)id;definitions.push_back(definition_json(definition));}
 
     for(const auto& c:d.compositions) {
         j::array boards,guides;
@@ -1944,11 +2015,12 @@ std::string encode(const Document& d) {
         j::array anchor;for(const auto& s:o.anchor)anchor.push_back(scalar_json(s));
 
         j::object out{
-            {"id",id},{"name",o.name},{"visible",o.visible},{"compositing",compositing_json(o.compositing)},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":o.kind==Kind::image?"image":"path"},{"transform",tf},{"anchor",anchor},{"transform_parent",o.transform_parent?j::value(*o.transform_parent):j::value(nullptr)}};
+            {"id",id},{"name",o.name},{"visible",o.visible},{"compositing",compositing_json(o.compositing)},{"kind",o.kind==Kind::group?"group":o.kind==Kind::text?"text":o.kind==Kind::image?"image":o.kind==Kind::instance?"instance":"path"},{"transform",tf},{"anchor",anchor},{"transform_parent",o.transform_parent?j::value(*o.transform_parent):j::value(nullptr)}};
         if(o.visibility_driver)out["visibility_driver"]=j::object{{"link",ref_json(*o.visibility_driver)}};
         if(o.visibility_expression)out["visibility_expression"]=expression_json(*o.visibility_expression);
 
-        if(o.image)out["image"]=image_json(*o.image);
+        if(o.instance)out["instance"]=instance_json(*o.instance);
+        else if(o.image)out["image"]=image_json(*o.image);
         else if(o.kind==Kind::group) {
             out["children"]=ids_json(o.children);
             j::array stack;for(const auto& op:o.stack)stack.push_back(operation_json(op));
@@ -1985,7 +2057,7 @@ std::string encode(const Document& d) {
         {"format","nect-native"},{"version",native_version},{"id",d.id},
         {"units","du96"},{"color_space","srgb"},
         {"compositions",comps},{"objects",objects},{"collections",collections},{"named_colors",named_colors},
-        {"raster_assets",raster_assets},{"presets",presets}});
+        {"raster_assets",raster_assets},{"presets",presets},{"definitions",definitions}});
 }
 
 std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
@@ -2021,17 +2093,19 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
        <<" "<<art->width<<" "<<art->height<<"\">\n";
 
     std::set<Id> svg_ids;for(const auto& [id,object]:d.objects){svg_ids.insert(id);if(object.compositing.mask)svg_ids.insert(object.compositing.mask->id);}
+    const Document* render_document=&d;
+    const std::map<Ref,double>* render_values=&values;
     std::size_t gradient_serial=0,raster_bytes=0;
     std::map<Id,std::string> raster_ids;
     const auto paint_image=[&](const Id& id) {
-        const auto& source=*d.objects.at(id).image;
+        const auto& source=*render_document->objects.at(id).image;
         if(!raster_ids.contains(source.asset)) {
-            const auto png=encode_raster_png(decode_raster(*d.raster_assets.at(source.asset).payload));
+            const auto png=encode_raster_png(decode_raster(*render_document->raster_assets.at(source.asset).payload));
             raster_bytes+=png.size();if(raster_bytes>32*1024*1024)throw Error("SVG_RASTER_LIMIT","SVG normalized image data exceeds 32 MiB");
             std::string key;do{key="nect-raster-"+std::to_string(++gradient_serial);}while(svg_ids.contains(key));svg_ids.insert(key);raster_ids.emplace(source.asset,key);
             out<<"<defs><image id=\""<<key<<"\" width=\"1\" height=\"1\" preserveAspectRatio=\"none\" href=\"data:image/png;base64,"<<base64_encode(png)<<"\"/></defs>\n";
         }
-        out<<"<use href=\"#"<<raster_ids.at(source.asset)<<"\" transform=\"scale("<<values.at({id,"","image.width"})<<' '<<values.at({id,"","image.height"})<<")\"/>\n";
+        out<<"<use href=\"#"<<raster_ids.at(source.asset)<<"\" transform=\"scale("<<render_values->at({id,"","image.width"})<<' '<<render_values->at({id,"","image.height"})<<")\"/>\n";
     };
 
     const auto paint_shape=[&](const EvaluatedShape& shape) {
@@ -2080,15 +2154,20 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     const auto authored_isolation=evaluate_composite_isolations(d);
     bool modern=false;
     std::function<void(const Id&)> detect=[&](const Id& id){const auto& object=d.objects.at(id);const auto& c=object.compositing;
-        modern=modern||object.image.has_value()||!visibility.at(id)||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||authored_isolation.at(id)||
+        modern=modern||object.kind==Kind::instance||object.image.has_value()||!visibility.at(id)||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||authored_isolation.at(id)||
             (c.mask&&mask_enabled.at(geometry_mask_enabled_ref(id,c.mask->id)));
         for(const auto& child:object.children)detect(child);};
     for(const auto& id:comp->roots)detect(id);
     if(modern) {
         const auto scene=evaluate_scene(d,comp_id,values,transforms);
+        if(scene.expanded_document) {
+            render_document=scene.expanded_document.get();
+            render_values=scene.expanded_values.get();
+            for(const auto& [id,object]:render_document->objects){svg_ids.insert(id);if(object.compositing.mask)svg_ids.insert(object.compositing.mask->id);}
+        }
         std::function<void(const EvaluatedSceneNode&)> render_node=[&](const EvaluatedSceneNode& node) {
             if(!node.visible)return;
-            const auto& object=d.objects.at(node.id);
+            const auto& object=render_document->objects.at(node.id);
             if(node.mask) {
                 const auto& mask=*node.mask;const auto& mask_id=object.compositing.mask->id;
                 out<<"<defs><clipPath id=\""<<mask_id<<"\" clipPathUnits=\"userSpaceOnUse\"><path clip-rule=\""<<mask.fill_rule<<"\" d=\"";
@@ -2108,8 +2187,8 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
             out<<"><title>"<<escape(object.name)<<"</title>\n";
             if(object.kind==Kind::group)for(const auto& child:node.children)render_node(child);
             else {
-                if(object.text)out<<"<desc>Text outlined for SVG; editable source remains in native Nect.</desc>\n";
-                out<<"<g transform=\"matrix(";for(const auto value:node.world)out<<value<<' ';out<<")\">\n";
+            if(object.text)out<<"<desc>Text outlined for SVG; editable source remains in native Nect.</desc>\n";
+            out<<"<g transform=\"matrix(";for(const auto value:node.world)out<<value<<' ';out<<")\">\n";
                 if(object.image)paint_image(node.id);else paint_shape(scene.shapes.at(node.id));out<<"</g>\n";
             }
             out<<"</g>\n";
@@ -2226,6 +2305,15 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op"});j::array definitions;
             for(const auto& [id,definition]:session.document().preset_definitions){(void)id;definitions.push_back(preset_json(definition));}
             result=std::move(definitions);
+        } else if(op=="definitions") {
+            keys(o,{"op"});j::array definitions;
+            for(const auto& [id,definition]:session.document().definitions){(void)id;definitions.push_back(definition_json(definition));}
+            result=std::move(definitions);
+        } else if(op=="definition") {
+            keys(o,{"op","id"});const auto id=text(o.at("id"));
+            const auto found=session.document().definitions.find(id);
+            if(found==session.document().definitions.end())throw Error("MISSING_DEFINITION",id);
+            result=definition_json(found->second);
         } else if(op=="preset") {
             keys(o,{"op","id"});const auto id=text(o.at("id"));
             const auto found=session.document().preset_definitions.find(id);
@@ -2462,18 +2550,20 @@ std::string request(Session& session,std::string_view input) {
                 {"neutral_groups","pass_through"},{"nonneutral_groups","isolated_then_clip_opacity_blend"},{"after_effects_full_parity",false}};
         } else if(op=="compositing_plan") {
             keys(o,{"op","composition"});const auto values=evaluate(session.document());
-            const auto operation_enabled=evaluate_operation_enableds(session.document());
             const auto scene=evaluate_scene(session.document(),text(o.at("composition")),values,evaluate_transforms(session.document(),values));
+            const auto& render_document=scene.expanded_document?*scene.expanded_document:session.document();
+            const auto& render_values=scene.expanded_values?*scene.expanded_values:values;
+            const auto operation_enabled=evaluate_operation_enableds(render_document);
             std::function<j::value(const EvaluatedSceneNode&)> node_json=[&](const EvaluatedSceneNode& node) {
                 j::array children,world,effects;for(const auto value:node.world)world.push_back(value);for(const auto& child:node.children)children.push_back(node_json(child));
-                const auto& object=session.document().objects.at(node.id);
+                const auto& object=render_document.objects.at(node.id);
                 for(const auto& operation:object.stack)if(operation.type=="nect.group.posterize") {
                     j::value driver=nullptr;if(operation.enabled_driver)driver=j::object{{"link",ref_json(*operation.enabled_driver)}};
                     effects.push_back(j::object{
                         {"id",operation.id},{"type",operation.type},{"version",operation.version},
                         {"authored_enabled",operation.enabled},{"enabled_driver",std::move(driver)},
                         {"enabled",operation_enabled.at(operation_ref(node.id,operation.id,"enabled"))},
-                        {"levels",values.at(operation_ref(node.id,operation.id,"levels"))}});
+                        {"levels",render_values.at(operation_ref(node.id,operation.id,"levels"))}});
                 }
                 j::value mask=nullptr;if(node.mask)mask=j::object{{"source",node.mask->source},{"fill_rule",node.mask->fill_rule},{"space","composition"},{"path_instances",node.mask->paths.size()}};
                 return j::object{{"object",node.id},{"world",world},{"visible",node.visible},{"opacity",node.opacity},{"blend",node.blend},
@@ -2667,7 +2757,7 @@ std::string request(Session& session,std::string_view input) {
                 for(const auto& [id,value]:old){(void)value;if(!current.contains(id))changed.insert(id);}
             };
             map_diff(prior.objects,after.objects);map_diff(prior.named_colors,after.named_colors);map_diff(prior.raster_assets,after.raster_assets);
-            map_diff(prior.preset_definitions,after.preset_definitions);
+            map_diff(prior.preset_definitions,after.preset_definitions);map_diff(prior.definitions,after.definitions);
             const auto list_diff=[&](const auto& old,const auto& current) {
                 for(const auto& item:current) {const auto found=std::find_if(old.begin(),old.end(),[&](const auto& x){return x.id==item.id;});if(found==old.end()||*found!=item)changed.insert(item.id);}
                 for(const auto& item:old)if(std::none_of(current.begin(),current.end(),[&](const auto& x){return x.id==item.id;}))changed.insert(item.id);

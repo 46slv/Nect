@@ -167,7 +167,7 @@ parameters and supported options are saved as literals. Capture rejects a link o
 expression on a captured field and reports the exact source Ref. Apply appends a
 fresh Offset→Repeater pair in one Session edit and one Undo. Rename, update from
 the current stack and delete edit the named definition; re-editing never changes
-already-applied operation snapshots. Native 0.63 saves these definitions and
+already-applied operation snapshots. Native 0.64 saves these definitions and
 reopens them with the document.
 
 The same API/MCP Session surface supports `presets`, `preset {id}` and single
@@ -176,6 +176,16 @@ The same API/MCP Session surface supports `presets`, `preset {id}` and single
 returns the exact captured source operation IDs and types. These v1 presets cover
 the built-in Offset/Repeater stack only; they do not implement Macros, Actions,
 published parameter libraries or cross-document libraries.
+
+Same-document Definition/Instance v1 reuses an existing source Object subtree and
+its stable IDs; it does not add duplicate authored source Objects. Instance placement,
+visibility and compositing remain local, while source edits flow to live instances.
+The source root's affine/anchor/transform-parent/visibility are excluded from the
+shared appearance, while its content and compositing (including opacity) remain.
+Scalar overrides are limited to `composite.opacity` and Text `text.font_size`.
+Reset restores source evaluation; Detach materializes a frozen copy in one Undo.
+Dependencies must stay within the source subtree, and nested/cross-Composition use
+reject. Native 0.64 stores Definitions and Instances; 0.63 and older remain readable.
 
 Add Text creates an editable source. Use Edit text to compose Japanese or other
 Unicode content, then Apply for one undo step. Select font, writing direction,

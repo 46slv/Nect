@@ -57,6 +57,8 @@ std::size_t extra(const Collection&);
 std::size_t extra(const NamedColor&);
 std::size_t extra(const PresetEntry&);
 std::size_t extra(const PresetDefinition&);
+std::size_t extra(const Definition&);
+std::size_t extra(const DefinitionInstance&);
 template<class T>std::size_t extra(const std::optional<T>&);
 template<class A,class B>std::size_t extra(const std::pair<A,B>&);
 template<class T,std::size_t N>std::size_t extra(const std::array<T,N>&);
@@ -99,11 +101,13 @@ std::size_t extra(const Gradient& v){return total(extra(v.id),extra(v.type),extr
 std::size_t extra(const ShapeOperation& v){return total(extra(v.id),extra(v.type),extra(v.enabled_driver),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.fill_rule_driver),extra(v.gradient),extra(v.line_join),extra(v.line_cap));}
 std::size_t extra(const PresetEntry& v){return total(extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.line_join),extra(v.line_cap));}
 std::size_t extra(const PresetDefinition& v){return total(extra(v.id),extra(v.label),extra(v.category),extra(v.tags),extra(v.target_domain),extra(v.entries));}
+std::size_t extra(const Definition& v){return total(extra(v.id),extra(v.name),extra(v.root));}
+std::size_t extra(const DefinitionInstance& v){return total(extra(v.definition),extra(v.overrides));}
 std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule),extra(v.enabled_driver));}
 std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.isolated_driver),extra(v.mask));}
 std::size_t extra(const ImageSource& v){return total(extra(v.asset),extra(v.width),extra(v.height));}
 std::size_t extra(const RasterAsset& v){return total(extra(v.id),extra(v.name),extra(v.mode),extra(v.locator),v.payload?v.payload->bytes().size()+sizeof(RasterPayload)+allocation_overhead:0);}
-std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.visibility_driver),extra(v.visibility_expression),extra(v.compositing),extra(v.image));}
+std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.visibility_driver),extra(v.visibility_expression),extra(v.compositing),extra(v.image),extra(v.instance));}
 std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
 std::size_t extra(const Guide& v){return total(extra(v.id),extra(v.name),extra(v.axis),extra(v.position_driver));}
 std::size_t extra(const LayoutRect&){return 0;}
@@ -308,7 +312,7 @@ std::size_t Session::estimate_history(const HistoryEntry& entry) {
         for(const auto& item:items)result=total(result,extra(item.key),extra(item.before),extra(item.after));
         return result;
     };
-    return total(bytes,changes(entry.objects),changes(entry.colors),changes(entry.assets),changes(entry.presets));
+    return total(bytes,changes(entry.objects),changes(entry.colors),changes(entry.assets),changes(entry.presets),changes(entry.definitions));
 }
 
 void Session::commit(Document candidate,std::string label) {
@@ -323,6 +327,7 @@ void Session::commit(Document candidate,std::string label) {
     };
     diff(document_.objects,candidate.objects,entry.objects);diff(document_.named_colors,candidate.named_colors,entry.colors);
     diff(document_.raster_assets,candidate.raster_assets,entry.assets);diff(document_.preset_definitions,candidate.preset_definitions,entry.presets);
+    diff(document_.definitions,candidate.definitions,entry.definitions);
     if(document_.compositions!=candidate.compositions)entry.compositions=std::pair{document_.compositions,candidate.compositions};
     if(document_.collections!=candidate.collections)entry.collections=std::pair{document_.collections,candidate.collections};
     entry.estimated_bytes=estimate_history(entry);
@@ -351,7 +356,7 @@ void Session::apply_history(Document& candidate,const HistoryEntry& entry,bool f
             if(value)objects.insert_or_assign(change.key,*value);else objects.erase(change.key);
         }
     };
-    patch(candidate.objects,entry.objects);patch(candidate.named_colors,entry.colors);patch(candidate.raster_assets,entry.assets);patch(candidate.preset_definitions,entry.presets);
+    patch(candidate.objects,entry.objects);patch(candidate.named_colors,entry.colors);patch(candidate.raster_assets,entry.assets);patch(candidate.preset_definitions,entry.presets);patch(candidate.definitions,entry.definitions);
     if(entry.compositions)candidate.compositions=forward?entry.compositions->second:entry.compositions->first;
     if(entry.collections)candidate.collections=forward?entry.collections->second:entry.collections->first;
 }

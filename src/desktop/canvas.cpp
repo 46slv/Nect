@@ -144,21 +144,29 @@ void Canvas::refresh() {
         } else { active_composition_.clear(); active_artboard_.clear(); }
         if(const auto* validated=session_.preview_values())values_=*validated;
         else values_=evaluate(document);
-        const auto gradient_enabled=evaluate_gradient_enableds(document);
-        const auto point_edit_enabled=evaluate_point_edit_enableds(document);
-        const auto visibility=evaluate_object_visibilities(document);
         transforms_ = evaluate_transforms(document,values_);
+        auto gradient_enabled=evaluate_gradient_enableds(document);
+        auto point_edit_enabled=evaluate_point_edit_enableds(document);
+        auto visibility=evaluate_object_visibilities(document);
         geometry_.clear();
         geometry_index_.clear();mask_paths_.clear();scene_={};
         world_.clear();
         parents_.clear();
         if (composition != document.compositions.end()) {
             scene_=evaluate_scene(document,composition->id,values_,transforms_);
+            const auto& render_document=scene_.expanded_document?*scene_.expanded_document:document;
+            const auto& render_values=scene_.expanded_values?*scene_.expanded_values:values_;
+            const auto& render_transforms=scene_.expanded_transforms?*scene_.expanded_transforms:transforms_;
+            if(scene_.expanded_values)values_=*scene_.expanded_values;
+            if(scene_.expanded_transforms)transforms_=*scene_.expanded_transforms;
+            gradient_enabled=evaluate_gradient_enableds(render_document);
+            point_edit_enabled=evaluate_point_edit_enableds(render_document);
+            visibility=evaluate_object_visibilities(render_document);
             std::set<Id> active_assets;
-            for(const auto& [id,image]:scene_.images){(void)image;active_assets.insert(document.objects.at(id).image->asset);}
+            for(const auto& [id,image]:scene_.images){(void)image;active_assets.insert(render_document.objects.at(id).image->asset);}
             std::erase_if(rasters_,[&](const auto& entry){return !active_assets.contains(entry.first);});
             for(const auto& id:active_assets) {
-                const auto& payload=document.raster_assets.at(id).payload;const auto found=rasters_.find(id);
+                const auto& payload=render_document.raster_assets.at(id).payload;const auto found=rasters_.find(id);
                 if(found!=rasters_.end()&&found->second.payload==payload)continue;
                 auto pixels=decode_raster(*payload);
                 QImage source(pixels.rgba.data(),static_cast<int>(pixels.width),static_cast<int>(pixels.height),static_cast<int>(pixels.width*4),QImage::Format_RGBA8888);
@@ -177,8 +185,8 @@ void Canvas::refresh() {
             for(const auto& node:scene_.roots)masks(node);
             std::function<void(const Id&, std::vector<Id>)> visit;
             visit = [&](const Id& id, std::vector<Id> ancestors) {
-                const auto& object = document.objects.at(id);
-                const auto world = qt_transform(transforms_.at(id).world);
+                const auto& object = render_document.objects.at(id);
+                const auto world = qt_transform(render_transforms.at(id).world);
                 world_.emplace(id, world);
                 parents_.emplace(id, ancestors.empty() ? Id{} : ancestors.back());
                 if (object.kind == Kind::group) {
@@ -190,10 +198,10 @@ void Canvas::refresh() {
                 item.id = id;
                 item.ancestors = std::move(ancestors);
                 item.world = world;
-                item.normal_visible=visibility.at(id)&&values_.at({id,"","composite.opacity"})>0;
-                for(const auto& ancestor:item.ancestors)item.normal_visible=item.normal_visible&&visibility.at(ancestor)&&values_.at({ancestor,"","composite.opacity"})>0;
+                item.normal_visible=visibility.at(id)&&render_values.at({id,"","composite.opacity"})>0;
+                for(const auto& ancestor:item.ancestors)item.normal_visible=item.normal_visible&&visibility.at(ancestor)&&render_values.at({ancestor,"","composite.opacity"})>0;
                 auto value = [&](const Id& point_id, const char* field) {
-                    return values_.at({id, point_id, field});
+                    return render_values.at({id, point_id, field});
                 };
                 // Core owns operation order, repeat instances and paint grouping.
                 // Qt only projects each evaluated layer into its drawing types.
@@ -204,7 +212,7 @@ void Canvas::refresh() {
                 }
                 const auto& shape = scene_.shapes.at(id);
                 if(object.text) {
-                    const auto layout=evaluate_text_projection(document,id,values_);
+                    const auto layout=evaluate_text_projection(render_document,id,render_values);
                     if(!object.text->path_attachment)
                         item.text_bounds=QRectF(layout.x,layout.y,std::max(1.0,layout.width),std::max(1.0,layout.height));
                     item.text_line_baselines_y=layout.line_baselines_y;
@@ -267,7 +275,7 @@ void Canvas::refresh() {
                     }
                     item.paints.push_back(std::move(paint));
                 }
-                for (const auto& contour : path_contours(object,&values_)) {
+                for (const auto& contour : path_contours(object,&render_values)) {
                     const auto first = item.points.size();
                     for (const auto& authored : contour.points) {
                         EvaluatedPoint p;
@@ -608,6 +616,7 @@ void Canvas::set_gradient_edit(Id object, Id operation) {
 }
 
 Id Canvas::selection_target(const Geometry& item) const {
+    if(const auto owner=scene_.instance_owners.find(item.id);owner!=scene_.instance_owners.end())return owner->second;
     if (scope_.empty()) return item.ancestors.empty() ? item.id : item.ancestors.front();
     const auto scope = std::find(item.ancestors.begin(), item.ancestors.end(), scope_);
     if (scope == item.ancestors.end()) return {};
@@ -952,7 +961,8 @@ void Canvas::paintEvent(QPaintEvent*) {
             painter.drawText(end_screen + QPointF(10, -10), control.radial ? tr("Radius") : tr("End"));
         }
         if (!selected_object.empty() && document.objects.contains(selected_object) &&
-            (selections_.size()>1||document.objects.at(selected_object).kind == Kind::group) && !selected_bounds.isNull()) {
+            (selections_.size()>1||document.objects.at(selected_object).kind == Kind::group||
+                document.objects.at(selected_object).kind == Kind::instance) && !selected_bounds.isNull()) {
             painter.setPen(QPen(accent, 1, Qt::DashLine));
             painter.setBrush(Qt::NoBrush);
             painter.drawRect(selected_bounds.adjusted(-5, -5, 5, 5));

@@ -87,11 +87,23 @@ void stack_parity_snapshot_undo_and_native_reopen() {
         stack[4].parameters.at("position_x").literal==36,
         "Later applications use edited literal parameters and options");
     const auto bytes=encode(preset.document());
-    check(decode(bytes)==preset.document(),"Native 0.63 cold reopen preserves preset definitions and applied stacks");
-    auto previous=encode(fixture());const auto version=previous.find("\"version\":\"0.63\"");
-    check(version!=std::string::npos,"Fresh native fixture writes v0.63");
-    previous.replace(version,std::string("\"version\":\"0.63\"").size(),"\"version\":\"0.62\"");
-    const auto presets_key=previous.find(",\"presets\":[]");check(presets_key!=std::string::npos,"Preset-free v0.63 fixture has empty top-level definition array");
+    check(decode(bytes)==preset.document(),"Native 0.64 cold reopen preserves preset definitions and applied stacks");
+    auto populated_previous=bytes;
+    const auto definitions_key=populated_previous.find(",\"definitions\":[]");
+    check(definitions_key!=std::string::npos,"Preset-only native 0.64 document has no Definitions");
+    populated_previous.erase(definitions_key,std::string(",\"definitions\":[]").size());
+    check(populated_previous.find("\"definitions\"")==std::string::npos,"Downgraded native has no Definition field");
+    const auto populated_version=populated_previous.find("\"version\":\"0.64\"");
+    check(populated_version!=std::string::npos,"Preset-only native document writes 0.64");
+    populated_previous.replace(populated_version,std::string("\"version\":\"0.64\"").size(),"\"version\":\"0.63\"");
+    check(decode(populated_previous)==preset.document(),"Native 0.63 with populated Presets remains cold-readable");
+    auto previous=encode(fixture());const auto version=previous.find("\"version\":\"0.64\"");
+    check(version!=std::string::npos,"Fresh native fixture writes v0.64");
+    previous.replace(version,std::string("\"version\":\"0.64\"").size(),"\"version\":\"0.62\"");
+    const auto old_definitions_key=previous.find(",\"definitions\":[]");
+    check(old_definitions_key!=std::string::npos,"Preset-free v0.64 fixture has empty Definitions");
+    previous.erase(old_definitions_key,std::string(",\"definitions\":[]").size());
+    const auto presets_key=previous.find(",\"presets\":[]");check(presets_key!=std::string::npos,"Preset-free v0.64 fixture has empty top-level definition array");
     previous.erase(presets_key,std::string(",\"presets\":[]").size());
     check(decode(previous)==fixture(),"Native 0.62 remains readable with an empty preset map");
 }
