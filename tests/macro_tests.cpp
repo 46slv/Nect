@@ -204,9 +204,11 @@ void revisions_detach_and_native_contract() {
         "Public ID remains canonical after migration removes the parameter from revision 2");
 
     const auto macro_native=encode(session.document());
-    check(macro_native.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(macro_native.find(test_support::current_native_version_marker())!=std::string::npos&&
         decode(macro_native)==session.document(),"Native 0.67 roundtrips Macro definitions and tagged mixed stacks");
-    auto lied=boost::json::parse(macro_native).as_object();lied["version"]="0.64";
+    auto lied_native=macro_native;
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(lied_native);
+    auto lied=boost::json::parse(lied_native).as_object();lied["version"]="0.64";
     rejects("UNKNOWN_FIELD",[&]{(void)decode(boost::json::serialize(lied));});
 
     auto legacy=boost::json::parse(test_support::untag_ordinary_processing_entries_for_legacy_fixture(encode(document))).as_object();

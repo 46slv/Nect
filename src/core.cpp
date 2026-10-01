@@ -1444,10 +1444,11 @@ std::vector<Ref> properties(const Document& document) {
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards) {
         refs.push_back({board.id,"","artboard.width"});
         refs.push_back({board.id,"","artboard.height"});
-        if(board.layout&&board.layout->margin)
+        const auto effective=board.template_assignment?evaluate_artboard(composition,board.id):board;
+        if(effective.layout&&effective.layout->margin)
             for(const auto* side:{"left","top","right","bottom"})refs.push_back({board.id,"",std::string("margin.")+side});
-        if(board.layout&&board.layout->grid) {
-            const auto& grid=*board.layout->grid;
+        if(effective.layout&&effective.layout->grid) {
+            const auto& grid=*effective.layout->grid;
             for(const auto* field:{"grid.bounds.x","grid.bounds.y","grid.bounds.width","grid.bounds.height",
                 "grid.columns","grid.rows","grid.column_gutter","grid.row_gutter"})
                 refs.push_back({grid.id,"",field});
@@ -1466,19 +1467,32 @@ ArtboardSizeProperty artboard_size_property(const Document& document,const Ref& 
         std::optional<Ref> driver;
         std::optional<Expression> expression;
         std::string source_kind="literal";
+        std::optional<Ref> template_source;
+        std::optional<double> template_override;
+        if(board.template_assignment) {
+            const auto definition=std::find_if(composition.templates.begin(),composition.templates.end(),[&](const ArtboardTemplate& item) {
+                return item.id==board.template_assignment->template_id;
+            });
+            if(definition!=composition.templates.end())template_source=Ref{definition->source_artboard,"",ref.field};
+            template_override=width?board.template_assignment->width_override:board.template_assignment->height_override;
+        }
         if(board.parent_size&&(width?board.parent_size->width:board.parent_size->height)) {
             driver=Ref{board.parent_size->artboard,"",ref.field};
             source_kind="parent_size";
         } else if(const auto& typed=width?board.width_driver:board.height_driver;typed) {
             if(const auto* link=std::get_if<Ref>(&typed->value)) {driver=*link;source_kind="link";}
             else {expression=std::get<Expression>(typed->value);source_kind="expression";}
+        } else if(board.template_assignment) {
+            source_kind=template_override?"template_override":"template";
         }
         const auto evaluated=evaluate_artboard(composition,board.id);
         return {width?board.width:board.height,std::move(driver),std::move(expression),std::move(source_kind),
-            width?evaluated.width:evaluated.height};
+            width?evaluated.width:evaluated.height,std::move(template_source),template_override};
     }
     throw Error("MISSING_ARTBOARD",ref.object);
 }
+
+namespace { const Artboard* template_layout_owner(const Composition&,const Artboard&,bool); }
 
 ArtboardLayoutProperty artboard_layout_property(const Document& document,const Ref& ref) {
     require(ref.point.empty(),"INVALID_LAYOUT_REF","Artboard layout properties require an empty point ID");
@@ -1492,6 +1506,43 @@ ArtboardLayoutProperty artboard_layout_property(const Document& document,const R
     require(margin||grid,"UNKNOWN_LAYOUT_PROPERTY",ref.field);
 
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards) {
+        if(margin&&board.id==ref.object&&board.template_assignment&&!board.template_assignment->margin_overridden) {
+            const auto* owner=template_layout_owner(composition,board,true);
+            if(owner&&owner->id!=board.id) {
+                const Ref source{owner->id,"",ref.field};
+                auto value=artboard_layout_property(document,source);
+                const auto evaluated=evaluate_artboard(composition,board.id);
+                require(evaluated.layout&&evaluated.layout->margin,"MISSING_MARGIN",ref.object);
+                const auto& item=*evaluated.layout->margin;
+                if(ref.field=="margin.left")value.evaluated=item.left;
+                else if(ref.field=="margin.top")value.evaluated=item.top;
+                else if(ref.field=="margin.right")value.evaluated=item.right;
+                else value.evaluated=item.bottom;
+                value.source_kind="template";value.template_source=source;value.driver.reset();value.expression.reset();
+                return value;
+            }
+        }
+        if(grid&&board.template_assignment&&board.template_assignment->grid_id==ref.object&&
+            !board.template_assignment->grid_overridden) {
+            const auto* owner=template_layout_owner(composition,board,false);
+            if(owner&&owner->id!=board.id&&owner->layout&&owner->layout->grid) {
+                const Ref source{owner->layout->grid->id,"",ref.field};
+                auto value=artboard_layout_property(document,source);
+                const auto evaluated=evaluate_artboard(composition,board.id);
+                require(evaluated.layout&&evaluated.layout->grid,"MISSING_GRID",ref.object);
+                const auto& item=*evaluated.layout->grid;
+                if(ref.field=="grid.bounds.x")value.evaluated=item.bounds.x;
+                else if(ref.field=="grid.bounds.y")value.evaluated=item.bounds.y;
+                else if(ref.field=="grid.bounds.width")value.evaluated=item.bounds.width;
+                else if(ref.field=="grid.bounds.height")value.evaluated=item.bounds.height;
+                else if(ref.field=="grid.columns")value.evaluated=item.columns;
+                else if(ref.field=="grid.rows")value.evaluated=item.rows;
+                else if(ref.field=="grid.column_gutter")value.evaluated=item.column_gutter;
+                else value.evaluated=item.row_gutter;
+                value.source_kind="template";value.template_source=source;value.driver.reset();value.expression.reset();
+                return value;
+            }
+        }
         if(board.id==ref.object) {
             if(!margin)throw Error("TYPE_MISMATCH","Grid properties must use the stable Grid ID");
             if(!board.layout||!board.layout->margin)throw Error("MISSING_MARGIN",ref.object);
@@ -2219,97 +2270,12 @@ std::map<Ref,double> evaluate_properties(const Document& d,const std::vector<Ref
 std::map<Ref,double> evaluate(const Document& d){return evaluate_properties(d);}
 
 namespace {
-struct ArtboardSizeEvaluation {double value=0;std::size_t remaining_edges=0;};
-
 Ref artboard_size_ref(const Id& artboard,bool width) {
     return {artboard,"",width?"artboard.width":"artboard.height"};
 }
 bool artboard_size_ref(const Ref& ref) {
     return ref.point.empty()&&(ref.field=="artboard.width"||ref.field=="artboard.height");
 }
-class ArtboardSizeEvaluator {
-public:
-    explicit ArtboardSizeEvaluator(const Composition& composition):composition_(composition) {
-        for(const auto& board:composition_.artboards)boards_.emplace(board.id,&board);
-    }
-
-    double value(const Ref& ref) {
-        require(artboard_size_ref(ref),"INVALID_ARTBOARD_REF","Artboard dimensions require an empty-point width or height Ref");
-        validate_parent_chain(ref.object);
-        std::set<Ref> active;
-        return visit(ref,0,active).value;
-    }
-
-private:
-    const Composition& composition_;
-    std::map<Id,const Artboard*> boards_;
-    std::map<Ref,ArtboardSizeEvaluation> cache_;
-    ExpressionCache expressions_;
-
-    void validate_parent_chain(const Id& id) const {
-        std::set<Id> seen;auto next=id;std::size_t depth=0;
-        for(;;) {
-            require(seen.insert(next).second,"ARTBOARD_CYCLE","Parent Artboard relationship cycle at "+next);
-            require(depth++<256,"ARTBOARD_DEPTH","Artboard parent depth limit 256");
-            const auto found=boards_.find(next);
-            require(found!=boards_.end(),"MISSING_ARTBOARD",next);
-            if(!found->second->parent_size)break;
-            next=found->second->parent_size->artboard;
-        }
-    }
-
-    ArtboardSizeEvaluation visit(const Ref& ref,std::size_t depth,std::set<Ref>& active) {
-        require(artboard_size_ref(ref),"INVALID_ARTBOARD_REF","Artboard expressions may reference only Artboard width and height");
-        require(depth<256,"ARTBOARD_DEPTH","Artboard size dependency depth limit 256");
-        if(const auto found=cache_.find(ref);found!=cache_.end()) {
-            require(depth+found->second.remaining_edges<256,"ARTBOARD_DEPTH","Artboard size dependency depth limit 256");
-            return found->second;
-        }
-        require(active.insert(ref).second,"ARTBOARD_CYCLE","Artboard size dependency cycle at "+ref.object+"/"+ref.field);
-        const auto found=boards_.find(ref.object);
-        require(found!=boards_.end(),"MISSING_ARTBOARD",ref.object);
-        const auto& board=*found->second;
-        const bool width=ref.field=="artboard.width";
-        const double literal=width?board.width:board.height;
-        const auto& driver=width?board.width_driver:board.height_driver;
-        const bool parent_driven=board.parent_size&&(width?board.parent_size->width:board.parent_size->height);
-        require(!(parent_driven&&driver),"ARTBOARD_SOURCE_CONFLICT","An Artboard dimension has more than one source");
-
-        ArtboardSizeEvaluation result{literal,0};
-        if(parent_driven) {
-            const auto source=artboard_size_ref(board.parent_size->artboard,width);
-            const auto upstream=visit(source,depth+1,active);
-            result={upstream.value,upstream.remaining_edges+1};
-        } else if(driver) {
-            if(const auto* link=std::get_if<Ref>(&driver->value)) {
-                require(artboard_size_ref(*link),"INVALID_ARTBOARD_REF","Artboard links require an empty-point Artboard width or height Ref");
-                require(*link!=ref,"ARTBOARD_SELF_LINK","An Artboard dimension cannot link to itself");
-                const auto upstream=visit(*link,depth+1,active);
-                result={upstream.value,upstream.remaining_edges+1};
-            } else {
-                const auto& expression=std::get<Expression>(driver->value);
-                const auto& compiled=compiled_expression(expressions_,expression);
-                validate_expression_unit(compiled,"du");
-                std::size_t max_edges=0;
-                for(const auto& source:expression_dependencies(compiled)) {
-                    require(artboard_size_ref(source),"ARTBOARD_EXPRESSION_TYPE",
-                        "Artboard size expressions may reference only Artboard width and height in the same Composition");
-                    const auto upstream=visit(source,depth+1,active);
-                    max_edges=std::max(max_edges,upstream.remaining_edges+1);
-                }
-                result.value=evaluate_expression(compiled,"du",[&](const Ref& source) {
-                    return visit(source,depth+1,active).value;
-                });
-                result.remaining_edges=max_edges;
-            }
-        }
-        require(std::isfinite(result.value)&&result.value>0&&result.value<=1e7,
-            "ARTBOARD_SIZE_RANGE","Evaluated Artboard dimensions must be in (0,10000000]");
-        active.erase(ref);
-        return cache_.emplace(ref,result).first->second;
-    }
-};
-
 struct ArtboardDimensionLocation {Composition* composition=nullptr;Artboard* board=nullptr;bool width=false;};
 ArtboardDimensionLocation artboard_dimension_location(Document& document,const Ref& ref,const char* role) {
     require(ref.point.empty(),"INVALID_ARTBOARD_REF",std::string("Artboard ")+role+" requires an empty point ID");
@@ -3513,355 +3479,312 @@ void preserve_grid_row_gutter_source(const Grid* existing,Grid* incoming) {
 }
 
 namespace {
-struct GridColumnsOwner {
-    const Artboard* board=nullptr;
-    const Grid* grid=nullptr;
-};
+const Artboard* template_layout_owner(const Composition& composition,const Artboard& target,bool margin) {
+    const Artboard* current=&target;
+    std::set<Id> visited;
+    for(std::size_t depth=0;depth<256;++depth) {
+        require(visited.insert(current->id).second,"TEMPLATE_CYCLE","Artboard Template relation cycle at "+current->id);
+        if(!current->template_assignment) {
+            const bool present=current->layout&&(margin?current->layout->margin.has_value():current->layout->grid.has_value());
+            return present?current:nullptr;
+        }
+        const auto& assignment=*current->template_assignment;
+        const bool local=margin?assignment.margin_overridden:assignment.grid_overridden;
+        if(local) {
+            const bool present=current->layout&&(margin?current->layout->margin.has_value():current->layout->grid.has_value());
+            return present?current:nullptr;
+        }
+        const auto definition=std::find_if(composition.templates.begin(),composition.templates.end(),
+            [&](const ArtboardTemplate& item){return item.id==assignment.template_id;});
+        require(definition!=composition.templates.end(),"MISSING_ARTBOARD_TEMPLATE",assignment.template_id);
+        const auto source=std::find_if(composition.artboards.begin(),composition.artboards.end(),
+            [&](const Artboard& item){return item.id==definition->source_artboard;});
+        require(source!=composition.artboards.end(),"MISSING_ARTBOARD",definition->source_artboard);
+        current=&*source;
+    }
+    throw Error("ARTBOARD_DEPTH","Artboard Template layout depth limit 256");
+}
 
-class GridColumnsEvaluator {
+const Artboard* effective_grid_artboard(const Composition& composition,const Id& grid_id) {
+    for(const auto& candidate:composition.artboards) {
+        if(candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==grid_id)return &candidate;
+        if(candidate.template_assignment&&candidate.template_assignment->grid_id==grid_id&&
+            template_layout_owner(composition,candidate,false))return &candidate;
+    }
+    return nullptr;
+}
+
+struct UnifiedArtboardValue {double value=0;std::size_t remaining_edges=0;};
+struct UnifiedGridOwner {const Artboard* target=nullptr;const Artboard* authored=nullptr;const Grid* grid=nullptr;bool inherited=false;};
+
+class ArtboardPropertyEvaluator {
 public:
-    explicit GridColumnsEvaluator(const Composition& composition):composition_(composition){}
+    explicit ArtboardPropertyEvaluator(const Composition& composition):composition_(composition) {
+        for(const auto& board:composition_.artboards)boards_.emplace(board.id,&board);
+    }
 
-    std::size_t value(const Id& grid_id) { return visit(grid_id,0); }
+    double value(const Ref& ref) {
+        return visit(ref,0,active_).value;
+    }
 
 private:
     const Composition& composition_;
-    std::map<Id,std::size_t> values_;
-    std::set<Id> active_;
+    std::map<Id,const Artboard*> boards_;
+    std::map<Ref,UnifiedArtboardValue> cache_;
     ExpressionCache expressions_;
+    std::set<Ref> active_;
 
-    GridColumnsOwner owner(const Id& grid_id) const {
-        for(const auto& board:composition_.artboards) {
-            if(board.layout&&board.layout->grid&&board.layout->grid->id==grid_id)
-                return {&board,&*board.layout->grid};
-        }
-        for(const auto& board:composition_.artboards)if(board.id==grid_id)
-            throw Error("TYPE_MISMATCH","Grid columns source must identify a Grid ID: "+grid_id);
-        throw Error("MISSING_GRID",grid_id);
+    UnifiedArtboardValue edge(const Ref& ref,std::size_t depth,std::set<Ref>& active) {
+        const auto upstream=visit(ref,depth+1,active);
+        return {upstream.value,upstream.remaining_edges+1};
     }
 
-    std::size_t visit(const Id& grid_id,unsigned depth) {
-        require(depth<=128,"DEPENDENCY_DEPTH","Grid columns dependency depth limit 128");
-        if(const auto found=values_.find(grid_id);found!=values_.end())return found->second;
-        require(active_.insert(grid_id).second,"DEPENDENCY_CYCLE","Grid columns dependency cycle");
-        const auto current=owner(grid_id);
-        require(current.grid->columns>=1&&current.grid->columns<=1000,"OUT_OF_RANGE",
-            "Authored Grid columns must be 1..1000");
-        require(!(current.grid->columns_driver&&current.grid->columns_expression),"GRID_COLUMNS_SOURCE_CONFLICT",
-            "Grid columns may have only one active source");
-        auto result=current.grid->columns;
-        if(current.grid->columns_driver) {
-            const auto& source=*current.grid->columns_driver;
-            require(source.point.empty()&&source.field=="grid.columns","INVALID_GRID_COLUMNS_REF",
-                "Grid columns source must be an empty-point grid.columns Ref");
-            const auto source_owner=owner(source.object);
-            require(current.grid->id!=source_owner.grid->id&&current.board->id!=source_owner.board->id,
-                "GRID_COLUMNS_SELF_LINK","Grid columns must link to a distinct Grid on another Artboard");
-            result=visit(source.object,depth+1);
-        } else if(current.grid->columns_expression) {
-            const auto& compiled=compiled_expression(expressions_,*current.grid->columns_expression);
-            validate_expression_unit(compiled,"unitless");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(source.point.empty()&&source.field=="grid.columns","GRID_COLUMNS_EXPRESSION_TYPE",
-                    "Grid columns expressions may reference only empty-point grid.columns properties");
-                const auto source_owner=owner(source.object);
-                require(current.grid->id!=source_owner.grid->id&&current.board->id!=source_owner.board->id,
-                    "GRID_COLUMNS_SELF_LINK","Grid columns expressions must reference a distinct Grid on another Artboard");
-                (void)visit(source.object,depth+1);
+    template<class Compile>
+    UnifiedArtboardValue expression(const Expression& source,const char* unit,std::size_t depth,
+        std::set<Ref>& active,Compile compile) {
+        const auto& compiled=compiled_expression(expressions_,source);
+        compile(compiled);
+        validate_expression_unit(compiled,unit);
+        std::size_t max_edges=0;
+        for(const auto& dependency:expression_dependencies(compiled)) {
+            const auto upstream=visit(dependency,depth+1,active);
+            max_edges=std::max(max_edges,upstream.remaining_edges+1);
+        }
+        const auto result=evaluate_expression(compiled,unit,[&](const Ref& dependency) {
+            return visit(dependency,depth+1,active).value;
+        });
+        return {result,max_edges};
+    }
+
+    const Artboard& board(const Id& id) const {
+        const auto found=boards_.find(id);
+        if(found==boards_.end())throw Error("MISSING_ARTBOARD",id);
+        return *found->second;
+    }
+
+    UnifiedGridOwner grid_owner(const Id& id) const {
+        for(const auto& candidate:composition_.artboards) {
+            if(candidate.template_assignment&&candidate.template_assignment->grid_id==id) {
+                if(candidate.template_assignment->grid_overridden) {
+                    if(candidate.layout&&candidate.layout->grid)
+                        return {&candidate,&candidate,&*candidate.layout->grid,false};
+                    throw Error("MISSING_GRID",id);
+                }
+                const auto* authored=template_layout_owner(composition_,candidate,false);
+                if(!authored||!authored->layout||!authored->layout->grid)throw Error("MISSING_GRID",id);
+                return {&candidate,authored,&*authored->layout->grid,true};
             }
-            const auto evaluated=evaluate_expression(compiled,"unitless",[&](const Ref& source) {
-                return static_cast<double>(visit(source.object,depth+1));
-            });
-            require(std::isfinite(evaluated)&&evaluated>=1&&evaluated<=1000&&std::trunc(evaluated)==evaluated,
-                "OUT_OF_RANGE","Evaluated Grid columns must be an exact integer from 1 to 1000");
-            result=static_cast<std::size_t>(evaluated);
+            if(candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==id)
+                return {&candidate,&candidate,&*candidate.layout->grid,false};
         }
-        require(result>=1&&result<=1000,"OUT_OF_RANGE","Evaluated Grid columns must be 1..1000");
-        active_.erase(grid_id);
-        values_.emplace(grid_id,result);
-        return result;
-    }
-};
-
-class GridRowsEvaluator {
-public:
-    explicit GridRowsEvaluator(const Composition& composition):composition_(composition){}
-
-    std::size_t value(const Id& grid_id) { return visit(grid_id,0); }
-
-private:
-    const Composition& composition_;
-    std::map<Id,std::size_t> values_;
-    std::set<Id> active_;
-    ExpressionCache expressions_;
-
-    GridColumnsOwner owner(const Id& grid_id) const {
-        for(const auto& board:composition_.artboards) {
-            if(board.layout&&board.layout->grid&&board.layout->grid->id==grid_id)
-                return {&board,&*board.layout->grid};
-        }
-        for(const auto& board:composition_.artboards)if(board.id==grid_id)
-            throw Error("TYPE_MISMATCH","Grid rows source must identify a Grid ID: "+grid_id);
-        throw Error("MISSING_GRID",grid_id);
+        for(const auto& candidate:composition_.artboards)if(candidate.id==id)
+            throw Error("TYPE_MISMATCH","Grid property source must identify a Grid ID: "+id);
+        throw Error("MISSING_GRID",id);
     }
 
-    std::size_t visit(const Id& grid_id,unsigned depth) {
-        require(depth<=128,"DEPENDENCY_DEPTH","Grid rows dependency depth limit 128");
-        if(const auto found=values_.find(grid_id);found!=values_.end())return found->second;
-        require(active_.insert(grid_id).second,"DEPENDENCY_CYCLE","Grid rows dependency cycle");
-        const auto current=owner(grid_id);
-        require(current.grid->rows>=1&&current.grid->rows<=1000,"OUT_OF_RANGE",
-            "Authored Grid rows must be 1..1000");
-        require(!(current.grid->rows_driver&&current.grid->rows_expression),"GRID_ROWS_SOURCE_CONFLICT",
-            "Grid rows may have only one active source");
-        auto result=current.grid->rows;
-        if(current.grid->rows_driver) {
-            const auto& source=*current.grid->rows_driver;
-            require(source.point.empty()&&source.field=="grid.rows","INVALID_GRID_ROWS_REF",
-                "Grid rows source must be an empty-point grid.rows Ref");
-            const auto source_owner=owner(source.object);
-            require(current.grid->id!=source_owner.grid->id&&current.board->id!=source_owner.board->id,
-                "GRID_ROWS_SELF_LINK","Grid rows must link to a distinct Grid on another Artboard");
-            result=visit(source.object,depth+1);
-        } else if(current.grid->rows_expression) {
-            const auto& compiled=compiled_expression(expressions_,*current.grid->rows_expression);
-            validate_expression_unit(compiled,"unitless");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(source.point.empty()&&source.field=="grid.rows","GRID_ROWS_EXPRESSION_TYPE",
-                    "Grid rows expressions may reference only empty-point grid.rows properties");
-                const auto source_owner=owner(source.object);
-                require(current.grid->id!=source_owner.grid->id&&current.board->id!=source_owner.board->id,
-                    "GRID_ROWS_SELF_LINK","Grid rows expressions must reference a distinct Grid on another Artboard");
-                (void)visit(source.object,depth+1);
+    UnifiedArtboardValue visit(const Ref& ref,std::size_t depth,std::set<Ref>& active) {
+        require(ref.point.empty(),"INVALID_ARTBOARD_PROPERTY_REF","Artboard and layout properties require an empty point ID");
+        const bool grid_count=ref.field=="grid.columns"||ref.field=="grid.rows";
+        require(depth<(grid_count?129u:256u),grid_count?"DEPENDENCY_DEPTH":"ARTBOARD_DEPTH",
+            grid_count?"Grid count dependency depth limit 128":"Artboard property dependency depth limit 256");
+        if(const auto found=cache_.find(ref);found!=cache_.end()) {
+            const auto limit=grid_count?128u:255u;
+            require(depth+found->second.remaining_edges<=limit,grid_count?"DEPENDENCY_DEPTH":"ARTBOARD_DEPTH",
+                grid_count?"Grid count dependency depth limit 128":"Artboard property dependency depth limit 256");
+            return found->second;
+        }
+        if(!active.insert(ref).second) {
+            const auto code=(ref.field=="grid.columns"||ref.field=="grid.rows")
+                ?"DEPENDENCY_CYCLE":"ARTBOARD_CYCLE";
+            throw Error(code,"Artboard property dependency cycle at "+ref.object+"/"+ref.field);
+        }
+        UnifiedArtboardValue result;
+        if(artboard_size_ref(ref)) {
+            const auto& current=board(ref.object);
+            const bool width=ref.field=="artboard.width";
+            const auto& typed=width?current.width_driver:current.height_driver;
+            const bool parent=current.parent_size&&(width?current.parent_size->width:current.parent_size->height);
+            require(!(parent&&typed),"ARTBOARD_SOURCE_CONFLICT","An Artboard dimension has more than one independent source");
+            if(parent)result=edge(artboard_size_ref(current.parent_size->artboard,width),depth,active);
+            else if(typed) {
+                if(const auto* link=std::get_if<Ref>(&typed->value)) {
+                    require(artboard_size_ref(*link),"INVALID_ARTBOARD_REF","Artboard size links require width or height Refs");
+                    require(*link!=ref,"ARTBOARD_SELF_LINK","An Artboard dimension cannot link to itself");
+                    result=edge(*link,depth,active);
+                } else result=expression(std::get<Expression>(typed->value),"du",depth,active,[](const CompiledExpression& compiled) {
+                    for(const auto& dependency:expression_dependencies(compiled))
+                        require(artboard_size_ref(dependency),"ARTBOARD_EXPRESSION_TYPE",
+                            "Artboard size expressions may reference only width and height Refs in this Composition");
+                });
+            } else if(current.template_assignment) {
+                const auto& assignment=*current.template_assignment;
+                const auto& override_value=width?assignment.width_override:assignment.height_override;
+                if(override_value)result.value=*override_value;
+                else {
+                    const auto definition=std::find_if(composition_.templates.begin(),composition_.templates.end(),
+                        [&](const ArtboardTemplate& item){return item.id==assignment.template_id;});
+                    require(definition!=composition_.templates.end(),"MISSING_ARTBOARD_TEMPLATE",assignment.template_id);
+                    result=edge(artboard_size_ref(definition->source_artboard,width),depth,active);
+                }
+            } else result.value=width?current.width:current.height;
+            require(std::isfinite(result.value)&&result.value>0&&result.value<=1e7,
+                "ARTBOARD_SIZE_RANGE","Evaluated Artboard dimensions must be in (0,10000000]");
+        } else if(ref.field.starts_with("margin.")) {
+            const auto& target=board(ref.object);
+            const auto* authored=template_layout_owner(composition_,target,true);
+            require(authored&&authored->layout&&authored->layout->margin,"MISSING_MARGIN",ref.object);
+            if(authored->id!=target.id)result=edge(Ref{authored->id,"",ref.field},depth,active);
+            else {
+                const auto& margin=*authored->layout->margin;
+                const double* literal=nullptr;const std::optional<Ref>* driver=nullptr;const std::optional<Expression>* expr=nullptr;
+                if(ref.field=="margin.left"){literal=&margin.left;driver=&margin.left_driver;expr=&margin.left_expression;}
+                else if(ref.field=="margin.top"){literal=&margin.top;driver=&margin.top_driver;expr=&margin.top_expression;}
+                else if(ref.field=="margin.right"){literal=&margin.right;driver=&margin.right_driver;expr=&margin.right_expression;}
+                else if(ref.field=="margin.bottom"){literal=&margin.bottom;driver=&margin.bottom_driver;expr=&margin.bottom_expression;}
+                else throw Error("UNKNOWN_LAYOUT_PROPERTY",ref.field);
+                require(!(driver->has_value()&&expr->has_value()),"MARGIN_SOURCE_CONFLICT","Margin field may have only one active source");
+                if(*driver) {
+                    require(artboard_size_ref(**driver),"INVALID_ARTBOARD_REF","Margin sources require an Artboard width or height Ref");
+                    require((**driver).object!=authored->id,"ARTBOARD_SELF_LINK","Margin cannot depend on its owning Artboard size");
+                    result=edge(**driver,depth,active);
+                } else if(*expr) {
+                    const auto expression_value=**expr;
+                    auto valid=[&](const CompiledExpression& compiled) {
+                        for(const auto& dependency:expression_dependencies(compiled)) {
+                            require(artboard_size_ref(dependency),"MARGIN_EXPRESSION_TYPE","Margin expressions may reference only Artboard width/height Refs");
+                            require(dependency.object!=authored->id,"ARTBOARD_SELF_LINK","Margin cannot depend on its owning Artboard size");
+                        }
+                    };
+                    if(ref.field=="margin.left")result=expression(expression_value,"du",depth,active,[&](const CompiledExpression& c){
+                        valid(c);compile_margin_left_expression(expression_value);});
+                    else if(ref.field=="margin.top")result=expression(expression_value,"du",depth,active,[&](const CompiledExpression& c){
+                        valid(c);compile_margin_top_expression(expression_value);});
+                    else if(ref.field=="margin.right")result=expression(expression_value,"du",depth,active,[&](const CompiledExpression& c){
+                        valid(c);compile_margin_right_expression(expression_value);});
+                    else result=expression(expression_value,"du",depth,active,[&](const CompiledExpression& c){
+                        valid(c);compile_margin_bottom_expression(expression_value);});
+                } else result.value=*literal;
             }
-            const auto evaluated=evaluate_expression(compiled,"unitless",[&](const Ref& source) {
-                return static_cast<double>(visit(source.object,depth+1));
-            });
-            require(std::isfinite(evaluated)&&evaluated>=1&&evaluated<=1000&&std::trunc(evaluated)==evaluated,
-                "OUT_OF_RANGE","Evaluated Grid rows must be an exact integer from 1 to 1000");
-            result=static_cast<std::size_t>(evaluated);
+        } else {
+            const bool bounds_or_gutter=ref.field=="grid.bounds.x"||ref.field=="grid.bounds.y"||
+                ref.field=="grid.bounds.width"||ref.field=="grid.bounds.height"||
+                ref.field=="grid.column_gutter"||ref.field=="grid.row_gutter";
+            const bool columns=ref.field=="grid.columns",rows=ref.field=="grid.rows";
+            require(bounds_or_gutter||columns||rows,"UNKNOWN_LAYOUT_PROPERTY",ref.field);
+            const auto owner=grid_owner(ref.object);
+            if(owner.inherited)result=edge(Ref{owner.authored->layout->grid->id,"",ref.field},depth,active);
+            else {
+                const auto& grid=*owner.grid;
+                const Ref* driver=nullptr;const Expression* expr=nullptr;double literal=0;
+                std::optional<Ref> local_driver;std::optional<Expression> local_expr;
+                if(ref.field=="grid.bounds.x"){literal=grid.bounds.x;local_driver=grid.bounds_x_driver;local_expr=grid.bounds_x_expression;}
+                else if(ref.field=="grid.bounds.y"){literal=grid.bounds.y;local_driver=grid.bounds_y_driver;local_expr=grid.bounds_y_expression;}
+                else if(ref.field=="grid.bounds.width"){literal=grid.bounds.width;local_driver=grid.bounds_width_driver;local_expr=grid.bounds_width_expression;}
+                else if(ref.field=="grid.bounds.height"){literal=grid.bounds.height;local_driver=grid.bounds_height_driver;local_expr=grid.bounds_height_expression;}
+                else if(ref.field=="grid.column_gutter"){literal=grid.column_gutter;local_driver=grid.column_gutter_driver;local_expr=grid.column_gutter_expression;}
+                else if(ref.field=="grid.row_gutter"){literal=grid.row_gutter;local_driver=grid.row_gutter_driver;local_expr=grid.row_gutter_expression;}
+                else if(columns){literal=static_cast<double>(grid.columns);local_driver=grid.columns_driver;local_expr=grid.columns_expression;}
+                else {literal=static_cast<double>(grid.rows);local_driver=grid.rows_driver;local_expr=grid.rows_expression;}
+                if(local_driver)driver=&*local_driver;if(local_expr)expr=&*local_expr;
+                require(!(driver&&expr),"GRID_SOURCE_CONFLICT","Grid field may have only one active source");
+                if(driver) {
+                    if(columns||rows) {
+                        require(driver->point.empty()&&driver->field==(columns?"grid.columns":"grid.rows"),
+                            columns?"INVALID_GRID_COLUMNS_REF":"INVALID_GRID_ROWS_REF","Grid count links must use the matching empty-point property Ref");
+                        const auto source_owner=grid_owner(driver->object);
+                        require(source_owner.grid->id!=grid.id&&source_owner.authored->id!=owner.authored->id,
+                            columns?"GRID_COLUMNS_SELF_LINK":"GRID_ROWS_SELF_LINK","Grid count links must target a distinct Grid on another Artboard");
+                    } else {
+                        require(artboard_size_ref(*driver),"INVALID_ARTBOARD_REF","Grid sources require Artboard width or height Refs");
+                        require(driver->object!=owner.authored->id,"GRID_SELF_LINK","Grid cannot depend on its owning Artboard size");
+                    }
+                    result=edge(*driver,depth,active);
+                } else if(expr) {
+                    const auto expression_value=*expr;
+                    if(columns)result=expression(expression_value,"unitless",depth,active,[&](const CompiledExpression& compiled) {
+                        compile_grid_columns_expression(expression_value);
+                        for(const auto& dependency:expression_dependencies(compiled)) {
+                            require(dependency.point.empty()&&dependency.field=="grid.columns","GRID_COLUMNS_EXPRESSION_TYPE",
+                                "Grid columns expressions may reference only grid.columns Refs");
+                            const auto source_owner=grid_owner(dependency.object);
+                            require(source_owner.grid->id!=grid.id&&source_owner.authored->id!=owner.authored->id,
+                                "GRID_COLUMNS_SELF_LINK","Grid columns expressions must target a distinct Grid on another Artboard");
+                        }
+                    });
+                    else if(rows)result=expression(expression_value,"unitless",depth,active,[&](const CompiledExpression& compiled) {
+                        compile_grid_rows_expression(expression_value);
+                        for(const auto& dependency:expression_dependencies(compiled)) {
+                            require(dependency.point.empty()&&dependency.field=="grid.rows","GRID_ROWS_EXPRESSION_TYPE",
+                                "Grid rows expressions may reference only grid.rows Refs");
+                            const auto source_owner=grid_owner(dependency.object);
+                            require(source_owner.grid->id!=grid.id&&source_owner.authored->id!=owner.authored->id,
+                                "GRID_ROWS_SELF_LINK","Grid rows expressions must target a distinct Grid on another Artboard");
+                        }
+                    });
+                    else {
+                        const auto validate=[&](const CompiledExpression& compiled) {
+                            for(const auto& dependency:expression_dependencies(compiled)) {
+                                require(artboard_size_ref(dependency),"GRID_EXPRESSION_TYPE","Grid expressions may reference only Artboard width/height Refs");
+                                require(dependency.object!=owner.authored->id,"GRID_SELF_LINK","Grid cannot depend on its owning Artboard size");
+                            }
+                        };
+                        if(ref.field=="grid.bounds.x")result=expression(expression_value,"du",depth,active,[&](const CompiledExpression& c){validate(c);compile_grid_bounds_x_expression(expression_value);});
+                        else if(ref.field=="grid.bounds.y")result=expression(expression_value,"du",depth,active,[&](const CompiledExpression& c){validate(c);compile_grid_bounds_y_expression(expression_value);});
+                        else if(ref.field=="grid.bounds.width")result=expression(expression_value,"du",depth,active,[&](const CompiledExpression& c){validate(c);compile_grid_bounds_width_expression(expression_value);});
+                        else if(ref.field=="grid.bounds.height")result=expression(expression_value,"du",depth,active,[&](const CompiledExpression& c){validate(c);compile_grid_bounds_height_expression(expression_value);});
+                        else if(ref.field=="grid.column_gutter")result=expression(expression_value,"du",depth,active,[&](const CompiledExpression& c){validate(c);compile_grid_column_gutter_expression(expression_value);});
+                        else result=expression(expression_value,"du",depth,active,[&](const CompiledExpression& c){validate(c);compile_grid_row_gutter_expression(expression_value);});
+                    }
+                } else result.value=literal;
+                if(columns||rows)require(std::isfinite(result.value)&&result.value>=1&&result.value<=1000&&std::trunc(result.value)==result.value,
+                    "OUT_OF_RANGE","Evaluated Grid count must be an exact integer from 1 to 1000");
+            }
         }
-        require(result>=1&&result<=1000,"OUT_OF_RANGE","Evaluated Grid rows must be 1..1000");
-        active_.erase(grid_id);
-        values_.emplace(grid_id,result);
-        return result;
+        const auto finite_code=(ref.field.starts_with("margin.")||ref.field.starts_with("grid."))
+            ?"INVALID_LAYOUT":"INVALID_ARTBOARD_PROPERTY";
+        if(grid_count)require(depth+result.remaining_edges<=128,"DEPENDENCY_DEPTH","Grid count dependency depth limit 128");
+        require(std::isfinite(result.value),finite_code,"Evaluated Artboard property must be finite");
+        active.erase(ref);
+        return cache_.emplace(ref,result).first->second;
     }
 };
 }
 
 Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
-    const auto found=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item){return item.id==artboard;});
+    const auto found=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const Artboard& item) {
+        return item.id==artboard;
+    });
     require(found!=composition.artboards.end(),"MISSING_ARTBOARD",artboard);
-    ArtboardSizeEvaluator evaluator(composition);
-    ExpressionCache expressions;
+    ArtboardPropertyEvaluator evaluator(composition);
     auto result=*found;
     result.width=evaluator.value(artboard_size_ref(artboard,true));
     result.height=evaluator.value(artboard_size_ref(artboard,false));
+    const auto* margin_owner=template_layout_owner(composition,*found,true);
+    const auto* grid_owner=template_layout_owner(composition,*found,false);
+    if(margin_owner||grid_owner)result.layout=ArtboardLayout{};
+    else result.layout.reset();
+    if(margin_owner)result.layout->margin=*margin_owner->layout->margin;
+    if(grid_owner) {
+        result.layout->grid=*grid_owner->layout->grid;
+        if(grid_owner!=&*found&&found->template_assignment)result.layout->grid->id=found->template_assignment->grid_id;
+    }
     if(result.layout&&result.layout->margin) {
         auto& margin=*result.layout->margin;
-        require(!(margin.left_driver&&margin.left_expression),"MARGIN_SOURCE_CONFLICT",
-            "Margin left may have only one active source");
-        require(!(margin.top_driver&&margin.top_expression),"MARGIN_SOURCE_CONFLICT",
-            "Margin top may have only one active source");
-        require(!(margin.right_driver&&margin.right_expression),"MARGIN_SOURCE_CONFLICT",
-            "Margin right may have only one active source");
-        require(!(margin.bottom_driver&&margin.bottom_expression),"MARGIN_SOURCE_CONFLICT",
-            "Margin bottom may have only one active source");
-        if(margin.bottom_driver) {
-            require(artboard_size_ref(*margin.bottom_driver),"INVALID_ARTBOARD_REF",
-                "Margin bottom source must be an empty-point Artboard width or height Ref");
-            require(margin.bottom_driver->object!=artboard,"ARTBOARD_SELF_LINK",
-                "Margin bottom cannot depend on its own Artboard size");
-            margin.bottom=evaluator.value(*margin.bottom_driver);
-        } else if(margin.bottom_expression) {
-            const auto& compiled=compiled_expression(expressions,*margin.bottom_expression);
-            validate_expression_unit(compiled,"du");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(artboard_size_ref(source),"MARGIN_BOTTOM_EXPRESSION_TYPE",
-                    "Margin bottom expressions may reference only empty-point Artboard width and height properties");
-                require(source.object!=artboard,"ARTBOARD_SELF_LINK",
-                    "Margin bottom cannot depend on its owning Artboard size");
-                (void)evaluator.value(source);
-            }
-            margin.bottom=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
-        }
-        if(margin.left_driver) {
-            require(margin.left_driver->object!=artboard,"ARTBOARD_SELF_LINK","Margin left cannot depend on its own Artboard size");
-            margin.left=evaluator.value(*margin.left_driver);
-        } else if(margin.left_expression) {
-            const auto& compiled=compiled_expression(expressions,*margin.left_expression);
-            validate_expression_unit(compiled,"du");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(artboard_size_ref(source),"MARGIN_LEFT_EXPRESSION_TYPE",
-                    "Margin left expressions may reference only empty-point Artboard width and height properties");
-                require(source.object!=artboard,"ARTBOARD_SELF_LINK","Margin left cannot depend on its own Artboard size");
-                (void)evaluator.value(source);
-            }
-            margin.left=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
-        }
-        if(margin.top_driver) {
-            require(artboard_size_ref(*margin.top_driver),"INVALID_ARTBOARD_REF",
-                "Margin top source must be an empty-point Artboard width or height Ref");
-            require(margin.top_driver->object!=artboard,"ARTBOARD_SELF_LINK","Margin top cannot depend on its own Artboard size");
-            margin.top=evaluator.value(*margin.top_driver);
-        } else if(margin.top_expression) {
-            const auto& compiled=compiled_expression(expressions,*margin.top_expression);
-            validate_expression_unit(compiled,"du");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(artboard_size_ref(source),"MARGIN_TOP_EXPRESSION_TYPE",
-                    "Margin top expressions may reference only empty-point Artboard width and height properties");
-                require(source.object!=artboard,"ARTBOARD_SELF_LINK","Margin top cannot depend on its own Artboard size");
-                (void)evaluator.value(source);
-            }
-            margin.top=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
-        }
-        if(margin.right_driver) {
-            require(artboard_size_ref(*margin.right_driver),"INVALID_ARTBOARD_REF",
-                "Margin right source must be an empty-point Artboard width or height Ref");
-            require(margin.right_driver->object!=artboard,"ARTBOARD_SELF_LINK",
-                "Margin right cannot depend on its owning Artboard size");
-            margin.right=evaluator.value(*margin.right_driver);
-        } else if(margin.right_expression) {
-            const auto& compiled=compiled_expression(expressions,*margin.right_expression);
-            validate_expression_unit(compiled,"du");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(artboard_size_ref(source),"MARGIN_RIGHT_EXPRESSION_TYPE",
-                    "Margin right expressions may reference only empty-point Artboard width and height properties");
-                require(source.object!=artboard,"ARTBOARD_SELF_LINK",
-                    "Margin right cannot depend on its owning Artboard size");
-                (void)evaluator.value(source);
-            }
-            margin.right=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
-        }
+        margin.left=evaluator.value({artboard,"","margin.left"});
+        margin.top=evaluator.value({artboard,"","margin.top"});
+        margin.right=evaluator.value({artboard,"","margin.right"});
+        margin.bottom=evaluator.value({artboard,"","margin.bottom"});
     }
     if(result.layout&&result.layout->grid) {
         auto& grid=*result.layout->grid;
-        if(grid.columns_driver||grid.columns_expression) {
-            GridColumnsEvaluator columns(composition);
-            grid.columns=columns.value(grid.id);
-        }
-        if(grid.rows_driver||grid.rows_expression) {
-            require(!(grid.rows_driver&&grid.rows_expression),"GRID_ROWS_SOURCE_CONFLICT",
-                "Grid rows may have only one active source");
-            if(grid.rows_driver)require(grid.rows_driver->point.empty()&&grid.rows_driver->field=="grid.rows",
-                "INVALID_GRID_ROWS_REF","Grid rows source must be an empty-point grid.rows Ref");
-            GridRowsEvaluator rows(composition);
-            grid.rows=rows.value(grid.id);
-        }
-        require(!(grid.column_gutter_driver&&grid.column_gutter_expression),"GRID_SOURCE_CONFLICT",
-            "Grid column gutter may have only one active source");
-        require(!(grid.row_gutter_driver&&grid.row_gutter_expression),"GRID_SOURCE_CONFLICT",
-            "Grid row gutter may have only one active source");
-        if(grid.column_gutter_driver) {
-            require(artboard_size_ref(*grid.column_gutter_driver),"INVALID_ARTBOARD_REF",
-                "Grid column gutter source must be an empty point Artboard width or height Ref");
-            require(grid.column_gutter_driver->object!=artboard,"GRID_SELF_LINK",
-                "Grid column gutter cannot depend on its owning Artboard size");
-            grid.column_gutter=evaluator.value(*grid.column_gutter_driver);
-        } else if(grid.column_gutter_expression) {
-            const auto& compiled=compiled_expression(expressions,*grid.column_gutter_expression);
-            validate_expression_unit(compiled,"du");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(artboard_size_ref(source),"GRID_COLUMN_GUTTER_EXPRESSION_TYPE",
-                    "Grid column gutter expressions may reference only empty-point Artboard width and height properties");
-                require(source.object!=artboard,"GRID_SELF_LINK",
-                    "Grid column gutter cannot depend on its owning Artboard size");
-                (void)evaluator.value(source);
-            }
-            grid.column_gutter=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
-        }
-        if(grid.row_gutter_driver) {
-            require(artboard_size_ref(*grid.row_gutter_driver),"INVALID_ARTBOARD_REF",
-                "Grid row gutter source must be an empty point Artboard width or height Ref");
-            require(grid.row_gutter_driver->object!=artboard,"GRID_SELF_LINK",
-                "Grid row gutter cannot depend on its owning Artboard size");
-            grid.row_gutter=evaluator.value(*grid.row_gutter_driver);
-        } else if(grid.row_gutter_expression) {
-            const auto& compiled=compiled_expression(expressions,*grid.row_gutter_expression);
-            validate_expression_unit(compiled,"du");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(artboard_size_ref(source),"GRID_ROW_GUTTER_EXPRESSION_TYPE",
-                    "Grid row gutter expressions may reference only empty-point Artboard width and height properties");
-                require(source.object!=artboard,"GRID_SELF_LINK",
-                    "Grid row gutter cannot depend on its owning Artboard size");
-                (void)evaluator.value(source);
-            }
-            grid.row_gutter=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
-        }
-        require(!(grid.bounds_x_driver&&grid.bounds_x_expression),"GRID_SOURCE_CONFLICT",
-            "Grid bounds x may have only one active source");
-        require(!(grid.bounds_width_driver&&grid.bounds_width_expression),"GRID_SOURCE_CONFLICT",
-            "Grid bounds width may have only one active source");
-        require(!(grid.bounds_height_driver&&grid.bounds_height_expression),"GRID_SOURCE_CONFLICT",
-            "Grid bounds height may have only one active source");
-        if(grid.bounds_height_driver) {
-            require(artboard_size_ref(*grid.bounds_height_driver),"INVALID_ARTBOARD_REF",
-                "Grid bounds height source must be an empty point Artboard width or height Ref");
-            require(grid.bounds_height_driver->object!=artboard,"GRID_SELF_LINK",
-                "Grid bounds height cannot depend on its owning Artboard size");
-            grid.bounds.height=evaluator.value(*grid.bounds_height_driver);
-        } else if(grid.bounds_height_expression) {
-            const auto& compiled=compiled_expression(expressions,*grid.bounds_height_expression);
-            validate_expression_unit(compiled,"du");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(artboard_size_ref(source),"GRID_BOUNDS_HEIGHT_EXPRESSION_TYPE",
-                    "Grid bounds height expressions may reference only empty-point Artboard width and height properties");
-                require(source.object!=artboard,"GRID_SELF_LINK",
-                    "Grid bounds height cannot depend on its owning Artboard size");
-                (void)evaluator.value(source);
-            }
-            grid.bounds.height=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
-        }
-        if(grid.bounds_x_driver) {
-            const auto& driver=*grid.bounds_x_driver;
-            require(driver.object!=artboard,"GRID_SELF_LINK","Grid bounds x cannot depend on its owning Artboard size");
-            grid.bounds.x=evaluator.value(driver);
-        } else if(grid.bounds_x_expression) {
-            const auto& compiled=compiled_expression(expressions,*grid.bounds_x_expression);
-            validate_expression_unit(compiled,"du");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(artboard_size_ref(source),"GRID_BOUNDS_X_EXPRESSION_TYPE",
-                    "Grid bounds x expressions may reference only empty-point Artboard width and height properties");
-                require(source.object!=artboard,"GRID_SELF_LINK","Grid bounds x cannot depend on its owning Artboard size");
-                (void)evaluator.value(source);
-            }
-            grid.bounds.x=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
-        }
-        if(grid.bounds_y_driver) {
-            require(grid.bounds_y_driver->object!=artboard,"GRID_SELF_LINK",
-                "Grid bounds y cannot depend on its owning Artboard size");
-            grid.bounds.y=evaluator.value(*grid.bounds_y_driver);
-        } else if(grid.bounds_y_expression) {
-            const auto& compiled=compiled_expression(expressions,*grid.bounds_y_expression);
-            validate_expression_unit(compiled,"du");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(artboard_size_ref(source),"GRID_BOUNDS_Y_EXPRESSION_TYPE",
-                    "Grid bounds y expressions may reference only empty-point Artboard width and height properties");
-                require(source.object!=artboard,"GRID_SELF_LINK","Grid bounds y cannot depend on its owning Artboard size");
-                (void)evaluator.value(source);
-            }
-            grid.bounds.y=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
-        }
-        if(grid.bounds_width_driver) {
-            require(!grid.bounds_width_expression,"GRID_SOURCE_CONFLICT",
-                "Grid bounds width may have only one active source");
-            require(artboard_size_ref(*grid.bounds_width_driver),"INVALID_ARTBOARD_REF",
-                "Grid bounds width source must be an empty-point Artboard width or height Ref");
-            require(grid.bounds_width_driver->object!=artboard,"GRID_SELF_LINK",
-                "Grid bounds width cannot depend on its owning Artboard size");
-            grid.bounds.width=evaluator.value(*grid.bounds_width_driver);
-        } else if(grid.bounds_width_expression) {
-            const auto& compiled=compiled_expression(expressions,*grid.bounds_width_expression);
-            validate_expression_unit(compiled,"du");
-            for(const auto& source:expression_dependencies(compiled)) {
-                require(artboard_size_ref(source),"GRID_BOUNDS_WIDTH_EXPRESSION_TYPE",
-                    "Grid bounds width expressions may reference only empty-point Artboard width and height properties");
-                require(source.object!=artboard,"GRID_SELF_LINK",
-                    "Grid bounds width cannot depend on its owning Artboard size");
-                (void)evaluator.value(source);
-            }
-            grid.bounds.width=evaluate_expression(compiled,"du",[&](const Ref& source){return evaluator.value(source);});
-        }
+        grid.bounds.x=evaluator.value({grid.id,"","grid.bounds.x"});
+        grid.bounds.y=evaluator.value({grid.id,"","grid.bounds.y"});
+        grid.bounds.width=evaluator.value({grid.id,"","grid.bounds.width"});
+        grid.bounds.height=evaluator.value({grid.id,"","grid.bounds.height"});
+        grid.columns=static_cast<std::size_t>(evaluator.value({grid.id,"","grid.columns"}));
+        grid.rows=static_cast<std::size_t>(evaluator.value({grid.id,"","grid.rows"}));
+        grid.column_gutter=evaluator.value({grid.id,"","grid.column_gutter"});
+        grid.row_gutter=evaluator.value({grid.id,"","grid.row_gutter"});
     }
     return result;
 }
@@ -4270,9 +4193,46 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
         add(id);require(id==color.id,"ID_MISMATCH",id);
         require(!color.name.empty()&&color.name.size()<=4096,"INVALID_NAME","Named color requires a name of 1..4096 bytes");text_utf8(color.name);
     }
+    // Refuse structural Template cycles before evaluating frame or layout properties.
+    // Otherwise a self-source can surface as a less useful property cycle first.
+    for(const auto& comp:d.compositions) {
+        std::map<Id,const Artboard*> boards;
+        for(const auto& board:comp.artboards)boards.emplace(board.id,&board);
+        std::map<Id,unsigned char> state;
+        std::function<void(const Id&,std::size_t)> visit_template=[&](const Id& id,std::size_t depth) {
+            require(depth<256,"ARTBOARD_DEPTH","Artboard Template relation depth limit 256");
+            auto& current=state[id];
+            require(current!=1,"TEMPLATE_CYCLE","Artboard Template relation cycle at "+id);
+            if(current==2)return;
+            current=1;
+            const auto found=boards.find(id);
+            require(found!=boards.end(),"MISSING_ARTBOARD",id);
+            if(found->second->template_assignment) {
+                const auto definition=std::find_if(comp.templates.begin(),comp.templates.end(),[&](const ArtboardTemplate& item) {
+                    return item.id==found->second->template_assignment->template_id;
+                });
+                require(definition!=comp.templates.end(),"MISSING_ARTBOARD_TEMPLATE",
+                    found->second->template_assignment->template_id);
+                visit_template(definition->source_artboard,depth+1);
+            }
+            current=2;
+        };
+        for(const auto& board:comp.artboards)visit_template(board.id,0);
+    }
     std::size_t guide_count=0;
+    std::set<Id> template_owned_instances;
     for(const auto& comp:d.compositions) {
         add(comp.id);
+        require(comp.templates.size()<=1024,"LIMIT","Templates per Composition limit 1024");
+        for(const auto& item:comp.templates) {
+            add(item.id);
+            require(!item.name.empty()&&item.name.size()<=4096,"INVALID_ARTBOARD_TEMPLATE","Template name must be 1..4096 bytes");
+            text_utf8(item.name);
+            require(std::any_of(comp.artboards.begin(),comp.artboards.end(),[&](const Artboard& board) {
+                return board.id==item.source_artboard;
+            }),"MISSING_ARTBOARD",item.source_artboard);
+            if(item.definition)require(d.definitions.contains(*item.definition),"MISSING_DEFINITION",*item.definition);
+        }
         require(comp.guides.size()<=10000-guide_count,"LIMIT","Document Guide count limit 10000");
         guide_count+=comp.guides.size();
         for(const auto& guide:comp.guides) {
@@ -4290,7 +4250,42 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
             require(std::abs(a.x)<=1e9&&std::abs(a.y)<=1e9,"INVALID_ARTBOARD","Frame position exceeds 1e9");
             require(a.name.size()<=4096,"LIMIT","Artboard name too long");
             for(unsigned char ch:a.name)require(ch>=32||ch==9||ch==10||ch==13,"INVALID_NAME","XML-incompatible control character");
-            if(a.parent_size)identity(a.parent_size->artboard);
+            if(a.parent_size) {
+                identity(a.parent_size->artboard);
+                require(std::any_of(comp.artboards.begin(),comp.artboards.end(),[&](const Artboard& candidate) {
+                    return candidate.id==a.parent_size->artboard;
+                }),"MISSING_ARTBOARD",a.parent_size->artboard);
+            }
+            if(a.template_assignment) {
+                const auto& assignment=*a.template_assignment;
+                add(assignment.grid_id);
+                const auto template_it=std::find_if(comp.templates.begin(),comp.templates.end(),[&](const ArtboardTemplate& item) {
+                    return item.id==assignment.template_id;
+                });
+                require(template_it!=comp.templates.end(),"MISSING_ARTBOARD_TEMPLATE",assignment.template_id);
+                if(assignment.width_override)require(std::isfinite(*assignment.width_override)&&*assignment.width_override>0&&
+                    *assignment.width_override<=1e7,"ARTBOARD_SIZE_RANGE","Template width override must be in (0,10000000]");
+                if(assignment.height_override)require(std::isfinite(*assignment.height_override)&&*assignment.height_override>0&&
+                    *assignment.height_override<=1e7,"ARTBOARD_SIZE_RANGE","Template height override must be in (0,10000000]");
+                require(assignment.margin_overridden||!a.layout||!a.layout->margin,"INVALID_ARTBOARD_TEMPLATE",
+                    "A Template-local Margin requires its family override state");
+                require(assignment.grid_overridden||!a.layout||!a.layout->grid,"INVALID_ARTBOARD_TEMPLATE",
+                    "A Template-local Grid requires its family override state");
+                if(a.layout&&a.layout->grid)require(a.layout->grid->id==assignment.grid_id,"INVALID_TEMPLATE_GRID_ID",
+                    "Template-local Grid must retain its target-local stable ID");
+                if(assignment.content_instance) {
+                    require(template_it->definition.has_value(),"ARTBOARD_TEMPLATE_NO_DEFINITION",
+                        "A Template content Instance requires an R04 Definition");
+                    require(template_owned_instances.insert(*assignment.content_instance).second,"DUPLICATE_TEMPLATE_CONTENT",
+                        *assignment.content_instance);
+                    require(std::find(comp.roots.begin(),comp.roots.end(),*assignment.content_instance)!=comp.roots.end(),
+                        "INVALID_TEMPLATE_CONTENT","Template content must be a top-level root in its assigned Composition");
+                    const auto instance=d.objects.find(*assignment.content_instance);
+                    require(instance!=d.objects.end()&&instance->second.kind==Kind::instance&&instance->second.instance&&
+                        instance->second.instance->definition==*template_it->definition,"INVALID_TEMPLATE_CONTENT",
+                        "Template-owned content must be its ordinary assigned R04 Instance");
+                }
+            }
             if(a.layout&&a.layout->margin) {
                 const auto& margin=*a.layout->margin;
                 require(!(margin.left_driver&&margin.left_expression),"MARGIN_SOURCE_CONFLICT",
@@ -4384,14 +4379,11 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                     const auto& source=*grid.columns_driver;
                     require(source.point.empty()&&source.field=="grid.columns","INVALID_GRID_COLUMNS_REF",
                         "Grid columns links require an empty-point grid.columns Ref");
-                    const Artboard* source_board=nullptr;
-                    for(const auto& candidate:comp.artboards)
-                        if(candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==source.object)
-                            source_board=&candidate;
+                    const Artboard* source_board=effective_grid_artboard(comp,source.object);
                     if(!source_board) {
                         const bool elsewhere=std::any_of(d.compositions.begin(),d.compositions.end(),[&](const Composition& other) {
                             return other.id!=comp.id&&std::any_of(other.artboards.begin(),other.artboards.end(),[&](const Artboard& candidate) {
-                                return candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==source.object;
+                            return effective_grid_artboard(other,source.object)!=nullptr;
                             });
                         });
                         if(elsewhere)throw Error("WRONG_COMPOSITION","Grid columns links must stay within one Composition");
@@ -4412,14 +4404,11 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                 if(grid.columns_expression) {
                     const auto compiled=compile_grid_columns_expression(*grid.columns_expression);
                     for(const auto& source:expression_dependencies(compiled)) {
-                        const Artboard* source_board=nullptr;
-                        for(const auto& candidate:comp.artboards)
-                            if(candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==source.object)
-                                source_board=&candidate;
+                        const Artboard* source_board=effective_grid_artboard(comp,source.object);
                         if(!source_board) {
                             const bool elsewhere=std::any_of(d.compositions.begin(),d.compositions.end(),[&](const Composition& other) {
                                 return other.id!=comp.id&&std::any_of(other.artboards.begin(),other.artboards.end(),[&](const Artboard& candidate) {
-                                    return candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==source.object;
+                                    return effective_grid_artboard(other,source.object)!=nullptr;
                                 });
                             });
                             if(elsewhere)throw Error("WRONG_COMPOSITION","Grid columns expressions must stay within one Composition");
@@ -4442,14 +4431,11 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                     const auto& source=*grid.rows_driver;
                     require(source.point.empty()&&source.field=="grid.rows","INVALID_GRID_ROWS_REF",
                         "Grid rows links require an empty-point grid.rows Ref");
-                    const Artboard* source_board=nullptr;
-                    for(const auto& candidate:comp.artboards)
-                        if(candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==source.object)
-                            source_board=&candidate;
+                    const Artboard* source_board=effective_grid_artboard(comp,source.object);
                     if(!source_board) {
                         const bool elsewhere=std::any_of(d.compositions.begin(),d.compositions.end(),[&](const Composition& other) {
                             return other.id!=comp.id&&std::any_of(other.artboards.begin(),other.artboards.end(),[&](const Artboard& candidate) {
-                                return candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==source.object;
+                            return effective_grid_artboard(other,source.object)!=nullptr;
                             });
                         });
                         if(elsewhere)throw Error("WRONG_COMPOSITION","Grid rows links must stay within one Composition");
@@ -4470,14 +4456,11 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                 if(grid.rows_expression) {
                     const auto compiled=compile_grid_rows_expression(*grid.rows_expression);
                     for(const auto& source:expression_dependencies(compiled)) {
-                        const Artboard* source_board=nullptr;
-                        for(const auto& candidate:comp.artboards)
-                            if(candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==source.object)
-                                source_board=&candidate;
+                        const Artboard* source_board=effective_grid_artboard(comp,source.object);
                         if(!source_board) {
                             const bool elsewhere=std::any_of(d.compositions.begin(),d.compositions.end(),[&](const Composition& other) {
                                 return other.id!=comp.id&&std::any_of(other.artboards.begin(),other.artboards.end(),[&](const Artboard& candidate) {
-                                    return candidate.layout&&candidate.layout->grid&&candidate.layout->grid->id==source.object;
+                                    return effective_grid_artboard(other,source.object)!=nullptr;
                                 });
                             });
                             if(elsewhere)throw Error("WRONG_COMPOSITION","Grid rows expressions must stay within one Composition");
@@ -4528,8 +4511,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                 }
             }
             const auto evaluated=evaluate_artboard(comp,a.id);
-            if(a.layout) {
-                const auto& layout=*a.layout;
+            if(evaluated.layout) {
+                const auto& layout=*evaluated.layout;
                 require(layout.margin||layout.grid,"INVALID_LAYOUT","Artboard layout must contain Margin, Grid or both: "+a.id);
                 if(layout.margin) {
                     const auto& margin=*layout.margin;
@@ -4545,7 +4528,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                         "INVALID_LAYOUT","Margins must be nonnegative and leave positive content width and height");
                 }
                 if(layout.grid) {
-                    const auto& grid=*layout.grid;add(grid.id);
+                    const auto& grid=*layout.grid;
+                    if(!a.template_assignment||a.template_assignment->grid_id!=grid.id)add(grid.id);
                     const auto& bounds=grid.bounds;
                     const auto& evaluated_bounds=evaluated.layout->grid->bounds;
                     require(std::isfinite(bounds.x)&&std::isfinite(bounds.y)&&std::isfinite(bounds.width)&&std::isfinite(bounds.height)&&
@@ -4793,6 +4777,11 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
     for(const auto& [definition_id,definition]:d.definitions) {
         (void)definition_id;
         require(compositions.contains(definition.root),"MISSING_DEFINITION_ROOT",definition.root);
+    }
+    for(const auto& comp:d.compositions)for(const auto& item:comp.templates)if(item.definition) {
+        const auto& definition=d.definitions.at(*item.definition);
+        require(compositions.contains(definition.root)&&compositions.at(definition.root)==comp.id,
+            "CROSS_COMPOSITION","Template Definition root must belong to the Template's Composition");
     }
     for(const auto& [instance_id,object]:d.objects)if(object.instance) {
         const auto& definition=d.definitions.at(object.instance->definition);
@@ -5099,9 +5088,15 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
             require(ref.point.empty(),"INVALID_OVERRIDE","Definition overrides address whole-object Scalar properties only");
             require(members.contains(ref.object),"DANGLING_OVERRIDE",ref.object);
             const auto& source=d.objects.at(ref.object);
+            const bool descendant=ref.object!=definition.root;
+            const bool transform_override=descendant&&(ref.field=="transform.tx"||ref.field=="transform.ty");
+            const bool rectangle_size_override=descendant&&source.kind==Kind::path&&source.source&&
+                source.source->type=="nect.shape.rectangle"&&
+                (ref.field=="generator.width"||ref.field=="generator.height");
             require(ref.field=="composite.opacity"||
-                (ref.field=="text.font_size"&&source.kind==Kind::text&&source.text.has_value()),
-                "UNSUPPORTED_OVERRIDE","Only composite.opacity and Text text.font_size Scalar overrides are supported");
+                (ref.field=="text.font_size"&&source.kind==Kind::text&&source.text.has_value())||
+                transform_override||rectangle_size_override,
+                "UNSUPPORTED_OVERRIDE","Supported Scalar overrides are composite.opacity, Text text.font_size, descendant transform.tx/ty, and descendant Rectangle generator.width/height");
             (void)property(d,ref);
             value_range(ref,value);
         }
@@ -5921,6 +5916,9 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
             require(found!=candidate.definitions.end(),"MISSING_DEFINITION",mutation.definition);
             for(const auto& [id,object]:candidate.objects)if(object.instance&&object.instance->definition==mutation.definition)
                 throw Error("DEFINITION_IN_USE","Definition "+mutation.definition+" is still used by Instance "+id);
+            for(const auto& composition:candidate.compositions)for(const auto& item:composition.templates)
+                if(item.definition==mutation.definition)
+                    throw Error("DEFINITION_IN_USE","Definition "+mutation.definition+" is used by Template "+item.id);
             candidate.definitions.erase(found);
         } else if constexpr(std::is_same_v<T,CreateInstance>) {
             require(candidate.definitions.contains(mutation.definition),"MISSING_DEFINITION",mutation.definition);
@@ -5969,6 +5967,206 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
             }
             auto& placed=candidate.objects.at(mutation.instance);
             placed.kind=Kind::group;placed.instance.reset();placed.children={materialized_root};
+            for(auto& composition:candidate.compositions)for(auto& board:composition.artboards)
+                if(board.template_assignment&&board.template_assignment->content_instance==mutation.instance)
+                    board.template_assignment->content_instance.reset();
+        }
+    },command.mutation);
+}
+
+void promote_template_family(Document& candidate,const Ref& ref) {
+    const bool margin=ref.field.starts_with("margin.");
+    const bool grid=ref.field.starts_with("grid.");
+    if(!margin&&!grid)return;
+    for(auto& composition:candidate.compositions)for(auto& board:composition.artboards) {
+        const bool owns=margin?board.id==ref.object:
+            ((board.template_assignment&&board.template_assignment->grid_id==ref.object)||
+                (board.layout&&board.layout->grid&&board.layout->grid->id==ref.object));
+        if(!owns||!board.template_assignment)continue;
+        auto& assignment=*board.template_assignment;
+        bool& overridden=margin?assignment.margin_overridden:assignment.grid_overridden;
+        if(overridden)return;
+        const auto* owner=template_layout_owner(composition,board,margin);
+        require(owner&&owner->layout&&(margin?owner->layout->margin.has_value():owner->layout->grid.has_value()),
+            margin?"MISSING_MARGIN":"MISSING_GRID",ref.object);
+        if(!board.layout)board.layout=ArtboardLayout{};
+        if(margin)board.layout->margin=owner->layout->margin;
+        else {
+            board.layout->grid=owner->layout->grid;
+            board.layout->grid->id=assignment.grid_id;
+        }
+        overridden=true;
+        return;
+    }
+}
+
+void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& command) {
+    std::visit([&](const auto& mutation) {
+        using T=std::decay_t<decltype(mutation)>;
+        const auto comp_it=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),[&](const Composition& item) {
+            if constexpr(std::is_same_v<T,CreateArtboardTemplate>)return item.id==mutation.composition;
+            else return item.id==mutation.composition;
+        });
+        require(comp_it!=candidate.compositions.end(),"MISSING_COMPOSITION",mutation.composition);
+        auto& composition=*comp_it;
+        if constexpr(std::is_same_v<T,CreateArtboardTemplate>) {
+            const auto& value=mutation.value;
+            identity(value.id);
+            require(std::none_of(composition.templates.begin(),composition.templates.end(),[&](const auto& item){return item.id==value.id;}),
+                "DUPLICATE_ID",value.id);
+            require(std::any_of(composition.artboards.begin(),composition.artboards.end(),[&](const auto& board) {
+                return board.id==value.source_artboard;
+            }),"MISSING_ARTBOARD",value.source_artboard);
+            if(value.definition)require(candidate.definitions.contains(*value.definition),"MISSING_DEFINITION",*value.definition);
+            composition.templates.push_back(value);
+        } else if constexpr(std::is_same_v<T,RenameArtboardTemplate>) {
+            const auto found=std::find_if(composition.templates.begin(),composition.templates.end(),[&](const auto& item) {
+                return item.id==mutation.template_id;
+            });
+            require(found!=composition.templates.end(),"MISSING_ARTBOARD_TEMPLATE",mutation.template_id);
+            found->name=mutation.name;
+        } else if constexpr(std::is_same_v<T,DeleteArtboardTemplate>) {
+            const auto found=std::find_if(composition.templates.begin(),composition.templates.end(),[&](const auto& item) {
+                return item.id==mutation.template_id;
+            });
+            require(found!=composition.templates.end(),"MISSING_ARTBOARD_TEMPLATE",mutation.template_id);
+            for(const auto& board:composition.artboards)if(board.template_assignment&&
+                board.template_assignment->template_id==mutation.template_id)
+                throw Error("ARTBOARD_TEMPLATE_IN_USE","Template "+mutation.template_id+" is assigned to Artboard "+board.id);
+            composition.templates.erase(found);
+        } else if constexpr(std::is_same_v<T,AssignArtboardTemplate>) {
+            auto board=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
+                return item.id==mutation.artboard_id;
+            });
+            require(board!=composition.artboards.end(),"MISSING_ARTBOARD",mutation.artboard_id);
+            require(!board->template_assignment,"ARTBOARD_TEMPLATE_ALREADY_ASSIGNED",
+                "Detach the current Template before assigning another one");
+            const auto definition=std::find_if(composition.templates.begin(),composition.templates.end(),[&](const auto& item) {
+                return item.id==mutation.template_id;
+            });
+            require(definition!=composition.templates.end(),"MISSING_ARTBOARD_TEMPLATE",mutation.template_id);
+            ArtboardTemplateAssignment assignment;assignment.template_id=definition->id;
+            assignment.margin_overridden=board->layout&&board->layout->margin.has_value();
+            assignment.grid_overridden=board->layout&&board->layout->grid.has_value();
+            if(board->layout&&board->layout->grid)assignment.grid_id=board->layout->grid->id;
+            else {
+                const auto suffix=board->id.substr(0,std::min<std::size_t>(board->id.size(),70));
+                assignment.grid_id="template-grid-"+suffix;
+            }
+            identity(assignment.grid_id);
+            if(mutation.content_instance) {
+                require(definition->definition.has_value(),"ARTBOARD_TEMPLATE_NO_DEFINITION",
+                    "This Template has no R04 Definition content");
+                identity(*mutation.content_instance);
+                require(!candidate.objects.contains(*mutation.content_instance),"DUPLICATE_ID",*mutation.content_instance);
+                Object object;object.id=*mutation.content_instance;object.name=definition->name;object.kind=Kind::instance;
+                object.instance=DefinitionInstance{*definition->definition,{}};
+                object.transform[4]=Scalar{board->x,{},{}};object.transform[5]=Scalar{board->y,{},{}};
+                candidate.objects.emplace(object.id,std::move(object));
+                composition.roots.push_back(*mutation.content_instance);
+                assignment.content_instance=mutation.content_instance;
+            }
+            board->template_assignment=std::move(assignment);
+        } else if constexpr(std::is_same_v<T,SetArtboardTemplateOverride>) {
+            auto board=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
+                return item.id==mutation.artboard_id;
+            });
+            require(board!=composition.artboards.end(),"MISSING_ARTBOARD",mutation.artboard_id);
+            require(board->template_assignment.has_value(),"MISSING_ARTBOARD_TEMPLATE_ASSIGNMENT",mutation.artboard_id);
+            auto& assignment=*board->template_assignment;
+            if(mutation.field=="frame.width"||mutation.field=="frame.height") {
+                require(std::holds_alternative<double>(mutation.value),"TYPE_MISMATCH","Frame override requires a number");
+                const bool width=mutation.field=="frame.width";
+                const bool parent=board->parent_size&&(width?board->parent_size->width:board->parent_size->height);
+                require(!parent&&!(width?board->width_driver:board->height_driver),"DRIVEN_ARTBOARD_SIZE",
+                    "Reset or unlink the independent Artboard size source before setting a Template override");
+                const auto value=std::get<double>(mutation.value);
+                require(std::isfinite(value)&&value>0&&value<=1e7,"ARTBOARD_SIZE_RANGE","Template frame override must be in (0,10000000]");
+                (width?assignment.width_override:assignment.height_override)=value;
+            } else if(mutation.field=="layout.margin") {
+                require(std::holds_alternative<std::optional<Margin>>(mutation.value),"TYPE_MISMATCH","Margin override requires a Margin or null");
+                auto incoming=std::get<std::optional<Margin>>(mutation.value);
+                const auto* existing=board->layout&&board->layout->margin?&*board->layout->margin:nullptr;
+                if(incoming) {
+                    preserve_margin_left_source(existing,&*incoming);preserve_margin_top_source(existing,&*incoming);
+                    preserve_margin_right_source(existing,&*incoming);preserve_margin_bottom_source(existing,&*incoming);
+                } else if(existing) {
+                    Margin absent;preserve_margin_left_source(existing,&absent);preserve_margin_top_source(existing,&absent);
+                    preserve_margin_right_source(existing,&absent);preserve_margin_bottom_source(existing,&absent);
+                }
+                if(!board->layout)board->layout=ArtboardLayout{};
+                board->layout->margin=std::move(incoming);assignment.margin_overridden=true;
+            } else if(mutation.field=="layout.grid") {
+                require(std::holds_alternative<std::optional<Grid>>(mutation.value),"TYPE_MISMATCH","Grid override requires a Grid or null");
+                auto incoming=std::get<std::optional<Grid>>(mutation.value);
+                const auto* existing=board->layout&&board->layout->grid?&*board->layout->grid:nullptr;
+                if(incoming) {
+                    require(incoming->id==assignment.grid_id,"INVALID_TEMPLATE_GRID_ID",
+                        "Grid override must keep the target-local stable Grid ID");
+                    preserve_grid_bounds_x_source(existing,&*incoming);preserve_grid_bounds_y_source(existing,&*incoming);
+                    preserve_grid_bounds_width_source(existing,&*incoming);preserve_grid_bounds_height_source(existing,&*incoming);
+                    preserve_grid_column_gutter_source(existing,&*incoming);preserve_grid_columns_source(existing,&*incoming);
+                    preserve_grid_rows_source(existing,&*incoming);preserve_grid_row_gutter_source(existing,&*incoming);
+                } else if(existing) {
+                    Grid absent;absent.id=assignment.grid_id;
+                    preserve_grid_bounds_x_source(existing,&absent);preserve_grid_bounds_y_source(existing,&absent);
+                    preserve_grid_bounds_width_source(existing,&absent);preserve_grid_bounds_height_source(existing,&absent);
+                    preserve_grid_column_gutter_source(existing,&absent);preserve_grid_columns_source(existing,&absent);
+                    preserve_grid_rows_source(existing,&absent);preserve_grid_row_gutter_source(existing,&absent);
+                }
+                if(!board->layout)board->layout=ArtboardLayout{};
+                board->layout->grid=std::move(incoming);assignment.grid_overridden=true;
+            } else throw Error("UNSUPPORTED_TEMPLATE_OVERRIDE",mutation.field);
+        } else if constexpr(std::is_same_v<T,ResetArtboardTemplateOverride>) {
+            auto board=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
+                return item.id==mutation.artboard_id;
+            });
+            require(board!=composition.artboards.end(),"MISSING_ARTBOARD",mutation.artboard_id);
+            require(board->template_assignment.has_value(),"MISSING_ARTBOARD_TEMPLATE_ASSIGNMENT",mutation.artboard_id);
+            auto& assignment=*board->template_assignment;
+            if(mutation.field=="frame.width") {
+                assignment.width_override.reset();board->width_driver.reset();
+                if(board->parent_size)board->parent_size->width=false;
+            } else if(mutation.field=="frame.height") {
+                assignment.height_override.reset();board->height_driver.reset();
+                if(board->parent_size)board->parent_size->height=false;
+            } else if(mutation.field=="layout.margin") {
+                assignment.margin_overridden=false;if(board->layout)board->layout->margin.reset();
+            } else if(mutation.field=="layout.grid") {
+                assignment.grid_overridden=false;if(board->layout)board->layout->grid.reset();
+            } else throw Error("UNSUPPORTED_TEMPLATE_OVERRIDE",mutation.field);
+            if(board->parent_size&&!board->parent_size->width&&!board->parent_size->height)board->parent_size.reset();
+            if(board->layout&&!board->layout->margin&&!board->layout->grid)board->layout.reset();
+        } else if constexpr(std::is_same_v<T,DetachArtboardTemplate>) {
+            auto board=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
+                return item.id==mutation.artboard_id;
+            });
+            require(board!=composition.artboards.end(),"MISSING_ARTBOARD",mutation.artboard_id);
+            require(board->template_assignment.has_value(),"MISSING_ARTBOARD_TEMPLATE_ASSIGNMENT",mutation.artboard_id);
+            const auto assignment=*board->template_assignment;
+            const auto resolved=evaluate_artboard(composition,board->id);
+            if(!(board->parent_size&&board->parent_size->width)&&!board->width_driver)board->width=resolved.width;
+            if(!(board->parent_size&&board->parent_size->height)&&!board->height_driver)board->height=resolved.height;
+            if(!assignment.margin_overridden&&resolved.layout&&resolved.layout->margin) {
+                auto frozen=*resolved.layout->margin;
+                frozen.left_driver.reset();frozen.left_expression.reset();frozen.top_driver.reset();frozen.top_expression.reset();
+                frozen.right_driver.reset();frozen.right_expression.reset();frozen.bottom_driver.reset();frozen.bottom_expression.reset();
+                if(!board->layout)board->layout=ArtboardLayout{};board->layout->margin=std::move(frozen);
+            }
+            if(!assignment.grid_overridden&&resolved.layout&&resolved.layout->grid) {
+                auto frozen=*resolved.layout->grid;
+                frozen.columns_driver.reset();frozen.columns_expression.reset();frozen.rows_driver.reset();frozen.rows_expression.reset();
+                frozen.column_gutter_driver.reset();frozen.column_gutter_expression.reset();frozen.row_gutter_driver.reset();frozen.row_gutter_expression.reset();
+                frozen.bounds_x_driver.reset();frozen.bounds_x_expression.reset();frozen.bounds_y_driver.reset();frozen.bounds_y_expression.reset();
+                frozen.bounds_width_driver.reset();frozen.bounds_width_expression.reset();frozen.bounds_height_driver.reset();frozen.bounds_height_expression.reset();
+                if(!board->layout)board->layout=ArtboardLayout{};board->layout->grid=std::move(frozen);
+            }
+            if(assignment.content_instance)edit_definition(candidate,DefinitionCommand{DetachInstance{*assignment.content_instance,mutation.id_prefix}});
+            board=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
+                return item.id==mutation.artboard_id;
+            });
+            board->template_assignment.reset();
+            if(board->layout&&!board->layout->margin&&!board->layout->grid)board->layout.reset();
         }
     },command.mutation);
 }
@@ -6784,7 +6982,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 using T=std::decay_t<decltype(value)>;
                 if constexpr(std::is_same_v<T,DefinitionCommand>)edit_definition(candidate,value);
                 else if constexpr(std::is_same_v<T,CollectionCommand>)edit_collection(candidate,value);
-                else edit_macro(candidate,value);
+                else if constexpr(std::is_same_v<T,MacroCommand>)edit_macro(candidate,value);
+                else edit_artboard_template(candidate,value);
             },*structural);
             continue;
         }
@@ -7258,6 +7457,20 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     // Legacy Artboard updates carry only frame fields. A missing
                     // layout payload must not erase authored P02 definitions.
                     if(!updated.layout)updated.layout=board->layout;
+                    updated.template_assignment=board->template_assignment;
+                    if(board->template_assignment) {
+                        const bool changed_width=updated.width!=board->width;
+                        const bool changed_height=updated.height!=board->height;
+                        require(!changed_width||(!(board->parent_size&&board->parent_size->width)&&!board->width_driver),
+                            "DRIVEN_ARTBOARD_SIZE","Use the canonical Template frame.width override or reset command");
+                        require(!changed_height||(!(board->parent_size&&board->parent_size->height)&&!board->height_driver),
+                            "DRIVEN_ARTBOARD_SIZE","Use the canonical Template frame.height override or reset command");
+                        require(updated.layout==board->layout,"ARTBOARD_TEMPLATE_DRIVEN",
+                            "Use the canonical Template family override/reset command to edit inherited layout");
+                        if(changed_width)updated.template_assignment->width_override=updated.width;
+                        if(changed_height)updated.template_assignment->height_override=updated.height;
+                    }
+                    if(!updated.parent_size)updated.parent_size=board->parent_size;
                     const auto* existing_margin=board->layout&&board->layout->margin?&*board->layout->margin:nullptr;
                     auto* incoming_margin=updated.layout&&updated.layout->margin?&*updated.layout->margin:nullptr;
                     preserve_margin_left_source(existing_margin,incoming_margin);
@@ -7295,12 +7508,20 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     require(boards.size()>1,"LAST_ARTBOARD","Keep at least one output frame per Composition");
                     for(const auto& dependent:boards)if(dependent.id!=id&&artboard_references_id(dependent,*board))
                         throw Error("ARTBOARD_IN_USE","Artboard "+id+" is still referenced by "+dependent.id);
+                    for(const auto& item:comp->templates)if(item.source_artboard==id)
+                        throw Error("ARTBOARD_IN_USE","Artboard "+id+" is the source of Template "+item.id);
                     boards.erase(board);
                 } else {
                     auto resolved=evaluate_artboard(*comp,id);
                     if(board->parent_size) {
-                        if(board->parent_size->width&&!board->width_driver)board->width=resolved.width;
-                        if(board->parent_size->height&&!board->height_driver)board->height=resolved.height;
+                        if(board->parent_size->width&&!board->width_driver) {
+                            board->width=resolved.width;
+                            if(board->template_assignment)board->template_assignment->width_override=resolved.width;
+                        }
+                        if(board->parent_size->height&&!board->height_driver) {
+                            board->height=resolved.height;
+                            if(board->template_assignment)board->template_assignment->height_override=resolved.height;
+                        }
                         board->parent_size.reset();
                     }
                 }
@@ -7346,10 +7567,16 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             auto& slot=target.width?target.board->width_driver:target.board->height_driver;
             require(slot.has_value(),"ARTBOARD_SIZE_NOT_LINKED","Artboard size has no typed link or expression to unlink");
             const auto resolved=evaluate_artboard(*target.composition,target.board->id);
-            if(target.width)target.board->width=resolved.width;
-            else target.board->height=resolved.height;
+            if(target.width) {
+                target.board->width=resolved.width;
+                if(target.board->template_assignment)target.board->template_assignment->width_override=resolved.width;
+            } else {
+                target.board->height=resolved.height;
+                if(target.board->template_assignment)target.board->template_assignment->height_override=resolved.height;
+            }
             slot.reset();
         } else if constexpr(std::is_same_v<T,LayoutDependencyCommand>) {
+            std::visit([&](const auto& operation){promote_template_family(candidate,operation.target);},c.operation);
             std::visit([&](const auto& operation) {
                 using Operation=std::decay_t<decltype(operation)>;
                 if constexpr(std::is_same_v<Operation,LinkMarginLeft>||std::is_same_v<Operation,SetMarginLeftExpression>||
@@ -7453,6 +7680,12 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             preserve_grid_columns_source(existing_grid,incoming_grid);
             preserve_grid_rows_source(existing_grid,incoming_grid);
             preserve_grid_row_gutter_source(existing_grid,incoming_grid);
+            if(board->template_assignment) {
+                if(incoming_grid)require(incoming_grid->id==board->template_assignment->grid_id,
+                    "INVALID_TEMPLATE_GRID_ID","Template-assigned Grid IDs are target-local and stable");
+                board->template_assignment->margin_overridden=true;
+                board->template_assignment->grid_overridden=true;
+            }
             board->layout=std::move(updated_layout);
         } else if constexpr(std::is_same_v<T,Set>) {
             prepare_point_edit(candidate,c.ref);
@@ -7770,9 +8003,13 @@ SceneProjection project_definition_instances(const Document& document,const Id& 
                 if(error.code=="DUPLICATE_ID")continue;
                 throw;
             }
-        }
-        if(!projected_one)throw Error("INSTANCE_PROXY_ID_EXHAUSTED","Could not allocate unique render identities for Definition Instance");
     }
+    if(!projected_one)throw Error("INSTANCE_PROXY_ID_EXHAUSTED","Could not allocate unique render identities for Definition Instance");
+    }
+    // Re-evaluate generated-point properties after descendant generator overrides.
+    // Copying the source value map above preserves authored Scalar values, but its
+    // generated point coordinates still describe the unoverridden source geometry.
+    projected_values=std::make_shared<std::map<Ref,double>>(evaluate(*projected));
     auto projected_transforms=std::make_shared<std::map<Id,EvaluatedTransform>>(
         evaluate_transforms(*projected,*projected_values));
     return {std::move(projected),std::move(projected_values),std::move(projected_transforms),std::move(owners),std::move(sources)};

@@ -9,7 +9,8 @@ std::string property_name(const Document& d,const Ref& ref) {
         for(const auto& board:composition.artboards)if(board.id==ref.object)return board.name;
     if(ref.field.starts_with("grid."))for(const auto& composition:d.compositions)
         for(const auto& board:composition.artboards)
-            if(board.layout&&board.layout->grid&&board.layout->grid->id==ref.object)
+            if((board.layout&&board.layout->grid&&board.layout->grid->id==ref.object)||
+                (board.template_assignment&&board.template_assignment->grid_id==ref.object))
                 return board.name;
     throw Error("MISSING_REFERENCE",ref.object);
 }

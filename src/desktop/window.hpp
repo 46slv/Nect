@@ -102,6 +102,11 @@ private:
         std::uint64_t revision=0;
         bool replace_binding=false;
     };
+    struct ArtboardTemplateContext {
+        QString session;
+        Id composition,artboard;
+        std::uint64_t revision=0;
+    };
     std::map<QByteArray,ExpressionDraft> expression_drafts_;
     std::optional<Ref> whip_target_;
     std::vector<Ref> whip_targets_;
@@ -202,5 +207,15 @@ private:
     void add_artboard(bool duplicate);
     void move_artboard(int direction);
     void edit_artboard(QVBoxLayout* layout);
+    void verify_artboard_template_context(const ArtboardTemplateContext& context) const;
+    void apply_artboard_template_command(const ArtboardTemplateContext& context,ArtboardTemplateCommand command);
+    void create_artboard_template(const ArtboardTemplateContext& context);
+    void rename_artboard_template(const ArtboardTemplateContext& context);
+    void delete_artboard_template(const ArtboardTemplateContext& context);
+    void assign_artboard_template(const ArtboardTemplateContext& context,
+        std::optional<Id> preferred_template = std::nullopt);
+    void set_artboard_template_override(const ArtboardTemplateContext& context);
+    void reset_artboard_template_override(const ArtboardTemplateContext& context);
+    void detach_artboard_template(const ArtboardTemplateContext& context);
 };
 }

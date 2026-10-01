@@ -59,13 +59,13 @@ void point_edit_enabled_links() {
     check(resolve_name(s.document(),"Target","","point_edit.circle-source-point-edit.enabled")==target_ref,
         "Unique-name resolution finds the exact retained correction Ref");
     const auto linked_bytes=encode(s.document());
-    check(linked_bytes.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(linked_bytes.find(test_support::current_native_version_marker())!=std::string::npos&&
         linked_bytes.find("\"enabled_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"point_edit.source-generator-point-edit.enabled\"}}")!=std::string::npos&&
         encode(decode(linked_bytes))==linked_bytes,
         "Native 0.70 retains the optional closed driver and roundtrips without byte drift");
     auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_bytes);
-    const auto version_at=false_version.find("\"version\":\"0.75\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.31\"");
+    const auto version_at=false_version.find(test_support::current_native_version_marker());
+    false_version.replace(version_at,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.31\"");
     rejects("UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER",[&]{(void)decode(false_version);});
     auto malformed=linked_bytes;
     const auto ref_at=malformed.find("point_edit.source-generator-point-edit.enabled");
@@ -203,13 +203,14 @@ void point_edit_enabled_expressions() {
         "Source false restores the same correction override");
 
     auto native=encode(session.document());
-    check(native.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(native.find(test_support::current_native_version_marker())!=std::string::npos&&
         native.find("\"enabled_expression\":{\"source\":\" ! ref (")!=std::string::npos&&
         encode(decode(native))==native,
         "Native 0.70 retains the exact expression and cold codec roundtrip without byte drift");
     auto false_version=native;
-    const auto version_at=false_version.find("\"version\":\"0.75\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.69\"");
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(false_version);
+    const auto version_at=false_version.find(test_support::current_native_version_marker());
+    false_version.replace(version_at,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.69\"");
     rejects("UNSUPPORTED_POINT_EDIT_ENABLED_EXPRESSION",[&]{(void)decode(false_version);});
 
     auto atomic=[&](const char* code,std::vector<Command> commands) {
@@ -365,17 +366,19 @@ void ellipse_contract() {
         "Reset removes the correction and continues to follow the retained source");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(native.find(test_support::current_native_version_marker())!=std::string::npos&&
         native.find("\"type\":\"nect.shape.ellipse\"")!=std::string::npos&&
         encode(decode(native))==native,
-        "Native 0.75 preserves Ellipse type and parameters in a deterministic cold codec reopen");
+        "Native 0.76 preserves Ellipse type and parameters in a deterministic cold codec reopen");
     Session reopened(decode(native));
     check(reopened.document()==session.document()&&
         response_number(request(reopened,R"({"op":"get","ref":{"object":"ellipse","point":"","field":"generator.height"}})"),"evaluated")==160,
         "A fresh Session reads Ellipse source values through the public API");
-    auto lied=native;const auto current_version=lied.find("\"version\":\"0.75\"");
-    check(current_version!=std::string::npos,"Ellipse fixture identifies current native writer");
-    lied.replace(current_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.72\"");
+    auto lied=native;
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(lied);
+    const auto writer_version=lied.find(test_support::current_native_version_marker());
+    check(writer_version!=std::string::npos,"Ellipse fixture identifies current native writer");
+    lied.replace(writer_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.72\"");
     rejects("UNSUPPORTED_OPERATOR",[&]{(void)decode(lied);});
     auto malformed=native;
     const auto ellipse_type=malformed.find("\"type\":\"nect.shape.ellipse\"");
@@ -387,8 +390,9 @@ void ellipse_contract() {
     Session previous(previous_document);
     previous.apply({CreatePrimitive{"ellipse-legacy-comp","","legacy-circle","Circle",
         default_primitive("legacy-circle-source","nect.shape.circle")}},0);
-    auto legacy=encode(previous.document());const auto latest=legacy.find("\"version\":\"0.75\"");
-    legacy.replace(latest,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.72\"");
+    auto legacy=encode(previous.document());test_support::remove_empty_native_076_templates_for_legacy_fixture(legacy);
+    const auto latest=legacy.find(test_support::current_native_version_marker());
+    legacy.replace(latest,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.72\"");
     check(decode(legacy)==previous.document(),"Native 0.72 remains readable for previously supported primitives");
 
     Session creation(empty_document("ellipse-undo-doc","ellipse-undo-comp","ellipse-undo-art"));

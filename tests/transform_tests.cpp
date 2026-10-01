@@ -1,4 +1,5 @@
 #include "nect/io.hpp"
+#include "native_legacy_fixture.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -591,15 +592,18 @@ void rigid_group_path_follow() {
     session.redo(session.revision());
 
     auto cold=decode(encode(with_item));
-    check(cold==with_item&&encode(cold)==encode(with_item),"Native 0.75 cold roundtrip retains stable relation and item IDs");
+    check(cold==with_item&&encode(cold)==encode(with_item),"Native 0.76 cold roundtrip retains stable relation and item IDs");
     matrix_near(evaluate_transforms(cold,evaluate(cold)).at("follow-text").world,
         evaluate_transforms(with_item,evaluate(with_item)).at("follow-text").world,"Cold reopen derives the same follower transform");
     auto legacy_fixture=rigid_follow_fixture();auto legacy=encode(legacy_fixture);
-    const auto current_version=legacy.find("\"version\":\"0.75\"");check(current_version!=std::string::npos,"Native writer emits 0.75");
-    legacy.replace(current_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.73\"");
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(legacy);
+    const auto current_marker=test_support::current_native_version_marker();
+    const auto current_version=legacy.find(current_marker);check(current_version!=std::string::npos,"Native writer emits 0.76");
+    legacy.replace(current_version,current_marker.size(),"\"version\":\"0.73\"");
     check(decode(legacy)==legacy_fixture,"Native 0.73 remains readable after writer upgrade");
-    auto lied=encode(with_item);const auto lied_version=lied.find("\"version\":\"0.75\"");
-    lied.replace(lied_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.73\"");
+    auto lied=encode(with_item);test_support::remove_empty_native_076_templates_for_legacy_fixture(lied);
+    const auto lied_version=lied.find(current_marker);
+    lied.replace(lied_version,current_marker.size(),"\"version\":\"0.73\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(lied);});
     auto duplicate_fixture=rigid_follow_fixture();auto one_item_relation=rigid_follow_relation();
     one_item_relation.items.erase("follow-text");Session duplicate_session(duplicate_fixture);
@@ -784,16 +788,20 @@ void group_path_deform() {
     relation.mode="deform";apply_follow(s,UpdateGroupPathFollow{"deform-group",relation});
     point_near(deform_scene(s.document()).deformation_points.at("deform-b").front().anchor,
         warped_scene.deformation_points.at("deform-b").front().anchor,"Deform mode roundtrip is deterministic");
-    const auto native=encode(s.document());check(native.find("\"version\":\"0.75\"")!=std::string::npos&&decode(native)==s.document(),
-        "Native 0.75 cold read retains mode, axis and authored source");
-    auto lied=native;const auto version=lied.find("0.75");lied.replace(version,4,"0.74");rejects("UNKNOWN_FIELD",[&]{(void)decode(lied);});
+    const auto native=encode(s.document());check(native.find(test_support::current_native_version_marker())!=std::string::npos&&decode(native)==s.document(),
+        "Native 0.76 cold read retains mode, axis and authored source");
+    auto lied=native;test_support::remove_empty_native_076_templates_for_legacy_fixture(lied);
+    const auto marker=test_support::current_native_version_marker();const auto version=lied.find(marker);
+    lied.replace(version,marker.size(),"\"version\":\"0.74\"");rejects("UNKNOWN_FIELD",[&]{(void)decode(lied);});
     auto legacy=encode(attached);
     // Construct a strict 0.74 rigid relation by omitting the two new fields.
     auto rigid_document=attached;rigid_document.objects.at("deform-group").path_follow->mode="rigid";
-    legacy=encode(rigid_document);check(legacy.find("\"mode\":\"rigid\"")==std::string::npos&&
+    legacy=encode(rigid_document);test_support::remove_empty_native_076_templates_for_legacy_fixture(legacy);
+    check(legacy.find("\"mode\":\"rigid\"")==std::string::npos&&
         legacy.find("\"mode\":\"deform\"")==std::string::npos&&legacy.find("\"deform_axis\"")==std::string::npos,
         "Default rigid/x relation omits new fields for strict 0.74 compatibility");
-    legacy.replace(legacy.find("0.75"),4,"0.74");
+    const auto rigid_version=legacy.find(marker);
+    legacy.replace(rigid_version,marker.size(),"\"version\":\"0.74\"");
     check(decode(legacy)==rigid_document,"Native 0.74 rigid relation reads unchanged with default mode/axis");
     const auto api=request(s,R"({"op":"compositing_plan","composition":"deform-composition"})");
     check(api.find("\"deformation\"")!=std::string::npos&&api.find("deform-relation")!=std::string::npos&&

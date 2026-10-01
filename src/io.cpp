@@ -548,12 +548,26 @@ j::object text_weight_property_json(const Document& d,const Ref& ref,const TextW
 }
 j::object artboard_size_property_json(const Document& d,const Ref& ref,const ArtboardSizeProperty& value) {
     j::value expression=nullptr;if(value.expression)expression=expression_json(*value.expression);
+    j::object authored{{"literal",value.literal},{"driver",value.driver?j::value(ref_json(*value.driver)):j::value(nullptr)},
+        {"source_kind",value.source_kind},{"expression",std::move(expression)}};
+    if(value.template_source)authored["template_source"]=ref_json(*value.template_source);
+    if(value.template_override)authored["template_override"]=*value.template_override;
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","number"},{"unit","du"},
         {"space","composition"},{"origin","authored"},
         {"range",j::object{{"min_exclusive",0},{"max",1e7}}},
-        {"authored",j::object{{"literal",value.literal},{"driver",value.driver?j::value(ref_json(*value.driver)):j::value(nullptr)},
-            {"source_kind",value.source_kind},{"expression",std::move(expression)}}},
-        {"evaluated",value.evaluated},{"link",true},{"expression",true}};
+        {"authored",std::move(authored)},
+        {"evaluated",value.evaluated},{"link",true},{"expression",true},
+        {"unlink",value.source_kind=="link"||value.source_kind=="expression"},
+        {"use_template",value.template_source.has_value()}};
+}
+bool artboard_layout_has_template_reset(const Document& d,const Ref& ref) {
+    const bool margin=ref.field.starts_with("margin.");
+    for(const auto& composition:d.compositions)for(const auto& board:composition.artboards) {
+        if(!board.template_assignment)continue;
+        if(margin&&board.id==ref.object)return true;
+        if(!margin&&board.template_assignment->grid_id==ref.object)return true;
+    }
+    return false;
 }
 j::object artboard_layout_property_json(const Document& d,const Ref& ref,const ArtboardLayoutProperty& value) {
     const bool integer=std::holds_alternative<std::size_t>(value.literal);
@@ -563,7 +577,7 @@ j::object artboard_layout_property_json(const Document& d,const Ref& ref,const A
         {"type",integer?"integer":"number"},{"unit",integer?"unitless":"du"},
         {"space","artboard_local"},{"origin","authored"},
         {"authored",j::object{{"literal",literal}}},{"evaluated",literal},
-        {"link",false},{"expression",false}};
+        {"link",false},{"expression",false},{"unlink",false},{"use_template",false}};
     if(ref.field=="grid.columns") {
         j::value driver=nullptr;if(value.driver)driver=ref_json(*value.driver);
         j::value expression=nullptr;if(value.expression)expression=expression_json(*value.expression);
@@ -631,6 +645,10 @@ j::object artboard_layout_property_json(const Document& d,const Ref& ref,const A
         result["evaluated"]=evaluated;result["link"]=true;
         result["expression"]=true;
     }
+    if(value.template_source)result["authored"].as_object()["template_source"]=ref_json(*value.template_source);
+    const bool has_driver=value.driver.has_value()||value.expression.has_value();
+    result["unlink"]=value.source_kind!="template"&&has_driver;
+    result["use_template"]=value.template_source.has_value()||artboard_layout_has_template_reset(d,ref);
     return result;
 }
 std::string guide_property_name(const Document& d,const Ref& ref) {
@@ -1432,6 +1450,36 @@ j::object artboard_size_driver_json(const Artboard::SizeDriver& driver) {
     if(const auto* link=std::get_if<Ref>(&driver.value))return {{"link",ref_json(*link)}};
     return {{"expression",expression_json(std::get<Expression>(driver.value))}};
 }
+ArtboardTemplate read_artboard_template(const j::value& value) {
+    const auto& object=value.as_object();keys(object,{"id","name","source_artboard","definition"});
+    ArtboardTemplate result{text(object.at("id")),text(object.at("name")),text(object.at("source_artboard")),{}};
+    if(const auto* definition=object.if_contains("definition");definition&&!definition->is_null())result.definition=text(*definition);
+    return result;
+}
+j::object artboard_template_json(const ArtboardTemplate& value) {
+    return {{"id",value.id},{"name",value.name},{"source_artboard",value.source_artboard},
+        {"definition",value.definition?j::value(*value.definition):j::value(nullptr)}};
+}
+ArtboardTemplateAssignment read_template_assignment(const j::value& value) {
+    const auto& object=value.as_object();
+    keys(object,{"template_id","grid_id","content_instance","width_override","height_override",
+        "margin_overridden","grid_overridden"});
+    ArtboardTemplateAssignment result;
+    result.template_id=text(object.at("template_id"));result.grid_id=text(object.at("grid_id"));
+    if(const auto* content=object.if_contains("content_instance");content&&!content->is_null())result.content_instance=text(*content);
+    if(const auto* width=object.if_contains("width_override");width&&!width->is_null())result.width_override=number(*width);
+    if(const auto* height=object.if_contains("height_override");height&&!height->is_null())result.height_override=number(*height);
+    result.margin_overridden=object.at("margin_overridden").as_bool();
+    result.grid_overridden=object.at("grid_overridden").as_bool();
+    return result;
+}
+j::object template_assignment_json(const ArtboardTemplateAssignment& value) {
+    return {{"template_id",value.template_id},{"grid_id",value.grid_id},
+        {"content_instance",value.content_instance?j::value(*value.content_instance):j::value(nullptr)},
+        {"width_override",value.width_override?j::value(*value.width_override):j::value(nullptr)},
+        {"height_override",value.height_override?j::value(*value.height_override):j::value(nullptr)},
+        {"margin_overridden",value.margin_overridden},{"grid_overridden",value.grid_overridden}};
+}
 Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layout=false,bool allow_size_driver=false,
     bool allow_margin_driver=false,bool allow_grid_x_driver=false,bool allow_grid_x_expression=false,
     bool allow_margin_expression=false,bool allow_grid_y_driver=false,bool allow_grid_y_expression=false,
@@ -1441,12 +1489,13 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
     bool allow_grid_height_expression=false,bool allow_grid_column_gutter_driver=false,
     bool allow_grid_row_gutter_driver=false,bool allow_grid_row_gutter_expression=false,
     bool allow_grid_column_gutter_expression=false,bool allow_grid_columns_driver=false,bool allow_grid_rows_driver=false,
-    bool allow_grid_columns_expression=false,bool allow_grid_rows_expression=false) {
+    bool allow_grid_columns_expression=false,bool allow_grid_rows_expression=false,bool allow_template=false) {
     const auto& a=v.as_object();
     std::vector<std::string_view> allowed{"id","name","x","y","width","height"};
     if(allow_parent)allowed.push_back("parent_size");
     if(allow_layout)allowed.push_back("layout");
     if(allow_size_driver){allowed.push_back("width_driver");allowed.push_back("height_driver");}
+    if(allow_template)allowed.push_back("template_assignment");
     keys(a,allowed);
     Artboard result{text(a.at("id")),text(a.at("name")),number(a.at("x")),number(a.at("y")),number(a.at("width")),number(a.at("height"))};
     if(const auto* p=a.if_contains("parent_size")) {
@@ -1467,6 +1516,8 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
         if(const auto* driver=a.if_contains("width_driver"))result.width_driver=read_artboard_size_driver(*driver);
         if(const auto* driver=a.if_contains("height_driver"))result.height_driver=read_artboard_size_driver(*driver);
     }
+    if(allow_template)if(const auto* assignment=a.if_contains("template_assignment"))
+        result.template_assignment=read_template_assignment(*assignment);
     return result;
 }
 j::object artboard_json(const Artboard& a) {
@@ -1475,6 +1526,7 @@ j::object artboard_json(const Artboard& a) {
     if(a.layout)result["layout"]=layout_json(*a.layout);
     if(a.width_driver)result["width_driver"]=artboard_size_driver_json(*a.width_driver);
     if(a.height_driver)result["height_driver"]=artboard_size_driver_json(*a.height_driver);
+    if(a.template_assignment)result["template_assignment"]=template_assignment_json(*a.template_assignment);
     return result;
 }
 
@@ -1545,6 +1597,58 @@ DefinitionCommand read_definition_command(const j::value& v) {
         return DefinitionCommand{DetachInstance{text(o.at("instance")),text(o.at("id_prefix"))}};
     }
     throw Error("UNSUPPORTED_DEFINITION_OPERATION",type);
+}
+
+ArtboardTemplateCommand read_artboard_template_command(const j::value& value) {
+    const auto& object=value.as_object();const auto type=text(object.at("type"));
+    if(type=="create_artboard_template") {
+        keys(object,{"type","composition","id","name","source_artboard","definition"});
+        std::optional<Id> definition;
+        if(const auto* item=object.if_contains("definition");item&&!item->is_null())definition=text(*item);
+        return ArtboardTemplateCommand{CreateArtboardTemplate{text(object.at("composition")),
+            ArtboardTemplate{text(object.at("id")),text(object.at("name")),text(object.at("source_artboard")),definition}}};
+    }
+    if(type=="rename_artboard_template") {
+        keys(object,{"type","composition","template","name"});
+        return ArtboardTemplateCommand{RenameArtboardTemplate{text(object.at("composition")),text(object.at("template")),text(object.at("name"))}};
+    }
+    if(type=="delete_artboard_template") {
+        keys(object,{"type","composition","template"});
+        return ArtboardTemplateCommand{DeleteArtboardTemplate{text(object.at("composition")),text(object.at("template"))}};
+    }
+    if(type=="assign_artboard_template") {
+        keys(object,{"type","composition","artboard","template","content_instance"});
+        std::optional<Id> content;
+        if(const auto* item=object.if_contains("content_instance");item&&!item->is_null())content=text(*item);
+        return ArtboardTemplateCommand{AssignArtboardTemplate{text(object.at("composition")),text(object.at("artboard")),
+            text(object.at("template")),content}};
+    }
+    if(type=="set_artboard_template_override") {
+        keys(object,{"type","composition","artboard","field","value"});
+        const auto field=text(object.at("field"));
+        std::variant<double,std::optional<Margin>,std::optional<Grid>> value_payload;
+        if(field=="frame.width"||field=="frame.height")value_payload=number(object.at("value"));
+        else if(field=="layout.margin") {
+            if(object.at("value").is_null())value_payload=std::optional<Margin>{};
+            else {const auto layout=read_layout(j::object{{"margin",object.at("value")}});value_payload=layout.margin;}
+        } else if(field=="layout.grid") {
+            if(object.at("value").is_null())value_payload=std::optional<Grid>{};
+            else {const auto layout=read_layout(j::object{{"grid",object.at("value")}});value_payload=layout.grid;}
+        } else throw Error("UNSUPPORTED_TEMPLATE_OVERRIDE",field);
+        return ArtboardTemplateCommand{SetArtboardTemplateOverride{text(object.at("composition")),
+            text(object.at("artboard")),field,std::move(value_payload)}};
+    }
+    if(type=="reset_artboard_template_override") {
+        keys(object,{"type","composition","artboard","field"});
+        return ArtboardTemplateCommand{ResetArtboardTemplateOverride{text(object.at("composition")),
+            text(object.at("artboard")),text(object.at("field"))}};
+    }
+    if(type=="detach_artboard_template") {
+        keys(object,{"type","composition","artboard","id_prefix"});
+        return ArtboardTemplateCommand{DetachArtboardTemplate{text(object.at("composition")),
+            text(object.at("artboard")),text(object.at("id_prefix"))}};
+    }
+    throw Error("UNSUPPORTED_ARTBOARD_TEMPLATE_OPERATION",type);
 }
 
 CollectionCommand read_collection_command(const j::value& v) {
@@ -1634,6 +1738,10 @@ bool is_preset_command(const j::value& v) {
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
+    if(type=="create_artboard_template"||type=="rename_artboard_template"||type=="delete_artboard_template"||
+        type=="assign_artboard_template"||type=="set_artboard_template_override"||
+        type=="reset_artboard_template_override"||type=="detach_artboard_template")
+        return StructuralCommand{read_artboard_template_command(v)};
     if(type.find("_macro_")!=std::string::npos||type=="instantiate_macro"||type=="apply_macro"||
         type=="import_apply_macro")return StructuralCommand{read_macro_command(v)};
     if(type.ends_with("_definition")||type=="create_instance"||type=="set_instance_override"||
@@ -2265,10 +2373,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,75> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75"};
+        constexpr std::array<std::string_view,76> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.75 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.76 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -2302,15 +2410,17 @@ Document decode(std::string_view input) {
 
         for(const auto& cv:root.at("compositions").as_array()) {
             auto& co=cv.as_object();
-            if(minor>=14)keys(co,{"id","name","roots","artboards","guides"});
+            if(minor>=76)keys(co,{"id","name","roots","artboards","guides","templates"});
+            else if(minor>=14)keys(co,{"id","name","roots","artboards","guides"});
             else keys(co,{"id","name","roots","artboards"});
             Composition c;
             c.id=text(co.at("id"));
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35,minor>=36,minor>=37,minor>=38,minor>=39,minor>=40,minor>=41,minor>=42,minor>=43,minor>=44,minor>=45,minor>=46,minor>=47,minor>=48,minor>=49,minor>=50,minor>=51,minor>=52,minor>=53,minor>=54,minor>=56,minor>=57,minor>=58,minor>=59));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35,minor>=36,minor>=37,minor>=38,minor>=39,minor>=40,minor>=41,minor>=42,minor>=43,minor>=44,minor>=45,minor>=46,minor>=47,minor>=48,minor>=49,minor>=50,minor>=51,minor>=52,minor>=53,minor>=54,minor>=56,minor>=57,minor>=58,minor>=59,minor>=76));
             if(minor>=14)for(const auto& gv:co.at("guides").as_array())c.guides.push_back(read_guide(gv,minor>=23,minor>=34));
+            if(minor>=76)for(const auto& tv:co.at("templates").as_array())c.templates.push_back(read_artboard_template(tv));
             d.compositions.push_back(std::move(c));
         }
 
@@ -2417,6 +2527,15 @@ Document decode(std::string_view input) {
             d.collections.push_back({text(c.at("id")),text(c.at("name")),ids(c.at("members"))});
         }
 
+        if(minor<76)for(const auto& [id,object]:d.objects)if(object.instance)for(const auto& [ref,value]:object.instance->overrides) {
+            (void)value;
+            if(ref.field=="transform.tx"||ref.field=="transform.ty"||
+                ((ref.field=="generator.width"||ref.field=="generator.height")&&
+                    d.objects.contains(ref.object)&&d.objects.at(ref.object).source&&
+                    d.objects.at(ref.object).source->type=="nect.shape.rectangle"))
+                throw Error("NATIVE_VERSION_MISMATCH","Descendant transform or Rectangle size overrides require native 0.76");
+        }
+
         // All original IDs are present before allocating migration instances.
         if(minor>=7)for(const auto& entry:root.at("named_colors").as_array()) {
             auto color=read_named_color(entry,minor>=10);const auto id=color.id;
@@ -2454,11 +2573,12 @@ std::string encode(const Document& d) {
     for(const auto& [id,definition]:d.macro_definitions){(void)id;macros.push_back(macro_definition_json(definition));}
 
     for(const auto& c:d.compositions) {
-        j::array boards,guides;
+        j::array boards,guides,templates;
         for(const auto& a:c.artboards)boards.push_back(artboard_json(a));
         for(const auto& guide:c.guides)guides.push_back(guide_json(guide));
+        for(const auto& item:c.templates)templates.push_back(artboard_template_json(item));
         comps.push_back({
-            {"id",c.id},{"name",c.name},{"roots",ids_json(c.roots)},{"artboards",boards},{"guides",guides}});
+            {"id",c.id},{"name",c.name},{"roots",ids_json(c.roots)},{"artboards",boards},{"guides",guides},{"templates",templates}});
     }
 
     for(const auto& [id,o]:d.objects) {

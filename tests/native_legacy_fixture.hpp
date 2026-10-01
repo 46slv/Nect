@@ -1,12 +1,16 @@
 #pragma once
 
+#include "nect/io.hpp"
 #include <stdexcept>
 #include <string>
 #include <utility>
 
 namespace nect::test_support {
+inline std::string current_native_version_marker() {
+    return std::string("\"version\":\"") + native_version + "\"";
+}
 inline void require_native_current_writer(const std::string& encoded) {
-    const std::string current_version = "\"version\":\"0.75\"";
+    const auto current_version = current_native_version_marker();
     if (encoded.find(current_version) == std::string::npos || encoded.empty() || encoded.back() != '}')
         throw std::runtime_error("Legacy fixture must start from current native writer output");
 }
@@ -23,6 +27,13 @@ inline void remove_member(std::string& encoded,const std::string& member) {
         else if(at>0&&encoded[at-1]==',')encoded.erase(at-1,member.size()+1);
         else throw std::runtime_error("Legacy mask member is not comma-delimited");
     }
+}
+inline void remove_empty_native_076_templates_for_legacy_fixture(std::string& encoded) {
+    const std::string prefix="\"templates\":[";
+    for(auto at=encoded.find(prefix);at!=std::string::npos;at=encoded.find(prefix,at+prefix.size()))
+        if(at+prefix.size()>=encoded.size()||encoded[at+prefix.size()]!=']')
+            throw std::runtime_error("Cannot downgrade a native fixture containing Artboard Templates");
+    remove_member(encoded,"\"templates\":[]");
 }
 inline void remove_native_071_mask_defaults_for_legacy_fixture(std::string& encoded) {
     if(encoded.find("\"mode\":\"alpha\"")!=std::string::npos||encoded.find("\"mode\":\"luma\"")!=std::string::npos||
@@ -69,13 +80,16 @@ inline std::string untag_ordinary_processing_entries(std::string encoded) {
 }
 inline std::string untag_ordinary_processing_entries_for_legacy_fixture(std::string encoded) {
     require_native_current_writer(encoded);
+    remove_empty_native_076_templates_for_legacy_fixture(encoded);
     return untag_ordinary_processing_entries(std::move(encoded));
 }
 inline std::string without_empty_macro_and_definition_fields_for_legacy_fixture(std::string encoded) {
     require_native_current_writer(encoded);
+    remove_empty_native_076_templates_for_legacy_fixture(encoded);
     remove_native_071_mask_defaults_for_legacy_fixture(encoded);
     remove_empty_terminal_array(encoded,",\"macros\":[]");
-    remove_empty_terminal_array(encoded,",\"definitions\":[]");
+    if(encoded.find("\"definitions\":[]")!=std::string::npos)
+        remove_empty_terminal_array(encoded,",\"definitions\":[]");
     return untag_ordinary_processing_entries(std::move(encoded));
 }
 inline std::string without_empty_presets_for_legacy_fixture(std::string encoded) {

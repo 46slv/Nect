@@ -98,7 +98,7 @@ void object_visibility_link_contract() {
         get.find("\"evaluated\":false")!=std::string::npos&&get.find("\"link\":true")!=std::string::npos,
         "API get reports literal, stable driver Ref and evaluated own value separately");
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(linked_native.find(test_support::current_native_version_marker())!=std::string::npos&&
         linked_native.find("\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}}")!=std::string::npos&&
         decode(linked_native)==session.document(),
         "Native 0.60 roundtrip preserves the optional stable visibility driver");
@@ -134,12 +134,12 @@ void object_visibility_link_contract() {
         !object_visibility_state(deletion.document(),target).literal,
         "Deleting a visibility source is atomic unless the target is first unlinked and frozen in the same batch");
 
-    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto current_version=old_literal.find("\"version\":\"0.75\"");
+    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto current_version=old_literal.find(test_support::current_native_version_marker());
     check(current_version!=std::string::npos,"Native writer emits 0.68 before a 0.27 compatibility downgrade");
-    old_literal.replace(current_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.27\"");
+    old_literal.replace(current_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.27\"");
     check(decode(old_literal)==document,"Native 0.27 literal-only documents remain readable unchanged");
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto linked_version=false_version.find("\"version\":\"0.75\"");
-    false_version.replace(linked_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.26\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto linked_version=false_version.find(test_support::current_native_version_marker());
+    false_version.replace(linked_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.26\"");
     rejects("UNKNOWN_FIELD",[&]{decode(false_version);});
 
     auto cross_document=fixture();auto other=empty_document("other-doc","other-comp","other-art").compositions.front();
@@ -176,15 +176,15 @@ void object_visibility_expression_contract() {
         "Typed properties exposes the exact Object visibility source kind");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(native.find(test_support::current_native_version_marker())!=std::string::npos&&
         native.find("\"visibility_expression\":{\"source\":\" ! ref ( \\\"source\\\" , \\\"\\\" , \\\"object.visible\\\" ) \",\"version\":1}")!=std::string::npos&&
         decode(native)==session.document(),"Native 0.60 retains the exact Object visibility expression");
     auto conflict=native;const auto expression_at=conflict.find("\"visibility_expression\":");
     check(expression_at!=std::string::npos,"Encoded expression has a closed native field");
     conflict.insert(expression_at,"\"visibility_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"object.visible\"}},");
     rejects("INVALID_VISIBILITY_SOURCE",[&]{(void)decode(conflict);});
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(native);const auto version_at=false_version.find("\"version\":\"0.75\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.59\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(native);const auto version_at=false_version.find(test_support::current_native_version_marker());
+    false_version.replace(version_at,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.59\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
 
     const auto before_target=session.document().objects.at("a");
@@ -402,15 +402,15 @@ void mask_enabled_link_contract() {
         "Explicit replace_driver changes only the source Ref");
 
     const auto linked_native=encode(session.document());
-    check(linked_native.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(linked_native.find(test_support::current_native_version_marker())!=std::string::npos&&
         linked_native.find("\"enabled_driver\":{\"link\":{\"object\":\"b\",\"point\":\"\",\"field\":\"mask.third-mask.enabled\"}}")!=std::string::npos&&
         decode(linked_native)==session.document()&&encode(decode(linked_native))==linked_native,
         "Native 0.43 retains the exact mask Ref and authored literal without byte drift");
-    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto old_version=old_literal.find("\"version\":\"0.75\"");
-    old_literal.replace(old_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.30\"");
+    auto old_literal=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto old_version=old_literal.find(test_support::current_native_version_marker());
+    old_literal.replace(old_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.30\"");
     check(decode(old_literal)==document,"Native 0.30 remains readable with literal-only masks");
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto current_version=false_version.find("\"version\":\"0.75\"");
-    false_version.replace(current_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.30\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_native);const auto current_version=false_version.find(test_support::current_native_version_marker());
+    false_version.replace(current_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.30\"");
     rejects("UNSUPPORTED_MASK_ENABLED_DRIVER",[&]{decode(false_version);});
 
     auto missing_source=fixture();missing_source.objects.at("a").compositing.mask=GeometryMask{"one","source"};
@@ -537,13 +537,14 @@ void mask_enabled_expression_contract() {
         "Rename and reorder retain the stable source mask Ref and evaluated result");
 
     const auto linked_expression=encode(session.document());
-    check(linked_expression.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(linked_expression.find(test_support::current_native_version_marker())!=std::string::npos&&
         linked_expression.find("\"enabled_expression\":{\"source\":\" ! ref ( ")!=std::string::npos&&
         decode(linked_expression)==session.document()&&encode(decode(linked_expression))==linked_expression,
-        "Native 0.68 retains the exact expression beside the authored literal without byte drift");
+    "Native 0.68 retains the exact expression beside the authored literal without byte drift");
     auto old_expression=linked_expression;
-    const auto old_version=old_expression.find("\"version\":\"0.75\"");
-    old_expression.replace(old_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.67\"");
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(old_expression);
+    const auto old_version=old_expression.find(test_support::current_native_version_marker());
+    old_expression.replace(old_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.67\"");
     rejects("UNSUPPORTED_MASK_ENABLED_EXPRESSION",[&]{decode(old_expression);});
 
     apply(session,{LinkMaskEnabled{target,source,true}});
@@ -834,7 +835,7 @@ void composite_isolation_link_contract() {
     check(svg.find("<g id=\"group-B\" opacity=\"1\" color-interpolation=\"sRGB\" style=\"isolation:isolate;")!=std::string::npos,
         "SVG uses the effective isolation of a linked false-literal Group");
     const auto initial_native=encode(session.document());
-    check(initial_native.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(initial_native.find(test_support::current_native_version_marker())!=std::string::npos&&
         initial_native.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}}")!=std::string::npos&&
         decode(initial_native)==session.document()&&encode(decode(initial_native))==initial_native,
         "Native 0.43 roundtrip preserves the target literal and optional closed same-field driver");
@@ -877,12 +878,12 @@ void composite_isolation_link_contract() {
 
     auto literal=document;literal.objects.at("group-B").compositing.isolated=false;
     const auto old_native=encode(literal);auto native_029=test_support::without_empty_presets_for_legacy_fixture(old_native);
-    auto version_at=native_029.find("\"version\":\"0.75\"");
+    auto version_at=native_029.find(test_support::current_native_version_marker());
     check(version_at!=std::string::npos,"Native writer emits 0.68 before literal-only compatibility downgrade");
-    native_029.replace(version_at,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.29\"");
+    native_029.replace(version_at,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.29\"");
     check(decode(native_029)==literal,"Native 0.29 remains readable with literal-only compositing isolation");
-    auto false_version=test_support::without_empty_presets_for_legacy_fixture(initial_native);version_at=false_version.find("\"version\":\"0.75\"");
-    false_version.replace(version_at,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.29\"");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(initial_native);version_at=false_version.find(test_support::current_native_version_marker());
+    false_version.replace(version_at,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.29\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
     auto malformed=initial_native;
     const auto driver_at=malformed.find("\"isolated_driver\":{\"link\":{\"object\":\"group-A\",\"point\":\"\",\"field\":\"composite.isolated\"}} ");
@@ -1102,16 +1103,16 @@ void composite_isolation_expression_contract() {
     auto native_document=document;native_document.objects.at("group-A").compositing.isolated=false;
     native_document.objects.at("group-B").compositing.isolated_expression=expression;
     Session native_session(native_document);const auto native=encode(native_session.document());
-    check(native.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(native.find(test_support::current_native_version_marker())!=std::string::npos&&
         native.find("\"isolated_expression\":{\"source\":\" ! ref ( \\\"group-A\\\" , \\\"\\\" , \\\"composite.isolated\\\" ) \",\"version\":1}")!=std::string::npos&&
         decode(native)==native_session.document()&&encode(decode(native))==native,
         "Native 0.68 roundtrip retains the exact closed expression and authored isolation literal");
-    auto version_lie=test_support::without_empty_presets_for_legacy_fixture(native);const auto writer=version_lie.find("\"version\":\"0.75\"");
+    auto version_lie=test_support::without_empty_presets_for_legacy_fixture(native);const auto writer=version_lie.find(test_support::current_native_version_marker());
     check(writer!=std::string::npos,"Native writer emits 0.68 for composite isolation expressions");
-    version_lie.replace(writer,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.61\"");
+    version_lie.replace(writer,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.61\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(version_lie);});
-    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto legacy_writer=legacy.find("\"version\":\"0.75\"");
-    legacy.replace(legacy_writer,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.61\"");
+    auto legacy=test_support::without_empty_presets_for_legacy_fixture(encode(document));const auto legacy_writer=legacy.find(test_support::current_native_version_marker());
+    legacy.replace(legacy_writer,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.61\"");
     check(decode(legacy)==document,"Native 0.61 remains readable when no Composite isolation expression is present");
 
     auto structure=document;structure.objects.at("group-B").compositing.isolated_expression=Expression{"true",1};
@@ -1144,7 +1145,7 @@ void group_posterize_native_api_and_refusals() {
     check(scene(session.document()).roots[0].posterize_levels==std::vector<unsigned>({3,4}),
         "ReorderOperations changes the ordered postchildren evaluation");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.75\"")!=std::string::npos&&decode(native)==session.document()&&
+    check(native.find(test_support::current_native_version_marker())!=std::string::npos&&decode(native)==session.document()&&
         decode(native).objects.at("group").stack[0].id=="posterize-second",
         "Native 0.43 preserves Group operation IDs, levels and reordered stack");
     check(request(session,R"({"op":"operator_types"})").find("nect.group.posterize")!=std::string::npos,
@@ -1179,9 +1180,9 @@ void group_posterize_native_api_and_refusals() {
     rejects("UNSUPPORTED_SVG_EFFECT",[&]{(void)export_svg(session.document(),"comp","art");});
 
     auto legacy_bytes=test_support::without_empty_presets_for_legacy_fixture(encode(d));
-    const auto old_version=legacy_bytes.find("\"version\":\"0.75\"");
+    const auto old_version=legacy_bytes.find(test_support::current_native_version_marker());
     check(old_version!=std::string::npos,"Native fixture writer uses 0.43 before migration downgrade");
-    legacy_bytes.replace(old_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.24\"");
+    legacy_bytes.replace(old_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.24\"");
     const auto group_id=legacy_bytes.find("\"id\":\"group\"");
     check(group_id!=std::string::npos,"Native fixture contains the target Group object");
     const auto object_start=legacy_bytes.rfind('{',group_id);
@@ -1209,8 +1210,8 @@ void group_posterize_native_api_and_refusals() {
     else throw std::runtime_error("Could not remove Group stack member from legacy fixture");
     legacy_bytes.erase(erase_start,erase_end-erase_start);
     check(decode(legacy_bytes).objects.at("group").stack.empty(),"Native 0.24 Group migrates to an empty effect stack");
-    auto smuggled=test_support::without_empty_presets_for_legacy_fixture(native);const auto old_writer=smuggled.find("\"version\":\"0.75\"");
-    smuggled.replace(old_writer,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.24\"");
+    auto smuggled=test_support::without_empty_presets_for_legacy_fixture(native);const auto old_writer=smuggled.find(test_support::current_native_version_marker());
+    smuggled.replace(old_writer,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.24\"");
     rejects("INVALID_OBJECT",[&]{(void)decode(smuggled);});
 
     session.apply({EnableOperation{"group","posterize",false},EnableOperation{"group","posterize-second",false}},session.revision());
@@ -1275,9 +1276,9 @@ void alpha_mask_native_api_and_refusals() {
         export_plan.find("\"mode\":\"alpha\"")!=std::string::npos,
         "API export plan names an enabled Alpha mask as an unsupported SVG derivative");
     const auto saved=encode(session.document());
-    check(saved.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(saved.find(test_support::current_native_version_marker())!=std::string::npos&&
         decode(saved)==session.document()&&encode(decode(saved))==saved,
-        "Native 0.75 cold reopen and Save As retain exact Alpha authored state");
+        "Native 0.76 cold reopen and Save As retain exact Alpha authored state");
     validate_json(saved);
     Session reopened(decode(saved));
     check(reopened.document()==session.document(),"A new Session reopens the Alpha native snapshot exactly");
@@ -1289,9 +1290,10 @@ void alpha_mask_native_api_and_refusals() {
         "Redo restores the same Alpha source, mode and inversion");
 
     auto alpha_071=saved;
-    const auto v073=alpha_071.find("\"version\":\"0.75\"");
-    check(v073!=std::string::npos,"Alpha compatibility fixture starts from native 0.75");
-    alpha_071.replace(v073,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.71\"");
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(alpha_071);
+    const auto v073=alpha_071.find(test_support::current_native_version_marker());
+    check(v073!=std::string::npos,"Alpha compatibility fixture starts from native 0.76");
+    alpha_071.replace(v073,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.71\"");
     test_support::remove_native_072_mask_profile_for_071_fixture(alpha_071);
     const auto reopened_071=decode(alpha_071);
     check(reopened_071==session.document()&&reopened_071.objects.at("a").compositing.mask->mask_color_space=="srgb"&&
@@ -1316,11 +1318,11 @@ void alpha_mask_native_api_and_refusals() {
         luma_export.find("\"svg_export_supported\":false")!=std::string::npos,
         "API export plan loss-reports enabled Luma masks and their declared profile");
     const auto luma_native=encode(luma.document());
-    check(luma_native.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(luma_native.find(test_support::current_native_version_marker())!=std::string::npos&&
         luma_native.find("\"mode\":\"luma\"")!=std::string::npos&&
         luma_native.find("\"mask_color_space\":\"srgb\"")!=std::string::npos&&
         decode(luma_native)==luma.document()&&encode(decode(luma_native))==luma_native,
-        "Native 0.75 Save As and cold reopen retain Luma, source identity and sRGB profile");
+        "Native 0.76 Save As and cold reopen retain Luma, source identity and sRGB profile");
     validate_json(luma_native);
     luma.undo(luma.revision());check(!luma.document().objects.at("a").compositing.mask&&luma.revision()==2,
         "Luma creation is one complete Undo");
@@ -1338,20 +1340,22 @@ void alpha_mask_native_api_and_refusals() {
     apply(geometry,{SetMask{"a",GeometryMask{"legacy-geometry-mask","source"}}});
     const auto geometry_native=encode(geometry.document());
     auto old_native=geometry_native;
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(old_native);
     const std::string current_version_marker=std::string("\"version\":\"")+native_version+"\"";
     const auto current_version=old_native.find(current_version_marker);
-    check(current_version!=std::string::npos,"Native writer is 0.75 before making the legacy fixture");
+    check(current_version!=std::string::npos,"Native writer is 0.76 before making the legacy fixture");
     old_native.replace(current_version,current_version_marker.size(),"\"version\":\"0.70\"");
     test_support::remove_native_071_mask_defaults_for_legacy_fixture(old_native);
     check(decode(old_native)==geometry.document()&&encode(decode(old_native))!=old_native,
         "Native 0.70 Geometry mask defaults exactly to Geometry and non-inverted");
     auto false_version=geometry_native;
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(false_version);
     const auto false_version_at=false_version.find(current_version_marker);
     false_version.replace(false_version_at,current_version_marker.size(),"\"version\":\"0.70\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
     auto missing_fields=geometry_native;
     const auto mode_at=missing_fields.find("\"mode\":\"geometry\"");
-    check(mode_at!=std::string::npos,"Native 0.75 emits a required mask mode");
+    check(mode_at!=std::string::npos,"Native 0.76 emits a required mask mode");
     missing_fields.erase(mode_at,std::string("\"mode\":\"geometry\",").size());
     rejects("NATIVE_VERSION_MISMATCH",[&]{(void)decode(missing_fields);});
     auto missing_profile=geometry_native;

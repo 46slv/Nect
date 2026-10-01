@@ -1,4 +1,5 @@
 #include "nect/io.hpp"
+#include "native_legacy_fixture.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -203,7 +204,7 @@ void expression_gradient_semantics() {
         evaluate_operation_enabled(session.document(),target_operation),
         "A false target literal evaluates a negated Gradient Ref and enables only its own retained paint");
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.75\"")!=std::string::npos&&
+    check(native.find(test_support::current_native_version_marker())!=std::string::npos&&
         native.find("\"enabled_expression\":{\"source\":")!=std::string::npos&&encode(decode(native))==native,
         "Native 0.70 round-trips the optional Gradient expression source exactly");
     apply({DuplicateObjects{{"source","target"},"expression-copy"}});
@@ -232,8 +233,9 @@ void expression_gradient_semantics() {
     check(external_target_operation.gradient->enabled_expression==expression&&
         gradient_enabled_state(session.document(),external_target_ref).evaluated,
         "Duplicating only the target preserves its exact reference to the external Gradient source");
-    const auto current_version=native.find("\"version\":\"0.75\"");
-    auto lied=native;lied.replace(current_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.68\"");
+    auto lied=native;test_support::remove_empty_native_076_templates_for_legacy_fixture(lied);
+    const auto current_version=lied.find(test_support::current_native_version_marker());
+    lied.replace(current_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.68\"");
     rejects("UNSUPPORTED_GRADIENT_ENABLED_EXPRESSION",[&]{(void)decode(lied);});
     const auto same_revision=session.revision();apply({SetGradientEnabledExpression{target,expression}});
     check(session.revision()==same_revision,"Exact expression reapplication is idempotent");
@@ -297,8 +299,10 @@ void expression_gradient_semantics() {
         (void)object_id;
         for(auto& operation:object.stack)if(operation.gradient)operation.gradient->enabled_expression.reset();
     }
-    auto literal_native=encode(literal_document);const auto literal_version=literal_native.find("\"version\":\"0.75\"");
-    literal_native.replace(literal_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.68\"");
+    auto literal_native=encode(literal_document);
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(literal_native);
+    const auto literal_version=literal_native.find(test_support::current_native_version_marker());
+    literal_native.replace(literal_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.68\"");
     check(decode(literal_native)==literal_document,"Native 0.68 still reads Gradients without the new optional source");
     session.undo(session.revision());
     check(encode(session.document())==before_unlink&&gradient_enabled_state(session.document(),target).expression==expression,

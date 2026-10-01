@@ -68,6 +68,8 @@ std::size_t extra(const PresetEntry&);
 std::size_t extra(const PresetDefinition&);
 std::size_t extra(const Definition&);
 std::size_t extra(const DefinitionInstance&);
+std::size_t extra(const ArtboardTemplate&);
+std::size_t extra(const ArtboardTemplateAssignment&);
 std::size_t extra(const GroupPathFollowItem&);
 std::size_t extra(const GroupPathFollow&);
 template<class T>std::size_t extra(const std::optional<T>&);
@@ -137,9 +139,12 @@ std::size_t extra(const LayoutRect&){return 0;}
 std::size_t extra(const Margin& v){return total(extra(v.left_driver),extra(v.left_expression));}
 std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds),extra(v.columns_driver),extra(v.columns_expression),extra(v.rows_driver),extra(v.rows_expression),extra(v.column_gutter_driver),extra(v.column_gutter_expression),extra(v.row_gutter_driver),extra(v.row_gutter_expression),extra(v.bounds_x_driver),extra(v.bounds_x_expression),extra(v.bounds_y_driver),extra(v.bounds_y_expression),extra(v.bounds_width_driver),extra(v.bounds_width_expression),extra(v.bounds_height_driver),extra(v.bounds_height_expression));}
 std::size_t extra(const ArtboardLayout& v){return total(extra(v.margin),extra(v.grid));}
+std::size_t extra(const ArtboardTemplate& v){return total(extra(v.id),extra(v.name),extra(v.source_artboard),extra(v.definition));}
+std::size_t extra(const ArtboardTemplateAssignment& v){return total(extra(v.template_id),extra(v.grid_id),extra(v.content_instance),
+    extra(v.width_override),extra(v.height_override));}
 std::size_t extra(const Artboard::SizeDriver& v){return std::visit([](const auto& value){return extra(value);},v.value);}
-std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size),extra(v.layout),extra(v.width_driver),extra(v.height_driver));}
-std::size_t extra(const Composition& v){return total(extra(v.id),extra(v.name),extra(v.roots),extra(v.artboards),extra(v.guides));}
+std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size),extra(v.layout),extra(v.width_driver),extra(v.height_driver),extra(v.template_assignment));}
+std::size_t extra(const Composition& v){return total(extra(v.id),extra(v.name),extra(v.roots),extra(v.artboards),extra(v.guides),extra(v.templates));}
 std::size_t extra(const Collection& v){return total(extra(v.id),extra(v.name),extra(v.members));}
 std::size_t extra(const NamedColor& v){return total(extra(v.id),extra(v.name),extra(v.rgba));}
 
@@ -219,6 +224,17 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
             else return "Detach Macro instance: "+mutation.instance;
         },*command->mutation);
         }
+        if(const auto* command=std::get_if<ArtboardTemplateCommand>(structural))
+            return std::visit([&](const auto& mutation)->std::string {
+                using T=std::decay_t<decltype(mutation)>;
+                if constexpr(std::is_same_v<T,CreateArtboardTemplate>)return "Create Template: "+mutation.value.name;
+                else if constexpr(std::is_same_v<T,RenameArtboardTemplate>)return "Rename Template: "+mutation.name;
+                else if constexpr(std::is_same_v<T,DeleteArtboardTemplate>)return "Delete Template: "+mutation.template_id;
+                else if constexpr(std::is_same_v<T,AssignArtboardTemplate>)return "Assign Template: "+mutation.artboard_id;
+                else if constexpr(std::is_same_v<T,SetArtboardTemplateOverride>)return "Set Template override: "+mutation.field;
+                else if constexpr(std::is_same_v<T,ResetArtboardTemplateOverride>)return "Reset Template override: "+mutation.field;
+                else return "Detach Template: "+mutation.artboard_id;
+            },command->mutation);
     }
     if(const auto* command=std::get_if<LayoutDependencyCommand>(&commands.front()))
         return std::visit([&](const auto& operation) {

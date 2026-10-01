@@ -2016,3 +2016,48 @@ preserves selection/provenance but refuses direct projected anchor/handle drag
 with `DEFORM_SOURCE_EDIT_REQUIRED`; Inspector/API source edits reevaluate normally.
 Widget/pixel tests are offscreen correctness evidence, not hands-on GUI acceptance.
 See `schemas/native-v0.75.schema.json`.
+
+## Native 0.76 — Composition-owned Artboard Templates
+
+Native 0.76 adds an ordered `templates` collection to each Composition and an
+optional `template_assignment` to an Artboard. A Template retains a stable ID,
+name, source Artboard ID, and optional existing R04 Definition ID. An assignment
+retains the exact Template ID, a reserved target-local Grid ID, an optional
+ordinary content Instance ID, independent width and height Scalars, and local
+Margin/Grid family state. Source and target Artboards and an optional Definition
+must resolve in the same Composition. Names and list positions never replace
+stable identity.
+
+Assigned frame width and height inherit independently from the source. Target
+x, y, name, authored frame literals, and unrelated content remain target-owned.
+An explicit `parent_size` axis or existing size link/expression remains a
+separate local source; Template inheritance does not replace it. Margin and
+Grid inherit as whole optional families. A local family may be explicitly
+absent to disable inheritance until reset. The target's reserved Grid ID stays
+local while its evaluated bounds, counts, and gutters follow the source.
+
+Create, rename, delete, assign, set/reset, and detach are revisioned Session
+commands shared by Desktop, API, JSON-lines, and formal MCP. Stable source or
+target IDs are captured for each command. Missing identities, cross-Composition
+references, unsupported fields, wrong types, invalid containment, source cycles,
+and deletion of an in-use Template or source Artboard reject atomically. A
+Definition-backed assignment may create one ordinary R04 content Instance
+using a fresh caller-supplied ID, initially placed at the target Artboard origin.
+Later frame movement changes the crop; it does not move or reparent that content.
+
+The existing R04 Instance override map adds only descendant `transform.tx`,
+`transform.ty`, and Rectangle `generator.width`/`generator.height` Scalar Refs.
+Source Fill/Color edits continue to propagate. No local Fill/Color override is
+serialized. The normal evaluator projects the current Definition source and
+local Scalar overrides into Canvas, bounds, SVG, and native/API readback.
+
+Reset removes only the selected axis or family and restores live inheritance.
+Detach freezes inherited frame/layout values, preserves independent authored
+sources and existing local overrides, materializes assigned content through the
+ordinary R04 detach path with fresh descendant IDs, and removes only the
+assignment. Undo restores the exact relation/content state; Redo restores the
+materialized state. Save As writes authored Template, assignment and override
+state; a fresh Host/process reopen evaluates it from the saved native document.
+Native 0.1–0.75 remain readable, while Template fields under an earlier version
+reject as a version lie. `schemas/native-v0.76.schema.json` closes the new
+Composition, Artboard, Template, and assignment shapes.

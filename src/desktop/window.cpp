@@ -348,6 +348,43 @@ const Artboard& find_artboard(const Composition& composition,const Id& id) {
     if(found==composition.artboards.end())throw Error("MISSING_ARTBOARD","Choose an artboard");
     return *found;
 }
+QString artboard_choice_label(const Composition& composition,const Artboard& board) {
+    const auto matches=std::count_if(composition.artboards.begin(),composition.artboards.end(),[&](const Artboard& item) {
+        return item.name==board.name;
+    });
+    if(matches<2)return qs(board.name);
+    int ordinal=0;
+    for(const auto& item:composition.artboards)if(item.name==board.name) {
+        ++ordinal;if(item.id==board.id)break;
+    }
+    return qs(board.name)+" · frame "+QString::number(ordinal);
+}
+QString definition_choice_label(const Document& document,const Id& definition_id) {
+    const auto& definition=document.definitions.at(definition_id);
+    const auto matches=std::count_if(document.definitions.begin(),document.definitions.end(),[&](const auto& item) {
+        return item.second.name==definition.name;
+    });
+    if(matches<2)return qs(definition.name);
+    int ordinal=0;
+    for(const auto& [id,item]:document.definitions)if(item.name==definition.name) {
+        ++ordinal;if(id==definition_id)break;
+    }
+    return qs(definition.name)+" · Definition "+QString::number(ordinal);
+}
+QString template_base_choice_label(const Document& document,const Composition& composition,
+        const ArtboardTemplate& item) {
+    const auto source=artboard_choice_label(composition,find_artboard(composition,item.source_artboard));
+    const QString definition=item.definition?QString("Definition ")+definition_choice_label(document,*item.definition):QString("No Definition");
+    return qs(item.name)+" · source "+source+" · "+definition;
+}
+QString template_choice_label(const Document& document,const Composition& composition,const ArtboardTemplate& item) {
+    const auto base=template_base_choice_label(document,composition,item);
+    int ordinal=0,total=0;
+    for(const auto& candidate:composition.templates)if(template_base_choice_label(document,composition,candidate)==base) {
+        ++total;if(candidate.id==item.id)ordinal=total;
+    }
+    return total<2?base:base+" · option "+QString::number(ordinal);
+}
 QString hex_color(const QColor& color) {
     return QString("#%1%2%3%4").arg(color.red(),2,16,QChar('0')).arg(color.green(),2,16,QChar('0'))
         .arg(color.blue(),2,16,QChar('0')).arg(color.alpha(),2,16,QChar('0')).toUpper();
@@ -1982,9 +2019,11 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto resolved=evaluate_artboard(comp,board.id);
     const auto composition=comp.id,id=board.id;const auto frozen_session=host.session_id;
     const auto frozen_revision=host.session.revision();
-    auto apply=[this,frozen_session](const std::vector<Command>& commands) {
+    auto apply=[this,frozen_session,frozen_revision](const std::vector<Command>& commands) {
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","This frame belongs to another document");
-        canvas->cancel_interaction();host.session.apply(commands,host.session.revision());host.edited();
+        if(host.session.revision()!=frozen_revision)
+            throw Error("REVISION_CONFLICT","This Artboard inspector is stale; refresh the captured target before applying");
+        canvas->cancel_interaction();host.session.apply(commands,frozen_revision);host.edited();
     };
     auto read=[this,composition,id]{return find_artboard(find_composition(host.session.document(),composition),id);};
     auto* title=new QLabel("Artboard frame · "+qs(comp.name));title->setWordWrap(true);layout->addWidget(title);
@@ -3488,10 +3527,302 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* detach=new QPushButton("Detach · keep current size");detach->setObjectName("artboard-detach");
     detach->setEnabled(board.parent_size.has_value());parent_form->addRow(detach);
     connect(detach,&QPushButton::clicked,this,[this,composition,id,apply]{perform([&]{apply({DetachArtboardParent{composition,id}});});});
-    auto* parent_note=new QLabel("Only width and height inherit. Frame placement and artwork remain independent; template content is not inherited.");
+    auto* parent_note=new QLabel("Parent size links remain separate from Template inheritance. A Template can share a source frame, layout and optional Definition content.");
     parent_note->setWordWrap(true);parent_form->addRow(parent_note);
+    const ArtboardTemplateContext template_context{host.session_id,composition,id,frozen_revision};
+    auto* template_box=new QGroupBox("Artboard Template");template_box->setObjectName("artboard-template-panel");
+    auto* template_form=new QFormLayout(template_box);template_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    auto* template_status=new QLabel(template_box);template_status->setObjectName("artboard-template-state");
+    if(board.template_assignment) {
+        const auto found=std::find_if(comp.templates.begin(),comp.templates.end(),[&](const ArtboardTemplate& item) {
+            return item.id==board.template_assignment->template_id;
+        });
+        template_status->setText(found==comp.templates.end()?"Assigned Template is missing":
+            "Assigned: "+qs(found->name)+" · source Artboard "+qs(find_artboard(comp,found->source_artboard).name));
+    } else template_status->setText("No Template assigned to this Artboard");
+    template_status->setWordWrap(true);template_form->addRow(template_status);
+    auto* template_selector=new QComboBox(template_box);template_selector->setObjectName("artboard-template-selector");
+    template_selector->addItem("Choose a Template…",QString{});
+    for(const auto& item:comp.templates)template_selector->addItem(
+        template_choice_label(host.session.document(),comp,item),qs(item.id));
+    if(board.template_assignment)template_selector->setCurrentIndex(template_selector->findData(qs(board.template_assignment->template_id)));
+    template_form->addRow("Template",template_selector);
+    auto* template_actions=new QGridLayout;template_form->addRow(template_actions);
+    const auto template_button=[&](const QString& label,const char* object_name,int row,int column,
+                                   const std::function<void(const ArtboardTemplateContext&)>& action,bool enabled=true) {
+        auto* button=new QPushButton(label,template_box);button->setObjectName(QString::fromLatin1(object_name));
+        button->setEnabled(enabled);template_actions->addWidget(button,row,column);
+        connect(button,&QPushButton::clicked,this,[this,action,template_context]{perform([&]{action(template_context);});});
+    };
+    template_button("Create from source…","artboard-template-create",0,0,
+        [this](const auto& context){create_artboard_template(context);});
+    template_button("Rename…","artboard-template-rename",0,1,
+        [this](const auto& context){rename_artboard_template(context);},!comp.templates.empty());
+    template_button("Delete…","artboard-template-delete",0,2,
+        [this](const auto& context){delete_artboard_template(context);},!comp.templates.empty());
+    template_button("Assign selected","artboard-template-assign",1,0,
+        [this,template_selector](const auto& context) {
+            const auto selected=template_selector->currentData().toString().toStdString();
+            assign_artboard_template(context,selected.empty()?std::nullopt:std::optional<Id>{selected});
+        },!comp.templates.empty());
+    template_button("Set frame / layout…","artboard-template-set-override",1,1,
+        [this](const auto& context){set_artboard_template_override(context);},board.template_assignment.has_value());
+    template_button("Reset override…","artboard-template-reset-override",1,2,
+        [this](const auto& context){reset_artboard_template_override(context);},board.template_assignment.has_value());
+    template_button("Detach Template","artboard-template-detach",2,0,
+        [this](const auto& context){detach_artboard_template(context);},board.template_assignment.has_value());
+    auto* template_note=new QLabel("Choose a source Artboard or Definition, assign a Template to this frame, and reset individual fields to restore inheritance.",template_box);
+    template_note->setWordWrap(true);template_form->addRow(template_note);layout->addWidget(template_box);
     auto* fit=new QPushButton("Fit active frame");fit->setObjectName("artboard-fit");layout->addWidget(fit);
     connect(fit,&QPushButton::clicked,canvas,&Canvas::fit_artboard);layout->addStretch();
+}
+
+void Window::verify_artboard_template_context(const ArtboardTemplateContext& context) const {
+    if(host.session_id!=context.session)
+        throw Error("SESSION_CONFLICT","Template command belongs to another document session");
+    if(host.session.revision()!=context.revision)
+        throw Error("REVISION_CONFLICT","Template command captured revision "+std::to_string(context.revision)+
+            " but the current revision is "+std::to_string(host.session.revision())+
+            "; discard it and refresh the captured Artboard");
+    const auto& composition=find_composition(host.session.document(),context.composition);
+    (void)find_artboard(composition,context.artboard);
+}
+
+void Window::apply_artboard_template_command(const ArtboardTemplateContext& context,ArtboardTemplateCommand command) {
+    verify_artboard_template_context(context);
+    canvas->cancel_interaction();
+    host.session.apply({Command{std::move(command)}},context.revision);
+    host.edited();
+}
+
+void Window::create_artboard_template(const ArtboardTemplateContext& context) {
+    verify_artboard_template_context(context);
+    const auto document=host.session.document();
+    const auto& composition=find_composition(document,context.composition);
+    const auto& target=find_artboard(composition,context.artboard);
+    const auto template_id=new_id();
+    QDialog dialog(this);dialog.setObjectName("create-artboard-template-dialog");
+    dialog.setWindowTitle("Create Artboard Template");
+    auto* layout=new QFormLayout(&dialog);
+    auto* name=new QLineEdit(qs(target.name)+" Template",&dialog);name->setObjectName("template-create-name");
+    auto* source=new QComboBox(&dialog);source->setObjectName("template-source-artboard");
+    for(const auto& item:composition.artboards)
+        source->addItem(artboard_choice_label(composition,item),qs(item.id));
+    source->setCurrentIndex(source->findData(qs(context.artboard)));
+    auto* definition=new QComboBox(&dialog);definition->setObjectName("template-definition-selector");
+    definition->addItem("No Definition",QString{});
+    std::set<Id> composition_items;
+    std::function<void(const Id&)> collect_items=[&](const Id& object_id) {
+        if(!composition_items.insert(object_id).second)return;
+        for(const auto& child:document.objects.at(object_id).children)collect_items(child);
+    };
+    for(const auto& root:composition.roots)collect_items(root);
+    for(const auto& [id,item]:document.definitions)if(composition_items.contains(item.root))
+        definition->addItem(definition_choice_label(document,id),qs(id));
+    layout->addRow("Template name",name);layout->addRow("Source Artboard",source);layout->addRow("Definition",definition);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Create Template");layout->addRow(buttons);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    const auto label=name->text().trimmed();
+    if(label.isEmpty())throw Error("INVALID_ARTBOARD_TEMPLATE","Enter a Template name");
+    const auto source_id=source->currentData().toString().toStdString();
+    const auto definition_id=definition->currentData().toString().toStdString();
+    apply_artboard_template_command(context,ArtboardTemplateCommand{CreateArtboardTemplate{context.composition,
+        ArtboardTemplate{template_id,label.toStdString(),source_id,
+            definition_id.empty()?std::nullopt:std::optional<Id>{definition_id}}}});
+    statusBar()->showMessage("Artboard Template created from the selected stable source Artboard",6000);
+}
+
+void Window::rename_artboard_template(const ArtboardTemplateContext& context) {
+    verify_artboard_template_context(context);
+    const auto document=host.session.document();
+    const auto& composition=find_composition(document,context.composition);
+    if(composition.templates.empty())throw Error("MISSING_ARTBOARD_TEMPLATE","Create a Template first");
+    const auto templates=composition.templates;
+    QDialog dialog(this);dialog.setObjectName("rename-artboard-template-dialog");dialog.setWindowTitle("Rename Artboard Template");
+    auto* layout=new QFormLayout(&dialog);auto* selector=new QComboBox(&dialog);
+    selector->setObjectName("template-rename-selector");
+    for(const auto& item:templates)selector->addItem(template_choice_label(document,composition,item),qs(item.id));
+    auto* name=new QLineEdit(qs(templates.front().name),&dialog);name->setObjectName("template-rename-name");
+    connect(selector,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[templates,name,selector](int index) {
+        if(index<0)return;
+        const auto id=selector->currentData().toString().toStdString();
+        const auto found=std::find_if(templates.begin(),templates.end(),[&](const ArtboardTemplate& item){return item.id==id;});
+        if(found!=templates.end())name->setText(qs(found->name));
+    });
+    layout->addRow("Template",selector);layout->addRow("New name",name);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Rename Template");layout->addRow(buttons);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    const auto label=name->text().trimmed();if(label.isEmpty())throw Error("INVALID_ARTBOARD_TEMPLATE","Enter a Template name");
+    apply_artboard_template_command(context,ArtboardTemplateCommand{RenameArtboardTemplate{context.composition,
+        selector->currentData().toString().toStdString(),label.toStdString()}});
+    statusBar()->showMessage("Template renamed; its stable ID and Artboard assignments are unchanged",6000);
+}
+
+void Window::delete_artboard_template(const ArtboardTemplateContext& context) {
+    verify_artboard_template_context(context);
+    const auto document=host.session.document();
+    const auto& composition=find_composition(document,context.composition);
+    if(composition.templates.empty())throw Error("MISSING_ARTBOARD_TEMPLATE","There are no Templates to delete");
+    QDialog dialog(this);dialog.setObjectName("delete-artboard-template-dialog");dialog.setWindowTitle("Delete Artboard Template");
+    auto* layout=new QVBoxLayout(&dialog);auto* selector=new QComboBox(&dialog);selector->setObjectName("template-delete-selector");
+    for(const auto& item:composition.templates)selector->addItem(template_choice_label(document,composition,item),qs(item.id));
+    layout->addWidget(selector);auto* note=new QLabel("An assigned Template must be detached from every target before deletion.",&dialog);
+    note->setWordWrap(true);layout->addWidget(note);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Delete Template");layout->addWidget(buttons);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    apply_artboard_template_command(context,ArtboardTemplateCommand{DeleteArtboardTemplate{context.composition,
+        selector->currentData().toString().toStdString()}});
+    statusBar()->showMessage("Artboard Template deleted; Undo restores the shared source",6000);
+}
+
+void Window::assign_artboard_template(const ArtboardTemplateContext& context,std::optional<Id> preferred_template) {
+    verify_artboard_template_context(context);
+    const auto document=host.session.document();
+    const auto& composition=find_composition(document,context.composition);
+    if(composition.templates.empty())throw Error("MISSING_ARTBOARD_TEMPLATE","Create a Template first");
+    const auto content_instance_id=new_id();
+    QDialog dialog(this);dialog.setObjectName("assign-artboard-template-dialog");dialog.setWindowTitle("Assign Artboard Template");
+    auto* layout=new QFormLayout(&dialog);auto* selector=new QComboBox(&dialog);selector->setObjectName("template-assign-selector");
+    for(const auto& item:composition.templates)selector->addItem(template_choice_label(document,composition,item),qs(item.id));
+    if(preferred_template) {
+        const auto preferred_index=selector->findData(qs(*preferred_template));
+        if(preferred_index>=0)selector->setCurrentIndex(preferred_index);
+    }
+    auto* content=new QCheckBox("Create a fresh Definition Instance at the captured Artboard origin",&dialog);
+    content->setObjectName("template-create-content-instance");
+    const auto update_content=[&composition,selector,content] {
+        const auto selected_id=selector->currentData().toString().toStdString();
+        const auto selected_template=std::find_if(composition.templates.begin(),composition.templates.end(),[&](const ArtboardTemplate& item){return item.id==selected_id;});
+        const bool supports_content=selected_template!=composition.templates.end()&&selected_template->definition.has_value();
+        content->setEnabled(supports_content);content->setChecked(supports_content);
+    };
+    update_content();connect(selector,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[update_content](int){update_content();});
+    layout->addRow("Template",selector);layout->addRow("Content",content);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Assign to captured Artboard");layout->addRow(buttons);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    const auto template_id=selector->currentData().toString().toStdString();
+    const auto content_id=content->isChecked()?std::optional<Id>{content_instance_id}:std::nullopt;
+    apply_artboard_template_command(context,ArtboardTemplateCommand{AssignArtboardTemplate{
+        context.composition,context.artboard,template_id,content_id}});
+    statusBar()->showMessage("Template assigned to the Artboard captured when the selector opened",6000);
+}
+
+void Window::set_artboard_template_override(const ArtboardTemplateContext& context) {
+    verify_artboard_template_context(context);
+    const auto& composition=find_composition(host.session.document(),context.composition);
+    const auto& board=find_artboard(composition,context.artboard);
+    if(!board.template_assignment)throw Error("MISSING_ARTBOARD_TEMPLATE_ASSIGNMENT","Assign a Template first");
+    const auto evaluated=evaluate_artboard(composition,context.artboard);
+    const Margin margin=evaluated.layout&&evaluated.layout->margin?*evaluated.layout->margin:Margin{};
+    Grid grid;
+    if(evaluated.layout&&evaluated.layout->grid) {
+        const auto& value=*evaluated.layout->grid;
+        grid=Grid{board.template_assignment->grid_id,value.bounds,value.columns,value.rows,
+            value.column_gutter,value.row_gutter};
+    }
+    else grid=Grid{board.template_assignment->grid_id,{20,20,std::max(1.0,evaluated.width-40),
+        std::max(1.0,evaluated.height-40)},2,2,10,10};
+    grid.id=board.template_assignment->grid_id;
+    QDialog dialog(this);dialog.setObjectName("set-artboard-template-override-dialog");
+    dialog.setWindowTitle("Set Template frame or layout override");
+    auto* layout=new QFormLayout(&dialog);auto* field=new QComboBox(&dialog);field->setObjectName("template-override-field");
+    field->addItem("Frame width",QStringLiteral("frame.width"));field->addItem("Frame height",QStringLiteral("frame.height"));
+    field->addItem("Margin family",QStringLiteral("layout.margin"));
+    field->addItem("No Margin · local override",QStringLiteral("layout.margin.absent"));
+    field->addItem("Grid family",QStringLiteral("layout.grid"));
+    field->addItem("No Grid · local override",QStringLiteral("layout.grid.absent"));
+    auto make_value=[&dialog](const char* name,double value,double minimum,double maximum,double step) {
+        auto* spin=new QDoubleSpinBox(&dialog);spin->setObjectName(QString::fromLatin1(name));spin->setDecimals(3);
+        spin->setRange(minimum,maximum);spin->setSingleStep(step);spin->setValue(value);return spin;
+    };
+    auto* frame_width=make_value("template-frame-width",evaluated.width,0.001,10000000,10);
+    auto* frame_height=make_value("template-frame-height",evaluated.height,0.001,10000000,10);
+    auto* margin_left=make_value("template-margin-left",margin.left,0,10000000,1);
+    auto* margin_top=make_value("template-margin-top",margin.top,0,10000000,1);
+    auto* margin_right=make_value("template-margin-right",margin.right,0,10000000,1);
+    auto* margin_bottom=make_value("template-margin-bottom",margin.bottom,0,10000000,1);
+    auto* grid_x=make_value("template-grid-x",grid.bounds.x,0,10000000,1);
+    auto* grid_y=make_value("template-grid-y",grid.bounds.y,0,10000000,1);
+    auto* grid_width=make_value("template-grid-width",grid.bounds.width,0.001,10000000,10);
+    auto* grid_height=make_value("template-grid-height",grid.bounds.height,0.001,10000000,10);
+    auto* grid_columns=new QSpinBox(&dialog);grid_columns->setObjectName("template-grid-columns");grid_columns->setRange(1,1000);grid_columns->setValue(static_cast<int>(grid.columns));
+    auto* grid_rows=new QSpinBox(&dialog);grid_rows->setObjectName("template-grid-rows");grid_rows->setRange(1,1000);grid_rows->setValue(static_cast<int>(grid.rows));
+    auto* grid_column_gutter=make_value("template-grid-column-gutter",grid.column_gutter,0,10000000,1);
+    auto* grid_row_gutter=make_value("template-grid-row-gutter",grid.row_gutter,0,10000000,1);
+    layout->addRow("Override",field);layout->addRow("Frame width · du",frame_width);layout->addRow("Frame height · du",frame_height);
+    layout->addRow("Margin left · du",margin_left);layout->addRow("Margin top · du",margin_top);
+    layout->addRow("Margin right · du",margin_right);layout->addRow("Margin bottom · du",margin_bottom);
+    layout->addRow("Grid X · du",grid_x);layout->addRow("Grid Y · du",grid_y);
+    layout->addRow("Grid width · du",grid_width);layout->addRow("Grid height · du",grid_height);
+    layout->addRow("Grid columns",grid_columns);layout->addRow("Grid rows",grid_rows);
+    layout->addRow("Column gutter · du",grid_column_gutter);layout->addRow("Row gutter · du",grid_row_gutter);
+    auto* note=new QLabel("Frame and layout families remain independent. Choose a local absence to suppress a source family, or reset that field to inherit it again.",&dialog);
+    note->setWordWrap(true);layout->addRow(note);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Set selected override");layout->addRow(buttons);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    const auto selected_field=field->currentData().toString();
+    if(selected_field=="frame.width")apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{
+        context.composition,context.artboard,"frame.width",frame_width->value()}});
+    else if(selected_field=="frame.height")apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{
+        context.composition,context.artboard,"frame.height",frame_height->value()}});
+    else if(selected_field=="layout.margin")apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{
+        context.composition,context.artboard,"layout.margin",std::optional<Margin>{Margin{
+            margin_left->value(),margin_top->value(),margin_right->value(),margin_bottom->value()}}}});
+    else if(selected_field=="layout.margin.absent")apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{
+        context.composition,context.artboard,"layout.margin",std::optional<Margin>{}}});
+    else if(selected_field=="layout.grid.absent")apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{
+        context.composition,context.artboard,"layout.grid",std::optional<Grid>{}}});
+    else {
+        grid.bounds={grid_x->value(),grid_y->value(),grid_width->value(),grid_height->value()};
+        grid.columns=static_cast<std::size_t>(grid_columns->value());grid.rows=static_cast<std::size_t>(grid_rows->value());
+        grid.column_gutter=grid_column_gutter->value();grid.row_gutter=grid_row_gutter->value();
+        apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{context.composition,context.artboard,
+            "layout.grid",std::optional<Grid>{grid}}});
+    }
+    statusBar()->showMessage("Template override applied to the captured Artboard",6000);
+}
+
+void Window::reset_artboard_template_override(const ArtboardTemplateContext& context) {
+    verify_artboard_template_context(context);
+    const auto& composition=find_composition(host.session.document(),context.composition);
+    const auto& board=find_artboard(composition,context.artboard);
+    if(!board.template_assignment)throw Error("MISSING_ARTBOARD_TEMPLATE_ASSIGNMENT","Assign a Template first");
+    std::vector<std::pair<QString,std::string>> fields;
+    const auto& assignment=*board.template_assignment;
+    if(assignment.width_override||board.width_driver||(board.parent_size&&board.parent_size->width))fields.emplace_back("Frame width", "frame.width");
+    if(assignment.height_override||board.height_driver||(board.parent_size&&board.parent_size->height))fields.emplace_back("Frame height", "frame.height");
+    if(assignment.margin_overridden||(board.layout&&board.layout->margin))fields.emplace_back("Margin family", "layout.margin");
+    if(assignment.grid_overridden||(board.layout&&board.layout->grid))fields.emplace_back("Grid family", "layout.grid");
+    if(fields.empty())throw Error("MISSING_OVERRIDE","This Artboard has no local Template overrides to reset");
+    QDialog dialog(this);dialog.setObjectName("reset-artboard-template-override-dialog");
+    dialog.setWindowTitle("Reset one Template override");auto* layout=new QFormLayout(&dialog);
+    auto* selector=new QComboBox(&dialog);selector->setObjectName("template-reset-field");
+    for(const auto& [label,field]:fields)selector->addItem(label,QString::fromStdString(field));
+    layout->addRow("Use Template for",selector);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Reset selected field");layout->addRow(buttons);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    apply_artboard_template_command(context,ArtboardTemplateCommand{ResetArtboardTemplateOverride{context.composition,context.artboard,
+        selector->currentData().toString().toStdString()}});
+    statusBar()->showMessage("Selected Artboard field now follows its Template source again",6000);
+}
+
+void Window::detach_artboard_template(const ArtboardTemplateContext& context) {
+    apply_artboard_template_command(context,ArtboardTemplateCommand{DetachArtboardTemplate{context.composition,context.artboard,
+        "template-"+new_id()}});
+    statusBar()->showMessage("Template content and frame are independent; Undo restores the live assignment",7000);
 }
 
 void Window::rebuild_inspector(bool use_canvas_values) {
@@ -7693,7 +8024,7 @@ void Window::move_selection_to_folder() {
         labels.push_back(qs(document.objects.at(siblings[i]).name)+" ["+qs(siblings[i])+"]");
     }
     if(destinations.empty())throw Error("FOLDER_TRANSFER_ORDER","No sibling Folder is reachable without crossing painted content; keep paint order or choose a separate stacking operation");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
     bool accepted=false;
     const auto choice=QInputDialog::getItem(this,"Move selected to Folder","Destination Folder · paint order preserved",labels,0,false,&accepted);
     if(!accepted)return;
@@ -7975,13 +8306,13 @@ void Window::create_definition_from_selection() {
     if(selected.size()!=1||!canvas->selected_point.empty())throw Error("INVALID_DEFINITION","Select one whole Group to create a Definition");
     const auto& document=host.session.document();const auto& source=document.objects.at(selected.front());
     if(source.kind!=Kind::group)throw Error("INVALID_DEFINITION","A Definition must use an existing Group as its source root");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
     bool accepted=false;const auto name=QInputDialog::getText(this,"Create Definition","Definition name:",
         QLineEdit::Normal,qs(source.name),&accepted).trimmed();
     if(!accepted)return;
     if(name.isEmpty())throw Error("INVALID_DEFINITION","Enter a Definition name");
     if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Selection belongs to another document");
-    if(host.session.revision()!=revision||canvas->selected_objects()!=selected)
+    if(host.session.revision()!=revision||effects_generation_!=generation||canvas->selected_objects()!=selected)
         throw Error("REVISION_CONFLICT","Selection or document changed while naming the Definition");
     const auto id=new_id();
     host.session.apply({DefinitionCommand{CreateDefinition{Definition{id,name.toStdString(),selected.front()}}}},revision);
@@ -7990,7 +8321,7 @@ void Window::create_definition_from_selection() {
 void Window::rename_definition() {
     const auto document=host.session.document();
     if(document.definitions.empty())throw Error("MISSING_DEFINITION","There are no Definitions to rename");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
     QStringList labels;std::vector<Id> ids;
     for(const auto& [id,definition]:document.definitions){ids.push_back(id);labels.push_back(qs(definition.name)+" · "+qs(id));}
     bool accepted=false;const auto chosen=QInputDialog::getItem(this,"Rename Definition","Definition:",labels,0,false,&accepted);
@@ -8002,7 +8333,7 @@ void Window::rename_definition() {
     const auto name=QInputDialog::getText(this,"Rename Definition","New name:",QLineEdit::Normal,qs(previous),&accepted).trimmed();
     if(!accepted)return;
     if(name.isEmpty())throw Error("INVALID_DEFINITION","Enter a Definition name");
-    if(host.session_id!=frozen_session||host.session.revision()!=revision)
+    if(host.session_id!=frozen_session||host.session.revision()!=revision||effects_generation_!=generation)
         throw Error("REVISION_CONFLICT","Document changed while renaming the Definition");
     host.session.apply({DefinitionCommand{RenameDefinition{id,name.toStdString()}}},revision);
     host.edited();statusBar()->showMessage("Definition renamed; its stable ID and placed Instances are unchanged",6000);
@@ -8010,17 +8341,17 @@ void Window::rename_definition() {
 void Window::place_definition_instance() {
     const auto document=host.session.document();
     if(document.definitions.empty())throw Error("MISSING_DEFINITION","Create a Definition before placing an Instance");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
+    const auto composition=canvas->active_composition(),parent=canvas->drill_scope();
     QStringList labels;std::vector<Id> ids;
     for(const auto& [id,definition]:document.definitions){ids.push_back(id);labels.push_back(qs(definition.name)+" · "+qs(id));}
     bool accepted=false;const auto chosen=QInputDialog::getItem(this,"Place Definition Instance","Definition:",labels,0,false,&accepted);
     if(!accepted)return;
     const auto index=labels.indexOf(chosen);
     if(index<0||static_cast<std::size_t>(index)>=ids.size())throw Error("MISSING_DEFINITION","Choose a Definition");
-    if(host.session_id!=frozen_session||host.session.revision()!=revision)
+    if(host.session_id!=frozen_session||host.session.revision()!=revision||effects_generation_!=generation)
         throw Error("REVISION_CONFLICT","Document changed while choosing a Definition");
     const auto definition_id=ids.at(static_cast<std::size_t>(index));
-    const auto composition=canvas->active_composition(),parent=canvas->drill_scope();
     const auto instance_id=new_id();
     host.session.apply({DefinitionCommand{CreateInstance{composition,parent,instance_id,definition_id,
         document.definitions.at(definition_id).name+" Instance"}}},revision);
@@ -8043,7 +8374,8 @@ void Window::set_instance_override() {
     };
     append_source(definition_it->second.root);
     if(source_ids.empty())throw Error("UNSUPPORTED_OVERRIDE","Definition contains no supported scalar property targets");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
+    const auto captured_instance=selected.front();
     QDialog dialog(this);dialog.setObjectName("set-instance-override-dialog");dialog.setWindowTitle("Set Instance override");
     auto* layout=new QVBoxLayout(&dialog);
     layout->addWidget(new QLabel("Choose one source item and a supported Scalar. The value is local to this Instance.",&dialog));
@@ -8052,20 +8384,29 @@ void Window::set_instance_override() {
         const auto& object=document.objects.at(id);
         const auto kind=object.kind==Kind::group?QStringLiteral("Group"):
             object.kind==Kind::text?QStringLiteral("Text"):QStringLiteral("Path");
-        source->addItem(qs(object.name)+" · "+kind+" · "+qs(id),qs(id));
+        const auto shape=object.source?primitive_label(*object.source)+" · ":QString{};
+        source->addItem(qs(object.name)+" · "+shape+kind,qs(id));
     }
     auto* property=new QComboBox(&dialog);property->setObjectName("set-instance-override-property");layout->addWidget(property);
     auto* value=new QDoubleSpinBox(&dialog);value->setObjectName("set-instance-override-value");
     value->setDecimals(4);value->setSingleStep(0.1);layout->addWidget(value);
-    const auto refresh_fields=[this,&document,source,property,value,instance_id=selected.front()] {
+    const auto refresh_fields=[this,&document,source,property,value,instance_id=captured_instance] {
         const auto source_id=source->currentData().toString().toStdString();
         const auto& object=document.objects.at(source_id);const QSignalBlocker block(property);property->clear();
         property->addItem("composite.opacity","composite.opacity");
         if(object.kind==Kind::text&&object.text)property->addItem("text.font_size","text.font_size");
+        const auto& definition=document.definitions.at(document.objects.at(instance_id).instance->definition);
+        if(source_id!=definition.root) {
+            property->addItem("transform.tx","transform.tx");property->addItem("transform.ty","transform.ty");
+            if(object.kind==Kind::path&&object.source&&object.source->type=="nect.shape.rectangle") {
+                property->addItem("generator.width","generator.width");property->addItem("generator.height","generator.height");
+            }
+        }
         const auto initialize_value=[this,&document,value,instance_id,source_id](const QString& field) {
             const auto key=Ref{source_id,"",field.toStdString()};
             if(field=="composite.opacity"){value->setRange(0,1);value->setSingleStep(0.05);}
-            else {value->setRange(0.0001,10000);value->setSingleStep(1);}
+            else if(field=="transform.tx"||field=="transform.ty"){value->setRange(-10000000,10000000);value->setSingleStep(1);}
+            else {value->setRange(0.0001,10000000);value->setSingleStep(1);}
             const auto& overrides=document.objects.at(instance_id).instance->overrides;
             const auto override=overrides.find(key);
             value->setValue(override==overrides.end()?evaluate(document).at(key):override->second);
@@ -8081,11 +8422,12 @@ void Window::set_instance_override() {
     QObject::connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);
     QObject::connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     if(dialog.exec()!=QDialog::Accepted)return;
-    if(host.session_id!=frozen_session||host.session.revision()!=revision||canvas->selected_objects()!=selected)
+    if(host.session_id!=frozen_session||host.session.revision()!=revision||effects_generation_!=generation||
+       canvas->selected_objects()!=selected||canvas->selected_point.size()!=0)
         throw Error("REVISION_CONFLICT","Instance selection or document changed while setting an override");
     const auto source_id=source->currentData().toString().toStdString();
     const Ref target{source_id,"",property->currentData().toString().toStdString()};
-    host.session.apply({DefinitionCommand{SetInstanceOverride{selected.front(),target,value->value()}}},revision);
+    host.session.apply({DefinitionCommand{SetInstanceOverride{captured_instance,target,value->value()}}},revision);
     host.edited();statusBar()->showMessage("Local Instance override set; source values remain live for other properties",6000);
 }
 void Window::reset_instance_override() {
@@ -8095,7 +8437,7 @@ void Window::reset_instance_override() {
     if(found==document.objects.end()||found->second.kind!=Kind::instance||!found->second.instance)
         throw Error("TYPE_MISMATCH","Reset override requires a Definition Instance");
     if(found->second.instance->overrides.empty())throw Error("MISSING_OVERRIDE","The selected Instance has no local overrides");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
     std::vector<Ref> refs;QStringList labels;
     for(const auto& [ref,value]:found->second.instance->overrides) {
         (void)value;refs.push_back(ref);
@@ -8106,7 +8448,7 @@ void Window::reset_instance_override() {
     if(!accepted)return;
     const auto index=labels.indexOf(chosen);
     if(index<0||static_cast<std::size_t>(index)>=refs.size())throw Error("MISSING_OVERRIDE","Choose an override");
-    if(host.session_id!=frozen_session||host.session.revision()!=revision||canvas->selected_objects()!=selected)
+    if(host.session_id!=frozen_session||host.session.revision()!=revision||effects_generation_!=generation||canvas->selected_objects()!=selected)
         throw Error("REVISION_CONFLICT","Instance selection or document changed while choosing an override");
     host.session.apply({DefinitionCommand{ResetInstanceOverride{selected.front(),refs.at(static_cast<std::size_t>(index))}}},revision);
     host.edited();statusBar()->showMessage("Local override reset to the current Definition source value",6000);
@@ -8124,14 +8466,14 @@ void Window::detach_instance() {
 void Window::delete_definition() {
     const auto& document=host.session.document();
     if(document.definitions.empty())throw Error("MISSING_DEFINITION","There are no Definitions to delete");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
     QStringList labels;std::vector<Id> ids;
     for(const auto& [id,definition]:document.definitions){ids.push_back(id);labels.push_back(qs(definition.name)+" · "+qs(id));}
     bool accepted=false;const auto chosen=QInputDialog::getItem(this,"Delete Definition","Definition:",labels,0,false,&accepted);
     if(!accepted)return;
     const auto index=labels.indexOf(chosen);
     if(index<0||static_cast<std::size_t>(index)>=ids.size())throw Error("MISSING_DEFINITION","Choose a Definition");
-    if(host.session_id!=frozen_session||host.session.revision()!=revision)
+    if(host.session_id!=frozen_session||host.session.revision()!=revision||effects_generation_!=generation)
         throw Error("REVISION_CONFLICT","Document changed while choosing a Definition");
     host.session.apply({DefinitionCommand{DeleteDefinition{ids.at(static_cast<std::size_t>(index))}}},revision);
     host.edited();statusBar()->showMessage("Definition deleted; Undo restores the named source",6000);

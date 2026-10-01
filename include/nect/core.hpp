@@ -470,6 +470,21 @@ struct ArtboardLayout {
     std::optional<Grid> grid;
     bool operator==(const ArtboardLayout&) const = default;
 };
+struct ArtboardTemplate {
+    Id id,name,source_artboard;
+    std::optional<Id> definition;
+    bool operator==(const ArtboardTemplate&) const = default;
+};
+struct ArtboardTemplateAssignment {
+    Id template_id;
+    // Grid identity belongs to the target's effective Grid, never the source Grid.
+    Id grid_id;
+    std::optional<Id> content_instance;
+    std::optional<double> width_override,height_override;
+    bool margin_overridden=false;
+    bool grid_overridden=false;
+    bool operator==(const ArtboardTemplateAssignment&) const = default;
+};
 struct ArtboardSizeDriver {
     std::variant<Ref,Expression> value;
     ArtboardSizeDriver(Ref link):value(std::move(link)){}
@@ -485,6 +500,7 @@ struct Artboard {
     using SizeDriver=ArtboardSizeDriver;
     std::optional<SizeDriver> width_driver;
     std::optional<SizeDriver> height_driver;
+    std::optional<ArtboardTemplateAssignment> template_assignment;
     bool operator==(const Artboard&) const = default;
 };
 
@@ -494,6 +510,7 @@ struct Composition {
     std::vector<Id> roots;
     std::vector<Artboard> artboards;
     std::vector<Guide> guides;
+    std::vector<ArtboardTemplate> templates;
     bool operator==(const Composition&) const = default;
 };
 
@@ -611,6 +628,21 @@ struct DetachInstance { Id instance; Id id_prefix; };
 using DefinitionMutation=std::variant<CreateDefinition,RenameDefinition,DeleteDefinition,CreateInstance,
     SetInstanceOverride,ResetInstanceOverride,DetachInstance>;
 struct DefinitionCommand { DefinitionMutation mutation; };
+struct CreateArtboardTemplate { Id composition; ArtboardTemplate value; };
+struct RenameArtboardTemplate { Id composition,template_id; std::string name; };
+struct DeleteArtboardTemplate { Id composition,template_id; };
+struct AssignArtboardTemplate { Id composition,artboard_id,template_id; std::optional<Id> content_instance; };
+struct SetArtboardTemplateOverride {
+    Id composition,artboard_id;
+    std::string field;
+    std::variant<double,std::optional<Margin>,std::optional<Grid>> value;
+};
+struct ResetArtboardTemplateOverride { Id composition,artboard_id; std::string field; };
+struct DetachArtboardTemplate { Id composition,artboard_id,id_prefix; };
+using ArtboardTemplateMutation=std::variant<CreateArtboardTemplate,RenameArtboardTemplate,
+    DeleteArtboardTemplate,AssignArtboardTemplate,SetArtboardTemplateOverride,
+    ResetArtboardTemplateOverride,DetachArtboardTemplate>;
+struct ArtboardTemplateCommand { ArtboardTemplateMutation mutation; };
 struct CreateCollection { Collection collection; };
 struct RenameCollection { Id collection; std::string name; };
 struct SetCollectionMembers { Id collection; std::vector<Id> members; };
@@ -648,7 +680,7 @@ struct MacroCommand {
     template<class T,std::enable_if_t<std::is_constructible_v<MacroMutation,T&&>,int> =0>
     explicit MacroCommand(T&& value):mutation(std::make_shared<const MacroMutation>(std::forward<T>(value))){}
 };
-using StructuralCommand=std::variant<DefinitionCommand,CollectionCommand,MacroCommand>;
+using StructuralCommand=std::variant<DefinitionCommand,CollectionCommand,MacroCommand,ArtboardTemplateCommand>;
 struct EnableOperation { Id object; Id operation; bool enabled; };
 struct LinkOperationEnabled {
     Ref target;
@@ -1185,6 +1217,8 @@ struct ArtboardSizeProperty {
     std::optional<Expression> expression;
     std::string source_kind="literal";
     double evaluated=0;
+    std::optional<Ref> template_source;
+    std::optional<double> template_override;
 };
 ArtboardSizeProperty artboard_size_property(const Document&,const Ref&);
 struct ArtboardLayoutProperty {
@@ -1193,6 +1227,7 @@ struct ArtboardLayoutProperty {
     std::variant<double,std::size_t> evaluated;
     std::optional<Expression> expression;
     std::string source_kind="literal";
+    std::optional<Ref> template_source;
 };
 ArtboardLayoutProperty artboard_layout_property(const Document&,const Ref&);
 enum class TextPropertyKind { string, enumeration };
