@@ -2073,9 +2073,14 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* input=new QLineEdit(display_value(resolved.*member));input->setObjectName(QString("artboard-")+key);
         input->setAccessibleName(label);form->addRow(label,input);
         if(std::string(key)=="width"||std::string(key)=="height") {
-            const bool typed_driven=std::string(key)=="width"?board.width_driver.has_value():board.height_driver.has_value();
-            input->setReadOnly(typed_driven);
-            input->setToolTip(typed_driven?"Unlink the typed source before entering a literal size.":
+            const bool width=std::string(key)=="width";
+            const bool typed_driven=width?board.width_driver.has_value():board.height_driver.has_value();
+            const bool assigned_parent=board.template_assignment&&board.parent_size&&
+                (width?board.parent_size->width:board.parent_size->height);
+            input->setReadOnly(typed_driven||assigned_parent);
+            input->setToolTip(assigned_parent?"Use Template Reset or Parent size controls before entering a literal size.":
+                typed_driven?"Unlink the typed size source before entering a literal size.":
+                board.template_assignment?"Typing a size creates an override for this Template axis only. Reset override restores Template inheritance.":
                 "Typing a size creates a local override. Use Inherit below to reset to the parent size.");
         }
         else input->setToolTip("Crop position only; this does not move any artwork.");
@@ -2083,7 +2088,15 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             if(!input->isModified())return;input->setModified(false);
             perform([&]{bool valid=false;const auto value=input->text().trimmed().toDouble(&valid);
                 if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite frame coordinate or size");
-                auto board=read();board.*member=value;
+                auto board=read();
+                if(board.template_assignment&&(key=="width"||key=="height")) {
+                    // An explicit field edit must not disappear when its value
+                    // equals the retained authored fallback used by UpdateArtboard.
+                    apply({ArtboardTemplateCommand{SetArtboardTemplateOverride{
+                        composition,board.id,"frame."+key,value}}});
+                    return;
+                }
+                board.*member=value;
                 if(board.parent_size) {
                     if(key=="width")board.parent_size->width=false;
                     if(key=="height")board.parent_size->height=false;
@@ -2103,7 +2116,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* source_box=new QGroupBox(axis+" source");source_box->setObjectName("artboard-"+axis+"-source");
         auto* source_layout=new QVBoxLayout(source_box);
         auto* status=new QLabel(source_box);status->setObjectName("artboard-"+axis+"-source-state");
-        QString kind=parent_driven?"parent_size":driver?(std::holds_alternative<Ref>(driver->value)?"link":"expression"):"literal";
+        const auto kind=qs(artboard_size_property(host.session.document(),target).source_kind);
         status->setText("Source: "+kind+" · Literal: "+display_value(width?board.width:board.height)+
             " du · Evaluated: "+display_value(width?resolved.width:resolved.height)+" du");
         status->setWordWrap(true);source_layout->addWidget(status);

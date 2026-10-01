@@ -14,15 +14,15 @@
 
 **Goal:** Advance accepted R03/R10 layout behavior while preserving Template family independence, canonical identities and explicit platform limits.
 
-**Current phase:** TEMPLATE LAYOUT INSPECTOR QUALIFIED / FRAME AXIS EDIT QUALIFICATION NEXT. Public Window/Host128 checks, focused9/9, desktop build and smoke PASS. Full68 =41pass/1skip/26fail with unchanged failing-name set. Explicit Cancel and stale-context repair findings are resolved and retested. See `docs/r10-template-layout-inspector-boundary.md`.
+**Current phase:** TEMPLATE FRAME AXIS EDIT QUALIFIED / ORIGINAL SVG FIXTURE REPLAY NEXT. Public Window/Host97 checks, focused10/10, final desktop build and smoke PASS. Full69 =42pass/1skip/26fail, unchanged failed-name set. See `docs/r10-template-frame-edit-boundary.md`; Margin/Grid predecessor retains its128-check evidence.
 
 **Proven:** Exact remote predecessor `07949e0dc567e0b94f3dff5b26f59969661fe515` (tree `5e18fcf799ae8098c8a33b95921c44000e6ed45d`) qualifies inherited Grid Align/Distribute: core45 + Qt/Host35 checks, focused6/6, desktop build and cold-process smoke PASS; aggregate65 =38pass/1skip/26fail. Earlier D0 cloud canary, Template duplicate, scoped Guide Align and diagnostics remain recorded in `docs/d0-cloud-canary.md`, `docs/r10-template-duplicate-boundary.md`, `docs/r03-artboard-guide-align-boundary.md`, `docs/r03-inherited-grid-align-boundary.md` and immutable Git history. The26 platform/fixture/golden failures are not accepted as whole-suite success. Current Guide drag evidence is in `docs/r10-scoped-guide-drag-boundary.md`.
 
-**Next task:** Fresh-qualify the adjacent ordinary Template Frame Width/Height edit path. Source inspection indicates `UpdateArtboard` compares against retained authored fallback, so typing that fallback can leave an inherited/effective value or existing override unchanged. Reproduce exact public UI behavior and route explicit axis edits through existing per-axis Template commands if confirmed.
+**Next task:** Recover the original accepted CP2 SVG case/supplement artifacts from the verified Notion/Library source, compare exact byte length and pinned SHA against `tests/svg_import_tests.cpp`, then replay existing SVG import acceptance from ignored build inputs. This addresses the existing missing-fixture local wait; do not fabricate data or relax assertions.
 
-**Approach:** Preserve existing independent parent/link/expression guards and plain Artboard behavior; explicit changes to one axis must not promote the other. Retain full UpdateArtboard's existing semantics for other callers. No new core/schema/native version or background intent.
+**Approach:** Finish exact Frame-axis remote checkpoint first. Materialize only original artifact bytes, verify provenance/hash, run the untouched SVG test and report any newly exposed behavior. Keep original fixture absence and later replay evidence separate. No Codex/Work launch or credential change.
 
-**Done for next:** Synchronize exact Margin/Grid checkpoint, then bounded red/green Frame-axis controls with fixed value oracles, Undo/Redo, native cold readback, stale context and driven-axis refusal. Review/repair and continue the highest-value eligible Route step.
+**Done for next:** Original fixtures hash-match, existing test replay establishes pass or a concrete next failure, and updated aggregate comparison clearly identifies changed evidence. Record/reconcile without claiming Windows/whole-Requirement acceptance; continue another eligible Route step.
 
 **State:** Own cloud checkout, isolated `dot/d0-cloud-canary`, [Draft PR13](https://github.com/46slv/Nect/pull/13). Primary `codex/practical-alpha@01a909097ba222db0340e1c15cdeba6018f445ff` is untouched. GitHub-plugin non-force tree/commit/ref synchronization is qualified; shell push has no credentials. Temporary dependencies/build outputs remain ignored. No CI runs for this PR target under current workflow filters.
 
