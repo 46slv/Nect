@@ -2389,6 +2389,23 @@ void grid_rows_overlay_tracks_evaluated_source() {
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==4,
         "Canvas Grid overlay follows upstream source changes through the active rows expression");
 }
+void path_deform_points_have_provenance_and_reject_inverse_warp_drag() {
+    auto d=fixture_document();Object group;group.id="deform-group";group.name="Deform";group.kind=Kind::group;group.children={"path"};
+    GroupPathFollow relation;relation.id="canvas-deform";relation.path="guide";relation.contour="guide-contour";
+    relation.mode="deform";relation.normal_offset=20;relation.items={{"path",{0,0,true}}};group.path_follow=relation;
+    Object guide;guide.id="guide";guide.name="Guide";guide.visible=false;
+    Point first;first.id="guide-first";Point last;last.id="guide-last";last.x.literal=640;
+    guide.contours={{"guide-contour",false,{first,last}}};d.objects.emplace(group.id,group);d.objects.emplace(guide.id,guide);
+    d.compositions.front().roots={"deform-group","guide"};Fixture f(d);
+    const auto before=f.session.document();const auto revision=f.session.revision();
+    f.drag(f.screen(120,180),f.screen(145,190));
+    check(f.last_error.startsWith("DEFORM_SOURCE_EDIT_REQUIRED:"),"Derived displayed anchor hits its stable source point and refuses inverse-warp editing");
+    check(f.session.document()==before&&f.session.revision()==revision&&f.commits==0,
+        "Refused deformed point gesture preserves source, relation, revision and History");
+    f.session.apply({Set{{"path","p1","x"},130}},f.session.revision());f.canvas.refresh();QApplication::processEvents();
+    f.last_error.clear();f.drag(f.screen(130,180),f.screen(155,190));
+    check(f.last_error.startsWith("DEFORM_SOURCE_EDIT_REQUIRED:"),"Inspector/API source edit reevaluates the projected handle location");
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -2425,6 +2442,7 @@ int main(int argc, char** argv) {
         grid_column_gutter_overlay_tracks_evaluated_source();
         grid_columns_overlay_tracks_evaluated_source();
         grid_rows_overlay_tracks_evaluated_source();
+        path_deform_points_have_provenance_and_reject_inverse_warp_drag();
         std::cout << "Canvas widget contract: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

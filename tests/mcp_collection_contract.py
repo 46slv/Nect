@@ -148,6 +148,23 @@ def main():
         follow_readback = compare('inspect')['result']
         follow_group = next(item for item in follow_readback['objects'] if item['id'] == 'mcp-follow-group')
         assert follow_group['path_follow'] == relation
+        deform_relation = copy.deepcopy(relation)
+        deform_relation.update(mode='deform', deform_axis='x', start=120,
+                               items={'mcp-follow-rectangle': dict(distance=0, normal_offset=0, follow_tangent=True)})
+        changed = core('apply', expected_revision=revision, commands=[dict(type='update_group_path_follow',
+            group='mcp-follow-group', relation=deform_relation)])
+        assert changed['ok'], changed
+        revision = changed['revision']
+        deform_group = next(item for item in compare('inspect')['result']['objects'] if item['id'] == 'mcp-follow-group')
+        assert deform_group['path_follow'] == deform_relation
+        plan = compare('compositing_plan', composition=composition)['result']
+        follow_node = next(item for item in plan['roots'] if item['object'] == 'mcp-follow-group')
+        rectangle_node = next(item for item in follow_node['children'] if item['object'] == 'mcp-follow-rectangle')
+        assert rectangle_node['deformation']['relation'] == deform_relation['id']
+        assert rectangle_node['deformation']['source_object'] == 'mcp-follow-rectangle'
+        assert rectangle_node['deformation']['authored_source_preserved']
+        assert rectangle_node['deformation']['points']
+        relation = deform_relation
         expected = dict(id='mcp-collection-K', name='K', members=['mcp-collection-A'])
         assert compare('collections')['result'] == [expected]
         assert compare('collection', id='mcp-collection-K')['result'] == expected
@@ -182,6 +199,10 @@ def main():
         reopened_group = next(item for item in compare('inspect')['result']['objects']
                               if item['id'] == 'mcp-follow-group')
         assert reopened_group['path_follow'] == relation
+        cold_plan = compare('compositing_plan', composition=composition)['result']
+        cold_follow = next(item for item in cold_plan['roots'] if item['object'] == 'mcp-follow-group')
+        cold_rectangle = next(item for item in cold_follow['children'] if item['object'] == 'mcp-follow-rectangle')
+        assert cold_rectangle['deformation'] == rectangle_node['deformation']
         print('PASS formal MCP Collection mutation, API parity, unchanged render and cold reopen')
 
 

@@ -202,6 +202,33 @@ void point_edit_enabled_history() {
         !point_edit_enabled_state(session.document(),target).literal,
         "Redo restores the frozen authored literal without its former driver");
 }
+void group_path_follow_history_accounts_for_relation_items() {
+    auto document=empty_document("follow-history-doc","comp","art");
+    Object group;group.id="follow-history-group";group.name="Followers";group.kind=Kind::group;
+    for(int i=0;i<64;++i) {
+        Object child;child.id="follow-history-child-"+std::to_string(i);child.name=child.id;
+        Point a;a.id=child.id+"-a";Point b;b.id=child.id+"-b";b.x.literal=1;
+        child.contours={{child.id+"-contour",false,{a,b}}};group.children.push_back(child.id);document.objects.emplace(child.id,child);
+    }
+    Object guide;guide.id="follow-history-guide";guide.name="Guide";
+    Point a;a.id="follow-history-guide-a";Point b;b.id="follow-history-guide-b";b.x.literal=500;
+    guide.contours={{"follow-history-guide-contour",false,{a,b}}};document.objects.emplace(guide.id,guide);document.objects.emplace(group.id,group);
+    document.compositions.front().roots={group.id,guide.id};
+    GroupPathFollow relation;relation.id="follow-history-relation";relation.path=guide.id;relation.contour="follow-history-guide-contour";
+    Session empty_items(document);apply(empty_items,{GroupPathFollowCommand{AttachGroupPathFollow{group.id,relation}}});
+    const auto empty_bytes=empty_items.history().retained_bytes;
+    for(const auto& child:group.children)relation.items[child]={0,0,true};
+    relation.mode="deform";Session many_items(document);apply(many_items,{GroupPathFollowCommand{AttachGroupPathFollow{group.id,relation}}});
+    check(many_items.history().retained_bytes>empty_bytes+64*sizeof(GroupPathFollowItem),
+        "History accounts for retained relation strings and stable child-ID map allocation");
+    const auto attached=encode(many_items.document());many_items.undo(many_items.revision());
+    check(many_items.document()==document,"Undo releases relation state without changing retained child geometry");
+    many_items.redo(many_items.revision());check(encode(many_items.document())==attached,"Redo restores exact mode/axis and stable item map");
+    Session limited(document,{100,empty_bytes+1});const auto before=limited.document();const auto history=limited.history();
+    rejects("HISTORY_LIMIT",[&]{apply(limited,{GroupPathFollowCommand{AttachGroupPathFollow{group.id,relation}}});});
+    check(limited.document()==before&&limited.history()==history&&limited.revision()==0,
+        "Relation item footprint above admitted budget refuses atomically with Undo preserved");
+}
 void limits_and_gestures() {
     const auto document=demo_document();const Ref x{"path-A","point-A1","x"};
     Session limited(document,{3,64*1024*1024});
@@ -242,5 +269,5 @@ void limits_and_gestures() {
     rejects("INVALID_HISTORY_LIMITS",[&]{Session invalid(document,{0,1000});});
 }
 }
-int main(){try{long_history();authored_roundtrip();typed_text_layout_history();point_edit_enabled_history();limits_and_gestures();std::cout<<"PASS "<<checks<<" history checks\n";return 0;}
+int main(){try{long_history();authored_roundtrip();typed_text_layout_history();point_edit_enabled_history();group_path_follow_history_accounts_for_relation_items();limits_and_gestures();std::cout<<"PASS "<<checks<<" history checks\n";return 0;}
 catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

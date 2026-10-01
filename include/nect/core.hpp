@@ -113,6 +113,8 @@ struct GroupPathFollow {
     double start=0;
     double normal_offset=0;
     bool reversed=false;
+    std::string mode="rigid";
+    std::string deform_axis="x";
     std::map<Id,GroupPathFollowItem> items;
     bool operator==(const GroupPathFollow&) const = default;
 };
@@ -1001,8 +1003,11 @@ struct Bounds {double left=0,top=0,right=0,bottom=0;};
 // Geometric bounds in the target object's local coordinates, including cubic
 // extrema, Shape instances/paints and Text layout; excludes stroke thickness.
 // world_space=true computes extrema directly in the Composition plane.
+// For a deformed leaf, evaluated-local bounds use its follower Group's local
+// projection plane; this remains defined when the authored child is singular.
+// source_geometry=true bypasses Path Deform for source-authoring/intake callers.
 std::optional<Bounds> object_bounds(const Document&,const Id&,const std::map<Ref,double>&,
-    const std::map<Id,EvaluatedTransform>&,bool world_space=false);
+    const std::map<Id,EvaluatedTransform>&,bool world_space=false,bool source_geometry=false);
 EvaluatedShape evaluate_shape(const Document&,const Id&,const std::map<Ref,double>&,
     const std::map<Ref,std::string>* fill_rules=nullptr,
     const std::map<Ref,bool>* operation_enabled=nullptr,
@@ -1025,11 +1030,22 @@ struct EvaluatedSceneNode {
     std::vector<unsigned> posterize_levels; // ordered Group postchildren pixel operations
     std::vector<EvaluatedSceneNode> children;
 };
+struct EvaluatedScenePoint {
+    Id id,contour;
+    Vec2 anchor,incoming,outgoing;
+    bool driven=false;
+};
 struct EvaluatedImage { Raster payload; double width=0,height=0; };
 struct EvaluatedScene {
     std::vector<EvaluatedSceneNode> roots;
     std::map<Id,EvaluatedShape> shapes;
     std::map<Id,EvaluatedImage> images;
+    // Deformed geometry is projected in follower-Group local space. These
+    // transient maps preserve stable source-point identity and select the
+    // Group's world transform for the projected leaf geometry.
+    std::map<Id,Affine> geometry_worlds;
+    std::map<Id,Id> deformation_owners;
+    std::map<Id,std::vector<EvaluatedScenePoint>> deformation_points;
     // Present only when same-document Definition Instances required a transient
     // expansion. Proxy Objects and their IDs are derived render state.
     std::shared_ptr<const Document> expanded_document;

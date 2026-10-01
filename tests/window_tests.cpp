@@ -5487,6 +5487,19 @@ void group_path_follow_inspector(Window& window) {
     precise.start=.4;precise.normal_offset=3;precise.reversed=false;
     session.apply({GroupPathFollowCommand{UpdateGroupPathFollow{"ui-follow-group",precise}}},session.revision());
     window.host.edited();settle_rebuilt_inspector();
+    const auto before_deform=session.document();const auto mode_revision=session.revision();
+    auto* follow_mode=visible_child<QComboBox>(window,"group-path-follow-mode");
+    follow_mode->setCurrentIndex(follow_mode->findData("deform"));
+    visible_child<QPushButton>(window,"group-path-follow-apply")->click();settle_rebuilt_inspector();
+    check(session.revision()==mode_revision+1&&session.document().objects.at("ui-follow-group").path_follow->mode=="deform"&&
+        session.document().objects.at("ui-follow-rect")==before_deform.objects.at("ui-follow-rect"),
+        "Inspector switches shared relation to deform in one command without baking child source");
+    auto* axis=visible_child<QComboBox>(window,"group-path-deform-axis");axis->setCurrentIndex(axis->findData("y"));
+    visible_child<QPushButton>(window,"group-path-follow-apply")->click();settle_rebuilt_inspector();
+    check(session.document().objects.at("ui-follow-group").path_follow->deform_axis=="y","Inspector reads and updates retained deform axis");
+    session.undo(session.revision());window.host.edited();settle_rebuilt_inspector();
+    session.undo(session.revision());window.host.edited();settle_rebuilt_inspector();
+    check(session.document()==before_deform,"One Undo per Inspector switch restores the exact prior rigid relation and source");
     const auto group_children=session.document().objects.at("ui-follow-group").children;
     const auto rectangle_transform=session.document().objects.at("ui-follow-rect").transform;
     const auto text_transform=session.document().objects.at("ui-follow-text").transform;

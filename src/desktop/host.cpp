@@ -1129,8 +1129,10 @@ QJsonObject Host::analyze_dataset(const QString& operator_type_id,int operator_v
         constexpr std::size_t max_contours=1024,max_points=10000;
         if(selected.size()>max_contours||point_count>max_points)
             throw Error("ANALYSIS_LIMIT","Vector geometry is limited to 1024 contours and 10,000 points");
-        const auto local_bounds=object_bounds(document,object_id,values,transforms,false);
-        const auto composition_bounds=object_bounds(document,object_id,values,transforms,true);
+        // This intake reports retained source contours, so both bounds use
+        // their source geometry rather than transient Path Deform output.
+        const auto local_bounds=object_bounds(document,object_id,values,transforms,false,true);
+        const auto composition_bounds=object_bounds(document,object_id,values,transforms,true,true);
         if(!local_bounds||!composition_bounds)
             throw Error("INVALID_VECTOR_GEOMETRY","Path has no finite geometric bounds");
         QJsonArray bare_contours;

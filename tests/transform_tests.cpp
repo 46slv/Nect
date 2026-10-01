@@ -450,15 +450,15 @@ void rigid_group_path_follow() {
     session.redo(session.revision());
 
     auto cold=decode(encode(with_item));
-    check(cold==with_item&&encode(cold)==encode(with_item),"Native 0.74 cold roundtrip retains stable relation and item IDs");
+    check(cold==with_item&&encode(cold)==encode(with_item),"Native 0.75 cold roundtrip retains stable relation and item IDs");
     matrix_near(evaluate_transforms(cold,evaluate(cold)).at("follow-text").world,
         evaluate_transforms(with_item,evaluate(with_item)).at("follow-text").world,"Cold reopen derives the same follower transform");
     auto legacy_fixture=rigid_follow_fixture();auto legacy=encode(legacy_fixture);
-    const auto current_version=legacy.find("\"version\":\"0.74\"");check(current_version!=std::string::npos,"Native writer emits 0.74");
-    legacy.replace(current_version,std::string("\"version\":\"0.74\"").size(),"\"version\":\"0.73\"");
+    const auto current_version=legacy.find("\"version\":\"0.75\"");check(current_version!=std::string::npos,"Native writer emits 0.75");
+    legacy.replace(current_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.73\"");
     check(decode(legacy)==legacy_fixture,"Native 0.73 remains readable after writer upgrade");
-    auto lied=encode(with_item);const auto lied_version=lied.find("\"version\":\"0.74\"");
-    lied.replace(lied_version,std::string("\"version\":\"0.74\"").size(),"\"version\":\"0.73\"");
+    auto lied=encode(with_item);const auto lied_version=lied.find("\"version\":\"0.75\"");
+    lied.replace(lied_version,std::string("\"version\":\"0.75\"").size(),"\"version\":\"0.73\"");
     rejects("UNKNOWN_FIELD",[&]{(void)decode(lied);});
     auto duplicate_fixture=rigid_follow_fixture();auto one_item_relation=rigid_follow_relation();
     one_item_relation.items.erase("follow-text");Session duplicate_session(duplicate_fixture);
@@ -536,6 +536,228 @@ void rigid_group_path_follow() {
     rejects("REVISION_CONFLICT",[&]{invalid.apply({Command{GroupPathFollowCommand{ClearGroupPathFollow{"follow-group"}}}},invalid_revision-1);});
     check(invalid.document()==invalid_before,"Revision-conflict Path Follow command is atomic");
 }
+Document deform_fixture() {
+    auto d=empty_document("deform-document","deform-composition","deform-artboard");
+    Object group;group.id="deform-group";group.name="Deform Group";group.kind=Kind::group;
+    group.children={"deform-a","deform-b"};
+    auto a=path("deform-a",{10,4},{45,4});a.contours.front().closed=true;
+    Point bottom=a.contours.front().points.back();bottom.id="deform-a-bottom";bottom.y.literal=14;
+    a.contours.front().points.push_back(bottom);bottom.id="deform-a-left";bottom.x.literal=10;a.contours.front().points.push_back(bottom);
+    a.stack.push_back(default_operation("deform-a-fill","nect.paint.fill"));
+    a.stack.push_back(default_operation("deform-a-stroke","nect.paint.stroke"));
+    auto b=path("deform-b",{70,-5},{105,8});
+    b.contours.front().points.front().out_angle.literal=25;b.contours.front().points.front().out_length.literal=13;
+    b.contours.front().points.back().in_angle.literal=195;b.contours.front().points.back().in_length.literal=15;
+    b.stack.push_back(default_operation("deform-b-stroke","nect.paint.stroke"));
+    auto guide=path("deform-guide",{0,0},{500,0});guide.visible=false;
+    auto target=path("deform-mask-target",{0,0},{150,150});
+    target.compositing.mask=GeometryMask{"deform-mask","deform-a"};
+    d.objects={{group.id,group},{a.id,a},{b.id,b},{guide.id,guide},{target.id,target}};
+    d.compositions.front().roots={group.id,guide.id,target.id};return d;
+}
+GroupPathFollow deform_relation() {
+    GroupPathFollow r;r.id="deform-relation";r.path="deform-guide";r.contour="deform-guide-contour";
+    r.mode="deform";r.items={{"deform-a",{0,0,true}},{"deform-b",{0,0,false}}};return r;
+}
+EvaluatedScene deform_scene(const Document& d) {
+    const auto values=evaluate(d);return evaluate_scene(d,"deform-composition",values,evaluate_transforms(d,values));
+}
+void point_near(Vec2 actual,Vec2 expected,const std::string& message,double tolerance=1e-8) {
+    check(std::hypot(actual.x-expected.x,actual.y-expected.y)<tolerance,message+": expected "+
+        std::to_string(expected.x)+","+std::to_string(expected.y)+" got "+std::to_string(actual.x)+","+std::to_string(actual.y));
+}
+PathSample quarter_oracle(double distance) {
+    // Independent 40000-step arc table and analytic cubic derivative.
+    constexpr double k=.5522847498307936;constexpr unsigned n=40000;
+    const auto position=[](double t) {const auto u=1-t;return Vec2{3*u*u*t*k*100+3*u*t*t*100+t*t*t*100,
+        3*u*t*t*(1-k)*100+t*t*t*100};};
+    double length=0;auto prior=position(0);double t=0;
+    for(unsigned i=1;i<=n;++i) {
+        const auto next=position(double(i)/n);const auto segment=std::hypot(next.x-prior.x,next.y-prior.y);
+        if(length+segment>=distance){t=(double(i-1)+(distance-length)/segment)/n;break;}
+        length+=segment;prior=next;
+    }
+    const auto u=1-t;
+    Vec2 tangent{3*u*u*k*100+6*u*t*(1-k)*100,6*u*t*(1-k)*100+3*t*t*k*100};
+    const auto magnitude=std::hypot(tangent.x,tangent.y);tangent={tangent.x/magnitude,tangent.y/magnitude};
+    PathSample result;result.position=position(t);result.tangent=tangent;result.normal={-tangent.y,tangent.x};return result;
+}
+void group_path_deform() {
+    const auto source=deform_fixture();Session s(source);auto relation=deform_relation();
+    apply_follow(s,AttachGroupPathFollow{"deform-group",relation});const auto attached=s.document();
+    auto scene=deform_scene(s.document());
+    for(const auto* id:{"deform-a","deform-b"}) {
+        const auto original=evaluate_shape(source,id,evaluate(source));
+        const auto& projected=scene.shapes.at(id);
+        check(projected.paths.front().transform==identity_matrix,"Deform consumes path instance transform once");
+        matrix_near(scene.geometry_worlds.at(id),identity_matrix,"Straight identity geometry world");
+        const auto& a=original.paths.front().contours->front().points;
+        const auto& b=projected.paths.front().contours->front().points;
+        check(a.size()==b.size(),"Deform retains cubic topology");
+        for(std::size_t i=0;i<a.size();++i) {
+            point_near(b[i].anchor,a[i].anchor,"Straight identity anchor");
+            point_near(b[i].incoming,a[i].incoming,"Straight identity incoming control");
+            point_near(b[i].outgoing,a[i].outgoing,"Straight identity outgoing control");
+        }
+        check(s.document().objects.at(id)==source.objects.at(id),"Projection retains exact authored leaf data");
+    }
+    check(scene.deformation_points.at("deform-a").front().id=="deform-a-first"&&
+        scene.deformation_points.at("deform-a").front().contour=="deform-a-contour","Projected points retain stable source IDs");
+    const auto& mask=*scene.roots.back().mask;
+    check(mask.paths.front().contours==scene.shapes.at("deform-a").paths.front().contours,"Mask consumes canonical deformed contours");
+    matrix_near(mask.paths.front().transform,scene.geometry_worlds.at("deform-a"),"Mask uses projected geometry world");
+    const auto& paints=scene.shapes.at("deform-a").paints;
+    check(paints.size()==2&&std::any_of(paints.begin(),paints.end(),[](const auto& paint){return paint.type=="nect.paint.stroke"&&paint.width==2;}),
+        "Fill and Stroke preserve authored paint options");
+    check(scene.shapes.at("deform-a").paints.front().paths.front().contours==scene.shapes.at("deform-a").paths.front().contours,
+        "Ordered paint and final geometry reuse the same warped snapshot");
+    apply(s,{Set{{"deform-guide","deform-guide-last","x"},100},Set{{"deform-guide","deform-guide-last","y"},100},
+        Set{{"deform-guide","deform-guide-first","out.angle"},0},Set{{"deform-guide","deform-guide-first","out.length"},.5522847498307936*100},
+        Set{{"deform-guide","deform-guide-last","in.angle"},270},Set{{"deform-guide","deform-guide-last","in.length"},.5522847498307936*100}});
+    scene=deform_scene(s.document());
+    for(const auto* id:{"deform-a","deform-b"}) {
+        const auto original=evaluate_shape(source,id,evaluate(source));
+        const auto& points=scene.shapes.at(id).paths.front().contours->front().points;
+        for(std::size_t i=0;i<points.size();++i) {
+            const auto& p=original.paths.front().contours->front().points[i];const auto oracle=quarter_oracle(p.anchor.x);
+            const Vec2 anchor{oracle.position.x+oracle.normal.x*p.anchor.y,oracle.position.y+oracle.normal.y*p.anchor.y};
+            const auto handle=[&](Vec2 control){return Vec2{anchor.x+oracle.tangent.x*(control.x-p.anchor.x)+oracle.normal.x*(control.y-p.anchor.y),
+                anchor.y+oracle.tangent.y*(control.x-p.anchor.x)+oracle.normal.y*(control.y-p.anchor.y)};};
+            point_near(points[i].anchor,anchor,"Quarter high-resolution anchor oracle",.01);
+            point_near(points[i].incoming,handle(p.incoming),"Quarter high-resolution incoming vector oracle",.01);
+            point_near(points[i].outgoing,handle(p.outgoing),"Quarter high-resolution outgoing vector oracle",.01);
+        }
+    }
+    const auto before_edit=scene.deformation_points.at("deform-a").front().anchor;
+    apply(s,{Set{{"deform-a","deform-a-first","x"},12},Set{{"deform-a","deform-a-first","out.length"},3}});
+    scene=deform_scene(s.document());
+    check(std::hypot(scene.deformation_points.at("deform-a").front().anchor.x-before_edit.x,
+        scene.deformation_points.at("deform-a").front().anchor.y-before_edit.y)>1,"Source anchor edit recomputes deformation");
+    check(s.document().objects.at("deform-a").contours.front().points.front().x.literal==12,
+        "Source value stays authored under its stable point ID");
+    const auto warped=s.document();const auto warped_scene=scene;
+    relation.mode="rigid";apply_follow(s,UpdateGroupPathFollow{"deform-group",relation});
+    check(deform_scene(s.document()).deformation_points.empty(),"Rigid mode stops bending geometry");
+    s.undo(s.revision());check(s.document()==warped,"One Undo restores deform mode and exact source data");
+    s.redo(s.revision());check(s.document().objects.at("deform-group").path_follow->mode=="rigid","Redo restores rigid mode");
+    relation.mode="deform";apply_follow(s,UpdateGroupPathFollow{"deform-group",relation});
+    point_near(deform_scene(s.document()).deformation_points.at("deform-b").front().anchor,
+        warped_scene.deformation_points.at("deform-b").front().anchor,"Deform mode roundtrip is deterministic");
+    const auto native=encode(s.document());check(native.find("\"version\":\"0.75\"")!=std::string::npos&&decode(native)==s.document(),
+        "Native 0.75 cold read retains mode, axis and authored source");
+    auto lied=native;const auto version=lied.find("0.75");lied.replace(version,4,"0.74");rejects("UNKNOWN_FIELD",[&]{(void)decode(lied);});
+    auto legacy=encode(attached);
+    // Construct a strict 0.74 rigid relation by omitting the two new fields.
+    auto rigid_document=attached;rigid_document.objects.at("deform-group").path_follow->mode="rigid";
+    legacy=encode(rigid_document);check(legacy.find("\"mode\":\"rigid\"")==std::string::npos&&
+        legacy.find("\"mode\":\"deform\"")==std::string::npos&&legacy.find("\"deform_axis\"")==std::string::npos,
+        "Default rigid/x relation omits new fields for strict 0.74 compatibility");
+    legacy.replace(legacy.find("0.75"),4,"0.74");
+    check(decode(legacy)==rigid_document,"Native 0.74 rigid relation reads unchanged with default mode/axis");
+    const auto api=request(s,R"({"op":"compositing_plan","composition":"deform-composition"})");
+    check(api.find("\"deformation\"")!=std::string::npos&&api.find("deform-relation")!=std::string::npos&&
+        api.find("deform-a-first")!=std::string::npos&&api.find("authored_source_preserved")!=std::string::npos,"API reads stable deformation provenance");
+    const auto paint_plan=request(s,R"({"op":"render_plan","object":"deform-a"})");
+    check(paint_plan.find("\"geometry_space\":\"group_local\"")!=std::string::npos&&paint_plan.find("deformation_group")!=std::string::npos,
+        "Render plan consumes canonical deformation and labels its projection plane");
+    const auto svg=export_svg(s.document(),"deform-composition","deform-artboard");
+    check(svg.find("Group Path Deform derivative")!=std::string::npos&&encode(s.document())==native,"SVG emits a declared derivative without mutating source");
+    auto no_mask=s.document();no_mask.objects.at("deform-mask-target").compositing.mask.reset();
+    no_mask.objects.at("deform-guide").visible=true; // Remove the legacy visibility trigger too.
+    check(export_svg(no_mask,"deform-composition","deform-artboard").find("Group Path Deform derivative")!=std::string::npos,
+        "Plain deform forces SVG scene projection even without compositing");
+    const auto detach_source=s.document();apply_follow(s,ClearGroupPathFollow{"deform-group"});
+    auto expected=detach_source;expected.objects.at("deform-group").path_follow.reset();check(s.document()==expected,"Detach returns exact unchanged source hierarchy and geometry");
+    s.undo(s.revision());check(s.document()==detach_source,"Detach one Undo restores exact relation");
+    // Nonidentity child/Group transforms are consumed once. A singular child
+    // remains renderable because no inverse child matrix is needed.
+    auto affine=source;matrix(affine.objects.at("deform-group"),{2,.1,.2,1.5,20,30});
+    matrix(affine.objects.at("deform-a"),{1.5,.2,.3,.7,4,2});
+    affine.objects.at("deform-group").path_follow=deform_relation();auto projected=deform_scene(affine);
+    const auto values=evaluate(affine);const auto tfm=evaluate_transforms(affine,values);
+    const auto group_point=map_point(compose(inverse_affine(tfm.at("deform-group").world),tfm.at("deform-a").world),{10,4});
+    point_near(map_point(projected.geometry_worlds.at("deform-a"),projected.deformation_points.at("deform-a").front().anchor),group_point,
+        "Group inverse and final Group world are each applied once");
+    const auto world_bounds=object_bounds(affine,"deform-a",values,tfm,true);
+    check(world_bounds&&world_bounds->left<world_bounds->right,"World bounds consume warped geometry");
+    matrix(affine.objects.at("deform-a"),{0,0,0,1,30,0});projected=deform_scene(affine);
+    check(projected.deformation_points.at("deform-a").size()==4,"Singular child transform remains supported");
+    const auto singular_values=evaluate(affine);const auto singular_transforms=evaluate_transforms(affine,singular_values);
+    check(object_bounds(affine,"deform-a",singular_values,singular_transforms).has_value(),
+        "Singular deform leaf evaluated-local bounds use Group-local projection without inverse child");
+    const auto source_bounds=object_bounds(affine,"deform-a",singular_values,singular_transforms,false,true);
+    check(source_bounds&&source_bounds->left==10&&source_bounds->right==45,
+        "Source-local bounds remain separate from derived Group-local projection");
+    Session pivot(affine);apply(pivot,{CenterAnchor{"deform-a"}});
+    near(evaluate(pivot.document()).at({"deform-a","","transform.anchor_x"}),27.5,"CenterAnchor remains source-local on singular deformed leaf");
+    auto hierarchy=source;Object nested;nested.id="deform-nested";nested.name="Nested";nested.kind=Kind::group;nested.children={"deform-a"};
+    matrix(nested,{1,0,0,1,3,2});hierarchy.objects.emplace(nested.id,nested);hierarchy.objects.at("deform-group").children.front()=nested.id;
+    relation=deform_relation();relation.items.erase("deform-a");relation.items[nested.id]={0,0,true};hierarchy.objects.at("deform-group").path_follow=relation;
+    point_near(deform_scene(hierarchy).deformation_points.at("deform-a").front().anchor,{13,6},"Nested eligible Group applies authored transform before deformation");
+    auto axis=source;relation=deform_relation();relation.deform_axis="y";relation.start=20;axis.objects.at("deform-group").path_follow=relation;
+    point_near(deform_scene(axis).deformation_points.at("deform-a").front().anchor,{24,10},"Y axis swaps longitudinal and perpendicular coordinates");
+    auto paint_fixture=source;auto repeat=default_operation("deform-paint-repeat","nect.shape.repeater");
+    repeat.parameters.at("copies").literal=2;repeat.parameters.at("position_x").literal=50;
+    paint_fixture.objects.at("deform-a").stack.push_back(repeat);
+    Gradient gradient;gradient.id="deform-gradient";gradient.type="linear";gradient.end_x.literal=20;
+    GradientStop left;left.id="deform-gradient-left";GradientStop right;right.id="deform-gradient-right";right.offset.literal=1;
+    gradient.stops={left,right};paint_fixture.objects.at("deform-a").stack.front().gradient=gradient;
+    matrix(paint_fixture.objects.at("deform-a"),{1.5,.2,.3,.7,4,2});
+    paint_fixture.objects.at("deform-group").path_follow=deform_relation();const auto paint_scene=deform_scene(paint_fixture);
+    const auto& paint_shape=paint_scene.shapes.at("deform-a");
+    point_near(paint_shape.paths.at(1).contours->front().points.front().anchor,{95.2,16.8},
+        "Repeater path transform and child affine are each consumed once before warp");
+    check(std::any_of(paint_shape.paints.begin(),paint_shape.paints.end(),[](const auto& paint) {
+        return paint.gradient&&std::abs(paint.gradient->start.x-79)<1e-8&&std::abs(paint.gradient->start.y-12)<1e-8&&
+            std::abs(paint.gradient->end.x-109)<1e-8&&std::abs(paint.gradient->end.y-16)<1e-8&&paint.transform==identity_matrix;
+    }),"Gradient field consumes Repeater paint affine and child affine once in Group space");
+    check(std::any_of(paint_shape.paints.begin(),paint_shape.paints.end(),[&](const auto& paint) {
+        return paint.paths.front().contours==paint_shape.paths.at(1).contours;
+    }),"Repeated paint and final path share the same projected contour authority");
+    auto reverse_fixture=source;relation=deform_relation();relation.start=380;relation.reversed=true;relation.normal_offset=3;
+    reverse_fixture.objects.at("deform-group").path_follow=relation;
+    point_near(deform_scene(reverse_fixture).deformation_points.at("deform-a").front().anchor,{110,-7},
+        "Reversed deform uses the sampled reversed tangent and normal frame");
+    auto negative=[&](const char* code,Document document,GroupPathFollow invalid) {
+        Session candidate(document);atomic_reject(candidate,code,{Command{GroupPathFollowCommand{AttachGroupPathFollow{"deform-group",invalid}}}});
+    };
+    relation=deform_relation();relation.mode="invalid";negative("GROUP_PATH_FOLLOW_MODE",source,relation);
+    relation=deform_relation();relation.deform_axis="z";negative("GROUP_PATH_DEFORM_AXIS",source,relation);
+    relation=deform_relation();relation.start=450;negative("GROUP_PATH_DEFORM_RANGE",source,relation);
+    auto closed=source;closed.objects.at("deform-guide").contours.front().closed=true;
+    relation=deform_relation();relation.items.at("deform-b").distance=1100;negative("GROUP_PATH_DEFORM_SPAN",closed,relation);
+    auto unsupported=source;unsupported.objects.at("deform-b").kind=Kind::text;
+    unsupported.objects.at("deform-b").contours.clear();unsupported.objects.at("deform-b").stack.clear();
+    unsupported.objects.at("deform-b").text=default_text("deform-text","Text");
+    negative("GROUP_PATH_DEFORM_UNSUPPORTED_DOMAIN",unsupported,deform_relation());
+    auto singular=source;matrix(singular.objects.at("deform-group"),{0,0,0,1,0,0});negative("SINGULAR_TRANSFORM",singular,deform_relation());
+    auto cyclic=source;cyclic.objects.at("deform-guide").transform_parent="deform-a";negative("GROUP_PATH_FOLLOW_CYCLE",cyclic,deform_relation());
+    auto zero=source;zero.objects.at("deform-guide").contours.front().points.back().x.literal=0;
+    negative("PATH_SAMPLE_ZERO_LENGTH",zero,deform_relation());
+    auto cross=source;cross.objects.emplace("foreign-guide",path("foreign-guide",{0,0},{500,0}));
+    cross.compositions.push_back({"foreign-composition","Foreign",{"foreign-guide"},{}});
+    relation=deform_relation();relation.path="foreign-guide";relation.contour="foreign-guide-contour";
+    negative("CROSS_COMPOSITION",cross,relation);
+    auto explicit_parent=source;explicit_parent.objects.at("deform-group").transform_parent="deform-guide";
+    negative("GROUP_PATH_FOLLOW_TRANSFORM_PARENT",explicit_parent,deform_relation());
+    explicit_parent=source;explicit_parent.objects.at("deform-a").transform_parent="deform-guide";
+    negative("GROUP_PATH_FOLLOW_TRANSFORM_PARENT",explicit_parent,deform_relation());
+    auto inside=source;inside.objects.at("deform-group").children.push_back("deform-guide");
+    inside.compositions.front().roots.erase(inside.compositions.front().roots.begin()+1);
+    negative("GROUP_PATH_FOLLOW_DESCENDANT_SOURCE",inside,deform_relation());
+    auto resource=source;auto repeater=default_operation("deform-repeat-limit","nect.shape.repeater");
+    repeater.parameters.at("copies").literal=1000;repeater.parameters.at("position_x").literal=0;
+    resource.objects.at("deform-a").stack.push_back(repeater);Session limited(resource);
+    auto second_repeat=default_operation("deform-repeat-overflow","nect.shape.repeater");second_repeat.parameters.at("copies").literal=5;
+    atomic_reject(limited,"OUTPUT_LIMIT",{Command{GroupPathFollowCommand{AttachGroupPathFollow{"deform-group",deform_relation()}}},
+        AddOperation{"deform-a",second_repeat}});
+    relation=deform_relation();relation.contour="missing";negative("MISSING_PATH_CONTOUR",source,relation);
+    relation=deform_relation();relation.path="missing";negative("MISSING_PATH_ATTACHMENT",source,relation);
+    Session intact(attached);atomic_reject(intact,"MISSING_PATH_ATTACHMENT",{DeleteObjects{{"deform-guide"}}});
+    atomic_reject(intact,"GROUP_PATH_FOLLOW_NOT_CHILD",{DeleteObjects{{"deform-a"}}});
+    const auto before=intact.document();rejects("REVISION_CONFLICT",[&]{intact.apply({Command{GroupPathFollowCommand{ClearGroupPathFollow{"deform-group"}}}},intact.revision()+1);});
+    check(intact.document()==before,"Stale deformation request is atomic");
+}
 }
 
 int main() {
@@ -543,6 +765,7 @@ int main() {
         common_pivot_edits();anchor_and_relative_edits();driven_axes_and_anchor_links();parent_replacement_and_keep_world();
         parent_failures_and_effective_cycles();singular_parent_contract();cubic_stack_and_text_bounds();group_initial_center_and_external_bounds();
         rigid_group_path_follow();
+        group_path_deform();
         std::cout<<"PASS "<<checks<<" Anchor, effective Transform Parent, bounds and atomic command checks\n";return 0;
     }catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

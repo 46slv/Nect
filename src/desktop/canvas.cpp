@@ -233,8 +233,11 @@ void Canvas::refresh() {
             std::function<void(const Id&, std::vector<Id>)> visit;
             visit = [&](const Id& id, std::vector<Id> ancestors) {
                 const auto& object = render_document.objects.at(id);
-                const auto world = qt_transform(render_transforms.at(id).world);
-                world_.emplace(id, world);
+                const auto world = qt_transform(scene_.geometry_worlds.contains(id)?scene_.geometry_worlds.at(id):render_transforms.at(id).world);
+                // Authored transform controls and effective-parent gestures
+                // keep the structural world authority. Geometry has its own
+                // transient world override when Path Deform is active.
+                world_.emplace(id, qt_transform(render_transforms.at(id).world));
                 parents_.emplace(id, ancestors.empty() ? Id{} : ancestors.back());
                 if (object.kind == Kind::group) {
                     ancestors.push_back(id);
@@ -346,6 +349,13 @@ void Canvas::refresh() {
                                     if (coordinate != correction->second.end() && (coordinate->second.binding||coordinate->second.expression))
                                         p.driven = true;
                                 }
+                            }
+                        }
+                        if(const auto projected=scene_.deformation_points.find(id);projected!=scene_.deformation_points.end()) {
+                            const auto source=std::find_if(projected->second.begin(),projected->second.end(),[&](const auto& candidate){return candidate.id==p.id;});
+                            if(source!=projected->second.end()) {
+                                p.anchor={source->anchor.x,source->anchor.y};p.incoming={source->incoming.x,source->incoming.y};
+                                p.outgoing={source->outgoing.x,source->outgoing.y};p.driven=true;
                             }
                         }
                         item.points.push_back(std::move(p));
@@ -1769,6 +1779,8 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
             const auto* item = geometry(selected_object);
             const auto* p = item ? point(*item, selected_point) : nullptr;
             if (!p) return;
+            if(scene_.deformation_owners.contains(selected_object))
+                throw Error("DEFORM_SOURCE_EDIT_REQUIRED","Edit the retained source in Inspector/API; derived Path Deform anchors and handles cannot be dragged directly");
             drag_inverse_ = item->world.inverted(&invertible);
             start_anchor_ = p->anchor;
             start_handle_ = kind == Drag::incoming ? p->incoming
@@ -1778,6 +1790,8 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
             for (const auto* field : {"x", "y", "in.angle", "in.length", "out.angle", "out.length"})
                 start_values_.emplace(field, values_.at({selected_object, selected_point, field}));
             if(kind==Drag::anchor)for(const auto& selected:selections_) {
+                if(scene_.deformation_owners.contains(selected.object))
+                    throw Error("DEFORM_SOURCE_EDIT_REQUIRED","Derived Path Deform anchors cannot be dragged directly");
                 const auto* g=geometry(selected.object);const auto* selected_anchor=g?point(*g,selected.point):nullptr;
                 if(!selected_anchor)throw Error("INVALID_SELECTION","A selected point no longer exists in the active gesture scope");
                 if(parents_.at(selected.object)!=scope_)

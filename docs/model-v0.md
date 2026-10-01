@@ -1916,3 +1916,50 @@ field under an older version rejects as a version lie.
 `schemas/native-v0.74.schema.json` closes the optional Group relation and child
 item shape. This release is the rigid Path-following slice; it does not deform
 child geometry or provide general rigs.
+
+## Native 0.75 — retained Group Path Deform
+
+The same Group `path_follow` relation adds optional `mode: rigid | deform` and
+`deform_axis: x | y`, defaulting to rigid and x when absent. Native 0.74 rigid
+relations read unchanged; these new fields under 0.74 or earlier reject. Deform
+retains relation/Object/Contour/Point IDs and authored source geometry exactly.
+Switching mode is one revisioned Update command and one Undo; clear/detach removes
+only the relation. Derived contours and frames are never serialized.
+
+Deform items may identify a direct Path/retained primitive child or a Group whose
+descendants are eligible Paths/primitives. Text, Image, Instance and nested Path
+Follow relations reject explicitly. The established same-Composition, source
+outside follower subtree, structural-parent, cycle and invertible follower-Group
+rules remain. Singular child transforms are supported; only the follower Group
+requires inversion.
+
+Evaluated source anchors and control points first use the current leaf-to-Group
+affine matrix. X mode takes x as longitudinal u and y as normal v; Y swaps them.
+At `start + item.distance + u`, the Composition-space PathSampler produces a
+tangent/normal frame converted by inverse Group world. Anchors add relation and
+item normal offsets plus v. Incoming/outgoing vectors use the anchor's sampled
+frame so each cubic knot keeps one consistent tangent basis. Final projection
+uses the Group world once. Controls contribute to the source range check: open
+overspan rejects, and the full relation's closed span cannot exceed one lap.
+Projection limits each relation to 1000000 unique derived anchors, in addition
+to the existing Shape output limits.
+
+`evaluate_scene` owns transient contours, ordered paints, geometry world overrides
+and stable source-point provenance. Canvas, mask sources, world bounds and SVG
+consume that projection. Cubic path and paint instance transforms are consumed
+once; stroke width remains the authored Group-local width after deformation.
+World bounds use Composition space. A deformed leaf's evaluated-local bounds
+use its Group-local projection plane, including singular child transforms.
+Source pivot recentering and retained-vector intake request source-only bounds
+so projected coordinates never replace authored local coordinates.
+Gradient endpoints retain the source affine field in Group coordinates; v1 bends
+geometry rather than the gradient field. SVG marks this evaluated derivative and
+its conversion plan keeps native source preservation explicit.
+
+`compositing_plan` exposes each projected leaf's relation, Group, source Object,
+Path/Contour IDs, x/y axis and stable source-point projected anchors/controls in
+Group-local space. The Inspector updates the same retained relation. Canvas
+preserves selection/provenance but refuses direct projected anchor/handle drag
+with `DEFORM_SOURCE_EDIT_REQUIRED`; Inspector/API source edits reevaluate normally.
+Widget/pixel tests are offscreen correctness evidence, not hands-on GUI acceptance.
+See `schemas/native-v0.75.schema.json`.

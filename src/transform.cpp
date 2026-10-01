@@ -142,6 +142,13 @@ std::map<Id,EvaluatedTransform> evaluate_transforms(const Document& document,con
             require(source!=document.objects.end(),"MISSING_PATH_ATTACHMENT","Group Path Follow source Path no longer exists");
             require(source->second.kind==Kind::path,"INVALID_PATH_ATTACHMENT","Group Path Follow source must be a Path object");
             const auto& path=visit(attachment.relation->path,depth+1);
+            if(attachment.relation->mode=="deform") {
+                // Deformation is projected after shape evaluation. Keep the
+                // source dependency in this graph so a source inheriting from
+                // a followed child still forms the same combined cycle.
+                (void)path;
+                item.derived_local=identity_matrix;
+            } else {
             const auto sampler_key=std::pair{attachment.relation->path,attachment.relation->contour};
             auto sampler=sampler_cache.find(sampler_key);
             if(sampler==sampler_cache.end())sampler=sampler_cache.emplace(sampler_key,
@@ -173,6 +180,7 @@ std::map<Id,EvaluatedTransform> evaluate_transforms(const Document& document,con
                 const auto local_position=map_point(group_inverse,position);
                 item.derived_local={1,0,0,1,local_position.x,local_position.y};
             }
+            }
             finite_matrix(item.derived_local);
         }
         item.local=compose(item.derived_local,item.authored_local);
@@ -191,10 +199,24 @@ std::map<Id,EvaluatedTransform> evaluate_transforms(const Document& document,con
 }
 
 std::optional<Bounds> object_bounds(const Document& document,const Id& id,const std::map<Ref,double>& values,
-    const std::map<Id,EvaluatedTransform>& transforms,bool world_space) {
+    const std::map<Id,EvaluatedTransform>& transforms,bool world_space,bool source_geometry) {
     require(document.objects.contains(id),"MISSING_OBJECT",id);
     require(transforms.contains(id),"MISSING_TRANSFORM",id);
     BoundsBuilder bounds;
+    std::optional<EvaluatedScene> scene;
+    if(!source_geometry&&std::any_of(document.objects.begin(),document.objects.end(),[](const auto& entry) {
+        return entry.second.path_follow&&entry.second.path_follow->mode=="deform";
+    })) {
+        std::function<bool(const Id&)> contains=[&](const Id& current) {
+            if(current==id)return true;
+            for(const auto& child:document.objects.at(current).children)if(contains(child))return true;
+            return false;
+        };
+        for(const auto& composition:document.compositions)
+            if(std::any_of(composition.roots.begin(),composition.roots.end(),contains)) {
+                scene=evaluate_scene(document,composition.id,values,transforms);break;
+            }
+    }
     std::optional<Affine> target_inverse;
     const auto relative=[&](const Id& child) {
         if(world_space)return transforms.at(child).world;
@@ -218,9 +240,17 @@ std::optional<Bounds> object_bounds(const Document& document,const Id& id,const 
         const auto found=document.objects.find(child);require(found!=document.objects.end(),"MISSING_OBJECT",child);
         const auto& object=found->second;
         if(object.kind==Kind::group) {for(const auto& member:object.children)visit(member,depth+1);return;}
-        const auto to_target=relative(child);
+        auto to_target=relative(child);
+        if(scene&&scene->geometry_worlds.contains(child)) {
+            const auto& owner=scene->deformation_owners.at(child);
+            // Derived contours are Group-local, so use the Group's coordinate
+            // chain directly when the target is an ancestor of that Group.
+            if(world_space)to_target=scene->geometry_worlds.at(child);
+            else if(child==id)to_target=identity_matrix; // Deform leaf evaluated-local means follower Group-local.
+            else to_target=relative(owner);
+        }
         if(object.image){bounds.rectangle({0,0,values.at({child,"","image.width"}),values.at({child,"","image.height"})},to_target);return;}
-        const auto shape=evaluate_shape(document,child,values);
+        const auto shape=scene&&scene->shapes.contains(child)?scene->shapes.at(child):evaluate_shape(document,child,values);
         std::optional<Bounds> text_bounds;
         if(object.text&&!object.text->path_attachment) {
             const auto layout=evaluate_text_projection(document,child,values);

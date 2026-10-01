@@ -3543,6 +3543,18 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             input->setRange(-limit,limit);input->setDecimals(4);input->setValue(value);input->setKeyboardTracking(false);return input;
         };
         const auto existing=o.path_follow;
+        auto* follow_mode=new QComboBox(follow_box);follow_mode->setObjectName("group-path-follow-mode");
+        follow_mode->addItem("Rigid placement","rigid");follow_mode->addItem("Deform geometry","deform");
+        follow_mode->setCurrentIndex(follow_mode->findData(qs(existing?existing->mode:"rigid")));
+        follow_form->addRow("Mode",follow_mode);
+        auto* deform_axis=new QComboBox(follow_box);deform_axis->setObjectName("group-path-deform-axis");
+        deform_axis->addItem("X longitudinal / Y normal","x");deform_axis->addItem("Y longitudinal / X normal","y");
+        deform_axis->setCurrentIndex(deform_axis->findData(qs(existing?existing->deform_axis:"x")));
+        deform_axis->setEnabled(follow_mode->currentData().toString()=="deform");
+        connect(follow_mode,qOverload<int>(&QComboBox::currentIndexChanged),deform_axis,[follow_mode,deform_axis](int) {
+            deform_axis->setEnabled(follow_mode->currentData().toString()=="deform");
+        });
+        follow_form->addRow("Deform axis",deform_axis);
         auto* start=make_follow_number("group-path-follow-start",existing?existing->start:0);
         auto* relation_offset=make_follow_number("group-path-follow-normal-offset",existing?existing->normal_offset:0);
         const auto displayed_start=start->value(),displayed_offset=relation_offset->value();
@@ -3564,7 +3576,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         clear_follow->setEnabled(existing.has_value());follow_button_layout->addWidget(clear_follow);
         follow_form->addRow(follow_buttons);
         const auto session_id=host.session_id;
-        connect(apply_follow,&QPushButton::clicked,this,[this,path_picker,contour_picker,start_mode,start,relation_offset,reversed,
+        connect(apply_follow,&QPushButton::clicked,this,[this,path_picker,contour_picker,start_mode,start,relation_offset,reversed,follow_mode,deform_axis,
             id=o.id,session_id,existing,displayed_start,displayed_offset] {perform([&] {
             if(host.session_id!=session_id)throw Error("SESSION_CONFLICT","Group Path Follow belongs to another document");
             GroupPathFollow relation=existing.value_or(GroupPathFollow{});
@@ -3575,6 +3587,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             if(!existing||start->value()!=displayed_start)relation.start=start->value();
             if(!existing||relation_offset->value()!=displayed_offset)relation.normal_offset=relation_offset->value();
             relation.reversed=reversed->isChecked();
+            relation.mode=follow_mode->currentData().toString().toStdString();
+            relation.deform_axis=deform_axis->currentData().toString().toStdString();
             canvas->cancel_interaction();
             if(existing)host.session.apply({GroupPathFollowCommand{UpdateGroupPathFollow{id,relation}}},host.session.revision());
             else host.session.apply({GroupPathFollowCommand{AttachGroupPathFollow{id,relation}}},host.session.revision());
@@ -3599,7 +3613,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
                 auto* offset=make_follow_number(("group-path-follow-item-offset-"+child_id).c_str(),item.normal_offset);
                 offset->setToolTip("Normal offset from this Path Follow relation");row_layout->addWidget(offset);
                 auto* tangent=new QCheckBox("Tangent",row);tangent->setObjectName("group-path-follow-tangent-"+qs(child_id));
-                tangent->setChecked(item.follow_tangent);tangent->setEnabled(active);row_layout->addWidget(tangent);
+                tangent->setChecked(item.follow_tangent);tangent->setEnabled(active&&existing->mode=="rigid");
+                tangent->setToolTip("Rigid placement only; Deform always uses the sampled tangent/normal frame");row_layout->addWidget(tangent);
                 distance->setEnabled(active);offset->setEnabled(active);follow_form->addRow(row);
                 connect(enabled,&QCheckBox::toggled,this,[this,enabled,id=o.id,child_id,session_id,active](bool checked) {
                     bool applied=false;perform([&] {

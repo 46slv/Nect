@@ -4625,6 +4625,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     "A Group following a Path cannot have an explicit Transform Parent");
                 require(follow.start_mode=="distance"||follow.start_mode=="normalized","GROUP_PATH_FOLLOW_START_MODE",
                     "Group Path Follow start mode must be distance or normalized");
+                require(follow.mode=="rigid"||follow.mode=="deform","GROUP_PATH_FOLLOW_MODE",
+                    "Group Path Follow mode must be rigid or deform");
+                require(follow.deform_axis=="x"||follow.deform_axis=="y","GROUP_PATH_DEFORM_AXIS",
+                    "Group Path Deform axis must be x or y");
                 finite(follow.start);finite(follow.normal_offset);
                 require(follow.items.size()<=10000,"GROUP_PATH_FOLLOW_ITEMS",
                     "Group Path Follow allows at most 10000 child items");
@@ -4634,6 +4638,22 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                         "GROUP_PATH_FOLLOW_NOT_CHILD","Each Path Follow item must identify a direct Group child");
                     require(!d.objects.contains(child)||!d.objects.at(child).transform_parent,
                         "GROUP_PATH_FOLLOW_TRANSFORM_PARENT","A followed child cannot have an explicit Transform Parent");
+                    if(follow.mode=="deform") {
+                        std::function<void(const Id&,unsigned)> check_deform_domain=
+                            [&](const Id& current,unsigned depth) {
+                                require(depth<=128,"HIERARCHY_DEPTH","Group Path Deform hierarchy depth limit 128");
+                                const auto& member=d.objects.at(current);
+                                if(member.kind==Kind::group) {
+                                    require(!member.path_follow,"GROUP_PATH_DEFORM_NESTED_RELATION",
+                                        "Nested Group Path Follow relations are unsupported inside a deforming Group item");
+                                    for(const auto& descendant:member.children)check_deform_domain(descendant,depth+1);
+                                    return;
+                                }
+                                require(member.kind==Kind::path,"GROUP_PATH_DEFORM_UNSUPPORTED_DOMAIN",
+                                    "Group Path Deform supports only Path and retained primitive geometry; Text, Image and Instance children are unsupported");
+                            };
+                        check_deform_domain(child,0);
+                    }
                 }
             }
             require(o.stack.size()<=128,"LIMIT","Group operation stack limit 128");
@@ -4925,6 +4945,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                 "GROUP_PATH_FOLLOW_RANGE","Group Path Follow start must be within the open contour");
         }
     }
+    std::set<Id> deform_compositions;
+    for(const auto& [id,object]:d.objects)if(object.path_follow&&object.path_follow->mode=="deform")
+        deform_compositions.insert(compositions.at(id));
+    for(const auto& composition:deform_compositions)(void)evaluate_scene(d,composition,values,transforms);
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
         const auto& source=scalar->binding->source;
         if(!values.contains(source))throw Error("MISSING_REFERENCE",source.object+"/"+source.point+"/"+source.field);
@@ -5163,7 +5187,9 @@ void set_affine(Document& document,const Id& id,const Affine& matrix,const std::
 void center_anchor(Document& document,const Id& id,bool require_geometry) {
     require(document.objects.contains(id),"MISSING_OBJECT",id);
     const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
-    const auto bounds=object_bounds(document,id,values,transforms);
+    // The Anchor is authored in source-local coordinates, never in the
+    // transient Group-local plane of a deformed leaf.
+    const auto bounds=object_bounds(document,id,values,transforms,false,true);
     if(!bounds){require(!require_geometry,"EMPTY_BOUNDS","Object has no geometry to center its Anchor");return;}
     set_changed_scalar(document,{id,"","transform.anchor_x"},bounds->left+(bounds->right-bounds->left)/2,values);
     set_changed_scalar(document,{id,"","transform.anchor_y"},bounds->top+(bounds->bottom-bounds->top)/2,values);

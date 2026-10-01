@@ -68,6 +68,8 @@ std::size_t extra(const PresetEntry&);
 std::size_t extra(const PresetDefinition&);
 std::size_t extra(const Definition&);
 std::size_t extra(const DefinitionInstance&);
+std::size_t extra(const GroupPathFollowItem&);
+std::size_t extra(const GroupPathFollow&);
 template<class T>std::size_t extra(const std::optional<T>&);
 template<class A,class B>std::size_t extra(const std::pair<A,B>&);
 template<class T,std::size_t N>std::size_t extra(const std::array<T,N>&);
@@ -121,11 +123,14 @@ std::size_t extra(const PresetEntry& v){return total(extra(v.kind),extra(v.type)
 std::size_t extra(const PresetDefinition& v){return total(extra(v.id),extra(v.label),extra(v.category),extra(v.tags),extra(v.target_domain),extra(v.entries));}
 std::size_t extra(const Definition& v){return total(extra(v.id),extra(v.name),extra(v.root));}
 std::size_t extra(const DefinitionInstance& v){return total(extra(v.definition),extra(v.overrides));}
+std::size_t extra(const GroupPathFollowItem&){return 0;} // Scalars/bool are inline map-node storage.
+std::size_t extra(const GroupPathFollow& v){return total(extra(v.id),extra(v.path),extra(v.contour),
+    extra(v.start_mode),extra(v.mode),extra(v.deform_axis),extra(v.items));}
 std::size_t extra(const GeometryMask& v){return total(extra(v.id),extra(v.source),extra(v.fill_rule),extra(v.mode),extra(v.mask_color_space),extra(v.enabled_driver),extra(v.enabled_expression));}
 std::size_t extra(const Compositing& v){return total(extra(v.opacity),extra(v.blend),extra(v.isolated_driver),extra(v.mask));}
 std::size_t extra(const ImageSource& v){return total(extra(v.asset),extra(v.width),extra(v.height));}
 std::size_t extra(const RasterAsset& v){return total(extra(v.id),extra(v.name),extra(v.mode),extra(v.locator),v.payload?v.payload->bytes().size()+sizeof(RasterPayload)+allocation_overhead:0);}
-std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.visibility_driver),extra(v.visibility_expression),extra(v.compositing),extra(v.image),extra(v.instance));}
+std::size_t extra(const Object& v){return total(extra(v.id),extra(v.name),extra(v.children),extra(v.contours),extra(v.transform),extra(v.stack),extra(v.legacy_stroke),extra(v.source),extra(v.point_edit),extra(v.text),extra(v.anchor),extra(v.transform_parent),extra(v.visibility_driver),extra(v.visibility_expression),extra(v.compositing),extra(v.image),extra(v.instance),extra(v.path_follow));}
 std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
 std::size_t extra(const Guide& v){return total(extra(v.id),extra(v.name),extra(v.axis),extra(v.position_driver));}
 std::size_t extra(const LayoutRect&){return 0;}

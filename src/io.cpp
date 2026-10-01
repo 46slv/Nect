@@ -403,12 +403,16 @@ GroupPathFollowItem read_group_path_follow_item(const j::value& value) {
 j::object group_path_follow_item_json(const GroupPathFollowItem& item) {
     return {{"distance",item.distance},{"normal_offset",item.normal_offset},{"follow_tangent",item.follow_tangent}};
 }
-GroupPathFollow read_group_path_follow(const j::value& value) {
-    const auto& relation=value.as_object();keys(relation,{"id","path","contour","start_mode","start","normal_offset","reversed","items"});
+GroupPathFollow read_group_path_follow(const j::value& value,bool allow_deform=true) {
+    const auto& relation=value.as_object();
+    if(allow_deform)keys(relation,{"id","path","contour","start_mode","start","normal_offset","reversed","items","mode","deform_axis"});
+    else keys(relation,{"id","path","contour","start_mode","start","normal_offset","reversed","items"});
     GroupPathFollow result;result.id=text(relation.at("id"));result.path=text(relation.at("path"));
     result.contour=text(relation.at("contour"));result.start_mode=text(relation.at("start_mode"));
     result.start=number(relation.at("start"));result.normal_offset=number(relation.at("normal_offset"));
     result.reversed=relation.at("reversed").as_bool();
+    if(const auto* mode=relation.if_contains("mode"))result.mode=text(*mode);
+    if(const auto* axis=relation.if_contains("deform_axis"))result.deform_axis=text(*axis);
     for(const auto& item:relation.at("items").as_object())
         if(!result.items.emplace(std::string(item.key()),read_group_path_follow_item(item.value())).second)
             throw Error("DUPLICATE_TARGET","Duplicate Group Path Follow child Object ID");
@@ -417,8 +421,11 @@ GroupPathFollow read_group_path_follow(const j::value& value) {
 j::object group_path_follow_json(const GroupPathFollow& relation) {
     j::object items;
     for(const auto& [object,item]:relation.items)items[object]=group_path_follow_item_json(item);
-    return {{"id",relation.id},{"path",relation.path},{"contour",relation.contour},{"start_mode",relation.start_mode},
+    j::object result{{"id",relation.id},{"path",relation.path},{"contour",relation.contour},{"start_mode",relation.start_mode},
         {"start",relation.start},{"normal_offset",relation.normal_offset},{"reversed",relation.reversed},{"items",items}};
+    if(relation.mode!="rigid")result["mode"]=relation.mode;
+    if(relation.mode=="deform"||relation.deform_axis!="x")result["deform_axis"]=relation.deform_axis;
+    return result;
 }
 TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true,bool allow_locale_driver=true,bool allow_direction_driver=true,bool allow_layout_driver=true,bool allow_alignment_driver=true,bool allow_path_attachment=true,bool allow_weight_expression=true,bool allow_weight_offset=true) {
     const auto& o=v.as_object();
@@ -2137,10 +2144,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,74> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74"};
+        constexpr std::array<std::string_view,75> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.74 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.75 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -2246,7 +2253,7 @@ Document decode(std::string_view input) {
                         minor>=26,minor>=28,minor>=29,minor>=67,minor>=69));
                 } else if(o.contains("stack"))throw Error("INVALID_OBJECT","Group operation stacks require native 0.25");
                 obj.children=ids(o.at("children"));
-                if(minor>=74)if(const auto* follow=o.if_contains("path_follow"))obj.path_follow=read_group_path_follow(*follow);
+                if(minor>=74)if(const auto* follow=o.if_contains("path_follow"))obj.path_follow=read_group_path_follow(*follow,minor>=75);
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
                 if(minor>=3) {
@@ -2486,7 +2493,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     const auto authored_isolation=evaluate_composite_isolations(d);
     bool modern=false;
     std::function<void(const Id&)> detect=[&](const Id& id){const auto& object=d.objects.at(id);const auto& c=object.compositing;
-        modern=modern||object.kind==Kind::instance||object.image.has_value()||!visibility.at(id)||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||authored_isolation.at(id)||
+        modern=modern||(object.path_follow&&object.path_follow->mode=="deform")||object.kind==Kind::instance||object.image.has_value()||!visibility.at(id)||values.at({id,"","composite.opacity"})!=1||c.blend!="normal"||authored_isolation.at(id)||
             (c.mask&&mask_enabled.at(geometry_mask_enabled_ref(id,c.mask->id)));
         for(const auto& child:object.children)detect(child);};
     for(const auto& id:comp->roots)detect(id);
@@ -2519,6 +2526,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
             out<<"><title>"<<escape(object.name)<<"</title>\n";
             if(object.kind==Kind::group)for(const auto& child:node.children)render_node(child);
             else {
+            if(scene.deformation_owners.contains(node.id))out<<"<desc>Evaluated Group Path Deform derivative; retained source geometry and relation remain in native Nect.</desc>\n";
             if(object.text)out<<"<desc>Text outlined for SVG; editable source remains in native Nect.</desc>\n";
             out<<"<g transform=\"matrix(";for(const auto value:node.world)out<<value<<' ';out<<")\">\n";
                 if(object.image)paint_image(node.id);else paint_shape(scene.shapes.at(node.id));out<<"</g>\n";
@@ -2925,6 +2933,7 @@ std::string request(Session& session,std::string_view input) {
                 {"unsupported_effects",unsupported_effects},{"unsupported_masks",unsupported_masks},
                 {"property_policy","evaluated_values"},{"expressions_preserved",false},
                 {"shape_policy","evaluated vector contours; live operators preserved only in native"},
+                {"path_deform_policy","evaluated derivative geometry; source IDs, contours and relation preserved only in native; gradient fields retain source affine coordinates"},
                 {"image_policy","accepted snapshot projected to oriented sRGB PNG in SVG; original bytes and links preserved in native"},
                 {"image_limits",j::object{{"normalized_png_bytes",raster_png_limit},{"aggregate_png_bytes",32*1024*1024}}},
                 {"compositing_policy","vector_geometry_clips_group_opacity_css_blend_and_isolation"},{"blend_reader_requirement","SVG CSS mix-blend-mode and isolation support"},
@@ -2974,8 +2983,20 @@ std::string request(Session& session,std::string_view input) {
                     } else details["projection"]="isolated_rgba";
                     mask=std::move(details);
                 }
-                return j::object{{"object",node.id},{"world",world},{"visible",node.visible},{"opacity",node.opacity},{"blend",node.blend},
+                j::object result{{"object",node.id},{"world",world},{"visible",node.visible},{"opacity",node.opacity},{"blend",node.blend},
                     {"isolated",node.isolated},{"mask",mask},{"postchildren_effects",effects},{"children",children}};
+                if(scene.deformation_owners.contains(node.id)) {
+                    const auto& group=scene.deformation_owners.at(node.id);const auto& relation=*render_document.objects.at(group).path_follow;
+                    j::array points;
+                    const auto vector=[](Vec2 value){return j::array{value.x,value.y};};
+                    for(const auto& point:scene.deformation_points.at(node.id))points.push_back(j::object{
+                        {"point",point.id},{"contour",point.contour},{"anchor",vector(point.anchor)},
+                        {"incoming",vector(point.incoming)},{"outgoing",vector(point.outgoing)}});
+                    result["deformation"]=j::object{{"group",group},{"relation",relation.id},{"source_object",node.id},
+                        {"path",relation.path},{"contour",relation.contour},{"mode",relation.mode},{"axis",relation.deform_axis},
+                        {"space","group_local"},{"authored_source_preserved",true},{"points",points}};
+                }
+                return result;
             };
             j::array roots;for(const auto& node:scene.roots)roots.push_back(node_json(node));
             result=j::object{{"roots",roots},{"requires_compositing",scene.requires_compositing},{"backdrop","transparent"}};
@@ -3043,7 +3064,23 @@ std::string request(Session& session,std::string_view input) {
             result=std::move(definitions);
         } else if(op=="render_plan") {
             keys(o,{"op","object"});const auto id=text(o.at("object"));
-            const auto shape=evaluate_shape(session.document(),id,evaluate(session.document()));
+            const auto values=evaluate(session.document());auto shape=evaluate_shape(session.document(),id,values);
+            std::optional<EvaluatedScene> scene;
+            if(std::any_of(session.document().objects.begin(),session.document().objects.end(),[](const auto& entry) {
+                return entry.second.path_follow&&entry.second.path_follow->mode=="deform";
+            })) {
+                const auto transforms=evaluate_transforms(session.document(),values);
+                std::function<bool(const Id&)> contains=[&](const Id& current) {
+                    if(current==id)return true;
+                    for(const auto& child:session.document().objects.at(current).children)if(contains(child))return true;
+                    return false;
+                };
+                for(const auto& composition:session.document().compositions)
+                    if(std::any_of(composition.roots.begin(),composition.roots.end(),contains)) {
+                        scene=evaluate_scene(session.document(),composition.id,values,transforms);
+                        shape=scene->shapes.at(id);break;
+                    }
+            }
             j::array paints;
             for(const auto& paint:shape.paints) {
                 j::array matrix,rgba;for(const auto n:paint.transform)matrix.push_back(n);for(const auto n:paint.rgba)rgba.push_back(n);
@@ -3060,7 +3097,13 @@ std::string request(Session& session,std::string_view input) {
                 }
                 paints.push_back(std::move(entry));
             }
-            result=j::object{{"path_instances",shape.paths.size()},{"paint_layers",paints}};
+            j::object plan{{"path_instances",shape.paths.size()},{"paint_layers",paints}};
+            if(scene&&scene->deformation_owners.contains(id)) {
+                j::array world;for(const auto value:scene->geometry_worlds.at(id))world.push_back(value);
+                plan["geometry_space"]="group_local";plan["geometry_world"]=world;
+                plan["deformation_group"]=scene->deformation_owners.at(id);plan["authored_source_preserved"]=true;
+            }
+            result=std::move(plan);
         } else if(op=="assets") {
             keys(o,{"op"});j::array list;
             for(const auto& [id,asset]:session.document().raster_assets) {

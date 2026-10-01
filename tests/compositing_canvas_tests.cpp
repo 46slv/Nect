@@ -572,6 +572,27 @@ void cropped_mask_scope_preserves_world_alignment() {
     }
     f.no_error();
 }
+void path_deform_mask_and_paint_share_group_geometry_world() {
+    auto d=document();add(d,rectangle("target",0,0,640,480,Qt::green));
+    auto source=rectangle("deform-source",10,10,40,30,Qt::white);source.visible=false;
+    source.transform[4].literal=100;source.transform[5].literal=100;add(d,source);
+    group(d,"deform-group",{"deform-source"});
+    const Affine transform{2,0,0,1.5,90,70};
+    for(std::size_t i=0;i<6;++i)d.objects.at("deform-group").transform[i].literal=transform[i];
+    Object guide;guide.id="deform-guide";guide.name="Guide";guide.visible=false;
+    Point first;first.id="deform-guide-a";Point last;last.id="deform-guide-b";last.x.literal=640;
+    guide.contours={{"deform-guide-contour",false,{first,last}}};add(d,guide);
+    GroupPathFollow relation;relation.id="pixel-deform-relation";relation.path="deform-guide";relation.contour="deform-guide-contour";
+    relation.mode="deform";relation.items={{"deform-source",{0,0,true}}};d.objects.at("deform-group").path_follow=relation;
+    d.objects.at("target").compositing.mask=GeometryMask{"deform-mask","deform-source"};Fixture f(d);
+    f.color(120,120,Qt::green,"Deformed Geometry mask consumes the leaf-to-Group coordinates and Group world once");
+    f.color(160,120,Qt::white,"Deformed mask excludes outside derived geometry");
+    auto mask=*f.session.document().objects.at("target").compositing.mask;mask.mode="alpha";
+    f.apply({SetMask{"target",mask}});f.color(120,120,Qt::green,"Alpha mask uses the same canonical deformed paint projection");
+    mask.mode="luma";f.apply({SetMask{"target",mask}});
+    f.color(120,120,Qt::green,"White deformed Luma paint matches the Geometry/Alpha oracle");
+    f.color(310,290,Qt::white,"Structural child world is not applied a second time to deformed paint");f.no_error();
+}
 void render_limits_remain_visible() {
     auto d=document(false);add(d,rectangle("target",100,100,100,100,Qt::red));Id child="target";
     for(int i=0;i<17;++i){const auto id="group-"+std::to_string(i);group(d,id,{child});d.objects.at(id).compositing.isolated=true;child=id;}
@@ -593,7 +614,7 @@ int main(int argc,char** argv) {
         linked_visibility_controls_canvas_pixels();expression_visibility_projects_own_value_to_canvas();linked_fill_rule_projects_to_canvas_and_svg();
         linked_mask_enabled_projects_to_canvas_and_svg();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
         mask_outline_is_separate_from_inherited_selection();cropped_unmasked_scope_preserves_stroke_gradient_and_repeater();
-        cropped_mask_scope_preserves_world_alignment();render_limits_remain_visible();
+        cropped_mask_scope_preserves_world_alignment();path_deform_mask_and_paint_share_group_geometry_world();render_limits_remain_visible();
         std::cout<<"PASS "<<checks<<" compositing Canvas pixel and interaction checks\n";return 0;
     }catch(const std::exception& error){std::cerr<<"FAIL after "<<checks<<" checks: "<<error.what()<<'\n';return 1;}
 }
