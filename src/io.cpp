@@ -1719,6 +1719,12 @@ ArtboardTemplateCommand read_artboard_template_command(const j::value& value) {
         return ArtboardTemplateCommand{ResetArtboardTemplateOverride{text(object.at("composition")),
             text(object.at("artboard")),text(object.at("field"))}};
     }
+    if(type=="duplicate_template_artboard") {
+        keys(object,{"type","composition","artboard","id_prefix","x","y","index"});
+        return ArtboardTemplateCommand{DuplicateTemplateArtboard{text(object.at("composition")),
+            text(object.at("artboard")),text(object.at("id_prefix")),number(object.at("x")),
+            number(object.at("y")),j::value_to<std::size_t>(object.at("index"))}};
+    }
     if(type=="detach_artboard_template") {
         keys(object,{"type","composition","artboard","id_prefix"});
         return ArtboardTemplateCommand{DetachArtboardTemplate{text(object.at("composition")),
@@ -1855,7 +1861,7 @@ Command read_command(const j::value& v) {
     auto type=text(o.at("type"));
     if(type=="create_artboard_template"||type=="rename_artboard_template"||type=="delete_artboard_template"||
         type=="assign_artboard_template"||type=="set_artboard_template_override"||
-        type=="reset_artboard_template_override"||type=="detach_artboard_template")
+        type=="reset_artboard_template_override"||type=="detach_artboard_template"||type=="duplicate_template_artboard")
         return StructuralCommand{read_artboard_template_command(v)};
     if(type=="add_artboard_guide"||type=="update_artboard_guide"||type=="delete_artboard_guide"||
         type=="set_artboard_guide_override"||type=="reset_artboard_guide_override"||type=="detach_artboard_guide")

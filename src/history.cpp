@@ -235,6 +235,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
                 else if constexpr(std::is_same_v<T,AssignArtboardTemplate>)return "Assign Template: "+mutation.artboard_id;
                 else if constexpr(std::is_same_v<T,SetArtboardTemplateOverride>)return "Set Template override: "+mutation.field;
                 else if constexpr(std::is_same_v<T,ResetArtboardTemplateOverride>)return "Reset Template override: "+mutation.field;
+                else if constexpr(std::is_same_v<T,DuplicateTemplateArtboard>)return "Duplicate Template Artboard: "+mutation.artboard_id;
                 else return "Detach Template: "+mutation.artboard_id;
             },command->mutation);
         if(const auto* command=std::get_if<ArtboardGuideCommand>(structural))

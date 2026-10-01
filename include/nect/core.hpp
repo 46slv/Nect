@@ -664,9 +664,14 @@ struct SetArtboardTemplateOverride {
 };
 struct ResetArtboardTemplateOverride { Id composition,artboard_id; std::string field; };
 struct DetachArtboardTemplate { Id composition,artboard_id,id_prefix; };
+struct DuplicateTemplateArtboard {
+    Id composition,artboard_id,id_prefix;
+    double x=0,y=0;
+    std::size_t index=0;
+};
 using ArtboardTemplateMutation=std::variant<CreateArtboardTemplate,RenameArtboardTemplate,
     DeleteArtboardTemplate,AssignArtboardTemplate,SetArtboardTemplateOverride,
-    ResetArtboardTemplateOverride,DetachArtboardTemplate>;
+    ResetArtboardTemplateOverride,DetachArtboardTemplate,DuplicateTemplateArtboard>;
 struct ArtboardTemplateCommand { ArtboardTemplateMutation mutation; };
 struct AddArtboardGuide { Id composition,artboard_id; ArtboardGuide guide; };
 struct UpdateArtboardGuide { Id composition,artboard_id; ArtboardGuide guide; };

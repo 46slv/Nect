@@ -6320,6 +6320,41 @@ void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& c
                 board.template_assignment->template_id==mutation.template_id)
                 throw Error("ARTBOARD_TEMPLATE_IN_USE","Template "+mutation.template_id+" is assigned to Artboard "+board.id);
             composition.templates.erase(found);
+        } else if constexpr(std::is_same_v<T,DuplicateTemplateArtboard>) {
+            identity(mutation.id_prefix);
+            require(mutation.id_prefix.size()<=32,"INVALID_ID","Template duplicate prefix is limited to 32 characters");
+            finite(mutation.x);finite(mutation.y);
+            require(mutation.index<=composition.artboards.size(),"INVALID_INDEX","Artboard insertion index is out of range");
+            const auto source=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
+                return item.id==mutation.artboard_id;
+            });
+            require(source!=composition.artboards.end(),"MISSING_ARTBOARD",mutation.artboard_id);
+            require(source->template_assignment&&source->template_assignment->content_instance,
+                "MISSING_TEMPLATE_CONTENT","Duplicate requires a Template-owned Definition Instance");
+            auto copied=*source;
+            const auto content=*copied.template_assignment->content_instance;
+            const auto& instance=candidate.objects.at(content);
+            require(!instance.transform_parent&&!instance.transform[4].binding&&!instance.transform[4].expression&&
+                !instance.transform[5].binding&&!instance.transform[5].expression,
+                "DRIVEN_TEMPLATE_PLACEMENT","Duplicate requires literal unparented content translation");
+            const double tx=instance.transform[4].literal+mutation.x-copied.x;
+            const double ty=instance.transform[5].literal+mutation.y-copied.y;
+            finite(tx);finite(ty);
+            copied.id=mutation.id_prefix+"-artboard";
+            if(copied.name.size()<=4091)copied.name+=" copy";
+            copied.x=mutation.x;copied.y=mutation.y;
+            copied.template_assignment->grid_id=mutation.id_prefix+"-grid";
+            if(copied.layout&&copied.layout->grid)copied.layout->grid->id=copied.template_assignment->grid_id;
+            for(std::size_t i=0;i<copied.local_guides.size();++i)
+                copied.local_guides[i].id=mutation.id_prefix+"-guide-"+std::to_string(i+1);
+            const DuplicateObjects duplicate{{content},mutation.id_prefix+"-content"};
+            const auto plan=plan_duplication(candidate,duplicate);
+            const auto new_content=plan.ids.at(content);
+            duplicate_objects(candidate,duplicate);
+            candidate.objects.at(new_content).transform[4].literal=tx;
+            candidate.objects.at(new_content).transform[5].literal=ty;
+            copied.template_assignment->content_instance=new_content;
+            composition.artboards.insert(composition.artboards.begin()+static_cast<std::ptrdiff_t>(mutation.index),std::move(copied));
         } else if constexpr(std::is_same_v<T,AssignArtboardTemplate>) {
             auto board=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
                 return item.id==mutation.artboard_id;
