@@ -4,9 +4,13 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QDockWidget>
+#include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QDir>
+#include <QDialog>
 #include <QFileInfo>
 #include <QGroupBox>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -18,11 +22,14 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QStatusBar>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <iostream>
+#include <memory>
 
 using namespace nect;
 using namespace nect::desktop;
@@ -103,13 +110,40 @@ QAction* text_action(Window& window,const QString& text) {
     for(auto* action:window.findChildren<QAction*>())if(action->text()==text)return action;
     return nullptr;
 }
+void with_library_dialog(Window& window,const std::function<void(QDialog*)>& action) {
+    bool entered=false;
+    QTimer poll;poll.setInterval(1);
+    QObject::connect(&poll,&QTimer::timeout,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("folder-library-dialog");
+        if(!dialog||!dialog->isVisible())return;
+        poll.stop();entered=true;action(dialog);
+    });
+    auto* open=window.findChild<QAction*>("folder-library");check(open,"Folder Library action exists for Effect Favorites");
+    poll.start();open->trigger();events();
+    check(entered,"Folder Library dialog opened for Effect Favorite interaction");
+}
+QListWidgetItem* favorite_item(QDialog* dialog,const QString& favorite_id) {
+    auto* list=dialog->findChild<QListWidget*>("folder-library-favorites");
+    if(!list)return nullptr;
+    for(int i=0;i<list->count();++i)if(list->item(i)->data(Qt::UserRole).toString()==favorite_id)return list->item(i);
+    return nullptr;
+}
 }
 
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
     try {
         QTemporaryDir temp;check(temp.isValid(),"Temporary test directory exists");
-        Window window(temp.path());window.show();events();
+        QSettings workspace_settings(temp.filePath("effects-library.ini"),QSettings::IniFormat);
+        const auto asset_root=temp.filePath("registered-assets");check(QDir().mkpath(asset_root),"Create owned registered asset fixture root");
+        QImage fixture_image(2,2,QImage::Format_RGBA8888);fixture_image.fill(QColor(30,90,170,255));
+        const auto asset_path=temp.filePath("registered-assets/favorite.png");check(fixture_image.save(asset_path,"PNG"),"Write owned registered raster fixture");
+        FolderLibrary seeded_library(workspace_settings);
+        const auto seeded_root=seeded_library.register_root(asset_root,"Effect test assets");seeded_library.refresh();
+        const auto asset_favorite=seeded_library.add_favorite({seeded_root.root_id,"favorite.png","raster"});
+        const auto unavailable_effect=seeded_library.add_favorite(BuiltinEffectTypeRefV1{"nect.shape.offset",77});
+        auto workspace_library=std::make_unique<FolderLibrary>(workspace_settings);
+        Window window(temp.path(),std::move(workspace_library));window.show();events();
         auto* effects=window.findChild<QDockWidget*>("effects");check(effects,"Dedicated Effects dock exists");
         effects->show();effects->raise();events();
         effects->close();events();check(!effects->isVisible(),"Effects dock can be closed");
@@ -123,6 +157,19 @@ int main(int argc,char** argv) {
         auto* status=named<QLabel>(window,"effects-status");
         check(status->text().contains("Target: none")&&status->text().contains("nect.shape.offset")&&status->text().contains("INVALID_DOMAIN"),
             "No-selection refusal names target, operator and reason in Effects");
+
+        const auto preference_doc=encode(session.document());const auto preference_revision=session.revision();
+        const auto preference_history=session.history();
+        click(window,"effects-favorite");
+        check(encode(session.document())==preference_doc&&session.revision()==preference_revision&&session.history()==preference_history,
+            "Favoriting a selected built-in with no compatible document target changes workspace preferences only");
+        FolderLibrary favorite_reader(workspace_settings);
+        const auto offset_favorite=std::find_if(favorite_reader.favorites().begin(),favorite_reader.favorites().end(),[](const auto& item) {
+            const auto* effect=std::get_if<BuiltinEffectTypeRefV1>(&item.target);
+            return effect&&effect->type_id=="nect.shape.offset"&&effect->behavior_version==1;
+        });
+        check(offset_favorite!=favorite_reader.favorites().end(),"Effects panel favorites the exact selected built-in TypeID and BehaviorVersion");
+        const auto offset_favorite_id=offset_favorite->favorite_id;
 
         auto* search=named<QLineEdit>(window,"effects-search");
         search->setText("OFFsET");events();
@@ -138,6 +185,7 @@ int main(int argc,char** argv) {
                 definition=value.toObject();
             check(!definition.isEmpty()&&item->text()==QString::fromStdString(descriptor.label)&&
                 item->data(Qt::UserRole).toString()==QString::fromStdString(descriptor.type)&&
+                item->data(Qt::UserRole+2).toULongLong()==descriptor.version&&
                 definition.value("version").toInt()==static_cast<int>(descriptor.version)&&
                 definition.value("input").toString()==QString::fromStdString(descriptor.input)&&
                 definition.value("output").toString()==QString::fromStdString(descriptor.output)&&
@@ -145,6 +193,22 @@ int main(int argc,char** argv) {
                 "Effects catalog and API discover the same executable built-in type contract");
         }
         check(catalog_index==catalog->count(),"Effects catalog contains only advertised built-in effects");
+        const auto offset_rows=catalog->findItems("Offset Paths",Qt::MatchExactly);
+        const auto posterize_rows=catalog->findItems("Group Posterize",Qt::MatchExactly);
+        check(offset_rows.size()==1&&posterize_rows.size()==1,"Built-in Effect rows can be addressed by their displayed catalog labels");
+        const auto original_posterize_row=catalog->row(posterize_rows.front());
+        auto* moved_posterize=catalog->takeItem(original_posterize_row);
+        catalog->insertItem(0,moved_posterize);
+        catalog->setCurrentItem(offset_rows.front());events();
+        const auto exact_favorite_after_reorder=std::find_if(favorite_reader.favorites().begin(),favorite_reader.favorites().end(),[&](const auto& item) {
+            const auto* effect=std::get_if<BuiltinEffectTypeRefV1>(&item.target);
+            return item.favorite_id==offset_favorite_id&&effect&&effect->type_id=="nect.shape.offset"&&effect->behavior_version==1;
+        });
+        check(exact_favorite_after_reorder!=favorite_reader.favorites().end(),
+            "Changing catalog row order does not retarget a persisted Favorite identity");
+        catalog->takeItem(catalog->row(moved_posterize));
+        catalog->insertItem(original_posterize_row,moved_posterize);
+        catalog->setCurrentItem(offset_rows.front());events();
         const auto search_revision=session.revision();const auto search_document=encode(session.document());
         search->setText("unavailable effect");events();
         check(!named<QPushButton>(window,"effects-apply")->isEnabled()&&
@@ -157,6 +221,136 @@ int main(int argc,char** argv) {
         auto* target=named<QLabel>(window,"effects-target");
         check(target->text().contains(QString::fromStdString(ui_object))&&target->text().contains("Rectangle"),
             "Effects panel reports the exact selected primitive ID and type");
+        const auto before_favorite_apply_doc=encode(session.document());
+        const auto before_favorite_apply_revision=session.revision();
+        const auto before_favorite_apply_history=session.history();
+        with_library_dialog(window,[&](QDialog* dialog) {
+            auto* row=favorite_item(dialog,offset_favorite_id);
+            check(row&&row->text().contains("Offset Paths")&&row->text().contains("nect.shape.offset behavior v1")&&
+                row->text().contains("Available"),"Library Favorite resolves its catalog label from exact TypeID/version after catalog reorder");
+            const auto before_mismatch_doc=encode(session.document());const auto before_mismatch_revision=session.revision();
+            const auto before_mismatch_history=session.history();
+            auto* use_favorite=dialog->findChild<QPushButton*>("folder-library-use-favorite");
+            check(use_favorite,"Library can invoke an unavailable Effect Favorite for a visible refusal");
+            auto* unavailable_row=favorite_item(dialog,unavailable_effect.favorite_id);
+            check(unavailable_row&&unavailable_row->text().contains("EFFECT_BEHAVIOR_VERSION_MISMATCH"),
+                "Library keeps an unavailable exact Effect version visible");
+            unavailable_row->listWidget()->setCurrentItem(unavailable_row);
+            QTest::mouseClick(use_favorite,Qt::LeftButton);events();
+            check(encode(session.document())==before_mismatch_doc&&session.revision()==before_mismatch_revision&&
+                session.history()==before_mismatch_history&&
+                dialog->findChild<QLabel*>("folder-library-status")->text().contains("EFFECT_BEHAVIOR_VERSION_MISMATCH"),
+                "Using an unavailable versioned Effect Favorite reports its exact mismatch without a Session mutation");
+            row=favorite_item(dialog,offset_favorite_id);
+            check(row,"The Effect Favorite remains present after the unavailable-version check");
+            row->listWidget()->setCurrentItem(row);
+            auto* quick_slots=dialog->findChild<QComboBox*>("folder-library-slot");
+            auto* assign=dialog->findChild<QPushButton*>("folder-library-slot-set");
+            check(quick_slots&&assign,"Library Favorite exposes the shared Quick Access slots");
+            quick_slots->setCurrentIndex(quick_slots->findData(4));QTest::mouseClick(assign,Qt::LeftButton);events();
+            check(encode(session.document())==before_favorite_apply_doc&&session.revision()==before_favorite_apply_revision&&
+                session.history()==before_favorite_apply_history,
+                "Assigning a built-in Effect Quick Access slot changes preferences only");
+            auto* use_slot=dialog->findChild<QPushButton*>("folder-library-use-slot");
+            check(use_favorite&&use_slot,"Library Favorites and Quick Access expose their shared target action");
+            QTest::mouseClick(use_favorite,Qt::LeftButton);events();
+            check(session.revision()==before_favorite_apply_revision+1&&session.history().states.size()==before_favorite_apply_history.states.size()+1&&
+                encode(session.document())!=before_favorite_apply_doc&&
+                session.document().objects.at(ui_object).stack.back().type=="nect.shape.offset"&&
+                session.document().objects.at(ui_object).stack.back().version==1,
+                "Library Use Favorite applies the exact Effect through one normal Session History edit");
+            const auto after_library_apply=encode(session.document());const auto after_library_revision=session.revision();
+            const auto after_library_history=session.history();
+            QTest::mouseClick(use_slot,Qt::LeftButton);events();
+            check(session.revision()==after_library_revision+1&&session.history().states.size()==after_library_history.states.size()+1&&
+                encode(session.document())!=after_library_apply&&
+                session.document().objects.at(ui_object).stack.back().type=="nect.shape.offset"&&
+                session.document().objects.at(ui_object).stack.back().version==1,
+                "Quick Access invokes the same exact Effect action through one normal Session History edit");
+
+            auto* asset_row=favorite_item(dialog,asset_favorite.favorite_id);
+            check(asset_row&&asset_row->text().contains("favorite.png"),"Registered raster Asset Favorite remains in the shared Library list");
+            asset_row->listWidget()->setCurrentItem(asset_row);
+            const auto before_asset_doc=encode(session.document());const auto before_asset_revision=session.revision();
+            const auto before_asset_history=session.history();const auto before_asset_objects=session.document().objects.size();
+            QTest::mouseClick(use_favorite,Qt::LeftButton);events();
+            const auto placed_object=window.canvas->selected_object;
+            const auto placed_document=session.document();
+            const auto& placed_record=placed_document.objects.at(placed_object);
+            const bool has_linked_asset=placed_record.image&&placed_document.raster_assets.contains(placed_record.image->asset)&&
+                placed_document.raster_assets.at(placed_record.image->asset).mode=="linked"&&
+                placed_document.raster_assets.at(placed_record.image->asset).locator==asset_path.toStdString();
+            check(session.revision()==before_asset_revision+1&&
+                session.history().states.size()==before_asset_history.states.size()+1&&
+                encode(session.document())!=before_asset_doc&&session.document().objects.size()==before_asset_objects+1&&
+                placed_record.kind==Kind::image&&has_linked_asset,
+                "Effect then registered Asset Favorite in one dialog each commits one normal Session History transaction");
+            row=favorite_item(dialog,offset_favorite_id);
+            check(row,"The Effect Favorite remains present after Asset placement");
+            row->listWidget()->setCurrentItem(row);
+            const auto after_asset_doc=encode(session.document());const auto after_asset_revision=session.revision();
+            const auto after_asset_history=session.history();
+            QTest::mouseClick(use_favorite,Qt::LeftButton);events();
+            check(window.canvas->selected_object==placed_object&&encode(session.document())==after_asset_doc&&
+                session.revision()==after_asset_revision&&session.history()==after_asset_history,
+                "The frozen Effect target does not retarget to the Image selected by Asset placement");
+            window.canvas->set_selection(ui_object);window.canvas->setFocus();events();
+            dialog->accept();
+        });
+        // The following Effects-panel parity checks intentionally compare a
+        // single authored Offset against the API. Remove both fixture Effects
+        // applications and the temporary linked Asset placement first.
+        session.undo(session.revision());window.host.edited();events();
+        session.undo(session.revision());window.host.edited();events();
+        session.undo(session.revision());window.host.edited();events();
+        with_library_dialog(window,[&](QDialog* dialog) {
+            const auto row=favorite_item(dialog,offset_favorite_id);
+            check(row,"A persisted Offset Favorite remains available for stale-context validation");
+            row->listWidget()->setCurrentItem(row);
+            session.apply({Set{{ui_object,"","transform.tx"},5}},session.revision());
+            const auto stale_doc=encode(session.document());const auto stale_revision=session.revision();
+            const auto stale_history=session.history();
+            auto* use=dialog->findChild<QPushButton*>("folder-library-use-favorite");check(use,"Library can invoke the selected Favorite");
+            QTest::mouseClick(use,Qt::LeftButton);events();
+            check(encode(session.document())==stale_doc&&session.revision()==stale_revision&&session.history()==stale_history&&
+                dialog->findChild<QLabel*>("folder-library-status")->text().contains("REVISION_CONFLICT"),
+                "A stale Favorite Session revision refuses invocation atomically");
+            dialog->accept();
+        });
+        window.host.edited();events();
+
+        search->clear();events();
+        catalog=named<QListWidget>(window,"effects-catalog");
+        const auto posterize_for_favorite=catalog->findItems("Group Posterize",Qt::MatchExactly);
+        check(posterize_for_favorite.size()==1,"Group Posterize remains selectable by its stable catalog descriptor");
+        catalog->setCurrentItem(posterize_for_favorite.front());events();
+        const auto before_group_favorite=encode(session.document());const auto group_favorite_revision=session.revision();
+        const auto group_favorite_history=session.history();
+        click(window,"effects-favorite");
+        check(encode(session.document())==before_group_favorite&&session.revision()==group_favorite_revision&&
+            session.history()==group_favorite_history,
+            "Favoriting Group Posterize does not require a compatible target or author Document state");
+        FolderLibrary group_favorite_reader(workspace_settings);
+        const auto group_favorite=std::find_if(group_favorite_reader.favorites().begin(),group_favorite_reader.favorites().end(),[](const auto& item) {
+            const auto* effect=std::get_if<BuiltinEffectTypeRefV1>(&item.target);
+            return effect&&effect->type_id=="nect.group.posterize"&&effect->behavior_version==1;
+        });
+        check(group_favorite!=group_favorite_reader.favorites().end(),"The exact Group Posterize TypeID/version is saved in shared Favorites");
+        const auto group_favorite_id=group_favorite->favorite_id;
+        with_library_dialog(window,[&](QDialog* dialog) {
+            auto* row=favorite_item(dialog,group_favorite_id);check(row&&row->text().contains("Group Posterize")&&row->text().contains("nect.group.posterize behavior v1"),
+                "Library displays the Group Effect from its exact descriptor identity");
+            row->listWidget()->setCurrentItem(row);
+            const auto incompatible_doc=encode(session.document());const auto incompatible_revision=session.revision();
+            const auto incompatible_history=session.history();
+            auto* use=dialog->findChild<QPushButton*>("folder-library-use-favorite");check(use,"Library can invoke a selected Group Effect Favorite");
+            QTest::mouseClick(use,Qt::LeftButton);events();
+            check(encode(session.document())==incompatible_doc&&session.revision()==incompatible_revision&&
+                session.history()==incompatible_history&&dialog->findChild<QLabel*>("folder-library-status")->text().contains("INVALID_DOMAIN"),
+                "An incompatible Path target refuses Group Effect Favorite invocation atomically");
+            dialog->accept();
+        });
+        search->setText("offset");events();
         auto fill=default_operation("preexisting-fill","nect.paint.fill");
         const auto fill_id=fill.id;
         session.apply({AddOperation{ui_object,std::move(fill),session.document().objects.at(ui_object).stack.size()}},session.revision());
@@ -256,6 +450,8 @@ int main(int argc,char** argv) {
         check(macro_item&&!macro_item->isHidden()&&macro_item->data(Qt::UserRole).toString()=="macro:effects-custom-macro"&&
             macro_item->text()=="Custom Offset Repeat"&&named<QPushButton>(window,"effects-apply")->text().contains("Custom Offset Repeat"),
             "Effects search and selection include a document-local Macro definition");
+        check(!named<QPushButton>(window,"effects-favorite")->isEnabled(),
+            "Document-local Macro definitions cannot be stored as workspace Effect Favorites");
         const auto macro_apply_revision=session.revision();click(window,"effects-apply");
         const auto& macro_applied=session.document().objects.at(ui_object).stack;
         const auto macro_instance=std::find_if(macro_applied.begin(),macro_applied.end(),[](const auto& entry){return entry.macro.has_value();});
@@ -402,6 +598,31 @@ int main(int argc,char** argv) {
             session.document().objects.at(group_id).stack.end(),[&](const auto& op){return op.id==panel_posterize_id;}),
             "Group Posterize uses the ordinary stable-ID remove control");
 
+        const auto group_slot_before_doc=encode(session.document());const auto group_slot_before_revision=session.revision();
+        const auto group_slot_before_history=session.history();
+        with_library_dialog(window,[&](QDialog* dialog) {
+            auto* row=favorite_item(dialog,group_favorite_id);check(row,"The Group Posterize Favorite is available in Library");
+            row->listWidget()->setCurrentItem(row);
+            auto* quick_slots=dialog->findChild<QComboBox*>("folder-library-slot");
+            auto* assign=dialog->findChild<QPushButton*>("folder-library-slot-set");
+            auto* use_slot=dialog->findChild<QPushButton*>("folder-library-use-slot");
+            check(quick_slots&&assign&&use_slot,"Group Effect Favorite shares assignment and invocation controls");
+            quick_slots->setCurrentIndex(quick_slots->findData(5));QTest::mouseClick(assign,Qt::LeftButton);events();
+            check(encode(session.document())==group_slot_before_doc&&session.revision()==group_slot_before_revision&&
+                session.history()==group_slot_before_history,
+                "Group Effect Quick Access assignment remains outside Document and History");
+            QTest::mouseClick(use_slot,Qt::LeftButton);events();
+            const auto& applied_stack=session.document().objects.at(group_id).stack;
+            check(session.revision()==group_slot_before_revision+1&&session.history().states.size()==group_slot_before_history.states.size()+1&&
+                applied_stack.back().type=="nect.group.posterize"&&applied_stack.back().version==1,
+                "Quick Access applies the exact Group descriptor through one normal Session command");
+            dialog->accept();
+        });
+        auto* undo_effect=text_action(window,"Undo");check(undo_effect,"Quick Access Effect command has the normal Undo action");
+        undo_effect->trigger();events();
+        check(session.document().objects.at(group_id).stack.back().id=="api-posterize",
+            "One normal Undo removes the Quick Access Group Effect command");
+
         catalog->setCurrentRow(0);events();
         trigger(window,"add-curve");const auto open_path=window.canvas->selected_object;
         const auto open_document=encode(session.document());const auto open_revision=session.revision();const auto open_history=session.history();
@@ -545,7 +766,24 @@ int main(int argc,char** argv) {
             named<QLabel>(window,"presets-status")->text().contains("SESSION_CONFLICT"),
             "Preset browser refuses a dialog opened for a replaced document Session");
 
-        std::cout<<"PASS Effects panel search, selection guard, Apply, Inspector navigation, edits, native/API readback, history and refusals\n";
+        with_library_dialog(window,[&](QDialog* dialog) {
+            auto* row=favorite_item(dialog,offset_favorite_id);check(row,"The Offset Favorite remains available after document replacement");
+            row->listWidget()->setCurrentItem(row);
+            const auto frozen_session=window.host.session_id;
+            window.host.create_document();events();
+            const auto replaced_doc=encode(window.host.session.document());
+            const auto replaced_revision=window.host.session.revision();
+            const auto replaced_history=window.host.session.history();
+            auto* use=dialog->findChild<QPushButton*>("folder-library-use-favorite");check(use,"Library Favorite action remains available after document replacement");
+            QTest::mouseClick(use,Qt::LeftButton);events();
+            check(window.host.session_id!=frozen_session&&encode(window.host.session.document())==replaced_doc&&
+                window.host.session.revision()==replaced_revision&&window.host.session.history()==replaced_history&&
+                dialog->findChild<QLabel*>("folder-library-status")->text().contains("SESSION_CONFLICT"),
+                "A Favorite captured for an old Session cannot mutate the replacement Session");
+            dialog->accept();
+        });
+
+        std::cout<<"PASS Effects panel catalog, unified Favorites, exact invocation, Session guards, Inspector navigation, edits, native/API readback and refusals\n";
         return 0;
     } catch(const std::exception& error) {std::cerr<<"FAIL "<<error.what()<<'\n';return 1;}
 }

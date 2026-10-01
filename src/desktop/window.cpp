@@ -48,6 +48,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <limits>
 #include <cmath>
 #include <algorithm>
 #include <set>
@@ -615,6 +616,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         auto* entry=new QListWidgetItem(qs(descriptor.label),effects_catalog_);
         entry->setData(Qt::UserRole,qs(descriptor.type));
         entry->setData(Qt::UserRole+1,"builtin");
+        entry->setData(Qt::UserRole+2,static_cast<qulonglong>(descriptor.version));
         entry->setToolTip(qs(descriptor.target_kind)+" · "+qs(descriptor.input)+" → "+qs(descriptor.output)+
             " · "+qs(descriptor.type)+" · behavior v"+QString::number(descriptor.version));
     }
@@ -626,6 +628,9 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     effects_target_->setWordWrap(true);effects_target_->setTextFormat(Qt::PlainText);effects_layout->addWidget(effects_target_);
     effects_apply_=new QPushButton("Apply Offset Paths",effects_page);effects_apply_->setObjectName("effects-apply");
     effects_layout->addWidget(effects_apply_);
+    effects_favorite_=new QPushButton("Favorite selected built-in",effects_page);effects_favorite_->setObjectName("effects-favorite");
+    effects_favorite_->setToolTip("Save this exact built-in TypeID and BehaviorVersion to the shared workspace Favorites.");
+    effects_layout->addWidget(effects_favorite_);
     effects_status_=new QLabel(effects_page);effects_status_->setObjectName("effects-status");
     effects_status_->setWordWrap(true);effects_status_->setTextFormat(Qt::PlainText);effects_layout->addWidget(effects_status_);
     auto* applied=new QGroupBox("Applied effect instances",effects_page);applied->setObjectName("effects-applied");
@@ -668,6 +673,22 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     connect(effects_catalog_,&QListWidget::currentItemChanged,this,[this](QListWidgetItem*,QListWidgetItem*){rebuild_effects_panel();});
     connect(presets_search_,&QLineEdit::textChanged,this,[this](const QString&){rebuild_effects_panel();});
     connect(presets_catalog_,&QListWidget::currentItemChanged,this,[this](QListWidgetItem*,QListWidgetItem*){rebuild_effects_panel();});
+    connect(effects_favorite_,&QPushButton::clicked,this,[this]{perform([this]{
+        const auto* entry=effects_catalog_->currentItem();
+        if(!entry||entry->data(Qt::UserRole+1).toString()!="builtin")
+            throw Error("INVALID_OPERATOR","Choose a built-in effect from the catalog before saving a Favorite");
+        const auto type_id=entry->data(Qt::UserRole).toString();
+        bool version_ok=false;
+        const auto version=entry->data(Qt::UserRole+2).toULongLong(&version_ok);
+        const auto* descriptor=builtin_operation_type(type_id.toStdString());
+        if(!version_ok||!descriptor||!descriptor->effects_catalog||descriptor->version!=version)
+            throw Error("UNAVAILABLE_EFFECT_TYPE","The selected built-in Effect TypeID and BehaviorVersion are no longer available");
+        const auto saved=folder_library_->add_favorite({type_id,static_cast<std::uint32_t>(version)});
+        const auto message="Favorite saved · "+qs(descriptor->label)+" · "+type_id+" behavior v"+QString::number(version);
+        effects_status_->setText(message);
+        statusBar()->showMessage(message,8000);
+        (void)saved;
+    });});
     connect(effects_apply_,&QPushButton::clicked,this,[this]{
         const auto frozen_session=effects_session_;const auto frozen_target=effects_target_id_;
         const auto frozen_revision=effects_revision_;const auto frozen_generation=effects_generation_;
@@ -676,12 +697,11 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         const auto effect_name=entry?entry->text():QStringLiteral("Unavailable effect");
         const auto target_label=effects_target_->text();
         try {
-            if(effect_type.isEmpty())throw Error("INVALID_OPERATOR","Choose a supported built-in effect");
-            if(frozen_generation!=effects_generation_)throw Error("REVISION_CONFLICT","Effects panel changed; refresh the target before applying");
-            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Effects target belongs to another document");
-            if(canvas->selected_object!=frozen_target)throw Error("TARGET_CONFLICT","Effects target changed; choose the current target");
-            if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Effects target changed elsewhere; refresh the panel before applying");
             if(effect_type.startsWith("macro:")) {
+                if(frozen_generation!=effects_generation_)throw Error("REVISION_CONFLICT","Effects panel changed; refresh the target before applying");
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Effects target belongs to another document");
+                if(canvas->selected_object!=frozen_target)throw Error("TARGET_CONFLICT","Effects target changed; choose the current target");
+                if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Effects target changed elsewhere; refresh the panel before applying");
                 const auto definition_id=effect_type.mid(6).toStdString();
                 const auto& document=host.session.document();
                 const auto definition=document.macro_definitions.find(definition_id);
@@ -692,7 +712,15 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
                 host.session.apply({MacroCommand{InstantiateMacro{frozen_target,definition_id,new_id(),
                     definition->second.latest_revision,object->second.stack.size()}}},frozen_revision);
                 host.edited();
-            } else add_operation(effect_type.toStdString());
+            } else {
+                if(effect_type.isEmpty())throw Error("INVALID_OPERATOR","Choose a supported built-in effect");
+                bool version_ok=false;
+                const auto version=entry->data(Qt::UserRole+2).toULongLong(&version_ok);
+                if(!version_ok||version>std::numeric_limits<std::uint32_t>::max())
+                    throw Error("INVALID_OPERATOR","The selected built-in effect has no valid BehaviorVersion");
+                apply_builtin_effect_favorite({effect_type,static_cast<std::uint32_t>(version)},
+                    frozen_session,frozen_target,frozen_revision,frozen_generation);
+            }
             effects_status_->setText("Applied "+effect_name+" · "+target_label);
         } catch(const Error& error) {
             const auto message=(frozen_target.empty()?QStringLiteral("Target: none"):target_label)+
@@ -1446,6 +1474,7 @@ void Window::rebuild_effects_panel() {
         if(!first_match)empty->setText("No supported effect matches “"+query+"”.");
     }
     effects_apply_->setEnabled(matches);
+    if(effects_favorite_)effects_favorite_->setEnabled(matches&&!macro_effect&&entry&&entry->data(Qt::UserRole+1).toString()=="builtin");
 
     const auto selected=document.objects.find(effects_target_id_);
     QString target_text="Target: none";
@@ -4321,7 +4350,7 @@ void Window::show_folder_library() {
 
     QDialog dialog(this);dialog.setWindowTitle("Folder Library");dialog.setObjectName("folder-library-dialog");dialog.resize(900,560);
     auto* layout=new QVBoxLayout(&dialog);
-    auto* hint=new QLabel("Browse only registered folders. Refresh updates this read-only index; placing an image uses the existing document asset import path.",&dialog);
+    auto* hint=new QLabel("Browse registered folders and shared workspace Favorites. Built-in Effect Favorites keep their exact TypeID and BehaviorVersion.",&dialog);
     hint->setWordWrap(true);layout->addWidget(hint);
 
     auto* toolbar=new QHBoxLayout;layout->addLayout(toolbar);
@@ -4348,6 +4377,7 @@ void Window::show_folder_library() {
     auto* assign_slot=new QPushButton("Set slot",&dialog);assign_slot->setObjectName("folder-library-slot-set");controls->addWidget(assign_slot);
     auto* place_linked=new QPushButton("Place Linked",&dialog);place_linked->setObjectName("folder-library-place-linked");controls->addWidget(place_linked);
     auto* place_embedded=new QPushButton("Place Embedded",&dialog);place_embedded->setObjectName("folder-library-place-embedded");controls->addWidget(place_embedded);
+    auto* use_favorite=new QPushButton("Use Favorite",&dialog);use_favorite->setObjectName("folder-library-use-favorite");controls->addWidget(use_favorite);
     auto* use_slot=new QPushButton("Use Quick Access",&dialog);use_slot->setObjectName("folder-library-use-slot");controls->addWidget(use_slot);
     auto* close=new QPushButton("Close",&dialog);close->setObjectName("folder-library-close");controls->addWidget(close);
 
@@ -4367,18 +4397,26 @@ void Window::show_folder_library() {
         const auto root_label=found==library.roots().end()?QString("Missing root · ")+ref.root_id:found->display_name;
         return ref.normalized_relative_path.isEmpty()?root_label:root_label+" / "+ref.normalized_relative_path;
     };
+    auto display_target=[&](const LibraryFavoriteTargetV1& target) {
+        if(const auto* item=std::get_if<LibraryItemRefV1>(&target))return display_ref(*item);
+        const auto& effect=std::get<BuiltinEffectTypeRefV1>(target);
+        const auto* descriptor=builtin_operation_type(effect.type_id.toStdString());
+        if(descriptor&&descriptor->effects_catalog&&descriptor->version==effect.behavior_version)
+            return qs(descriptor->label)+" · "+effect.type_id+" behavior v"+QString::number(effect.behavior_version);
+        return QString("Unavailable effect · ")+effect.type_id+" behavior v"+QString::number(effect.behavior_version);
+    };
     auto rebuild_favorites=[&] {
         const auto selected=favorites->currentItem()?favorites->currentItem()->data(Qt::UserRole).toString():QString{};
         favorites->clear();
         for(const auto& favorite:library.favorites()) {
             const auto state=library.favorite_status(favorite);
-            const auto label=display_ref(favorite.ref);
+            const auto label=display_target(favorite.target);
             auto* item=new QListWidgetItem(label+QString(" · %1%2").arg(state,
                 favorite.quick_slot?" · Quick slot "+QString::number(favorite.quick_slot):QString{}),favorites);
             item->setData(Qt::UserRole,favorite.favorite_id);
-            item->setData(Qt::UserRole+1,QJsonDocument(FolderLibrary::ref_to_json(favorite.ref)).toJson(QJsonDocument::Compact));
+            item->setData(Qt::UserRole+1,QJsonDocument(FolderLibrary::target_to_json(favorite.target)).toJson(QJsonDocument::Compact));
             item->setData(Qt::UserRole+2,favorite.quick_slot);
-            item->setToolTip(display_ref(favorite.ref)+"\n"+state);
+            item->setToolTip(label+"\n"+state);
             if(state!="Available")item->setForeground(QColor(226,143,143));
             if(favorite.favorite_id==selected)favorites->setCurrentItem(item);
         }
@@ -4445,6 +4483,34 @@ void Window::show_folder_library() {
     };
     QString frozen_session=host.session_id;
     std::uint64_t expected_revision=host.session.revision();
+    const QString frozen_effect_session=host.session_id;
+    const Id frozen_effect_target=canvas->selected_object;
+    auto frozen_effect_revision=host.session.revision();
+    auto frozen_effect_generation=effects_generation_;
+    auto invoke_favorite=[&](const LibraryFavoriteV1& favorite) {
+        if(const auto* item_ref=std::get_if<LibraryItemRefV1>(&favorite.target)) {
+            if(item_ref->kind=="folder") {
+                const auto identity=library.comparison_key(*item_ref);auto* item=node_by_identity.value(identity,nullptr);
+                if(!item)throw Error("MISSING_LIBRARY_ROOT","The Favorite folder is no longer registered");
+                tree->setCurrentItem(item);tree->scrollToItem(item);
+                status->setText("Favorite opened "+display_ref(*item_ref));return;
+            }
+            place_ref(*item_ref,"linked",frozen_session,expected_revision);return;
+        }
+        const auto& effect=std::get<BuiltinEffectTypeRefV1>(favorite.target);
+        const auto label=display_target(favorite.target);
+        try {
+            apply_builtin_effect_favorite(effect,frozen_effect_session,frozen_effect_target,
+                frozen_effect_revision,frozen_effect_generation);
+            frozen_effect_revision=host.session.revision();
+            expected_revision=frozen_effect_revision;
+            frozen_effect_generation=effects_generation_;
+            status->setText("Applied Favorite "+label+" to "+effects_target_->text());
+        } catch(const Error& error) {
+            status->setText(label+" · "+qs(error.code)+": "+QString::fromUtf8(error.what()));
+            throw;
+        }
+    };
     connect(add_root,&QPushButton::clicked,&dialog,[&,this] {
         const auto path=QFileDialog::getExistingDirectory(&dialog,"Register Folder Library root");if(path.isEmpty())return;
         perform([&]{const auto created=library.register_root(path);rebuild_tree();apply_search(search->text());status->setText("Registered "+created.display_name+". Click Refresh to index this folder and its descendants.");});
@@ -4459,7 +4525,7 @@ void Window::show_folder_library() {
     connect(search,&QLineEdit::textChanged,&dialog,[&](const QString& query){apply_search(query);});
     connect(add_favorite,&QPushButton::clicked,&dialog,[&,this] {
         const auto* current=tree->currentItem();if(!current)return;
-        perform([&]{const auto created=library.add_favorite(ref_for_item(current));rebuild_favorites();status->setText("Favorite saved: "+display_ref(created.ref));});
+        perform([&]{const auto created=library.add_favorite(ref_for_item(current));rebuild_favorites();status->setText("Favorite saved: "+display_target(created.target));});
     });
     connect(remove_favorite,&QPushButton::clicked,&dialog,[&,this] {
         const auto* current=favorites->currentItem();if(!current)return;
@@ -4478,15 +4544,20 @@ void Window::show_folder_library() {
         const auto* current=tree->currentItem();if(!current)return;
         perform([&]{place_ref(ref_for_item(current),"embedded",frozen_session,expected_revision);});
     });
+    connect(use_favorite,&QPushButton::clicked,&dialog,[&,this] {
+        const auto* current=favorites->currentItem();if(!current)return;
+        perform([&]{
+            const auto favorite=std::find_if(library.favorites().begin(),library.favorites().end(),[&](const auto& value) {
+                return value.favorite_id==current->data(Qt::UserRole).toString();
+            });
+            if(favorite==library.favorites().end())throw Error("MISSING_FAVORITE","The selected Favorite no longer exists");
+            invoke_favorite(*favorite);
+        });
+    });
     connect(use_slot,&QPushButton::clicked,&dialog,[&,this] {
         perform([&]{const auto favorite=library.favorite_for_slot(slot->currentData().toInt());
             if(!favorite)throw Error("EMPTY_QUICK_SLOT","Choose a Quick Access slot that has a Favorite");
-            if(favorite->ref.kind=="folder") {
-                const auto identity=library.comparison_key(favorite->ref);auto* item=node_by_identity.value(identity,nullptr);
-                if(!item)throw Error("MISSING_LIBRARY_ROOT","The Quick Access folder is no longer registered");
-                tree->setCurrentItem(item);tree->scrollToItem(item);status->setText("Quick Access opened "+display_ref(favorite->ref));return;
-            }
-            place_ref(favorite->ref,"linked",frozen_session,expected_revision);
+            invoke_favorite(*favorite);
         });
     });
     connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);
@@ -6851,6 +6922,31 @@ void Window::add_primitive(const std::string& type) {
     host.session.apply({CreatePrimitive{composition.id,{},id,name,std::move(source)}},host.session.revision());
     canvas->set_selection(id);host.edited();canvas->setFocus();
 }
+void Window::apply_builtin_effect_favorite(const BuiltinEffectTypeRefV1& effect,
+    const QString& expected_session, const Id& expected_target, std::uint64_t expected_revision,
+    std::uint64_t expected_generation) {
+    if(host.session_id!=expected_session)
+        throw Error("SESSION_CONFLICT","Effects target belongs to another document");
+    if(expected_generation!=effects_generation_)
+        throw Error("REVISION_CONFLICT","Effects panel changed; refresh the target before applying");
+    if(canvas->selected_object!=expected_target)
+        throw Error("TARGET_CONFLICT","Effects target changed; choose the current target");
+    if(host.session.revision()!=expected_revision)
+        throw Error("REVISION_CONFLICT","Effects target changed elsewhere; refresh the panel before applying");
+
+    const auto* descriptor=builtin_operation_type(effect.type_id.toStdString());
+    if(!descriptor||!descriptor->effects_catalog)
+        throw Error("UNAVAILABLE_EFFECT_TYPE","The Favorite TypeID is not in the built-in Effects catalog");
+    if(descriptor->version!=effect.behavior_version)
+        throw Error("EFFECT_BEHAVIOR_VERSION_MISMATCH","The Favorite requires behavior v"+
+            std::to_string(effect.behavior_version)+" but the registered Effect provides v"+
+            std::to_string(descriptor->version));
+
+    // Preserve the normal Effects path, including its target compatibility checks,
+    // default operation construction, Session revision check and History entry.
+    add_operation(effect.type_id.toStdString());
+}
+
 void Window::add_operation(const std::string& type,bool radial) {
     canvas->cancel_interaction();
     const auto& document=host.session.document();

@@ -8,7 +8,9 @@
 #include <QDialog>
 #include <QFile>
 #include <QImage>
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QListWidget>
 #include <QPushButton>
 #include <QProcess>
@@ -17,7 +19,9 @@
 #include <QTest>
 #include <QTimer>
 #include <QTreeWidget>
+#include <QUuid>
 #include <iostream>
+#include <cmath>
 #include <set>
 
 #ifdef Q_OS_WIN
@@ -143,11 +147,11 @@ void model_and_persistence(const QString& scratch) {
         "Browsing a folder returns its direct child");
 
     const auto favorite = library.add_favorite(brand_ref, 1);
-    check(favorite.quick_slot == 1 && library.favorite_for_slot(1)->ref.normalized_relative_path == "brand/logo.png",
+    check(favorite.quick_slot == 1 && std::get<LibraryItemRefV1>(library.favorite_for_slot(1)->target).normalized_relative_path == "brand/logo.png",
         "A stable raster reference can own a Quick Access slot");
     FolderLibrary after_restart(settings);
     check(after_restart.favorites().size() == 1 && after_restart.favorites().front().favorite_id == favorite.favorite_id &&
-        after_restart.favorites().front().ref.root_id == root_a.root_id && after_restart.favorites().front().quick_slot == 1,
+        std::get<LibraryItemRefV1>(after_restart.favorites().front().target).root_id == root_a.root_id && after_restart.favorites().front().quick_slot == 1,
         "Favorite identity and Quick Access slot persist through a fresh library instance");
     QProcess cold_settings_reader;
     cold_settings_reader.start(QCoreApplication::applicationFilePath(),
@@ -252,6 +256,247 @@ void model_and_persistence(const QString& scratch) {
         "A settings write failure leaves both the visible registry and persisted value unchanged");
 }
 
+void grouped_settings_identity(const QString& scratch) {
+    const auto path=scratch+"/grouped-library.ini";
+    const QByteArray prior=QJsonDocument(QJsonObject{{"version",1},{"roots",QJsonArray{}},{"favorites",QJsonArray{}}})
+        .toJson(QJsonDocument::Compact);
+    QSettings settings(path,QSettings::IniFormat);
+    settings.setFallbacksEnabled(false);
+    settings.setValue("root-sentinel",QStringLiteral("preserve-root"));
+    settings.beginGroup("workspace/preferences");
+    settings.setValue("group-sentinel",QStringLiteral("preserve-group"));
+    settings.setValue("library/v1/state",prior);
+    settings.endGroup();
+    settings.setValue("unrelated/sentinel",QStringLiteral("preserve-sibling"));
+    settings.sync();
+    check(settings.status()==QSettings::NoError,"Write grouped INI state and unrelated sentinels in owned scratch");
+
+    settings.beginGroup("workspace/preferences");
+    FolderLibrary library(settings);
+    const auto added=library.add_favorite(BuiltinEffectTypeRefV1{"nect.shape.offset",1},2);
+    check(std::get<BuiltinEffectTypeRefV1>(added.target).type_id=="nect.shape.offset"&&added.quick_slot==2,
+        "A grouped QSettings mutation succeeds against its exact file and group");
+    settings.sync();
+    QSettings persisted(path,QSettings::IniFormat);persisted.setFallbacksEnabled(false);persisted.sync();
+    check(persisted.value("root-sentinel").toString()=="preserve-root"&&
+        persisted.value("unrelated/sentinel").toString()=="preserve-sibling",
+        "Successful grouped settings mutation preserves root, current-group and unrelated sibling sentinels");
+    persisted.beginGroup("workspace/preferences");
+    check(persisted.value("group-sentinel").toString()=="preserve-group",
+        "Successful grouped settings mutation preserves a sentinel in its exact scope");
+    const auto after_success=persisted.value("library/v1/state").toByteArray();
+    check(after_success!=prior&&QJsonDocument::fromJson(after_success).object().value("favorites").toArray().size()==1,
+        "Successful grouped mutation writes the Favorite at the scoped library state key");
+
+    settings.setValue("library/v1/state",prior);
+    settings.sync();
+    FolderLibrary failing(settings,{},[]{return std::optional<QByteArray>{QByteArray("wrong readback namespace")};});
+    rejects("SETTINGS_WRITE_FAILED",[&]{failing.add_favorite(BuiltinEffectTypeRefV1{"nect.shape.offset",1},2);});
+    persisted.sync();
+    check(persisted.value("library/v1/state").toByteArray()==prior&&
+        persisted.value("group-sentinel").toString()=="preserve-group",
+        "Grouped readback failure restores exact prior scoped bytes and preserves unrelated sentinels");
+    persisted.endGroup();persisted.sync();
+    check(persisted.value("root-sentinel").toString()=="preserve-root"&&
+        persisted.value("unrelated/sentinel").toString()=="preserve-sibling",
+        "Grouped readback rollback leaves root and sibling sentinels unchanged");
+    settings.endGroup();
+
+#ifdef Q_OS_WIN
+    const auto owned_registry_path=QStringLiteral("HKEY_CURRENT_USER\\Software\\Nect\\Tests\\R10-Favorites-%1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    try {
+        QSettings native(owned_registry_path,QSettings::NativeFormat);
+        native.setFallbacksEnabled(false);
+        native.beginGroup("workspace/preferences");
+        native.setValue("group-sentinel",QStringLiteral("preserve-native-group"));
+        native.setValue("library/v1/state",prior);
+        native.endGroup();
+        native.sync();
+        check(native.status()==QSettings::NoError,"Create an exact owned NativeFormat scratch key");
+        native.beginGroup("workspace/preferences");
+        FolderLibrary native_library(native);
+        const auto native_added=native_library.add_favorite(BuiltinEffectTypeRefV1{"nect.shape.offset",1},2);
+        check(native_added.quick_slot==2,"NativeFormat fresh readback accepts the explicit registry backing path");
+        native.sync();
+        check(native.value("library/v1/state").toByteArray()!=prior&&
+            native.value("group-sentinel").toString()=="preserve-native-group",
+            "NativeFormat mutation keeps its exact group and unrelated sentinel");
+        native.endGroup();
+    } catch (...) {
+        QSettings cleanup(owned_registry_path,QSettings::NativeFormat);
+        cleanup.clear();cleanup.sync();
+        throw;
+    }
+    QSettings cleanup(owned_registry_path,QSettings::NativeFormat);
+    cleanup.clear();cleanup.sync();
+#endif
+}
+
+void unified_effect_favorites(const QString& scratch) {
+    const auto root_path=scratch+"/legacy-root";
+    QDir().mkpath(root_path+"/brand");
+    write_bytes(root_path+"/brand/logo.png",png(91,37,12));
+
+    const QString root_id="legacy-root-id";
+    const QString asset_favorite_id="legacy-asset-favorite";
+    const QString folder_favorite_id="legacy-folder-favorite";
+    const auto legacy_state=QJsonDocument(QJsonObject{
+        {"version",1},
+        {"roots",QJsonArray{QJsonObject{{"root_id",root_id},{"display_name","Legacy Root"},
+            {"absolute_path",QDir::cleanPath(QFileInfo(root_path).absoluteFilePath())},
+            {"enabled",true},{"case_sensitive",false}}}},
+        {"favorites",QJsonArray{
+            QJsonObject{{"favorite_id",asset_favorite_id},{"ref",FolderLibrary::ref_to_json({root_id,"brand/logo.png","raster"})},{"quick_slot",1}},
+            QJsonObject{{"favorite_id",folder_favorite_id},{"ref",FolderLibrary::ref_to_json({root_id,"brand","folder"})},{"quick_slot",0}}
+        }}
+    }).toJson(QJsonDocument::Compact);
+    const auto settings_path=scratch+"/legacy-library.ini";
+    QSettings settings(settings_path,QSettings::IniFormat);
+    settings.setFallbacksEnabled(false);
+    settings.setValue("library/v1/state",legacy_state);
+    settings.sync();
+    check(settings.status()==QSettings::NoError,"Write an owned legacy version-1 Folder Library state");
+
+    FolderLibrary library(settings);
+    const auto loaded=library.favorites();
+    check(loaded.size()==2&&loaded[0].favorite_id==asset_favorite_id&&loaded[1].favorite_id==folder_favorite_id,
+        "Legacy Asset and Folder Favorite IDs load unchanged from the shared version-1 state");
+    check(library.roots().size()==1&&library.roots().front().root_id==root_id&&
+        library.favorite_status(loaded[0])=="Available"&&library.favorite_status(loaded[1])=="Available",
+        "Legacy root identity and both legacy target refs remain resolvable");
+    check(std::get<LibraryItemRefV1>(loaded[0].target).normalized_relative_path=="brand/logo.png"&&
+        std::get<LibraryItemRefV1>(loaded[1].target).kind=="folder",
+        "Legacy file and folder references load as the library-item target kind");
+
+    const BuiltinEffectTypeRefV1 offset{"nect.shape.offset",1};
+    const auto* descriptor=builtin_operation_type(offset.type_id.toStdString());
+    check(descriptor&&descriptor->effects_catalog&&descriptor->version==offset.behavior_version,
+        "Effect Favorite uses the exact stable built-in TypeID and BehaviorVersion");
+    const auto effect_favorite=library.add_favorite(offset,2);
+    check(std::get<BuiltinEffectTypeRefV1>(effect_favorite.target)==offset&&effect_favorite.quick_slot==2&&
+        library.favorite_status(effect_favorite)=="Available",
+        "A built-in Effect shares the same Favorite store and has an exact available target");
+
+    FolderLibrary restarted(settings);
+    check(restarted.favorites().size()==3&&restarted.roots().size()==1,
+        "A fresh library instance reads a mixed Asset/Folder/Effect state");
+    check(restarted.favorites()[0].favorite_id==asset_favorite_id&&restarted.favorites()[1].favorite_id==folder_favorite_id&&
+        restarted.favorites()[2].favorite_id==effect_favorite.favorite_id&&
+        restarted.favorite_for_slot(1)->favorite_id==asset_favorite_id&&
+        restarted.favorite_for_slot(2)->favorite_id==effect_favorite.favorite_id,
+        "Existing IDs and the nine shared Quick Access slots survive a fresh library instance");
+    QProcess cold_reader;
+    cold_reader.start(QCoreApplication::applicationFilePath(),{"--verify-mixed-settings",settings.fileName(),root_id,
+        asset_favorite_id,folder_favorite_id,effect_favorite.favorite_id});
+    check(cold_reader.waitForFinished(10000)&&cold_reader.exitStatus()==QProcess::NormalExit&&cold_reader.exitCode()==0,
+        "Legacy Asset/Folder refs and the exact Effect TypeID/version persist into a fresh process");
+    QSettings persisted(settings.fileName(),QSettings::IniFormat);persisted.sync();
+    const auto persisted_state=QJsonDocument::fromJson(persisted.value("library/v1/state").toByteArray()).object();
+    check(persisted_state.value("version").toInt()==1&&persisted_state.value("roots").toArray().size()==1,
+        "The extension stays in library/v1/state and preserves the registered root");
+
+    const auto state_before_collision=persisted.value("library/v1/state").toByteArray();
+    rejects("QUICK_SLOT_OCCUPIED",[&]{library.add_favorite({"nect.group.posterize",1},1);});
+    rejects("QUICK_SLOT_OCCUPIED",[&]{library.assign_quick_slot(effect_favorite.favorite_id,1);});
+    rejects("QUICK_SLOT_OCCUPIED",[&]{library.assign_quick_slot(folder_favorite_id,2);});
+    check(library.favorites().size()==3&&library.favorite_for_slot(1)->favorite_id==asset_favorite_id&&
+        library.favorite_for_slot(2)->favorite_id==effect_favorite.favorite_id,
+        "Cross-kind add and slot assignment collisions preserve every in-memory Favorite");
+    persisted.sync();
+    check(persisted.value("library/v1/state").toByteArray()==state_before_collision,
+        "Rejected cross-kind slot collisions leave the stored state byte-for-byte unchanged");
+
+    const auto mixed_bytes=state_before_collision;
+    auto changed=QJsonDocument::fromJson(mixed_bytes).object();
+    auto favorites=changed.value("favorites").toArray();
+    for(int i=0;i<favorites.size();++i) {
+        auto item=favorites[i].toObject();
+        if(item.value("favorite_id").toString()!=effect_favorite.favorite_id)continue;
+        auto target=item.value("target").toObject();target.insert("behavior_version",77);item.insert("target",target);favorites[i]=item;
+    }
+    changed.insert("favorites",favorites);
+    persisted.setValue("library/v1/state",QJsonDocument(changed).toJson(QJsonDocument::Compact));persisted.sync();
+    FolderLibrary version_mismatch(persisted);
+    const auto mismatch=std::find_if(version_mismatch.favorites().begin(),version_mismatch.favorites().end(),[&](const auto& item) {
+        return item.favorite_id==effect_favorite.favorite_id;
+    });
+    check(mismatch!=version_mismatch.favorites().end()&&
+        std::get<BuiltinEffectTypeRefV1>(mismatch->target).type_id==offset.type_id&&
+        version_mismatch.favorite_status(*mismatch).contains("EFFECT_BEHAVIOR_VERSION_MISMATCH"),
+        "A version-mismatched Effect remains visible under its original exact target and Favorite ID");
+    persisted.setValue("library/v1/state",mixed_bytes);persisted.sync();
+    FolderLibrary restored(persisted);
+    const auto restored_favorite=std::find_if(restored.favorites().begin(),restored.favorites().end(),[&](const auto& item) {
+        return item.favorite_id==effect_favorite.favorite_id;
+    });
+    check(restored_favorite!=restored.favorites().end()&&std::get<BuiltinEffectTypeRefV1>(restored_favorite->target)==offset&&
+        restored.favorite_status(*restored_favorite)=="Available",
+        "Restoring the exact TypeID/version makes the same Favorite ID usable again");
+    const auto unavailable=restored.add_favorite({"extension.missing.effect",4});
+    check(restored.favorite_status(unavailable).contains("UNAVAILABLE_EFFECT_TYPE")&&
+        std::get<BuiltinEffectTypeRefV1>(unavailable.target).type_id=="extension.missing.effect",
+        "An unavailable exact Effect TypeID stays visible without name-based substitution");
+
+    auto rejects_malformed_state=[&](QJsonObject malformed,const QString& name) {
+        QSettings malformed_settings(scratch+"/"+name+".ini",QSettings::IniFormat);
+        malformed_settings.setValue("library/v1/state",QJsonDocument(malformed).toJson(QJsonDocument::Compact));
+        malformed_settings.sync();
+        FolderLibrary malformed_library(malformed_settings);
+        rejects("INVALID_LIBRARY_SETTINGS",[&]{(void)malformed_library.favorites();});
+    };
+    auto fractional_version=QJsonDocument::fromJson(mixed_bytes).object();
+    auto fractional_favorites=fractional_version.value("favorites").toArray();
+    for(int i=0;i<fractional_favorites.size();++i) {
+        auto item=fractional_favorites[i].toObject();
+        if(item.value("favorite_id").toString()==effect_favorite.favorite_id) {
+            auto target=item.value("target").toObject();target.insert("behavior_version",1.5);item.insert("target",target);fractional_favorites[i]=item;
+        }
+    }
+    fractional_version.insert("favorites",fractional_favorites);
+    rejects_malformed_state(fractional_version,"fractional-effect-version");
+    auto fractional_slot=QJsonDocument::fromJson(mixed_bytes).object();
+    auto fractional_slot_favorites=fractional_slot.value("favorites").toArray();
+    auto fractional_asset=fractional_slot_favorites[0].toObject();fractional_asset.insert("quick_slot",1.5);
+    fractional_slot_favorites[0]=fractional_asset;fractional_slot.insert("favorites",fractional_slot_favorites);
+    rejects_malformed_state(fractional_slot,"fractional-quick-slot");
+    auto unknown_tag=QJsonDocument::fromJson(mixed_bytes).object();
+    auto unknown_tag_favorites=unknown_tag.value("favorites").toArray();
+    auto unknown_effect=unknown_tag_favorites[2].toObject();auto malformed_target=unknown_effect.value("target").toObject();
+    malformed_target.insert("kind","display_name");unknown_effect.insert("target",malformed_target);unknown_tag_favorites[2]=unknown_effect;
+    unknown_tag.insert("favorites",unknown_tag_favorites);
+    rejects_malformed_state(unknown_tag,"unknown-favorite-tag");
+
+    QSettings failing_settings(scratch+"/persist-failure.ini",QSettings::IniFormat);
+    failing_settings.setValue("library/v1/state",mixed_bytes);failing_settings.sync();
+    FolderLibrary failing_library(failing_settings,[](const QByteArray&,QString& error) {
+        error="injected settings write failure";return false;
+    });
+    rejects("SETTINGS_WRITE_FAILED",[&]{failing_library.add_favorite({"nect.group.posterize",1});});
+    QSettings failure_reader(failing_settings.fileName(),QSettings::IniFormat);failure_reader.sync();
+    check(failing_library.favorites().size()==3&&failure_reader.value("library/v1/state").toByteArray()==mixed_bytes,
+        "A refused settings write preserves the prior in-memory and persisted mixed Favorite state");
+
+    QSettings readback_settings(scratch+"/readback-failure.ini",QSettings::IniFormat);
+    readback_settings.setValue("library/v1/state",mixed_bytes);readback_settings.sync();
+    FolderLibrary readback_library(readback_settings,{},[mixed_bytes]{return std::optional<QByteArray>{mixed_bytes};});
+    rejects("SETTINGS_WRITE_FAILED",[&]{readback_library.add_favorite({"nect.group.posterize",1});});
+    QSettings readback_reader(readback_settings.fileName(),QSettings::IniFormat);readback_reader.sync();
+    check(readback_library.favorites().size()==3&&readback_reader.value("library/v1/state").toByteArray()==mixed_bytes,
+        "A fresh-reader mismatch rolls back both the in-memory and independently read persisted state");
+
+    QSettings unreadable_settings(scratch+"/unreadable-readback.ini",QSettings::IniFormat);
+    unreadable_settings.setValue("library/v1/state",mixed_bytes);unreadable_settings.sync();
+    FolderLibrary unreadable_library(unreadable_settings,{},[]() -> std::optional<QByteArray> {
+        throw Error("SETTINGS_READ_FAILED","injected fresh-reader failure");
+    });
+    rejects("SETTINGS_WRITE_FAILED",[&]{unreadable_library.add_favorite({"nect.group.posterize",1});});
+    QSettings unreadable_reader(unreadable_settings.fileName(),QSettings::IniFormat);unreadable_reader.sync();
+    check(unreadable_library.favorites().size()==3&&
+        unreadable_reader.value("library/v1/state").toByteArray()==mixed_bytes,
+        "An unavailable fresh-reader confirmation rolls back the stored and in-memory prior state");
+}
+
 void host_and_ui_placement(const QString& scratch) {
     const auto root_path=scratch+"/assets";QDir().mkpath(root_path+"/brand");
     const auto linked_path=root_path+"/brand/logo.png";const auto embedded_path=root_path+"/paper.png";
@@ -317,12 +562,21 @@ void host_and_ui_placement(const QString& scratch) {
         auto* item=find_library_item(tree,ref);check(item,"Folder Library tree includes the registered raster path");
         tree->setCurrentItem(item);
         auto* favorite_button=dialog->findChild<QPushButton*>("folder-library-favorite-add");check(favorite_button,"Folder Library has a Favorite action");
+        const auto preference_document=encode(window.host.session.document());
+        const auto preference_revision=window.host.session.revision();
+        const auto preference_history=window.host.session.history();
         QTest::mouseClick(favorite_button,Qt::LeftButton);
         auto* favorite_list=dialog->findChild<QListWidget*>("folder-library-favorites");check(favorite_list&&favorite_list->count()==1,"Folder Library displays the persistent Favorite");
+        check(encode(window.host.session.document())==preference_document&&window.host.session.revision()==preference_revision&&
+            window.host.session.history()==preference_history,
+            "Adding an Asset Favorite leaves Document bytes, revision and History unchanged");
         favorite_list->setCurrentRow(0);
         auto* slot=dialog->findChild<QComboBox*>("folder-library-slot");check(slot,"Folder Library exposes Quick Access slots");slot->setCurrentIndex(slot->findData(1));
         auto* assign=dialog->findChild<QPushButton*>("folder-library-slot-set");check(assign,"Folder Library can assign the selected Favorite to a slot");
         QTest::mouseClick(assign,Qt::LeftButton);
+        check(encode(window.host.session.document())==preference_document&&window.host.session.revision()==preference_revision&&
+            window.host.session.history()==preference_history,
+            "Assigning an Asset Quick Access slot leaves Document bytes, revision and History unchanged");
         auto* use_slot=dialog->findChild<QPushButton*>("folder-library-use-slot");check(use_slot,"Folder Library can invoke Quick Access");
         QTest::mouseClick(use_slot,Qt::LeftButton);QApplication::processEvents();
         check(window.host.session.document().objects.size()==1,"Folder Library UI places an Image through Host");
@@ -348,10 +602,35 @@ int main(int argc,char** argv) {
             FolderLibrary reloaded(persisted);
             const auto favorite = reloaded.favorite_for_slot(1);
             return favorite && favorite->favorite_id == QString::fromUtf8(argv[4]) &&
-                favorite->ref.root_id == QString::fromUtf8(argv[3]) ? 0 : 1;
+                std::get_if<LibraryItemRefV1>(&favorite->target) &&
+                std::get<LibraryItemRefV1>(favorite->target).root_id == QString::fromUtf8(argv[3]) ? 0 : 1;
+        }
+        if (argc == 7 && QString::fromUtf8(argv[1]) == "--verify-mixed-settings") {
+            QSettings persisted(QString::fromUtf8(argv[2]),QSettings::IniFormat);
+            FolderLibrary reloaded(persisted);
+            const auto find=[&](const QString& id) -> const LibraryFavoriteV1* {
+                const auto item=std::find_if(reloaded.favorites().begin(),reloaded.favorites().end(),[&](const auto& value) {
+                    return value.favorite_id==id;
+                });
+                return item==reloaded.favorites().end()?nullptr:&*item;
+            };
+            const auto* asset=find(QString::fromUtf8(argv[4]));
+            const auto* folder=find(QString::fromUtf8(argv[5]));
+            const auto* effect=find(QString::fromUtf8(argv[6]));
+            if(!asset||!folder||!effect||!std::get_if<LibraryItemRefV1>(&asset->target)||
+                !std::get_if<LibraryItemRefV1>(&folder->target)||!std::get_if<BuiltinEffectTypeRefV1>(&effect->target))return 1;
+            const auto& asset_ref=std::get<LibraryItemRefV1>(asset->target);
+            const auto& folder_ref=std::get<LibraryItemRefV1>(folder->target);
+            const auto& effect_ref=std::get<BuiltinEffectTypeRefV1>(effect->target);
+            return asset_ref.root_id==QString::fromUtf8(argv[3])&&asset_ref.normalized_relative_path=="brand/logo.png"&&
+                folder_ref.root_id==asset_ref.root_id&&folder_ref.kind=="folder"&&
+                effect->favorite_id==QString::fromUtf8(argv[6])&&effect_ref.type_id=="nect.shape.offset"&&
+                effect_ref.behavior_version==1&&asset->quick_slot==1&&effect->quick_slot==2?0:1;
         }
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch directory is available");
         model_and_persistence(scratch.path()+"/model");
+        grouped_settings_identity(scratch.path()+"/grouped");
+        unified_effect_favorites(scratch.path()+"/unified");
         host_and_ui_placement(scratch.path()+"/placement");
         std::cout<<"PASS "<<checks<<" Folder Library/settings/Host/UI assertions\n";
         return 0;

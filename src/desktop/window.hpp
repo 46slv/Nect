@@ -46,6 +46,9 @@ private:
     std::uint64_t history_revision_=0;
     void show_history();
     void refresh_history();
+    void apply_builtin_effect_favorite(const BuiltinEffectTypeRefV1& effect,
+        const QString& expected_session, const Id& expected_target, std::uint64_t expected_revision,
+        std::uint64_t expected_generation);
     QTreeWidget* tree_;
     QListWidget* artboards_;
     QDockWidget* effects_dock_=nullptr;
@@ -54,6 +57,7 @@ private:
     QLabel* effects_target_=nullptr;
     QLabel* effects_status_=nullptr;
     QPushButton* effects_apply_=nullptr;
+    QPushButton* effects_favorite_=nullptr;
     QWidget* effects_operations_=nullptr;
     QVBoxLayout* effects_operations_layout_=nullptr;
     QLineEdit* presets_search_=nullptr;

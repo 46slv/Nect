@@ -9,6 +9,8 @@
 #include <QRegularExpression>
 #include <QUuid>
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <set>
 #include <string>
 
@@ -110,8 +112,10 @@ FolderLibrary::FolderLibrary()
     settings_->setAtomicSyncRequired(true);
 }
 
-FolderLibrary::FolderLibrary(QSettings& settings, PersistOverride persist_override)
-    : settings_(&settings), persist_override_(std::move(persist_override)) {
+FolderLibrary::FolderLibrary(QSettings& settings, PersistOverride persist_override,
+    ReadbackOverride readback_override)
+    : settings_(&settings), persist_override_(std::move(persist_override)),
+      readback_override_(std::move(readback_override)) {
     settings_->setFallbacksEnabled(false);
     settings_->setAtomicSyncRequired(true);
 }
@@ -141,7 +145,7 @@ void FolderLibrary::ensure_loaded() const {
     if (parse_error.error != QJsonParseError::NoError || !document.isObject())
         throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library settings are malformed");
     const auto state = document.object();
-    if (state.value("version").toInt(-1) != 1 || !state.value("roots").isArray() ||
+    if (!state.value("version").isDouble() || state.value("version").toDouble() != 1 || !state.value("roots").isArray() ||
         !state.value("favorites").isArray())
         throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library settings use an unsupported version or shape");
 
@@ -167,11 +171,22 @@ void FolderLibrary::ensure_loaded() const {
     for (const auto& value : state.value("favorites").toArray()) {
         if (!value.isObject()) throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library favorite is malformed");
         const auto object = value.toObject();
-        if (!object.value("favorite_id").isString() || !object.value("ref").isObject() ||
+        const bool has_legacy_ref = object.contains("ref");
+        const bool has_tagged_target = object.contains("target");
+        if (!object.value("favorite_id").isString() || has_legacy_ref == has_tagged_target ||
             !object.value("quick_slot").isDouble())
             throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library favorite fields are malformed");
-        auto ref = ref_from_json(object.value("ref").toObject());
-        LibraryFavoriteV1 favorite{object.value("favorite_id").toString(), std::move(ref), object.value("quick_slot").toInt()};
+        const double quick_slot_number = object.value("quick_slot").toDouble();
+        if (!std::isfinite(quick_slot_number) || std::floor(quick_slot_number) != quick_slot_number ||
+            quick_slot_number < 0 || quick_slot_number > 9)
+            throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library Quick Access slot is malformed");
+        if ((has_legacy_ref && !object.value("ref").isObject()) ||
+            (has_tagged_target && !object.value("target").isObject()))
+            throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library favorite target is malformed");
+        auto target = has_tagged_target ? target_from_json(object.value("target").toObject()) :
+            LibraryFavoriteTargetV1{ref_from_json(object.value("ref").toObject())};
+        LibraryFavoriteV1 favorite{object.value("favorite_id").toString(), std::move(target),
+            static_cast<int>(quick_slot_number)};
         if (favorite.favorite_id.isEmpty() || favorite.quick_slot < 0 || favorite.quick_slot > 9 ||
             (favorite.quick_slot != 0 && !used_slots.insert(favorite.quick_slot).second) ||
             std::any_of(favorites.begin(), favorites.end(), [&](const auto& previous) { return previous.favorite_id == favorite.favorite_id; }))
@@ -192,7 +207,7 @@ QByteArray FolderLibrary::serialize_state(const QList<LibraryRootV1>& roots,
         {"case_sensitive", root.case_sensitive}});
     QJsonArray favorite_values;
     for (const auto& favorite : favorites) favorite_values.append(QJsonObject{
-        {"favorite_id", favorite.favorite_id}, {"ref", ref_to_json(favorite.ref)},
+        {"favorite_id", favorite.favorite_id}, {"target", target_to_json(favorite.target)},
         {"quick_slot", favorite.quick_slot}});
     return QJsonDocument(QJsonObject{{"version", 1}, {"roots", root_values}, {"favorites", favorite_values}})
         .toJson(QJsonDocument::Compact);
@@ -212,16 +227,45 @@ void FolderLibrary::persist_state(const QList<LibraryRootV1>& roots,
     if (settings_->status() != QSettings::NoError)
         throw Error("SETTINGS_WRITE_FAILED", "Folder Library settings could not be synchronized");
     const auto key = QLatin1String(settings_key);
-    const bool had_previous = settings_->contains(key);
-    const auto previous = settings_->value(key);
+    const auto previous = read_state_from_fresh_settings(false);
     settings_->setValue(key, bytes);
     settings_->sync();
-    if (settings_->status() == QSettings::NoError && settings_->value(key).toByteArray() == bytes) return;
+    std::optional<QByteArray> readback;
+    if (settings_->status() == QSettings::NoError) {
+        try {
+            readback = read_state_from_fresh_settings(true);
+        } catch (const Error&) {
+            // Treat inability to confirm the write like a mismatch so the prior
+            // setting is restored before reporting failure.
+        }
+    }
+    if (readback && *readback == bytes) return;
 
-    if (had_previous) settings_->setValue(key, previous);
+    if (previous) settings_->setValue(key, *previous);
     else settings_->remove(key);
     settings_->sync();
-    throw Error("SETTINGS_WRITE_FAILED", "Folder Library settings were not saved and the prior value was restored");
+    const auto restored = settings_->status() == QSettings::NoError ? read_state_from_fresh_settings(false) : std::nullopt;
+    if (restored != previous)
+        throw Error("SETTINGS_WRITE_FAILED", "Folder Library settings failed readback and the prior value could not be confirmed after restoration");
+    throw Error("SETTINGS_WRITE_FAILED", "Folder Library settings failed fresh readback and the prior value was restored");
+}
+
+std::optional<QByteArray> FolderLibrary::read_state_from_fresh_settings(bool use_override) const {
+    if (use_override && readback_override_) return readback_override_();
+
+    std::unique_ptr<QSettings> reader;
+    // Preserve the exact backing store for both INI files and explicit native
+    // registry paths. Reconstructing NativeFormat from organization/app names
+    // can silently redirect an injected fileName-backed QSettings elsewhere.
+    reader = std::make_unique<QSettings>(settings_->fileName(), settings_->format());
+    reader->beginGroup(settings_->group());
+    reader->setFallbacksEnabled(false);
+    reader->sync();
+    if (reader->status() != QSettings::NoError)
+        throw Error("SETTINGS_READ_FAILED", "Folder Library settings could not be read back from a fresh QSettings instance");
+    const auto key = QLatin1String(settings_key);
+    if (!reader->contains(key)) return {};
+    return reader->value(key).toByteArray();
 }
 
 const LibraryRootV1& FolderLibrary::root(const QString& root_id) const {
@@ -309,6 +353,14 @@ QString FolderLibrary::comparison_key(const LibraryItemRefV1& ref) const {
 
 bool FolderLibrary::same_identity(const LibraryItemRefV1& left, const LibraryItemRefV1& right) const {
     return comparison_key(left) == comparison_key(right);
+}
+
+bool FolderLibrary::same_identity(const LibraryFavoriteTargetV1& left,
+    const LibraryFavoriteTargetV1& right) const {
+    if (left.index() != right.index()) return false;
+    if (const auto* left_item = std::get_if<LibraryItemRefV1>(&left))
+        return same_identity(*left_item, std::get<LibraryItemRefV1>(right));
+    return std::get<BuiltinEffectTypeRefV1>(left) == std::get<BuiltinEffectTypeRefV1>(right);
 }
 
 LibraryItemV1 FolderLibrary::resolve(const LibraryItemRefV1& supplied_ref) const {
@@ -442,16 +494,38 @@ LibraryFavoriteV1 FolderLibrary::add_favorite(const LibraryItemRefV1& supplied_r
     ensure_loaded();
     if (quick_slot < 0 || quick_slot > 9) throw Error("INVALID_QUICK_SLOT", "Quick Access slot must be between 1 and 9, or 0 for none");
     const auto resolved = resolve(supplied_ref);
+    return add_favorite_target(LibraryFavoriteTargetV1{resolved.ref}, quick_slot);
+}
+
+LibraryFavoriteV1 FolderLibrary::add_favorite(const BuiltinEffectTypeRefV1& effect, int quick_slot) {
+    ensure_loaded();
+    if (quick_slot < 0 || quick_slot > 9)
+        throw Error("INVALID_QUICK_SLOT", "Quick Access slot must be between 1 and 9, or 0 for none");
+    if (effect.type_id.trimmed().isEmpty() || effect.behavior_version == 0)
+        throw Error("INVALID_EFFECT_TYPE_REF", "A built-in Effect Favorite needs a TypeID and positive BehaviorVersion");
+    return add_favorite_target(LibraryFavoriteTargetV1{effect}, quick_slot);
+}
+
+LibraryFavoriteV1 FolderLibrary::add_favorite_target(const LibraryFavoriteTargetV1& target, int quick_slot) {
     auto candidate = favorites_;
-    auto found = std::find_if(candidate.begin(), candidate.end(), [&](const auto& favorite) { return same_identity(favorite.ref, resolved.ref); });
-    if (quick_slot != 0) for (auto& favorite : candidate) if (favorite.quick_slot == quick_slot) favorite.quick_slot = 0;
+    auto found = std::find_if(candidate.begin(), candidate.end(), [&](const auto& favorite) {
+        return same_identity(favorite.target, target);
+    });
+    if (quick_slot != 0) {
+        const auto occupied = std::find_if(candidate.begin(), candidate.end(), [&](const auto& favorite) {
+            return favorite.quick_slot == quick_slot && (found == candidate.end() || favorite.favorite_id != found->favorite_id);
+        });
+        if (occupied != candidate.end())
+            throw Error("QUICK_SLOT_OCCUPIED", "That Quick Access slot already belongs to another Favorite");
+    }
+
     LibraryFavoriteV1 result;
     if (found != candidate.end()) {
         result = *found;
-        result.quick_slot = quick_slot == 0 ? result.quick_slot : quick_slot;
+        if (quick_slot != 0) result.quick_slot = quick_slot;
         *found = result;
     } else {
-        result = {QUuid::createUuid().toString(QUuid::WithoutBraces), resolved.ref, quick_slot};
+        result = {QUuid::createUuid().toString(QUuid::WithoutBraces), target, quick_slot};
         candidate.push_back(result);
     }
     persist_state(roots_, candidate);
@@ -475,7 +549,10 @@ void FolderLibrary::assign_quick_slot(const QString& favorite_id, int quick_slot
     auto candidate = favorites_;
     const auto selected = std::find_if(candidate.begin(), candidate.end(), [&](const auto& favorite) { return favorite.favorite_id == favorite_id; });
     if (selected == candidate.end()) throw Error("MISSING_FAVORITE", "The Folder Library favorite no longer exists");
-    if (quick_slot != 0) for (auto& favorite : candidate) if (favorite.favorite_id != favorite_id && favorite.quick_slot == quick_slot) favorite.quick_slot = 0;
+    if (quick_slot != 0 && std::any_of(candidate.begin(), candidate.end(), [&](const auto& favorite) {
+        return favorite.favorite_id != favorite_id && favorite.quick_slot == quick_slot;
+    }))
+        throw Error("QUICK_SLOT_OCCUPIED", "That Quick Access slot already belongs to another Favorite");
     selected->quick_slot = quick_slot;
     persist_state(roots_, candidate);
     favorites_ = std::move(candidate);
@@ -490,8 +567,17 @@ std::optional<LibraryFavoriteV1> FolderLibrary::favorite_for_slot(int quick_slot
 }
 
 QString FolderLibrary::favorite_status(const LibraryFavoriteV1& favorite) const {
+    if (const auto* effect = std::get_if<BuiltinEffectTypeRefV1>(&favorite.target)) {
+        const auto* descriptor = builtin_operation_type(effect->type_id.toStdString());
+        if (!descriptor || !descriptor->effects_catalog)
+            return "UNAVAILABLE_EFFECT_TYPE: " + effect->type_id + " behavior v" + QString::number(effect->behavior_version) + " is not registered in the built-in Effects catalog";
+        if (descriptor->version != effect->behavior_version)
+            return "EFFECT_BEHAVIOR_VERSION_MISMATCH: Favorite requires " + effect->type_id + " behavior v" +
+                QString::number(effect->behavior_version) + "; this build provides v" + QString::number(descriptor->version);
+        return "Available";
+    }
     try {
-        const auto resolved = resolve(favorite.ref);
+        const auto resolved = resolve(std::get<LibraryItemRefV1>(favorite.target));
         return resolved.available ? QStringLiteral("Available") : resolved.problem;
     } catch (const Error& error) {
         return error_message(error);
@@ -508,6 +594,34 @@ LibraryItemRefV1 FolderLibrary::ref_from_json(const QJsonObject& json) {
     const auto kind = json.value("kind").toString();
     if (kind != "folder" && kind != "raster") throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library item reference has an unsupported kind");
     return {json.value("root_id").toString(), json.value("normalized_relative_path").toString(), kind};
+}
+
+QJsonObject FolderLibrary::target_to_json(const LibraryFavoriteTargetV1& target) {
+    if (const auto* item = std::get_if<LibraryItemRefV1>(&target))
+        return {{"kind", "library_item_v1"}, {"ref", ref_to_json(*item)}};
+    const auto& effect = std::get<BuiltinEffectTypeRefV1>(target);
+    return {{"kind", "effect_type_v1"}, {"type_id", effect.type_id},
+        {"behavior_version", static_cast<double>(effect.behavior_version)}};
+}
+
+LibraryFavoriteTargetV1 FolderLibrary::target_from_json(const QJsonObject& json) {
+    if (!json.value("kind").isString())
+        throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library favorite target needs a tagged kind");
+    const auto kind = json.value("kind").toString();
+    if (kind == "library_item_v1") {
+        if (!json.value("ref").isObject())
+            throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library item target is malformed");
+        return ref_from_json(json.value("ref").toObject());
+    }
+    if (kind != "effect_type_v1" || !json.value("type_id").isString() ||
+        !json.value("behavior_version").isDouble())
+        throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library favorite target uses an unsupported or malformed tag");
+    const auto type_id = json.value("type_id").toString();
+    const double version = json.value("behavior_version").toDouble();
+    if (type_id.trimmed().isEmpty() || !std::isfinite(version) || std::floor(version) != version ||
+        version < 1 || version > static_cast<double>(std::numeric_limits<std::uint32_t>::max()))
+        throw Error("INVALID_LIBRARY_SETTINGS", "Folder Library Effect target identity is malformed");
+    return BuiltinEffectTypeRefV1{type_id, static_cast<std::uint32_t>(version)};
 }
 
 }
