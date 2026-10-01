@@ -1,6 +1,6 @@
 # R03/R10 Artboard Guide alignment / bounded vertical
 
-Status: FOCUSED CORE/JSON + QT/HOST QUALIFIED / AGGREGATE RUNNING. Base c257e15d162b450694bce0f090d8c5343aace1c7.
+Status: CORE/JSON + QT/HOST VERTICAL QUALIFIED / AGGREGATE PLATFORM_LIMITED. Base c257e15d162b450694bce0f090d8c5343aace1c7.
 Owner: dot, sole cloud writer. Authority: Confirmed REQ-157 and REQ-205, G5 and
 the existing Guide packet's explicit Align residual. No background/product change.
 
@@ -47,8 +47,11 @@ legacy-alias conflict, JSON null/omitted scope and malformed-ID cases were added
 MCP help now describes the canonical command; Python syntax check PASS. Formal
 MCP runtime is not claimed because this cloud cannot start its local server.
 
-The full final desktop rebuild/regression run is ongoing at this checkpoint.
-Do not infer full-suite success from these focused checks. Prior platform-limited
+The final all-target desktop Release rebuild passed. Full CTest:36 passes,1
+explicit WIC skip,26 failures of63. Failed-name comparison with the prior
+61-test aggregate shows no added/removed failure names; these remain platform,
+fixture and golden-output obligations, not passes. Real-process smoke passes.
+Do not infer full-suite success from the focused checks. Prior platform-limited
 aggregate evidence remains in docs/r10-template-duplicate-boundary.md. Logs live
 under ignored build/d0-evidence/guide-align-*. No product Candidate, background,
 Grid discovery, snapping, distribution-to-Guide or native schema was changed.
