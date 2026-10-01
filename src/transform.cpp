@@ -95,12 +95,30 @@ std::map<Id,EvaluatedTransform> evaluate_transforms(const Document& document,con
     };
     for(const auto& composition:document.compositions)for(const auto& id:composition.roots)own(id,{},composition.id,0);
     require(compositions.size()==document.objects.size(),"ORPHAN_OBJECT","Every object requires one structural owner");
+
+    struct FollowedItem {
+        Id group;
+        const GroupPathFollow* relation=nullptr;
+        const GroupPathFollowItem* item=nullptr;
+    };
+    std::map<Id,FollowedItem> followed_items;
+    for(const auto& [group_id,object]:document.objects)if(object.path_follow) {
+        for(const auto& [child,item]:object.path_follow->items) {
+            require(std::find(object.children.begin(),object.children.end(),child)!=object.children.end(),
+                "GROUP_PATH_FOLLOW_NOT_CHILD","A followed Object must be a direct child of its Group");
+            require(followed_items.emplace(child,FollowedItem{group_id,&*object.path_follow,&item}).second,
+                "GROUP_PATH_FOLLOW_DUPLICATE_ITEM","An Object cannot be attached to more than one Group Path Follow relation");
+        }
+    }
     std::map<Id,EvaluatedTransform> result;
     std::map<Id,unsigned> chain_depth;
+    std::map<std::pair<Id,Id>,PathSampler> sampler_cache;
     std::set<Id> active;
     std::function<const EvaluatedTransform&(const Id&,unsigned)> visit=[&](const Id& id,unsigned depth)->const EvaluatedTransform& {
         require(depth<=128,"TRANSFORM_DEPTH","Effective transform parent depth limit 128");
         if(const auto found=result.find(id);found!=result.end())return found->second;
+        if(active.contains(id)&&followed_items.contains(id))
+            throw Error("GROUP_PATH_FOLLOW_CYCLE","Group Path Follow and Transform Parent dependencies contain a cycle");
         require(active.insert(id).second,"TRANSFORM_CYCLE","Effective transform parent cycle at "+id);
         const auto& object=document.objects.at(id);EvaluatedTransform item;
         item.effective_parent=object.transform_parent?*object.transform_parent:structural_parents.at(id);
@@ -110,8 +128,54 @@ std::map<Id,EvaluatedTransform> evaluate_transforms(const Document& document,con
         }
         for(std::size_t i=0;i<matrix_fields.size();++i) {
             const auto found=values.find({id,"",matrix_fields[i]});
-            require(found!=values.end(),"MISSING_REFERENCE",id+"/"+matrix_fields[i]);item.local[i]=found->second;
+            require(found!=values.end(),"MISSING_REFERENCE",id+"/"+matrix_fields[i]);item.authored_local[i]=found->second;
         }
+        finite_matrix(item.authored_local);
+        if(const auto followed=followed_items.find(id);followed!=followed_items.end()) {
+            const auto& attachment=followed->second;
+            require(!object.transform_parent,"GROUP_PATH_FOLLOW_TRANSFORM_PARENT",
+                "A followed child cannot have an explicit Transform Parent");
+            require(item.effective_parent==attachment.group,"GROUP_PATH_FOLLOW_PARENT",
+                "A followed child must inherit its Group transform structurally");
+            const auto& group=visit(attachment.group,depth+1);
+            const auto source=document.objects.find(attachment.relation->path);
+            require(source!=document.objects.end(),"MISSING_PATH_ATTACHMENT","Group Path Follow source Path no longer exists");
+            require(source->second.kind==Kind::path,"INVALID_PATH_ATTACHMENT","Group Path Follow source must be a Path object");
+            const auto& path=visit(attachment.relation->path,depth+1);
+            const auto sampler_key=std::pair{attachment.relation->path,attachment.relation->contour};
+            auto sampler=sampler_cache.find(sampler_key);
+            if(sampler==sampler_cache.end())sampler=sampler_cache.emplace(sampler_key,
+                build_path_sampler(document,sampler_key.first,sampler_key.second,values,path.world)).first;
+            const auto& relation=*attachment.relation;
+            const auto& item_values=*attachment.item;
+            double start=relation.start_mode=="normalized"?relation.start*sampler->second.length:relation.start;
+            require(std::isfinite(start),"GROUP_PATH_FOLLOW_RANGE","Group Path Follow start resolves to a non-finite distance");
+            if(!sampler->second.closed) {
+                require(relation.start_mode=="distance"||relation.start_mode=="normalized","GROUP_PATH_FOLLOW_START_MODE",
+                    "Group Path Follow start mode must be distance or normalized");
+                require(relation.start>=0&&(relation.start_mode=="normalized"?relation.start<=1:relation.start<=sampler->second.length),
+                    "GROUP_PATH_FOLLOW_RANGE","Group Path Follow start is outside its open contour");
+            }
+            const auto distance=start+item_values.distance;
+            require(std::isfinite(distance),"GROUP_PATH_FOLLOW_RANGE","Group Path Follow item distance is non-finite");
+            if(!sampler->second.closed)require(distance>=0&&distance<=sampler->second.length,"GROUP_PATH_FOLLOW_RANGE",
+                "Group Path Follow item sample is outside its open contour");
+            const auto sample=sample_path(sampler->second,distance,relation.reversed);
+            const auto offset=relation.normal_offset+item_values.normal_offset;
+            require(std::isfinite(offset),"GROUP_PATH_FOLLOW_OFFSET","Group Path Follow offset is non-finite");
+            const Vec2 position{sample.position.x+sample.normal.x*offset,sample.position.y+sample.normal.y*offset};
+            require(std::isfinite(position.x)&&std::isfinite(position.y),"OUTPUT_RANGE","Group Path Follow frame is non-finite");
+            const auto group_inverse=inverse_affine(group.world);
+            if(item_values.follow_tangent) {
+                const Affine world_frame{sample.tangent.x,sample.tangent.y,-sample.tangent.y,sample.tangent.x,position.x,position.y};
+                item.derived_local=compose(group_inverse,world_frame);
+            } else {
+                const auto local_position=map_point(group_inverse,position);
+                item.derived_local={1,0,0,1,local_position.x,local_position.y};
+            }
+            finite_matrix(item.derived_local);
+        }
+        item.local=compose(item.derived_local,item.authored_local);
         finite_matrix(item.local);
         if(item.effective_parent.empty()){item.world=item.local;chain_depth.emplace(id,0);}
         else {

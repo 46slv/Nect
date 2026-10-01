@@ -793,6 +793,12 @@ void reveal(Window& window,QWidget* widget) {
     check(scroll!=nullptr,"Inspector scroll area exists");
     scroll->ensureWidgetVisible(widget);QApplication::processEvents();
 }
+void settle_rebuilt_inspector() {
+    for(int pass=0;pass<2;++pass) {
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);QApplication::processEvents();
+    }
+    QTest::qWait(10);
+}
 void edit_number(Window& window,const Ref& ref,const char* text) {
     auto* input=field<QLineEdit>(window,ref);reveal(window,input);input->setFocus();
     QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);
@@ -5424,6 +5430,78 @@ void p02d_repeater_knob_acceptance(Window& window) {
     check(!knob->isEnabled()&&std::abs(evaluate(session.document()).at(rotation)-120)<1e-12,
         "Driven rotation disables the dial and uses the same evaluated Ref");
 }
+void group_path_follow_inspector(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    Point first;first.id="ui-follow-first";first.x.literal=0;first.y.literal=0;
+    Point last;last.id="ui-follow-last";last.x.literal=300;last.y.literal=20;
+    auto rectangle=default_primitive("ui-follow-rect-source","nect.shape.rectangle");
+    auto text=default_text("ui-follow-text-source","Editable Text B");
+    session.apply({CreatePrimitive{composition,"","ui-follow-rect","Rectangle A",rectangle},
+        CreateText{composition,"","ui-follow-text","Editable Text B",text},
+        CreatePath{composition,"","ui-follow-path","Guide",{{"ui-follow-contour",false,{first,last}}}},
+        GroupContiguous{composition,"",{"ui-follow-rect","ui-follow-text"},"ui-follow-group","Follow Group"}},session.revision());
+    window.host.edited();window.canvas->set_selection("ui-follow-group");QApplication::processEvents();
+    auto* path=visible_child<QComboBox>(window,"group-path-follow-source");
+    auto* contour=visible_child<QComboBox>(window,"group-path-follow-contour");
+    auto* mode=visible_child<QComboBox>(window,"group-path-follow-start-mode");
+    check(path->findData("ui-follow-path")>=0&&contour->findData("ui-follow-contour")>=0,
+        "Group Path Follow inspector offers the stable authored Path and Contour IDs");
+    path->setCurrentIndex(path->findData("ui-follow-path"));
+    mode->setCurrentIndex(mode->findData("normalized"));
+    visible_child<QDoubleSpinBox>(window,"group-path-follow-start")->setValue(.2);
+    visible_child<QDoubleSpinBox>(window,"group-path-follow-normal-offset")->setValue(3);
+    visible_child<QCheckBox>(window,"group-path-follow-reversed")->setChecked(true);
+    visible_child<QPushButton>(window,"group-path-follow-apply")->click();settle_rebuilt_inspector();
+    const auto attached=session.document().objects.at("ui-follow-group").path_follow;
+    check(attached&&attached->path=="ui-follow-path"&&attached->contour=="ui-follow-contour"&&
+        attached->start_mode=="normalized"&&attached->start==.2&&attached->normal_offset==3&&attached->reversed,
+        "Inspector Apply attaches the selected source and authored relation settings through Session");
+    const auto relation_id=attached->id;
+    auto* child=visible_child<QCheckBox>(window,"group-path-follow-item-ui-follow-rect");child->click();settle_rebuilt_inspector();
+    check(session.document().objects.at("ui-follow-group").path_follow->items.contains("ui-follow-rect"),
+        "Child checkbox adds the stable child Object ID to the relation");
+    auto* distance=visible_child<QDoubleSpinBox>(window,"group-path-follow-distance-ui-follow-rect");
+    distance->setValue(18);distance->setFocus();QTest::keyClick(distance,Qt::Key_Return);settle_rebuilt_inspector();
+    check(session.document().objects.at("ui-follow-group").path_follow->items.at("ui-follow-rect").distance==18,
+        "Child distance editor commits the exact item value through the shared Session command");
+    check(window.canvas->selected_object=="ui-follow-group","Item edits preserve Group selection in the Inspector");
+    auto* tangent=visible_child<QCheckBox>(window,"group-path-follow-tangent-ui-follow-rect");
+    reveal(window,tangent);tangent->click();settle_rebuilt_inspector();
+    check(!session.document().objects.at("ui-follow-group").path_follow->items.at("ui-follow-rect").follow_tangent,
+        "Tangent checkbox commits per-child orientation behavior");
+    visible_child<QDoubleSpinBox>(window,"group-path-follow-start")->setValue(.4);
+    visible_child<QPushButton>(window,"group-path-follow-apply")->click();settle_rebuilt_inspector();
+    check(session.document().objects.at("ui-follow-group").path_follow->id==relation_id&&
+        session.document().objects.at("ui-follow-group").path_follow->start==.4&&
+        session.document().objects.at("ui-follow-group").path_follow->items.at("ui-follow-rect").distance==18,
+        "Inspector Update retains the stable relation ID and child item values");
+    auto precise=*session.document().objects.at("ui-follow-group").path_follow;
+    precise.start=.412345678901234;precise.normal_offset=3.12345678901234;
+    session.apply({GroupPathFollowCommand{UpdateGroupPathFollow{"ui-follow-group",precise}}},session.revision());
+    window.host.edited();settle_rebuilt_inspector();
+    visible_child<QCheckBox>(window,"group-path-follow-reversed")->setChecked(false);
+    visible_child<QPushButton>(window,"group-path-follow-apply")->click();settle_rebuilt_inspector();
+    const auto preserved=session.document().objects.at("ui-follow-group").path_follow;
+    check(preserved->start==precise.start&&preserved->normal_offset==precise.normal_offset,
+        "Inspector update of another setting preserves exact unedited relation numbers");
+    precise.start=.4;precise.normal_offset=3;precise.reversed=false;
+    session.apply({GroupPathFollowCommand{UpdateGroupPathFollow{"ui-follow-group",precise}}},session.revision());
+    window.host.edited();settle_rebuilt_inspector();
+    const auto group_children=session.document().objects.at("ui-follow-group").children;
+    const auto rectangle_transform=session.document().objects.at("ui-follow-rect").transform;
+    const auto text_transform=session.document().objects.at("ui-follow-text").transform;
+    visible_child<QPushButton>(window,"group-path-follow-clear")->click();settle_rebuilt_inspector();
+    check(!session.document().objects.at("ui-follow-group").path_follow&&
+        session.document().objects.at("ui-follow-group").children==group_children&&
+        session.document().objects.at("ui-follow-rect").transform==rectangle_transform&&
+        session.document().objects.at("ui-follow-text").transform==text_transform,
+        "Clear removes only the relation and does not bake transforms or rewrite hierarchy");
+    session.undo(session.revision());window.host.edited();settle_rebuilt_inspector();
+    check(session.document().objects.at("ui-follow-group").path_follow->id==relation_id&&
+        session.document().objects.at("ui-follow-group").path_follow->start==.4&&
+        session.document().objects.at("ui-follow-group").path_follow->items.at("ui-follow-rect").distance==18,
+        "Undo restores the exact Group Path Follow relation and item values");
+}
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
     try {
@@ -5586,6 +5664,8 @@ int main(int argc,char** argv) {
         p02d_utility_acceptance(p02d);p02d_shortcut_acceptance(p02d);p02d.hide();
         Window repeater(temp.path()+"/p02d-repeater");repeater.show();QApplication::processEvents();
         p02d_repeater_knob_acceptance(repeater);repeater.hide();
-        std::cout<<"PASS Inspector, P02-D strip/setup/knob/shortcuts, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
+        Window follow(temp.path()+"/group-path-follow");follow.show();QApplication::processEvents();
+        group_path_follow_inspector(follow);follow.hide();
+        std::cout<<"PASS Inspector, P02-D strip/setup/knob/shortcuts, Group Path Follow, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

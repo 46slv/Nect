@@ -152,7 +152,7 @@ std::shared_ptr<const std::vector<EvaluatedContour>> project_text_on_path(const 
         if(parent==text_id)throw Error("TEXT_PATH_TRANSFORM_CYCLE","A Text-on-Path source cannot inherit its consumer's transform");
         const auto found=transforms.find(parent);if(found==transforms.end())break;parent=found->second.effective_parent;
     }
-    const auto sampler=build_path_sampler(document,attachment.path,attachment.contour,values);
+    const auto sampler=build_path_sampler(document,attachment.path,attachment.contour,values,path_transform.world);
     const auto world_to_text=inverse_affine(text_transform.world);
     const double anchor=attachment.start_mode=="normalized"?attachment.start*sampler.length:attachment.start;
     if(!std::isfinite(anchor))throw Error("TEXT_PATH_START_INVALID","Text-on-Path start resolves to a non-finite distance");
@@ -269,14 +269,17 @@ void apply_repeater(EvaluatedShape& shape,const ShapeOperation& op,const std::fu
 }
 }
 PathSampler build_path_sampler(const Document& document,const Id& path_id,const Id& contour_id,const std::map<Ref,double>& values) {
+    const auto transforms=evaluate_transforms(document,values);
+    return build_path_sampler(document,path_id,contour_id,values,transforms.at(path_id).world);
+}
+PathSampler build_path_sampler(const Document& document,const Id& path_id,const Id& contour_id,
+    const std::map<Ref,double>& values,const Affine& world) {
     const auto object=document.objects.find(path_id);
     if(object==document.objects.end())throw Error("MISSING_PATH_ATTACHMENT","Path sampling source no longer exists");
     if(object->second.kind!=Kind::path)throw Error("INVALID_PATH_ATTACHMENT","Path sampling source must be a Path object");
     if(object->second.source)throw Error("GENERATED_PATH_ATTACHMENT","Path sampling requires an authored contour");
     const auto found=std::find_if(object->second.contours.begin(),object->second.contours.end(),[&](const Contour& contour){return contour.id==contour_id;});
     if(found==object->second.contours.end())throw Error("MISSING_PATH_CONTOUR","Path sampling contour ID no longer exists");
-    const auto transforms=evaluate_transforms(document,values);
-    const auto& world=transforms.at(path_id).world;
     EvaluatedContour contour;contour.closed=found->closed;contour.points.reserve(found->points.size());
     for(const auto& point:found->points) {
         const auto anchor=map_point(world,{values.at({path_id,point.id,"x"}),values.at({path_id,point.id,"y"})});

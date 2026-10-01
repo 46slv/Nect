@@ -7,7 +7,7 @@ Scalar, Binding, Expression, Collection, Named Color, retained Circle/Ellipse/Re
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
 same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
-The current native writer is 0.73.
+The current native writer is 0.74.
 
 ## Point Edit enabled expression v1
 
@@ -1878,3 +1878,41 @@ The source generates stable east/south/west/north anchors in the same
 correction authority, and native files save the retained source plus authored
 corrections rather than generated anchors. See
 `schemas/native-v0.73.schema.json`.
+
+## Native 0.74 — rigid Group Path Follow
+
+Native 0.74 adds an optional `path_follow` relation owned by a Group. The
+relation retains its own stable ID, an exact authored Path Object ID and
+Contour ID, distance or normalized start, relation normal offset, and reversed
+traversal. Its `items` object is keyed by the stable IDs of direct Group
+children; each item retains a distance offset, normal offset, and
+`follow_tangent` flag. The source must be an authored Path contour in the same
+Composition and outside the Group subtree. Visibility does not affect sampling.
+Generated geometry, Text and other Groups are not Path sources.
+
+Evaluation samples the source in Composition space and computes an ephemeral
+derived local frame for each attached child. Tangent following converts the
+sampled world tangent frame through the inverse Group world matrix. With
+`follow_tangent=false`, only the sampled point plus normal offset is converted
+into Group-local space; the child's authored orientation remains Group-local.
+In both cases, the child's authored local transform is composed once after the
+derived frame. Path Follow does not rewrite geometry, Text source, transform
+Scalars, hierarchy, stable IDs or item membership. Editing the Path or child
+therefore reevaluates placement without baking.
+
+Open contours accept a normalized start only in [0,1], or a distance start in
+[0,length]; each child sample must remain in [0,length]. Closed contours wrap
+sample distances. Zero-length contours reject. A following Group and each
+attached child must use its structural transform parent, without an explicit
+Transform Parent. Structural ancestors may still transform the Group. The
+combined transform dependency graph rejects cycles, including a source Path
+whose effective transform depends on a followed child. Clear removes only the
+relation; Undo and Redo retain ordinary Session atomicity.
+
+Session/API/MCP commands attach, update, clear, set and remove stable child
+items. The Desktop inspector uses the same commands and reads the retained
+relation back from Session state. Native 0.1–0.73 remain readable; a Path Follow
+field under an older version rejects as a version lie.
+`schemas/native-v0.74.schema.json` closes the optional Group relation and child
+item shape. This release is the rigid Path-following slice; it does not deform
+child geometry or provide general rigs.

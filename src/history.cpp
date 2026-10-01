@@ -241,6 +241,15 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
             else if constexpr(std::is_same_v<T,SetGridBoundsWidthExpression>)return "Grid bounds width expression: "+property_label(operation.target);
             else return "Unlink Grid bounds width: "+property_label(operation.target);
         },command->operation);
+    if(const auto* follow=std::get_if<GroupPathFollowCommand>(&commands.front()))
+        return std::visit([&](const auto& command)->std::string {
+            using F=std::decay_t<decltype(command)>;
+            if constexpr(std::is_same_v<F,AttachGroupPathFollow>)return "Attach Group Path Follow: "+name(command.group);
+            else if constexpr(std::is_same_v<F,UpdateGroupPathFollow>)return "Update Group Path Follow: "+name(command.group);
+            else if constexpr(std::is_same_v<F,ClearGroupPathFollow>)return "Clear Group Path Follow: "+name(command.group);
+            else if constexpr(std::is_same_v<F,SetGroupPathFollowItem>)return "Set Group Path Follow item: "+name(command.object);
+            else return "Remove Group Path Follow item: "+name(command.object);
+        },*follow);
     auto label=std::visit([&](const auto& c)->std::string {
         using T=std::decay_t<decltype(c)>;
         if constexpr(std::is_same_v<T,Set>)return "Set "+property_label(c.ref);

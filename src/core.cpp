@@ -4600,6 +4600,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             require(ch>=32||ch==9||ch==10||ch==13,"INVALID_NAME","XML-incompatible control character");
 
         require(o.kind==Kind::group||o.kind==Kind::path||o.kind==Kind::text||o.kind==Kind::image||o.kind==Kind::instance,"INVALID_OBJECT","Unknown object kind");
+        require(o.kind==Kind::group||!o.path_follow,"INVALID_PATH_FOLLOW","Only a Group can own a Path Follow relation");
         require(o.kind==Kind::image||!o.image,"INVALID_OBJECT","Only Image owns an image source");
         if(o.kind==Kind::image) {
             require(o.image.has_value()&&!o.text&&!o.source&&!o.point_edit&&o.contours.empty()&&o.children.empty(),"INVALID_IMAGE","Image requires exactly one image source");
@@ -4617,6 +4618,24 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             require(!o.source&&!o.point_edit&&!o.text,"INVALID_OBJECT","Group cannot own a geometry source");
             require(!o.instance,"INVALID_OBJECT","Group cannot carry Instance state");
             require(o.legacy_stroke.empty(),"INVALID_DOMAIN","Groups do not own legacy Stroke addresses");
+            if(o.path_follow) {
+                const auto& follow=*o.path_follow;
+                add(follow.id);identity(follow.path);identity(follow.contour);
+                require(!o.transform_parent,"GROUP_PATH_FOLLOW_TRANSFORM_PARENT",
+                    "A Group following a Path cannot have an explicit Transform Parent");
+                require(follow.start_mode=="distance"||follow.start_mode=="normalized","GROUP_PATH_FOLLOW_START_MODE",
+                    "Group Path Follow start mode must be distance or normalized");
+                finite(follow.start);finite(follow.normal_offset);
+                require(follow.items.size()<=10000,"GROUP_PATH_FOLLOW_ITEMS",
+                    "Group Path Follow allows at most 10000 child items");
+                for(const auto& [child,item]:follow.items) {
+                    identity(child);finite(item.distance);finite(item.normal_offset);
+                    require(std::find(o.children.begin(),o.children.end(),child)!=o.children.end(),
+                        "GROUP_PATH_FOLLOW_NOT_CHILD","Each Path Follow item must identify a direct Group child");
+                    require(!d.objects.contains(child)||!d.objects.at(child).transform_parent,
+                        "GROUP_PATH_FOLLOW_TRANSFORM_PARENT","A followed child cannot have an explicit Transform Parent");
+                }
+            }
             require(o.stack.size()<=128,"LIMIT","Group operation stack limit 128");
             for(const auto& op:o.stack) {
                 add(op.id);
@@ -4630,6 +4649,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     "INVALID_OPERATOR_OPTIONS","Group Posterize has no shape compositing, fill, stroke or gradient options");
             }
         } else {
+            require(!o.path_follow,"INVALID_PATH_FOLLOW","Only a Group can own a Path Follow relation");
             require(!o.instance,"INVALID_OBJECT","Path and Text cannot carry Instance state");
             require(o.children.empty(),"INVALID_OBJECT","Path cannot own children");
             if(o.kind==Kind::text) {
@@ -4801,6 +4821,26 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             "MISSING_PATH_CONTOUR","Text-on-Path source contour ID no longer exists");
         require(compositions.at(id)==compositions.at(attachment.path),"CROSS_COMPOSITION","Text and its Path source must share a Composition");
     }
+    for(const auto& [id,object]:d.objects)if(object.path_follow) {
+        const auto& follow=*object.path_follow;
+        const auto path=d.objects.find(follow.path);
+        require(path!=d.objects.end(),"MISSING_PATH_ATTACHMENT","Group Path Follow source Path no longer exists");
+        require(path->second.kind==Kind::path,"INVALID_PATH_ATTACHMENT","Group Path Follow source must be a Path object");
+        require(!path->second.source,"GENERATED_PATH_ATTACHMENT","Group Path Follow requires an authored Path contour");
+        require(std::any_of(path->second.contours.begin(),path->second.contours.end(),[&](const Contour& contour){return contour.id==follow.contour;}),
+            "MISSING_PATH_CONTOUR","Group Path Follow source contour ID no longer exists");
+        require(compositions.at(id)==compositions.at(follow.path),"CROSS_COMPOSITION",
+            "Group and its Path source must share a Composition");
+        std::set<Id> subtree;
+        std::function<void(const Id&,unsigned)> collect=[&](const Id& current,unsigned depth) {
+            require(depth<=128,"HIERARCHY_DEPTH","Group Path Follow subtree depth limit 128");
+            if(!subtree.insert(current).second)return;
+            for(const auto& child:d.objects.at(current).children)collect(child,depth+1);
+        };
+        collect(id,0);
+        require(!subtree.contains(follow.path),"GROUP_PATH_FOLLOW_DESCENDANT_SOURCE",
+            "A Group Path Follow source must be outside the following Group subtree");
+    }
 
     for(const auto& c:d.collections) {
         add(c.id);
@@ -4860,7 +4900,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
             source.content.find("\xe2\x80\xa8")==std::string::npos&&source.content.find("\xe2\x80\xa9")==std::string::npos,
             "TEXT_PATH_MULTILINE_UNSUPPORTED","Text-on-Path does not support hard line breaks");
         const auto& attachment=*object.text->path_attachment;
-        const auto sampler=build_path_sampler(d,attachment.path,attachment.contour,values);
+        const auto sampler=build_path_sampler(d,attachment.path,attachment.contour,values,transforms.at(attachment.path).world);
         (void)inverse_affine(transforms.at(id).world);
         if(!sampler.closed) {
             if(attachment.start_mode=="normalized")require(attachment.start>=0&&attachment.start<=1,
@@ -4872,6 +4912,17 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         for(unsigned depth=0;!parent.empty()&&depth<=128;++depth) {
             require(parent!=id,"TEXT_PATH_TRANSFORM_CYCLE","A Text-on-Path source cannot inherit its consumer's transform");
             const auto found=transforms.find(parent);if(found==transforms.end())break;parent=found->second.effective_parent;
+        }
+    }
+    for(const auto& [id,object]:d.objects)if(object.path_follow) {
+        const auto& follow=*object.path_follow;
+        const auto sampler=build_path_sampler(d,follow.path,follow.contour,values,transforms.at(follow.path).world);
+        (void)inverse_affine(transforms.at(id).world);
+        if(!sampler.closed) {
+            if(follow.start_mode=="normalized")require(follow.start>=0&&follow.start<=1,
+                "GROUP_PATH_FOLLOW_RANGE","Normalized Group Path Follow start must be in [0,1] for an open contour");
+            else require(follow.start>=0&&follow.start<=sampler.length,
+                "GROUP_PATH_FOLLOW_RANGE","Group Path Follow start must be within the open contour");
         }
     }
     for(const auto& [ref,scalar]:authored)if(scalar&&scalar->binding) {
@@ -4957,6 +5008,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
                     if(!parsed.is_literal)require_member(parsed.source);
                 }
             }
+            if(object.path_follow)require_member({object.path_follow->path,"","transform.a"});
             if(object.text) {
                 const auto& text=*object.text;
                 if(text.path_attachment)require_member({text.path_attachment->path,"","transform.a"});
@@ -5189,9 +5241,10 @@ void translate_objects(Document& document,const std::vector<Id>& objects,const s
         // positions, preserving representable sub-epsilon free translations.
         const auto dx=displacements.at(id).x-inherited.x,dy=displacements.at(id).y-inherited.y;
         if(dx==0&&dy==0)continue;
-        const auto inverse=inverse_affine(basis);
-        const auto tx=transform.local[4]+inverse[0]*dx+inverse[2]*dy;
-        const auto ty=transform.local[5]+inverse[1]*dx+inverse[3]*dy;
+        const auto effective_basis=compose(basis,transform.derived_local);
+        const auto inverse=inverse_affine(effective_basis);
+        const auto tx=transform.authored_local[4]+inverse[0]*dx+inverse[2]*dy;
+        const auto ty=transform.authored_local[5]+inverse[1]*dx+inverse[3]*dy;
         set_changed_scalar(document,{id,"","transform.tx"},tx,values);
         set_changed_scalar(document,{id,"","transform.ty"},ty,values);
     }
@@ -5255,7 +5308,8 @@ void transform_objects(Document& document,const TransformObjects& command) {
         // The same left-multiplied world edit is inherited through any selected
         // effective ancestor. Retain exact local matrices, even for zero scale.
         if(!ancestor.empty())continue;
-        const auto basis=transform.effective_parent.empty()?identity_matrix:transforms.at(transform.effective_parent).world;
+        const auto parent_world=transform.effective_parent.empty()?identity_matrix:transforms.at(transform.effective_parent).world;
+        const auto basis=compose(parent_world,transform.derived_local);
         set_affine(document,id,compose(inverse_affine(basis),desired.at(id)),values);
     }
     const auto after=evaluate_transforms(document,evaluate(document));
@@ -5541,6 +5595,7 @@ void ungroup(Document& document,const Ungroup& command) {
     require(document.objects.contains(command.group)&&document.objects.at(command.group).kind==Kind::group,"INVALID_GROUP","Ungroup requires a Group");
     const auto group=document.objects.at(command.group);auto& list=siblings(document,command.composition,command.parent);
     const auto at=std::find(list.begin(),list.end(),command.group);require(at!=list.end(),"INVALID_GROUP","Group must belong to the specified parent");
+    require(!group.path_follow,"GROUP_PATH_FOLLOW_IN_USE","Clear Group Path Follow before ungrouping its authored hierarchy");
     require(evaluate_object_visibility(document,command.group)&&group.compositing.blend=="normal"&&
         !evaluate_composite_isolation(document,{command.group,"","composite.isolated"})&&!group.compositing.mask&&
         group.compositing.opacity.literal==1&&!driven(group.compositing.opacity)&&group.stack.empty(),"UNGROUP_APPEARANCE","Ungroup requires a visible neutral Group without opacity, blend, isolation, mask or effects");
@@ -5653,6 +5708,7 @@ DuplicationPlan plan_duplication(const Document& document,const DuplicateObjects
             for(const auto* suffix:{"-point-edit","-contour"})plan.ids.emplace(object.source->id+suffix,plan.ids.at(object.source->id)+suffix);
         }
         if(object.text)allocate(object.text->id);
+        if(object.path_follow)allocate(object.path_follow->id);
         if(object.compositing.mask)allocate(object.compositing.mask->id);
         for(const auto& contour:object.contours){allocate(contour.id);for(const auto& point:contour.points)allocate(point.id);}
         for(const auto& op:object.stack) {
@@ -5699,6 +5755,14 @@ void duplicate_objects(Document& document,const DuplicateObjects& command) {
         if(object.name.size()<=4091)object.name+=" copy";
         for(auto& child:object.children)child=plan.ids.at(child);
         if(object.transform_parent&&plan.objects.contains(*object.transform_parent))object.transform_parent=plan.ids.at(*object.transform_parent);
+        if(object.path_follow) {
+            auto& follow=*object.path_follow;follow.id=plan.ids.at(follow.id);
+            if(plan.objects.contains(follow.path)) {follow.path=plan.ids.at(follow.path);follow.contour=plan.ids.at(follow.contour);}
+            std::map<Id,GroupPathFollowItem> items;
+            for(const auto& [child,item]:follow.items)
+                items.emplace(plan.objects.contains(child)?plan.ids.at(child):child,item);
+            follow.items=std::move(items);
+        }
         if(object.visibility_driver)object.visibility_driver=remap(*object.visibility_driver);
         if(object.visibility_expression)
             object.visibility_expression=remap_object_visibility_expression(*object.visibility_expression,remap);
@@ -6065,6 +6129,36 @@ void edit_structural_command(Document& candidate,const CreateFolder& command) {
     Object object;object.id=command.id;object.name=command.name;object.kind=Kind::group;
     siblings(candidate,command.composition,command.parent).push_back(command.id);
     candidate.objects.emplace(command.id,std::move(object));
+}
+void edit_group_path_follow(Document& candidate,const GroupPathFollowCommand& command) {
+    std::visit([&](const auto& relation_command) {
+        using F=std::decay_t<decltype(relation_command)>;
+        const auto found=candidate.objects.find(relation_command.group);
+        if constexpr(std::is_same_v<F,AttachGroupPathFollow>) {
+            require(found!=candidate.objects.end()&&found->second.kind==Kind::group,"INVALID_GROUP","Path Follow requires a Group");
+            require(!found->second.path_follow,"GROUP_PATH_FOLLOW_EXISTS","Group already owns a Path Follow relation");
+            found->second.path_follow=relation_command.relation;
+        } else if constexpr(std::is_same_v<F,UpdateGroupPathFollow>) {
+            require(found!=candidate.objects.end()&&found->second.kind==Kind::group&&found->second.path_follow,
+                "MISSING_GROUP_PATH_FOLLOW","Group has no Path Follow relation");
+            require(relation_command.relation.id==found->second.path_follow->id,"GROUP_PATH_FOLLOW_ID_MISMATCH",
+                "Updating a Group Path Follow relation must retain its stable ID");
+            found->second.path_follow=relation_command.relation;
+        } else if constexpr(std::is_same_v<F,ClearGroupPathFollow>) {
+            require(found!=candidate.objects.end()&&found->second.kind==Kind::group&&found->second.path_follow,
+                "MISSING_GROUP_PATH_FOLLOW","Group has no Path Follow relation");
+            found->second.path_follow.reset();
+        } else if constexpr(std::is_same_v<F,SetGroupPathFollowItem>) {
+            require(found!=candidate.objects.end()&&found->second.kind==Kind::group&&found->second.path_follow,
+                "MISSING_GROUP_PATH_FOLLOW","Group has no Path Follow relation");
+            found->second.path_follow->items.insert_or_assign(relation_command.object,relation_command.item);
+        } else {
+            require(found!=candidate.objects.end()&&found->second.kind==Kind::group&&found->second.path_follow,
+                "MISSING_GROUP_PATH_FOLLOW","Group has no Path Follow relation");
+            require(found->second.path_follow->items.erase(relation_command.object)==1,"MISSING_GROUP_PATH_FOLLOW_ITEM",
+                "Group Path Follow has no item for the requested Object");
+        }
+    },command);
 }
 void edit_mask_enabled(Document& candidate,const LinkMaskEnabled& command) {
     const auto& target=geometry_mask_enabled_source(candidate,command.target);
@@ -6511,6 +6605,10 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 else if constexpr(std::is_same_v<T,CollectionCommand>)edit_collection(candidate,value);
                 else edit_macro(candidate,value);
             },*structural);
+            continue;
+        }
+        if(const auto* path_follow=std::get_if<GroupPathFollowCommand>(&command)) {
+            edit_group_path_follow(candidate,*path_follow);
             continue;
         }
         std::visit([&](const auto& c) {
@@ -7182,13 +7280,11 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             auto it=std::find_if(contours.begin(),contours.end(),[&](const auto& x){return x.id==c.contour;});
             require(it!=contours.end(),"MISSING_CONTOUR",c.contour);
             std::map<Id,Point> old;
-            for(const auto& p:it->points) old.emplace(p.id,p);
+            for(const auto& p:it->points)old.emplace(p.id,p);
             require(c.order.size()==old.size(),"INVALID_ORDER","Point reorder must be a permutation");
             std::vector<Point> reordered;
             for(const auto& id:c.order) {
-                require(old.contains(id),"INVALID_ORDER",id);
-                reordered.push_back(old.at(id));
-                old.erase(id);
+                require(old.contains(id),"INVALID_ORDER",id);reordered.push_back(old.at(id));old.erase(id);
             }
             it->points=std::move(reordered);
         } else if constexpr(std::is_same_v<T,CreateText>) {

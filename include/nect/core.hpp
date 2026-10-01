@@ -100,6 +100,23 @@ struct TextPathAttachment {
     bool operator==(const TextPathAttachment&) const = default;
 };
 
+struct GroupPathFollowItem {
+    double distance=0;
+    double normal_offset=0;
+    bool follow_tangent=true;
+    bool operator==(const GroupPathFollowItem&) const = default;
+};
+
+struct GroupPathFollow {
+    Id id,path,contour;
+    std::string start_mode="distance";
+    double start=0;
+    double normal_offset=0;
+    bool reversed=false;
+    std::map<Id,GroupPathFollowItem> items;
+    bool operator==(const GroupPathFollow&) const = default;
+};
+
 struct Scalar {
     double literal = 0;
     std::optional<Binding> binding;
@@ -378,6 +395,7 @@ struct Object {
     std::array<Scalar,2> anchor{};
     // Replaces inherited structural transforms; ownership/order stay structural.
     std::optional<Id> transform_parent;
+    std::optional<GroupPathFollow> path_follow;
     bool visible=true;
     // Optional same-field link. The literal above remains authored state.
     std::optional<Ref> visibility_driver;
@@ -857,6 +875,13 @@ struct AlignObjects {
     std::optional<Id> artboard;
     std::string reference="selection";
 };
+struct AttachGroupPathFollow { Id group; GroupPathFollow relation; };
+struct UpdateGroupPathFollow { Id group; GroupPathFollow relation; };
+struct ClearGroupPathFollow { Id group; };
+struct SetGroupPathFollowItem { Id group,object; GroupPathFollowItem item; };
+struct RemoveGroupPathFollowItem { Id group,object; };
+using GroupPathFollowCommand=std::variant<AttachGroupPathFollow,UpdateGroupPathFollow,ClearGroupPathFollow,
+    SetGroupPathFollowItem,RemoveGroupPathFollowItem>;
 
 using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
     CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
@@ -871,7 +896,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     LinkMaskEnabled,SetMaskEnabledExpression,UnlinkMaskEnabled,
     SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
     AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects,
-    StructuralCommand>;
+    StructuralCommand,GroupPathFollowCommand>;
 
 using Affine=std::array<double,6>;
 inline constexpr Affine identity_matrix{1,0,0,1,0,0};
@@ -900,6 +925,7 @@ struct PathSample {
     Id path,contour;
 };
 PathSampler build_path_sampler(const Document&,const Id& path,const Id& contour,const std::map<Ref,double>& values);
+PathSampler build_path_sampler(const Document&,const Id& path,const Id& contour,const std::map<Ref,double>& values,const Affine& path_world);
 PathSample sample_path(const PathSampler&,double distance,bool reversed=false);
 struct EvaluatedTextGlyph {
     double advance=0;
@@ -963,6 +989,10 @@ Affine compose(const Affine& outer,const Affine& inner);
 Vec2 map_point(const Affine& matrix,Vec2 point);
 Affine inverse_affine(const Affine& matrix);
 struct EvaluatedTransform {
+    // `authored_local` is read from the stable Object transform Scalars.
+    // `derived_local` is an ephemeral parent-local frame such as Group Path Follow.
+    // `local` is the composed effective local matrix used to produce `world`.
+    Affine authored_local=identity_matrix,derived_local=identity_matrix;
     Affine local=identity_matrix,world=identity_matrix;
     Id effective_parent; // Empty denotes the Composition's coordinate plane.
 };

@@ -112,12 +112,42 @@ def main():
         source = copy.deepcopy(next(entry['template'] for entry in core('primitive_types')['result']
                                     if entry['type'] == 'nect.shape.rectangle'))
         source['id'] = 'mcp-collection-source'
+        follow_rectangle = copy.deepcopy(source)
+        follow_rectangle['id'] = 'mcp-follow-rectangle-source'
+        follow_text = core('text_defaults')['result']
+        follow_text.update(id='mcp-follow-text-source', content='Editable follower text')
+        follow_path = [
+            dict(id='mcp-follow-path-point-a', x=dict(literal=0), y=dict(literal=0),
+                 in_angle=dict(literal=0), in_length=dict(literal=0), out_angle=dict(literal=0), out_length=dict(literal=0)),
+            dict(id='mcp-follow-path-point-b', x=dict(literal=240), y=dict(literal=20),
+                 in_angle=dict(literal=180), in_length=dict(literal=0), out_angle=dict(literal=0), out_length=dict(literal=0))]
         setup = core('apply', expected_revision=revision, commands=[
             dict(type='create_primitive', composition=composition, parent='',
                  id='mcp-collection-A', name='A', source=source),
+            dict(type='create_primitive', composition=composition, parent='',
+                 id='mcp-follow-rectangle', name='Follow Rectangle', source=follow_rectangle),
+            dict(type='create_text', composition=composition, parent='',
+                 id='mcp-follow-text', name='Follow Text', source=follow_text),
+            dict(type='create_path', composition=composition, parent='', id='mcp-follow-path',
+                 name='Authored Path', contours=[dict(id='mcp-follow-contour', closed=False, points=follow_path)]),
+            dict(type='group_contiguous', composition=composition, parent='',
+                 members=['mcp-follow-rectangle', 'mcp-follow-text'], id='mcp-follow-group', name='Follower group'),
             dict(type='create_collection', id='mcp-collection-K', name='K', members=['mcp-collection-A'])])
         assert setup['ok'], setup
         revision = setup['revision']
+        relation = dict(id='mcp-follow-relation', path='mcp-follow-path', contour='mcp-follow-contour',
+            start_mode='distance', start=40, normal_offset=2, reversed=False, items={
+                'mcp-follow-rectangle': dict(distance=0, normal_offset=0, follow_tangent=True),
+                'mcp-follow-text': dict(distance=120, normal_offset=3, follow_tangent=False)})
+        attached = core('apply', expected_revision=revision, commands=[dict(type='attach_group_path_follow',
+            group='mcp-follow-group', relation=relation)])
+        assert attached['ok'], attached
+        revision = attached['revision']
+        session_after_attach = tool('nect_session')
+        assert session_after_attach['revision'] == revision
+        follow_readback = compare('inspect')['result']
+        follow_group = next(item for item in follow_readback['objects'] if item['id'] == 'mcp-follow-group')
+        assert follow_group['path_follow'] == relation
         expected = dict(id='mcp-collection-K', name='K', members=['mcp-collection-A'])
         assert compare('collections')['result'] == [expected]
         assert compare('collection', id='mcp-collection-K')['result'] == expected
@@ -149,6 +179,9 @@ def main():
         identity = {key: live[key] for key in ('session_id', 'document_id')}
         assert compare('collection', id='mcp-collection-K')['result'] == dict(
             id='mcp-collection-K', name='Renamed K', members=[])
+        reopened_group = next(item for item in compare('inspect')['result']['objects']
+                              if item['id'] == 'mcp-follow-group')
+        assert reopened_group['path_follow'] == relation
         print('PASS formal MCP Collection mutation, API parity, unchanged render and cold reopen')
 
 

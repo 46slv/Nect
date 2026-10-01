@@ -396,6 +396,30 @@ j::object text_path_attachment_json(const TextPathAttachment& attachment) {
     return {{"path",attachment.path},{"contour",attachment.contour},{"start_mode",attachment.start_mode},
         {"start",attachment.start},{"spacing",attachment.spacing},{"reversed",attachment.reversed}};
 }
+GroupPathFollowItem read_group_path_follow_item(const j::value& value) {
+    const auto& item=value.as_object();keys(item,{"distance","normal_offset","follow_tangent"});
+    return {number(item.at("distance")),number(item.at("normal_offset")),item.at("follow_tangent").as_bool()};
+}
+j::object group_path_follow_item_json(const GroupPathFollowItem& item) {
+    return {{"distance",item.distance},{"normal_offset",item.normal_offset},{"follow_tangent",item.follow_tangent}};
+}
+GroupPathFollow read_group_path_follow(const j::value& value) {
+    const auto& relation=value.as_object();keys(relation,{"id","path","contour","start_mode","start","normal_offset","reversed","items"});
+    GroupPathFollow result;result.id=text(relation.at("id"));result.path=text(relation.at("path"));
+    result.contour=text(relation.at("contour"));result.start_mode=text(relation.at("start_mode"));
+    result.start=number(relation.at("start"));result.normal_offset=number(relation.at("normal_offset"));
+    result.reversed=relation.at("reversed").as_bool();
+    for(const auto& item:relation.at("items").as_object())
+        if(!result.items.emplace(std::string(item.key()),read_group_path_follow_item(item.value())).second)
+            throw Error("DUPLICATE_TARGET","Duplicate Group Path Follow child Object ID");
+    return result;
+}
+j::object group_path_follow_json(const GroupPathFollow& relation) {
+    j::object items;
+    for(const auto& [object,item]:relation.items)items[object]=group_path_follow_item_json(item);
+    return {{"id",relation.id},{"path",relation.path},{"contour",relation.contour},{"start_mode",relation.start_mode},
+        {"start",relation.start},{"normal_offset",relation.normal_offset},{"reversed",relation.reversed},{"items",items}};
+}
 TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true,bool allow_locale_driver=true,bool allow_direction_driver=true,bool allow_layout_driver=true,bool allow_alignment_driver=true,bool allow_path_attachment=true,bool allow_weight_expression=true,bool allow_weight_offset=true) {
     const auto& o=v.as_object();
     if(!allow_italic_driver&&o.contains("italic_driver"))throw Error("UNSUPPORTED_TEXT_ITALIC_DRIVER","Text italic drivers require native 0.15");
@@ -2024,6 +2048,21 @@ Command read_command(const j::value& v) {
         keys(o,{"type","composition","parent","group","members"});
         return PutInside{text(o.at("composition")),text(o.at("parent")),text(o.at("group")),ids(o.at("members"))};
     }
+    if(type=="attach_group_path_follow") {
+        keys(o,{"type","group","relation"});return GroupPathFollowCommand{AttachGroupPathFollow{text(o.at("group")),read_group_path_follow(o.at("relation"))}};
+    }
+    if(type=="update_group_path_follow") {
+        keys(o,{"type","group","relation"});return GroupPathFollowCommand{UpdateGroupPathFollow{text(o.at("group")),read_group_path_follow(o.at("relation"))}};
+    }
+    if(type=="clear_group_path_follow") {
+        keys(o,{"type","group"});return GroupPathFollowCommand{ClearGroupPathFollow{text(o.at("group"))}};
+    }
+    if(type=="set_group_path_follow_item") {
+        keys(o,{"type","group","object","item"});return GroupPathFollowCommand{SetGroupPathFollowItem{text(o.at("group")),text(o.at("object")),read_group_path_follow_item(o.at("item"))}};
+    }
+    if(type=="remove_group_path_follow_item") {
+        keys(o,{"type","group","object"});return GroupPathFollowCommand{RemoveGroupPathFollowItem{text(o.at("group")),text(o.at("object"))}};
+    }
     if(type=="set_expression") {
         keys(o,{"type","targets","expression","replace_binding"});
         std::vector<Ref> targets;for(const auto& r:o.at("targets").as_array())targets.push_back(read_ref(r));
@@ -2098,10 +2137,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,73> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73"};
+        constexpr std::array<std::string_view,74> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.73 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.74 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -2151,6 +2190,7 @@ Document decode(std::string_view input) {
             auto& o=ov.as_object();
             if(version=="0.1")keys(o,{"id","name","kind","transform","children","contours","stroke","fill"});
             else if(version=="0.2")keys(o,{"id","name","kind","transform","children","contours","stroke","fill","source","point_edit"});
+            else if(minor>=74)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image","visibility_driver","visibility_expression","instance","path_follow"});
             else if(minor>=64)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image","visibility_driver","visibility_expression","instance"});
             else if(minor>=60)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image","visibility_driver","visibility_expression"});
             else if(minor>=27)keys(o,{"id","name","visible","compositing","kind","transform","anchor","transform_parent","children","contours","source","point_edit","text","stack","legacy_stroke","image","visibility_driver"});
@@ -2174,6 +2214,7 @@ Document decode(std::string_view input) {
 
             auto kind=text(o.at("kind"));
             if(kind!="group"&&kind!="path"&&!((minor>=6)&&kind=="text")&&!((minor>=13)&&kind=="image")&&!((minor>=64)&&kind=="instance")) throw Error("UNSUPPORTED_OBJECT",kind);
+            if(kind!="group"&&o.contains("path_follow"))throw Error("INVALID_PATH_FOLLOW","Only a Group can own a Path Follow relation");
             obj.kind=kind=="group"?Kind::group:kind=="text"?Kind::text:kind=="image"?Kind::image:kind=="instance"?Kind::instance:Kind::path;
             if(o.contains("image")&&obj.kind!=Kind::image)throw Error("INVALID_OBJECT","Only Image may carry an image source");
             if(o.contains("text")&&obj.kind!=Kind::text)throw Error("INVALID_OBJECT","Only Text may carry a text source");
@@ -2205,6 +2246,7 @@ Document decode(std::string_view input) {
                         minor>=26,minor>=28,minor>=29,minor>=67,minor>=69));
                 } else if(o.contains("stack"))throw Error("INVALID_OBJECT","Group operation stacks require native 0.25");
                 obj.children=ids(o.at("children"));
+                if(minor>=74)if(const auto* follow=o.if_contains("path_follow"))obj.path_follow=read_group_path_follow(*follow);
             } else {
                 if(o.contains("children")) throw Error("INVALID_OBJECT","Path has children");
                 if(minor>=3) {
@@ -2307,6 +2349,7 @@ std::string encode(const Document& d) {
             out["children"]=ids_json(o.children);
             j::array stack;for(const auto& op:o.stack)stack.push_back(operation_json(op));
             out["stack"]=stack;
+            if(o.path_follow)out["path_follow"]=group_path_follow_json(*o.path_follow);
         } else {
             j::array contours;
             for(const auto& c:o.contours) {
@@ -3104,10 +3147,15 @@ std::string request(Session& session,std::string_view input) {
         } else if(op=="transforms") {
             keys(o,{"op"});const auto values=evaluate(session.document());j::array list;
             for(const auto& [id,transform]:evaluate_transforms(session.document(),values)) {
-                j::array local,world;for(const auto v:transform.local)local.push_back(v);for(const auto v:transform.world)world.push_back(v);
+                j::array local,authored_local,derived_local,world;
+                for(const auto v:transform.local)local.push_back(v);
+                for(const auto v:transform.authored_local)authored_local.push_back(v);
+                for(const auto v:transform.derived_local)derived_local.push_back(v);
+                for(const auto v:transform.world)world.push_back(v);
                 const auto x=values.at({id,"","transform.anchor_x"}),y=values.at({id,"","transform.anchor_y"});
                 const auto position=map_point(transform.local,{x,y});const auto world_anchor=map_point(transform.world,{x,y});
                 list.push_back(j::object{{"object",id},{"effective_parent",transform.effective_parent},{"local",local},{"world",world},
+                    {"authored_local",authored_local},{"derived_local",derived_local},
                     {"anchor",j::array{x,y}},{"position",j::array{position.x,position.y}},{"world_anchor",j::array{world_anchor.x,world_anchor.y}}});
             }
             result=list;

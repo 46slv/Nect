@@ -308,12 +308,241 @@ void group_initial_center_and_external_bounds() {
     Session singular(external);apply(singular,{CenterAnchor{"group"}});
     near(evaluate(singular.document()).at(tf("group","anchor_x")),20,"Centering needs no inverse when local descendant coordinates remain defined");
 }
+Document rigid_follow_fixture() {
+    auto document=empty_document("follow-document","follow-composition","follow-artboard");
+    Object group;group.id="follow-group";group.name="Follow Group";group.kind=Kind::group;group.children={"follow-rect","follow-text"};
+    matrix(group,{.8,.6,-.4,1.2,130,-40});
+    Object rectangle;rectangle.id="follow-rect";rectangle.name="Rectangle A";
+    rectangle.source=default_primitive("follow-rect-source","nect.shape.rectangle");
+    matrix(rectangle,{1.5,.2,-.3,.8,12,8});
+    Object text; text.id="follow-text";text.name="Editable Text B";text.kind=Kind::text;text.text=default_text("follow-text-source","Editable text");
+    matrix(text,{.5,-.2,.7,1.1,-6,9});
+    auto guide=path("follow-path",{0,0},{240,20});guide.visible=false;
+    guide.contours.front().points.front().out_angle.literal=27;
+    guide.contours.front().points.front().out_length.literal=34;
+    guide.contours.front().points.back().in_angle.literal=196;
+    guide.contours.front().points.back().in_length.literal=28;
+    matrix(guide,{1.2,.2,-.1,.9,30,80});
+    document.objects={{group.id,group},{rectangle.id,rectangle},{text.id,text},{guide.id,guide}};
+    document.compositions.front().roots={group.id,guide.id};
+    return document;
+}
+GroupPathFollow rigid_follow_relation() {
+    GroupPathFollow relation;relation.id="follow-relation";relation.path="follow-path";relation.contour="follow-path-contour";
+    relation.start_mode="distance";relation.start=40;relation.normal_offset=3;
+    relation.items={{"follow-rect",{0,2,true}},{"follow-text",{120,-1,false}}};
+    return relation;
+}
+void apply_follow(Session& session,GroupPathFollowCommand command) {
+    session.apply({Command{std::move(command)}},session.revision());
+}
+Affine expected_follow_world(const Document& document,const Id& child) {
+    const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
+    const auto& group=document.objects.at("follow-group");const auto& relation=*group.path_follow;
+    const auto& item=relation.items.at(child);
+    const auto sampler=build_path_sampler(document,relation.path,relation.contour,values,transforms.at(relation.path).world);
+    const auto start=relation.start_mode=="normalized"?relation.start*sampler.length:relation.start;
+    const auto sample=sample_path(sampler,start+item.distance,relation.reversed);
+    const auto offset=relation.normal_offset+item.normal_offset;
+    const Vec2 position{sample.position.x+sample.normal.x*offset,sample.position.y+sample.normal.y*offset};
+    Affine expected;
+    if(item.follow_tangent) {
+        const Affine frame{sample.tangent.x,sample.tangent.y,-sample.tangent.y,sample.tangent.x,position.x,position.y};
+        expected=compose(frame,transforms.at(child).authored_local);
+    } else {
+        const auto local_position=map_point(inverse_affine(transforms.at("follow-group").world),position);
+        expected=compose(transforms.at("follow-group").world,
+            compose(Affine{1,0,0,1,local_position.x,local_position.y},transforms.at(child).authored_local));
+    }
+    return expected;
+}
+void rigid_group_path_follow() {
+    auto document=rigid_follow_fixture();const auto authored_rect=document.objects.at("follow-rect").transform;
+    const auto authored_text=document.objects.at("follow-text").transform;
+    const auto authored_values=evaluate(document);const auto authored_transforms=evaluate_transforms(document,authored_values);
+    const auto authored_sampler=build_path_sampler(document,"follow-path","follow-path-contour",authored_values,
+        authored_transforms.at("follow-path").world);
+    check(authored_sampler.length>160,"Cubic authored source Path covers both frozen sample distances");
+    const auto relation=rigid_follow_relation();
+    near(relation.start+relation.items.at("follow-rect").distance,40,"Rectangle A uses frozen source distance 40");
+    near(relation.start+relation.items.at("follow-text").distance,160,"Text B uses frozen source distance 160");
+    Session session(document);apply_follow(session,AttachGroupPathFollow{"follow-group",relation});
+    auto result=evaluate_transforms(session.document(),evaluate(session.document()));
+    matrix_near(result.at("follow-rect").world,expected_follow_world(session.document(),"follow-rect"),
+        "Tangent-followed Rectangle uses sampled world frame and authored local exactly once");
+    matrix_near(result.at("follow-text").world,expected_follow_world(session.document(),"follow-text"),
+        "Tangent-off Text uses translation-only Group-local derived frame before its authored local");
+    check(!session.document().objects.at("follow-path").visible,"Invisible authored Path remains a geometric source");
+    check(session.document().objects.at("follow-rect").transform==authored_rect&&
+        session.document().objects.at("follow-text").transform==authored_text,"Follow evaluation retains each child's authored transform");
+    const auto initial_values=evaluate(session.document());
+    const std::array<std::string,6> fields{"a","b","c","d","tx","ty"};
+    for(std::size_t i=0;i<fields.size();++i)
+        near(result.at("follow-rect").authored_local[i],initial_values.at(tf("follow-rect",fields[i])),
+            "Evaluated authored matrix retains Scalar value");
+    check(result.at("follow-rect").derived_local!=identity_matrix,"Evaluation exposes an ephemeral derived local frame separately");
+    apply(session,{Rename{"follow-path","Renamed source"},Rename{"follow-rect","Renamed Rectangle"},
+        ReorderObjects{"follow-composition","",{"follow-path","follow-group"}}});
+    check(session.document().objects.at("follow-group").path_follow->path=="follow-path"&&
+        session.document().objects.at("follow-group").path_follow->items.contains("follow-rect"),
+        "Rename and sibling reorder do not retarget stable source or child IDs");
+    matrix_near(evaluate_transforms(session.document(),evaluate(session.document())).at("follow-rect").world,
+        expected_follow_world(session.document(),"follow-rect"),"Stable Path and child IDs still resolve after rename/reorder");
+
+    auto edited_path=session.document().objects.at("follow-path").contours.front().points.back();
+    apply_follow(session,UpdateGroupPathFollow{"follow-group",[&]{auto value=relation;value.start_mode="normalized";value.start=.23;return value;}()});
+    const auto normalized=session.document();const auto before_path_change=evaluate_transforms(normalized,evaluate(normalized));
+    apply(session,{Set{{"follow-path",edited_path.id,"y"},edited_path.y.literal+50}});
+    const auto after_path_change=evaluate_transforms(session.document(),evaluate(session.document()));
+    check(before_path_change.at("follow-rect").world!=after_path_change.at("follow-rect").world,
+        "Editing the authored cubic Path reevaluates rigid follower position");
+    const auto rectangle_bounds_before=bounds(session.document(),"follow-rect");
+    apply(session,{Set{{"follow-rect","","generator.width"},320}});
+    const auto rectangle_bounds_after=bounds(session.document(),"follow-rect");
+    check(session.document().objects.at("follow-group").path_follow->items.contains("follow-rect")&&
+        rectangle_bounds_before&&rectangle_bounds_after&&
+        rectangle_bounds_after->right-rectangle_bounds_after->left>
+            rectangle_bounds_before->right-rectangle_bounds_before->left,
+        "Editing child A's Rectangle generator changes evaluated geometry while retaining its Path Follow relation");
+    apply(session,{Set{tf("follow-text","tx"),44}});
+    check(session.document().objects.at("follow-text").path_follow==std::nullopt&&
+        session.document().objects.at("follow-group").path_follow->items.contains("follow-text"),
+        "Editing a child's authored transform does not rewrite relation membership");
+    matrix_near(evaluate_transforms(session.document(),evaluate(session.document())).at("follow-text").world,
+        expected_follow_world(session.document(),"follow-text"),"Child authored transform edit composes after derived frame");
+    const auto text_bounds_before=bounds(session.document(),"follow-text");
+    auto edited_text=*session.document().objects.at("follow-text").text;
+    edited_text.content="WWW WWW WWW Follow Content";
+    apply(session,{UpdateText{"follow-text",edited_text}});
+    const auto text_bounds_after=bounds(session.document(),"follow-text");
+    check(session.document().objects.at("follow-group").path_follow->items.contains("follow-text")&&
+        evaluated_text_source(session.document(),"follow-text").content==edited_text.content,
+        "Editing child B's Text content preserves stable Group relation membership and source readback");
+#ifdef _WIN32
+    check(text_bounds_before&&text_bounds_after&&text_bounds_after->right-text_bounds_after->left>
+        text_bounds_before->right-text_bounds_before->left,
+        "Text content edit changes evaluated child B output while its rigid relation remains attached");
+#endif
+
+    auto reversed=*session.document().objects.at("follow-group").path_follow;reversed.reversed=true;reversed.normal_offset=9;
+    apply_follow(session,UpdateGroupPathFollow{"follow-group",reversed});
+    const auto reversed_result=evaluate_transforms(session.document(),evaluate(session.document()));
+    matrix_near(reversed_result.at("follow-rect").world,expected_follow_world(session.document(),"follow-rect"),
+        "Reversed traversal and relation normal offset are derived without baking");
+    const auto item_before=*session.document().objects.at("follow-group").path_follow;
+    auto changed_item=item_before.items.at("follow-rect");changed_item.distance=15;changed_item.normal_offset=4;changed_item.follow_tangent=false;
+    apply_follow(session,SetGroupPathFollowItem{"follow-group","follow-rect",changed_item});
+    matrix_near(evaluate_transforms(session.document(),evaluate(session.document())).at("follow-rect").world,
+        expected_follow_world(session.document(),"follow-rect"),"Per-child distance, normal offset and tangent flag use the same evaluator");
+    const auto with_item=session.document();apply_follow(session,RemoveGroupPathFollowItem{"follow-group","follow-rect"});
+    check(!session.document().objects.at("follow-group").path_follow->items.contains("follow-rect"),"Removing one item retains Group relation");
+    session.undo(session.revision());check(session.document()==with_item,"Item update Undo restores exact Path Follow relation");
+    session.redo(session.revision());check(!session.document().objects.at("follow-group").path_follow->items.contains("follow-rect"),"Item update Redo restores removal");
+    const auto after_remove=session.document();
+    const auto retained_authored=session.document().objects.at("follow-text").transform;
+    apply_follow(session,ClearGroupPathFollow{"follow-group"});
+    const auto cleared_transforms=evaluate_transforms(session.document(),evaluate(session.document()));
+    matrix_near(cleared_transforms.at("follow-text").world,
+        compose(cleared_transforms.at("follow-group").world,cleared_transforms.at("follow-text").authored_local),
+        "Clearing relation resumes authored structural placement without baking");
+    check(session.document().objects.at("follow-text").transform==retained_authored,"Clear leaves child Scalar authorship byte-for-byte intact");
+    session.undo(session.revision());check(session.document()==after_remove,"Undo Clear restores relation and remaining child items");
+    session.redo(session.revision());
+
+    auto cold=decode(encode(with_item));
+    check(cold==with_item&&encode(cold)==encode(with_item),"Native 0.74 cold roundtrip retains stable relation and item IDs");
+    matrix_near(evaluate_transforms(cold,evaluate(cold)).at("follow-text").world,
+        evaluate_transforms(with_item,evaluate(with_item)).at("follow-text").world,"Cold reopen derives the same follower transform");
+    auto legacy_fixture=rigid_follow_fixture();auto legacy=encode(legacy_fixture);
+    const auto current_version=legacy.find("\"version\":\"0.74\"");check(current_version!=std::string::npos,"Native writer emits 0.74");
+    legacy.replace(current_version,std::string("\"version\":\"0.74\"").size(),"\"version\":\"0.73\"");
+    check(decode(legacy)==legacy_fixture,"Native 0.73 remains readable after writer upgrade");
+    auto lied=encode(with_item);const auto lied_version=lied.find("\"version\":\"0.74\"");
+    lied.replace(lied_version,std::string("\"version\":\"0.74\"").size(),"\"version\":\"0.73\"");
+    rejects("UNKNOWN_FIELD",[&]{(void)decode(lied);});
+    auto duplicate_fixture=rigid_follow_fixture();auto one_item_relation=rigid_follow_relation();
+    one_item_relation.items.erase("follow-text");Session duplicate_session(duplicate_fixture);
+    apply_follow(duplicate_session,AttachGroupPathFollow{"follow-group",one_item_relation});
+    auto duplicate_item_native=encode(duplicate_session.document());const auto item_map=duplicate_item_native.find("\"items\":{");
+    const auto item_map_end=duplicate_item_native.find("}}",item_map);
+    check(item_map!=std::string::npos&&item_map_end!=std::string::npos,"Serialized Path Follow has an item map to validate");
+    duplicate_item_native.insert(item_map_end+1,",\"follow-rect\":{\"distance\":1,\"normal_offset\":0,\"follow_tangent\":true}");
+    rejects("DUPLICATE_KEY",[&]{(void)decode(duplicate_item_native);});
+
+    auto command_fixture=rigid_follow_fixture();command_fixture.objects.at("follow-group").path_follow.reset();Session api(command_fixture);
+    const auto response=request(api,R"({"op":"apply","expected_revision":0,"commands":[{"type":"attach_group_path_follow","group":"follow-group","relation":{"id":"follow-relation","path":"follow-path","contour":"follow-path-contour","start_mode":"distance","start":20,"normal_offset":0,"reversed":false,"items":{"follow-rect":{"distance":0,"normal_offset":0,"follow_tangent":true}}}}]})");
+    check(response.find("\"ok\":true")!=std::string::npos&&api.document().objects.at("follow-group").path_follow.has_value(),
+        "JSON-lines API Path Follow attach routes to the same Session relation");
+    const auto readback=request(api,R"({"op":"inspect"})");
+    check(readback.find("\"path_follow\"")!=std::string::npos&&readback.find("follow-relation")!=std::string::npos,
+        "Semantic API inspect reads back retained Group Path Follow data");
+    const auto api_before=api.document();
+    const auto stale=request(api,R"({"op":"apply","expected_revision":0,"commands":[{"type":"clear_group_path_follow","group":"follow-group"}]})");
+    check(stale.find("REVISION_CONFLICT")!=std::string::npos&&api.document()==api_before,"Stale relation command rejects atomically");
+
+    Session invalid(rigid_follow_fixture());auto invalid_relation=rigid_follow_relation();
+    auto try_attach=[&](const char* code,const GroupPathFollow& follow,const Document* replacement=nullptr) {
+        Session candidate(replacement?*replacement:rigid_follow_fixture());
+        atomic_reject(candidate,code,{Command{GroupPathFollowCommand{AttachGroupPathFollow{"follow-group",follow}}}});
+    };
+    invalid_relation.path="missing-path";try_attach("MISSING_PATH_ATTACHMENT",invalid_relation);
+    invalid_relation=rigid_follow_relation();invalid_relation.contour="missing-contour";try_attach("MISSING_PATH_CONTOUR",invalid_relation);
+    invalid_relation=rigid_follow_relation();invalid_relation.path="follow-text";try_attach("INVALID_PATH_ATTACHMENT",invalid_relation);
+    invalid_relation=rigid_follow_relation();invalid_relation.items={{"missing-child",{0,0,true}}};try_attach("GROUP_PATH_FOLLOW_NOT_CHILD",invalid_relation);
+    invalid_relation=rigid_follow_relation();invalid_relation.start=std::numeric_limits<double>::infinity();try_attach("NON_FINITE",invalid_relation);
+    auto cross=rigid_follow_fixture();auto foreign=path("foreign-path");cross.objects.emplace("foreign-path",foreign);
+    cross.compositions.push_back({"foreign-composition","Foreign",{"foreign-path"},{}});
+    invalid_relation=rigid_follow_relation();invalid_relation.path="foreign-path";invalid_relation.contour="foreign-path-contour";
+    try_attach("CROSS_COMPOSITION",invalid_relation,&cross);
+    auto singular=rigid_follow_fixture();matrix(singular.objects.at("follow-group"),{0,0,0,1,0,0});
+    try_attach("SINGULAR_TRANSFORM",rigid_follow_relation(),&singular);
+    auto cyclic=rigid_follow_fixture();cyclic.objects.at("follow-path").transform_parent="follow-rect";
+    try_attach("TRANSFORM_CYCLE",rigid_follow_relation(),&cyclic);
+    auto descendant=rigid_follow_fixture();descendant.objects.at("follow-group").children.push_back("follow-path");
+    descendant.compositions.front().roots.pop_back();
+    try_attach("GROUP_PATH_FOLLOW_DESCENDANT_SOURCE",rigid_follow_relation(),&descendant);
+    auto zero=rigid_follow_fixture();auto& points=zero.objects.at("follow-path").contours.front().points;
+    points.back().x.literal=points.front().x.literal;points.back().y.literal=points.front().y.literal;
+    points.front().out_length.literal=0;points.back().in_length.literal=0;
+    try_attach("PATH_SAMPLE_ZERO_LENGTH",rigid_follow_relation(),&zero);
+    auto open_overflow=rigid_follow_fixture();const auto overflow_values=evaluate(open_overflow);
+    const auto overflow_transforms=evaluate_transforms(open_overflow,overflow_values);
+    const auto overflow_sampler=build_path_sampler(open_overflow,"follow-path","follow-path-contour",overflow_values,
+        overflow_transforms.at("follow-path").world);
+    invalid_relation=rigid_follow_relation();invalid_relation.items.at("follow-text").distance=overflow_sampler.length-39;
+    try_attach("GROUP_PATH_FOLLOW_RANGE",invalid_relation,&open_overflow);
+    auto closed_wrap=rigid_follow_fixture();closed_wrap.objects.at("follow-path").contours.front().closed=true;
+    const auto closed_values=evaluate(closed_wrap);const auto closed_transforms=evaluate_transforms(closed_wrap,closed_values);
+    const auto closed_sampler=build_path_sampler(closed_wrap,"follow-path","follow-path-contour",closed_values,
+        closed_transforms.at("follow-path").world);
+    auto wrapped_relation=rigid_follow_relation();wrapped_relation.items["follow-rect"].distance=closed_sampler.length;
+    Session wrapped(closed_wrap);apply_follow(wrapped,AttachGroupPathFollow{"follow-group",wrapped_relation});
+    auto base_wrap_relation=wrapped_relation;base_wrap_relation.items["follow-rect"].distance=0;
+    apply_follow(wrapped,UpdateGroupPathFollow{"follow-group",base_wrap_relation});
+    const auto base_wrap_world=evaluate_transforms(wrapped.document(),evaluate(wrapped.document())).at("follow-rect").world;
+    base_wrap_relation.items["follow-rect"].distance=closed_sampler.length;
+    apply_follow(wrapped,UpdateGroupPathFollow{"follow-group",base_wrap_relation});
+    matrix_near(evaluate_transforms(wrapped.document(),evaluate(wrapped.document())).at("follow-rect").world,base_wrap_world,
+        "Closed source contour wraps a sample one complete contour length after distance 40");
+    auto explicit_group_parent=rigid_follow_fixture();explicit_group_parent.objects.at("follow-group").transform_parent="follow-path";
+    try_attach("GROUP_PATH_FOLLOW_TRANSFORM_PARENT",rigid_follow_relation(),&explicit_group_parent);
+    auto explicit_child_parent=rigid_follow_fixture();explicit_child_parent.objects.at("follow-rect").transform_parent="follow-path";
+    try_attach("GROUP_PATH_FOLLOW_TRANSFORM_PARENT",rigid_follow_relation(),&explicit_child_parent);
+    apply_follow(invalid,AttachGroupPathFollow{"follow-group",rigid_follow_relation()});
+    atomic_reject(invalid,"MISSING_PATH_ATTACHMENT",{DeleteObjects{{"follow-path"}}});
+    invalid_relation=rigid_follow_relation();invalid_relation.id="new-id";
+    atomic_reject(invalid,"GROUP_PATH_FOLLOW_ID_MISMATCH",{Command{GroupPathFollowCommand{UpdateGroupPathFollow{"follow-group",invalid_relation}}}});
+    const auto invalid_before=invalid.document();const auto invalid_revision=invalid.revision();
+    rejects("REVISION_CONFLICT",[&]{invalid.apply({Command{GroupPathFollowCommand{ClearGroupPathFollow{"follow-group"}}}},invalid_revision-1);});
+    check(invalid.document()==invalid_before,"Revision-conflict Path Follow command is atomic");
+}
 }
 
 int main() {
     try {
         common_pivot_edits();anchor_and_relative_edits();driven_axes_and_anchor_links();parent_replacement_and_keep_world();
         parent_failures_and_effective_cycles();singular_parent_contract();cubic_stack_and_text_bounds();group_initial_center_and_external_bounds();
+        rigid_group_path_follow();
         std::cout<<"PASS "<<checks<<" Anchor, effective Transform Parent, bounds and atomic command checks\n";return 0;
     }catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }

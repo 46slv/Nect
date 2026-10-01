@@ -3500,6 +3500,146 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     }
     auto section=[&](const QString& title){auto* box=new QGroupBox(title);auto* form=new QFormLayout(box);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);return form;};
+    if(o.kind==Kind::group) {
+        auto* follow_box=new QGroupBox("Rigid Path Follow");follow_box->setObjectName("group-path-follow");
+        auto* follow_form=new QFormLayout(follow_box);follow_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+        const auto composition_id=canvas->active_composition();
+        const auto& composition=find_composition(d,composition_id);
+        std::set<Id> group_subtree;
+        std::function<void(const Id&)> collect_group=[&](const Id& current) {
+            if(!group_subtree.insert(current).second)return;
+            for(const auto& child:d.objects.at(current).children)collect_group(child);
+        };
+        collect_group(o.id);
+        std::vector<Id> path_ids;
+        std::function<void(const Id&)> collect_paths=[&](const Id& current) {
+            const auto& source=d.objects.at(current);
+            if(source.kind==Kind::path&&!source.source&&!group_subtree.contains(current))path_ids.push_back(current);
+            for(const auto& child:source.children)collect_paths(child);
+        };
+        for(const auto& root:composition.roots)collect_paths(root);
+        auto* path_picker=new QComboBox(follow_box);path_picker->setObjectName("group-path-follow-source");
+        for(const auto& path_id:path_ids) {
+            const auto& source=d.objects.at(path_id);
+            path_picker->addItem(qs(source.name)+" · "+qs(path_id),qs(path_id));
+        }
+        follow_form->addRow("Authored Path",path_picker);
+        auto* contour_picker=new QComboBox(follow_box);contour_picker->setObjectName("group-path-follow-contour");
+        follow_form->addRow("Contour",contour_picker);
+        auto populate_contours=[this,path_picker,contour_picker](const QString& preferred) {
+            const QSignalBlocker blocker(contour_picker);contour_picker->clear();
+            const auto selected=path_picker->currentData().toString().toStdString();
+            const auto& document=host.session.document();
+            if(document.objects.contains(selected))for(const auto& contour:document.objects.at(selected).contours)
+                contour_picker->addItem(qs(contour.id),qs(contour.id));
+            const auto index=contour_picker->findData(preferred);if(index>=0)contour_picker->setCurrentIndex(index);
+        };
+        auto* start_mode=new QComboBox(follow_box);start_mode->setObjectName("group-path-follow-start-mode");
+        start_mode->addItem("Distance",QStringLiteral("distance"));start_mode->addItem("Normalized",QStringLiteral("normalized"));
+        follow_form->addRow("Start mode",start_mode);
+        auto make_follow_number=[&](const char* name,double value) {
+            auto* input=new QDoubleSpinBox(follow_box);input->setObjectName(QString::fromLatin1(name));
+            const auto limit=std::max(1e9,std::abs(value));
+            input->setRange(-limit,limit);input->setDecimals(4);input->setValue(value);input->setKeyboardTracking(false);return input;
+        };
+        const auto existing=o.path_follow;
+        auto* start=make_follow_number("group-path-follow-start",existing?existing->start:0);
+        auto* relation_offset=make_follow_number("group-path-follow-normal-offset",existing?existing->normal_offset:0);
+        const auto displayed_start=start->value(),displayed_offset=relation_offset->value();
+        follow_form->addRow("Start",start);follow_form->addRow("Normal offset",relation_offset);
+        auto* reversed=new QCheckBox("Reverse traversal",follow_box);reversed->setObjectName("group-path-follow-reversed");
+        reversed->setChecked(existing&&existing->reversed);follow_form->addRow(reversed);
+        if(existing) {
+            const auto path_index=path_picker->findData(qs(existing->path));if(path_index>=0)path_picker->setCurrentIndex(path_index);
+            start_mode->setCurrentIndex(start_mode->findData(qs(existing->start_mode)));
+        }
+        populate_contours(existing?qs(existing->contour):QString{});
+        connect(path_picker,qOverload<int>(&QComboBox::currentIndexChanged),this,[populate_contours](int){populate_contours({});});
+        auto* follow_buttons=new QWidget(follow_box);auto* follow_button_layout=new QHBoxLayout(follow_buttons);
+        follow_button_layout->setContentsMargins(0,0,0,0);
+        auto* apply_follow=new QPushButton(existing?"Update Path Follow":"Attach to Path",follow_buttons);
+        apply_follow->setObjectName("group-path-follow-apply");apply_follow->setEnabled(path_picker->count()>0);
+        follow_button_layout->addWidget(apply_follow);
+        auto* clear_follow=new QPushButton("Clear",follow_buttons);clear_follow->setObjectName("group-path-follow-clear");
+        clear_follow->setEnabled(existing.has_value());follow_button_layout->addWidget(clear_follow);
+        follow_form->addRow(follow_buttons);
+        const auto session_id=host.session_id;
+        connect(apply_follow,&QPushButton::clicked,this,[this,path_picker,contour_picker,start_mode,start,relation_offset,reversed,
+            id=o.id,session_id,existing,displayed_start,displayed_offset] {perform([&] {
+            if(host.session_id!=session_id)throw Error("SESSION_CONFLICT","Group Path Follow belongs to another document");
+            GroupPathFollow relation=existing.value_or(GroupPathFollow{});
+            if(!existing)relation.id=new_id();
+            relation.path=path_picker->currentData().toString().toStdString();
+            relation.contour=contour_picker->currentData().toString().toStdString();
+            relation.start_mode=start_mode->currentData().toString().toStdString();
+            if(!existing||start->value()!=displayed_start)relation.start=start->value();
+            if(!existing||relation_offset->value()!=displayed_offset)relation.normal_offset=relation_offset->value();
+            relation.reversed=reversed->isChecked();
+            canvas->cancel_interaction();
+            if(existing)host.session.apply({GroupPathFollowCommand{UpdateGroupPathFollow{id,relation}}},host.session.revision());
+            else host.session.apply({GroupPathFollowCommand{AttachGroupPathFollow{id,relation}}},host.session.revision());
+            host.edited();
+        });});
+        connect(clear_follow,&QPushButton::clicked,this,[this,id=o.id,session_id]{perform([&] {
+            if(host.session_id!=session_id)throw Error("SESSION_CONFLICT","Group Path Follow belongs to another document");
+            canvas->cancel_interaction();host.session.apply({GroupPathFollowCommand{ClearGroupPathFollow{id}}},host.session.revision());host.edited();
+        });});
+        if(existing) {
+            auto* item_note=new QLabel("Child placement stays authored; the relation adds a derived Group-local frame during evaluation.",follow_box);
+            item_note->setWordWrap(true);follow_form->addRow(item_note);
+            for(const auto& child_id:o.children) {
+                const auto& child=d.objects.at(child_id);
+                const auto found=existing->items.find(child_id);const bool active=found!=existing->items.end();
+                const GroupPathFollowItem item=active?found->second:GroupPathFollowItem{};
+                auto* row=new QWidget(follow_box);auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
+                auto* enabled=new QCheckBox(qs(child.name),row);enabled->setObjectName("group-path-follow-item-"+qs(child_id));
+                enabled->setToolTip(qs(child_id));enabled->setChecked(active);row_layout->addWidget(enabled);
+                auto* distance=make_follow_number(("group-path-follow-distance-"+child_id).c_str(),item.distance);
+                distance->setToolTip("Distance along the authored source contour");row_layout->addWidget(distance);
+                auto* offset=make_follow_number(("group-path-follow-item-offset-"+child_id).c_str(),item.normal_offset);
+                offset->setToolTip("Normal offset from this Path Follow relation");row_layout->addWidget(offset);
+                auto* tangent=new QCheckBox("Tangent",row);tangent->setObjectName("group-path-follow-tangent-"+qs(child_id));
+                tangent->setChecked(item.follow_tangent);tangent->setEnabled(active);row_layout->addWidget(tangent);
+                distance->setEnabled(active);offset->setEnabled(active);follow_form->addRow(row);
+                connect(enabled,&QCheckBox::toggled,this,[this,enabled,id=o.id,child_id,session_id,active](bool checked) {
+                    bool applied=false;perform([&] {
+                        if(host.session_id!=session_id)throw Error("SESSION_CONFLICT","Group Path Follow belongs to another document");
+                        if(checked)host.session.apply({GroupPathFollowCommand{SetGroupPathFollowItem{id,child_id,GroupPathFollowItem{}}}},host.session.revision());
+                        else if(active)host.session.apply({GroupPathFollowCommand{RemoveGroupPathFollowItem{id,child_id}}},host.session.revision());
+                        applied=true;host.edited();
+                    });
+                    if(!applied){const QSignalBlocker blocker(enabled);enabled->setChecked(active);}
+                });
+                const auto update_item=[this,id=o.id,child_id,session_id,enabled,distance,offset,tangent](int changed) {
+                    if(!enabled->isChecked())return;
+                    perform([&] {
+                        if(host.session_id!=session_id)throw Error("SESSION_CONFLICT","Group Path Follow belongs to another document");
+                        const auto& relation=host.session.document().objects.at(id).path_follow;
+                        if(!relation)throw Error("MISSING_GROUP_PATH_FOLLOW","Group Path Follow was cleared");
+                        const auto current=relation->items.find(child_id);
+                        if(current==relation->items.end())throw Error("MISSING_GROUP_PATH_FOLLOW_ITEM","Group Path Follow child is no longer attached");
+                        auto value=current->second;
+                        if(changed==0)value.distance=distance->value();
+                        else if(changed==1)value.normal_offset=offset->value();
+                        else value.follow_tangent=tangent->isChecked();
+                        host.session.apply({GroupPathFollowCommand{SetGroupPathFollowItem{id,child_id,value}}},host.session.revision());
+                        if(changed<2)QTimer::singleShot(0,this,[this,session_id]{if(host.session_id==session_id)host.edited();});
+                        else host.edited();
+                    });
+                };
+                connect(distance,&QDoubleSpinBox::editingFinished,this,[update_item]{update_item(0);});
+                connect(offset,&QDoubleSpinBox::editingFinished,this,[update_item]{update_item(1);});
+                connect(tangent,&QCheckBox::toggled,this,[update_item,active](bool checked) {
+                    if(!active&&!checked)return;update_item(2);
+                });
+            }
+        }
+        if(path_ids.empty()) {
+            auto* note=new QLabel("Add an authored Path outside this Group in the same Composition.",follow_box);
+            note->setWordWrap(true);follow_form->addRow(note);
+        }
+        layout->addWidget(follow_box);
+    }
     if(o.text)add_text_properties(layout,o);
     if(o.image)add_image_properties(layout,o);
     if(o.source) {
