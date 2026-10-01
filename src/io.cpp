@@ -665,6 +665,33 @@ j::object guide_position_property_json(const std::string& name,const Ref& ref,co
             {"source_kind",value.source_kind},{"expression",std::move(expression)}}},
         {"evaluated",value.evaluated},{"link",true},{"expression",true}};
 }
+j::object artboard_guide_property_json(const Ref& ref,const ArtboardGuideProperty& value,const std::string& display_name) {
+    const auto& item=value.occurrence;
+    const bool position=ref.field=="artboard.guide.position";
+    j::value target_override=nullptr;
+    if(item.inherited&&position&&item.position_overridden)target_override=item.position;
+    if(item.inherited&&!position&&item.enabled_overridden)target_override=item.enabled;
+    j::object authored{{"literal",target_override}};
+    if(!item.inherited)authored["literal"]=position?j::value(item.position):j::value(item.enabled);
+    j::object source{{"artboard",item.source_artboard},{"guide_id",item.guide_id},
+        {"name",item.name},{"axis",item.axis},
+        {"literal_position",item.source_position},{"literal_enabled",item.source_enabled}};
+    j::value immediate_source=nullptr;
+    if(item.inherited)immediate_source=j::object{{"artboard",item.template_source_artboard},
+        {"position",item.template_position},{"enabled",item.template_enabled}};
+    const auto evaluated=position?j::value(item.position):j::value(item.enabled);
+    j::object result{{"ref",ref_json(ref)},{"name",display_name},
+        {"type",position?"number":"bool"},{"unit",position?"du":"boolean"},
+        {"space","artboard_local"},{"origin",item.inherited?"template":"authored"},
+        {"authored",std::move(authored)},{"source",std::move(source)},
+        {"template_source",std::move(immediate_source)},{"evaluated",evaluated},
+        {"target_artboard",item.target_artboard},{"source_artboard",item.source_artboard},
+        {"guide_id",item.guide_id},{"name_inherited",item.inherited},{"axis",item.axis},
+        {"inherited",item.inherited},{"position_overridden",item.position_overridden},
+        {"enabled_overridden",item.enabled_overridden},{"detached",false},
+        {"link",false},{"expression",false}};
+    return result;
+}
 j::object text_content_property_json(const Document& d,const Ref& ref,const TextContentProperty& value) {
     j::value driver=nullptr;if(value.driver)driver=text_content_driver_json(*value.driver);
     return {{"ref",ref_json(ref)},{"name",property_name(d,ref)},{"type","string"},{"origin","authored"},
@@ -1460,10 +1487,24 @@ j::object artboard_template_json(const ArtboardTemplate& value) {
     return {{"id",value.id},{"name",value.name},{"source_artboard",value.source_artboard},
         {"definition",value.definition?j::value(*value.definition):j::value(nullptr)}};
 }
-ArtboardTemplateAssignment read_template_assignment(const j::value& value) {
+ArtboardGuide read_artboard_guide(const j::value& value) {
+    const auto& object=value.as_object();keys(object,{"id","name","axis","position","enabled"});
+    return {text(object.at("id")),text(object.at("name")),text(object.at("axis")),
+        number(object.at("position")),object.at("enabled").as_bool()};
+}
+j::object artboard_guide_json(const ArtboardGuide& value) {
+    return {{"id",value.id},{"name",value.name},{"axis",value.axis},
+        {"position",value.position},{"enabled",value.enabled}};
+}
+ArtboardTemplateAssignment read_template_assignment(const j::value& value,bool allow_guide_state=false) {
     const auto& object=value.as_object();
-    keys(object,{"template_id","grid_id","content_instance","width_override","height_override",
-        "margin_overridden","grid_overridden"});
+    std::vector<std::string_view> allowed{"template_id","grid_id","content_instance","width_override","height_override",
+        "margin_overridden","grid_overridden"};
+    if(allow_guide_state) {
+        allowed.push_back("guide_position_overrides");allowed.push_back("guide_enabled_overrides");
+        allowed.push_back("detached_guides");
+    }
+    keys(object,allowed);
     ArtboardTemplateAssignment result;
     result.template_id=text(object.at("template_id"));result.grid_id=text(object.at("grid_id"));
     if(const auto* content=object.if_contains("content_instance");content&&!content->is_null())result.content_instance=text(*content);
@@ -1471,14 +1512,41 @@ ArtboardTemplateAssignment read_template_assignment(const j::value& value) {
     if(const auto* height=object.if_contains("height_override");height&&!height->is_null())result.height_override=number(*height);
     result.margin_overridden=object.at("margin_overridden").as_bool();
     result.grid_overridden=object.at("grid_overridden").as_bool();
+    if(allow_guide_state) {
+        if(const auto* entries=object.if_contains("guide_position_overrides"))for(const auto& entry:entries->as_array()) {
+            const auto& fields=entry.as_object();keys(fields,{"guide_id","position"});
+            const auto guide_id=text(fields.at("guide_id"));
+            if(!result.guide_position_overrides.emplace(guide_id,number(fields.at("position"))).second)
+                throw Error("DUPLICATE_ARTBOARD_GUIDE_OVERRIDE",guide_id);
+        }
+        if(const auto* entries=object.if_contains("guide_enabled_overrides"))for(const auto& entry:entries->as_array()) {
+            const auto& fields=entry.as_object();keys(fields,{"guide_id","enabled"});
+            const auto guide_id=text(fields.at("guide_id"));
+            if(!result.guide_enabled_overrides.emplace(guide_id,fields.at("enabled").as_bool()).second)
+                throw Error("DUPLICATE_ARTBOARD_GUIDE_OVERRIDE",guide_id);
+        }
+        if(const auto* detached=object.if_contains("detached_guides"))result.detached_guides=ids(*detached);
+    }
     return result;
 }
 j::object template_assignment_json(const ArtboardTemplateAssignment& value) {
-    return {{"template_id",value.template_id},{"grid_id",value.grid_id},
+    j::object result{{"template_id",value.template_id},{"grid_id",value.grid_id},
         {"content_instance",value.content_instance?j::value(*value.content_instance):j::value(nullptr)},
         {"width_override",value.width_override?j::value(*value.width_override):j::value(nullptr)},
         {"height_override",value.height_override?j::value(*value.height_override):j::value(nullptr)},
         {"margin_overridden",value.margin_overridden},{"grid_overridden",value.grid_overridden}};
+    if(!value.guide_position_overrides.empty()) {
+        j::array entries;for(const auto& [guide_id,position]:value.guide_position_overrides)
+            entries.push_back(j::object{{"guide_id",guide_id},{"position",position}});
+        result["guide_position_overrides"]=std::move(entries);
+    }
+    if(!value.guide_enabled_overrides.empty()) {
+        j::array entries;for(const auto& [guide_id,enabled]:value.guide_enabled_overrides)
+            entries.push_back(j::object{{"guide_id",guide_id},{"enabled",enabled}});
+        result["guide_enabled_overrides"]=std::move(entries);
+    }
+    if(!value.detached_guides.empty())result["detached_guides"]=ids_json(value.detached_guides);
+    return result;
 }
 Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layout=false,bool allow_size_driver=false,
     bool allow_margin_driver=false,bool allow_grid_x_driver=false,bool allow_grid_x_expression=false,
@@ -1489,13 +1557,15 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
     bool allow_grid_height_expression=false,bool allow_grid_column_gutter_driver=false,
     bool allow_grid_row_gutter_driver=false,bool allow_grid_row_gutter_expression=false,
     bool allow_grid_column_gutter_expression=false,bool allow_grid_columns_driver=false,bool allow_grid_rows_driver=false,
-    bool allow_grid_columns_expression=false,bool allow_grid_rows_expression=false,bool allow_template=false) {
+    bool allow_grid_columns_expression=false,bool allow_grid_rows_expression=false,bool allow_template=false,
+    bool allow_local_guides=false) {
     const auto& a=v.as_object();
     std::vector<std::string_view> allowed{"id","name","x","y","width","height"};
     if(allow_parent)allowed.push_back("parent_size");
     if(allow_layout)allowed.push_back("layout");
     if(allow_size_driver){allowed.push_back("width_driver");allowed.push_back("height_driver");}
     if(allow_template)allowed.push_back("template_assignment");
+    if(allow_local_guides)allowed.push_back("local_guides");
     keys(a,allowed);
     Artboard result{text(a.at("id")),text(a.at("name")),number(a.at("x")),number(a.at("y")),number(a.at("width")),number(a.at("height"))};
     if(const auto* p=a.if_contains("parent_size")) {
@@ -1517,7 +1587,9 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
         if(const auto* driver=a.if_contains("height_driver"))result.height_driver=read_artboard_size_driver(*driver);
     }
     if(allow_template)if(const auto* assignment=a.if_contains("template_assignment"))
-        result.template_assignment=read_template_assignment(*assignment);
+        result.template_assignment=read_template_assignment(*assignment,allow_local_guides);
+    if(allow_local_guides)if(const auto* guides=a.if_contains("local_guides"))
+        for(const auto& value:guides->as_array())result.local_guides.push_back(read_artboard_guide(value));
     return result;
 }
 j::object artboard_json(const Artboard& a) {
@@ -1527,6 +1599,10 @@ j::object artboard_json(const Artboard& a) {
     if(a.width_driver)result["width_driver"]=artboard_size_driver_json(*a.width_driver);
     if(a.height_driver)result["height_driver"]=artboard_size_driver_json(*a.height_driver);
     if(a.template_assignment)result["template_assignment"]=template_assignment_json(*a.template_assignment);
+    if(!a.local_guides.empty()) {
+        j::array guides;for(const auto& guide:a.local_guides)guides.push_back(artboard_guide_json(guide));
+        result["local_guides"]=std::move(guides);
+    }
     return result;
 }
 
@@ -1651,6 +1727,45 @@ ArtboardTemplateCommand read_artboard_template_command(const j::value& value) {
     throw Error("UNSUPPORTED_ARTBOARD_TEMPLATE_OPERATION",type);
 }
 
+ArtboardGuideCommand read_artboard_guide_command(const j::value& value) {
+    const auto& object=value.as_object();const auto type=text(object.at("type"));
+    const auto composition=text(object.at("composition"));
+    const auto artboard=text(object.at("artboard"));
+    if(type=="add_artboard_guide") {
+        keys(object,{"type","composition","artboard","guide"});
+        return ArtboardGuideCommand{AddArtboardGuide{composition,artboard,read_artboard_guide(object.at("guide"))}};
+    }
+    if(type=="update_artboard_guide") {
+        keys(object,{"type","composition","artboard","guide"});
+        return ArtboardGuideCommand{UpdateArtboardGuide{composition,artboard,read_artboard_guide(object.at("guide"))}};
+    }
+    if(type=="delete_artboard_guide") {
+        keys(object,{"type","composition","artboard","guide_id"});
+        return ArtboardGuideCommand{DeleteArtboardGuide{composition,artboard,text(object.at("guide_id"))}};
+    }
+    if(type=="set_artboard_guide_override") {
+        keys(object,{"type","composition","artboard","guide_id","field","value"});
+        const auto field=text(object.at("field"));
+        std::variant<double,bool> payload;
+        if(field=="position")payload=number(object.at("value"));
+        else if(field=="enabled")payload=object.at("value").as_bool();
+        else throw Error("UNSUPPORTED_ARTBOARD_GUIDE_OVERRIDE",field);
+        return ArtboardGuideCommand{SetArtboardGuideOverride{composition,artboard,
+            text(object.at("guide_id")),field,std::move(payload)}};
+    }
+    if(type=="reset_artboard_guide_override") {
+        keys(object,{"type","composition","artboard","guide_id","field"});
+        return ArtboardGuideCommand{ResetArtboardGuideOverride{composition,artboard,
+            text(object.at("guide_id")),text(object.at("field"))}};
+    }
+    if(type=="detach_artboard_guide") {
+        keys(object,{"type","composition","artboard","guide_id","new_guide_id"});
+        return ArtboardGuideCommand{DetachArtboardGuide{composition,artboard,
+            text(object.at("guide_id")),text(object.at("new_guide_id"))}};
+    }
+    throw Error("UNSUPPORTED_ARTBOARD_GUIDE_OPERATION",type);
+}
+
 CollectionCommand read_collection_command(const j::value& v) {
     const auto& o=v.as_object();const auto type=text(o.at("type"));
     if(type=="create_collection") {
@@ -1742,6 +1857,9 @@ Command read_command(const j::value& v) {
         type=="assign_artboard_template"||type=="set_artboard_template_override"||
         type=="reset_artboard_template_override"||type=="detach_artboard_template")
         return StructuralCommand{read_artboard_template_command(v)};
+    if(type=="add_artboard_guide"||type=="update_artboard_guide"||type=="delete_artboard_guide"||
+        type=="set_artboard_guide_override"||type=="reset_artboard_guide_override"||type=="detach_artboard_guide")
+        return StructuralCommand{read_artboard_guide_command(v)};
     if(type.find("_macro_")!=std::string::npos||type=="instantiate_macro"||type=="apply_macro"||
         type=="import_apply_macro")return StructuralCommand{read_macro_command(v)};
     if(type.ends_with("_definition")||type=="create_instance"||type=="set_instance_override"||
@@ -2373,10 +2491,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,76> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76"};
+        constexpr std::array<std::string_view,77> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.76 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.77 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -2418,7 +2536,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35,minor>=36,minor>=37,minor>=38,minor>=39,minor>=40,minor>=41,minor>=42,minor>=43,minor>=44,minor>=45,minor>=46,minor>=47,minor>=48,minor>=49,minor>=50,minor>=51,minor>=52,minor>=53,minor>=54,minor>=56,minor>=57,minor>=58,minor>=59,minor>=76));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35,minor>=36,minor>=37,minor>=38,minor>=39,minor>=40,minor>=41,minor>=42,minor>=43,minor>=44,minor>=45,minor>=46,minor>=47,minor>=48,minor>=49,minor>=50,minor>=51,minor>=52,minor>=53,minor>=54,minor>=56,minor>=57,minor>=58,minor>=59,minor>=76,minor>=77));
             if(minor>=14)for(const auto& gv:co.at("guides").as_array())c.guides.push_back(read_guide(gv,minor>=23,minor>=34));
             if(minor>=76)for(const auto& tv:co.at("templates").as_array())c.templates.push_back(read_artboard_template(tv));
             d.compositions.push_back(std::move(c));
@@ -2888,6 +3006,9 @@ std::string request(Session& session,std::string_view input) {
                 result=artboard_layout_property_json(session.document(),r,artboard_layout_property(session.document(),r));
             else if(r.field=="guide.position")result=guide_position_property_json(
                 guide_property_name(session.document(),r),r,guide_position_property(session.document(),r));
+            else if(r.field.starts_with("artboard.guide."))
+                result=artboard_guide_property_json(r,artboard_guide_property(session.document(),r),
+                    property_name(session.document(),r));
             else if(r.field.starts_with("artboard."))result=artboard_size_property_json(session.document(),r,artboard_size_property(session.document(),r));
             else if(r.field=="object.visible")result=object_visibility_property_json(
                 session.document(),r,object_visibility_state(session.document(),r));
@@ -2988,6 +3109,8 @@ std::string request(Session& session,std::string_view input) {
             const auto mask_enabled_values=evaluate_geometry_mask_enableds(session.document());
             const auto point_edit_enabled_values=evaluate_point_edit_enableds(session.document());
             std::map<Id,std::pair<std::string,GuidePositionProperty>> guide_values;
+            std::map<Id,std::string> artboard_names;
+            std::map<Id,std::map<Id,EffectiveArtboardGuide>> artboard_guide_values;
             for(const auto& composition:session.document().compositions) {
                 const auto positions=evaluate_guide_positions(session.document(),composition.id);
                 for(const auto& guide:composition.guides)guide_values.emplace(guide.id,
@@ -2995,6 +3118,12 @@ std::string request(Session& session,std::string_view input) {
                         guide.position,guide.position_driver,guide.position_expression,
                         guide.position_driver?"link":guide.position_expression?"expression":"literal",
                         positions.at(guide.id)}));
+                for(const auto& board:composition.artboards) {
+                    artboard_names.emplace(board.id,board.name);
+                    auto& cached=artboard_guide_values[board.id];
+                    for(auto& occurrence:effective_artboard_guides(session.document(),composition.id,board.id))
+                        cached.emplace(occurrence.guide_id,std::move(occurrence));
+                }
             }
             for(const auto& ref:properties(session.document())) {
                 if(ref.field.starts_with("margin.")||ref.field.starts_with("grid.")) {
@@ -3005,6 +3134,14 @@ std::string request(Session& session,std::string_view input) {
                 if(ref.field=="guide.position") {
                     const auto& [name,value]=guide_values.at(ref.object);
                     list.push_back(guide_position_property_json(name,ref,value));
+                    continue;
+                }
+                if(ref.field.starts_with("artboard.guide.")) {
+                    const auto& occurrence=artboard_guide_values.at(ref.object).at(ref.point);
+                    const auto evaluated=ref.field=="artboard.guide.position"?
+                        std::variant<double,bool>{occurrence.position}:std::variant<double,bool>{occurrence.enabled};
+                    list.push_back(artboard_guide_property_json(ref,{occurrence,evaluated},
+                        artboard_names.at(ref.object)+" / "+occurrence.name));
                     continue;
                 }
                 if(ref.field.starts_with("artboard.")) {
@@ -3182,7 +3319,16 @@ std::string request(Session& session,std::string_view input) {
             if(comp==comps.end())throw Error("MISSING_COMPOSITION",id);
             j::array frames;for(const auto& a:comp->artboards) {
                 auto evaluated=evaluate_artboard(*comp,a.id);
-                frames.push_back(j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluated)}});
+                j::array guides;
+                for(const auto& guide:effective_artboard_guides(session.document(),comp->id,a.id))guides.push_back(j::object{
+                    {"target_artboard",guide.target_artboard},{"source_artboard",guide.source_artboard},
+                    {"template_source_artboard",guide.template_source_artboard},{"guide_id",guide.guide_id},
+                    {"name",guide.name},{"axis",guide.axis},{"position",guide.position},
+                    {"world_position",(guide.axis=="x"?evaluated.x:evaluated.y)+guide.position},
+                    {"enabled",guide.enabled},{"inherited",guide.inherited},
+                    {"position_overridden",guide.position_overridden},{"enabled_overridden",guide.enabled_overridden}});
+                frames.push_back(j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluated)},
+                    {"effective_guides",std::move(guides)}});
             }
             result=std::move(frames);
         } else if(op=="text_defaults") {
@@ -3458,6 +3604,7 @@ std::string request(Session& session,std::string_view input) {
             } else {
                 std::vector<Command> commands;
                 std::vector<InstantiateMacro> imported_macros;
+                std::vector<DetachArtboardGuide> detached_artboard_guides;
                 for(const auto& v:wire_commands) {
                     auto command=read_command(v);
                     if(const auto* structural=std::get_if<StructuralCommand>(&command))
@@ -3466,6 +3613,10 @@ std::string request(Session& session,std::string_view input) {
                                 if(const auto* instance=std::get_if<InstantiateMacro>(macro->mutation.get());
                                     instance&&instance->imported_definition)
                                     imported_macros.push_back(*instance);
+                    if(const auto* structural=std::get_if<StructuralCommand>(&command))
+                        if(const auto* guides=std::get_if<ArtboardGuideCommand>(structural))
+                            if(const auto* detach=std::get_if<DetachArtboardGuide>(&guides->mutation))
+                                detached_artboard_guides.push_back(*detach);
                     commands.push_back(std::move(command));
                 }
                 const auto before=session.revision();
@@ -3492,8 +3643,31 @@ std::string request(Session& session,std::string_view input) {
                         {"definition_present_after_batch",definition_present},{"instance_present_after_batch",instance_present},
                         {"asset_identity_source","caller_supplied"}});
                 }
+                j::array detached_guide_results;
+                if(session.revision()!=before)for(const auto& detach:detached_artboard_guides) {
+                    const auto composition=std::find_if(session.document().compositions.begin(),
+                        session.document().compositions.end(),[&](const Composition& item){return item.id==detach.composition;});
+                    if(composition==session.document().compositions.end())continue;
+                    const auto board=std::find_if(composition->artboards.begin(),composition->artboards.end(),
+                        [&](const Artboard& item){return item.id==detach.artboard_id;});
+                    if(board==composition->artboards.end())continue;
+                    const auto guide=std::find_if(board->local_guides.begin(),board->local_guides.end(),
+                        [&](const ArtboardGuide& item){return item.id==detach.new_guide_id;});
+                    if(guide==board->local_guides.end())continue;
+                    const bool source_suppressed=board->template_assignment&&
+                        std::find(board->template_assignment->detached_guides.begin(),
+                            board->template_assignment->detached_guides.end(),detach.guide_id)!=
+                                board->template_assignment->detached_guides.end();
+                    detached_guide_results.push_back(j::object{
+                        {"target",j::object{{"composition",detach.composition},{"artboard",detach.artboard_id}}},
+                        {"old_occurrence",ref_json(Ref{detach.artboard_id,detach.guide_id,"artboard.guide.position"})},
+                        {"source_guide_id",detach.guide_id},
+                        {"new_authored_guide",artboard_guide_json(*guide)},
+                        {"source_suppressed",source_suppressed}});
+                }
                 result=j::object{{"changed",session.revision()!=before},{"applied_presets",j::array{}},
-                    {"applied_library_macros",applied_library_macros}};
+                    {"applied_library_macros",applied_library_macros},
+                    {"detached_artboard_guides",detached_guide_results}};
             }
         } else if(op=="history") {
             keys(o,{"op"});const auto history=session.history();j::array states;

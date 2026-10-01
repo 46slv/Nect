@@ -592,13 +592,13 @@ void rigid_group_path_follow() {
     session.redo(session.revision());
 
     auto cold=decode(encode(with_item));
-    check(cold==with_item&&encode(cold)==encode(with_item),"Native 0.76 cold roundtrip retains stable relation and item IDs");
+    check(cold==with_item&&encode(cold)==encode(with_item),"Current-writer cold roundtrip retains stable relation and item IDs");
     matrix_near(evaluate_transforms(cold,evaluate(cold)).at("follow-text").world,
         evaluate_transforms(with_item,evaluate(with_item)).at("follow-text").world,"Cold reopen derives the same follower transform");
     auto legacy_fixture=rigid_follow_fixture();auto legacy=encode(legacy_fixture);
     test_support::remove_empty_native_076_templates_for_legacy_fixture(legacy);
     const auto current_marker=test_support::current_native_version_marker();
-    const auto current_version=legacy.find(current_marker);check(current_version!=std::string::npos,"Native writer emits 0.76");
+    const auto current_version=legacy.find(current_marker);check(current_version!=std::string::npos,"Native writer emits its canonical current marker");
     legacy.replace(current_version,current_marker.size(),"\"version\":\"0.73\"");
     check(decode(legacy)==legacy_fixture,"Native 0.73 remains readable after writer upgrade");
     auto lied=encode(with_item);test_support::remove_empty_native_076_templates_for_legacy_fixture(lied);
@@ -789,7 +789,7 @@ void group_path_deform() {
     point_near(deform_scene(s.document()).deformation_points.at("deform-b").front().anchor,
         warped_scene.deformation_points.at("deform-b").front().anchor,"Deform mode roundtrip is deterministic");
     const auto native=encode(s.document());check(native.find(test_support::current_native_version_marker())!=std::string::npos&&decode(native)==s.document(),
-        "Native 0.76 cold read retains mode, axis and authored source");
+        "Current-writer cold read retains mode, axis and authored source");
     auto lied=native;test_support::remove_empty_native_076_templates_for_legacy_fixture(lied);
     const auto marker=test_support::current_native_version_marker();const auto version=lied.find(marker);
     lied.replace(version,marker.size(),"\"version\":\"0.74\"");rejects("UNKNOWN_FIELD",[&]{(void)decode(lied);});

@@ -74,8 +74,10 @@ struct Fixture {
     }
 
     QPoint screen(double x, double y) const {
-        return {qRound(canvas.width() / 2.0 + (x - 320) * canvas.zoom()),
-                qRound(canvas.height() / 2.0 + (y - 240) * canvas.zoom())};
+        const auto& composition=session.document().compositions.front();
+        const auto board=evaluate_artboard(composition,canvas.active_artboard());
+        return {qRound(canvas.width()/2.0+(x-(board.x+board.width/2.0))*canvas.zoom()),
+                qRound(canvas.height()/2.0+(y-(board.y+board.height/2.0))*canvas.zoom())};
     }
 
     double value(const Id& object, const Id& point, const char* field) const {
@@ -614,6 +616,99 @@ Document point_snap_document(bool driven=false) {
     document.objects.emplace(path.id,path);document.objects.emplace(parent.id,parent);
     document.compositions.front().roots={parent.id};
     return document;
+}
+
+Document artboard_guide_point_snap_document(bool local_guide=true) {
+    auto document=empty_document("artboard-guide-snap-document","test-composition","test-artboard");
+    auto& board=document.compositions.front().artboards.front();board.y=100;board.width=640;board.height=300;
+    if(local_guide)board.local_guides.push_back({"local-x","Local vertical","x",50,true});
+    document.compositions.front().guides.push_back({"global-y","Global horizontal","y",407});
+    Object path;path.id="guide-point-path";path.name="Guide point";
+    Point point;point.id="anchor";point.x.literal=38;point.y.literal=399;
+    Point other;other.id="other";other.x.literal=60;other.y.literal=420;
+    path.contours={{"guide-point-contour",false,{point,other}}};
+    document.objects.emplace(path.id,path);document.compositions.front().roots.push_back(path.id);
+    return document;
+}
+
+Document artboard_guide_object_snap_document() {
+    auto document=empty_document("artboard-guide-object-snap-document","test-composition","test-artboard");
+    auto& board=document.compositions.front().artboards.front();board.y=100;board.width=640;board.height=300;
+    board.local_guides.push_back({"local-x","Local vertical","x",51,true});
+    document.compositions.front().guides.push_back({"global-y","Global horizontal","y",426});
+    Object moving;moving.id="moving-guide-object";moving.name="Moving Guide object";
+    moving.source=default_primitive("moving-guide-rectangle","nect.shape.rectangle");
+    moving.source->parameters.at("center_x").literal=38;
+    moving.source->parameters.at("center_y").literal=350;
+    moving.source->parameters.at("width").literal=2;
+    moving.source->parameters.at("height").literal=20;
+    moving.stack.push_back(default_operation("moving-guide-fill","nect.paint.fill"));
+    document.objects.emplace(moving.id,moving);document.compositions.front().roots.push_back(moving.id);
+    return document;
+}
+
+void artboard_guide_snap_segments_and_overlay_clipping() {
+    {
+        Fixture f(artboard_guide_point_snap_document());
+        f.canvas.set_selection("guide-point-path","anchor");
+        const auto start=f.screen(38,399),end=f.screen(49,405);
+        f.press(start);f.move(end);
+        const auto preview=evaluate(f.session.preview_document());
+        check(std::abs(preview.at({"guide-point-path","anchor","x"})-49)<.2,
+            "Point outside the Artboard drops its segment-limited local Guide: x="+
+            std::to_string(preview.at({"guide-point-path","anchor","x"}))+" y="+
+            std::to_string(preview.at({"guide-point-path","anchor","y"}))+" feedback="+
+            f.canvas.last_snap_feedback().toStdString()+" start="+std::to_string(start.x())+","+
+            std::to_string(start.y())+" end="+std::to_string(end.x())+","+std::to_string(end.y())+
+            " zoom="+std::to_string(f.canvas.zoom()));
+        near(preview.at({"guide-point-path","anchor","y"}),407,
+            "Global infinite horizontal Guide remains eligible outside the Artboard frame");
+        check(!f.canvas.last_snap_feedback().contains("Guide local-x")&&
+            f.canvas.last_snap_feedback().contains("Guide → global-y"),
+            "Point feedback omits the invalid local occurrence and retains the global snap identity");
+        const auto screenshot=f.canvas.grab().toImage();
+        const QPoint below(f.screen(50,450));
+        check(below.x()>=0&&below.y()>=0&&below.x()<screenshot.width()&&below.y()<screenshot.height(),
+            "Clipping sample lies inside the Canvas viewport");
+        const auto outside=screenshot.pixelColor(below);
+        check(outside==QColor(39,42,47),
+            "The local Guide overlay does not extend beyond the Artboard frame");
+        f.release(end);f.no_error();
+    }
+    {
+        Fixture f(artboard_guide_object_snap_document());
+        f.canvas.set_selection("moving-guide-object");
+        const auto start=f.screen(38,350),end=f.screen(49,415);
+        f.press(start);f.move(end);
+        const auto preview=evaluate(f.session.preview_document());
+        near(preview.at({"moving-guide-object","","transform.tx"}),11,
+            "Object outside the Artboard drops its segment-limited local Guide candidate");
+        near(preview.at({"moving-guide-object","","transform.ty"}),66,
+            "Object snap retains the global infinite Guide outside the Artboard frame");
+        check(!f.canvas.last_snap_feedback().contains("Guide local-x")&&
+            f.canvas.last_snap_feedback().contains("Guide → global-y"),
+            "Object feedback exposes the global Guide without an out-of-frame local occurrence");
+        f.release(end);f.no_error();
+    }
+    {
+        auto document=artboard_guide_point_snap_document(false);
+        document.compositions.front().artboards.front().local_guides.push_back(
+            {"local-x","Local vertical","x",50,true});
+        document.compositions.front().guides.front().position=500;
+        Fixture f(std::move(document));
+        f.canvas.set_selection("guide-point-path","anchor");
+        const auto start=f.screen(38,399),end=f.screen(49,399);
+        f.press(start);f.move(end);
+        check(f.canvas.last_snap_feedback().contains("Artboard test-artboard / source test-artboard / Guide local-x"),
+            "Snap feedback exposes the compound target/source/Guide occurrence identity");
+        const auto screenshot=f.canvas.grab().toImage();
+        // This pixel is away from the selected point and path, below the local
+        // Guide segment, and inside the Canvas viewport.
+        const QPoint below(f.screen(50,450));
+        check(screenshot.pixelColor(below)==QColor(39,42,47),
+            "An active local vertical snap guide is painted only across its clipped Artboard segment");
+        f.release(end);f.no_error();
+    }
 }
 
 Document text_baseline_snap_document(bool vertical_source=false,bool rotated_target=false) {
@@ -2428,6 +2523,7 @@ int main(int argc, char** argv) {
         driven_coordinate_rejects_atomically_but_free_axis_can_move();
         snap_tolerance_zoom_and_exact_edits();
         snap_guide_grid_priority_visibility_and_controls();
+        artboard_guide_snap_segments_and_overlay_clipping();
         grid_rows_snap_uses_evaluated_source();
         snap_two_sided_equal_gap_and_point_world_correction();
         snap_repeated_gap_fixed_oracles_and_eligibility();

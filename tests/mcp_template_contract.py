@@ -13,6 +13,8 @@ import uuid
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
+NATIVE_VERSION = re.search(r'native_version\s*=\s*"([^"]+)"',
+    (ROOT / 'include/nect/io.hpp').read_text(encoding='utf-8')).group(1)
 sys.path.insert(0, str(ROOT / 'scripts'))
 from session_client import call as desktop_api_call
 
@@ -39,9 +41,9 @@ def run(executable, *args, **kwargs):
 
 def cli_fixture(path):
     demo = run(CLI_EXE, '--demo')
-    check(demo.returncode == 0, 'Rebuilt CLI creates a native 0.76 starting fixture')
+    check(demo.returncode == 0, 'Rebuilt CLI creates a current native starting fixture')
     sample = json.loads(demo.stdout)
-    check(sample['version'] == '0.76', 'Fixture is native version 0.76')
+    check(sample['version'] == NATIVE_VERSION, 'Fixture is at the canonical current native version')
     composition = sample['compositions'][0]
     source = composition['artboards'][0]
     source_id, composition_id = source['id'], composition['id']
@@ -95,14 +97,14 @@ def cli_fixture(path):
         check(setup['revision'] == 1,
             'Fixture source, same-named targets, Grid, paint and Definition are one canonical Session revision')
         authored = request({'op': 'inspect'})['result']
-        check(authored['version'] == '0.76' and authored['compositions'][0]['id'] == composition_id and
+        check(authored['version'] == NATIVE_VERSION and authored['compositions'][0]['id'] == composition_id and
             len(authored['compositions'][0]['artboards']) == 4 and
             authored['definitions'][0]['id'] == 'mcp-template-definition',
             'Native fixture readback contains the exact authored Composition, four Artboards and Definition')
         path.write_text(json.dumps(authored, separators=(',', ':')), encoding='utf-8')
         validation = run(CLI_EXE, '--validate', input=path.read_text(encoding='utf-8'))
-        check(validation.returncode == 0 and json.loads(validation.stdout)['native_version'] == '0.76',
-            'Persisted canonical Session readback validates as native 0.76 before Desktop Host open')
+        check(validation.returncode == 0 and json.loads(validation.stdout)['native_version'] == NATIVE_VERSION,
+            'Persisted canonical Session readback validates at the current version before Desktop Host open')
     except BaseException:
         stop(process)
         raise
@@ -146,6 +148,8 @@ def direct(request):
 
 
 def compare(op, **fields):
+    if op not in {'inspect', 'get', 'properties', 'export_svg', 'artboards', 'history'}:
+        raise AssertionError('MCP/API comparison is restricted to read-only operations')
     request = dict(op=op, **fields)
     via_mcp, via_api = core(op, **fields), direct(request)
     check(via_mcp == via_api, 'Formal MCP and canonical Host API return the same typed result: ' + op)
@@ -275,6 +279,11 @@ def main():
                     'assign_artboard_template', 'set_artboard_template_override', 'reset_artboard_template_override',
                     'detach_artboard_template'):
                 check(operation in description, 'Formal MCP description advertises Template lifecycle operation ' + operation)
+            for operation in ('add_artboard_guide', 'update_artboard_guide', 'delete_artboard_guide',
+                    'set_artboard_guide_override', 'reset_artboard_guide_override', 'detach_artboard_guide'):
+                check(operation in description, 'Formal MCP description advertises Artboard Guide command ' + operation)
+            check('artboard.guide.position' in description and f'Native writer {NATIVE_VERSION}' in description,
+                'Formal MCP description states the typed scoped Guide Ref and current native boundary')
             for field in ('transform.tx', 'transform.ty', 'generator.width', 'generator.height'):
                 check(field in description, 'Formal MCP description advertises supported descendant R04 field ' + field)
             check('Fill/Color' in description and 'no local Fill/Color override' in description,
@@ -292,6 +301,14 @@ def main():
                 'Host opened the exact prepared native source Artboard, same-named targets, Grid and Definition')
 
             commands = [
+                dict(type='add_artboard_guide', composition=composition_id, artboard=source_id,
+                    guide=dict(id='source-guide-x', name='Source X', axis='x', position=40, enabled=True)),
+                dict(type='add_artboard_guide', composition=composition_id, artboard=source_id,
+                    guide=dict(id='source-guide-y', name='Source Y', axis='y', position=60, enabled=True)),
+                dict(type='add_artboard_guide', composition=composition_id, artboard='target-a',
+                    guide=dict(id='local-guide-a', name='Local A', axis='x', position=15, enabled=True)),
+                dict(type='add_artboard_guide', composition=composition_id, artboard='target-a',
+                    guide=dict(id='temporary-guide-a', name='Temporary A', axis='y', position=22, enabled=True)),
                 dict(type='create_artboard_template', composition=composition_id,
                     id='mcp-template-main', name='Shared source', source_artboard=source_id,
                     definition='mcp-template-definition'),
@@ -305,6 +322,14 @@ def main():
                     template='mcp-template-main', content_instance='content-b'),
                 dict(type='assign_artboard_template', composition=composition_id, artboard='target-c',
                     template='mcp-template-probe', content_instance=None),
+                dict(type='set_artboard_guide_override', composition=composition_id, artboard='target-a',
+                    guide_id='source-guide-x', field='position', value=90),
+                dict(type='reset_artboard_guide_override', composition=composition_id, artboard='target-a',
+                    guide_id='source-guide-x', field='position'),
+                dict(type='set_artboard_guide_override', composition=composition_id, artboard='target-a',
+                    guide_id='source-guide-x', field='position', value=90),
+                dict(type='set_artboard_guide_override', composition=composition_id, artboard='target-b',
+                    guide_id='source-guide-y', field='enabled', value=False),
                 dict(type='set_artboard_template_override', composition=composition_id, artboard='target-a',
                     field='frame.width', value=900),
                 dict(type='set_artboard_template_override', composition=composition_id, artboard='target-a',
@@ -329,7 +354,7 @@ def main():
                     artboard='target-c', field='layout.grid')]
             created = apply_mcp(revision, commands)
             check(created['ok'] and created['revision'] == revision + 1,
-                'All seven lifecycle tags and frame/Margin/Grid set/reset execute through one formal MCP mutation')
+                'Template and Artboard Guide lifecycle commands share one formal MCP Session mutation')
             revision = created['revision']
 
             inspect = compare('inspect')['result']
@@ -339,6 +364,18 @@ def main():
                 templates['mcp-template-main']['definition'] == 'mcp-template-definition' and
                 templates['mcp-template-probe']['name'] == 'Renamed probe',
                 'Typed readback retains exact source Artboard, Definition and renamed stable Template IDs')
+            guide_a = compare('get', ref=dict(object='target-a', point='source-guide-x',
+                field='artboard.guide.position'))['result']
+            guide_b = compare('get', ref=dict(object='target-b', point='source-guide-y',
+                field='artboard.guide.enabled'))['result']
+            check(guide_a['evaluated'] == 90 and guide_a['source']['literal_position'] == 40 and
+                guide_a['source_artboard'] == source_id and guide_a['position_overridden'] and
+                guide_b['evaluated'] is False and guide_b['enabled_overridden'],
+                'MCP/API typed scoped Guide reads retain target-local position and enabled override metadata')
+            guide_refs = compare('properties')['result']
+            check(any(item.get('ref') == dict(object='target-a', point='source-guide-x',
+                field='artboard.guide.position') for item in guide_refs),
+                'Property list exposes a target-scoped inherited Artboard Guide Ref')
             instances = {item['id']: item for item in inspect['objects']
                 if item['id'] in ('content-a', 'content-b')}
             check(instances['content-a']['instance']['definition'] == 'mcp-template-definition' and
@@ -350,10 +387,25 @@ def main():
                 dict(type='set_instance_override', instance='content-a',
                     target=dict(object='mcp-template-rectangle', point='', field='generator.width'), value=42),
                 dict(type='set_instance_override', instance='content-a',
-                    target=dict(object='mcp-template-rectangle', point='', field='transform.tx'), value=33)])
+                    target=dict(object='mcp-template-rectangle', point='', field='transform.tx'), value=33),
+                dict(type='update_artboard_guide', composition=composition_id, artboard=source_id,
+                    guide=dict(id='source-guide-x', name='Updated X', axis='x', position=50, enabled=True)),
+                dict(type='update_artboard_guide', composition=composition_id, artboard=source_id,
+                    guide=dict(id='source-guide-y', name='Updated Y', axis='y', position=80, enabled=True)),
+                dict(type='delete_artboard_guide', composition=composition_id, artboard='target-a',
+                    guide_id='temporary-guide-a')])
             check(geometry_edit['ok'] and geometry_edit['revision'] == revision + 1,
-                'The two bounded descendant geometry Scalars apply through the formal MCP: ' + repr(geometry_edit))
+                'Geometry plus Guide update/delete commands apply through the formal MCP: ' + repr(geometry_edit))
             revision = geometry_edit['revision']
+            updated_guide = compare('get', ref=dict(object='target-a', point='source-guide-x',
+                field='artboard.guide.position'))['result']
+            updated_inspect = compare('inspect')['result']
+            updated_comp = next(item for item in updated_inspect['compositions'] if item['id'] == composition_id)
+            updated_a = next(item for item in updated_comp['artboards'] if item['id'] == 'target-a')
+            check(updated_guide['evaluated'] == 90 and updated_guide['source']['literal_position'] == 50 and
+                updated_guide['source']['name'] == 'Updated X' and not any(
+                    guide['id'] == 'temporary-guide-a' for guide in updated_a.get('local_guides', [])),
+                'Source edits keep the A override by stable ID and a deleted target-local Guide stays absent')
             geometry_projection = compare('export_svg', composition=composition_id, artboard='target-a')['result']
             geometry_paths = svg_source_paths(geometry_projection, 'Shared mark')
             expected_bounds = (912.0, -70.0, 954.0, 70.0)
@@ -361,6 +413,28 @@ def main():
                 all(abs(actual-expected) < 1e-7 for actual, expected in zip(path['bounds'], expected_bounds))
                 and path['fill'] == 'rgb(80%,30%,10%)' for path in geometry_paths),
                 'Actual Host SVG numeric geometry oracle mismatch: ' + repr(geometry_paths))
+
+            reset_position = apply_mcp(revision, [
+                dict(type='reset_artboard_guide_override', composition=composition_id, artboard='target-a',
+                    guide_id='source-guide-x', field='position'),
+                dict(type='set_artboard_guide_override', composition=composition_id, artboard='target-a',
+                    guide_id='source-guide-x', field='position', value=90)])
+            check(reset_position['ok'] and reset_position['revision'] == revision + 1 and
+                compare('get', ref=dict(object='target-a', point='source-guide-x',
+                    field='artboard.guide.position'))['result']['evaluated'] == 90,
+                'MCP reset and explicit reapply of one Guide field remain atomic and target-scoped')
+            revision = reset_position['revision']
+
+            detached_guide = apply_mcp(revision,[dict(type='detach_artboard_guide', composition=composition_id,
+                artboard='target-b', guide_id='source-guide-y', new_guide_id='detached-guide-b-y')])
+            identity_map = detached_guide['result']['detached_artboard_guides'][0]
+            check(detached_guide['ok'] and detached_guide['revision'] == revision + 1 and
+                identity_map['target'] == dict(composition=composition_id, artboard='target-b') and
+                identity_map['source_guide_id'] == 'source-guide-y' and
+                identity_map['new_authored_guide']['id'] == 'detached-guide-b-y' and
+                identity_map['new_authored_guide']['position'] == 80 and identity_map['source_suppressed'],
+                'Item detach returns the exact scoped occurrence/new authored ID map and freezes effective values')
+            revision = detached_guide['revision']
 
             fill_edit = apply_mcp(revision, [dict(type='set',
                 ref=dict(object='mcp-template-rectangle', point='', field='op.mcp-template-fill.r'), value=.25)])
@@ -407,7 +481,7 @@ def main():
             history_before = compare('history')
             current_native = source_path.read_bytes()
             current_hash = hashlib.sha256(current_native).hexdigest()
-            rejected = compare('apply', expected_revision=revision, commands=[dict(
+            rejected = apply_mcp(revision, [dict(
                 type='set_artboard_template_override', composition=composition_id, artboard='target-a',
                 field='object.opacity', value=.5)])
             check(not rejected['ok'] and rejected['error']['code'] == 'UNSUPPORTED_TEMPLATE_OVERRIDE' and
@@ -415,14 +489,14 @@ def main():
                 compare('history') == history_before and source_path.read_bytes() == current_native and
                 hashlib.sha256(source_path.read_bytes()).hexdigest() == current_hash,
                 'Unsupported MCP domain refusal preserves typed native state, revision, History and source bytes')
-            stale = compare('apply', expected_revision=revision - 1, commands=[dict(
+            stale = direct(dict(op='apply', expected_revision=revision - 1, commands=[dict(
                 type='set_artboard_template_override', composition=composition_id, artboard='target-a',
-                field='frame.width', value=950)])
+                field='frame.width', value=950)]))
             check(not stale['ok'] and stale['error']['code'] == 'REVISION_CONFLICT' and stale['revision'] == revision and
                 compare('inspect') == before_refusal and compare('history') == history_before and
                 source_path.read_bytes() == current_native,
                 'Stale MCP revision refusal is identical to canonical API and preserves native bytes/History')
-            in_use = compare('apply', expected_revision=revision, commands=[dict(
+            in_use = apply_mcp(revision, [dict(
                 type='delete_artboard_template', composition=composition_id, template='mcp-template-main')])
             check(not in_use['ok'] and in_use['error']['code'] == 'ARTBOARD_TEMPLATE_IN_USE' and
                 in_use['revision'] == revision and compare('inspect') == before_refusal and
@@ -453,9 +527,10 @@ def main():
                 hashlib.sha256(source_path.read_bytes()).hexdigest() == original_sha,
                 'Host Save As preserves the original input native bytes exactly')
             saved_native = json.loads(saved_bytes.decode('utf-8'))
-            schema = json.loads((ROOT / 'schemas/native-v0.76.schema.json').read_text(encoding='utf-8'))
-            check(schema['$id'] == 'urn:nect:native:0.76' and schema['title'] == 'Nect native v0.76',
-                'Current native schema parses and identifies version 0.76')
+            schema = json.loads((ROOT / f'schemas/native-v{NATIVE_VERSION}.schema.json').read_text(encoding='utf-8'))
+            check(schema['$id'] == f'urn:nect:native:{NATIVE_VERSION}' and
+                schema['title'] == f'Nect native v{NATIVE_VERSION}',
+                'Current native schema parses and identifies the canonical writer version')
             try:
                 import jsonschema
             except ImportError:
@@ -468,14 +543,23 @@ def main():
             saved_comp = next(item for item in saved_native['compositions'] if item['id'] == composition_id)
             saved_boards = {item['id']: item for item in saved_comp['artboards']}
             saved_objects = {item['id']: item for item in saved_native['objects']}
-            check(saved_native['version'] == '0.76' and
+            check(saved_native['version'] == NATIVE_VERSION and
                 saved_boards['target-a']['template_assignment']['content_instance'] == 'content-a' and
                 saved_boards['target-b']['template_assignment']['content_instance'] == 'content-b' and
                 saved_boards['target-c'].get('template_assignment') is None and
                 {item['id'] for item in saved_comp['templates']} == {'mcp-template-main'} and
                 {entry['target']['field'] for entry in saved_objects['content-a']['instance']['overrides']} == override_fields and
-                saved_objects['mcp-template-rectangle']['stack'][0]['operation']['parameters']['r']['literal'] == .25,
-                'Save As bytes retain assigned A/B, detached C, source Fill and exact R04 local override fields')
+                saved_objects['mcp-template-rectangle']['stack'][0]['operation']['parameters']['r']['literal'] == .25 and
+                {guide['id'] for guide in saved_boards['art-main']['local_guides']} == {'source-guide-x','source-guide-y'} and
+                [guide['id'] for guide in saved_boards['target-a']['local_guides']] == ['local-guide-a'] and
+                saved_boards['target-a']['template_assignment']['guide_position_overrides'] ==
+                    [dict(guide_id='source-guide-x',position=90)] and
+                [guide['id'] for guide in saved_boards['target-b']['local_guides']] == ['detached-guide-b-y'] and
+                saved_boards['target-b']['local_guides'][0]['position'] == 80 and
+                saved_boards['target-b']['local_guides'][0]['enabled'] is False and
+                saved_boards['target-b']['template_assignment']['detached_guides'] == ['source-guide-y'] and
+                {guide['position'] for guide in saved_boards['target-c']['local_guides']} == {50,80},
+                'Save As bytes retain exact native Guide authoring, overrides, item detach and full detach beside Template/R04 state')
             check(saved_native == after_detach,
                 'Save As native bytes exactly equal the canonical typed authored Document readback')
 

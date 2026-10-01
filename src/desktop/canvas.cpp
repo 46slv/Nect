@@ -1035,11 +1035,19 @@ void Canvas::paintEvent(QPaintEvent*) {
         }
         painter.resetTransform();
         painter.setPen(QPen(QColor(153, 210, 225, 170), 1, Qt::DashLine));
-        if (snap_guide_x_) {
+        if(snap_x_match_&&snap_x_match_->target.segment_limited) {
+            const auto& guide=snap_x_match_->target;
+            painter.drawLine(view().map(QPointF(guide.position,guide.segment_min)),
+                view().map(QPointF(guide.position,guide.segment_max)));
+        } else if (snap_guide_x_) {
             const auto x = view().map(QPointF(*snap_guide_x_, 0)).x();
             painter.drawLine(QPointF(x, 0), QPointF(x, height()));
         }
-        if (snap_guide_y_) {
+        if(snap_y_match_&&snap_y_match_->target.segment_limited) {
+            const auto& guide=snap_y_match_->target;
+            painter.drawLine(view().map(QPointF(guide.segment_min,guide.position)),
+                view().map(QPointF(guide.segment_max,guide.position)));
+        } else if (snap_guide_y_) {
             const auto y = view().map(QPointF(0, *snap_guide_y_)).y();
             painter.drawLine(QPointF(0, y), QPointF(width(), y));
         }
@@ -1315,6 +1323,21 @@ void Canvas::paint_layout_overlays(QPainter& painter,const Document& document) c
     }
     for(const auto& source:composition->artboards) {
         const auto board=evaluate_artboard(*composition,source.id);
+        if(show_guides_) {
+            const auto occurrences=effective_artboard_guides(document,composition->id,source.id);
+            const QRectF frame(board.x,board.y,board.width,board.height);
+            painter.save();painter.setClipRect(frame,Qt::IntersectClip);
+            QPen local_pen(QColor(123,190,224,220),1.1,Qt::DashLine);local_pen.setCosmetic(true);
+            painter.setPen(local_pen);
+            for(const auto& guide:occurrences) {
+                if(!guide.enabled)continue;
+                if(guide.axis=="x"&&guide.position>=0&&guide.position<=board.width)
+                    painter.drawLine(QPointF(board.x+guide.position,frame.top()),QPointF(board.x+guide.position,frame.bottom()));
+                else if(guide.axis=="y"&&guide.position>=0&&guide.position<=board.height)
+                    painter.drawLine(QPointF(frame.left(),board.y+guide.position),QPointF(frame.right(),board.y+guide.position));
+            }
+            painter.restore();
+        }
         if(!board.layout)continue;
         if(show_margin_&&board.id==active_artboard_&&board.layout->margin) {
             const auto& margin=*board.layout->margin;
@@ -1447,15 +1470,26 @@ void Canvas::prepare_snap(bool point_drag) {
         const auto* geometry_item=geometry(active->target.object);
         if(!geometry_item||parents_.at(active->target.object)!=scope_)return;
         snap_point_world_=geometry_item->world.map(active->anchor);
-        snap_x_sources_.push_back({snap_point_world_->x(),1,QStringLiteral("point anchor"),SnapSourceKind::point_anchor});
-        snap_y_sources_.push_back({snap_point_world_->y(),1,QStringLiteral("point anchor"),SnapSourceKind::point_anchor});
+        SnapSourceFeature x_source{snap_point_world_->x(),1,QStringLiteral("point anchor"),SnapSourceKind::point_anchor};
+        x_source.segment_limited=true;x_source.segment_min=snap_point_world_->y();x_source.segment_max=snap_point_world_->y();
+        SnapSourceFeature y_source{snap_point_world_->y(),1,QStringLiteral("point anchor"),SnapSourceKind::point_anchor};
+        y_source.segment_limited=true;y_source.segment_min=snap_point_world_->x();y_source.segment_max=snap_point_world_->x();
+        snap_x_sources_.push_back(std::move(x_source));snap_y_sources_.push_back(std::move(y_source));
     } else if(snap_bounds_) {
         for(const auto& [position,label,order]:std::array<std::tuple<double,const char*,int>,3>{{
             {snap_bounds_->left(),"min",0},{snap_bounds_->center().x(),"center",1},{snap_bounds_->right(),"max",2}}})
-            snap_x_sources_.push_back({position,order,QString::fromLatin1(label),SnapSourceKind::geometry_bounds});
+        {
+            SnapSourceFeature source{position,order,QString::fromLatin1(label),SnapSourceKind::geometry_bounds};
+            source.segment_limited=true;source.segment_min=snap_bounds_->top();source.segment_max=snap_bounds_->bottom();
+            snap_x_sources_.push_back(std::move(source));
+        }
         for(const auto& [position,label,order]:std::array<std::tuple<double,const char*,int>,3>{{
             {snap_bounds_->top(),"min",0},{snap_bounds_->center().y(),"center",1},{snap_bounds_->bottom(),"max",2}}})
-            snap_y_sources_.push_back({position,order,QString::fromLatin1(label),SnapSourceKind::geometry_bounds});
+        {
+            SnapSourceFeature source{position,order,QString::fromLatin1(label),SnapSourceKind::geometry_bounds};
+            source.segment_limited=true;source.segment_min=snap_bounds_->left();source.segment_max=snap_bounds_->right();
+            snap_y_sources_.push_back(std::move(source));
+        }
     }
 
     const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),
@@ -1474,6 +1508,24 @@ void Canvas::prepare_snap(bool point_drag) {
         const auto board=evaluate_artboard(*composition,source.id);
         const QRectF bounds(board.x,board.y,board.width,board.height);
         add_bound_candidates(board.id,bounds,SnapKind::artboard);
+        if(snap_guides_enabled_) {
+            for(const auto& guide:effective_artboard_guides(document,composition->id,source.id)) {
+                if(!guide.enabled)continue;
+                const bool x_axis=guide.axis=="x";
+                const double extent=x_axis?board.width:board.height;
+                if(guide.position<0||guide.position>extent)continue;
+                const auto occurrence_id=QStringLiteral("Artboard %1 / source %2 / Guide %3")
+                    .arg(QString::fromStdString(guide.target_artboard),
+                        QString::fromStdString(guide.source_artboard),QString::fromStdString(guide.guide_id));
+                SnapCandidate candidate{(x_axis?board.x:board.y)+guide.position,SnapKind::guide,
+                    occurrence_id.toStdString(),QString::fromStdString(guide.name),0};
+                candidate.segment_limited=true;
+                candidate.segment_min=x_axis?board.y:board.x;
+                candidate.segment_max=x_axis?board.y+board.height:board.x+board.width;
+                if(x_axis)snap_x_targets_.push_back(std::move(candidate));
+                else snap_y_targets_.push_back(std::move(candidate));
+            }
+        }
         if(!snap_grid_enabled_||!board.layout||!board.layout->grid)continue;
         const auto& grid=*board.layout->grid;
         const auto grid_id=grid.id;
@@ -1549,12 +1601,19 @@ void Canvas::prepare_snap(bool point_drag) {
             for(const bool x_axis:{true,false}) {
                 const auto baselines=baseline_world(*source,x_axis);
                 auto& output=x_axis?snap_x_sources_:snap_y_sources_;
-                for(std::size_t line=0;line<baselines.size();++line)
-                    output.push_back({baselines[line],static_cast<int>(line)+1,
+                for(std::size_t line=0;line<baselines.size();++line) {
+                    SnapSourceFeature feature{baselines[line],static_cast<int>(line)+1,
                         document.objects.at(source->id).text->direction=="vertical"
                             ?QStringLiteral("column %1 baseline").arg(line+1)
                             :line==0?QStringLiteral("first-line baseline"):QStringLiteral("line %1 baseline").arg(line+1),
-                        SnapSourceKind::text_line_baseline});
+                        SnapSourceKind::text_line_baseline};
+                    if(snap_bounds_) {
+                        feature.segment_limited=true;
+                        feature.segment_min=x_axis?snap_bounds_->top():snap_bounds_->left();
+                        feature.segment_max=x_axis?snap_bounds_->bottom():snap_bounds_->right();
+                    }
+                    output.push_back(std::move(feature));
+                }
             }
         }
     }
@@ -1677,8 +1736,9 @@ QPointF Canvas::snap_delta(QPointF delta) {
         return QStringLiteral("Snap");
     };
     const auto choose=[&](const std::vector<SnapSourceFeature>& sources,
-                         const std::vector<SnapCandidate>& targets,double raw,
-                         std::optional<SnapMatch>& chosen)->double {
+                         const std::vector<SnapCandidate>& targets,double raw,double orthogonal_raw,
+                         const std::set<Id>& excluded,std::optional<SnapMatch>& chosen)->double {
+        chosen.reset();
         auto better=[&](const SnapMatch& candidate,const SnapMatch& current) {
             if(candidate.distance!=current.distance)return candidate.distance<current.distance;
             const auto candidate_priority=priority(candidate.target.kind);
@@ -1694,11 +1754,15 @@ QPointF Canvas::snap_delta(QPointF delta) {
             return candidate.target.position<current.target.position;
         };
         for(const auto& source:sources)for(const auto& target:targets) {
+            if(excluded.contains(target.target_id))continue;
             if(target.kind==SnapKind::text_baseline&&source.kind!=SnapSourceKind::text_line_baseline)continue;
             // The first-line source already participates in ordinary Snap. Keep
             // that behavior; additional measured lines only target Text baselines.
             if(target.kind!=SnapKind::text_baseline&&source.kind==SnapSourceKind::text_line_baseline&&source.order>1)continue;
             if(target.kind==SnapKind::equal_gap&&source.order!=target.source_feature_order)continue;
+            if(target.segment_limited&&(!source.segment_limited||
+               source.segment_max+orthogonal_raw<target.segment_min||
+               source.segment_min+orthogonal_raw>target.segment_max))continue;
             const double source_position=source.position+raw;
             const double correction=target.position-source_position;
             const double distance=std::abs(correction);
@@ -1711,8 +1775,29 @@ QPointF Canvas::snap_delta(QPointF delta) {
     const auto source_offset=[&](bool x_axis) {
         return x_axis?delta.x():delta.y();
     };
-    const auto adjusted_x=choose(snap_x_sources_,snap_x_targets_,source_offset(true),snap_x_match_);
-    const auto adjusted_y=choose(snap_y_sources_,snap_y_targets_,source_offset(false),snap_y_match_);
+    std::set<Id> excluded_x,excluded_y;
+    double adjusted_x=choose(snap_x_sources_,snap_x_targets_,source_offset(true),delta.y(),excluded_x,snap_x_match_);
+    double adjusted_y=choose(snap_y_sources_,snap_y_targets_,source_offset(false),adjusted_x,excluded_y,snap_y_match_);
+    const auto segment_misses=[&](const SnapMatch& match,double orthogonal_delta) {
+        if(!match.target.segment_limited)return false;
+        if(!match.source.segment_limited)return true;
+        return match.source.segment_max+orthogonal_delta<match.target.segment_min||
+            match.source.segment_min+orthogonal_delta>match.target.segment_max;
+    };
+    for(std::size_t attempt=0;attempt<snap_x_targets_.size()+snap_y_targets_.size()+1;++attempt) {
+        bool changed=false;
+        if(snap_x_match_&&segment_misses(*snap_x_match_,adjusted_y)) {
+            excluded_x.insert(snap_x_match_->target.target_id);
+            adjusted_x=choose(snap_x_sources_,snap_x_targets_,source_offset(true),adjusted_y,excluded_x,snap_x_match_);
+            changed=true;
+        }
+        if(snap_y_match_&&segment_misses(*snap_y_match_,adjusted_x)) {
+            excluded_y.insert(snap_y_match_->target.target_id);
+            adjusted_y=choose(snap_y_sources_,snap_y_targets_,source_offset(false),adjusted_x,excluded_y,snap_y_match_);
+            changed=true;
+        }
+        if(!changed)break;
+    }
     if(snap_x_match_)snap_guide_x_=snap_x_match_->target.position;
     if(snap_y_match_)snap_guide_y_=snap_y_match_->target.position;
 

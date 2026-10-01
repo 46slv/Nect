@@ -227,6 +227,8 @@ void window_template_command_parity() {
     auto document=empty_document("ui-doc","ui-comp","target");
     auto& composition=document.compositions.front();
     composition.artboards.front()={"target","Same frame",1400,100,1200,900};
+    composition.artboards.front().local_guides.push_back(
+        {"high-precision-guide","High precision","x",50.1234567890123,true});
     Artboard source{"source-art","Same frame",0,0,1200,900};
     Artboard spacer{"spacer","Spacer",0,0,40,40};
     ArtboardLayout source_layout;source_layout.margin=Margin{5,5,5,5};
@@ -239,6 +241,8 @@ void window_template_command_parity() {
     document.objects.emplace(root.id,root);document.objects.emplace(path.id,path);
     window.host.session=Session(std::move(document));
     window.host.session.apply({AddArtboard{"ui-comp",source,1},AddArtboard{"ui-comp",spacer,2},
+        ArtboardGuideCommand{AddArtboardGuide{"ui-comp","source-art",
+            {"source-precise","Precise source Guide","x",50.1234567890123,true}}},
         SetArtboardLayout{"ui-comp","source-art",source_layout},
         DefinitionCommand{CreateDefinition{{"logo-definition","Logo","source-root"}}},
         DefinitionCommand{CreateInstance{"ui-comp","","existing-instance","logo-definition","Existing Logo"}},
@@ -250,6 +254,21 @@ void window_template_command_parity() {
     button(window,"artboard-edit")->click();QApplication::processEvents();
     check(visible_child<QWidget>(window,"artboard-template-panel")!=nullptr,
         "The Artboard editor exposes named Template controls");
+    auto* guide_selector=visible_child<QComboBox>(window,"artboard-guide-selector");
+    check(guide_selector!=nullptr,"The captured Artboard exposes its local Guide selector");
+    choose(guide_selector,"high-precision-guide");
+    apply_dialog(window,"artboard-guide-edit","edit-artboard-guide-dialog",[](QDialog& dialog) {
+        auto* name=dialog.findChild<QLineEdit*>("artboard-guide-name");
+        auto* enabled=dialog.findChild<QCheckBox*>("artboard-guide-enabled");
+        auto* position=dialog.findChild<QDoubleSpinBox*>("artboard-guide-position");
+        check(name&&enabled&&position,"Local Guide Edit exposes name, enabled and numeric position controls");
+        check(position->value()==50.123,"The editor presents the configured three-decimal Guide control");
+        name->setText("Renamed precise Guide");enabled->setChecked(false);
+    });
+    const auto& precise_guide=window.host.session.document().compositions.front().artboards.front().local_guides.front();
+    check(precise_guide.name=="Renamed precise Guide"&&!precise_guide.enabled&&
+        precise_guide.position==50.1234567890123,
+        "Editing only Guide name/enabled preserves the exact untouched high-precision literal");
     create_template(window,"Shared","source-art","");
     create_template(window,"Shared","source-art","logo-definition");
     const auto& templates=window.host.session.document().compositions.front().templates;
@@ -295,6 +314,33 @@ void window_template_command_parity() {
         *target_after_browse->template_assignment->content_instance!="existing-instance",
         "The UI creates a fresh owned content Instance instead of reusing the ordinary existing Instance");
     const Id content_instance=*target_after_browse->template_assignment->content_instance;
+    select_artboard(window,"target");
+    const auto before_content_duplicate=encode(window.host.session.document());
+    const auto before_content_duplicate_revision=window.host.session.revision();
+    button(window,"artboard-duplicate")->click();QApplication::processEvents();
+    check(encode(window.host.session.document())==before_content_duplicate&&
+        window.host.session.revision()==before_content_duplicate_revision&&
+        window.canvas->active_artboard()=="target"&&
+        window.statusBar()->currentMessage().startsWith("ARTBOARD_DUPLICATE_CONTENT_UNSUPPORTED"),
+        "Public Duplicate refuses a Template-owned content Instance without sharing or mutating identity");
+    select_artboard(window,"target");button(window,"artboard-edit")->click();QApplication::processEvents();
+    auto* precision_selector=visible_child<QComboBox>(window,"artboard-guide-selector");
+    check(precision_selector!=nullptr,"The assigned Template exposes inherited Guide occurrences");
+    choose(precision_selector,"source-precise");
+    apply_dialog(window,"artboard-guide-override","set-artboard-guide-override-dialog",[](QDialog& dialog) {
+        choose(combo(dialog,"artboard-guide-override-field"),"position");
+        auto* position=dialog.findChild<QDoubleSpinBox*>("artboard-guide-override-position");
+        check(position&&position->value()==50.123,"Override control presents the configured numeric Guide position");
+    });
+    check(window.host.session.document().compositions.front().artboards.front().template_assignment->
+        guide_position_overrides.at("source-precise")==50.1234567890123,
+        "Freezing an inherited Guide position without changing its numeric control preserves the exact source double");
+    apply_dialog(window,"artboard-guide-reset","reset-artboard-guide-override-dialog",[](QDialog& dialog) {
+        choose(combo(dialog,"artboard-guide-reset-field"),"position");
+    });
+    check(!window.host.session.document().compositions.front().artboards.front().template_assignment->
+        guide_position_overrides.contains("source-precise"),
+        "Reset clears only the precision regression's temporary position override");
     const auto& content_object=window.host.session.document().objects.at(content_instance);
     check(content_object.kind==Kind::instance&&content_object.instance&&
         content_object.instance->definition=="logo-definition"&&content_object.transform[4].literal==1400&&
@@ -439,6 +485,57 @@ void window_template_command_parity() {
     check(window.host.session.document().compositions.front().templates.empty()&&
         window.host.session.document().objects.contains(content_instance),
         "The remaining Template can be deleted without recreating or deleting detached ordinary content");
+
+    const Id copy_template_id="copy-template";
+    window.host.session.apply({
+        StructuralCommand{ArtboardTemplateCommand{CreateArtboardTemplate{"ui-comp",
+            {copy_template_id,"Copy Template","source-art",std::nullopt}}}},
+        StructuralCommand{ArtboardTemplateCommand{AssignArtboardTemplate{"ui-comp","target",copy_template_id,std::nullopt}}}
+    },window.host.session.revision());
+    select_artboard(window,"target");
+    const auto original_local_guides=window.host.session.document().compositions.front().artboards.front().local_guides;
+    button(window,"artboard-duplicate")->click();QApplication::processEvents();
+    const auto copied_artboard_id=window.canvas->active_artboard();
+    const auto& copied_composition=window.host.session.document().compositions.front();
+    const auto copied_artboard=std::find_if(copied_composition.artboards.begin(),copied_composition.artboards.end(),
+        [&](const Artboard& item){return item.id==copied_artboard_id;});
+    const auto copy_details=copied_artboard==copied_composition.artboards.end()?std::string("missing"):
+        "template="+(copied_artboard->template_assignment?copied_artboard->template_assignment->template_id:"none")+
+        " guides="+std::to_string(copied_artboard->local_guides.size())+
+        (copied_artboard->local_guides.empty()?std::string{}:
+            " first="+copied_artboard->local_guides.front().id+"/"+copied_artboard->local_guides.front().name+
+            "/"+std::to_string(copied_artboard->local_guides.front().position)+"/"+
+            std::to_string(copied_artboard->local_guides.front().enabled));
+    check(copied_artboard!=copied_composition.artboards.end()&&copied_artboard->template_assignment&&
+        copied_artboard->template_assignment->template_id==copy_template_id&&
+        copied_artboard->local_guides.size()==original_local_guides.size()&&
+        std::equal(copied_artboard->local_guides.begin(),copied_artboard->local_guides.end(),
+            original_local_guides.begin(),[](const ArtboardGuide& copied,const ArtboardGuide& original) {
+                return copied.id!=original.id&&copied.name==original.name&&copied.axis==original.axis&&
+                    copied.position==original.position&&copied.enabled==original.enabled;
+            }),
+        ("Public Duplicate copies local Guide state with a fresh ID and retains the existing Template relation: id="+
+        copied_artboard_id+" status="+window.statusBar()->currentMessage().toStdString()+" "+copy_details).c_str());
+    const auto copied_native=encode(window.host.session.document());
+    undo=action_text(window,"Undo");redo=action_text(window,"Redo");
+    check(undo&&redo&&undo->isEnabled(),"Public Duplicate creates one undoable Guide-preserving frame action");
+    undo->trigger();QApplication::processEvents();
+    check(std::none_of(window.host.session.document().compositions.front().artboards.begin(),
+        window.host.session.document().compositions.front().artboards.end(),
+        [&](const Artboard& item){return item.id==copied_artboard_id;}),
+        "One Undo removes the duplicated frame and its copied local Guide");
+    redo->trigger();QApplication::processEvents();
+    check(encode(window.host.session.document())==copied_native,
+        "One Redo restores the same duplicated Guide ID and Template relationship");
+
+    select_artboard(window,"target");
+    button(window,"artboard-add")->click();QApplication::processEvents();
+    const auto new_artboard_id=window.canvas->active_artboard();
+    const auto& after_new=window.host.session.document().compositions.front().artboards;
+    const auto new_artboard=std::find_if(after_new.begin(),after_new.end(),
+        [&](const Artboard& item){return item.id==new_artboard_id;});
+    check(new_artboard!=after_new.end()&&new_artboard_id!="target"&&new_artboard->local_guides.empty(),
+        "Public New Artboard starts with no copied authored local Guides");
 }
 }
 

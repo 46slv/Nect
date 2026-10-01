@@ -2061,3 +2061,33 @@ state; a fresh Host/process reopen evaluates it from the saved native document.
 Native 0.1–0.75 remain readable, while Template fields under an earlier version
 reject as a version lie. `schemas/native-v0.76.schema.json` closes the new
 Composition, Artboard, Template, and assignment shapes.
+
+## Native 0.77 — Artboard-local Guides
+
+Native 0.77 adds an optional ordered `local_guides` array to each Artboard. A
+Guide has a document-unique stable ID, nonempty name, `x`/`y` axis, finite local
+position in `[-1e9,1e9]` du, and enabled state. Local positions are relative to
+the owning Artboard origin; moving a frame reprojects its Guides without moving
+Composition artwork. Existing Composition-owned Guides keep their global
+coordinates and property domain.
+
+The existing Artboard Template assignment may retain position/enabled override
+maps and source-Guide suppression IDs. Inherited occurrences resolve by stable
+source Guide ID and target Artboard scope through the same Template chain.
+Position and enabled reset independently; source name, axis, and unoverridden
+enabled state continue to inherit. `DetachArtboardGuide` materializes one
+effective occurrence as an ordinary local Guide with a fresh caller-supplied ID
+and records source suppression. Full Template detach materializes inherited
+Guides with deterministic prefix-based IDs and rejects allocation collisions.
+The typed position Ref is `{object: targetArtboardID, point: sourceGuideID,
+field: artboard.guide.position}`; generic Set/link/expression are unsupported.
+
+The JSON/API/MCP command family is `add_artboard_guide`,
+`update_artboard_guide`, `delete_artboard_guide`,
+`set_artboard_guide_override`, `reset_artboard_guide_override`, and
+`detach_artboard_guide`. Generic Add/Update Artboard payloads cannot author
+`local_guides`. Effective local Guides paint and snap only on their enabled
+in-frame segment; global Guide behavior is unchanged. Projected local-Guide
+drag and Align remain outside this version. Native 0.1–0.76 remain readable;
+Guide fields under an older version reject. `schemas/native-v0.77.schema.json`
+closes the new Guide and assignment state shapes.

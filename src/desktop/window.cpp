@@ -1862,12 +1862,28 @@ void Window::add_artboard(bool duplicate) {
     canvas->cancel_interaction();
     const auto& comp=find_composition(host.session.document(),canvas->active_composition());
     const auto& selected=find_artboard(comp,canvas->active_artboard());
+    if(duplicate&&selected.template_assignment&&selected.template_assignment->content_instance)
+        throw Error("ARTBOARD_DUPLICATE_CONTENT_UNSUPPORTED",
+            "Duplicate Template frames with owned Definition content after content duplication is supported");
     auto board=duplicate?selected:evaluate_artboard(comp,selected.id);
-    if(!duplicate){board.parent_size.reset();board.layout.reset();board.width_driver.reset();board.height_driver.reset();}
+    std::vector<ArtboardGuide> copied_local_guides;
+    if(duplicate)for(const auto& guide:selected.local_guides) {
+        auto copied=guide;copied.id=new_id();copied_local_guides.push_back(std::move(copied));
+    }
+    // AddArtboard accepts only frame/layout/Template state. Authored local
+    // Guides use their typed command path and copied Guides get fresh IDs.
+    board.local_guides.clear();
+    if(!duplicate){
+        board.parent_size.reset();board.layout.reset();board.width_driver.reset();board.height_driver.reset();
+        board.template_assignment.reset();
+    }
     double right=board.x+board.width;
     for(const auto& entry:comp.artboards) {const auto resolved=evaluate_artboard(comp,entry.id);right=std::max(right,resolved.x+resolved.width);}
     board.id=new_id();board.name=duplicate?selected.name+" copy":"Artboard "+std::to_string(comp.artboards.size()+1);
-    if(duplicate&&board.layout&&board.layout->grid)board.layout->grid->id=new_id();
+    if(duplicate&&board.template_assignment) {
+        board.template_assignment->grid_id=new_id();
+        if(board.layout&&board.layout->grid)board.layout->grid->id=board.template_assignment->grid_id;
+    } else if(duplicate&&board.layout&&board.layout->grid)board.layout->grid->id=new_id();
     board.x=right+40;
     const auto index=static_cast<std::size_t>(std::find_if(comp.artboards.begin(),comp.artboards.end(),[&](const auto& entry){return entry.id==selected.id;})-comp.artboards.begin())+1;
     const auto comp_id=comp.id,board_id=board.id;
@@ -1946,6 +1962,8 @@ void Window::add_artboard(bool duplicate) {
     }
     board.width_driver.reset();board.height_driver.reset();
     std::vector<Command> commands{AddArtboard{comp_id,board,index}};
+    for(const auto& guide:copied_local_guides)
+        commands.push_back(ArtboardGuideCommand{AddArtboardGuide{comp_id,board_id,guide}});
     const auto add_driver=[&](bool width,const std::optional<Artboard::SizeDriver>& driver) {
         if(!driver)return;
         const Ref target{board_id,"",width?"artboard.width":"artboard.height"};
@@ -3572,7 +3590,67 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     template_button("Detach Template","artboard-template-detach",2,0,
         [this](const auto& context){detach_artboard_template(context);},board.template_assignment.has_value());
     auto* template_note=new QLabel("Choose a source Artboard or Definition, assign a Template to this frame, and reset individual fields to restore inheritance.",template_box);
-    template_note->setWordWrap(true);template_form->addRow(template_note);layout->addWidget(template_box);
+    template_note->setWordWrap(true);template_form->addRow(template_note);
+    auto* guide_box=new QGroupBox("Artboard Guides",template_box);guide_box->setObjectName("artboard-guide-panel");
+    auto* guide_form=new QFormLayout(guide_box);
+    auto* guide_selector=new QComboBox(guide_box);guide_selector->setObjectName("artboard-guide-selector");
+    const auto occurrences=effective_artboard_guides(host.session.document(),composition,id);
+    for(const auto& guide:occurrences) {
+        const auto label=(guide.inherited?QStringLiteral("Inherited"):QStringLiteral("Local"))+QStringLiteral(" · ")+
+            qs(guide.name)+QStringLiteral(" · ")+qs(guide.axis)+QStringLiteral(" · ")+QString::number(guide.position)+
+            QStringLiteral(" · ")+qs(guide.guide_id);
+        guide_selector->addItem(label,qs(guide.guide_id));
+    }
+    guide_form->addRow("Guide occurrence",guide_selector);
+    auto* guide_actions=new QGridLayout;guide_form->addRow(guide_actions);
+    auto* guide_add=new QPushButton("Add local…",guide_box);guide_add->setObjectName("artboard-guide-add");
+    auto* guide_edit_button=new QPushButton("Edit local…",guide_box);guide_edit_button->setObjectName("artboard-guide-edit");
+    auto* guide_delete=new QPushButton("Delete local",guide_box);guide_delete->setObjectName("artboard-guide-delete");
+    auto* guide_override=new QPushButton("Override field…",guide_box);guide_override->setObjectName("artboard-guide-override");
+    auto* guide_reset=new QPushButton("Reset field…",guide_box);guide_reset->setObjectName("artboard-guide-reset");
+    auto* guide_detach=new QPushButton("Detach occurrence",guide_box);guide_detach->setObjectName("artboard-guide-detach");
+    guide_actions->addWidget(guide_add,0,0);guide_actions->addWidget(guide_edit_button,0,1);guide_actions->addWidget(guide_delete,0,2);
+    guide_actions->addWidget(guide_override,1,0);guide_actions->addWidget(guide_reset,1,1);guide_actions->addWidget(guide_detach,1,2);
+    const auto update_guide_buttons=[guide_selector,guide_edit_button,guide_delete,guide_override,guide_reset,guide_detach,
+        occurrences,assignment=board.template_assignment](int) {
+        const auto selected=guide_selector->currentData().toString().toStdString();
+        const auto found=std::find_if(occurrences.begin(),occurrences.end(),[&](const auto& value) {
+            return value.guide_id==selected;
+        });
+        const bool present=found!=occurrences.end();
+        const bool local=present&&!found->inherited;
+        const bool inherited=present&&found->inherited;
+        guide_edit_button->setEnabled(local);guide_delete->setEnabled(local);
+        guide_override->setEnabled(inherited);guide_detach->setEnabled(inherited);
+        const bool has_reset=inherited&&assignment&&
+            (assignment->guide_position_overrides.contains(selected)||assignment->guide_enabled_overrides.contains(selected));
+        guide_reset->setEnabled(has_reset);
+    };
+    update_guide_buttons(guide_selector->currentIndex());
+    connect(guide_selector,qOverload<int>(&QComboBox::currentIndexChanged),this,update_guide_buttons);
+    connect(guide_add,&QPushButton::clicked,this,[this,template_context]{perform([&]{add_artboard_guide(template_context);});});
+    connect(guide_edit_button,&QPushButton::clicked,this,[this,template_context,guide_selector]{
+        const auto guide=guide_selector->currentData().toString().toStdString();
+        perform([&]{edit_artboard_guide(template_context,guide);});
+    });
+    connect(guide_delete,&QPushButton::clicked,this,[this,template_context,guide_selector]{
+        const auto guide=guide_selector->currentData().toString().toStdString();
+        perform([&]{delete_artboard_guide(template_context,guide);});
+    });
+    connect(guide_override,&QPushButton::clicked,this,[this,template_context,guide_selector]{
+        const auto guide=guide_selector->currentData().toString().toStdString();
+        perform([&]{set_artboard_guide_override(template_context,guide);});
+    });
+    connect(guide_reset,&QPushButton::clicked,this,[this,template_context,guide_selector]{
+        const auto guide=guide_selector->currentData().toString().toStdString();
+        perform([&]{reset_artboard_guide_override(template_context,guide);});
+    });
+    connect(guide_detach,&QPushButton::clicked,this,[this,template_context,guide_selector]{
+        const auto guide=guide_selector->currentData().toString().toStdString();
+        perform([&]{detach_artboard_guide(template_context,guide);});
+    });
+    auto* guide_note=new QLabel("Inherited Guide position and enabled state override independently. Detached occurrences become ordinary local Guides.",guide_box);
+    guide_note->setWordWrap(true);guide_form->addRow(guide_note);template_form->addRow(guide_box);layout->addWidget(template_box);
     auto* fit=new QPushButton("Fit active frame");fit->setObjectName("artboard-fit");layout->addWidget(fit);
     connect(fit,&QPushButton::clicked,canvas,&Canvas::fit_artboard);layout->addStretch();
 }
@@ -3593,6 +3671,138 @@ void Window::apply_artboard_template_command(const ArtboardTemplateContext& cont
     canvas->cancel_interaction();
     host.session.apply({Command{std::move(command)}},context.revision);
     host.edited();
+}
+
+void Window::verify_artboard_guide_context(const ArtboardTemplateContext& context) const {
+    if(host.session_id!=context.session)
+        throw Error("SESSION_CONFLICT","Artboard Guide command belongs to another document session");
+    if(host.session.revision()!=context.revision)
+        throw Error("REVISION_CONFLICT","Artboard Guide command belongs to a stale captured revision");
+    const auto& composition=find_composition(host.session.document(),context.composition);
+    (void)find_artboard(composition,context.artboard);
+}
+
+void Window::apply_artboard_guide_command(const ArtboardTemplateContext& context,ArtboardGuideCommand command) {
+    verify_artboard_guide_context(context);
+    canvas->cancel_interaction();
+    host.session.apply({Command{StructuralCommand{std::move(command)}}},context.revision);
+    host.edited();
+}
+
+void Window::add_artboard_guide(const ArtboardTemplateContext& context) {
+    verify_artboard_guide_context(context);
+    QDialog dialog(this);dialog.setObjectName("add-artboard-guide-dialog");dialog.setWindowTitle("Add local Artboard Guide");
+    auto* form=new QFormLayout(&dialog);auto* name=new QLineEdit("Guide",&dialog);name->setObjectName("artboard-guide-name");
+    auto* axis=new QComboBox(&dialog);axis->setObjectName("artboard-guide-axis");
+    axis->addItem("Vertical · x",QStringLiteral("x"));axis->addItem("Horizontal · y",QStringLiteral("y"));
+    auto* position=new QDoubleSpinBox(&dialog);position->setObjectName("artboard-guide-position");
+    position->setDecimals(3);position->setRange(-1000000000,1000000000);
+    auto* enabled=new QCheckBox("Enabled",&dialog);enabled->setObjectName("artboard-guide-enabled");enabled->setChecked(true);
+    form->addRow("Name",name);form->addRow("Axis",axis);form->addRow("Position · local du",position);form->addRow(enabled);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Add Guide");form->addRow(buttons);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    const auto label=name->text().trimmed();if(label.isEmpty())throw Error("INVALID_ARTBOARD_GUIDE","Enter a Guide name");
+    apply_artboard_guide_command(context,ArtboardGuideCommand{AddArtboardGuide{context.composition,context.artboard,
+        ArtboardGuide{new_id(),label.toStdString(),axis->currentData().toString().toStdString(),position->value(),enabled->isChecked()}}});
+    statusBar()->showMessage("Local Artboard Guide added to the captured frame",6000);
+}
+
+void Window::edit_artboard_guide(const ArtboardTemplateContext& context,Id guide_id) {
+    verify_artboard_guide_context(context);
+    const auto& composition=find_composition(host.session.document(),context.composition);
+    const auto& board=find_artboard(composition,context.artboard);
+    const auto found=std::find_if(board.local_guides.begin(),board.local_guides.end(),[&](const ArtboardGuide& guide) {
+        return guide.id==guide_id;
+    });
+    if(found==board.local_guides.end())throw Error("INHERITED_ARTBOARD_GUIDE_READ_ONLY","Detach an inherited Guide before editing it");
+    const auto original=*found;
+    QDialog dialog(this);dialog.setObjectName("edit-artboard-guide-dialog");dialog.setWindowTitle("Edit local Artboard Guide");
+    auto* form=new QFormLayout(&dialog);auto* name=new QLineEdit(qs(original.name),&dialog);name->setObjectName("artboard-guide-name");
+    auto* axis=new QComboBox(&dialog);axis->setObjectName("artboard-guide-axis");
+    axis->addItem("Vertical · x",QStringLiteral("x"));axis->addItem("Horizontal · y",QStringLiteral("y"));
+    axis->setCurrentIndex(axis->findData(qs(original.axis)));
+    auto* position=new QDoubleSpinBox(&dialog);position->setObjectName("artboard-guide-position");
+    position->setDecimals(3);position->setRange(-1000000000,1000000000);position->setValue(original.position);
+    bool position_changed=false;
+    connect(position,qOverload<double>(&QDoubleSpinBox::valueChanged),&dialog,[&position_changed](double){position_changed=true;});
+    auto* enabled=new QCheckBox("Enabled",&dialog);enabled->setObjectName("artboard-guide-enabled");enabled->setChecked(original.enabled);
+    form->addRow("Name",name);form->addRow("Axis",axis);form->addRow("Position · local du",position);form->addRow(enabled);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Apply Guide edit");form->addRow(buttons);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    const auto label=name->text().trimmed();if(label.isEmpty())throw Error("INVALID_ARTBOARD_GUIDE","Enter a Guide name");
+    apply_artboard_guide_command(context,ArtboardGuideCommand{UpdateArtboardGuide{context.composition,context.artboard,
+        ArtboardGuide{guide_id,label.toStdString(),axis->currentData().toString().toStdString(),
+            position_changed?position->value():original.position,enabled->isChecked()}}});
+    statusBar()->showMessage("Local Artboard Guide edited",6000);
+}
+
+void Window::delete_artboard_guide(const ArtboardTemplateContext& context,Id guide_id) {
+    apply_artboard_guide_command(context,ArtboardGuideCommand{DeleteArtboardGuide{context.composition,context.artboard,guide_id}});
+    statusBar()->showMessage("Local Artboard Guide deleted",6000);
+}
+
+void Window::set_artboard_guide_override(const ArtboardTemplateContext& context,Id guide_id) {
+    verify_artboard_guide_context(context);
+    const auto occurrences=effective_artboard_guides(host.session.document(),context.composition,context.artboard);
+    const auto occurrence=std::find_if(occurrences.begin(),occurrences.end(),[&](const auto& item) {
+        return item.guide_id==guide_id&&item.inherited;
+    });
+    if(occurrence==occurrences.end())throw Error("MISSING_INHERITED_ARTBOARD_GUIDE",guide_id);
+    QDialog dialog(this);dialog.setObjectName("set-artboard-guide-override-dialog");dialog.setWindowTitle("Override inherited Artboard Guide field");
+    auto* form=new QFormLayout(&dialog);auto* field=new QComboBox(&dialog);field->setObjectName("artboard-guide-override-field");
+    field->addItem("Position",QStringLiteral("position"));field->addItem("Enabled",QStringLiteral("enabled"));
+    auto* position=new QDoubleSpinBox(&dialog);position->setObjectName("artboard-guide-override-position");
+    const auto original_position=occurrence->position;
+    position->setDecimals(3);position->setRange(-1000000000,1000000000);position->setValue(original_position);
+    bool position_changed=false;
+    connect(position,qOverload<double>(&QDoubleSpinBox::valueChanged),&dialog,[&position_changed](double){position_changed=true;});
+    auto* enabled=new QCheckBox("Enabled",&dialog);enabled->setObjectName("artboard-guide-override-enabled");enabled->setChecked(occurrence->enabled);
+    form->addRow("Field",field);form->addRow("Position · local du",position);form->addRow(enabled);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Set selected field");form->addRow(buttons);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    const auto selected=field->currentData().toString();
+    std::variant<double,bool> value=selected=="position"?
+        std::variant<double,bool>{position_changed?position->value():original_position}:
+        std::variant<double,bool>{enabled->isChecked()};
+    apply_artboard_guide_command(context,ArtboardGuideCommand{SetArtboardGuideOverride{
+        context.composition,context.artboard,guide_id,selected.toStdString(),std::move(value)}});
+    statusBar()->showMessage("Inherited Artboard Guide field override applied",6000);
+}
+
+void Window::reset_artboard_guide_override(const ArtboardTemplateContext& context,Id guide_id) {
+    verify_artboard_guide_context(context);
+    const auto& board=find_artboard(find_composition(host.session.document(),context.composition),context.artboard);
+    if(!board.template_assignment)throw Error("MISSING_ARTBOARD_TEMPLATE_ASSIGNMENT",context.artboard);
+    const auto& assignment=*board.template_assignment;std::vector<std::pair<QString,std::string>> fields;
+    if(assignment.guide_position_overrides.contains(guide_id))fields.emplace_back("Position","position");
+    if(assignment.guide_enabled_overrides.contains(guide_id))fields.emplace_back("Enabled","enabled");
+    if(fields.empty())throw Error("MISSING_ARTBOARD_GUIDE_OVERRIDE",guide_id);
+    QDialog dialog(this);dialog.setObjectName("reset-artboard-guide-override-dialog");dialog.setWindowTitle("Reset one Artboard Guide field");
+    auto* form=new QFormLayout(&dialog);auto* field=new QComboBox(&dialog);field->setObjectName("artboard-guide-reset-field");
+    for(const auto& [label,value]:fields)field->addItem(label,QString::fromStdString(value));form->addRow("Reset",field);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Apply)->setText("Reset selected field");form->addRow(buttons);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    apply_artboard_guide_command(context,ArtboardGuideCommand{ResetArtboardGuideOverride{
+        context.composition,context.artboard,guide_id,field->currentData().toString().toStdString()}});
+    statusBar()->showMessage("Selected Artboard Guide field now follows its source",6000);
+}
+
+void Window::detach_artboard_guide(const ArtboardTemplateContext& context,Id guide_id) {
+    apply_artboard_guide_command(context,ArtboardGuideCommand{DetachArtboardGuide{
+        context.composition,context.artboard,guide_id,new_id()}});
+    statusBar()->showMessage("Inherited Artboard Guide detached as an independent local Guide",6000);
 }
 
 void Window::create_artboard_template(const ArtboardTemplateContext& context) {

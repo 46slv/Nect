@@ -1,6 +1,7 @@
 """Focused live MCP contract for ordered PresetDefinition v2 with pinned Macros."""
 import copy
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -10,6 +11,7 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
+NATIVE_VERSION = re.search(r'native_version\s*=\s*"([^"]+)"', (ROOT / 'include' / 'nect' / 'io.hpp').read_text(encoding='utf-8')).group(1)
 sys.path.insert(0, str(ROOT / 'scripts'))
 from session_client import call as desktop_api_call
 
@@ -366,7 +368,7 @@ def main():
         live_after_reopen = tool('nect_session')
         identity = {key: live_after_reopen[key] for key in ('session_id', 'document_id')}
         cold_document = compare_read('inspect')['result']
-        assert cold_document['version'] == '0.76'
+        assert cold_document['version'] == NATIVE_VERSION
         cold_presets = {preset['id']: preset for preset in cold_document['presets']}
         assert cold_presets['mcp-preset-captured']['entries'][0]['operation']['parameters']['amount'] == 7
         assert cold_presets['mcp-preset-explicit']['label'] == 'Explicit Pair'

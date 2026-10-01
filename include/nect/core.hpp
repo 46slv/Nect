@@ -426,6 +426,15 @@ struct Guide {
     std::optional<Expression> position_expression;
     bool operator==(const Guide&) const = default;
 };
+// Artboard Guides form a literal-only domain separate from Composition Guides.
+struct ArtboardGuide {
+    Id id;
+    std::string name;
+    std::string axis="x";
+    double position=0;
+    bool enabled=true;
+    bool operator==(const ArtboardGuide&) const = default;
+};
 struct LayoutRect {
     double x=0,y=0,width=0,height=0;
     bool operator==(const LayoutRect&) const = default;
@@ -483,6 +492,10 @@ struct ArtboardTemplateAssignment {
     std::optional<double> width_override,height_override;
     bool margin_overridden=false;
     bool grid_overridden=false;
+    // IDs are document-unique, so each override or suppression names one stable source Guide.
+    std::map<Id,double> guide_position_overrides;
+    std::map<Id,bool> guide_enabled_overrides;
+    std::vector<Id> detached_guides;
     bool operator==(const ArtboardTemplateAssignment&) const = default;
 };
 struct ArtboardSizeDriver {
@@ -501,6 +514,7 @@ struct Artboard {
     std::optional<SizeDriver> width_driver;
     std::optional<SizeDriver> height_driver;
     std::optional<ArtboardTemplateAssignment> template_assignment;
+    std::vector<ArtboardGuide> local_guides;
     bool operator==(const Artboard&) const = default;
 };
 
@@ -547,6 +561,17 @@ struct Document {
     std::map<Id,MacroDefinition> macro_definitions;
     bool operator==(const Document&) const = default;
 };
+
+struct EffectiveArtboardGuide {
+    Id target_artboard,source_artboard,template_source_artboard,guide_id;
+    std::string name,axis;
+    double source_position=0,template_position=0,position=0;
+    bool source_enabled=true,template_enabled=true,enabled=true;
+    bool inherited=false,position_overridden=false,enabled_overridden=false;
+    bool operator==(const EffectiveArtboardGuide&) const = default;
+};
+std::vector<EffectiveArtboardGuide> effective_artboard_guides(const Document&,const Id& composition,
+    const Id& artboard);
 
 // Color properties aggregate ordinary Scalar channels, using the same evaluator.
 // Ref.field is color, op.ID.color, or op.ID.gradient.ID.stop.ID.color.
@@ -643,6 +668,19 @@ using ArtboardTemplateMutation=std::variant<CreateArtboardTemplate,RenameArtboar
     DeleteArtboardTemplate,AssignArtboardTemplate,SetArtboardTemplateOverride,
     ResetArtboardTemplateOverride,DetachArtboardTemplate>;
 struct ArtboardTemplateCommand { ArtboardTemplateMutation mutation; };
+struct AddArtboardGuide { Id composition,artboard_id; ArtboardGuide guide; };
+struct UpdateArtboardGuide { Id composition,artboard_id; ArtboardGuide guide; };
+struct DeleteArtboardGuide { Id composition,artboard_id,guide_id; };
+struct SetArtboardGuideOverride {
+    Id composition,artboard_id,guide_id;
+    std::string field;
+    std::variant<double,bool> value;
+};
+struct ResetArtboardGuideOverride { Id composition,artboard_id,guide_id; std::string field; };
+struct DetachArtboardGuide { Id composition,artboard_id,guide_id,new_guide_id; };
+using ArtboardGuideMutation=std::variant<AddArtboardGuide,UpdateArtboardGuide,DeleteArtboardGuide,
+    SetArtboardGuideOverride,ResetArtboardGuideOverride,DetachArtboardGuide>;
+struct ArtboardGuideCommand { ArtboardGuideMutation mutation; };
 struct CreateCollection { Collection collection; };
 struct RenameCollection { Id collection; std::string name; };
 struct SetCollectionMembers { Id collection; std::vector<Id> members; };
@@ -680,7 +718,7 @@ struct MacroCommand {
     template<class T,std::enable_if_t<std::is_constructible_v<MacroMutation,T&&>,int> =0>
     explicit MacroCommand(T&& value):mutation(std::make_shared<const MacroMutation>(std::forward<T>(value))){}
 };
-using StructuralCommand=std::variant<DefinitionCommand,CollectionCommand,MacroCommand,ArtboardTemplateCommand>;
+using StructuralCommand=std::variant<DefinitionCommand,CollectionCommand,MacroCommand,ArtboardTemplateCommand,ArtboardGuideCommand>;
 struct EnableOperation { Id object; Id operation; bool enabled; };
 struct LinkOperationEnabled {
     Ref target;
@@ -1211,6 +1249,11 @@ struct GuidePositionProperty {
 GuidePositionProperty guide_position_property(const Document&,const Ref&);
 double evaluate_guide_position(const Document&,const Id& composition,const Id& guide);
 std::map<Id,double> evaluate_guide_positions(const Document&,const Id& composition);
+struct ArtboardGuideProperty {
+    EffectiveArtboardGuide occurrence;
+    std::variant<double,bool> evaluated;
+};
+ArtboardGuideProperty artboard_guide_property(const Document&,const Ref&);
 struct ArtboardSizeProperty {
     double literal=0;
     std::optional<Ref> driver;

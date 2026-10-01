@@ -83,9 +83,10 @@ Ref proxy_fill_channel(const EvaluatedScene& evaluated,const Id& proxy,const std
 std::string downgrade_to_075(std::string native) {
     test_support::require_native_current_writer(native);
     test_support::remove_empty_native_076_templates_for_legacy_fixture(native);
-    const auto marker=native.find("\"version\":\"0.76\"");
-    check(marker!=std::string::npos,"Native fixture has the current 0.76 version marker");
-    native.replace(marker,std::string("\"version\":\"0.76\"").size(),"\"version\":\"0.75\"");
+    const auto current_marker=test_support::current_native_version_marker();
+    const auto marker=native.find(current_marker);
+    check(marker!=std::string::npos,"Native fixture has the current writer version marker");
+    native.replace(marker,current_marker.size(),"\"version\":\"0.75\"");
     return native;
 }
 void templates_share_typed_evaluator_and_reset_independently() {
@@ -312,10 +313,10 @@ void frame_sources_history_and_native_ownership() {
         "Family reset restores the source expression without disturbing inherited Grid or frame sources");
 
     const auto native=encode(session.document());
-    check(native.find("\"version\":\"0.76\"")!=std::string::npos&&
+    check(native.find(test_support::current_native_version_marker())!=std::string::npos&&
         native.find("\"templates\":[{\"id\":\"logo-template\"")!=std::string::npos&&
         decode(native)==session.document()&&encode(decode(native))==native,
-        "Native 0.76 cold roundtrip retains Template assignment and independent source records canonically");
+        "Current-writer cold roundtrip retains Template assignment and independent source records canonically");
     const auto before_undo=encode(session.document());
     apply(session,{ArtboardTemplateCommand{SetArtboardTemplateOverride{"comp","target-a","frame.height",900.0}}});
     const auto overridden=encode(session.document());
@@ -540,7 +541,7 @@ void r04_descendant_overrides_project_geometry_and_guard_legacy_versions() {
     const auto reopened_bounds=object_bounds(*projected.expanded_document,proxy_logo,*projected.expanded_values,
         *projected.expanded_transforms,true);
     check(reopened==session.document()&&reopened_bounds.has_value(),
-        "Native 0.76 cold reopen preserves exact Template ownership and projected geometry");
+        "Current-writer cold reopen preserves exact Template ownership and projected geometry");
     near(reopened_bounds->right-reopened_bounds->left,30,"Cold reopened Template projection retains width 30");
 
     apply(session,{DefinitionCommand{ResetInstanceOverride{"content-a",{"logo","","generator.width"}}}});

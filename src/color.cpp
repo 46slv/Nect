@@ -3,6 +3,17 @@
 
 namespace nect {
 std::string property_name(const Document& d,const Ref& ref) {
+    if(ref.field.starts_with("artboard.guide.")) {
+        for(const auto& composition:d.compositions)for(const auto& board:composition.artboards)
+            if(board.id==ref.object) {
+                const auto guides=effective_artboard_guides(d,composition.id,board.id);
+                const auto found=std::find_if(guides.begin(),guides.end(),[&](const auto& guide) {
+                    return guide.guide_id==ref.point;
+                });
+                if(found!=guides.end())return board.name+" / "+found->name;
+            }
+        throw Error("MISSING_ARTBOARD_GUIDE_SOURCE",ref.point);
+    }
     if(const auto found=d.objects.find(ref.object);found!=d.objects.end())return found->second.name;
     if(const auto found=d.named_colors.find(ref.object);found!=d.named_colors.end())return found->second.name;
     for(const auto& composition:d.compositions)

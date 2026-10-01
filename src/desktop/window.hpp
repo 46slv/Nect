@@ -209,6 +209,14 @@ private:
     void edit_artboard(QVBoxLayout* layout);
     void verify_artboard_template_context(const ArtboardTemplateContext& context) const;
     void apply_artboard_template_command(const ArtboardTemplateContext& context,ArtboardTemplateCommand command);
+    void verify_artboard_guide_context(const ArtboardTemplateContext& context) const;
+    void apply_artboard_guide_command(const ArtboardTemplateContext& context,ArtboardGuideCommand command);
+    void add_artboard_guide(const ArtboardTemplateContext& context);
+    void edit_artboard_guide(const ArtboardTemplateContext& context,Id guide_id);
+    void delete_artboard_guide(const ArtboardTemplateContext& context,Id guide_id);
+    void set_artboard_guide_override(const ArtboardTemplateContext& context,Id guide_id);
+    void reset_artboard_guide_override(const ArtboardTemplateContext& context,Id guide_id);
+    void detach_artboard_guide(const ArtboardTemplateContext& context,Id guide_id);
     void create_artboard_template(const ArtboardTemplateContext& context);
     void rename_artboard_template(const ArtboardTemplateContext& context);
     void delete_artboard_template(const ArtboardTemplateContext& context);

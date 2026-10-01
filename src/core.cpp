@@ -1317,7 +1317,8 @@ void add_default_paint(Document& d,const Id& object,const std::string& type) {
     for(const auto& [id,color]:d.named_colors){(void)color;ids.insert(id);}
     for(const auto& [id,asset]:d.raster_assets){(void)asset;ids.insert(id);}
     for(const auto& c:d.compositions){
-        ids.insert(c.id);for(const auto& a:c.artboards){ids.insert(a.id);if(a.layout&&a.layout->grid)ids.insert(a.layout->grid->id);}
+        ids.insert(c.id);for(const auto& a:c.artboards){ids.insert(a.id);if(a.layout&&a.layout->grid)ids.insert(a.layout->grid->id);
+            for(const auto& guide:a.local_guides)ids.insert(guide.id);}
         for(const auto& guide:c.guides)ids.insert(guide.id);
     }
     for(const auto& c:d.collections)ids.insert(c.id);
@@ -1444,6 +1445,10 @@ std::vector<Ref> properties(const Document& document) {
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards) {
         refs.push_back({board.id,"","artboard.width"});
         refs.push_back({board.id,"","artboard.height"});
+        for(const auto& occurrence:effective_artboard_guides(document,composition.id,board.id)) {
+            refs.push_back({board.id,occurrence.guide_id,"artboard.guide.position"});
+            refs.push_back({board.id,occurrence.guide_id,"artboard.guide.enabled"});
+        }
         const auto effective=board.template_assignment?evaluate_artboard(composition,board.id):board;
         if(effective.layout&&effective.layout->margin)
             for(const auto* side:{"left","top","right","bottom"})refs.push_back({board.id,"",std::string("margin.")+side});
@@ -1651,6 +1656,31 @@ GuidePositionProperty guide_position_property(const Document& document,const Ref
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards)if(board.id==ref.object)
         throw Error("TYPE_MISMATCH","Guide position Ref must identify a Guide");
     throw Error("MISSING_GUIDE",ref.object);
+}
+
+ArtboardGuideProperty artboard_guide_property(const Document& document,const Ref& ref) {
+    require(!ref.point.empty(),"INVALID_ARTBOARD_GUIDE_REF",
+        "Artboard Guide property identity requires its stable Guide ID in point");
+    require(ref.field=="artboard.guide.position"||ref.field=="artboard.guide.enabled",
+        "UNKNOWN_ARTBOARD_GUIDE_PROPERTY",ref.field);
+    for(const auto& composition:document.compositions)for(const auto& board:composition.artboards)
+        if(board.id==ref.object) {
+            const auto occurrences=effective_artboard_guides(document,composition.id,board.id);
+            const auto occurrence=std::find_if(occurrences.begin(),occurrences.end(),[&](const auto& item) {
+                return item.guide_id==ref.point;
+            });
+            require(occurrence!=occurrences.end(),"MISSING_ARTBOARD_GUIDE_SOURCE",ref.point);
+            if(ref.field=="artboard.guide.position")return {*occurrence,occurrence->position};
+            return {*occurrence,occurrence->enabled};
+        }
+    if(std::any_of(document.compositions.begin(),document.compositions.end(),[&](const Composition& composition) {
+        return std::any_of(composition.artboards.begin(),composition.artboards.end(),[&](const Artboard& board) {
+            return std::any_of(board.local_guides.begin(),board.local_guides.end(),[&](const ArtboardGuide& guide) {
+                return guide.id==ref.point;
+            });
+        });
+    }))throw Error("WRONG_COMPOSITION","Artboard Guide Ref target does not own the Guide occurrence");
+    throw Error("MISSING_ARTBOARD",ref.object);
 }
 
 TextItalicProperty text_italic_property(const Document& document,const Ref& ref) {
@@ -3789,6 +3819,62 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
     return result;
 }
 
+std::vector<EffectiveArtboardGuide> effective_artboard_guides(const Document& document,const Id& composition_id,
+    const Id& artboard_id) {
+    const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),
+        [&](const Composition& item){return item.id==composition_id;});
+    require(composition!=document.compositions.end(),"MISSING_COMPOSITION",composition_id);
+    const auto target=std::find_if(composition->artboards.begin(),composition->artboards.end(),
+        [&](const Artboard& item){return item.id==artboard_id;});
+    require(target!=composition->artboards.end(),"MISSING_ARTBOARD",artboard_id);
+    std::function<std::vector<EffectiveArtboardGuide>(const Artboard&,std::size_t,std::set<Id>&)> project;
+    project=[&](const Artboard& board,std::size_t depth,std::set<Id>& active) {
+        require(depth<256,"ARTBOARD_DEPTH","Artboard Guide Template depth limit 256");
+        require(active.insert(board.id).second,"TEMPLATE_CYCLE","Artboard Template relation cycle at "+board.id);
+        std::vector<EffectiveArtboardGuide> result;
+        if(board.template_assignment) {
+            const auto definition=std::find_if(composition->templates.begin(),composition->templates.end(),
+                [&](const ArtboardTemplate& item){return item.id==board.template_assignment->template_id;});
+            require(definition!=composition->templates.end(),"MISSING_ARTBOARD_TEMPLATE",board.template_assignment->template_id);
+            const auto source=std::find_if(composition->artboards.begin(),composition->artboards.end(),
+                [&](const Artboard& item){return item.id==definition->source_artboard;});
+            require(source!=composition->artboards.end(),"MISSING_ARTBOARD",definition->source_artboard);
+            auto inherited=project(*source,depth+1,active);
+            for(auto& occurrence:inherited) {
+                const auto& assignment=*board.template_assignment;
+                if(std::find(assignment.detached_guides.begin(),assignment.detached_guides.end(),occurrence.guide_id)!=
+                    assignment.detached_guides.end())continue;
+                // Preserve the authored lineage, but make the immediate
+                // template source and override flags local to this target.
+                occurrence.target_artboard=board.id;
+                occurrence.template_source_artboard=source->id;
+                occurrence.template_position=occurrence.position;
+                occurrence.template_enabled=occurrence.enabled;
+                occurrence.inherited=true;
+                occurrence.position_overridden=false;
+                occurrence.enabled_overridden=false;
+                if(const auto override_value=assignment.guide_position_overrides.find(occurrence.guide_id);
+                   override_value!=assignment.guide_position_overrides.end()) {
+                    occurrence.position=override_value->second;occurrence.position_overridden=true;
+                }
+                if(const auto override_value=assignment.guide_enabled_overrides.find(occurrence.guide_id);
+                   override_value!=assignment.guide_enabled_overrides.end()) {
+                    occurrence.enabled=override_value->second;occurrence.enabled_overridden=true;
+                }
+                result.push_back(std::move(occurrence));
+            }
+        }
+        for(const auto& guide:board.local_guides)
+            result.push_back({board.id,board.id,{},guide.id,guide.name,guide.axis,
+                guide.position,guide.position,guide.position,
+                guide.enabled,guide.enabled,guide.enabled,false,false,false});
+        active.erase(board.id);
+        return result;
+    };
+    std::set<Id> active;
+    return project(*target,0,active);
+}
+
 namespace {
 struct GuideLocation { const Composition* composition; const Guide* guide; };
 struct GuideEvaluation { double value; std::size_t remaining_edges; };
@@ -4245,6 +4331,15 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
         require(comp.artboards.size()<=1024,"LIMIT","Artboards per Composition limit 1024");
         for(const auto& a:comp.artboards) {
             add(a.id);
+            for(const auto& guide:a.local_guides) {
+                require(guide_count<10000,"LIMIT","Document local and Composition Guide count limit 10000");
+                ++guide_count;add(guide.id);
+                require(!guide.name.empty()&&guide.name.size()<=4096,"INVALID_ARTBOARD_GUIDE",
+                    "Artboard Guide name must be 1..4096 UTF-8 bytes");text_utf8(guide.name);
+                require(guide.axis=="x"||guide.axis=="y","INVALID_ARTBOARD_GUIDE","Artboard Guide axis must be x or y");
+                require(std::isfinite(guide.position)&&std::abs(guide.position)<=1e9,"INVALID_ARTBOARD_GUIDE",
+                    "Artboard Guide position must be finite and within [-1e9,1e9] du");
+            }
             finite(a.x); finite(a.y); finite(a.width); finite(a.height);
             require(a.width>0&&a.height>0&&a.width<=1e7&&a.height<=1e7,"INVALID_ARTBOARD",a.id);
             require(std::abs(a.x)<=1e9&&std::abs(a.y)<=1e9,"INVALID_ARTBOARD","Frame position exceeds 1e9");
@@ -4273,6 +4368,21 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                     "A Template-local Grid requires its family override state");
                 if(a.layout&&a.layout->grid)require(a.layout->grid->id==assignment.grid_id,"INVALID_TEMPLATE_GRID_ID",
                     "Template-local Grid must retain its target-local stable ID");
+                for(const auto& [guide_id,position]:assignment.guide_position_overrides) {
+                    identity(guide_id);finite(position);
+                    require(std::abs(position)<=1e9,"INVALID_ARTBOARD_GUIDE_OVERRIDE",
+                        "Artboard Guide position override must be within [-1e9,1e9] du");
+                }
+                for(const auto& [guide_id,enabled]:assignment.guide_enabled_overrides) {
+                    (void)enabled;identity(guide_id);
+                }
+                std::set<Id> detached;
+                for(const auto& guide_id:assignment.detached_guides) {
+                    identity(guide_id);require(detached.insert(guide_id).second,"DUPLICATE_ARTBOARD_GUIDE_SUPPRESSION",guide_id);
+                    require(!assignment.guide_position_overrides.contains(guide_id)&&
+                        !assignment.guide_enabled_overrides.contains(guide_id),"INVALID_ARTBOARD_GUIDE_SUPPRESSION",
+                        "A detached Guide cannot also retain a live field override: "+guide_id);
+                }
                 if(assignment.content_instance) {
                     require(template_it->definition.has_value(),"ARTBOARD_TEMPLATE_NO_DEFINITION",
                         "A Template content Instance requires an R04 Definition");
@@ -4893,6 +5003,28 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
 
     if(before_evaluation)before_evaluation();
     auto values=evaluate(d);
+    for(const auto& composition:d.compositions)for(const auto& board:composition.artboards)if(board.template_assignment) {
+        const auto occurrences=effective_artboard_guides(d,composition.id,board.id);
+        std::set<Id> inherited;
+        for(const auto& occurrence:occurrences)if(occurrence.inherited)inherited.insert(occurrence.guide_id);
+        const auto require_inherited=[&](const Id& guide_id) {
+            if(inherited.contains(guide_id))return;
+            const bool elsewhere=std::any_of(d.compositions.begin(),d.compositions.end(),[&](const Composition& other) {
+                return other.id!=composition.id&&std::any_of(other.artboards.begin(),other.artboards.end(),[&](const Artboard& candidate) {
+                    return std::any_of(candidate.local_guides.begin(),candidate.local_guides.end(),
+                        [&](const ArtboardGuide& guide){return guide.id==guide_id;});
+                });
+            });
+            if(elsewhere)throw Error("WRONG_COMPOSITION",guide_id);
+            throw Error("MISSING_ARTBOARD_GUIDE_SOURCE",guide_id);
+        };
+        for(const auto& [guide_id,value]:board.template_assignment->guide_position_overrides) {
+            (void)value;require_inherited(guide_id);
+        }
+        for(const auto& [guide_id,value]:board.template_assignment->guide_enabled_overrides) {
+            (void)value;require_inherited(guide_id);
+        }
+    }
     // Boolean Text Italic links and expressions are a separate typed lane from
     // Scalar evaluation. Validate every authored driver before geometry uses it.
     (void)evaluate_text_italics(d);
@@ -6000,6 +6132,160 @@ void promote_template_family(Document& candidate,const Ref& ref) {
     }
 }
 
+std::set<Id> document_identity_ids(const Document& document) {
+    std::set<Id> ids{document.id};
+    for(const auto& [id,value]:document.definitions){(void)value;ids.insert(id);}
+    for(const auto& [id,value]:document.macro_definitions){(void)value;ids.insert(id);}
+    for(const auto& [id,value]:document.preset_definitions){(void)value;ids.insert(id);}
+    for(const auto& [id,value]:document.raster_assets){(void)value;ids.insert(id);}
+    for(const auto& [id,value]:document.named_colors){(void)value;ids.insert(id);}
+    for(const auto& collection:document.collections)ids.insert(collection.id);
+    for(const auto& composition:document.compositions) {
+        ids.insert(composition.id);
+        for(const auto& guide:composition.guides)ids.insert(guide.id);
+        for(const auto& item:composition.templates)ids.insert(item.id);
+        for(const auto& board:composition.artboards) {
+            ids.insert(board.id);
+            for(const auto& guide:board.local_guides)ids.insert(guide.id);
+            if(board.template_assignment)ids.insert(board.template_assignment->grid_id);
+            if(board.layout&&board.layout->grid)ids.insert(board.layout->grid->id);
+        }
+    }
+    for(const auto& [id,object]:document.objects) {
+        ids.insert(id);
+        if(object.compositing.mask)ids.insert(object.compositing.mask->id);
+        if(object.path_follow)ids.insert(object.path_follow->id);
+        if(object.text)ids.insert(object.text->id);
+        if(object.source) {
+            ids.insert(object.source->id);
+            ids.insert(object.source->id+"-point-edit");
+            ids.insert(object.source->id+"-contour");
+        }
+        for(const auto& contour:object.contours) {
+            ids.insert(contour.id);for(const auto& point:contour.points)ids.insert(point.id);
+        }
+        for(const auto& entry:object.stack) {
+            ids.insert(entry.id);
+            if(entry.gradient) {
+                ids.insert(entry.gradient->id);for(const auto& stop:entry.gradient->stops)ids.insert(stop.id);
+            }
+        }
+    }
+    return ids;
+}
+
+Id materialized_guide_id(const Id& prefix,const Id& source_guide,std::set<Id>& occupied) {
+    identity(prefix);require(prefix.size()<=70,"INVALID_ID_PREFIX","Template Guide detach prefix must leave room for stable Guide identity suffixes");
+    std::uint64_t hash=14695981039346656037ull;
+    for(const unsigned char byte:source_guide){hash^=byte;hash*=1099511628211ull;}
+    char digits[17]{};const auto converted=std::to_chars(digits,digits+sizeof(digits),hash,16);
+    std::string stable(16-static_cast<std::size_t>(converted.ptr-digits),'0');stable.append(digits,converted.ptr);
+    const auto base=prefix+"-guide-"+stable;
+    identity(base);
+    require(occupied.insert(base).second,"DUPLICATE_ID",
+        "Deterministic Artboard Guide detach ID is already in use: "+base);
+    return base;
+}
+
+void edit_artboard_guide(Document& candidate,const ArtboardGuideCommand& command) {
+    std::visit([&](const auto& mutation) {
+        using T=std::decay_t<decltype(mutation)>;
+        const auto composition=std::find_if(candidate.compositions.begin(),candidate.compositions.end(),
+            [&](const Composition& item){return item.id==mutation.composition;});
+        require(composition!=candidate.compositions.end(),"MISSING_COMPOSITION",mutation.composition);
+        auto board=std::find_if(composition->artboards.begin(),composition->artboards.end(),
+            [&](const Artboard& item){return item.id==mutation.artboard_id;});
+        if(board==composition->artboards.end()) {
+            const bool elsewhere=std::any_of(candidate.compositions.begin(),candidate.compositions.end(),
+                [&](const Composition& item){return item.id!=mutation.composition&&
+                    std::any_of(item.artboards.begin(),item.artboards.end(),[&](const Artboard& value){return value.id==mutation.artboard_id;});});
+            if(elsewhere)throw Error("WRONG_COMPOSITION",mutation.artboard_id);
+            throw Error("MISSING_ARTBOARD",mutation.artboard_id);
+        }
+        if constexpr(std::is_same_v<T,AddArtboardGuide>) {
+            identity(mutation.guide.id);
+            require(std::none_of(board->local_guides.begin(),board->local_guides.end(),[&](const ArtboardGuide& item) {
+                return item.id==mutation.guide.id;
+            }),"DUPLICATE_ID",mutation.guide.id);
+            board->local_guides.push_back(mutation.guide);
+        } else if constexpr(std::is_same_v<T,UpdateArtboardGuide>) {
+            const auto found=std::find_if(board->local_guides.begin(),board->local_guides.end(),
+                [&](const ArtboardGuide& item){return item.id==mutation.guide.id;});
+            if(found==board->local_guides.end()) {
+                const auto effective=effective_artboard_guides(candidate,mutation.composition,mutation.artboard_id);
+                if(std::any_of(effective.begin(),effective.end(),[&](const auto& item) {
+                    return item.inherited&&item.guide_id==mutation.guide.id;
+                }))throw Error("INHERITED_ARTBOARD_GUIDE_READ_ONLY",
+                    "Set an inherited Guide field override or detach that occurrence before editing it");
+                throw Error("MISSING_ARTBOARD_GUIDE",mutation.guide.id);
+            }
+            *found=mutation.guide;
+        } else if constexpr(std::is_same_v<T,DeleteArtboardGuide>) {
+            const auto found=std::find_if(board->local_guides.begin(),board->local_guides.end(),
+                [&](const ArtboardGuide& item){return item.id==mutation.guide_id;});
+            if(found==board->local_guides.end()) {
+                const auto effective=effective_artboard_guides(candidate,mutation.composition,mutation.artboard_id);
+                if(std::any_of(effective.begin(),effective.end(),[&](const auto& item) {
+                    return item.inherited&&item.guide_id==mutation.guide_id;
+                }))throw Error("INHERITED_ARTBOARD_GUIDE_READ_ONLY",
+                    "Detach an inherited Guide occurrence before deleting it");
+                throw Error("MISSING_ARTBOARD_GUIDE",mutation.guide_id);
+            }
+            for(const auto& target:composition->artboards)if(target.template_assignment&&
+                (target.template_assignment->guide_position_overrides.contains(mutation.guide_id)||
+                 target.template_assignment->guide_enabled_overrides.contains(mutation.guide_id)))
+                throw Error("ARTBOARD_GUIDE_SOURCE_IN_USE",
+                    "Reset or detach every target override before deleting source Guide "+mutation.guide_id);
+            board->local_guides.erase(found);
+        } else if constexpr(std::is_same_v<T,SetArtboardGuideOverride>) {
+            require(board->template_assignment.has_value(),"MISSING_ARTBOARD_TEMPLATE_ASSIGNMENT",mutation.artboard_id);
+            const auto effective=effective_artboard_guides(candidate,mutation.composition,mutation.artboard_id);
+            const auto source=std::find_if(effective.begin(),effective.end(),[&](const EffectiveArtboardGuide& item) {
+                return item.inherited&&item.guide_id==mutation.guide_id;
+            });
+            require(source!=effective.end(),"MISSING_INHERITED_ARTBOARD_GUIDE",mutation.guide_id);
+            auto& assignment=*board->template_assignment;
+            if(mutation.field=="position") {
+                require(std::holds_alternative<double>(mutation.value),"TYPE_MISMATCH","Guide position override requires a number");
+                const auto value=std::get<double>(mutation.value);finite(value);
+                require(std::abs(value)<=1e9,"INVALID_ARTBOARD_GUIDE_OVERRIDE","Guide position override must be within [-1e9,1e9] du");
+                assignment.guide_position_overrides.insert_or_assign(mutation.guide_id,value);
+            } else if(mutation.field=="enabled") {
+                require(std::holds_alternative<bool>(mutation.value),"TYPE_MISMATCH","Guide enabled override requires a Boolean");
+                assignment.guide_enabled_overrides.insert_or_assign(mutation.guide_id,std::get<bool>(mutation.value));
+            } else throw Error("UNSUPPORTED_ARTBOARD_GUIDE_OVERRIDE",mutation.field);
+        } else if constexpr(std::is_same_v<T,ResetArtboardGuideOverride>) {
+            require(board->template_assignment.has_value(),"MISSING_ARTBOARD_TEMPLATE_ASSIGNMENT",mutation.artboard_id);
+            const auto effective=effective_artboard_guides(candidate,mutation.composition,mutation.artboard_id);
+            require(std::any_of(effective.begin(),effective.end(),[&](const EffectiveArtboardGuide& item) {
+                return item.inherited&&item.guide_id==mutation.guide_id;
+            }),"MISSING_INHERITED_ARTBOARD_GUIDE",mutation.guide_id);
+            auto& assignment=*board->template_assignment;
+            std::size_t removed=0;
+            if(mutation.field=="position")removed=assignment.guide_position_overrides.erase(mutation.guide_id);
+            else if(mutation.field=="enabled")removed=assignment.guide_enabled_overrides.erase(mutation.guide_id);
+            else throw Error("UNSUPPORTED_ARTBOARD_GUIDE_OVERRIDE",mutation.field);
+            require(removed==1,"MISSING_ARTBOARD_GUIDE_OVERRIDE",mutation.guide_id+"/"+mutation.field);
+        } else if constexpr(std::is_same_v<T,DetachArtboardGuide>) {
+            require(board->template_assignment.has_value(),"MISSING_ARTBOARD_TEMPLATE_ASSIGNMENT",mutation.artboard_id);
+            const auto effective=effective_artboard_guides(candidate,mutation.composition,mutation.artboard_id);
+            const auto source=std::find_if(effective.begin(),effective.end(),[&](const EffectiveArtboardGuide& item) {
+                return item.inherited&&item.guide_id==mutation.guide_id;
+            });
+            require(source!=effective.end(),"MISSING_INHERITED_ARTBOARD_GUIDE",mutation.guide_id);
+            identity(mutation.new_guide_id);
+            const auto occupied=document_identity_ids(candidate);
+            require(!occupied.contains(mutation.new_guide_id),"DUPLICATE_ID",mutation.new_guide_id);
+            board->local_guides.push_back({mutation.new_guide_id,source->name,source->axis,source->position,source->enabled});
+            auto& assignment=*board->template_assignment;
+            assignment.guide_position_overrides.erase(mutation.guide_id);
+            assignment.guide_enabled_overrides.erase(mutation.guide_id);
+            if(std::find(assignment.detached_guides.begin(),assignment.detached_guides.end(),mutation.guide_id)==
+                assignment.detached_guides.end())assignment.detached_guides.push_back(mutation.guide_id);
+        }
+    },command.mutation);
+}
+
 void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& command) {
     std::visit([&](const auto& mutation) {
         using T=std::decay_t<decltype(mutation)>;
@@ -6145,6 +6431,12 @@ void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& c
             require(board->template_assignment.has_value(),"MISSING_ARTBOARD_TEMPLATE_ASSIGNMENT",mutation.artboard_id);
             const auto assignment=*board->template_assignment;
             const auto resolved=evaluate_artboard(composition,board->id);
+            auto occupied=document_identity_ids(candidate);
+            std::vector<ArtboardGuide> materialized_guides;
+            for(const auto& occurrence:effective_artboard_guides(candidate,mutation.composition,mutation.artboard_id))
+                if(occurrence.inherited)materialized_guides.push_back({
+                    materialized_guide_id(mutation.id_prefix,occurrence.guide_id,occupied),occurrence.name,occurrence.axis,
+                    occurrence.position,occurrence.enabled});
             if(!(board->parent_size&&board->parent_size->width)&&!board->width_driver)board->width=resolved.width;
             if(!(board->parent_size&&board->parent_size->height)&&!board->height_driver)board->height=resolved.height;
             if(!assignment.margin_overridden&&resolved.layout&&resolved.layout->margin) {
@@ -6165,6 +6457,7 @@ void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& c
             board=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
                 return item.id==mutation.artboard_id;
             });
+            board->local_guides.insert(board->local_guides.end(),materialized_guides.begin(),materialized_guides.end());
             board->template_assignment.reset();
             if(board->layout&&!board->layout->margin&&!board->layout->grid)board->layout.reset();
         }
@@ -6492,6 +6785,8 @@ void edit_point_edit_enabled(Document& candidate,const UnlinkPointEditEnabled& c
     point_edit.enabled=frozen;point_edit.enabled_driver.reset();point_edit.enabled_expression.reset();
 }
 void edit_guide_position_expression(Document& candidate,const SetGuidePositionExpression& command) {
+    require(command.target.field!="artboard.guide.position","UNSUPPORTED_ARTBOARD_GUIDE_SOURCE",
+        "Artboard Guide fields are literal-only; use the dedicated Artboard Guide commands");
     require(command.target.point.empty()&&command.target.field=="guide.position","INVALID_GUIDE_REF",
         "Guide expression target must be an empty-point guide.position Ref");
     identity(command.target.object);
@@ -6515,6 +6810,8 @@ void edit_guide_position_expression(Document& candidate,const SetGuidePositionEx
 }
 void edit_guide_position(Document& candidate,const LinkGuidePosition& command) {
     const auto valid_ref=[](const Ref& ref,const char* role) {
+        require(ref.field!="artboard.guide.position","UNSUPPORTED_ARTBOARD_GUIDE_SOURCE",
+            "Artboard Guide fields are literal-only; use the dedicated Artboard Guide commands");
         require(ref.point.empty()&&ref.field=="guide.position","INVALID_GUIDE_REF",
             std::string("Guide ")+role+" must be an empty-point guide.position Ref");
         identity(ref.object);
@@ -6983,7 +7280,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 if constexpr(std::is_same_v<T,DefinitionCommand>)edit_definition(candidate,value);
                 else if constexpr(std::is_same_v<T,CollectionCommand>)edit_collection(candidate,value);
                 else if constexpr(std::is_same_v<T,MacroCommand>)edit_macro(candidate,value);
-                else edit_artboard_template(candidate,value);
+                else if constexpr(std::is_same_v<T,ArtboardTemplateCommand>)edit_artboard_template(candidate,value);
+                else edit_artboard_guide(candidate,value);
             },*structural);
             continue;
         }
@@ -7163,6 +7461,10 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             put_inside(candidate,c);
         } else if constexpr(std::is_same_v<T,SetExpression>) {
             require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Expression targets must contain 1..1000 unique Scalars");
+            require(std::none_of(c.targets.begin(),c.targets.end(),[](const Ref& target) {
+                return target.field.starts_with("artboard.guide.");
+            }),"UNSUPPORTED_ARTBOARD_GUIDE_SOURCE",
+                "Artboard Guide fields are literal-only; use Artboard Guide add/update/override/reset/detach commands");
             const auto expression=compile_expression(c.expression);const auto expected_unit=unit(c.targets.front());
             validate_expression_unit(expression,expected_unit);std::set<Ref> unique;
             for(const auto& target:c.targets) {
@@ -7390,6 +7692,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);
             auto& boards=comp->artboards;
             if constexpr(std::is_same_v<T,AddArtboard>) {
+                require(c.artboard.local_guides.empty(),"USE_TYPED_COMMAND",
+                    "Add Artboard Guides with add_artboard_guide commands");
                 require(!c.artboard.width_driver&&!c.artboard.height_driver,"ARTBOARD_DRIVER_SMUGGLING",
                     "Create Artboard size drivers with link_artboard_size or set_artboard_size_expression");
                 require(!c.artboard.layout||!c.artboard.layout->margin||!c.artboard.layout->margin->left_driver,
@@ -7453,11 +7757,14 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 auto board=std::find_if(boards.begin(),boards.end(),[&](const auto& a){return a.id==id;});
                 require(board!=boards.end(),"MISSING_ARTBOARD",id);
                 if constexpr(std::is_same_v<T,UpdateArtboard>) {
+                    require(c.artboard.local_guides.empty()||c.artboard.local_guides==board->local_guides,
+                        "USE_TYPED_COMMAND","Update Artboard Guides with add/update/delete_artboard_guide commands");
                     auto updated=c.artboard;
                     // Legacy Artboard updates carry only frame fields. A missing
                     // layout payload must not erase authored P02 definitions.
                     if(!updated.layout)updated.layout=board->layout;
                     updated.template_assignment=board->template_assignment;
+                    updated.local_guides=board->local_guides;
                     if(board->template_assignment) {
                         const bool changed_width=updated.width!=board->width;
                         const bool changed_height=updated.height!=board->height;
@@ -7688,16 +7995,22 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             }
             board->layout=std::move(updated_layout);
         } else if constexpr(std::is_same_v<T,Set>) {
+            require(!c.ref.field.starts_with("artboard.guide."),"UNSUPPORTED_ARTBOARD_GUIDE_SOURCE",
+                "Use Artboard Guide update or Template override/reset/detach commands");
             prepare_point_edit(candidate,c.ref);
             auto& p=lookup_property(candidate,c.ref);
             require(!driven(p),"DRIVEN_PROPERTY","Unlink explicitly before setting a driven property");
             p.literal=c.value;
             authored_anchor(c.ref);
         } else if constexpr(std::is_same_v<T,Link>) {
+            require(!c.target.field.starts_with("artboard.guide."),"UNSUPPORTED_ARTBOARD_GUIDE_SOURCE",
+                "Artboard Guide fields are literal-only; use Template override/reset/detach commands");
             prepare_point_edit(candidate,c.target);
             auto& scalar=lookup_property(candidate,c.target);scalar.binding=c.binding;scalar.expression.reset();
             authored_anchor(c.target);
         } else if constexpr(std::is_same_v<T,Unlink>) {
+            if(c.target.field.starts_with("artboard.guide."))
+                throw Error("UNSUPPORTED_ARTBOARD_GUIDE_SOURCE","Artboard Guide fields are literal-only; reset the selected Template override");
             if(c.target.point.empty()&&c.target.field=="guide.position")
                 throw Error("TYPE_MISMATCH","Guide positions use the dedicated Guide link commands");
             if(c.target.point.empty()&&(c.target.field=="transform.anchor_x"||c.target.field=="transform.anchor_y"))initialize_anchor(c.target.object);

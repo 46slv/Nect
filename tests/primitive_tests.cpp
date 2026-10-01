@@ -369,7 +369,7 @@ void ellipse_contract() {
     check(native.find(test_support::current_native_version_marker())!=std::string::npos&&
         native.find("\"type\":\"nect.shape.ellipse\"")!=std::string::npos&&
         encode(decode(native))==native,
-        "Native 0.76 preserves Ellipse type and parameters in a deterministic cold codec reopen");
+        "Current-writer native output preserves Ellipse type and parameters in a deterministic cold codec reopen");
     Session reopened(decode(native));
     check(reopened.document()==session.document()&&
         response_number(request(reopened,R"({"op":"get","ref":{"object":"ellipse","point":"","field":"generator.height"}})"),"evaluated")==160,

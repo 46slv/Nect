@@ -136,12 +136,16 @@ private:
         // Equal-gap candidates may be tied to one side of the moving bounds.
         // The existing centered two-sided candidate keeps using the minimum.
         int source_feature_order=0;
+        bool segment_limited=false;
+        double segment_min=0,segment_max=0;
     };
     struct SnapSourceFeature {
         double position=0;
         int order=0;
         QString label;
         SnapSourceKind kind=SnapSourceKind::geometry_bounds;
+        bool segment_limited=false;
+        double segment_min=0,segment_max=0;
     };
     struct SnapMatch {
         SnapCandidate target;

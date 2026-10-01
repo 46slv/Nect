@@ -1278,7 +1278,7 @@ void alpha_mask_native_api_and_refusals() {
     const auto saved=encode(session.document());
     check(saved.find(test_support::current_native_version_marker())!=std::string::npos&&
         decode(saved)==session.document()&&encode(decode(saved))==saved,
-        "Native 0.76 cold reopen and Save As retain exact Alpha authored state");
+        "Current-writer cold reopen and Save As retain exact Alpha authored state");
     validate_json(saved);
     Session reopened(decode(saved));
     check(reopened.document()==session.document(),"A new Session reopens the Alpha native snapshot exactly");
@@ -1292,7 +1292,7 @@ void alpha_mask_native_api_and_refusals() {
     auto alpha_071=saved;
     test_support::remove_empty_native_076_templates_for_legacy_fixture(alpha_071);
     const auto v073=alpha_071.find(test_support::current_native_version_marker());
-    check(v073!=std::string::npos,"Alpha compatibility fixture starts from native 0.76");
+    check(v073!=std::string::npos,"Alpha compatibility fixture starts from current native output");
     alpha_071.replace(v073,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.71\"");
     test_support::remove_native_072_mask_profile_for_071_fixture(alpha_071);
     const auto reopened_071=decode(alpha_071);
@@ -1322,7 +1322,7 @@ void alpha_mask_native_api_and_refusals() {
         luma_native.find("\"mode\":\"luma\"")!=std::string::npos&&
         luma_native.find("\"mask_color_space\":\"srgb\"")!=std::string::npos&&
         decode(luma_native)==luma.document()&&encode(decode(luma_native))==luma_native,
-        "Native 0.76 Save As and cold reopen retain Luma, source identity and sRGB profile");
+        "Current-writer Save As and cold reopen retain Luma, source identity and sRGB profile");
     validate_json(luma_native);
     luma.undo(luma.revision());check(!luma.document().objects.at("a").compositing.mask&&luma.revision()==2,
         "Luma creation is one complete Undo");
@@ -1341,9 +1341,9 @@ void alpha_mask_native_api_and_refusals() {
     const auto geometry_native=encode(geometry.document());
     auto old_native=geometry_native;
     test_support::remove_empty_native_076_templates_for_legacy_fixture(old_native);
-    const std::string current_version_marker=std::string("\"version\":\"")+native_version+"\"";
+    const auto current_version_marker=test_support::current_native_version_marker();
     const auto current_version=old_native.find(current_version_marker);
-    check(current_version!=std::string::npos,"Native writer is 0.76 before making the legacy fixture");
+    check(current_version!=std::string::npos,"Native writer marker is present before making the legacy fixture");
     old_native.replace(current_version,current_version_marker.size(),"\"version\":\"0.70\"");
     test_support::remove_native_071_mask_defaults_for_legacy_fixture(old_native);
     check(decode(old_native)==geometry.document()&&encode(decode(old_native))!=old_native,
@@ -1355,7 +1355,7 @@ void alpha_mask_native_api_and_refusals() {
     rejects("UNKNOWN_FIELD",[&]{(void)decode(false_version);});
     auto missing_fields=geometry_native;
     const auto mode_at=missing_fields.find("\"mode\":\"geometry\"");
-    check(mode_at!=std::string::npos,"Native 0.76 emits a required mask mode");
+    check(mode_at!=std::string::npos,"Current writer emits a required mask mode");
     missing_fields.erase(mode_at,std::string("\"mode\":\"geometry\",").size());
     rejects("NATIVE_VERSION_MISMATCH",[&]{(void)decode(missing_fields);});
     auto missing_profile=geometry_native;
