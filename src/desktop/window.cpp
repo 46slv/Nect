@@ -7289,9 +7289,12 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
         const auto& object=d.objects.at(id);
         alignment_target->addItem(QString("Key object: %1 (%2)").arg(qs(object.name),qs(id)),qs("key_object:"+id));
     }
-    for(const auto& board:active_composition.artboards)if(board.layout&&board.layout->grid)
-        alignment_target->addItem(QString("Grid: %1 · Artboard: %2 (%3)")
-            .arg(qs(board.layout->grid->id),qs(board.name),qs(board.id)),qs("grid:"+board.layout->grid->id));
+    for(const auto& board:active_composition.artboards) {
+        const auto frame=evaluate_artboard(active_composition,board.id);
+        if(frame.layout&&frame.layout->grid)
+            alignment_target->addItem(QString("Grid: %1 · Artboard: %2 (%3)")
+                .arg(qs(frame.layout->grid->id),qs(board.name),qs(board.id)),qs("grid:"+frame.layout->grid->id));
+    }
     const auto guide_positions=evaluate_guide_positions(d,active_composition.id);
     for(const auto& guide:active_composition.guides)
         alignment_target->addItem(QString("Guide: %1 (%2) · %3=%4")

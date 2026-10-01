@@ -5558,12 +5558,11 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         for(const auto& composition:document.compositions)if(&composition!=plane) {
             if(kind==ReferenceKind::artboard&&std::any_of(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item){return item.id==id;}))return true;
             if(kind==ReferenceKind::guide&&std::any_of(composition.guides.begin(),composition.guides.end(),[&](const auto& item){return item.id==id;}))return true;
-            if(kind==ReferenceKind::grid&&std::any_of(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item){return item.layout&&item.layout->grid&&item.layout->grid->id==id;}))return true;
+            if(kind==ReferenceKind::grid&&effective_grid_artboard(composition,id))return true;
         }
         return false;
     };
     const Artboard* target_artboard=nullptr;
-    const Grid* target_grid=nullptr;
     const Guide* target_guide=nullptr;
     std::optional<double> scoped_guide_position;
     if(target.kind==ReferenceKind::artboard) {
@@ -5571,10 +5570,8 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         if(found==plane->artboards.end())throw Error(cross_composition(target.id,target.kind)?"CROSS_COMPOSITION":"MISSING_ARTBOARD",target.id);
         target_artboard=&*found;
     } else if(target.kind==ReferenceKind::grid) {
-        for(const auto& board:plane->artboards)if(board.layout&&board.layout->grid&&board.layout->grid->id==target.id) {
-            target_artboard=&board;target_grid=&*board.layout->grid;break;
-        }
-        if(!target_grid)throw Error(cross_composition(target.id,target.kind)?"CROSS_COMPOSITION":"MISSING_GRID",target.id);
+        target_artboard=effective_grid_artboard(*plane,target.id);
+        if(!target_artboard)throw Error(cross_composition(target.id,target.kind)?"CROSS_COMPOSITION":"MISSING_GRID",target.id);
     } else if(target.kind==ReferenceKind::guide) {
         if(guide_artboard) {
             const auto board=std::find_if(plane->artboards.begin(),plane->artboards.end(),
