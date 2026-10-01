@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <exception>
 #include <iostream>
 #include <memory>
 
@@ -112,14 +113,27 @@ QAction* text_action(Window& window,const QString& text) {
 }
 void with_library_dialog(Window& window,const std::function<void(QDialog*)>& action) {
     bool entered=false;
+    std::exception_ptr failure;
     QTimer poll;poll.setInterval(1);
     QObject::connect(&poll,&QTimer::timeout,&window,[&]{
         auto* dialog=window.findChild<QDialog*>("folder-library-dialog");
         if(!dialog||!dialog->isVisible())return;
-        poll.stop();entered=true;action(dialog);
+        poll.stop();entered=true;
+        QPointer<QDialog> active(dialog);
+        try {action(dialog);}
+        catch(...) {
+            failure=std::current_exception();
+            std::cerr<<"Window status at callback failure: "<<window.statusBar()->currentMessage().toStdString()<<'\n';
+            if(active) {
+                if(auto* status=active->findChild<QLabel*>("folder-library-status"))
+                    std::cerr<<"Library status at callback failure: "<<status->text().toStdString()<<'\n';
+                active->reject();
+            }
+        }
     });
     auto* open=window.findChild<QAction*>("folder-library");check(open,"Folder Library action exists for Effect Favorites");
     poll.start();open->trigger();events();
+    if(failure)std::rethrow_exception(failure);
     check(entered,"Folder Library dialog opened for Effect Favorite interaction");
 }
 QListWidgetItem* favorite_item(QDialog* dialog,const QString& favorite_id) {

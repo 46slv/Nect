@@ -91,3 +91,19 @@ an exception escape followed by SEGFAULT; transform_ui has a creation-atomicity
 assertion failure. These are being diagnosed and must not all be assumed platform
 limitations. The aggregate suite is NOT qualified. Raw logs are under ignored
 build/d0-evidence/desktop-all-ctest.log and template-ui-{red,final}-test.log.
+
+### Aggregate failure classification follow-on
+
+Test-only exception containment now closes the modal and rethrows callback failures
+outside Qt. Re-run effects_panel exits as a normal failed test (not SEGFAULT),
+showing INVALID_ASSET_LOCATOR / absolute local drive path in the Window status.
+The transform creation assertion now identifies add-text / TEXT_PLATFORM_UNSUPPORTED.
+Neither expectation is relaxed or skipped. The original crash was an escaping
+assertion in the test callback after the platform path refusal, not evidence that
+Template Duplicate crashed. No supported Windows success path changes.
+
+Other observed blockers: nine explicit DirectWrite failures, four explicit WIC
+failures, two Windows path-validation failures, seven local-server startup failures,
+and missing nect-stroke-cp2-cases-r1.json for SVG import. The separate SVG process
+golden one-ULP issue was already present before the desktop adapter change.
+Keep all relevant rows failed/LOCAL_WAIT; no full-suite or platform-port completion.
