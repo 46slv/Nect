@@ -1341,7 +1341,7 @@ bool Window::reject_stale_layout_draft() {
        (layout_preview_session_==host.session_id&&layout_preview_revision_==host.session.revision()))return false;
     cancel_layout_draft();
     statusBar()->showMessage("REVISION_CONFLICT: Discarded a stale layout draft",12000);
-    QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();else if(artboard_editing_)rebuild_inspector();});
+    QTimer::singleShot(0,this,[this]{refresh();if(utility_setup_dialog_)rebuild_layout_setup();});
     return true;
 }
 
@@ -2201,7 +2201,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         if(reject_stale_layout_draft())return true;
         if(host.session_id==frozen_session&&host.session.revision()==frozen_revision)return false;
         statusBar()->showMessage("REVISION_CONFLICT: Refresh layout controls before editing",12000);
-        QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();else if(artboard_editing_)rebuild_inspector();});
+        QTimer::singleShot(0,this,[this]{refresh();if(utility_setup_dialog_)rebuild_layout_setup();});
         return true;
     };
     using LayoutBuilder=std::function<std::vector<Command>()>;
@@ -2227,15 +2227,26 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         connect(input,&QLineEdit::textEdited,this,[preview_from,scope,build]{preview_from(scope,build);});
         connect(input,&QLineEdit::returnPressed,this,[commit_from,scope,build]{commit_from(scope,build);});
     };
-    auto set_layout_command=[composition,id](const ArtboardLayout& value)->std::vector<Command> {
+    auto set_layout_command=[composition,id,assigned=board.template_assignment.has_value()](
+        const ArtboardLayout& value,const std::string& family)->std::vector<Command> {
+        if(assigned) {
+            if(family=="layout.margin")return {ArtboardTemplateCommand{SetArtboardTemplateOverride{
+                composition,id,family,value.margin}}};
+            return {ArtboardTemplateCommand{SetArtboardTemplateOverride{composition,id,family,value.grid}}};
+        }
         auto payload=std::optional<ArtboardLayout>{value};
         if(!payload->margin&&!payload->grid)payload.reset();
         return {SetArtboardLayout{composition,id,std::move(payload)}};
     };
 
+    const auto cancel_layout_editor=[this] {
+        cancel_layout_draft();
+        if(utility_setup_dialog_)rebuild_layout_setup();else rebuild_inspector();
+    };
     auto* margin_box=new QGroupBox("Margin inset · du");margin_box->setObjectName("layout-margin");
     auto* margin_form=new QFormLayout(margin_box);margin_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
-    const Margin initial_margin=board.layout&&board.layout->margin?*board.layout->margin:Margin{};
+    const Margin initial_margin=board.layout&&board.layout->margin?*board.layout->margin:
+        resolved.layout&&resolved.layout->margin?*resolved.layout->margin:Margin{};
     auto* margin_left=make_number(margin_box,"margin-left","Left",QString::number(initial_margin.left,'g',15));
     auto* margin_top=make_number(margin_box,"margin-top","Top",QString::number(initial_margin.top,'g',15));
     auto* margin_right=make_number(margin_box,"margin-right","Right",QString::number(initial_margin.right,'g',15));
@@ -2283,7 +2294,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         value.margin->right_driver=margin_right_driver;value.margin->right_expression=margin_right_expression;
         value.margin->bottom_driver=margin_bottom_driver;
         value.margin->bottom_expression=margin_bottom_expression;
-        return set_layout_command(value);
+        return set_layout_command(value,"layout.margin");
     };
     auto* margin_source_box=new QGroupBox("Left source",margin_box);margin_source_box->setObjectName("margin-left-source");
     auto* margin_source_layout=new QVBoxLayout(margin_source_box);
@@ -2357,12 +2368,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_unlink,&QPushButton::clicked,this,[this,margin_left_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginLeftCommand{UnlinkMarginLeft{margin_left_ref}}});});
     });
-    connect(margin_source_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_source_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(margin_expression_apply,&QPushButton::clicked,this,[this,margin_expression,margin_replace,margin_left_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginLeftCommand{SetMarginLeftExpression{margin_left_ref,
             {margin_expression->toPlainText().toStdString(),1},margin_replace->isChecked()}}});
     });});
-    connect(margin_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     auto* margin_top_source_box=new QGroupBox("Top source",margin_box);margin_top_source_box->setObjectName("margin-top-source");
     auto* margin_top_source_layout=new QVBoxLayout(margin_top_source_box);
     auto* margin_top_source_state=new QLabel(margin_top_source_box);margin_top_source_state->setObjectName("margin-top-source-state");
@@ -2430,12 +2441,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_top_unlink,&QPushButton::clicked,this,[this,margin_top_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginTopCommand{UnlinkMarginTop{margin_top_ref}}});});
     });
-    connect(margin_top_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_top_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(margin_top_expression_apply,&QPushButton::clicked,this,[this,margin_top_expression,margin_top_replace,margin_top_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginTopCommand{SetMarginTopExpression{margin_top_ref,
             {margin_top_expression->toPlainText().toStdString(),1},margin_top_replace->isChecked()}}});
     });});
-    connect(margin_top_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_top_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref margin_right_ref{id,"","margin.right"};
     auto* margin_right_source_box=new QGroupBox("Right source",margin_box);margin_right_source_box->setObjectName("margin-right-source");
     auto* margin_right_source_layout=new QVBoxLayout(margin_right_source_box);
@@ -2508,13 +2519,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_right_unlink,&QPushButton::clicked,this,[this,margin_right_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginRightCommand{UnlinkMarginRight{margin_right_ref}}});});
     });
-    connect(margin_right_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_right_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(margin_right_expression_apply,&QPushButton::clicked,this,[this,margin_right_expression_input,margin_right_replace,
         margin_right_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginRightCommand{SetMarginRightExpression{margin_right_ref,
             {margin_right_expression_input->toPlainText().toStdString(),1},margin_right_replace->isChecked()}}});
     });});
-    connect(margin_right_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_right_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref margin_bottom_ref{id,"","margin.bottom"};
     auto* margin_bottom_source_box=new QGroupBox("Bottom source",margin_box);
     margin_bottom_source_box->setObjectName("margin-bottom-source");
@@ -2599,31 +2610,33 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_bottom_unlink,&QPushButton::clicked,this,[this,margin_bottom_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginBottomCommand{UnlinkMarginBottom{margin_bottom_ref}}});});
     });
-    connect(margin_bottom_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_bottom_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(margin_bottom_expression_apply,&QPushButton::clicked,this,[this,margin_bottom_expression_input,
         margin_bottom_replace,margin_bottom_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginBottomCommand{SetMarginBottomExpression{margin_bottom_ref,
             {margin_bottom_expression_input->toPlainText().toStdString(),1},margin_bottom_replace->isChecked()}}});
     });});
-    connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new QHBoxLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
-    auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(board.layout&&board.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
+    auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(resolved.layout&&resolved.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
     if(!margin_left_is_driven)bind_number(margin_left,margin_box,margin_builder);
     if(!margin_top_is_driven)bind_number(margin_top,margin_box,margin_builder);
     if(!margin_right_is_driven)bind_number(margin_right,margin_box,margin_builder);
     if(!margin_bottom_is_driven)bind_number(margin_bottom,margin_box,margin_builder);
     connect(margin_apply,&QPushButton::clicked,this,[commit_from,margin_box,margin_builder]{commit_from(margin_box,margin_builder);});
-    connect(margin_clear,&QPushButton::clicked,this,[this,read,composition,id,commit_explicit,margin_box] {
+    connect(margin_clear,&QPushButton::clicked,this,[read,set_layout_command,commit_explicit,guard_editor,margin_box] {
+        if(guard_editor())return;
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});value.margin.reset();
-        const auto payload=(value.grid?std::optional<ArtboardLayout>(value):std::nullopt);
-        commit_explicit(margin_box,[composition,id,payload]{return std::vector<Command>{SetArtboardLayout{composition,id,payload}};});
+        commit_explicit(margin_box,[set_layout_command,value]{return set_layout_command(value,"layout.margin");});
     });
     layout->addWidget(margin_box);
 
     auto* grid_box=new QGroupBox("Grid · Artboard-local bounds and cells · du");grid_box->setObjectName("layout-grid");
     auto* grid_form=new QFormLayout(grid_box);grid_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
-    const Grid initial_grid=board.layout&&board.layout->grid?*board.layout->grid:Grid{new_id(),{0,0,resolved.width,resolved.height},1,1,0,0};
+    const Grid initial_grid=board.layout&&board.layout->grid?*board.layout->grid:
+        resolved.layout&&resolved.layout->grid?*resolved.layout->grid:
+        Grid{board.template_assignment?board.template_assignment->grid_id:new_id(),{0,0,resolved.width,resolved.height},1,1,0,0};
     const Id grid_id=initial_grid.id;
     const auto grid_bounds_x_driver=board.layout&&board.layout->grid?board.layout->grid->bounds_x_driver:std::optional<Ref>{};
     const auto grid_bounds_x_expression=board.layout&&board.layout->grid?board.layout->grid->bounds_x_expression:std::optional<Expression>{};
@@ -2723,7 +2736,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         grid.bounds_width_expression=grid_bounds_width_expression;
         grid.bounds_height_driver=grid_bounds_height_driver;
         grid.bounds_height_expression=grid_bounds_height_expression;
-        value.grid=std::move(grid);return set_layout_command(value);
+        value.grid=std::move(grid);return set_layout_command(value,"layout.grid");
     };
     auto* grid_source_box=new QGroupBox("X source",grid_box);grid_source_box->setObjectName("grid-bounds-x-source");
     auto* grid_source_layout=new QVBoxLayout(grid_source_box);
@@ -2867,13 +2880,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_columns_unlink,&QPushButton::clicked,this,[this,grid_columns_ref,grid_source_commit] {
         perform([&]{grid_source_commit({GridColumnsCommand{UnlinkGridColumns{grid_columns_ref}}});});
     });
-    connect(grid_columns_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_columns_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_columns_expression_apply,&QPushButton::clicked,this,
         [this,grid_columns_expression_input,grid_columns_replace,grid_columns_ref,grid_source_commit]{perform([&]{
         grid_source_commit({GridColumnsCommand{SetGridColumnsExpression{grid_columns_ref,
             {grid_columns_expression_input->toPlainText().toStdString(),1},grid_columns_replace->isChecked()}}});
     });});
-    connect(grid_columns_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_columns_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref grid_rows_ref{grid_id,"","grid.rows"};
     auto* grid_rows_source_box=new QGroupBox("Rows source",grid_box);
     grid_rows_source_box->setObjectName("grid-rows-source");
@@ -2941,7 +2954,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_rows_unlink,&QPushButton::clicked,this,[this,grid_rows_ref,grid_source_commit] {
         perform([&]{grid_source_commit({GridRowsCommand{UnlinkGridRows{grid_rows_ref}}});});
     });
-    connect(grid_rows_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_rows_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     auto* grid_rows_expression_input=new ExpressionInput;
     grid_rows_expression_input->setParent(grid_rows_source_box);
     grid_rows_expression_input->setObjectName("grid-rows-expression");
@@ -2962,7 +2975,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         grid_source_commit({GridRowsCommand{SetGridRowsExpression{grid_rows_ref,
             {grid_rows_expression_input->toPlainText().toStdString(),1},grid_rows_replace->isChecked()}}});
     });});
-    connect(grid_rows_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_rows_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref grid_bounds_x_ref{grid_id,"","grid.bounds.x"};
     const Ref grid_bounds_y_ref{grid_id,"","grid.bounds.y"};
     auto* grid_y_source_box=new QGroupBox("Y source",grid_box);grid_y_source_box->setObjectName("grid-bounds-y-source");
@@ -3033,12 +3046,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_y_unlink,&QPushButton::clicked,this,[this,grid_bounds_y_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsYCommand{UnlinkGridBoundsY{grid_bounds_y_ref}}});});
     });
-    connect(grid_y_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_y_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_y_expression_apply,&QPushButton::clicked,this,[this,grid_y_expression,grid_y_replace,grid_bounds_y_ref,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsYCommand{SetGridBoundsYExpression{grid_bounds_y_ref,
             {grid_y_expression->toPlainText().toStdString(),1},grid_y_replace->isChecked()}}});
     });});
-    connect(grid_y_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_y_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_x_link,&QPushButton::clicked,this,[this,grid_x_source,grid_x_sources,grid_bounds_x_ref,grid_x_replace,grid_source_commit]{perform([&]{
         bool valid=false;const auto candidate=grid_x_source->currentData(Qt::UserRole).toInt(&valid);
         if(grid_x_source->currentIndex()<0||!valid||candidate<0||static_cast<std::size_t>(candidate)>=grid_x_sources.size())
@@ -3049,12 +3062,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_x_unlink,&QPushButton::clicked,this,[this,grid_bounds_x_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsXCommand{UnlinkGridBoundsX{grid_bounds_x_ref}}});});
     });
-    connect(grid_x_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_x_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_x_expression_apply,&QPushButton::clicked,this,[this,grid_x_expression,grid_x_replace,grid_bounds_x_ref,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsXCommand{SetGridBoundsXExpression{grid_bounds_x_ref,
             {grid_x_expression->toPlainText().toStdString(),1},grid_x_replace->isChecked()}}});
     });});
-    connect(grid_x_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_x_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref grid_bounds_width_ref{grid_id,"","grid.bounds.width"};
     auto* grid_width_source_box=new QGroupBox("Width source",grid_box);grid_width_source_box->setObjectName("grid-bounds-width-source");
     auto* grid_width_source_layout=new QVBoxLayout(grid_width_source_box);
@@ -3133,13 +3146,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_width_unlink,&QPushButton::clicked,this,[this,grid_bounds_width_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsWidthCommand{UnlinkGridBoundsWidth{grid_bounds_width_ref}}});});
     });
-    connect(grid_width_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_width_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_width_expression_apply,&QPushButton::clicked,this,[this,grid_bounds_width_ref,grid_width_expression,
         grid_width_replace,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsWidthCommand{SetGridBoundsWidthExpression{grid_bounds_width_ref,
             {grid_width_expression->toPlainText().toStdString(),1},grid_width_replace->isChecked()}}});
     });});
-    connect(grid_width_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_width_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref grid_bounds_height_ref{grid_id,"","grid.bounds.height"};
     auto* grid_height_source_box=new QGroupBox("Height source",grid_box);
     grid_height_source_box->setObjectName("grid-bounds-height-source");
@@ -3227,13 +3240,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_height_unlink,&QPushButton::clicked,this,[this,grid_bounds_height_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsHeightCommand{UnlinkGridBoundsHeight{grid_bounds_height_ref}}});});
     });
-    connect(grid_height_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_height_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_height_expression_apply,&QPushButton::clicked,this,[this,grid_bounds_height_ref,grid_height_expression,
         grid_height_replace,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsHeightCommand{SetGridBoundsHeightExpression{grid_bounds_height_ref,
             {grid_height_expression->toPlainText().toStdString(),1},grid_height_replace->isChecked()}}});
     });});
-    connect(grid_height_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_height_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref grid_column_gutter_ref{grid_id,"","grid.column_gutter"};
     auto* grid_column_gutter_source_box=new QGroupBox("Column gutter source",grid_box);
     grid_column_gutter_source_box->setObjectName("grid-column-gutter-source");
@@ -3312,7 +3325,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_column_gutter_unlink,&QPushButton::clicked,this,[this,grid_column_gutter_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridColumnGutterCommand{UnlinkGridColumnGutter{grid_column_gutter_ref}}});});
     });
-    connect(grid_column_gutter_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_column_gutter_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     auto* grid_column_gutter_expression_input=new ExpressionInput;
     grid_column_gutter_expression_input->setObjectName("grid-column-gutter-expression");
     grid_column_gutter_expression_input->setAccessibleName("Grid column gutter expression draft");
@@ -3423,30 +3436,37 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             grid_source_commit({GridRowGutterCommand{SetGridRowGutterExpression{grid_row_gutter_ref,
                 {grid_row_gutter_expression_input->toPlainText().toStdString(),1},grid_row_gutter_replace->isChecked()}}});
         });});
-    connect(grid_row_gutter_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_row_gutter_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new QHBoxLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
     auto* grid_apply=new QPushButton("Apply Grid",grid_actions);grid_apply->setObjectName("grid-apply");grid_buttons->addWidget(grid_apply);
     auto* grid_copy=new QPushButton("Set Grid to margin box",grid_actions);grid_copy->setObjectName("grid-copy-margin-box");grid_copy->setToolTip("Copy the evaluated Margin box once; later Margin edits do not change Grid.");grid_buttons->addWidget(grid_copy);
-    auto* grid_clear=new QPushButton("Clear Grid",grid_actions);grid_clear->setObjectName("grid-clear");grid_clear->setEnabled(board.layout&&board.layout->grid);grid_buttons->addWidget(grid_clear);
+    auto* grid_clear=new QPushButton("Clear Grid",grid_actions);grid_clear->setObjectName("grid-clear");grid_clear->setEnabled(resolved.layout&&resolved.layout->grid);grid_buttons->addWidget(grid_clear);
     grid_form->addRow(grid_actions);
     for(auto* input:{grid_x,grid_y,grid_width,grid_height,grid_columns,grid_rows,grid_column_gutter,grid_row_gutter})bind_number(input,grid_box,grid_builder);
     connect(grid_apply,&QPushButton::clicked,this,[commit_from,grid_box,grid_builder]{commit_from(grid_box,grid_builder);});
-    connect(grid_copy,&QPushButton::clicked,this,[this,read,composition,id,grid_id,commit_explicit,guard_editor,grid_box] {
+    connect(grid_copy,&QPushButton::clicked,this,[this,read,composition,id,grid_id,set_layout_command,commit_explicit,guard_editor,grid_box] {
         if(guard_editor())return;
         const auto current=read();
-        if(!current.layout||!current.layout->margin) {statusBar()->showMessage("INVALID_LAYOUT: Add an authored Margin before copying its box",12000);return;}
         const auto board_now=evaluate_artboard(find_composition(host.session.document(),composition),id);
-        const auto& margin=*board_now.layout->margin;auto value=current.layout.value();
+        if(!board_now.layout||!board_now.layout->margin) {statusBar()->showMessage("INVALID_LAYOUT: Add a Margin before copying its box",12000);return;}
+        const auto& margin=*board_now.layout->margin;auto value=current.layout.value_or(ArtboardLayout{});
         auto grid=value.grid.value_or(Grid{grid_id,{},1,1,0,0});
+        if(!value.grid&&board_now.layout->grid) {
+            // Inherited source metadata belongs to its authored owner. This is a
+            // one-shot literal family override, not a cloned source dependency.
+            const auto& inherited=*board_now.layout->grid;
+            grid=Grid{grid_id,inherited.bounds,inherited.columns,inherited.rows,
+                inherited.column_gutter,inherited.row_gutter};
+        }
         grid.bounds={margin.left,margin.top,board_now.width-margin.left-margin.right,
             board_now.height-margin.top-margin.bottom};
         value.grid=std::move(grid);
-        commit_explicit(grid_box,[composition,id,value]{return std::vector<Command>{SetArtboardLayout{composition,id,value}};});
+        commit_explicit(grid_box,[set_layout_command,value]{return set_layout_command(value,"layout.grid");});
     });
-    connect(grid_clear,&QPushButton::clicked,this,[this,read,composition,id,commit_explicit,grid_box] {
+    connect(grid_clear,&QPushButton::clicked,this,[read,set_layout_command,commit_explicit,guard_editor,grid_box] {
+        if(guard_editor())return;
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});value.grid.reset();
-        const auto payload=(value.margin?std::optional<ArtboardLayout>(value):std::nullopt);
-        commit_explicit(grid_box,[composition,id,payload]{return std::vector<Command>{SetArtboardLayout{composition,id,payload}};});
+        commit_explicit(grid_box,[set_layout_command,value]{return set_layout_command(value,"layout.grid");});
     });
     layout->addWidget(grid_box);
 
