@@ -5489,7 +5489,8 @@ void transform_objects(Document& document,const TransformObjects& command) {
 }
 void arrange_objects(Document& document,const std::vector<Id>& objects,const std::string& axis,
     const std::optional<std::string>& alignment,const std::string& requested_reference,
-    const std::optional<double>& spacing,const std::optional<Id>& legacy_artboard={}) {
+    const std::optional<double>& spacing,const std::optional<Id>& legacy_artboard={},
+    const std::optional<Id>& guide_artboard={}) {
     require(axis=="x"||axis=="y","INVALID_ALIGNMENT","Axis must be x or y");
     require(!alignment||*alignment=="min"||*alignment=="center"||*alignment=="max"||*alignment=="baseline",
         "INVALID_ALIGNMENT","Alignment must be min, center, max or baseline");
@@ -5512,6 +5513,11 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         throw Error("INVALID_REFERENCE","Unsupported layout reference: "+reference);
     };
     const auto target=parse_reference();
+    if(guide_artboard) {
+        identity(*guide_artboard);
+        require(target.kind==ReferenceKind::guide&&alignment&&!legacy_artboard,"INVALID_REFERENCE",
+            "guide_artboard requires a Guide alignment reference without the legacy Artboard alias");
+    }
     const bool baseline=alignment&&*alignment=="baseline";
     if(baseline)require(axis=="y","INVALID_ALIGNMENT","First-line baseline alignment only supports y");
     if(alignment)require(!spacing,"UNEXPECTED_SPACING","Spacing is only valid for key-object distribution");
@@ -5559,6 +5565,7 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
     const Artboard* target_artboard=nullptr;
     const Grid* target_grid=nullptr;
     const Guide* target_guide=nullptr;
+    std::optional<double> scoped_guide_position;
     if(target.kind==ReferenceKind::artboard) {
         const auto found=std::find_if(plane->artboards.begin(),plane->artboards.end(),[&](const auto& item){return item.id==target.id;});
         if(found==plane->artboards.end())throw Error(cross_composition(target.id,target.kind)?"CROSS_COMPOSITION":"MISSING_ARTBOARD",target.id);
@@ -5569,10 +5576,25 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         }
         if(!target_grid)throw Error(cross_composition(target.id,target.kind)?"CROSS_COMPOSITION":"MISSING_GRID",target.id);
     } else if(target.kind==ReferenceKind::guide) {
+        if(guide_artboard) {
+            const auto board=std::find_if(plane->artboards.begin(),plane->artboards.end(),
+                [&](const auto& item){return item.id==*guide_artboard;});
+            if(board==plane->artboards.end())
+                throw Error(cross_composition(*guide_artboard,ReferenceKind::artboard)?"CROSS_COMPOSITION":"MISSING_ARTBOARD",*guide_artboard);
+            const auto occurrences=effective_artboard_guides(document,plane->id,*guide_artboard);
+            const auto guide=std::find_if(occurrences.begin(),occurrences.end(),[&](const auto& item){return item.guide_id==target.id;});
+            require(guide!=occurrences.end(),"MISSING_ARTBOARD_GUIDE",target.id);
+            require(guide->enabled,"DISABLED_ARTBOARD_GUIDE",target.id);
+            require(guide->axis==axis,"GUIDE_AXIS_MISMATCH","Guide axis does not match the requested alignment axis: "+target.id);
+            const auto frame=evaluate_artboard(*plane,*guide_artboard);
+            scoped_guide_position=(axis=="x"?frame.x:frame.y)+guide->position;
+            finite(*scoped_guide_position);
+        } else {
         const auto found=std::find_if(plane->guides.begin(),plane->guides.end(),[&](const auto& item){return item.id==target.id;});
         if(found==plane->guides.end())throw Error(cross_composition(target.id,target.kind)?"CROSS_COMPOSITION":"MISSING_GUIDE",target.id);
         target_guide=&*found;
         require(target_guide->axis==axis,"GUIDE_AXIS_MISMATCH","Guide axis does not match the requested alignment axis: "+target.id);
+        }
     }
     const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
     std::map<Id,Bounds> initial;std::optional<Bounds> selection_bounds;
@@ -5631,7 +5653,8 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
                 return *alignment=="min"?minimum:*alignment=="max"?maximum:minimum+(maximum-minimum)/2;
             };
             double desired=0;
-            if(target.kind==ReferenceKind::guide)desired=evaluate_guide_position(document,plane->id,target_guide->id);
+            if(target.kind==ReferenceKind::guide)desired=scoped_guide_position?*scoped_guide_position:
+                evaluate_guide_position(document,plane->id,target_guide->id);
             else desired=coordinate(*reference_bounds());
             for(const auto& id:objects) {
                 if(target.kind==ReferenceKind::key_object&&id==target.id)continue;
@@ -7634,7 +7657,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         } else if constexpr(std::is_same_v<T,TransformObjects>) {
             transform_objects(candidate,c);
         } else if constexpr(std::is_same_v<T,AlignObjects>) {
-            arrange_objects(candidate,c.objects,c.axis,c.alignment,c.reference,{},c.artboard);
+            arrange_objects(candidate,c.objects,c.axis,c.alignment,c.reference,{},c.artboard,c.guide_artboard);
         } else if constexpr(std::is_same_v<T,DistributeObjects>) {
             arrange_objects(candidate,c.objects,c.axis,{},c.reference,c.spacing);
         } else if constexpr(std::is_same_v<T,CenterAnchor>) {

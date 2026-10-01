@@ -137,8 +137,10 @@ private:
     void add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected);
     void transform_selection();
     void distribute_selection(const std::string& axis,const std::string& reference="selection",std::optional<double> spacing={});
-    void align_selection(const std::string& axis,const std::string& alignment,const std::string& reference);
+    void align_selection(const std::string& axis,const std::string& alignment,const std::string& reference,
+        const std::optional<Id>& guide_artboard={});
     std::string alignment_reference_="selection";
+    std::optional<Id> alignment_guide_artboard_;
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
     void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);

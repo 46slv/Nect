@@ -2404,13 +2404,15 @@ Command read_command(const j::value& v) {
             o.contains("reference")?text(o.at("reference")):"selection",spacing};
     }
     if(type=="align_objects") {
-        keys(o,{"type","objects","axis","alignment","artboard","reference"});
+        keys(o,{"type","objects","axis","alignment","artboard","reference","guide_artboard"});
         if(o.contains("artboard")&&o.contains("reference"))
             throw Error("INVALID_REFERENCE","Specify either reference or the legacy artboard alias, not both");
         std::optional<Id> artboard;
         if(o.contains("artboard")&&!o.at("artboard").is_null())artboard=text(o.at("artboard"));
+        std::optional<Id> guide_artboard;
+        if(o.contains("guide_artboard")&&!o.at("guide_artboard").is_null())guide_artboard=text(o.at("guide_artboard"));
         return AlignObjects{ids(o.at("objects")),text(o.at("axis")),text(o.at("alignment")),artboard,
-            o.contains("reference")?text(o.at("reference")):"selection"};
+            o.contains("reference")?text(o.at("reference")):"selection",guide_artboard};
     }
     if(type=="transform_objects") {
         keys(o,{"type","objects","rotation","scale_x","scale_y","pivot"});

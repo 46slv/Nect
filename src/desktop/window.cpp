@@ -7261,11 +7261,12 @@ void Window::distribute_selection(const std::string& axis,const std::string& ref
     if(host.session.revision()!=revision)host.edited();
 }
 
-void Window::align_selection(const std::string& axis,const std::string& alignment,const std::string& reference) {
+void Window::align_selection(const std::string& axis,const std::string& alignment,const std::string& reference,
+    const std::optional<Id>& guide_artboard) {
     if(std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& selection){return !selection.point.empty();}))
         throw Error("INVALID_SELECTION","Select whole objects to align their bounds");
     const auto revision=host.session.revision();
-    host.session.apply({AlignObjects{canvas->selected_objects(),axis,alignment,{},reference}},revision);
+    host.session.apply({AlignObjects{canvas->selected_objects(),axis,alignment,{},reference,guide_artboard}},revision);
     if(host.session.revision()!=revision)host.edited();
 }
 
@@ -7295,15 +7296,33 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
     for(const auto& guide:active_composition.guides)
         alignment_target->addItem(QString("Guide: %1 (%2) · %3=%4")
             .arg(qs(guide.name),qs(guide.id),qs(guide.axis),QString::number(guide_positions.at(guide.id),'g',15)),qs("guide:"+guide.id));
+    for(const auto& board:active_composition.artboards) {
+        const auto frame=evaluate_artboard(active_composition,board.id);
+        for(const auto& guide:effective_artboard_guides(d,active_composition.id,board.id))if(guide.enabled) {
+            const auto position=(guide.axis=="x"?frame.x:frame.y)+guide.position;
+            alignment_target->addItem(QString("Guide: %1 (%2) · Artboard: %3 (%4) · %5=%6")
+                .arg(qs(guide.name),qs(guide.guide_id),qs(board.name),qs(board.id),qs(guide.axis),QString::number(position,'g',15)),
+                qs("guide:"+guide.guide_id));
+            alignment_target->setItemData(alignment_target->count()-1,qs(board.id),Qt::UserRole+1);
+            alignment_target->setItemData(alignment_target->count()-1,qs(guide.axis),Qt::UserRole+2);
+        }
+    }
     for(int index=0;index<alignment_target->count();++index)
         alignment_target->setItemData(index,alignment_target->itemText(index),Qt::ToolTipRole);
-    auto target_index=alignment_target->findData(qs(alignment_reference_));
-    if(target_index<0){alignment_reference_="selection";target_index=0;}
+    int target_index=-1;
+    for(int i=0;i<alignment_target->count();++i) {
+        const auto scope=alignment_target->itemData(i,Qt::UserRole+1).toString();
+        if(alignment_target->itemData(i).toString()==qs(alignment_reference_)&&
+            (alignment_guide_artboard_?scope==qs(*alignment_guide_artboard_):scope.isEmpty())){target_index=i;break;}
+    }
+    if(target_index<0){alignment_reference_="selection";alignment_guide_artboard_.reset();target_index=0;}
     alignment_target->setCurrentIndex(target_index);
     alignment_target->setToolTip(alignment_target->itemText(target_index));
     alignment_layout->addWidget(alignment_target);
     connect(alignment_target,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,alignment_target](int index){
         alignment_reference_=alignment_target->itemData(index).toString().toStdString();
+        const auto scope=alignment_target->itemData(index,Qt::UserRole+1).toString();
+        alignment_guide_artboard_=scope.isEmpty()?std::optional<Id>{}:std::optional<Id>{scope.toStdString()};
         alignment_target->setToolTip(alignment_target->itemText(index));
     });
     auto* spacing_row=new QVBoxLayout;alignment_layout->addLayout(spacing_row);
@@ -7339,7 +7358,9 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
             button->setToolTip("Align evaluated geometric bounds in Composition du; excludes stroke width.");row->addWidget(button);
             connect(button,&QPushButton::clicked,this,[this,axis,mode,alignment_target]{
                 const auto reference=alignment_target->currentData().toString().toStdString();
-                perform([&]{align_selection(axis,mode,reference);});
+                const auto scope=alignment_target->currentData(Qt::UserRole+1).toString();
+                perform([&]{align_selection(axis,mode,reference,
+                    scope.isEmpty()?std::optional<Id>{}:std::optional<Id>{scope.toStdString()});});
             });
         }
     }
@@ -7372,9 +7393,12 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
         const auto reference=alignment_target->currentData().toString().toStdString();
         const auto& composition=find_composition(host.session.document(),active_composition_id);
         const auto guide=reference.starts_with("guide:")?std::find_if(composition.guides.begin(),composition.guides.end(),[&](const auto& item){return "guide:"+item.id==reference;}):composition.guides.end();
+        const auto scope=alignment_target->currentData(Qt::UserRole+1).toString();
+        const auto guide_axis=scope.isEmpty()?(guide!=composition.guides.end()?qs(guide->axis):QString{}):
+            alignment_target->currentData(Qt::UserRole+2).toString();
         for(const auto axis:{"x","y"})for(const auto mode:{"min","center","max"})
             if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-align-%1-%2").arg(axis,mode)))
-                button->setEnabled(ordinary&&(!reference.starts_with("guide:")||(guide!=composition.guides.end()&&guide->axis==axis)));
+                button->setEnabled(ordinary&&(!reference.starts_with("guide:")||guide_axis==QString::fromLatin1(axis)));
         if(auto* button=alignment_box->findChild<QPushButton*>("quick-align-y-baseline"))button->setEnabled(baseline_ok);
         for(const auto axis:{"x","y"})if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-distribute-%1").arg(axis)))button->setEnabled(distribution);
         spacing_input->setEnabled(reference.starts_with("key_object:"));

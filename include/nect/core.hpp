@@ -978,6 +978,9 @@ struct AlignObjects {
     // Retained as a source-compatible C++ alias. JSON callers should use reference.
     std::optional<Id> artboard;
     std::string reference="selection";
+    // With a Guide reference, identify an Artboard-local/inherited occurrence.
+    // Separate IDs avoid delimiter-packed identities; omitted means global Guide.
+    std::optional<Id> guide_artboard;
 };
 struct AttachGroupPathFollow { Id group; GroupPathFollow relation; };
 struct UpdateGroupPathFollow { Id group; GroupPathFollow relation; };
