@@ -620,7 +620,15 @@ literal remains absolute. A mixed row cannot be copied as a single Value/Referen
 
 Every Object stores `anchor:[Scalar x,Scalar y]` and `transform_parent:id|null`.
 Old files migrate to Anchor(0,0), null parent, with their exact six affine Scalars,
-references and placement retained. New GUI shapes explicitly Center Anchor once;
+references and placement retained. Fresh Primitive, Path and Text creation initializes
+Anchor once from canonical local geometry in the shared Session transaction;
+GUI, API and MCP callers need no additional Center Anchor command. Initial atomic
+batches resolve forward references before initialization, and explicitly authored
+Anchor axes take precedence. Geometry depending on another fresh Anchor initializes
+that source first; a circular initial-Anchor dependency rejects atomically with
+CREATION_ANCHOR_CYCLE. Anchor-dependent position/transform commands in the
+same batch consume the initialized center. Empty geometry retains a neutral Anchor;
+the explicit Center Anchor command still rejects EMPTY_BOUNDS.
 GroupContiguous initializes its new Group at current geometric bounds center.
 Later child/source changes never implicitly recenter an authored Anchor.
 

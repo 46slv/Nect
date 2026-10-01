@@ -285,6 +285,147 @@ void cubic_stack_and_text_bounds() {
 #endif
 }
 
+void fresh_creation_anchor_contract() {
+    auto document=empty_document("fresh-document","fresh-composition","fresh-artboard");
+    Session session(document);auto curve=path("fresh-curve").contours;
+    auto& points=curve.front().points;
+    points.front().x.literal=0;points.front().y.literal=0;points.back().x.literal=100;points.back().y.literal=0;
+    points.front().out_angle.literal=90;points.front().out_length.literal=100;
+    points.back().in_angle.literal=90;points.back().in_length.literal=100;
+    apply(session,{CreatePath{"fresh-composition","","fresh-curve","Curve",curve}});
+    auto values=evaluate(session.document());
+    near(values.at(tf("fresh-curve","anchor_x")),50,"Fresh Path initializes exact cubic center X");
+    near(values.at(tf("fresh-curve","anchor_y")),37.5,"Fresh Path uses cubic extrema, not handle bounds");
+    const auto created=session.document();session.undo(session.revision());check(session.document()==document,"One creation Undo removes its entire initialized state");
+    session.redo(session.revision());check(session.document()==created,"Creation Redo restores exact Anchor");
+    apply(session,{Set{{"fresh-curve",points.back().id,"x"},200}});
+    near(evaluate(session.document()).at(tf("fresh-curve","anchor_x")),50,"Later geometry edit leaves Anchor fixed");
+    apply(session,{CenterAnchor{"fresh-curve"}});
+    near(evaluate(session.document()).at(tf("fresh-curve","anchor_x")),100,"Explicit Center Anchor uses edited geometry");
+    auto primitive=default_primitive("fresh-source","nect.shape.ellipse");
+    primitive.parameters.at("center_x").literal=70;primitive.parameters.at("center_y").literal=90;
+    apply(session,{CreatePrimitive{"fresh-composition","","fresh-primitive","Ellipse",primitive}});
+    near(evaluate(session.document()).at(tf("fresh-primitive","anchor_x")),70,"Direct Primitive initial center X");
+    near(evaluate(session.document()).at(tf("fresh-primitive","anchor_y")),90,"Direct Primitive initial center Y");
+    apply(session,{Set{{"fresh-primitive","","generator.center_x"},100}});
+    near(evaluate(session.document()).at(tf("fresh-primitive","anchor_x")),70,"Generator edits do not recenter");
+    const DuplicateObjects duplicate{{"fresh-primitive"},"fresh-copy"};const auto copied=duplicated_roots(session.document(),duplicate).front();
+    apply(session,{duplicate,ConvertToPath{copied}});
+    near(evaluate(session.document()).at(tf(copied,"anchor_x")),70,"Duplicate and Convert preserve authored Anchor rather than new bounds center");
+    apply(session,{CreateFolder{"fresh-composition","","fresh-empty","Empty"}});
+    near(evaluate(session.document()).at(tf("fresh-empty","anchor_x")),0,"Empty Folder remains neutral");
+    atomic_reject(session,"EMPTY_BOUNDS",{CenterAnchor{"fresh-empty"}});
+    auto child=path("fresh-child").contours;
+    apply(session,{CreatePath{"fresh-composition","fresh-empty","fresh-child","Child",child}});
+    near(evaluate(session.document()).at(tf("fresh-empty","anchor_x")),0,"Adding content does not center old empty Folder");
+#ifdef _WIN32
+    auto text=default_text("fresh-text-source","");text.layout="frame";
+    text.parameters.at("origin_x").literal=10;text.parameters.at("origin_y").literal=20;
+    text.parameters.at("frame_width").literal=200;text.parameters.at("frame_height").literal=100;
+    apply(session,{CreateText{"fresh-composition","","fresh-text","Text",text}});
+    near(evaluate(session.document()).at(tf("fresh-text","anchor_x")),110,"Direct frame Text center X");
+    near(evaluate(session.document()).at(tf("fresh-text","anchor_y")),70,"Direct frame Text center Y");
+    text.parameters.at("frame_width").literal=400;apply(session,{UpdateText{"fresh-text",text}});
+    near(evaluate(session.document()).at(tf("fresh-text","anchor_x")),110,"Text content/frame edits leave Anchor fixed");
+#endif
+    Session reopened(decode(encode(session.document())));check(reopened.document()==session.document(),"Fresh Anchors reopen in native without a version change");
+    auto forward=path("fresh-forward").contours;forward.front().points.front().y.literal=20;
+    forward.front().points.back().x.literal=50;forward.front().points.back().y.literal=60;
+    forward.front().points.front().x.binding=Binding{{"fresh-driver","fresh-driver-first","x"},1,0,"copy_local_value"};
+    apply(session,{CreatePath{"fresh-composition","","fresh-forward","Forward",forward},
+        Set{tf("fresh-forward","anchor_x"),123},CreatePath{"fresh-composition","","fresh-driver","Driver",path("fresh-driver").contours}});
+    near(evaluate(session.document()).at(tf("fresh-forward","anchor_x")),123,"Forward reference batch retains explicit Anchor X");
+    near(evaluate(session.document()).at(tf("fresh-forward","anchor_y")),40,"Forward reference batch still initializes untouched Anchor axis");
+    auto invalid=path("fresh-invalid").contours;invalid.front().points.front().x.binding=Binding{{"absent","p","x"},1,0,"copy_local_value"};
+    atomic_reject(session,"MISSING_REFERENCE",{CreatePath{"fresh-composition","","fresh-invalid","Invalid",invalid}});
+    atomic_reject(session,"MISSING_COMPOSITION",{CreatePath{"missing","","fresh-invalid","Invalid",curve}});
+    const auto before=session.document();rejects("REVISION_CONFLICT",[&]{session.apply({CreatePath{"fresh-composition","","stale","Stale",curve}},session.revision()+1);});
+    check(session.document()==before,"Stale creation cannot initialize partial Anchor state");
+    Session pivot(document);apply(pivot,{CreatePath{"fresh-composition","","pivot","Pivot",curve},SetPosition{"pivot",300,200}});
+    near(evaluate(pivot.document()).at(tf("pivot","tx")),250,"Create then SetPosition consumes initialized Anchor X");
+    near(evaluate(pivot.document()).at(tf("pivot","ty")),162.5,"Create then SetPosition consumes initialized Anchor Y");
+    Session copies(document);auto shifted=primitive;shifted.parameters.at("center_x").literal=70;
+    apply(copies,{CreatePrimitive{"fresh-composition","","original","Original",shifted},DuplicateObjects{{"original"},"copy"},
+        Set{{"original","","generator.center_x"},100},ConvertToPath{"copy-1"}});
+    near(evaluate(copies.document()).at(tf("copy-1","anchor_x")),70,"Same-batch copy/Convert centers its retained creation geometry");
+    near(evaluate(copies.document()).at(tf("original","anchor_x")),100,"Initial committed source geometry determines original Anchor");
+    auto driver=primitive;driver.id="anchor-driver-source";driver.parameters.at("center_x").literal=100;
+    auto dependent=primitive;dependent.id="anchor-dependent-source";
+    dependent.parameters.at("center_x").binding=Binding{tf("z-driver","anchor_x"),1,0,"copy_local_value"};
+    Session ordered(document);apply(ordered,{CreatePrimitive{"fresh-composition","","a-dependent","Dependent",dependent},
+        CreatePrimitive{"fresh-composition","","z-driver","Driver",driver}});
+    near(evaluate(ordered.document()).at(tf("a-dependent","anchor_x")),100,"New Anchor dependency initializes its source before its dependent, independent of ID order");
+    driver.parameters.at("center_x").binding=Binding{tf("a-dependent","anchor_x"),1,0,"copy_local_value"};
+    Session cycle(document);atomic_reject(cycle,"CREATION_ANCHOR_CYCLE",{
+        CreatePrimitive{"fresh-composition","","a-dependent","Dependent",dependent},CreatePrimitive{"fresh-composition","","z-driver","Driver",driver}});
+    Session no_op(document);apply(no_op,{CreatePrimitive{"fresh-composition","","no-op","No-op",primitive},
+        TransformAroundAnchor{"no-op",0,1,1},Set{{"no-op","","generator.center_x"},100}});
+    near(evaluate(no_op.document()).at(tf("no-op","anchor_x")),100,"Identity pivot does not consume pending initialization");
+    Session reused(document);apply(reused,{CreatePrimitive{"fresh-composition","","reused","Reused",primitive},
+        DeleteObjects{{"reused"}},CreateFolder{"fresh-composition","","reused","Folder"},
+        CreatePath{"fresh-composition","reused","child","Child",path("child").contours}});
+    near(evaluate(reused.document()).at(tf("reused","anchor_x")),0,"Deleted creation marker cannot center a replacement Folder after adding children");
+#ifdef _WIN32
+    auto attached=default_text("attached-source","Path");
+    attached.path_attachment=TextPathAttachment{"attached-path","attached-path-contour","distance",0,0,false};
+    const auto attachment_path=path("attached-path",{0,0},{320,0}).contours;
+    auto anchor_driver=primitive;anchor_driver.id="attached-driver-source";anchor_driver.parameters.at("center_x").literal=100;
+    Session projected(document);apply(projected,{CreatePath{"fresh-composition","","attached-path","Path",attachment_path},
+        CreateText{"fresh-composition","","a-text","Text",attached},
+        CreatePrimitive{"fresh-composition","","z-driver","Driver",anchor_driver},
+        Link{tf("a-text","tx"),Binding{tf("z-driver","anchor_x"),1,0,"copy_local_value"}}});
+    const auto projected_anchor=evaluate(projected.document()).at(tf("a-text","anchor_x"));
+    apply(projected,{CenterAnchor{"a-text"}});
+    near(evaluate(projected.document()).at(tf("a-text","anchor_x")),projected_anchor,"Attached Text initializes after its effective transform's fresh Anchor dependency");
+    for(const bool source_parent:{false,true}) {
+        Session inherited(document);apply(inherited,{CreateFolder{"fresh-composition","","attachment-parent","Parent"},
+            CreatePath{"fresh-composition",source_parent?"attachment-parent":"","attached-path","Path",attachment_path},
+            CreateText{"fresh-composition",source_parent?"":"attachment-parent","a-text","Text",attached},
+            CreatePrimitive{"fresh-composition","","z-driver","Driver",anchor_driver},
+            Link{tf("attachment-parent","tx"),Binding{tf("z-driver","anchor_x"),1,0,"copy_local_value"}}});
+        const auto anchor=evaluate(inherited.document()).at(tf("a-text","anchor_x"));apply(inherited,{CenterAnchor{"a-text"}});
+        near(evaluate(inherited.document()).at(tf("a-text","anchor_x")),anchor,"Text projection follows fresh Anchor dependencies inherited by either world transform");
+    }
+    Session unused_path_anchor(document);apply(unused_path_anchor,{CreatePath{"fresh-composition","","attached-path","Path",attachment_path},
+        CreateText{"fresh-composition","","a-text","Text",attached},
+        Link{tf("attached-path","anchor_x"),Binding{tf("a-text","anchor_x"),1,0,"copy_local_value"}}});
+    near(evaluate(unused_path_anchor.document()).at(tf("attached-path","anchor_x")),
+        evaluate(unused_path_anchor.document()).at(tf("a-text","anchor_x")),"Unused source Path Anchor link is valid and does not create a projection cycle");
+    auto dependent_path=attachment_path;
+    dependent_path.front().points.back().x.binding=Binding{tf("z-driver","anchor_x"),1,0,"copy_local_value"};
+    auto empty_attached=attached;empty_attached.content="";
+    Session pending_length(document);apply(pending_length,{CreatePath{"fresh-composition","","attached-path","Path",dependent_path},
+        CreateText{"fresh-composition","","a-text","Text",empty_attached},
+        CreatePrimitive{"fresh-composition","","z-driver","Driver",anchor_driver}});
+    near(evaluate(pending_length.document()).at({"attached-path","attached-path-last","x"}),100,
+        "Final geometry validation waits for fresh Anchor dependencies instead of rejecting the provisional zero-length Path");
+    auto unrelated=document;auto follow_path=path("unrelated-path",{0,0},{320,0});auto follower=path("unrelated-child");
+    Object follow_group;follow_group.id="unrelated-group";follow_group.name="Follow";follow_group.kind=Kind::group;follow_group.children={follower.id};
+    GroupPathFollow follow;follow.id="unrelated-relation";follow.path=follow_path.id;follow.contour=follow_path.contours.front().id;follow.items={{follower.id,{}}};
+    follow_group.path_follow=follow;
+    unrelated.objects={{follow_path.id,follow_path},{follow_group.id,follow_group},{follower.id,follower}};
+    unrelated.compositions.front().roots={follow_path.id,follow_group.id};Session independent_projection(unrelated);
+    apply(independent_projection,{CreatePath{"fresh-composition","","attached-path","Path",attachment_path},
+        CreateText{"fresh-composition","","a-text","Text",empty_attached},
+        CreatePrimitive{"fresh-composition","","z-driver","Driver",anchor_driver},
+        Link{{"unrelated-path","unrelated-path-last","x"},Binding{tf("z-driver","anchor_x"),1,0,"copy_local_value"}}});
+    near(evaluate(independent_projection.document()).at({"unrelated-path","unrelated-path-last","x"}),100,
+        "Unrelated provisional Path Follow geometry does not block fresh Text initialization");
+    check(independent_projection.document().objects.at("unrelated-group").path_follow==follow,
+        "Projection evaluation never changes authored Path Follow state");
+    Session followed_projection(unrelated);apply(followed_projection,{
+        CreatePath{"fresh-composition","","attached-path","Path",attachment_path},
+        CreateText{"fresh-composition","unrelated-group","a-text","Text",attached},
+        Command{GroupPathFollowCommand{SetGroupPathFollowItem{"unrelated-group","a-text",{40,0,true}}}},
+        CreatePrimitive{"fresh-composition","","z-driver","Driver",anchor_driver},
+        Link{{"unrelated-path","unrelated-path-last","x"},Binding{tf("z-driver","anchor_x"),1,0,"copy_local_value"}}});
+    const auto followed_anchor=evaluate(followed_projection.document()).at(tf("a-text","anchor_x"));
+    apply(followed_projection,{CenterAnchor{"a-text"}});
+    near(evaluate(followed_projection.document()).at(tf("a-text","anchor_x")),followed_anchor,
+        "Fresh Text projection retains its own required Path Follow frame and initializes that frame's source dependencies");
+#endif
+}
+
 void group_initial_center_and_external_bounds() {
     auto document=empty_document("document","composition","artboard");auto a=path("a"),b=path("b");
     matrix(a,{1,0,0,1,10,20});matrix(b,{1,0,0,1,50,40});document.objects={{"a",a},{"b",b}};document.compositions.front().roots={"a","b"};
@@ -762,7 +903,7 @@ void group_path_deform() {
 
 int main() {
     try {
-        common_pivot_edits();anchor_and_relative_edits();driven_axes_and_anchor_links();parent_replacement_and_keep_world();
+        fresh_creation_anchor_contract();common_pivot_edits();anchor_and_relative_edits();driven_axes_and_anchor_links();parent_replacement_and_keep_world();
         parent_failures_and_effective_cycles();singular_parent_contract();cubic_stack_and_text_bounds();group_initial_center_and_external_bounds();
         rigid_group_path_follow();
         group_path_deform();

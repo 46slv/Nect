@@ -3764,4 +3764,35 @@ with tempfile.TemporaryDirectory() as tmp:
         next(obj for obj in expression_replies[2]['result']['objects'] if obj['id']=='path-B')['compositing']['isolated_expression']==expression_value and
         path.read_bytes()==expression_before,
         'A distinct JSON-lines process cold-opens Composite isolation expression with matching typed state and stable native bytes')
+with tempfile.TemporaryDirectory(prefix='nect-g26-') as directory:
+    g26_base=json.loads(json.dumps(sample));g26_base['objects']=[]
+    for composition in g26_base['compositions']:composition['roots']=[]
+    initial=Path(directory)/'initial.nect';initial.write_text(json.dumps(g26_base),encoding='utf-8')
+    defaults=subprocess.run([exe,'--serve',str(initial)],input='{"op":"primitive_types"}\n{"op":"text_defaults"}\n',
+        text=True,capture_output=True,timeout=10)
+    defaults=[json.loads(line)['result'] for line in defaults.stdout.splitlines()]
+    ellipse=next(item['template'] for item in defaults[0] if item['type']=='nect.shape.ellipse')
+    ellipse['id']='g26-source';ellipse['parameters']['center_x']={'literal':70};ellipse['parameters']['center_y']={'literal':90}
+    text=defaults[1];text.update(id='g26-text-source',content='',layout='frame')
+    for field,value in [('origin_x',10),('origin_y',20),('frame_width',200),('frame_height',100)]:text['parameters'][field]={'literal':value}
+    points=[dict(id=pid,**{key:dict(literal=value) for key,value in [('x',x),('y',y),('in_angle',0),('in_length',0),('out_angle',0),('out_length',0)]})
+            for pid,x,y in [('g26-a',10,20),('g26-b',50,60)]]
+    commands=[dict(type='create_path',composition=g26_base['compositions'][0]['id'],parent='',id='g26-path',name='Path',
+                   contours=[dict(id='g26-contour',closed=False,points=points)]),
+              dict(type='create_primitive',composition=g26_base['compositions'][0]['id'],parent='',id='g26-ellipse',name='Ellipse',source=ellipse),
+              dict(type='create_text',composition=g26_base['compositions'][0]['id'],parent='',id='g26-text',name='Text',source=text)]
+    requests=[dict(op='apply',expected_revision=0,commands=commands),dict(op='inspect'),dict(op='undo',expected_revision=1),
+              dict(op='inspect'),dict(op='redo',expected_revision=2),dict(op='inspect')]
+    response=subprocess.run([exe,'--serve',str(initial)],input='\n'.join(map(json.dumps,requests))+'\n',text=True,capture_output=True,timeout=10)
+    replies=[json.loads(line) for line in response.stdout.splitlines()]
+    check(response.returncode==0 and replies[0]['ok'] and replies[0]['revision']==1,'JSON-lines creates initialized Anchors in one atomic revision')
+    created=replies[1]['result']
+    for oid,center in [('g26-path',(30,40)),('g26-ellipse',(70,90)),('g26-text',(110,70))]:
+        obj=next(o for o in created['objects'] if o['id']==oid)
+        check(obj['anchor']==[dict(literal=center[0]),dict(literal=center[1])],'JSON-lines fresh '+oid+' has hand-specified local center')
+    check(replies[3]['result']==g26_base and replies[5]['result']==created,'Creation Undo/Redo retains exact native Anchor state')
+    native=Path(directory)/'created.nect';native.write_text(json.dumps(created),encoding='utf-8');before=native.read_bytes()
+    cold=subprocess.run([exe,'--serve',str(native)],input='{"op":"inspect"}\n',text=True,capture_output=True,timeout=10)
+    check(cold.returncode==0 and json.loads(cold.stdout)['result']==created and native.read_bytes()==before,
+          'Independent process cold reopen preserves initialized Anchor literals without rewriting native bytes')
 print(f'PASS {checks} process and native migration checks')

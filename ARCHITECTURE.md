@@ -37,7 +37,7 @@ Changing Collection membership does not reparent source objects but can change o
 
 Future reparenting must distinguish coordinate preservation from appearance preservation. Parent-matrix inversion addresses coordinates only and fails for singular transforms. Masks, backdrop blend, isolation, effects and order can still change appearance. Reject or show a conversion plan when preservation is not possible; do not silently flatten.
 
-An authored Anchor is distinct from derived bounds center. GUI creation initializes it at the current center; it stays fixed through later content changes and supports explicit edits/recentering. The six affine Scalars remain the canonical transform, so editing Anchor alone preserves placement. Derived Position and one-shot rotation/scale commands solve that matrix about Anchor; they do not persist a second authoritative TRS state. See docs/model-v0.md for driven-field and singular-transform refusal boundaries.
+An authored Anchor is distinct from derived bounds center. Shared Session creation initializes it at the current local geometry center; it stays fixed through later content changes and supports explicit edits/recentering. The six affine Scalars remain the canonical transform, so editing Anchor alone preserves placement. Derived Position and one-shot rotation/scale commands solve that matrix about Anchor; they do not persist a second authoritative TRS state. See docs/model-v0.md for driven-field and singular-transform refusal boundaries.
 
 ## One live Session per open document
 

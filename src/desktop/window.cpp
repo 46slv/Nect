@@ -5356,7 +5356,7 @@ void Window::add_text() {
     const auto board=evaluate_artboard(comp,canvas->active_artboard());auto source=default_text(new_id());
     source.parameters.at("origin_x").literal=board.x+board.width*.15;
     source.parameters.at("origin_y").literal=board.y+board.height*.2;
-    const auto id=new_id();host.session.apply({CreateText{comp.id,"",id,"Text "+std::to_string(host.session.document().objects.size()+1),source},CenterAnchor{id}},host.session.revision());
+    const auto id=new_id();host.session.apply({CreateText{comp.id,"",id,"Text "+std::to_string(host.session.document().objects.size()+1),source}},host.session.revision());
     canvas->set_selection(id);host.edited();canvas->setFocus();
 }
 void Window::add_stack(QVBoxLayout* layout,const Object& object) {
@@ -6833,7 +6833,7 @@ void Window::add_curve() {
     Point a,b;a.id=new_id();b.id=new_id();
     a.x.literal=board.x+board.width*0.25;a.y.literal=board.y+board.height*0.4375;a.out_angle.literal=-40;a.out_length.literal=110;
     b.x.literal=board.x+board.width*0.6458333333333333;b.y.literal=board.y+board.height*0.5;b.in_angle.literal=140;b.in_length.literal=110;
-    host.session.apply({CreatePath{comp.id,"",object,"Curve "+std::to_string(host.session.document().objects.size()+1),{{new_id(),false,{a,b}}}},CenterAnchor{object}},host.session.revision());
+    host.session.apply({CreatePath{comp.id,"",object,"Curve "+std::to_string(host.session.document().objects.size()+1),{{new_id(),false,{a,b}}}}},host.session.revision());
     canvas->set_selection(object,a.id);host.edited();canvas->setFocus();
 }
 void Window::add_primitive(const std::string& type) {
@@ -6848,7 +6848,7 @@ void Window::add_primitive(const std::string& type) {
     source.parameters.at("center_y").literal=artboard.y+artboard.height/2;
     const auto id=new_id();
     const auto name=primitive_label(source).toStdString()+" "+std::to_string(document.objects.size()+1);
-    host.session.apply({CreatePrimitive{composition.id,{},id,name,std::move(source)},CenterAnchor{id}},host.session.revision());
+    host.session.apply({CreatePrimitive{composition.id,{},id,name,std::move(source)}},host.session.revision());
     canvas->set_selection(id);host.edited();canvas->setFocus();
 }
 void Window::add_operation(const std::string& type,bool radial) {

@@ -69,6 +69,24 @@ void window_controls(){
     window.host.save(temp.path()+"/transform.nect");const auto expected=encode(s.document());window.host.open(temp.path()+"/transform.nect");
     check(encode(window.host.session.document())==expected,"Native reopen retains anchors and external parent");
 }
+void creation_surface_parity() {
+    QTemporaryDir temp;Window window(temp.path());window.show();QApplication::processEvents();
+    auto& session=window.host.session;
+    for(const auto* action:{"add-rectangle","add-ellipse","add-curve","add-text"}) {
+        const auto before=session.document();const auto revision=session.revision();
+        window.findChild<QAction*>(action)->trigger();QApplication::processEvents();
+        const auto id=window.canvas->selected_object;const auto created=session.document();
+        check(created.objects.size()==before.objects.size()+1&&session.revision()==revision+1,"One Desktop creation action is one atomic revision");
+        const auto& object=created.objects.at(id);const auto& composition=before.compositions.front();
+        Session direct(before);
+        if(object.text)direct.apply({CreateText{composition.id,"",id,object.name,*object.text}},0);
+        else if(object.source)direct.apply({CreatePrimitive{composition.id,"",id,object.name,*object.source}},0);
+        else direct.apply({CreatePath{composition.id,"",id,object.name,object.contours}},0);
+        check(direct.document()==created,"Direct Session creation matches Desktop without extra CenterAnchor");
+        session.undo(session.revision());check(session.document()==before,"One Undo removes only the complete Desktop creation");
+        session.redo(session.revision());check(session.document()==created,"Redo restores initialized Desktop Anchor");
+    }
+}
 void selection_controls() {
     QTemporaryDir temp;Window window(temp.path());window.show();QApplication::processEvents();auto& session=window.host.session;
     const auto plane=session.document().compositions.front().id;
@@ -152,5 +170,5 @@ void canvas_coordinates(){
 }
 }
 int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
-    try{window_controls();selection_controls();canvas_coordinates();std::cout<<"PASS Anchor, affine controls, parent picker, transformed drag and native reopen\n";return 0;}
+    try{window_controls();creation_surface_parity();selection_controls();canvas_coordinates();std::cout<<"PASS Anchor, creation parity, affine controls, parent picker, transformed drag and native reopen\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

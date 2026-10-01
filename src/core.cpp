@@ -4214,7 +4214,7 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
     }
 }
 
-static std::map<Ref,double> validate_evaluated(const Document& d) {
+static std::map<Ref,double> validate_evaluated(const Document& d,const std::function<void()>& before_evaluation={}) {
     require(d.objects.size()<=10000 && d.compositions.size()<=128,"LIMIT","Document size limit");
     require(d.definitions.size()<=10000,"LIMIT","Definition count limit 10000");
     std::set<Id> ids;
@@ -4892,6 +4892,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d) {
         }
     }
 
+    if(before_evaluation)before_evaluation();
     auto values=evaluate(d);
     // Boolean Text Italic links and expressions are a separate typed lane from
     // Scalar evaluation. Validate every authored driver before geometry uses it.
@@ -5184,15 +5185,21 @@ void set_changed_scalar(Document& document,const Ref& ref,double value,const std
 void set_affine(Document& document,const Id& id,const Affine& matrix,const std::map<Ref,double>& values) {
     for(std::size_t i=0;i<matrix.size();++i)set_changed_scalar(document,{id,"",affine_fields[i]},matrix[i],values);
 }
+void center_anchor(Document& document,const Id& id,bool require_geometry,
+    const std::map<Ref,double>& values,const std::map<Id,EvaluatedTransform>& transforms,
+    const std::array<bool,2>& axes,const Document* geometry_document=nullptr) {
+    require(document.objects.contains(id),"MISSING_OBJECT",id);
+    // The Anchor is authored in source-local coordinates, never in the
+    // transient Group-local plane of a deformed leaf.
+    const auto bounds=object_bounds(geometry_document?*geometry_document:document,id,values,transforms,false,true);
+    if(!bounds){require(!require_geometry,"EMPTY_BOUNDS","Object has no geometry to center its Anchor");return;}
+    if(axes[0])set_changed_scalar(document,{id,"","transform.anchor_x"},bounds->left+(bounds->right-bounds->left)/2,values);
+    if(axes[1])set_changed_scalar(document,{id,"","transform.anchor_y"},bounds->top+(bounds->bottom-bounds->top)/2,values);
+}
 void center_anchor(Document& document,const Id& id,bool require_geometry) {
     require(document.objects.contains(id),"MISSING_OBJECT",id);
     const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
-    // The Anchor is authored in source-local coordinates, never in the
-    // transient Group-local plane of a deformed leaf.
-    const auto bounds=object_bounds(document,id,values,transforms,false,true);
-    if(!bounds){require(!require_geometry,"EMPTY_BOUNDS","Object has no geometry to center its Anchor");return;}
-    set_changed_scalar(document,{id,"","transform.anchor_x"},bounds->left+(bounds->right-bounds->left)/2,values);
-    set_changed_scalar(document,{id,"","transform.anchor_y"},bounds->top+(bounds->bottom-bounds->top)/2,values);
+    center_anchor(document,id,require_geometry,values,transforms,{true,true});
 }
 void scalar_targets(const Document& document,const std::vector<Ref>& targets,const std::map<Ref,double>& values) {
     require(!targets.empty()&&targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
@@ -6623,6 +6630,95 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
     },command);
 
     auto candidate=document;
+    // Initialize fresh Anchors from the first committed geometry. Keep forward
+    // references valid inside an atomic creation batch and respect explicit edits.
+    std::map<Id,std::array<bool,2>> new_anchors;
+    auto authored_anchor=[&](const Ref& ref) {
+        if(!ref.point.empty())return;
+        const auto found=new_anchors.find(ref.object);if(found==new_anchors.end())return;
+        if(ref.field=="transform.anchor_x")found->second[0]=false;
+        else if(ref.field=="transform.anchor_y")found->second[1]=false;
+    };
+    std::set<Id> initializing_anchors;
+    std::function<void(const Id&)> initialize_anchor=[&](const Id& id) {
+        const auto found=new_anchors.find(id);if(found==new_anchors.end())return;
+        if(found->second[0]||found->second[1]) {
+            require(initializing_anchors.insert(id).second,"CREATION_ANCHOR_CYCLE","Fresh geometry cannot circularly depend on initial Anchors");
+            const auto index=property_index(candidate);std::set<Ref> visited;
+            std::function<void(const Ref&)> dependency=[&](const Ref& ref) {
+                if(!visited.insert(ref).second)return;
+                if(ref.point.empty()&&(ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y")) {
+                    const auto pending=new_anchors.find(ref.object);
+                    if(pending!=new_anchors.end()&&pending->second[ref.field=="transform.anchor_y"?1:0])initialize_anchor(ref.object);
+                }
+                const auto scalar=index.find(ref);
+                if(scalar!=index.end()&&scalar->second) {
+                    if(scalar->second->binding)dependency(scalar->second->binding->source);
+                    if(scalar->second->expression)for(const auto& source:expression_dependencies(*scalar->second->expression))dependency(source);
+                } else if(const auto object=candidate.objects.find(ref.object);object!=candidate.objects.end()&&object->second.source)
+                    for(const auto& [parameter,value]:object->second.source->parameters) {
+                        (void)value;dependency({ref.object,"","generator."+parameter});
+                    }
+            };
+            const auto& object=candidate.objects.at(id);
+            std::optional<Document> projection_document;
+            for(const auto& [ref,scalar]:index)if(ref.object==id) {
+                (void)scalar;
+                bool geometry=!ref.point.empty()||ref.field.starts_with("generator.")||ref.field.starts_with("text.");
+                if(ref.field.starts_with("op.")) {
+                    const auto operation_id=operation_address(ref.field).first;
+                    geometry=operation(object,operation_id).type.starts_with("nect.shape.");
+                }
+                if(geometry)dependency(ref);
+            }
+            if(object.text&&object.text->path_attachment) {
+                // Projection reads both world matrices and the selected authored
+                // contour, but neither the Path's Anchor nor its paint state.
+                std::map<Id,Id> structural_parents;
+                for(const auto& [parent,entry]:candidate.objects)for(const auto& child:entry.children)structural_parents.emplace(child,parent);
+                std::set<Id> visited_transforms;
+                std::set<Id> required_follows;
+                std::function<void(const Id&)> transform_dependency;
+                auto contour_dependency=[&](const Id& path,const Id& contour) {
+                    const auto& contours=candidate.objects.at(path).contours;
+                    const auto found_contour=std::find_if(contours.begin(),contours.end(),[&](const Contour& value){return value.id==contour;});
+                    if(found_contour!=contours.end())for(const auto& point:found_contour->points)
+                        for(const auto& [ref,scalar]:index)if(ref.object==path&&ref.point==point.id){(void)scalar;dependency(ref);}
+                    transform_dependency(path);
+                };
+                transform_dependency=[&](const Id& target) {
+                    if(target.empty()||!visited_transforms.insert(target).second)return;
+                    for(const auto& field:affine_fields)dependency({target,"",field});
+                    const auto& target_object=candidate.objects.at(target);
+                    const Id parent=target_object.transform_parent?*target_object.transform_parent:structural_parents[target];
+                    transform_dependency(parent);
+                    if(!parent.empty()) {
+                        const auto& group=candidate.objects.at(parent);
+                        if(group.path_follow&&group.path_follow->items.contains(target)) {
+                            required_follows.insert(parent);
+                            contour_dependency(group.path_follow->path,group.path_follow->contour);
+                        }
+                    }
+                };
+                transform_dependency(id);
+                contour_dependency(object.text->path_attachment->path,object.text->path_attachment->contour);
+                // Keep the projection's exact world graph, without evaluating
+                // unrelated Path Follow geometry whose creation is still pending.
+                // The full candidate is validated after all Anchors initialize.
+                projection_document=candidate;
+                for(auto& [target,entry]:projection_document->objects)
+                    if(entry.path_follow&&!required_follows.contains(target))entry.path_follow.reset();
+            }
+            const auto values=evaluate(candidate);
+            // An ordinary fresh leaf's source-local bounds use identity, and
+            // need not evaluate unrelated world/projection graphs still pending.
+            const auto transforms=object.text&&object.text->path_attachment
+                ?evaluate_transforms(*projection_document,values):std::map<Id,EvaluatedTransform>{{id,{}}};
+            center_anchor(candidate,id,false,values,transforms,found->second,projection_document?&*projection_document:nullptr);
+            initializing_anchors.erase(id);
+        }
+        new_anchors.erase(found);
+    };
     for(const auto& command:commands) {
         if(const auto* structural=std::get_if<StructuralCommand>(&command)) {
             std::visit([&](const auto& value) {
@@ -6640,7 +6736,15 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
         if constexpr(std::is_same_v<T,DuplicateObjects>) {
-            duplicate_objects(candidate,c);
+            if(new_anchors.empty())duplicate_objects(candidate,c);
+            else {
+                const auto plan=plan_duplication(candidate,c);
+                duplicate_objects(candidate,c);
+                for(const auto& [source,copy]:plan.ids)if(plan.objects.contains(source)) {
+                    const auto found=new_anchors.find(source);
+                    if(found!=new_anchors.end())new_anchors.emplace(copy,found->second);
+                }
+            }
         } else if constexpr(std::is_same_v<T,SetVisibility>||std::is_same_v<T,SetCompositing>||std::is_same_v<T,SetMask>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);auto& object=candidate.objects.at(c.object);
             if constexpr(std::is_same_v<T,SetVisibility>) {
@@ -6809,6 +6913,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 require(unique.insert(canonical_target(candidate,target)).second,"DUPLICATE_TARGET","Each scalar target may occur only once, including aliases");
                 require(!scalar.binding||c.replace_binding,"DRIVEN_PROPERTY","Replacing an existing Binding requires replace_binding=true");
                 scalar.binding.reset();scalar.expression=c.expression;
+                authored_anchor(target);
             }
         } else if constexpr(std::is_same_v<T,LinkTextItalic>) {
             const auto& current=text_italic_source(candidate,c.target);
@@ -6907,6 +7012,10 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             source.fill_rule=value;source.fill_rule_driver.reset();
         } else if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
             require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
+            bool needs_anchor=true;
+            if constexpr(!std::is_same_v<T,UnlinkProperties>)needs_anchor=c.relative;
+            if(needs_anchor)for(const auto& target:c.targets)if(target.point.empty()&&
+                (target.field=="transform.anchor_x"||target.field=="transform.anchor_y"))initialize_anchor(target.object);
             const auto values=evaluate(candidate);scalar_targets(candidate,c.targets,values);
             if constexpr(std::is_same_v<T,EditProperties>)finite(c.value);
             else if constexpr(std::is_same_v<T,LinkProperties>) {
@@ -6922,6 +7031,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                     scalar.binding=Binding{c.source,1,c.relative?values.at(target)-values.at(c.source):0,"copy_local_value"};
                     scalar.expression.reset();
                 } else scalar=Scalar{values.at(target),{}};
+                authored_anchor(target);
             }
         } else if constexpr(std::is_same_v<T,TranslateObjects>) {
             std::map<Id,Vec2> displacements;for(const auto& id:c.objects)displacements.emplace(id,Vec2{c.dx,c.dy});
@@ -6934,8 +7044,11 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             arrange_objects(candidate,c.objects,c.axis,{},c.reference,c.spacing);
         } else if constexpr(std::is_same_v<T,CenterAnchor>) {
             center_anchor(candidate,c.object,true);
+            new_anchors.erase(c.object);
         } else if constexpr(std::is_same_v<T,SetPosition>||std::is_same_v<T,TransformAroundAnchor>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            if constexpr(std::is_same_v<T,SetPosition>)initialize_anchor(c.object);
+            else if(c.rotation!=0||c.scale_x!=1||c.scale_y!=1)initialize_anchor(c.object);
             const auto values=evaluate(candidate);const auto before=local_affine(c.object,values);auto matrix=before;
             const Vec2 anchor{values.at({c.object,"","transform.anchor_x"}),values.at({c.object,"","transform.anchor_y"})};
             auto position=map_point(before,anchor);
@@ -7287,15 +7400,19 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             auto& p=lookup_property(candidate,c.ref);
             require(!driven(p),"DRIVEN_PROPERTY","Unlink explicitly before setting a driven property");
             p.literal=c.value;
+            authored_anchor(c.ref);
         } else if constexpr(std::is_same_v<T,Link>) {
             prepare_point_edit(candidate,c.target);
             auto& scalar=lookup_property(candidate,c.target);scalar.binding=c.binding;scalar.expression.reset();
+            authored_anchor(c.target);
         } else if constexpr(std::is_same_v<T,Unlink>) {
             if(c.target.point.empty()&&c.target.field=="guide.position")
                 throw Error("TYPE_MISMATCH","Guide positions use the dedicated Guide link commands");
+            if(c.target.point.empty()&&(c.target.field=="transform.anchor_x"||c.target.field=="transform.anchor_y"))initialize_anchor(c.target.object);
             const auto value=evaluate(candidate).at(c.target);
             prepare_point_edit(candidate,c.target);
             lookup_property(candidate,c.target)={value,{}};
+            authored_anchor(c.target);
         } else if constexpr(std::is_same_v<T,Rename>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             candidate.objects.at(c.object).name=c.name;
@@ -7327,6 +7444,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             Object object;object.id=c.id;object.name=c.name;object.kind=Kind::text;object.text=c.source;
             siblings(candidate,c.composition,c.parent).push_back(c.id);candidate.objects.emplace(c.id,std::move(object));
             add_default_paint(candidate,c.id,"nect.paint.fill");
+            new_anchors[c.id]={true,true};
         } else if constexpr(std::is_same_v<T,UpdateText>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);auto& o=candidate.objects.at(c.object);
             require(o.kind==Kind::text&&o.text.has_value(),"INVALID_TEXT","Select an editable Text object");
@@ -7384,6 +7502,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             siblings(candidate,c.composition,c.parent).push_back(c.id);
             candidate.objects.emplace(c.id,std::move(object));
             add_default_stroke(candidate,c.id);
+            new_anchors[c.id]={true,true};
         } else if constexpr(std::is_same_v<T,AddOperation>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
             auto& o=candidate.objects.at(c.object);
@@ -7485,11 +7604,15 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             std::is_same_v<T,ReorderObjects>||std::is_same_v<T,DeleteObjects>||
             std::is_same_v<T,GroupContiguous>||std::is_same_v<T,CreateFolder>) {
             edit_structural_command(candidate,c);
+            if constexpr(std::is_same_v<T,CreatePath>)new_anchors[c.id]={true,true};
+            else if constexpr(std::is_same_v<T,DeleteObjects>)std::erase_if(new_anchors,[&](const auto& entry){return !candidate.objects.contains(entry.first);});
         }
         },command);
     }
 
-    auto values=validate_evaluated(candidate);
+    auto values=validate_evaluated(candidate,[&] {
+        while(!new_anchors.empty())initialize_anchor(new_anchors.begin()->first);
+    });
     if(evaluated)*evaluated=std::move(values);
     return candidate;
 }

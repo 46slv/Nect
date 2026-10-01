@@ -531,6 +531,37 @@ try:
         assert checker_undo['ok'] and core('inspect')['result'] == color_document_before_analysis
         color_undo = core('undo', expected_revision=checker_undo['revision'])
         assert color_undo['ok'] and core('inspect')['result'] == initial_document
+        # Identical fresh creation payloads through direct live API and formal MCP.
+        g26_ellipse = next(item['template'] for item in core('primitive_types')['result']
+                           if item['type'] == 'nect.shape.ellipse')
+        g26_ellipse['id'] = 'g26-ellipse-source'
+        g26_ellipse['parameters']['center_x'] = {'literal': 70}
+        g26_ellipse['parameters']['center_y'] = {'literal': 90}
+        g26_text = core('text_defaults')['result']
+        g26_text.update(id='g26-text-source', content='', layout='frame')
+        for field, value in [('origin_x', 10), ('origin_y', 20), ('frame_width', 200), ('frame_height', 100)]:
+            g26_text['parameters'][field] = {'literal': value}
+        g26_points = [point('g26-a', 10, 20), point('g26-b', 50, 60)]
+        for p in g26_points:
+            p['in_length'] = p['out_length'] = {'literal': 0}
+        g26_commands = [
+            dict(type='create_path', composition=comp['id'], parent='', id='g26-path', name='Path',
+                 contours=[dict(id='g26-contour', closed=False, points=g26_points)]),
+            dict(type='create_primitive', composition=comp['id'], parent='', id='g26-ellipse', name='Ellipse', source=g26_ellipse),
+            dict(type='create_text', composition=comp['id'], parent='', id='g26-text', name='Text', source=g26_text)]
+        g26_direct = desktop_api_call(endpoint, dict(identity, op='core', request=dict(op='apply',
+            expected_revision=color_undo['revision'], commands=g26_commands)))
+        assert g26_direct['ok'] and g26_direct['revision'] == color_undo['revision'] + 1, g26_direct
+        g26_document = core('inspect')['result']
+        for object_id, center in [('g26-path', (30, 40)), ('g26-ellipse', (70, 90)), ('g26-text', (110, 70))]:
+            obj = next(o for o in g26_document['objects'] if o['id'] == object_id)
+            assert obj['anchor'] == [{'literal': center[0]}, {'literal': center[1]}]
+        g26_undo = core('undo', expected_revision=g26_direct['revision'])
+        assert g26_undo['ok'] and core('inspect')['result'] == initial_document
+        g26_revision = apply(g26_commands, g26_undo['revision'])
+        assert core('inspect')['result'] == g26_document
+        color_undo = core('undo', expected_revision=g26_revision)
+        assert color_undo['ok'] and core('inspect')['result'] == initial_document
         rng = random.Random(7821)
         commands = []
         for i in range(24):
