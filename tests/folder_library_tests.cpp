@@ -14,6 +14,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QListWidget>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QProcess>
@@ -25,7 +26,9 @@
 #include <QTreeWidget>
 #include <QUuid>
 #include <iostream>
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
 
 #ifdef Q_OS_WIN
@@ -260,6 +263,17 @@ void model_and_persistence(const QString& scratch) {
         "A settings write failure leaves both the visible registry and persisted value unchanged");
 }
 
+Bounds shape_bounds(const EvaluatedShape& shape) {
+    Bounds result{std::numeric_limits<double>::infinity(),std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity(),-std::numeric_limits<double>::infinity()};
+    for(const auto& instance:shape.paths)for(const auto& contour:*instance.contours)for(const auto& point:contour.points) {
+        const auto mapped=map_point(instance.transform,point.anchor);
+        result.left=std::min(result.left,mapped.x);result.top=std::min(result.top,mapped.y);
+        result.right=std::max(result.right,mapped.x);result.bottom=std::max(result.bottom,mapped.y);
+    }
+    return result;
+}
+
 void write_qbytes(const QString& path,const QByteArray& bytes) {
     QFile file(path);
     check(file.open(QIODevice::WriteOnly|QIODevice::Truncate),"Open exact Folder Library byte fixture");
@@ -276,6 +290,34 @@ PresetDefinition portable_preset(const std::string& id,const std::string& label,
     entry.composite=operation.composite;entry.fill_rule=operation.fill_rule;
     entry.line_join=operation.line_join;entry.line_cap=operation.line_cap;
     definition.entries.push_back(std::move(entry));return definition;
+}
+
+MacroDefinition portable_macro(const std::string& id,const std::string& label,double amount=12) {
+    auto offset=default_operation("portable-macro-offset","nect.shape.offset");
+    offset.parameters.at("amount").literal=amount;
+    auto repeater=default_operation("portable-macro-repeater","nect.shape.repeater");
+    repeater.parameters.at("copies").literal=2;
+    repeater.parameters.at("position_x").literal=125;
+    MacroDefinitionRevision graph;graph.revision=1;
+    graph.input={"portable-macro-input","local_paths_and_paint"};
+    graph.output={"portable-macro-output","local_paths_and_paint"};
+    graph.nodes={{offset,"portable-offset-input","portable-offset-output"},
+        {repeater,"portable-repeater-input","portable-repeater-output"}};
+    graph.edges={{{"","portable-macro-input"},{"portable-macro-offset","portable-offset-input"}},
+        {{"portable-macro-offset","portable-offset-output"},{"portable-macro-repeater","portable-repeater-input"}},
+        {{"portable-macro-repeater","portable-repeater-output"},{"","portable-macro-output"}}};
+    graph.output_mapping={"portable-macro-repeater","portable-repeater-output"};
+    graph.public_parameters.push_back({"macro.offset.amount","Amount","portable-macro-offset","amount",
+        "number","du","local_paths_and_paint"});
+    MacroDefinition definition;definition.id=id;definition.label=label;definition.latest_revision=1;
+    definition.revisions.emplace(1,std::move(graph));return definition;
+}
+
+MacroDefinition portable_macro_with_revisions(const std::string& id,const std::string& label) {
+    auto definition=portable_macro(id,label,12);
+    auto second=definition.revisions.at(1);second.revision=2;
+    second.nodes.front().operation.parameters.at("amount").literal=18;
+    definition.revisions.emplace(2,std::move(second));definition.latest_revision=2;return definition;
 }
 
 void grouped_settings_identity(const QString& scratch) {
@@ -705,6 +747,229 @@ void portable_preset_assets(const QString& scratch) {
         "Delete removes only the selected AssetID, retains a separate good asset and leaves its Favorite as an explicit broken reference");
 }
 
+void portable_macro_assets(const QString& scratch) {
+    const auto root=scratch+"/payloads";const auto settings_path=scratch+"/macro-library.ini";
+    QSettings settings(settings_path,QSettings::IniFormat);
+    FolderLibrary library(settings,{}, {},root);
+    check(library.macro_assets().isEmpty()&&!QFileInfo::exists(root),
+        "Injected Macro payload listing stays read-only until explicit publication");
+
+    auto source=portable_macro_with_revisions("portable-macro-source","Portable Offset Repeat");
+    const auto published=library.publish_macro_asset(source);
+    const auto good_source=portable_macro("portable-macro-good","Second Good Macro",31);
+    const auto good=library.publish_macro_asset(good_source);
+    const auto asset_path=QDir(root).filePath(published.ref.asset_id+".macro.json");
+    check(QFileInfo::exists(asset_path)&&published.accepted_revision==1&&
+        published.ref.asset_id!=QString::fromStdString(source.id)&&published.payload_schema==1&&published.sha256.size()==64,
+        "Macro publication assigns a distinct workspace AssetID, accepted revision 1 and canonical payload hash");
+    QSettings no_payload_store(settings_path,QSettings::IniFormat);no_payload_store.sync();
+    check(!no_payload_store.contains("library/v1/state"),
+        "Macro bytes are stored in the bounded asset directory rather than QSettings payload state");
+    LibraryMacroAssetV1 metadata;
+    const auto loaded=library.read_macro_asset(published.ref,&metadata);
+    check(canonical_macro_payload(loaded)==canonical_macro_payload(source)&&loaded.revisions.size()==2&&
+        loaded.revisions.at(1).nodes.front().operation.id==loaded.revisions.at(2).nodes.front().operation.id&&
+        metadata.ref==published.ref&&metadata.accepted_revision==1&&metadata.sha256==published.sha256&&
+        metadata.label==QString::fromStdString(source.label)&&metadata.payload_schema==1,
+        "Canonical Macro asset readback preserves both graph revisions, graph IDs and metadata");
+    const auto original_vector=read_bytes(asset_path);
+    const auto original_bytes=QByteArray(reinterpret_cast<const char*>(original_vector.data()),
+        static_cast<qsizetype>(original_vector.size()));
+    auto envelope=QJsonDocument::fromJson(original_bytes).object();
+
+    const auto macro_favorite=library.add_favorite(published.ref,1);
+    const auto preset=library.publish_preset(portable_preset("macro-neighbor-preset","Macro Neighbor Preset"));
+    const auto preset_favorite=library.add_favorite(preset.ref,2);
+    const auto effect_favorite=library.add_favorite(BuiltinEffectTypeRefV1{"nect.shape.offset",1},3);
+    QDir().mkpath(scratch+"/folder-root");
+    const auto folder_root=library.register_root(scratch+"/folder-root","Scratch Folder");library.refresh();
+    const auto folder_favorite=library.add_favorite(LibraryItemRefV1{folder_root.root_id,{},"folder"},4);
+    const auto target_roundtrip=FolderLibrary::target_from_json(FolderLibrary::target_to_json(macro_favorite.target));
+    check(std::get_if<MacroAssetRefV1>(&target_roundtrip)&&
+        library.same_identity(macro_favorite.target,LibraryFavoriteTargetV1{published.ref})&&
+        library.favorite_status(macro_favorite)=="Available"&&library.favorite_status(preset_favorite)=="Available"&&
+        library.favorite_status(effect_favorite)=="Available"&&library.favorite_status(folder_favorite)=="Available"&&
+        library.favorite_for_slot(1)->favorite_id==macro_favorite.favorite_id,
+        "Macro shares exact Favorite JSON, stable identity and nine-slot authority with Preset, Effect and Folder targets");
+    const auto prior_favorite_count=library.favorites().size();
+    rejects("QUICK_SLOT_OCCUPIED",[&]{(void)library.add_favorite(good.ref,2);});
+    check(library.favorites().size()==prior_favorite_count&&library.favorite_for_slot(1)->favorite_id==macro_favorite.favorite_id&&
+        library.favorite_for_slot(2)->favorite_id==preset_favorite.favorite_id,
+        "Macro-versus-Preset slot collision leaves both stable Favorite identities unchanged");
+    QProcess cold_reader;
+    cold_reader.start(QCoreApplication::applicationFilePath(),{"--verify-portable-macro",settings_path,root,
+        macro_favorite.favorite_id,published.ref.asset_id,QString::fromStdString(source.id)});
+    const auto cold_ok=cold_reader.waitForFinished(15000)&&cold_reader.exitStatus()==QProcess::NormalExit&&cold_reader.exitCode()==0;
+    check(cold_ok,"A separate process reloads the shared Macro Favorite and imports all retained graphs: "+
+        QString::fromUtf8(cold_reader.readAllStandardError()).toStdString());
+
+    const auto original_payload=envelope.value("payload").toString();
+    const auto set_hash=[&](QJsonObject& candidate,const QString& payload) {
+        candidate.insert("payload",payload);
+        candidate.insert("sha256",QString::fromLatin1(QCryptographicHash::hash(payload.toUtf8(),QCryptographicHash::Sha256).toHex()));
+    };
+    auto malformed=envelope;set_hash(malformed,"{}");
+    const auto malformed_bytes=QJsonDocument(malformed).toJson(QJsonDocument::Compact);
+    write_qbytes(asset_path,malformed_bytes);
+    const auto malformed_inventory=library.macro_assets();
+    const auto unavailable=std::find_if(malformed_inventory.begin(),malformed_inventory.end(),[&](const auto& value){return value.ref==published.ref;});
+    const auto good_available=std::find_if(malformed_inventory.begin(),malformed_inventory.end(),[&](const auto& value){return value.ref==good.ref;});
+    check(unavailable!=malformed_inventory.end()&&!unavailable->available&&
+        unavailable->problem.contains("UNAVAILABLE_MACRO_ASSET")&&good_available!=malformed_inventory.end()&&good_available->available&&
+        library.favorite_status(macro_favorite).contains("UNAVAILABLE_MACRO_ASSET")&&read_bytes(asset_path)==
+            std::vector<unsigned char>(reinterpret_cast<const unsigned char*>(malformed_bytes.constData()),
+                reinterpret_cast<const unsigned char*>(malformed_bytes.constData())+malformed_bytes.size()),
+        "Hash-valid missing-key payload stays unavailable by exact identity while a good neighbor and Favorite status remain usable");
+    auto wrong_kinds=envelope;set_hash(wrong_kinds,"{\"id\":\"portable-macro-source\",\"label\":\"Bad\",\"latest_revision\":\"2\",\"revisions\":[]}");
+    const auto wrong_kind_bytes=QJsonDocument(wrong_kinds).toJson(QJsonDocument::Compact);
+    write_qbytes(asset_path,wrong_kind_bytes);
+    const auto wrong_kind_inventory=library.macro_assets();
+    const auto wrong_kind=std::find_if(wrong_kind_inventory.begin(),wrong_kind_inventory.end(),[&](const auto& value){return value.ref==published.ref;});
+    check(wrong_kind!=wrong_kind_inventory.end()&&!wrong_kind->available&&
+        library.favorite_status(macro_favorite).contains("UNAVAILABLE_MACRO_ASSET")&&read_bytes(asset_path)==
+            std::vector<unsigned char>(reinterpret_cast<const unsigned char*>(wrong_kind_bytes.constData()),
+                reinterpret_cast<const unsigned char*>(wrong_kind_bytes.constData())+wrong_kind_bytes.size()),
+        "Wrong-kind/hash-valid payload schema errors are normalized and do not rewrite the Favorite or file");
+
+    auto future=envelope;future.insert("version",2);
+    const auto future_bytes=QJsonDocument(future).toJson(QJsonDocument::Compact);
+    write_qbytes(asset_path,future_bytes);
+    const auto future_inventory=library.macro_assets();
+    const auto future_item=std::find_if(future_inventory.begin(),future_inventory.end(),[&](const auto& value){return value.ref==published.ref;});
+    check(future_item!=future_inventory.end()&&!future_item->available&&future_item->problem.contains("UNSUPPORTED_MACRO_ASSET_VERSION")&&
+        read_bytes(asset_path)==std::vector<unsigned char>(reinterpret_cast<const unsigned char*>(future_bytes.constData()),
+            reinterpret_cast<const unsigned char*>(future_bytes.constData())+future_bytes.size()),
+        "Future Macro asset versions remain unavailable with exact bytes preserved");
+
+    auto unknown_node=envelope;auto unknown_payload=original_payload;
+    const auto node_type=unknown_payload.indexOf("nect.shape.offset");
+    check(node_type>=0,"Canonical Macro payload includes the supported Offset node type");
+    unknown_payload.replace(node_type,static_cast<qsizetype>(std::string("nect.shape.offset").size()),"nect.shape.unknown");
+    set_hash(unknown_node,unknown_payload);const auto unknown_bytes=QJsonDocument(unknown_node).toJson(QJsonDocument::Compact);
+    write_qbytes(asset_path,unknown_bytes);
+    const auto unknown_inventory=library.macro_assets();
+    const auto unknown_item=std::find_if(unknown_inventory.begin(),unknown_inventory.end(),[&](const auto& value){return value.ref==published.ref;});
+    check(unknown_item!=unknown_inventory.end()&&!unknown_item->available&&library.favorite_status(macro_favorite)!="Available"&&
+        read_bytes(asset_path)==std::vector<unsigned char>(reinterpret_cast<const unsigned char*>(unknown_bytes.constData()),
+            reinterpret_cast<const unsigned char*>(unknown_bytes.constData())+unknown_bytes.size()),
+        "Unknown executable graph nodes stay unavailable under the same AssetID without altering file bytes");
+
+    auto oversized=envelope;const QString oversized_payload(256*1024+1,QLatin1Char('x'));set_hash(oversized,oversized_payload);
+    const auto oversized_bytes=QJsonDocument(oversized).toJson(QJsonDocument::Compact);
+    write_qbytes(asset_path,oversized_bytes);
+    rejects("MACRO_PAYLOAD_LIMIT",[&]{(void)library.read_macro_asset(published.ref);});
+    check(read_bytes(asset_path)==std::vector<unsigned char>(reinterpret_cast<const unsigned char*>(oversized_bytes.constData()),
+        reinterpret_cast<const unsigned char*>(oversized_bytes.constData())+oversized_bytes.size()),
+        "Oversized Macro payload refusal preserves its exact bytes");
+
+    const auto alias=QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const auto alias_path=QDir(root).filePath(alias+".macro.json");write_qbytes(alias_path,original_bytes);
+    rejects("MACRO_ASSET_ID_MISMATCH",[&]{(void)library.read_macro_asset({alias});});
+    check(QFile::remove(alias_path),"Remove exact owned wrong-filename Macro fixture");
+    write_qbytes(asset_path,original_bytes);
+
+    FolderLibrary missing_reader(settings,{}, {},root);
+    rejects("MISSING_MACRO_ASSET",[&]{(void)missing_reader.read_macro_asset({QUuid::createUuid().toString(QUuid::WithoutBraces)});});
+    const auto before_update=read_bytes(asset_path);
+    auto updated_source=source;
+    auto third=updated_source.revisions.at(2);third.revision=3;
+    third.nodes.front().operation.parameters.at("amount").literal=24;
+    updated_source.revisions.emplace(3,std::move(third));updated_source.latest_revision=3;
+    updated_source.label="Portable Offset Repeat Updated";
+    auto live_document=empty_document("macro-asset-live-session","macro-asset-live-composition","macro-asset-live-artboard");
+    Session live(std::move(live_document));
+    const auto live_source=default_primitive("macro-live-source","nect.shape.rectangle");
+    live.apply({Command{CreatePrimitive{"macro-asset-live-composition","","macro-live-target","Macro live target",live_source}}},live.revision());
+    InstantiateMacro existing_import{"macro-live-target","macro-live-imported-definition","macro-live-instance",1,0};
+    existing_import.imported_definition=loaded;existing_import.asset_id=published.ref.asset_id.toStdString();
+    existing_import.accepted_asset_revision=metadata.accepted_revision;
+    live.apply({StructuralCommand{MacroCommand{std::move(existing_import)}}},live.revision());
+    const auto existing_import_snapshot=encode(live.document());
+    FolderLibrary fail_write(settings,{}, {},root,[](const QString&,const QByteArray&,QString& error) {
+        error="injected Macro payload write failure";return false;
+    });
+    rejects("MACRO_LIBRARY_WRITE_FAILED",[&]{(void)fail_write.update_macro_asset(published.ref,updated_source,1,published.sha256);});
+    check(read_bytes(asset_path)==before_update,"Failed first Macro asset write preserves original bytes and accepted revision");
+    const QByteArray external_replacement("uncooperative Macro replacement");
+    FolderLibrary readback_race(settings,{}, {},root,[&](const QString& path,const QByteArray&,QString&) {
+        write_qbytes(path,external_replacement);return true;
+    });
+    rejects("MACRO_LIBRARY_ROLLBACK_FAILED",[&]{(void)readback_race.update_macro_asset(published.ref,updated_source,1,published.sha256);});
+    const auto after_race=read_bytes(asset_path);
+    check(QByteArray(reinterpret_cast<const char*>(after_race.data()),static_cast<qsizetype>(after_race.size()))==external_replacement,
+        "Ambiguous Macro readback preserves different observed bytes instead of overwriting them during rollback");
+    write_qbytes(asset_path,QByteArray(reinterpret_cast<const char*>(before_update.data()),
+        static_cast<qsizetype>(before_update.size())));
+
+    auto edited_source=source;edited_source.label="Edited document only";
+    edited_source.revisions.at(1).nodes.front().operation.parameters.at("amount").literal=7;
+    check(canonical_macro_payload(library.read_macro_asset(published.ref))==canonical_macro_payload(source),
+        "Editing a source Document Macro after publication does not alter stored Library bytes");
+    const auto updated=library.update_macro_asset(published.ref,updated_source,1,published.sha256);
+    LibraryMacroAssetV1 updated_metadata;
+    const auto updated_definition=library.read_macro_asset(published.ref,&updated_metadata);
+    check(updated.ref==published.ref&&updated.accepted_revision==2&&updated_definition.latest_revision==3&&
+        updated_definition.revisions.size()==3&&updated_metadata.sha256==updated.sha256&&
+        library.favorite_for_slot(1)->favorite_id==macro_favorite.favorite_id&&library.favorite_status(macro_favorite)=="Available",
+        "Explicit update advances AssetID accepted revision while preserving Favorite slot and all fresh graph revisions");
+    check(encode(live.document())==existing_import_snapshot&&
+        macro_parameter_value(live.document(),"macro-live-target","macro-live-instance","macro.offset.amount")==12&&
+        live.document().macro_definitions.at("macro-live-imported-definition").revisions.size()==2,
+        "Asset update leaves a previously imported definition, pin 1 and Amount 12 unchanged");
+    auto future_document=empty_document("macro-asset-future-session","macro-asset-future-composition","macro-asset-future-artboard");
+    Session future_session(std::move(future_document));
+    future_session.apply({Command{CreatePrimitive{"macro-asset-future-composition","","macro-future-target","Macro future target",live_source}}},future_session.revision());
+    InstantiateMacro future_import{"macro-future-target","macro-future-definition","macro-future-instance",3,0};
+    future_import.imported_definition=updated_definition;future_import.asset_id=published.ref.asset_id.toStdString();
+    future_import.accepted_asset_revision=updated_metadata.accepted_revision;
+    future_session.apply({StructuralCommand{MacroCommand{std::move(future_import)}}},future_session.revision());
+    check(macro_parameter_value(future_session.document(),"macro-future-target","macro-future-instance","macro.offset.amount")==24&&
+        future_session.document().objects.at("macro-future-target").stack.front().macro->pinned_revision==3,
+        "A later fresh import can explicitly pin graph revision 3 and read Amount 24 from accepted asset revision 2");
+    rejects("MACRO_ASSET_REVISION_CONFLICT",[&]{(void)library.update_macro_asset(published.ref,source,1,published.sha256);});
+    rejects("MACRO_ASSET_REVISION_CONFLICT",[&]{library.delete_macro_asset(published.ref,1,published.sha256);});
+    FolderLibrary restarted(settings,{}, {},root);
+    check(canonical_macro_payload(restarted.read_macro_asset(published.ref))==canonical_macro_payload(updated_source)&&
+        restarted.favorite_for_slot(1)->favorite_id==macro_favorite.favorite_id,
+        "Fresh FolderLibrary reader observes accepted graph revision 3 without altering imported snapshots");
+
+    FolderLibrary preference_failure(settings,[](const QByteArray&,QString& error) {
+        error="injected Macro Favorite persistence failure";return false;
+    },{},root);
+    rejects("SETTINGS_WRITE_FAILED",[&]{(void)preference_failure.add_favorite(good.ref,5);});
+    check(restarted.favorite_for_slot(5)==std::nullopt&&
+        canonical_macro_payload(restarted.read_macro_asset(good.ref))==canonical_macro_payload(good_source),
+        "Failed Macro Favorite persistence leaves payload files and prior slots unchanged");
+    const auto outside=scratch+"/outside";const auto escaped_root=scratch+"/macro-root-link";QDir().mkpath(outside);
+    if(create_directory_escape_link(outside,escaped_root)) {
+        FolderLibrary escaped(settings,{}, {},escaped_root);
+        rejects("UNSAFE_MACRO_LIBRARY_ROOT",[&]{(void)escaped.read_macro_asset(published.ref);});
+    }
+    library.delete_macro_asset(published.ref,updated.accepted_revision,updated.sha256);
+    const auto after_delete=library.macro_assets();
+    check(std::none_of(after_delete.begin(),after_delete.end(),[&](const auto& value){return value.ref==published.ref;})&&
+        std::any_of(after_delete.begin(),after_delete.end(),[&](const auto& value){return value.ref==good.ref&&value.available;})&&
+        library.favorite_for_slot(1)->favorite_id==macro_favorite.favorite_id&&
+        library.favorite_status(macro_favorite).contains("MISSING_MACRO_ASSET"),
+        "Deleting one exact Macro asset retains the valid neighbor and leaves its Favorite as a broken stable reference");
+
+    const auto cap_root=scratch+"/combined-cap";QDir().mkpath(cap_root);
+    for(int index=0;index<128;++index) {
+        write_qbytes(QDir(cap_root).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces)+".preset.json"),QByteArray("{}"));
+        write_qbytes(QDir(cap_root).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces)+".macro.json"),QByteArray("{}"));
+    }
+    QSettings cap_settings(scratch+"/cap.ini",QSettings::IniFormat);
+    FolderLibrary capped(cap_settings,{}, {},cap_root);
+    check(capped.preset_assets().size()==128&&capped.macro_assets().size()==128,
+        "Shared immediate enumeration is bounded across a mixed 256-file Preset/Macro store");
+    rejects("MACRO_LIBRARY_LIMIT",[&]{(void)capped.publish_macro_asset(good_source);});
+    rejects("PRESET_LIBRARY_LIMIT",[&]{(void)capped.publish_preset(portable_preset("cap-source","At cap"));});
+    const auto extra_path=QDir(cap_root).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces)+".macro.json");
+    write_qbytes(extra_path,QByteArray("{}"));
+    rejects("MACRO_LIBRARY_LIMIT",[&]{(void)capped.macro_assets();});
+    rejects("PRESET_LIBRARY_LIMIT",[&]{(void)capped.preset_assets();});
+}
+
 void host_and_ui_placement(const QString& scratch) {
     const auto root_path=scratch+"/assets";QDir().mkpath(root_path+"/brand");
     const auto linked_path=root_path+"/brand/logo.png";const auto embedded_path=root_path+"/paper.png";
@@ -968,7 +1233,8 @@ void portable_preset_library_ui(const QString& scratch) {
             auto* confirmation=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
             check(confirmation,"Delete asks about one exact selected workspace asset");
             assets->setCurrentIndex(assets->findData(asset_b.ref.asset_id));
-            confirmation->done(QMessageBox::Yes);
+            auto* yes=confirmation->button(QMessageBox::Yes);check(yes,"Preset Delete exposes its explicit Yes action");
+            QTest::mouseClick(yes,Qt::LeftButton);
         });
         QTest::mouseClick(remove,Qt::LeftButton);QApplication::processEvents();
         check(window.statusBar()->currentMessage().contains("PRESET_ASSET_SELECTION_CHANGED")&&
@@ -989,6 +1255,266 @@ void portable_preset_library_ui(const QString& scratch) {
     check(window.host.session.document().objects.at(object_id).stack.size()==final_stack_size&&
         window.host.session.document().preset_definitions.size()==final_preset_count,
         "One Redo restores the exact Favorite import and application");
+    window.close();window.host.flush();
+}
+
+void portable_macro_library_ui(const QString& scratch) {
+    const auto settings_path=scratch+"/macro-ui.ini";const auto payload_root=scratch+"/macro-assets";
+    QSettings settings(settings_path,QSettings::IniFormat);
+    FolderLibrary seeded(settings,{}, {},payload_root);
+    const auto asset_a=seeded.publish_macro_asset(portable_macro_with_revisions("ui-asset-a","A UI Macro"));
+    auto macro_b_source=portable_macro_with_revisions("ui-asset-b","B UI Macro");
+    auto macro_b_third=macro_b_source.revisions.at(2);macro_b_third.revision=3;
+    macro_b_third.nodes.front().operation.parameters.at("amount").literal=24;
+    macro_b_source.revisions.emplace(3,std::move(macro_b_third));macro_b_source.latest_revision=3;
+    const auto asset_b=seeded.publish_macro_asset(macro_b_source);
+    const auto preset=seeded.publish_preset(portable_preset("ui-macro-neighbor-preset","UI Neighbor Preset"));
+    auto injected=std::make_unique<FolderLibrary>(settings,FolderLibrary::PersistOverride{},
+        FolderLibrary::ReadbackOverride{},payload_root);
+    Window window(scratch+"/recovery",std::move(injected));window.show();QApplication::processEvents();
+
+    const auto document_source=portable_macro_with_revisions("ui-document-source","UI Document Macro");
+    window.host.session.apply({StructuralCommand{MacroCommand{CreateMacroDefinition{document_source}}}},window.host.session.revision());
+    const auto composition=window.host.session.document().compositions.front().id;
+    const auto object_id=new_id();
+    const auto primitive=default_primitive(new_id(),"nect.shape.rectangle");
+    window.host.session.apply({Command{CreatePrimitive{composition,"",object_id,"Portable Macro target",primitive}}},
+        window.host.session.revision());
+    const auto initial_target_stack_size=window.host.session.document().objects.at(object_id).stack.size();
+    window.canvas->set_selection(object_id);window.host.edited();QApplication::processEvents();
+
+    QString imported_definition_id;QString imported_instance_id;QString macro_favorite_id;std::uint64_t imported_revision=0;
+    QString macro_ui_callback_error;
+    Document before_import_document;
+    QTimer::singleShot(0,&window,[&] {
+        try {
+        auto* dialog=window.findChild<QDialog*>("folder-library-dialog");check(dialog,"Folder Library opens with Workspace Macro controls");
+        auto* assets=dialog->findChild<QComboBox*>("folder-library-macro-assets");
+        auto* source_macros=dialog->findChild<QComboBox*>("folder-library-source-macros");
+        auto* pin=dialog->findChild<QComboBox*>("folder-library-macro-pin");
+        auto* preset_assets=dialog->findChild<QComboBox*>("folder-library-preset-assets");
+        auto* publish=dialog->findChild<QPushButton*>("folder-library-macro-publish");
+        auto* update=dialog->findChild<QPushButton*>("folder-library-macro-update");
+        auto* remove=dialog->findChild<QPushButton*>("folder-library-macro-delete");
+        auto* favorite_macro=dialog->findChild<QPushButton*>("folder-library-macro-favorite");
+        auto* apply_macro=dialog->findChild<QPushButton*>("folder-library-macro-apply");
+        auto* add_favorite=dialog->findChild<QPushButton*>("folder-library-favorite-add");
+        auto* override_amount=dialog->findChild<QLineEdit*>("folder-library-macro-override-value");
+        auto* favorites=dialog->findChild<QListWidget*>("folder-library-favorites");
+        auto* slot=dialog->findChild<QComboBox*>("folder-library-slot");
+        auto* assign=dialog->findChild<QPushButton*>("folder-library-slot-set");
+        auto* use_favorite=dialog->findChild<QPushButton*>("folder-library-use-favorite");
+        auto* use_slot=dialog->findChild<QPushButton*>("folder-library-use-slot");
+        auto* refresh=dialog->findChild<QPushButton*>("folder-library-refresh");
+        check(assets&&source_macros&&pin&&preset_assets&&publish&&update&&remove&&favorite_macro&&apply_macro&&
+            add_favorite&&override_amount&&favorites&&slot&&assign&&use_favorite&&use_slot&&refresh,
+            "Macro source, bounded asset, retained pin, Favorite, slot and guarded apply actions are present");
+        const auto source_index=source_macros->findData(QString::fromStdString(document_source.id));
+        check(source_index>0,"The current Document Macro is an explicit publication/update source");
+        source_macros->setCurrentIndex(source_index);
+        const auto before_publish=encode(window.host.session.document());const auto before_publish_revision=window.host.session.revision();
+        QTest::mouseClick(publish,Qt::LeftButton);QApplication::processEvents();
+        check(encode(window.host.session.document())==before_publish&&window.host.session.revision()==before_publish_revision&&
+            seeded.macro_assets().size()==3,
+            "Publish Macro creates an independent asset without changing the Document or Session revision");
+
+        const auto asset_a_index=assets->findData(asset_a.ref.asset_id);const auto asset_b_index=assets->findData(asset_b.ref.asset_id);
+        check(asset_a_index>0&&asset_b_index>0,"Both exact Workspace Macro AssetIDs appear in the selector");
+        assets->setCurrentIndex(asset_a_index);
+        const auto pin1=pin->findData(QVariant::fromValue<qulonglong>(1));
+        check(pin1>0&&pin->currentData().toULongLong()==2,
+            "Selecting a Macro defaults to its latest retained pin while keeping revision 1 explicitly selectable");
+        pin->setCurrentIndex(pin1);
+        const auto before_favorites=encode(window.host.session.document());const auto before_favorite_revision=window.host.session.revision();
+        QTest::mouseClick(favorite_macro,Qt::LeftButton);
+        check(favorites->count()==1&&encode(window.host.session.document())==before_favorites&&
+            window.host.session.revision()==before_favorite_revision,
+            "Dedicated Favorite Macro stores its exact identity without changing Session state");
+        const auto find_macro_favorite=[&](const QString& asset_id) -> QListWidgetItem* {
+            for(int row=0;row<favorites->count();++row) {
+                const auto target=FolderLibrary::target_from_json(QJsonDocument::fromJson(
+                    favorites->item(row)->data(Qt::UserRole+1).toByteArray()).object());
+                if(const auto* macro=std::get_if<MacroAssetRefV1>(&target);macro&&macro->asset_id==asset_id)return favorites->item(row);
+            }
+            return nullptr;
+        };
+        auto* favorite_a=find_macro_favorite(asset_a.ref.asset_id);check(favorite_a,"Favorite Macro persists exact AssetID A");
+        macro_favorite_id=favorite_a->data(Qt::UserRole).toString();
+
+        assets->setCurrentIndex(assets->findData(asset_b.ref.asset_id));
+        check(pin->currentData().toULongLong()==3,
+            "Selecting a different AssetID defaults to that asset's accepted latest pin instead of reusing pin 1");
+        QTest::mouseClick(favorite_macro,Qt::LeftButton);
+        check(favorites->count()==2&&find_macro_favorite(asset_b.ref.asset_id),
+            "Dedicated Favorite Macro addresses the currently selected second Macro AssetID");
+        preset_assets->setCurrentIndex(preset_assets->findData(preset.ref.asset_id));
+        QTest::mouseClick(add_favorite,Qt::LeftButton);
+        QListWidgetItem* preset_favorite_item=nullptr;
+        for(int row=0;row<favorites->count();++row) {
+            const auto target=FolderLibrary::target_from_json(QJsonDocument::fromJson(
+                favorites->item(row)->data(Qt::UserRole+1).toByteArray()).object());
+            if(const auto* ref=std::get_if<PresetAssetRefV1>(&target);ref&&ref->asset_id==preset.ref.asset_id)
+                preset_favorite_item=favorites->item(row);
+        }
+        check(favorites->count()==3&&preset_favorite_item&&find_macro_favorite(asset_a.ref.asset_id)&&
+            find_macro_favorite(asset_b.ref.asset_id),
+            "With Macro and Preset selectors simultaneously populated, existing Add Favorite still records the selected Preset");
+        favorites->setCurrentItem(preset_favorite_item);
+        const auto selected_target=FolderLibrary::target_from_json(QJsonDocument::fromJson(
+            favorites->currentItem()->data(Qt::UserRole+1).toByteArray()).object());
+        check(std::get_if<PresetAssetRefV1>(&selected_target),
+            "The exact newly added Preset Favorite remains selectable alongside both Macro Favorites");
+
+        favorite_a=find_macro_favorite(asset_a.ref.asset_id);favorites->setCurrentItem(favorite_a);
+        slot->setCurrentIndex(slot->findData(1));QTest::mouseClick(assign,Qt::LeftButton);
+        check(favorites->currentItem()->data(Qt::UserRole).toString()==macro_favorite_id&&
+            slot->currentData().toInt()==1,
+            "Workspace Macro Favorite receives its exact shared Quick Access slot");
+
+        assets->setCurrentIndex(assets->findData(asset_b.ref.asset_id));
+        override_amount->setFocus();QTest::keyClicks(override_amount,"39");
+        const auto before_wrong_favorite=window.host.session.document();const auto revision_wrong_favorite=window.host.session.revision();
+        favorites->setCurrentItem(find_macro_favorite(asset_a.ref.asset_id));
+        QTest::mouseClick(use_favorite,Qt::LeftButton);QApplication::processEvents();
+        check(window.statusBar()->currentMessage().contains("MACRO_OVERRIDE_TARGET_MISMATCH")&&
+            window.host.session.document()==before_wrong_favorite&&window.host.session.revision()==revision_wrong_favorite,
+            "An override draft for Macro B cannot silently apply when Favorite A is invoked");
+
+        assets->setCurrentIndex(assets->findData(asset_a.ref.asset_id));
+        check(pin->currentData().toULongLong()==2,
+            "Switching back to Macro A defaults to its accepted latest pin rather than retaining B's pin 3");
+        pin->setCurrentIndex(pin->findData(QVariant::fromValue<qulonglong>(1)));
+        override_amount->setFocus();QTest::keyClicks(override_amount,"17");
+        slot->setCurrentIndex(slot->findData(1));
+        const auto before_import_revision=window.host.session.revision();
+        const auto before_import_history=window.host.session.history().states.size();
+        before_import_document=window.host.session.document();
+        QTest::mouseClick(use_slot,Qt::LeftButton);QApplication::processEvents();
+        const auto& imported_stack=window.host.session.document().objects.at(object_id).stack;
+        check(window.host.session.revision()==before_import_revision+1&&
+            window.host.session.history().states.size()==before_import_history+1&&
+            imported_stack.size()==initial_target_stack_size+1&&
+            imported_stack.back().macro&&imported_stack.back().macro->pinned_revision==1&&
+            imported_stack.back().macro->overrides.at("macro.offset.amount")==17&&
+            window.host.session.document().macro_definitions.at(imported_stack.back().macro->definition).revisions.size()==2,
+            "Quick Access imports a fresh full Macro snapshot at explicit pin 1 with its stable Amount override in one Undo");
+        imported_definition_id=QString::fromStdString(imported_stack.back().macro->definition);
+        imported_instance_id=QString::fromStdString(imported_stack.back().id);
+        imported_revision=window.host.session.revision();
+
+        const auto native_macro_path=scratch+"/macro-import.nect";
+        const auto native_macro_bytes=encode(window.host.session.document());
+        Host macro_writer(scratch+"/macro-writer-recovery");
+        macro_writer.session=Session(window.host.session.document());
+        macro_writer.save(native_macro_path);
+        Host macro_cold_reopen(scratch+"/macro-cold-reopen-recovery");
+        macro_cold_reopen.open(native_macro_path);
+        const auto& reopened_document=macro_cold_reopen.session.document();
+        const auto& reopened_stack=reopened_document.objects.at(object_id).stack;
+        const auto reopened_values=evaluate(reopened_document);
+        const auto reopened_output=shape_bounds(evaluate_shape(reopened_document,object_id,reopened_values));
+        check(encode(reopened_document)==native_macro_bytes,
+            "A fresh Host reopen preserves exact native bytes for the imported Macro Document");
+        check(reopened_stack.size()==initial_target_stack_size+1&&reopened_stack.back().macro&&
+            reopened_stack.back().id==imported_instance_id.toStdString()&&
+            reopened_stack.back().macro->definition==imported_definition_id.toStdString()&&
+            reopened_stack.back().macro->pinned_revision==1&&
+            reopened_stack.back().macro->overrides.at("macro.offset.amount")==17&&
+            reopened_document.macro_definitions.at(imported_definition_id.toStdString()).revisions.size()==2&&
+            macro_parameter_value(reopened_document,object_id,reopened_stack.back().id,"macro.offset.amount")==17,
+            "A fresh Host reopen preserves the imported Macro graph, retained revisions, pin, instance identity and Amount override");
+        check(
+            std::abs(reopened_output.left+127)<1e-7&&std::abs(reopened_output.top+87)<1e-7&&
+            std::abs(reopened_output.right-252)<1e-7&&std::abs(reopened_output.bottom-87)<1e-7,
+            "A fresh Host reopen evaluates centered 220x140 geometry with Offset 17 and two-copy Repeater to fixed bounds [-127,-87,252,87]");
+        macro_writer.flush();macro_cold_reopen.flush();
+
+        LibraryMacroAssetV1 updated_metadata;
+        auto store_reader=FolderLibrary(settings,{}, {},payload_root);
+        const auto updated_from_ui=store_reader.read_macro_asset(asset_a.ref,&updated_metadata);
+        check(updated_metadata.accepted_revision==1&&updated_from_ui.latest_revision==2,
+            "Favorite application reads the captured accepted metadata snapshot and selected graph pin");
+        const auto document_before_update=encode(window.host.session.document());const auto revision_before_update=window.host.session.revision();
+        QTest::mouseClick(update,Qt::LeftButton);QApplication::processEvents();
+        store_reader.read_macro_asset(asset_a.ref,&updated_metadata);
+        check(updated_metadata.accepted_revision==2&&encode(window.host.session.document())==document_before_update&&
+            window.host.session.revision()==revision_before_update&&
+            window.host.session.document().macro_definitions.at(imported_definition_id.toStdString()).revisions.size()==2&&
+            macro_parameter_value(window.host.session.document(),object_id,imported_stack.back().id,"macro.offset.amount")==17,
+            "Updating the workspace asset leaves its already imported graph, pin and override snapshot unchanged");
+
+        FolderLibrary external(settings,{}, {},payload_root);
+        LibraryMacroAssetV1 external_metadata;(void)external.read_macro_asset(asset_a.ref,&external_metadata);
+        const auto external_source=portable_macro("external-macro-source","External accepted Macro",40);
+        const auto externally_updated=external.update_macro_asset(asset_a.ref,external_source,
+            external_metadata.accepted_revision,external_metadata.sha256);
+        check(externally_updated.accepted_revision==3,"A second writer advanced the exact AssetID after the UI snapshot");
+        QTest::mouseClick(update,Qt::LeftButton);QApplication::processEvents();
+        check(window.statusBar()->currentMessage().contains("MACRO_ASSET_REVISION_CONFLICT")&&
+            external.read_macro_asset(asset_a.ref).revisions.at(1).nodes.front().operation.parameters.at("amount").literal==40,
+            "Macro Update refuses changed bytes against stale captured accepted revision/hash");
+        QTest::mouseClick(refresh,Qt::LeftButton);QApplication::processEvents();
+        check(assets->currentData().toString()==asset_a.ref.asset_id&&assets->currentData(Qt::UserRole+1).toULongLong()==3&&
+            pin->currentData().toULongLong()==1,
+            "Explicit Refresh accepts the same AssetID metadata and retains an explicit pin still supported by that payload");
+        QTest::mouseClick(update,Qt::LeftButton);QApplication::processEvents();
+        LibraryMacroAssetV1 refreshed_metadata;external.read_macro_asset(asset_a.ref,&refreshed_metadata);
+        check(refreshed_metadata.accepted_revision==4&&
+            external.read_macro_asset(asset_a.ref).id==document_source.id,
+            "After explicit Refresh, Macro Update succeeds from the selected Document source");
+
+        assets->setCurrentIndex(assets->findData(asset_a.ref.asset_id));
+        QTimer::singleShot(0,&window,[&] {
+            auto* confirmation=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+            check(confirmation,"Macro Delete captures an exact selected asset and asks for explicit confirmation");
+            assets->setCurrentIndex(assets->findData(asset_b.ref.asset_id));
+            auto* yes=confirmation->button(QMessageBox::Yes);check(yes,"Macro Delete exposes its explicit Yes action");
+            QTest::mouseClick(yes,Qt::LeftButton);
+        });
+        QTest::mouseClick(remove,Qt::LeftButton);QApplication::processEvents();
+        check(window.statusBar()->currentMessage().contains("MACRO_ASSET_SELECTION_CHANGED")&&
+            QFileInfo::exists(QDir(payload_root).filePath(asset_a.ref.asset_id+".macro.json"))&&
+            QFileInfo::exists(QDir(payload_root).filePath(asset_b.ref.asset_id+".macro.json")),
+            "Reentrant Macro selector changes during confirmation refuse deletion of either AssetID");
+        assets->setCurrentIndex(assets->findData(asset_a.ref.asset_id));
+        QTimer::singleShot(0,&window,[&] {
+            auto* confirmation=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+            check(confirmation,"Second Macro Delete confirms the reselected exact AssetID");
+            auto* yes=confirmation->button(QMessageBox::Yes);check(yes,"Second Macro Delete exposes its explicit Yes action");
+            QTest::mouseClick(yes,Qt::LeftButton);
+        });
+        const auto before_delete_revision=window.host.session.revision();const auto before_delete_history=window.host.session.history();
+        QTest::mouseClick(remove,Qt::LeftButton);QApplication::processEvents();
+        check(!QFileInfo::exists(QDir(payload_root).filePath(asset_a.ref.asset_id+".macro.json"))&&
+            window.host.session.revision()==before_delete_revision&&window.host.session.history()==before_delete_history&&
+            favorites->count()==3&&find_macro_favorite(asset_a.ref.asset_id)->data(Qt::UserRole).toString()==macro_favorite_id,
+            "Confirmed Macro deletion changes only workspace bytes and retains the exact Favorite identity as unavailable");
+        dialog->accept();
+        } catch(const std::exception& error) {
+            macro_ui_callback_error=QString::fromUtf8(error.what());
+            if(auto* modal=QApplication::activeModalWidget())modal->close();
+            if(auto* active_dialog=window.findChild<QDialog*>("folder-library-dialog"))active_dialog->reject();
+        }
+    });
+    auto* open_library=window.findChild<QAction*>("folder-library");check(open_library,"Macro Library UI uses the existing Folder Library action");open_library->trigger();
+    if(!macro_ui_callback_error.isEmpty())
+        throw std::runtime_error("Macro Library UI callback: "+macro_ui_callback_error.toStdString());
+    const auto& final_stack=window.host.session.document().objects.at(object_id).stack;
+    check(final_stack.size()==initial_target_stack_size+1&&final_stack.back().macro&&
+        final_stack.back().id==imported_instance_id.toStdString()&&
+        final_stack.back().macro->definition==imported_definition_id.toStdString()&&
+        window.host.session.revision()==imported_revision,
+        "Asset update/delete and shared Favorite edits do not change the already applied Session snapshot");
+    window.host.session.undo(window.host.session.revision());window.host.edited();
+    check(window.host.session.document()==before_import_document&&
+        !window.host.session.document().macro_definitions.contains(imported_definition_id.toStdString()),
+        "One Undo removes the Macro import and fresh Document DefinitionID while restoring prior authored stack entries");
+    window.host.session.redo(window.host.session.revision());window.host.edited();
+    check(window.host.session.document().objects.at(object_id).stack.size()==initial_target_stack_size+1&&
+        window.host.session.document().objects.at(object_id).stack.back().id==imported_instance_id.toStdString()&&
+        window.host.session.document().objects.at(object_id).stack.back().macro&&
+        window.host.session.document().macro_definitions.contains(imported_definition_id.toStdString()),
+        "Redo restores the same imported Macro graph, pin and instance");
     window.close();window.host.flush();
 }
 
@@ -1102,13 +1628,54 @@ int main(int argc,char** argv) {
                 session.document().objects.at("cold-target").stack.back().parameters.at("amount").literal==18&&
                 session.document().preset_definitions.contains("cold-imported-definition")?0:fail("Redo did not restore the cold import");
         }
+        if(argc==7&&QString::fromUtf8(argv[1])=="--verify-portable-macro") {
+            const auto fail=[](const char* message) {std::cerr<<"cold Macro reader: "<<message<<'\n';return 1;};
+            QSettings persisted(QString::fromUtf8(argv[2]),QSettings::IniFormat);
+            FolderLibrary reloaded(persisted,{}, {},QString::fromUtf8(argv[3]));
+            const auto favorite=std::find_if(reloaded.favorites().begin(),reloaded.favorites().end(),[&](const auto& value) {
+                return value.favorite_id==QString::fromUtf8(argv[4]);
+            });
+            if(favorite==reloaded.favorites().end()||favorite->quick_slot!=1||
+                !std::get_if<MacroAssetRefV1>(&favorite->target)||
+                std::get<MacroAssetRefV1>(favorite->target).asset_id!=QString::fromUtf8(argv[5]))
+                return fail("shared Favorite did not retain its exact AssetID and Quick Access slot");
+            LibraryMacroAssetV1 metadata;
+            const auto definition=reloaded.read_macro_asset(std::get<MacroAssetRefV1>(favorite->target),&metadata);
+            if(definition.id!=QString::fromUtf8(argv[6]).toStdString()||definition.revisions.size()!=2||
+                definition.latest_revision!=2||metadata.accepted_revision!=1)
+                return fail("payload identity, graph revisions or separate accepted asset revision changed");
+            auto document=empty_document("cold-session","cold-composition","cold-artboard");
+            Session session(std::move(document));
+            Primitive source=default_primitive("cold-source","nect.shape.rectangle");
+            session.apply({Command{CreatePrimitive{"cold-composition","","cold-target","Cold Macro target",source}}},session.revision());
+            const auto before=encode(session.document());const auto expected=session.revision();
+            InstantiateMacro import{"cold-target","cold-imported-definition","cold-macro-instance",1,0};
+            import.imported_definition=definition;import.asset_id=metadata.ref.asset_id.toStdString();
+            import.accepted_asset_revision=metadata.accepted_revision;
+            session.apply({StructuralCommand{MacroCommand{std::move(import)}}},expected);
+            const auto& entry=session.document().objects.at("cold-target").stack.front();
+            if(session.revision()!=expected+1||entry.id!="cold-macro-instance"||!entry.macro||
+                entry.macro->definition!="cold-imported-definition"||entry.macro->pinned_revision!=1||
+                session.document().macro_definitions.at("cold-imported-definition").revisions!=definition.revisions||
+                macro_parameter_value(session.document(),"cold-target","cold-macro-instance","macro.offset.amount")!=12)
+                return fail("fresh Session import did not preserve graphs, pin and default Amount 12");
+            session.undo(session.revision());
+            if(encode(session.document())!=before||session.document().macro_definitions.contains("cold-imported-definition"))
+                return fail("one Undo did not remove the imported definition and instance together");
+            session.redo(session.revision());
+            return session.document().objects.at("cold-target").stack.front().id=="cold-macro-instance"&&
+                session.document().macro_definitions.at("cold-imported-definition").revisions==definition.revisions?
+                0:fail("Redo did not restore the cold Macro import");
+        }
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch directory is available");
         model_and_persistence(scratch.path()+"/model");
         grouped_settings_identity(scratch.path()+"/grouped");
         unified_effect_favorites(scratch.path()+"/unified");
         portable_preset_assets(scratch.path()+"/portable-presets");
+        portable_macro_assets(scratch.path()+"/portable-macros");
         host_and_ui_placement(scratch.path()+"/placement");
         portable_preset_library_ui(scratch.path()+"/portable-preset-ui");
+        portable_macro_library_ui(scratch.path()+"/portable-macro-ui");
         unsafe_preset_root_keeps_legacy_library_usable(scratch.path()+"/unsafe-preset-root-ui");
         std::cout<<"PASS "<<checks<<" Folder Library/settings/Host/UI assertions\n";
         return 0;

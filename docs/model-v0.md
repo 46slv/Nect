@@ -7,7 +7,7 @@ Scalar, Binding, Expression, Collection, Named Color, retained Circle/Ellipse/Re
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
 same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
-The current native writer is 0.74.
+The current native writer is 0.75.
 
 ## Point Edit enabled expression v1
 
@@ -145,6 +145,32 @@ AssetID/FavoriteID, advances the accepted revision and affects future imports
 only. Import and apply allocates a fresh document DefinitionID and appends fresh
 operation IDs in one Session commit, so one Undo removes both the definition and
 application. No source document or payload code is needed when applying an asset.
+
+## Workspace Macro Library v1
+
+The workspace Macro Library stores the canonical typed `MacroDefinition` JSON
+payload, including every retained graph revision, stable graph-local IDs,
+`latest_revision`, and PublicParamID mappings. Its sibling `.macro.json` envelope
+uses schema 1, a distinct workspace AssetID, accepted asset revision and SHA-256.
+The source MacroDefinitionID remains in the copied payload; the Document import
+requires a fresh DefinitionID and processing instance ID. Asset revision is
+caller-supplied receipt context and remains distinct from the explicitly selected
+retained Macro pin.
+
+Only the validated Offset@1 -> Repeater@1 graph in the
+`local_paths_and_paint` domain is portable. Unsupported graph nodes, versions,
+schemas, malformed/corrupt bytes and missing identities remain unavailable under
+their exact AssetID; reads do not rewrite those files. Preset and Macro files
+share the bounded 256-immediate-asset store and existing Favorite/Quick Access
+authority. Explicit asset update advances only the workspace accepted revision;
+already imported Document definitions and pinned instances remain unchanged.
+`import_apply_macro` is an ordinary serializable Macro command inside generic
+`apply.commands`, so fresh definition, instance and stable numeric overrides
+commit atomically with one Undo and roll back with any later failing batch command.
+The command preserves all retained graph revisions while pinning one explicit
+revision for the new instance. JSON-lines and MCP use this same Session command;
+the API receipt reports caller metadata without attesting which Library file was
+read. Native 0.75 and its unsupported native-node behavior are unchanged.
 
 ## Definition / Instance v1
 

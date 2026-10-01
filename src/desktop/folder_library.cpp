@@ -29,6 +29,7 @@ namespace nect::desktop {
 namespace {
 constexpr qint64 max_preset_asset_file_bytes=512*1024;
 constexpr int max_preset_assets=256;
+constexpr int max_workspace_assets=256;
 
 QString normalize_unicode(QString value) {
     return value.normalized(QString::NormalizationForm_C);
@@ -123,6 +124,39 @@ struct StoredPresetAsset {
     QByteArray payload;
 };
 
+struct StoredMacroAsset {
+    LibraryMacroAssetV1 metadata;
+    MacroDefinition definition;
+    QByteArray raw_envelope;
+    QByteArray payload;
+};
+
+int workspace_asset_file_count(const QString& root) {
+    return QDir(root).entryInfoList({"*.preset.json","*.macro.json"},
+        QDir::AllEntries|QDir::NoDotAndDotDot|QDir::Hidden|QDir::System,QDir::Name).size();
+}
+
+QByteArray checked_file_bytes(const QString& root,const QString& path);
+std::unique_ptr<QLockFile> lock_preset_asset_root(const QString& root);
+
+[[noreturn]] void throw_macro_error(const Error& error) {
+    auto code=error.code;
+    for(std::size_t at=0;(at=code.find("PRESET",at))!=std::string::npos;at+=5)code.replace(at,6,"MACRO");
+    auto detail=std::string(error.what());
+    for(std::size_t at=0;(at=detail.find("Preset",at))!=std::string::npos;at+=5)detail.replace(at,6,"Macro");
+    throw Error(std::move(code),std::move(detail));
+}
+
+QByteArray checked_macro_file_bytes(const QString& root,const QString& path) {
+    try {return checked_file_bytes(root,path);}
+    catch(const Error& error) {throw_macro_error(error);}
+}
+
+std::unique_ptr<QLockFile> lock_macro_asset_root(const QString& root) {
+    try {return lock_preset_asset_root(root);}
+    catch(const Error& error) {throw_macro_error(error);}
+}
+
 QByteArray preset_asset_envelope(const LibraryPresetAssetV1& metadata,const QByteArray& payload) {
     QJsonObject envelope{
         {"version",1},{"kind","preset_definition"},{"asset_id",metadata.ref.asset_id},
@@ -198,6 +232,65 @@ StoredPresetAsset read_stored_preset_asset(const QString& root,const QString& as
     LibraryPresetAssetV1 metadata{{asset_id},QString::fromStdString(envelope.label),revision,
         QString::fromStdString(claimed_hash),static_cast<unsigned>(schema),true,{}};
     return {std::move(metadata),std::move(definition),raw,payload};
+}
+
+QByteArray macro_asset_envelope(const LibraryMacroAssetV1& metadata,const QByteArray& payload) {
+    QJsonObject envelope{{"version",1},{"kind","macro_definition"},{"asset_id",metadata.ref.asset_id},
+        {"accepted_revision",static_cast<double>(metadata.accepted_revision)},
+        {"sha256",metadata.sha256},{"payload_schema",static_cast<int>(metadata.payload_schema)},
+        {"payload",QString::fromUtf8(payload.constData(),payload.size())},{"label",metadata.label}};
+    return QJsonDocument(envelope).toJson(QJsonDocument::Compact);
+}
+
+StoredMacroAsset read_stored_macro_asset(const QString& root,const QString& asset_id) {
+    if(!canonical_asset_id(asset_id))throw Error("INVALID_MACRO_ASSET_ID","Macro Library needs the exact canonical AssetID");
+    const auto path=QDir(root).filePath(asset_id+QStringLiteral(".macro.json"));
+    QByteArray raw;
+    try {raw=checked_file_bytes(root,path);}
+    catch(const Error& error) {throw_macro_error(error);}
+    PortablePresetAssetEnvelope envelope;
+    try {envelope=read_portable_preset_asset_envelope(std::string_view(raw.constData(),static_cast<std::size_t>(raw.size())));}
+    catch(const Error& error) {
+        throw Error("INVALID_MACRO_ASSET",std::string("Macro asset envelope is unavailable: ")+error.code+": "+error.what());
+    }
+    if(envelope.version!=1||envelope.kind!="macro_definition")
+        throw Error("UNSUPPORTED_MACRO_ASSET_VERSION","Macro asset envelope kind or version is unsupported");
+    if(QString::fromStdString(envelope.asset_id)!=asset_id)
+        throw Error("MACRO_ASSET_ID_MISMATCH","Macro asset envelope AssetID does not match the exact requested file identity");
+    if(envelope.payload_schema!=1)
+        throw Error("UNSUPPORTED_MACRO_SCHEMA","Macro payload schema is not supported by this build");
+    const QByteArray payload(envelope.payload.data(),static_cast<qsizetype>(envelope.payload.size()));
+    if(static_cast<std::size_t>(payload.size())>portable_macro_payload_limit)
+        throw Error("MACRO_PAYLOAD_LIMIT","Portable Macro payload exceeds 256 KiB");
+    const auto actual_hash=QCryptographicHash::hash(payload,QCryptographicHash::Sha256).toHex();
+    if(QString::fromStdString(envelope.sha256)!=QString::fromLatin1(actual_hash))
+        throw Error("MACRO_ASSET_HASH_MISMATCH","Macro asset payload SHA-256 does not match its envelope");
+    auto definition=read_canonical_macro_payload(std::string_view(payload.constData(),static_cast<std::size_t>(payload.size())));
+    if(QString::fromStdString(definition.label)!=QString::fromStdString(envelope.label))
+        throw Error("MACRO_ASSET_ENVELOPE_MISMATCH","Macro asset label does not match its canonical payload");
+    if(definition.id==asset_id.toStdString())
+        throw Error("MACRO_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from the source MacroDefinitionID");
+    LibraryMacroAssetV1 metadata{{asset_id},QString::fromStdString(envelope.label),envelope.accepted_revision,
+        QString::fromStdString(envelope.sha256),static_cast<unsigned>(envelope.payload_schema),true,{}};
+    return {std::move(metadata),std::move(definition),raw,payload};
+}
+
+LibraryMacroAssetV1 metadata_for_macro(const MacroDefinition& definition,const QString& asset_id,std::uint64_t revision) {
+    validate_portable_macro_definition(definition);
+    if(definition.id==asset_id.toStdString())
+        throw Error("MACRO_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from its source MacroDefinitionID");
+    const auto payload=QByteArray::fromStdString(canonical_macro_payload(definition));
+    const auto hash=QCryptographicHash::hash(payload,QCryptographicHash::Sha256).toHex();
+    return {{asset_id},QString::fromStdString(definition.label),revision,QString::fromLatin1(hash),1,true,{}};
+}
+
+void write_preset_asset_file(const QString& root,const QString& path,const QByteArray& bytes,
+    const FolderLibrary::PayloadWriteOverride& override_write,const std::optional<QByteArray>& expected_old_bytes);
+
+void write_macro_asset_file(const QString& root,const QString& path,const QByteArray& bytes,
+    const FolderLibrary::PayloadWriteOverride& override_write,const std::optional<QByteArray>& expected_old_bytes) {
+    try {write_preset_asset_file(root,path,bytes,override_write,expected_old_bytes);}
+    catch(const Error& error) {throw_macro_error(error);}
 }
 
 void verify_expected_preset_file(const QString& root,const QString& path,const std::optional<QByteArray>& expected_old_bytes) {
@@ -318,6 +411,11 @@ QString FolderLibrary::resolved_preset_payload_root(bool create) const {
     if(canonical.isEmpty()||path_key(canonical,false)!=path_key(absolute,false))
         throw Error("UNSAFE_PRESET_LIBRARY_ROOT","Preset Library root resolves outside its configured location");
     return absolute;
+}
+
+QString FolderLibrary::resolved_macro_payload_root(bool create) const {
+    try {return resolved_preset_payload_root(create);}
+    catch(const Error& error) {throw_macro_error(error);}
 }
 
 const QList<LibraryRootV1>& FolderLibrary::roots() const {
@@ -562,7 +660,9 @@ bool FolderLibrary::same_identity(const LibraryFavoriteTargetV1& left,
         return same_identity(*left_item, std::get<LibraryItemRefV1>(right));
     if (const auto* left_effect = std::get_if<BuiltinEffectTypeRefV1>(&left))
         return *left_effect == std::get<BuiltinEffectTypeRefV1>(right);
-    return std::get<PresetAssetRefV1>(left) == std::get<PresetAssetRefV1>(right);
+    if(const auto* left_preset=std::get_if<PresetAssetRefV1>(&left))
+        return *left_preset==std::get<PresetAssetRefV1>(right);
+    return std::get<MacroAssetRefV1>(left)==std::get<MacroAssetRefV1>(right);
 }
 
 LibraryItemV1 FolderLibrary::resolve(const LibraryItemRefV1& supplied_ref) const {
@@ -782,6 +882,10 @@ QString FolderLibrary::favorite_status(const LibraryFavoriteV1& favorite) const 
         try {(void)read_preset_asset(*preset);return "Available";}
         catch(const Error& error) {return error_message(error);}
     }
+    if(const auto* macro=std::get_if<MacroAssetRefV1>(&favorite.target)) {
+        try {(void)read_macro_asset(*macro);return "Available";}
+        catch(const Error& error) {return error_message(error);}
+    }
     try {
         const auto resolved = resolve(std::get<LibraryItemRefV1>(favorite.target));
         return resolved.available ? QStringLiteral("Available") : resolved.problem;
@@ -793,6 +897,8 @@ QString FolderLibrary::favorite_status(const LibraryFavoriteV1& favorite) const 
 QList<LibraryPresetAssetV1> FolderLibrary::preset_assets() const {
     const auto root_path=resolved_preset_payload_root(false);
     if(!QFileInfo::exists(root_path))return {};
+    if(workspace_asset_file_count(root_path)>max_workspace_assets)
+        throw Error("PRESET_LIBRARY_LIMIT","Workspace asset store exceeds 256 immediate Preset and Macro assets");
     QDir directory(root_path);
     const auto files=directory.entryInfoList({"*.preset.json"},
         QDir::AllEntries|QDir::NoDotAndDotDot|QDir::Hidden|QDir::System,QDir::Name);
@@ -830,7 +936,8 @@ LibraryPresetAssetV1 FolderLibrary::publish_preset(const PresetDefinition& defin
     (void)lock;
     const auto files=QDir(root_path).entryInfoList({"*.preset.json"},
         QDir::AllEntries|QDir::NoDotAndDotDot|QDir::Hidden|QDir::System,QDir::Name);
-    if(files.size()>=max_preset_assets)throw Error("PRESET_LIBRARY_LIMIT","Workspace Preset Library is limited to 256 immediate assets");
+    if(workspace_asset_file_count(root_path)>=max_workspace_assets||files.size()>=max_preset_assets)
+        throw Error("PRESET_LIBRARY_LIMIT","Workspace asset store is limited to 256 immediate Preset and Macro assets");
     QString asset_id;
     QString path;
     do {
@@ -914,6 +1021,128 @@ LibraryFavoriteV1 FolderLibrary::add_favorite(const PresetAssetRefV1& preset,int
     return add_favorite_target(LibraryFavoriteTargetV1{preset},quick_slot);
 }
 
+QList<LibraryMacroAssetV1> FolderLibrary::macro_assets() const {
+    const auto root_path=resolved_macro_payload_root(false);
+    if(!QFileInfo::exists(root_path))return {};
+    if(workspace_asset_file_count(root_path)>max_workspace_assets)
+        throw Error("MACRO_LIBRARY_LIMIT","Workspace asset store exceeds 256 immediate Preset and Macro assets");
+    QDir directory(root_path);
+    const auto files=directory.entryInfoList({"*.macro.json"},
+        QDir::AllEntries|QDir::NoDotAndDotDot|QDir::Hidden|QDir::System,QDir::Name);
+    if(files.size()>max_workspace_assets)
+        throw Error("MACRO_LIBRARY_LIMIT","Workspace asset store is limited to 256 immediate Preset and Macro assets");
+    QList<LibraryMacroAssetV1> assets;
+    const auto suffix=QStringLiteral(".macro.json");
+    for(const auto& file:files) {
+        const auto name=file.fileName();
+        if(!name.endsWith(suffix,Qt::CaseSensitive))continue;
+        const auto asset_id=name.left(name.size()-suffix.size());
+        if(!canonical_asset_id(asset_id))continue;
+        try {assets.push_back(read_stored_macro_asset(root_path,asset_id).metadata);}
+        catch(const Error& error) {
+            assets.push_back({{asset_id},QStringLiteral("Unavailable Macro"),0,{},0,false,error_message(error)});
+        }
+    }
+    std::stable_sort(assets.begin(),assets.end(),[](const auto& left,const auto& right) {
+        const auto by_label=QString::compare(left.label,right.label,Qt::CaseInsensitive);
+        return by_label==0?left.ref.asset_id<right.ref.asset_id:by_label<0;
+    });
+    return assets;
+}
+
+MacroDefinition FolderLibrary::read_macro_asset(const MacroAssetRefV1& ref,LibraryMacroAssetV1* metadata) const {
+    auto stored=read_stored_macro_asset(resolved_macro_payload_root(false),ref.asset_id);
+    if(metadata)*metadata=stored.metadata;
+    return std::move(stored.definition);
+}
+
+LibraryMacroAssetV1 FolderLibrary::publish_macro_asset(const MacroDefinition& definition) {
+    validate_portable_macro_definition(definition);
+    const auto root_path=resolved_macro_payload_root(true);
+    auto lock=lock_macro_asset_root(root_path);(void)lock;
+    if(workspace_asset_file_count(root_path)>=max_workspace_assets)
+        throw Error("MACRO_LIBRARY_LIMIT","Workspace asset store is limited to 256 immediate Preset and Macro assets");
+    QString asset_id,path;
+    do {
+        asset_id=QUuid::createUuid().toString(QUuid::WithoutBraces);
+        path=QDir(root_path).filePath(asset_id+QStringLiteral(".macro.json"));
+    } while(QFileInfo::exists(path));
+    auto metadata=metadata_for_macro(definition,asset_id,1);
+    const auto payload=QByteArray::fromStdString(canonical_macro_payload(definition));
+    const auto envelope=macro_asset_envelope(metadata,payload);
+    write_macro_asset_file(root_path,path,envelope,payload_write_override_,std::nullopt);
+    try {
+        const auto readback=read_stored_macro_asset(root_path,asset_id);
+        if(readback.raw_envelope!=envelope)
+            throw Error("MACRO_LIBRARY_READBACK_FAILED","Published Macro asset failed exact fresh readback");
+    } catch(const std::exception& error) {
+        bool removed=false;
+        try {if(checked_macro_file_bytes(root_path,path)==envelope)removed=QFile::remove(path)&&!QFileInfo::exists(path);}catch(const std::exception&){}
+        throw Error("MACRO_LIBRARY_WRITE_FAILED",std::string("Published Macro asset could not be confirmed; exact candidate cleanup ")+
+            (removed?"succeeded: ":"was skipped because observed bytes differed or could not be read: ")+error.what());
+    }
+    return metadata;
+}
+
+LibraryMacroAssetV1 FolderLibrary::update_macro_asset(const MacroAssetRefV1& ref,const MacroDefinition& definition,
+    std::uint64_t expected_revision,const QString& expected_sha256) {
+    validate_portable_macro_definition(definition);
+    const auto root_path=resolved_macro_payload_root(false);
+    if(!QFileInfo::exists(root_path))throw Error("MISSING_MACRO_ASSET","The exact Macro Library asset file is missing");
+    auto lock=lock_macro_asset_root(root_path);(void)lock;
+    auto current=read_stored_macro_asset(root_path,ref.asset_id);
+    if(current.metadata.accepted_revision!=expected_revision||current.metadata.sha256!=expected_sha256)
+        throw Error("MACRO_ASSET_REVISION_CONFLICT","Macro asset changed after selection; refresh before updating");
+    if(expected_revision>=9007199254740991ULL)
+        throw Error("MACRO_ASSET_REVISION_LIMIT","Macro asset revision reached the supported integer limit");
+    auto next=metadata_for_macro(definition,ref.asset_id,expected_revision+1);
+    const auto payload=QByteArray::fromStdString(canonical_macro_payload(definition));
+    const auto envelope=macro_asset_envelope(next,payload);
+    const auto path=QDir(root_path).filePath(ref.asset_id+QStringLiteral(".macro.json"));
+    write_macro_asset_file(root_path,path,envelope,payload_write_override_,current.raw_envelope);
+    try {
+        const auto readback=read_stored_macro_asset(root_path,ref.asset_id);
+        if(readback.raw_envelope!=envelope)
+            throw Error("MACRO_LIBRARY_READBACK_FAILED","Updated Macro asset failed exact fresh readback");
+    } catch(const std::exception& error) {
+        try {
+            if(checked_macro_file_bytes(root_path,path)!=envelope)
+                throw Error("MACRO_LIBRARY_READBACK_FAILED","Observed Macro bytes no longer match this update candidate; rollback was skipped");
+            write_macro_asset_file(root_path,path,current.raw_envelope,{},envelope);
+            if(checked_macro_file_bytes(root_path,path)!=current.raw_envelope)
+                throw Error("MACRO_LIBRARY_ROLLBACK_FAILED","Prior Macro bytes did not verify after rollback");
+        } catch(const std::exception& restore_error) {
+            throw Error("MACRO_LIBRARY_ROLLBACK_FAILED",std::string("Updated Macro readback failed and prior bytes could not be confirmed: ")+restore_error.what());
+        }
+        throw Error("MACRO_LIBRARY_WRITE_FAILED",std::string("Updated Macro asset failed readback; prior bytes were restored: ")+error.what());
+    }
+    return next;
+}
+
+void FolderLibrary::delete_macro_asset(const MacroAssetRefV1& ref,std::uint64_t expected_revision,const QString& expected_sha256) {
+    const auto root_path=resolved_macro_payload_root(false);
+    if(!QFileInfo::exists(root_path))throw Error("MISSING_MACRO_ASSET","The exact Macro Library asset file is missing");
+    auto lock=lock_macro_asset_root(root_path);(void)lock;
+    const auto current=read_stored_macro_asset(root_path,ref.asset_id);
+    if(current.metadata.accepted_revision!=expected_revision||current.metadata.sha256!=expected_sha256)
+        throw Error("MACRO_ASSET_REVISION_CONFLICT","Macro asset changed after selection; refresh before deleting");
+    const auto path=QDir(root_path).filePath(ref.asset_id+QStringLiteral(".macro.json"));
+    const auto raw=checked_macro_file_bytes(root_path,path);
+    if(raw!=current.raw_envelope)throw Error("MACRO_ASSET_REVISION_CONFLICT","Macro asset bytes changed before deletion");
+    const auto tombstone=QDir(root_path).filePath(ref.asset_id+QStringLiteral(".delete-")+QUuid::createUuid().toString(QUuid::WithoutBraces));
+    if(!QFile::rename(path,tombstone))throw Error("MACRO_LIBRARY_DELETE_FAILED","Macro asset could not be moved atomically for deletion");
+    if(QFile::remove(tombstone)&&!QFileInfo::exists(path))return;
+    if(!QFileInfo::exists(path))QFile::rename(tombstone,path);
+    throw Error("MACRO_LIBRARY_DELETE_FAILED","Macro asset deletion failed; the original asset was restored when possible");
+}
+
+LibraryFavoriteV1 FolderLibrary::add_favorite(const MacroAssetRefV1& macro,int quick_slot) {
+    if(quick_slot<0||quick_slot>9)
+        throw Error("INVALID_QUICK_SLOT","Quick Access slot must be between 1 and 9, or 0 for none");
+    (void)read_macro_asset(macro);
+    return add_favorite_target(LibraryFavoriteTargetV1{macro},quick_slot);
+}
+
 QJsonObject FolderLibrary::ref_to_json(const LibraryItemRefV1& ref) {
     return {{"root_id", ref.root_id}, {"normalized_relative_path", ref.normalized_relative_path}, {"kind", ref.kind}};
 }
@@ -932,7 +1161,9 @@ QJsonObject FolderLibrary::target_to_json(const LibraryFavoriteTargetV1& target)
     if(const auto* effect=std::get_if<BuiltinEffectTypeRefV1>(&target))
         return {{"kind", "effect_type_v1"}, {"type_id", effect->type_id},
             {"behavior_version", static_cast<double>(effect->behavior_version)}};
-    return {{"kind","preset_asset_v1"},{"asset_id",std::get<PresetAssetRefV1>(target).asset_id}};
+    if(const auto* preset=std::get_if<PresetAssetRefV1>(&target))
+        return {{"kind","preset_asset_v1"},{"asset_id",preset->asset_id}};
+    return {{"kind","macro_asset_v1"},{"asset_id",std::get<MacroAssetRefV1>(target).asset_id}};
 }
 
 LibraryFavoriteTargetV1 FolderLibrary::target_from_json(const QJsonObject& json) {
@@ -949,6 +1180,12 @@ LibraryFavoriteTargetV1 FolderLibrary::target_from_json(const QJsonObject& json)
         if(!json.value("asset_id").isString()||!canonical_asset_id(asset_id))
             throw Error("INVALID_LIBRARY_SETTINGS","Folder Library Preset AssetID is malformed");
         return PresetAssetRefV1{asset_id};
+    }
+    if(kind=="macro_asset_v1") {
+        const auto asset_id=json.value("asset_id").toString();
+        if(!json.value("asset_id").isString()||!canonical_asset_id(asset_id))
+            throw Error("INVALID_LIBRARY_SETTINGS","Folder Library Macro AssetID is malformed");
+        return MacroAssetRefV1{asset_id};
     }
     if (kind != "effect_type_v1" || !json.value("type_id").isString() ||
         !json.value("behavior_version").isDouble())

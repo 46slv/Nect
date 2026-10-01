@@ -89,6 +89,18 @@ std::uint64_t preset_unsigned(const j::value& value,std::uint64_t maximum,std::s
     if(result==0||result>maximum)throw Error("INVALID_PRESET_NUMBER",std::string(field)+" is outside the supported positive integer range");
     return result;
 }
+std::uint64_t macro_unsigned(const j::value& value,std::uint64_t maximum,std::string_view field,bool allow_zero=false) {
+    std::uint64_t result=0;
+    if(value.is_uint64())result=value.as_uint64();
+    else if(value.is_int64()) {
+        const auto signed_value=value.as_int64();
+        if(signed_value<0)throw Error("INVALID_MACRO_COMMAND",std::string(field)+" must be a nonnegative integer");
+        result=static_cast<std::uint64_t>(signed_value);
+    } else throw Error("INVALID_MACRO_COMMAND",std::string(field)+" must be an integer JSON number");
+    if((!allow_zero&&result==0)||result>maximum)
+        throw Error("INVALID_MACRO_COMMAND",std::string(field)+" is outside its supported integer range");
+    return result;
+}
 Ref read_ref(const j::value& v) {
     const auto& o=v.as_object();
     keys(o,{"object","point","field"});
@@ -1570,6 +1582,25 @@ MacroCommand read_macro_command(const j::value& value) {
     if(type=="delete_macro_definition") {
         keys(object,{"type","definition"});return MacroCommand{DeleteMacroDefinition{text(object.at("definition"))}};
     }
+    if(type=="import_apply_macro") {
+        keys(object,{"type","definition","definition_id","object","instance","pinned_revision","index",
+            "overrides","asset_id","accepted_revision"});
+        std::map<std::string,double> overrides;
+        if(const auto* supplied=object.if_contains("overrides")) {
+            if(!supplied->is_object())throw Error("INVALID_MACRO_OVERRIDES","Macro import overrides must be an object of stable PublicParamID numeric values");
+            for(const auto& [public_id,value]:supplied->as_object())
+                overrides.emplace(std::string(public_id),number(value));
+        }
+        const auto accepted_revision=macro_unsigned(object.at("accepted_revision"),
+            9007199254740991ULL,"Macro asset accepted revision");
+        const auto pinned_revision=macro_unsigned(object.at("pinned_revision"),
+            std::numeric_limits<std::uint64_t>::max(),"Pinned Macro revision");
+        const auto insertion_index=macro_unsigned(object.at("index"),
+            static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()),"Macro insertion index",true);
+        return MacroCommand{InstantiateMacro{text(object.at("object")),text(object.at("definition_id")),
+            text(object.at("instance")),pinned_revision,static_cast<std::size_t>(insertion_index),read_macro_definition(object.at("definition")),
+            text(object.at("asset_id")),accepted_revision,std::move(overrides)}};
+    }
     if(type=="instantiate_macro"||type=="apply_macro") {
         keys(object,{"type","object","definition","instance","revision","index"});
         return MacroCommand{InstantiateMacro{text(object.at("object")),text(object.at("definition")),text(object.at("instance")),
@@ -1603,7 +1634,8 @@ bool is_preset_command(const j::value& v) {
 Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
-    if(type.find("_macro_")!=std::string::npos||type=="instantiate_macro"||type=="apply_macro")return read_macro_command(v);
+    if(type.find("_macro_")!=std::string::npos||type=="instantiate_macro"||type=="apply_macro"||
+        type=="import_apply_macro")return StructuralCommand{read_macro_command(v)};
     if(type.ends_with("_definition")||type=="create_instance"||type=="set_instance_override"||
         type=="reset_instance_override"||type=="detach_instance")return read_definition_command(v);
     if(type=="create_collection"||type=="rename_collection"||type=="set_collection_members"||
@@ -2489,6 +2521,33 @@ std::string canonical_preset_payload(const PresetDefinition& definition) {
     return payload;
 }
 
+std::string canonical_macro_payload(const MacroDefinition& definition) {
+    validate_portable_macro_definition(definition);
+    const auto payload=canonical_json(macro_definition_json(definition));
+    if(payload.size()>portable_macro_payload_limit)
+        throw Error("MACRO_PAYLOAD_LIMIT","Portable Macro payload exceeds 256 KiB");
+    return payload;
+}
+
+MacroDefinition read_canonical_macro_payload(std::string_view input) {
+    if(input.size()>portable_macro_payload_limit)
+        throw Error("MACRO_PAYLOAD_LIMIT","Portable Macro payload exceeds 256 KiB");
+    MacroDefinition definition;
+    try {definition=read_macro_definition(parse(input));}
+    catch(const Error& error) {
+        if(error.code=="UNSUPPORTED_MACRO_NODE"||error.code=="UNSUPPORTED_MACRO_NODE_VERSION"||
+            error.code=="INVALID_MACRO_GRAPH"||error.code=="INVALID_MACRO_ORDER"||
+            error.code=="INVALID_MACRO_DOMAIN")throw;
+        throw Error("UNAVAILABLE_MACRO_ASSET",std::string("Portable Macro payload is unavailable: ")+error.code+": "+error.what());
+    } catch(const std::exception& error) {
+        throw Error("UNAVAILABLE_MACRO_ASSET",std::string("Portable Macro payload schema is malformed: ")+error.what());
+    }
+    validate_portable_macro_definition(definition);
+    if(canonical_macro_payload(definition)!=input)
+        throw Error("NONCANONICAL_MACRO_PAYLOAD","Portable Macro payload is not in canonical serialized form");
+    return definition;
+}
+
 PresetDefinition read_canonical_preset_payload(std::string_view input) {
     if(input.size()>portable_preset_payload_limit)
         throw Error("PRESET_PAYLOAD_LIMIT","Portable Preset payload exceeds 256 KiB");
@@ -3278,10 +3337,43 @@ std::string request(Session& session,std::string_view input) {
                     {"captured_source_operations",captured_source_operations},{"captured_source_entries",captured_source_entries}};
             } else {
                 std::vector<Command> commands;
-                for(const auto& v:wire_commands)commands.push_back(read_command(v));
+                std::vector<InstantiateMacro> imported_macros;
+                for(const auto& v:wire_commands) {
+                    auto command=read_command(v);
+                    if(const auto* structural=std::get_if<StructuralCommand>(&command))
+                        if(const auto* macro=std::get_if<MacroCommand>(structural))
+                            if(macro->mutation)
+                                if(const auto* instance=std::get_if<InstantiateMacro>(macro->mutation.get());
+                                    instance&&instance->imported_definition)
+                                    imported_macros.push_back(*instance);
+                    commands.push_back(std::move(command));
+                }
                 const auto before=session.revision();
                 apply_serializable(session,commands,expected);
-                result=j::object{{"changed",session.revision()!=before},{"applied_presets",j::array{}}};
+                j::array applied_library_macros;
+                if(session.revision()!=before)for(const auto& imported:imported_macros) {
+                    const auto& source=*imported.imported_definition;
+                    const bool definition_present=session.document().macro_definitions.contains(imported.definition);
+                    bool instance_present=false;
+                    if(const auto object=session.document().objects.find(imported.object);
+                        object!=session.document().objects.end())
+                        instance_present=std::any_of(object->second.stack.begin(),object->second.stack.end(),[&](const auto& value) {
+                            return value.id==imported.instance&&value.macro.has_value();
+                        });
+                    j::object overrides;for(const auto& [id,value]:imported.overrides)overrides[id]=value;
+                    j::array retained_revisions;
+                    for(const auto& [number,revision]:source.revisions){(void)revision;retained_revisions.push_back(number);}
+                    applied_library_macros.push_back(j::object{{"asset_id",imported.asset_id},
+                        {"accepted_revision",imported.accepted_asset_revision},
+                        {"source_definition_id",source.id},{"definition_id",imported.definition},{"label",source.label},
+                        {"latest_revision",source.latest_revision},{"retained_revisions",retained_revisions},
+                        {"pinned_revision",imported.revision},{"target",imported.object},
+                        {"instance",imported.instance},{"overrides",overrides},
+                        {"definition_present_after_batch",definition_present},{"instance_present_after_batch",instance_present},
+                        {"asset_identity_source","caller_supplied"}});
+                }
+                result=j::object{{"changed",session.revision()!=before},{"applied_presets",j::array{}},
+                    {"applied_library_macros",applied_library_macros}};
             }
         } else if(op=="history") {
             keys(o,{"op"});const auto history=session.history();j::array states;

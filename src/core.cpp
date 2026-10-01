@@ -4220,6 +4220,10 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
     }
 }
 
+void validate_portable_macro_definition(const MacroDefinition& definition) {
+    validate_macro_definition(definition.id,definition);
+}
+
 static std::map<Ref,double> validate_evaluated(const Document& d,const std::function<void()>& before_evaluation={}) {
     require(d.objects.size()<=10000 && d.compositions.size()<=128,"LIMIT","Document size limit");
     require(d.definitions.size()<=10000,"LIMIT","Definition count limit 10000");
@@ -6057,12 +6061,40 @@ void edit_macro(Document& candidate,const MacroCommand& command) {
             require(candidate.objects.contains(mutation.object),"MISSING_OBJECT",mutation.object);
             auto& object=candidate.objects.at(mutation.object);
             require(object.kind==Kind::path||object.kind==Kind::text,"INVALID_DOMAIN","Macro target must be a Path or Text object");
-            const auto definition=candidate.macro_definitions.find(mutation.definition);
+            auto definition=candidate.macro_definitions.find(mutation.definition);
+            if(mutation.imported_definition) {
+                require(!mutation.asset_id.empty()&&mutation.accepted_asset_revision>0&&
+                    mutation.accepted_asset_revision<=9007199254740991ULL,
+                    "INVALID_MACRO_ASSET_REF","Portable Macro import requires an exact AssetID and positive accepted asset revision");
+                identity(mutation.asset_id);
+                const auto& source=*mutation.imported_definition;
+                validate_macro_definition(source.id,source);
+                require(mutation.definition!=source.id&&mutation.definition!=mutation.asset_id&&source.id!=mutation.asset_id,
+                    "MACRO_ASSET_ID_MISMATCH","Workspace AssetID, source MacroDefinitionID and fresh Document DefinitionID must remain distinct");
+                require(mutation.instance!=source.id&&mutation.instance!=mutation.asset_id&&mutation.instance!=mutation.definition,
+                    "MACRO_INSTANCE_ID_MISMATCH","Imported Macro instance ID must be fresh and distinct from source and workspace identities");
+                require(!candidate.macro_definitions.contains(mutation.definition),"DUPLICATE_ID",mutation.definition);
+                require(source.revisions.contains(mutation.revision),"MISSING_MACRO_REVISION",source.id);
+                const auto& pinned=source.revisions.at(mutation.revision);
+                for(const auto& [public_id,value]:mutation.overrides) {
+                    require(macro_public_parameter(pinned,public_id),"MISSING_MACRO_PARAMETER",public_id);
+                    finite(value);require(std::abs(value)<=1e6,"OUT_OF_RANGE","Offset amount magnitude limit 1000000");
+                }
+                auto imported=source;imported.id=mutation.definition;
+                validate_macro_definition(imported.id,imported);
+                candidate.macro_definitions.emplace(imported.id,std::move(imported));
+                definition=candidate.macro_definitions.find(mutation.definition);
+            } else {
+                require(mutation.asset_id.empty()&&mutation.accepted_asset_revision==0&&mutation.overrides.empty(),
+                    "INVALID_MACRO_IMPORT","Workspace Macro receipt fields require an imported canonical definition");
+                require(definition!=candidate.macro_definitions.end(),"MISSING_MACRO_DEFINITION",mutation.definition);
+            }
             require(definition!=candidate.macro_definitions.end(),"MISSING_MACRO_DEFINITION",mutation.definition);
             require(definition->second.revisions.contains(mutation.revision),"MISSING_MACRO_REVISION",mutation.definition);
             require(mutation.index<=object.stack.size(),"INVALID_ORDER","Macro insertion index out of range");
             ProcessingEntry entry;entry.id=mutation.instance;entry.type=macro_entry_type;
-            entry.macro=MacroInstance{mutation.definition,mutation.revision,{}};
+            entry.macro=MacroInstance{mutation.definition,mutation.revision,
+                mutation.imported_definition?mutation.overrides:std::map<std::string,double>{}};
             object.stack.insert(object.stack.begin()+static_cast<std::ptrdiff_t>(mutation.index),std::move(entry));
         } else if constexpr(std::is_same_v<T,SetMacroOverride>||std::is_same_v<T,ResetMacroOverride>||
             std::is_same_v<T,UpdateMacroInstance>) {

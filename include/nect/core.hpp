@@ -282,6 +282,9 @@ struct MacroDefinition {
     std::map<std::uint64_t,MacroDefinitionRevision> revisions;
     bool operator==(const MacroDefinition&) const = default;
 };
+// Validates the exact supported portable Macro dependency closure and every
+// retained revision using the same owner as native Document validation.
+void validate_portable_macro_definition(const MacroDefinition&);
 struct MacroInstance {
     Id definition;
     std::uint64_t pinned_revision=1;
@@ -618,7 +621,17 @@ struct CreateMacroDefinition { MacroDefinition definition; };
 struct RenameMacroDefinition { Id definition; std::string label; };
 struct UpdateMacroDefinition { Id definition; MacroDefinitionRevision revision; };
 struct DeleteMacroDefinition { Id definition; };
-struct InstantiateMacro { Id object,definition,instance; std::uint64_t revision=1; std::size_t index=0; };
+struct InstantiateMacro {
+    Id object,definition,instance;
+    std::uint64_t revision=1;
+    std::size_t index=0;
+    // Present only for the compound workspace-library import command. Asset
+    // receipt values are caller context; the Macro payload remains canonical.
+    std::optional<MacroDefinition> imported_definition;
+    Id asset_id;
+    std::uint64_t accepted_asset_revision=0;
+    std::map<std::string,double> overrides;
+};
 struct SetMacroOverride { Id object,instance; std::string public_parameter; double value=0; };
 struct ResetMacroOverride { Id object,instance; std::string public_parameter; };
 struct UpdateMacroInstance { Id object,instance; std::uint64_t revision=1; };

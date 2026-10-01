@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from session_client import call as desktop_api_call
 
 EXE = str(Path(sys.argv[1]).resolve())
-desktop = mcp = None
+desktop = desktop_parity = mcp = None
 sequence = 0
 identity = {}
 endpoint = ''
@@ -64,11 +64,11 @@ def stop(proc):
             proc.wait(timeout=5)
 
 
-atexit.register(lambda: (stop(mcp), stop(desktop)))
+atexit.register(lambda: (stop(mcp), stop(desktop), stop(desktop_parity)))
 
 
 def main():
-    global desktop, mcp, identity, endpoint, sequence
+    global desktop, desktop_parity, mcp, identity, endpoint, sequence
     with tempfile.TemporaryDirectory(prefix='nect-mcp-macro-') as directory:
         temp = Path(directory)
         endpoint = 'nect-macro-' + uuid.uuid4().hex
@@ -92,7 +92,8 @@ def main():
         description = next(item for item in rpc('tools/list')['result']['tools']
             if item['name'] == 'nect_command')['description']
         for term in ('Macro v1', 'macro.offset.amount', 'macros', 'detach_macro_instance',
-                'update_macro_instance', 'pinned revision'):
+                'update_macro_instance', 'pinned revision', 'import_apply_macro',
+                'accepted asset revision', 'stable PublicParamID'):
             assert term in description, term
 
         live = tool('nect_session')
@@ -234,9 +235,68 @@ def main():
             'nect.shape.offset', 'nect.shape.repeater', 'nect.shape.offset', 'nect.paint.stroke']
         assert [item['id'] for item in operations[:2]] == ['mcp-detach-detached-1', 'mcp-detach-detached-2']
         assert operations[0]['parameters']['amount']['literal'] == 31
+
+        retained_source = dict(id=definition['id'], label=definition['label'], latest_revision=2,
+            revisions=[copy.deepcopy(graph), copy.deepcopy(updated_graph)])
+        import_command = dict(type='import_apply_macro', definition=retained_source,
+            definition_id='mcp-library-copy', object='mcp-macro-path', instance='mcp-library-instance',
+            pinned_revision=1, index=0, asset_id='mcp-workspace-asset', accepted_revision=7)
+        mcp_import = core('apply', expected_revision=revision, commands=[import_command])
+        assert mcp_import['ok'] and mcp_import['result']['changed'], mcp_import
+        revision = mcp_import['revision']
+        receipt = mcp_import['result']['applied_library_macros'][0]
+        assert receipt['accepted_revision'] == 7 and receipt['pinned_revision'] == 1
+        assert receipt['source_definition_id'] == definition['id'] and receipt['definition_id'] == 'mcp-library-copy'
+        assert receipt['retained_revisions'] == [1, 2] and receipt['overrides'] == {}
+        assert receipt['definition_present_after_batch'] and receipt['instance_present_after_batch']
+
+        endpoint_parity = 'nect-macro-parity-' + uuid.uuid4().hex
+        ready_parity = temp / 'ready-parity.json'
+        desktop_parity = subprocess.Popen([EXE, '--automation-endpoint', endpoint_parity,
+            '--recovery-dir', str(temp / 'recovery-parity'), '--ready-file', str(ready_parity)],
+            env=dict(os.environ, QT_QPA_PLATFORM='offscreen'))
+        deadline = time.monotonic() + 12
+        while not ready_parity.exists():
+            if desktop_parity.poll() is not None or time.monotonic() >= deadline:
+                raise AssertionError('Second Desktop did not start for successful JSON-lines/MCP parity')
+            time.sleep(.02)
+        hello = desktop_api_call(endpoint_parity, dict(op='hello'))
+        assert hello['ok'], hello
+        identity_parity = {key: hello[key] for key in ('session_id', 'document_id')}
+        def direct_parity(request):
+            return desktop_api_call(endpoint_parity, dict(identity_parity, op='core', request=request))
+        inspect_parity = direct_parity(dict(op='inspect'))
+        composition_parity = inspect_parity['result']['compositions'][0]['id']
+        rectangle_parity = copy.deepcopy(primitive_templates['nect.shape.rectangle'])
+        rectangle_parity['id'] = 'mcp-parity-rectangle-template'
+        setup_parity = direct_parity(dict(op='apply', expected_revision=hello['revision'], commands=[
+            dict(type='create_primitive', composition=composition_parity, parent='', id='mcp-macro-path',
+                name='Macro target', source=rectangle_parity)]))
+        assert setup_parity['ok'], setup_parity
+        api_import = direct_parity(dict(op='apply', expected_revision=setup_parity['revision'], commands=[import_command]))
+        assert api_import['ok'] and api_import['result'] == mcp_import['result'], (api_import, mcp_import)
+
+        rejected_batch = [dict(import_command,
+            definition_id='mcp-rollback-definition', instance='mcp-rollback-instance'),
+            dict(type='delete_macro_definition', definition='mcp-intentionally-missing')]
+        mcp_rollback = core('apply', expected_revision=revision, commands=rejected_batch)
+        api_rollback = direct_parity(dict(op='apply', expected_revision=api_import['revision'], commands=rejected_batch))
+        assert not mcp_rollback['ok'] and not api_rollback['ok']
+        assert mcp_rollback['error'] == api_rollback['error']
+        assert mcp_rollback['error']['code'] == 'MISSING_MACRO_DEFINITION'
+        assert mcp_rollback['revision'] == revision and api_rollback['revision'] == api_import['revision']
+
+        malformed_command = dict(import_command, definition_id='mcp-malformed-definition',
+            instance='mcp-malformed-instance', overrides=[31])
+        mcp_malformed = core('apply', expected_revision=revision, commands=[malformed_command])
+        api_malformed = direct_parity(dict(op='apply', expected_revision=api_import['revision'], commands=[malformed_command]))
+        assert not mcp_malformed['ok'] and not api_malformed['ok']
+        assert mcp_malformed['error'] == api_malformed['error']
+        assert mcp_malformed['error']['code'] == 'INVALID_MACRO_OVERRIDES'
         stop(mcp); mcp = None
+        stop(desktop_parity); desktop_parity = None
         stop(desktop); desktop = None
-        print('PASS formal MCP/JSON-lines Macro identity, property, pinned migration, mixed stack, undo, and detach parity')
+        print('PASS formal MCP/JSON-lines Macro import receipts, all retained graph revisions, explicit pin, strict overrides, batch rollback and prior lifecycle parity')
 
 
 if __name__ == '__main__':

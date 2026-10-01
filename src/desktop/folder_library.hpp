@@ -38,8 +38,13 @@ struct PresetAssetRefV1 {
     QString asset_id;
     bool operator==(const PresetAssetRefV1&) const = default;
 };
+struct MacroAssetRefV1 {
+    QString asset_id;
+    bool operator==(const MacroAssetRefV1&) const = default;
+};
 
-using LibraryFavoriteTargetV1 = std::variant<LibraryItemRefV1, BuiltinEffectTypeRefV1, PresetAssetRefV1>;
+using LibraryFavoriteTargetV1 = std::variant<LibraryItemRefV1, BuiltinEffectTypeRefV1,
+    PresetAssetRefV1, MacroAssetRefV1>;
 
 struct LibraryItemV1 {
     LibraryItemRefV1 ref;
@@ -57,6 +62,15 @@ struct LibraryFavoriteV1 {
 
 struct LibraryPresetAssetV1 {
     PresetAssetRefV1 ref;
+    QString label;
+    std::uint64_t accepted_revision=0;
+    QString sha256;
+    unsigned payload_schema=0;
+    bool available=true;
+    QString problem;
+};
+struct LibraryMacroAssetV1 {
+    MacroAssetRefV1 ref;
     QString label;
     std::uint64_t accepted_revision=0;
     QString sha256;
@@ -109,6 +123,16 @@ public:
         std::uint64_t expected_revision, const QString& expected_sha256);
     LibraryFavoriteV1 add_favorite(const PresetAssetRefV1& preset, int quick_slot = 0);
 
+    QList<LibraryMacroAssetV1> macro_assets() const;
+    MacroDefinition read_macro_asset(const MacroAssetRefV1& ref,
+        LibraryMacroAssetV1* metadata = nullptr) const;
+    LibraryMacroAssetV1 publish_macro_asset(const MacroDefinition& definition);
+    LibraryMacroAssetV1 update_macro_asset(const MacroAssetRefV1& ref,
+        const MacroDefinition& definition, std::uint64_t expected_revision, const QString& expected_sha256);
+    void delete_macro_asset(const MacroAssetRefV1& ref,
+        std::uint64_t expected_revision, const QString& expected_sha256);
+    LibraryFavoriteV1 add_favorite(const MacroAssetRefV1& macro, int quick_slot = 0);
+
     static QJsonObject ref_to_json(const LibraryItemRefV1& ref);
     static LibraryItemRefV1 ref_from_json(const QJsonObject& json);
     static QJsonObject target_to_json(const LibraryFavoriteTargetV1& target);
@@ -133,6 +157,7 @@ private:
     std::optional<QByteArray> read_state_from_fresh_settings(bool use_override) const;
     LibraryFavoriteV1 add_favorite_target(const LibraryFavoriteTargetV1& target, int quick_slot);
     QString resolved_preset_payload_root(bool create) const;
+    QString resolved_macro_payload_root(bool create) const;
     void persist_state(const QList<LibraryRootV1>& roots,
         const QList<LibraryFavoriteV1>& favorites);
     const LibraryRootV1& root(const QString& root_id) const;

@@ -4367,7 +4367,7 @@ void Window::show_folder_library() {
     canvas->cancel_interaction();
     auto& library=*folder_library_;
 
-    QDialog dialog(this);dialog.setWindowTitle("Folder Library");dialog.setObjectName("folder-library-dialog");dialog.resize(900,560);
+    QDialog dialog(this);dialog.setWindowTitle("Folder Library");dialog.setObjectName("folder-library-dialog");dialog.resize(1120,700);
     auto* layout=new QVBoxLayout(&dialog);
     auto* hint=new QLabel("Browse registered folders and shared workspace Favorites. Built-in Effect Favorites keep their exact TypeID and BehaviorVersion.",&dialog);
     hint->setWordWrap(true);layout->addWidget(hint);
@@ -4388,6 +4388,22 @@ void Window::show_folder_library() {
     preset_row->addWidget(source_presets,2);
     auto* update_preset=new QPushButton("Update Asset",&dialog);update_preset->setObjectName("folder-library-preset-update");preset_row->addWidget(update_preset);
     auto* delete_preset=new QPushButton("Delete Asset",&dialog);delete_preset->setObjectName("folder-library-preset-delete");preset_row->addWidget(delete_preset);
+
+    auto* macro_row=new QHBoxLayout;layout->addLayout(macro_row);
+    macro_row->addWidget(new QLabel("Workspace Macros:",&dialog));
+    auto* macro_assets=new QComboBox(&dialog);macro_assets->setObjectName("folder-library-macro-assets");macro_row->addWidget(macro_assets,2);
+    auto* source_macros=new QComboBox(&dialog);source_macros->setObjectName("folder-library-source-macros");
+    source_macros->addItem("Document Macro to publish/update…",QString{});
+    for(const auto& [id,definition]:host.session.document().macro_definitions)
+        source_macros->addItem(QString::fromStdString(definition.label)+" · "+QString::fromStdString(id),QString::fromStdString(id));
+    macro_row->addWidget(source_macros,2);
+    auto* macro_pin=new QComboBox(&dialog);macro_pin->setObjectName("folder-library-macro-pin");
+    macro_pin->addItem("Choose retained revision…",QVariant{});macro_row->addWidget(macro_pin);
+    auto* publish_macro=new QPushButton("Publish Macro",&dialog);publish_macro->setObjectName("folder-library-macro-publish");macro_row->addWidget(publish_macro);
+    auto* update_macro=new QPushButton("Update Asset",&dialog);update_macro->setObjectName("folder-library-macro-update");macro_row->addWidget(update_macro);
+    auto* delete_macro=new QPushButton("Delete Asset",&dialog);delete_macro->setObjectName("folder-library-macro-delete");macro_row->addWidget(delete_macro);
+    auto* favorite_macro=new QPushButton("Favorite Macro",&dialog);favorite_macro->setObjectName("folder-library-macro-favorite");macro_row->addWidget(favorite_macro);
+    auto* apply_macro=new QPushButton("Apply Macro",&dialog);apply_macro->setObjectName("folder-library-macro-apply");macro_row->addWidget(apply_macro);
 
     auto* panes=new QHBoxLayout;layout->addLayout(panes,1);
     auto* tree=new QTreeWidget(&dialog);tree->setObjectName("folder-library-tree");tree->setHeaderLabel("Registered folders");
@@ -4410,6 +4426,12 @@ void Window::show_folder_library() {
     auto* use_favorite=new QPushButton("Use Favorite",&dialog);use_favorite->setObjectName("folder-library-use-favorite");controls->addWidget(use_favorite);
     auto* use_slot=new QPushButton("Use Quick Access",&dialog);use_slot->setObjectName("folder-library-use-slot");controls->addWidget(use_slot);
     auto* close=new QPushButton("Close",&dialog);close->setObjectName("folder-library-close");controls->addWidget(close);
+
+    auto* macro_overrides=new QHBoxLayout;layout->addLayout(macro_overrides);
+    macro_overrides->addWidget(new QLabel("Optional Offset Amount override (blank uses the pinned default):",&dialog));
+    auto* macro_override_value=new QLineEdit(&dialog);macro_override_value->setObjectName("folder-library-macro-override-value");
+    macro_override_value->setPlaceholderText("du");macro_overrides->addWidget(macro_override_value);
+    QString macro_override_asset_id;
 
     QHash<QString,QTreeWidgetItem*> node_by_identity;
     const auto relative_parent=[](const QString& path) {
@@ -4456,6 +4478,71 @@ void Window::show_folder_library() {
             status->setText("Workspace Presets unavailable · "+detail+". Registered folders and existing Favorites remain available.");
         }
     };
+    QHash<QString,QPair<qulonglong,QString>> macro_asset_snapshots;
+    QString macro_pin_asset_id;
+    auto refresh_macro_assets=[&] {
+        const auto selected=macro_assets->currentData().toString();
+        const QSignalBlocker blocker(macro_assets);
+        macro_assets->clear();macro_assets->addItem("Choose a Workspace Macro asset…",QString{});
+        macro_asset_snapshots.clear();
+        try {
+            for(const auto& asset:library.macro_assets()) {
+                const auto label=asset.label+" · r"+QString::number(asset.accepted_revision)+" · "+asset.ref.asset_id;
+                macro_assets->addItem(label,asset.ref.asset_id);
+                const auto index=macro_assets->count()-1;
+                macro_assets->setItemData(index,static_cast<qulonglong>(asset.accepted_revision),Qt::UserRole+1);
+                macro_assets->setItemData(index,asset.sha256,Qt::UserRole+2);
+                macro_assets->setItemData(index,asset.available?"Available":asset.problem,Qt::ToolTipRole);
+                if(!asset.available)macro_assets->setItemData(index,QColor(226,143,143),Qt::ForegroundRole);
+                macro_asset_snapshots.insert(asset.ref.asset_id,{static_cast<qulonglong>(asset.accepted_revision),asset.sha256});
+                if(asset.ref.asset_id==selected)macro_assets->setCurrentIndex(index);
+            }
+        } catch(const Error& error) {
+            const auto detail=qs(error.code)+": "+QString::fromUtf8(error.what());
+            macro_assets->clear();macro_assets->addItem("Workspace Macros unavailable · "+detail,QString{});
+            macro_assets->setItemData(0,detail,Qt::ToolTipRole);
+            macro_assets->setItemData(0,QColor(226,143,143),Qt::ForegroundRole);
+            status->setText("Workspace Macros unavailable · "+detail+". Existing Favorites remain visible.");
+            macro_asset_snapshots.clear();
+        } catch(const std::exception& error) {
+            const auto detail=QString::fromUtf8(error.what());
+            macro_assets->clear();macro_assets->addItem("Workspace Macros unavailable · "+detail,QString{});
+            macro_assets->setItemData(0,detail,Qt::ToolTipRole);
+            macro_assets->setItemData(0,QColor(226,143,143),Qt::ForegroundRole);
+            status->setText("Workspace Macros unavailable · "+detail+". Existing Favorites remain visible.");
+            macro_asset_snapshots.clear();
+        }
+    };
+    auto refresh_macro_pins=[&] {
+        const auto selected=macro_pin->currentData();
+        const QSignalBlocker blocker(macro_pin);
+        macro_pin->clear();macro_pin->addItem("Choose retained revision…",QVariant{});
+        const auto asset_id=macro_assets->currentData().toString();
+        if(asset_id.isEmpty())return;
+        const auto snapshot=macro_asset_snapshots.constFind(asset_id);
+        if(snapshot==macro_asset_snapshots.cend())return;
+        try {
+            LibraryMacroAssetV1 metadata;
+            const auto definition=library.read_macro_asset({asset_id},&metadata);
+            if(metadata.accepted_revision!=snapshot->first||metadata.sha256!=snapshot->second)
+                throw Error("MACRO_ASSET_SELECTION_CHANGED","Workspace Macro changed since the last explicit Refresh; refresh before selecting a retained pin");
+            for(const auto& [revision,graph]:definition.revisions) {
+                (void)graph;
+                const auto label=QString("Revision %1%2").arg(revision).arg(revision==definition.latest_revision?" · accepted latest":"");
+                macro_pin->addItem(label,QVariant::fromValue<qulonglong>(static_cast<qulonglong>(revision)));
+                if(selected.isValid()&&selected.toULongLong()==revision)macro_pin->setCurrentIndex(macro_pin->count()-1);
+                else if(!selected.isValid()&&revision==definition.latest_revision)macro_pin->setCurrentIndex(macro_pin->count()-1);
+            }
+        } catch(const Error& error) {
+            macro_pin->setItemText(0,"Refresh required · "+qs(error.code));
+            macro_pin->setItemData(0,QString::fromUtf8(error.what()),Qt::ToolTipRole);
+            macro_pin->setItemData(0,QColor(226,143,143),Qt::ForegroundRole);
+        } catch(const std::exception& error) {
+            macro_pin->setItemText(0,"Workspace Macro unavailable");
+            macro_pin->setItemData(0,QString::fromUtf8(error.what()),Qt::ToolTipRole);
+            macro_pin->setItemData(0,QColor(226,143,143),Qt::ForegroundRole);
+        }
+    };
     auto display_target=[&](const LibraryFavoriteTargetV1& target) {
         if(const auto* item=std::get_if<LibraryItemRefV1>(&target))return display_ref(*item);
         if(const auto* effect=std::get_if<BuiltinEffectTypeRefV1>(&target)) {
@@ -4464,8 +4551,8 @@ void Window::show_folder_library() {
                 return qs(descriptor->label)+" · "+effect->type_id+" behavior v"+QString::number(effect->behavior_version);
             return QString("Unavailable effect · ")+effect->type_id+" behavior v"+QString::number(effect->behavior_version);
         }
-        const auto& preset=std::get<PresetAssetRefV1>(target);
-        return QString("Workspace Preset · ")+preset.asset_id;
+        if(const auto* preset=std::get_if<PresetAssetRefV1>(&target))return QString("Workspace Preset · ")+preset->asset_id;
+        return QString("Workspace Macro · ")+std::get<MacroAssetRefV1>(target).asset_id;
     };
     auto rebuild_favorites=[&] {
         const auto selected=favorites->currentItem()?favorites->currentItem()->data(Qt::UserRole).toString():QString{};
@@ -4488,10 +4575,33 @@ void Window::show_folder_library() {
         update_preset->setEnabled(has_asset&&!source_presets->currentData().toString().isEmpty());
         delete_preset->setEnabled(has_asset);
     };
+    auto sync_macro_controls=[&] {
+        const bool has_asset=!macro_assets->currentData().toString().isEmpty();
+        const bool has_source=!source_macros->currentData().toString().isEmpty();
+        publish_macro->setEnabled(has_source);
+        update_macro->setEnabled(has_asset&&has_source);
+        delete_macro->setEnabled(has_asset);
+        favorite_macro->setEnabled(has_asset);
+        apply_macro->setEnabled(has_asset&&macro_pin->currentData().isValid());
+    };
     refresh_preset_assets();
+    refresh_macro_assets();refresh_macro_pins();
     connect(preset_assets,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[&]{sync_preset_controls();});
     connect(source_presets,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[&]{sync_preset_controls();});
+    connect(macro_assets,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[&]{
+        const auto current_asset_id=macro_assets->currentData().toString();
+        if(current_asset_id!=macro_pin_asset_id) {
+            const QSignalBlocker reset_pin(macro_pin);
+            macro_pin->setCurrentIndex(0);
+            macro_pin_asset_id=current_asset_id;
+        }
+        refresh_macro_pins();macro_override_asset_id=macro_assets->currentData().toString();macro_override_value->clear();sync_macro_controls();
+    });
+    connect(macro_override_value,&QLineEdit::textEdited,&dialog,[&]{macro_override_asset_id=macro_assets->currentData().toString();});
+    connect(source_macros,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[&]{sync_macro_controls();});
+    connect(macro_pin,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[&]{sync_macro_controls();});
     sync_preset_controls();
+    sync_macro_controls();
     auto rebuild_tree=[&] {
         tree->clear();node_by_identity.clear();
         QHash<QString,QTreeWidgetItem*> root_nodes;
@@ -4558,6 +4668,64 @@ void Window::show_folder_library() {
     const Id frozen_effect_target=canvas->selected_object;
     auto frozen_effect_revision=host.session.revision();
     auto frozen_effect_generation=effects_generation_;
+    auto selected_macro_overrides=[&] {
+        std::map<std::string,double> overrides;
+        const auto value_text=macro_override_value->text().trimmed();
+        if(value_text.isEmpty())return overrides;
+        if(macro_override_asset_id.isEmpty())throw Error("INVALID_MACRO_OVERRIDES","Choose a Workspace Macro before entering an override");
+        if(macro_override_asset_id!=macro_assets->currentData().toString())
+            throw Error("MACRO_OVERRIDE_TARGET_MISMATCH","Offset override draft belongs to a different Workspace Macro");
+        bool valid=false;const auto value=value_text.toDouble(&valid);
+        if(!valid||!std::isfinite(value))throw Error("INVALID_MACRO_OVERRIDES","Macro override must be a finite number");
+        overrides.emplace("macro.offset.amount",value);
+        return overrides;
+    };
+    auto apply_macro_asset=[&](const MacroAssetRefV1& ref,std::optional<std::uint64_t> requested_pin) {
+        if(host.session_id!=frozen_effect_session)
+            throw Error("SESSION_CONFLICT","Macro Favorite belongs to another document");
+        if(frozen_effect_generation!=effects_generation_)
+            throw Error("REVISION_CONFLICT","Effects panel changed; refresh the target before applying");
+        if(canvas->selected_object!=frozen_effect_target)
+            throw Error("TARGET_CONFLICT","Macro target changed; choose the current target");
+        if(host.session.revision()!=frozen_effect_revision)
+            throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current target");
+        if(macro_override_value->text().trimmed().size()&&macro_override_asset_id!=ref.asset_id)
+            throw Error("MACRO_OVERRIDE_TARGET_MISMATCH","Offset override draft belongs to a different Workspace Macro; select that Macro before applying the draft");
+        const auto snapshot=macro_asset_snapshots.constFind(ref.asset_id);
+        if(snapshot==macro_asset_snapshots.cend()||snapshot->first==0||snapshot->second.size()!=64)
+            throw Error("UNAVAILABLE_MACRO_ASSET","Refresh the Library and choose an available Macro asset");
+        LibraryMacroAssetV1 metadata;
+        auto definition=library.read_macro_asset(ref,&metadata);
+        if(metadata.accepted_revision!=snapshot->first||metadata.sha256!=snapshot->second)
+            throw Error("MACRO_ASSET_SELECTION_CHANGED","Workspace Macro changed since the last explicit Refresh; refresh before applying it");
+        const auto pin=requested_pin.value_or(definition.latest_revision);
+        if(!definition.revisions.contains(pin))throw Error("MISSING_MACRO_REVISION","Choose an explicit retained Macro revision");
+        auto overrides=selected_macro_overrides();
+        Id definition_id;
+        do {definition_id=new_id();}
+        while(definition_id==definition.id||definition_id==ref.asset_id.toStdString()||
+            host.session.document().macro_definitions.contains(definition_id)||
+            host.session.document().objects.contains(definition_id));
+        Id instance_id;
+        do {instance_id=new_id();}
+        while(instance_id==definition.id||instance_id==definition_id||instance_id==ref.asset_id.toStdString()||
+            host.session.document().macro_definitions.contains(instance_id)||
+            host.session.document().objects.contains(instance_id));
+        const auto object=host.session.document().objects.find(frozen_effect_target);
+        if(object==host.session.document().objects.end())throw Error("MISSING_OBJECT",frozen_effect_target);
+        InstantiateMacro import{frozen_effect_target,definition_id,instance_id,pin,object->second.stack.size()};
+        import.imported_definition=std::move(definition);
+        import.asset_id=ref.asset_id.toStdString();
+        import.accepted_asset_revision=metadata.accepted_revision;
+        import.overrides=std::move(overrides);
+        host.session.apply({StructuralCommand{MacroCommand{std::move(import)}}},frozen_effect_revision);
+        host.edited();
+        frozen_effect_revision=host.session.revision();
+        expected_revision=frozen_effect_revision;
+        frozen_effect_generation=effects_generation_;
+        status->setText("Imported and applied Macro Favorite "+ref.asset_id+" at retained revision "+
+            QString::number(pin)+" in one Undo step.");
+    };
     auto invoke_favorite=[&](const LibraryFavoriteV1& favorite) {
         if(const auto* item_ref=std::get_if<LibraryItemRefV1>(&favorite.target)) {
             if(item_ref->kind=="folder") {
@@ -4579,6 +4747,19 @@ void Window::show_folder_library() {
                 expected_revision=frozen_effect_revision;
                 frozen_effect_generation=effects_generation_;
                 status->setText("Applied Favorite "+label+" to "+effects_target_->text());
+            } catch(const Error& error) {
+                status->setText(label+" · "+qs(error.code)+": "+QString::fromUtf8(error.what()));
+                throw;
+            }
+            return;
+        }
+        if(const auto* macro=std::get_if<MacroAssetRefV1>(&favorite.target)) {
+            const auto label=display_target(favorite.target);
+            try {
+                std::optional<std::uint64_t> pin;
+                if(macro_assets->currentData().toString()==macro->asset_id&&macro_pin->currentData().isValid())
+                    pin=macro_pin->currentData().toULongLong();
+                apply_macro_asset(*macro,pin);
             } catch(const Error& error) {
                 status->setText(label+" · "+qs(error.code)+": "+QString::fromUtf8(error.what()));
                 throw;
@@ -4623,8 +4804,9 @@ void Window::show_folder_library() {
     });
     connect(refresh_button,&QPushButton::clicked,&dialog,[&,this] {
         perform([&]{library.refresh();rebuild_tree();apply_search(search->text());
-            refresh_preset_assets();rebuild_favorites();sync_preset_controls();
-            status->setText("Registered folders and Workspace Presets refreshed.");});
+            refresh_preset_assets();refresh_macro_assets();refresh_macro_pins();rebuild_favorites();
+            sync_preset_controls();sync_macro_controls();
+            status->setText("Registered folders, Workspace Presets and Workspace Macros refreshed.");});
     });
     connect(search,&QLineEdit::textChanged,&dialog,[&](const QString& query){apply_search(query);});
     connect(update_preset,&QPushButton::clicked,&dialog,[&,this] {
@@ -4669,6 +4851,83 @@ void Window::show_folder_library() {
             library.delete_preset_asset({accepted_asset_id},accepted_revision,expected_hash);
             refresh_preset_assets();rebuild_favorites();sync_preset_controls();
             status->setText("Deleted Workspace Preset asset "+accepted_asset_id+". Its Favorites remain as unavailable references.");
+        });
+    });
+    connect(publish_macro,&QPushButton::clicked,&dialog,[&,this] {
+        perform([&]{
+            if(host.session_id!=frozen_effect_session||host.session.revision()!=frozen_effect_revision||
+                effects_generation_!=frozen_effect_generation)
+                throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to publish a current Macro");
+            const auto source_id=source_macros->currentData().toString().toStdString();
+            const auto source=host.session.document().macro_definitions.find(source_id);
+            if(source_id.empty()||source==host.session.document().macro_definitions.end())
+                throw Error("NO_SELECTION","Choose a document Macro to publish");
+            const auto created=library.publish_macro_asset(source->second);
+            refresh_macro_assets();refresh_macro_pins();rebuild_favorites();sync_macro_controls();
+            status->setText("Published Workspace Macro “"+created.label+"” · AssetID "+created.ref.asset_id+
+                " · accepted revision "+QString::number(created.accepted_revision)+".");
+        });
+    });
+    connect(update_macro,&QPushButton::clicked,&dialog,[&,this] {
+        perform([&]{
+            if(host.session_id!=frozen_effect_session||host.session.revision()!=frozen_effect_revision||
+                effects_generation_!=frozen_effect_generation)
+                throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to update a current Macro");
+            const auto asset_id=macro_assets->currentData().toString();
+            const auto source_id=source_macros->currentData().toString().toStdString();
+            if(asset_id.isEmpty()||source_id.empty())throw Error("NO_SELECTION","Choose both a Workspace Macro asset and a document Macro");
+            const auto snapshot=macro_asset_snapshots.constFind(asset_id);
+            if(snapshot==macro_asset_snapshots.cend()||snapshot->first==0||snapshot->second.size()!=64)
+                throw Error("UNAVAILABLE_MACRO_ASSET","Refresh the Library and choose an available Macro asset");
+            const auto source=host.session.document().macro_definitions.find(source_id);
+            if(source==host.session.document().macro_definitions.end())throw Error("MISSING_MACRO_DEFINITION",source_id);
+            const auto updated=library.update_macro_asset({asset_id},source->second,snapshot->first,snapshot->second);
+            refresh_macro_assets();refresh_macro_pins();rebuild_favorites();sync_macro_controls();
+            status->setText("Updated Workspace Macro asset “"+updated.label+"” · accepted revision "+
+                QString::number(updated.accepted_revision)+". Existing imports and Favorite identity are unchanged.");
+        });
+    });
+    connect(delete_macro,&QPushButton::clicked,&dialog,[&] {
+        const auto asset_id=macro_assets->currentData().toString();
+        const auto snapshot=macro_asset_snapshots.constFind(asset_id);
+        if(asset_id.isEmpty()||snapshot==macro_asset_snapshots.cend()||snapshot->first==0||snapshot->second.size()!=64) {
+            status->setText("Choose an available Workspace Macro asset to delete.");return;
+        }
+        const auto accepted_asset_id=asset_id;const auto accepted_revision=static_cast<std::uint64_t>(snapshot->first);
+        const auto expected_hash=snapshot->second;
+        if(QMessageBox::question(&dialog,"Delete Workspace Macro",
+            "Delete “"+macro_assets->currentText()+"” (AssetID "+accepted_asset_id+", accepted revision "+
+            QString::number(accepted_revision)+")? Existing Favorites will remain as unavailable references.",
+            QMessageBox::Yes|QMessageBox::Cancel,QMessageBox::Cancel)!=QMessageBox::Yes)return;
+        perform([&]{
+            const auto current=macro_asset_snapshots.constFind(accepted_asset_id);
+            if(macro_assets->currentData().toString()!=accepted_asset_id||current==macro_asset_snapshots.cend()||
+                current->first!=accepted_revision||current->second!=expected_hash)
+                throw Error("MACRO_ASSET_SELECTION_CHANGED","Workspace Macro selection changed during delete confirmation; nothing was deleted");
+            library.delete_macro_asset({accepted_asset_id},accepted_revision,expected_hash);
+            refresh_macro_assets();refresh_macro_pins();rebuild_favorites();sync_macro_controls();
+            status->setText("Deleted Workspace Macro asset "+accepted_asset_id+". Its Favorites remain as unavailable references.");
+        });
+    });
+    connect(apply_macro,&QPushButton::clicked,&dialog,[&,this] {
+        perform([&]{
+            bool pin_ok=false;const auto pin=macro_pin->currentData().toULongLong(&pin_ok);
+            if(!pin_ok||pin==0)throw Error("MISSING_MACRO_REVISION","Choose an explicit retained Macro revision");
+            apply_macro_asset({macro_assets->currentData().toString()},static_cast<std::uint64_t>(pin));
+        });
+    });
+    connect(favorite_macro,&QPushButton::clicked,&dialog,[&] {
+        const auto asset_id=macro_assets->currentData().toString();
+        if(asset_id.isEmpty()) {status->setText("Choose a Workspace Macro asset to Favorite.");return;}
+        perform([&]{
+            const auto snapshot=macro_asset_snapshots.constFind(asset_id);
+            if(snapshot==macro_asset_snapshots.cend()||snapshot->first==0||snapshot->second.size()!=64)
+                throw Error("UNAVAILABLE_MACRO_ASSET","Refresh the Library and choose an available Macro asset");
+            LibraryMacroAssetV1 metadata;(void)library.read_macro_asset({asset_id},&metadata);
+            if(metadata.accepted_revision!=snapshot->first||metadata.sha256!=snapshot->second)
+                throw Error("MACRO_ASSET_SELECTION_CHANGED","Workspace Macro changed since the last explicit Refresh; refresh before Favoriting it");
+            const auto created=library.add_favorite(MacroAssetRefV1{asset_id});
+            rebuild_favorites();status->setText("Macro Favorite saved: "+display_target(created.target));
         });
     });
     connect(add_favorite,&QPushButton::clicked,&dialog,[&,this] {
