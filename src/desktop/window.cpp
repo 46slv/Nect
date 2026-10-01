@@ -1862,9 +1862,22 @@ void Window::add_artboard(bool duplicate) {
     canvas->cancel_interaction();
     const auto& comp=find_composition(host.session.document(),canvas->active_composition());
     const auto& selected=find_artboard(comp,canvas->active_artboard());
-    if(duplicate&&selected.template_assignment&&selected.template_assignment->content_instance)
-        throw Error("ARTBOARD_DUPLICATE_CONTENT_UNSUPPORTED",
-            "Duplicate Template frames with owned Definition content after content duplication is supported");
+    if(duplicate&&selected.template_assignment&&selected.template_assignment->content_instance) {
+        const auto resolved=evaluate_artboard(comp,selected.id);
+        double right=resolved.x+resolved.width;
+        for(const auto& entry:comp.artboards) {
+            const auto frame=evaluate_artboard(comp,entry.id);
+            right=std::max(right,frame.x+frame.width);
+        }
+        auto prefix=new_id();std::erase(prefix,'-');
+        const auto composition=comp.id,source=selected.id,target=prefix+"-artboard";
+        const auto index=static_cast<std::size_t>(std::distance(comp.artboards.begin(),
+            std::find_if(comp.artboards.begin(),comp.artboards.end(),[&](const auto& item){return item.id==source;})))+1;
+        host.session.apply({ArtboardTemplateCommand{DuplicateTemplateArtboard{
+            composition,source,prefix,right+40,resolved.y,index}}},host.session.revision());
+        canvas->set_selection({});artboard_editing_=true;
+        canvas->set_active_artboard(composition,target);host.edited();return;
+    }
     auto board=duplicate?selected:evaluate_artboard(comp,selected.id);
     std::vector<ArtboardGuide> copied_local_guides;
     if(duplicate)for(const auto& guide:selected.local_guides) {

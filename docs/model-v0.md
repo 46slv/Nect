@@ -2110,5 +2110,5 @@ Generated IDs are `PREFIX-artboard`, `PREFIX-grid`, `PREFIX-guide-N` and
 frame/layout sources, Guide overrides and suppression stay authored references;
 rename/reorder never retargets them. Native 0.77 already represents the result;
 no format bump or alternate persistence is introduced. The core/JSON vertical is
-separate from the still-unqualified desktop Duplicate control and Host/MCP/GUI
-acceptance. See `docs/r10-template-duplicate-boundary.md` for its exact scope.
+also used by the desktop Duplicate control, with Qt offscreen interaction coverage.
+Windows/Host/MCP/hands-on acceptance remain separate. See `docs/r10-template-duplicate-boundary.md` for its exact scope.

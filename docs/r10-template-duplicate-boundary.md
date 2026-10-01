@@ -1,6 +1,6 @@
 # R10-TEMPLATE-DUPLICATE-01 / first core vertical
 
-Status: CORE/JSON FIRST VERTICAL QUALIFIED / DESKTOP ADAPTER NOT_RUN. 2026-10-01 UTC.
+Status: CORE/JSON + QT OFFSCREEN WINDOW VERTICAL QUALIFIED / AGGREGATE OPEN. 2026-10-01 UTC.
 Owner: dot, single writer on isolated dot/d0-cloud-canary.
 Entry: D0 qualified at f171bd742d22a658a11e02a8c63105571403712e; current
 checkpoint records the existing Definition-backed Template Duplicate residual.
@@ -46,9 +46,9 @@ unsafe driven placement and later failing batch each leave state/history unchang
 
 ## Residuals and limits
 
-No new Window button wiring until the desktop can be built/tested. Core/API success
-is not GUI/Host/MCP acceptance or whole REQ-205 closure. Keep existing unsupported
-Window guard until a separately verified adapter consumes the canonical command.
+The Window Duplicate control now consumes the canonical command after the own-cloud
+Qt desktop build and focused offscreen interaction checks passed. This does not
+establish hands-on visual, Windows Host/MCP acceptance or whole REQ-205 closure.
 General artboard duplication and cross-Composition reuse are outside this slice.
 
 ## Verification receipt — 2026-10-01 UTC
@@ -68,3 +68,26 @@ smoke still passes. Raw logs: ignored build/d0-evidence/duplicate-final-build.lo
 duplicate-final-ctest.log and duplicate-final-smoke.log. This does not close
 Windows/Qt/GUI/MCP or whole REQ-205. Capacity extremes and exhaustive malformed
 JSON permutations are not newly qualified by this bounded fixture.
+
+## Qt Window follow-on — 2026-10-01 UTC
+
+Official Qt6.5.3 qtbase and ICU archives were downloaded/checksum-verified into
+ignored build/deps. Debian GL development headers were extracted there too; no
+system permissions or credentials changed. The aqt installer could not create its
+local multiprocessing socket; archive listing and direct download/extraction did
+not require that socket. The normal runtime socket restriction remains in place.
+
+Full desktop all-target Release build PASS. The unchanged Template Window suite
+passed baseline. The new public Duplicate expectation failed against the old
+unsupported guard, then passed after routing to the canonical command. Final
+focused four contracts (Template UI/core duplicate/JSON/Guide core) PASS; smoke PASS.
+Tests include repeat clicks, exact Undo/Redo, rightmost-frame+40 placement and
+insertion, and atomic refusal of driven content without changing active frame.
+Independent read-only UI source review found no must-fix; suggested checks added.
+
+First full Linux/Qt offscreen CTest: 34 passed, 1 explicit WIC skip, 26 failed out
+of61. DirectWrite/WIC and local-socket failures remain explicit. effects_panel had
+an exception escape followed by SEGFAULT; transform_ui has a creation-atomicity
+assertion failure. These are being diagnosed and must not all be assumed platform
+limitations. The aggregate suite is NOT qualified. Raw logs are under ignored
+build/d0-evidence/desktop-all-ctest.log and template-ui-{red,final}-test.log.
