@@ -1684,6 +1684,9 @@ void Window::rebuild_effects_panel() {
 }
 
 void Window::sync_utility_view_state() {
+    for(auto* box:findChildren<QCheckBox*>("guide-edit-mode")) {
+        const QSignalBlocker blocker(box);box->setChecked(canvas->guide_edit_mode());
+    }
     if(!utility_guides_||!utility_grid_||!utility_snap_action_||!utility_snap_)return;
     const auto state=[](bool enabled){return enabled?QStringLiteral("ON"):QStringLiteral("OFF");};
     {
@@ -3622,9 +3625,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* guide_override=new QPushButton("Override field…",guide_box);guide_override->setObjectName("artboard-guide-override");
     auto* guide_reset=new QPushButton("Reset field…",guide_box);guide_reset->setObjectName("artboard-guide-reset");
     auto* guide_detach=new QPushButton("Detach occurrence",guide_box);guide_detach->setObjectName("artboard-guide-detach");
+    auto* guide_drag=new QPushButton("Drag once…",guide_box);guide_drag->setObjectName("artboard-guide-drag");
+    guide_drag->setToolTip("Arm only the selected visible Guide occurrence, then drag its clipped line once on Canvas. Escape cancels.");
+    guide_actions->addWidget(guide_drag,2,0,1,3);
     guide_actions->addWidget(guide_add,0,0);guide_actions->addWidget(guide_edit_button,0,1);guide_actions->addWidget(guide_delete,0,2);
     guide_actions->addWidget(guide_override,1,0);guide_actions->addWidget(guide_reset,1,1);guide_actions->addWidget(guide_detach,1,2);
-    const auto update_guide_buttons=[guide_selector,guide_edit_button,guide_delete,guide_override,guide_reset,guide_detach,
+    const auto update_guide_buttons=[guide_selector,guide_edit_button,guide_delete,guide_override,guide_reset,guide_detach,guide_drag,
         occurrences,assignment=board.template_assignment](int) {
         const auto selected=guide_selector->currentData().toString().toStdString();
         const auto found=std::find_if(occurrences.begin(),occurrences.end(),[&](const auto& value) {
@@ -3634,6 +3640,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         const bool local=present&&!found->inherited;
         const bool inherited=present&&found->inherited;
         guide_edit_button->setEnabled(local);guide_delete->setEnabled(local);
+        guide_drag->setEnabled(present&&found->enabled);
+        guide_drag->setText(inherited?"Drag position override once…":"Drag local position once…");
         guide_override->setEnabled(inherited);guide_detach->setEnabled(inherited);
         const bool has_reset=inherited&&assignment&&
             (assignment->guide_position_overrides.contains(selected)||assignment->guide_enabled_overrides.contains(selected));
@@ -3641,6 +3649,15 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     };
     update_guide_buttons(guide_selector->currentIndex());
     connect(guide_selector,qOverload<int>(&QComboBox::currentIndexChanged),this,update_guide_buttons);
+    connect(guide_drag,&QPushButton::clicked,this,[this,template_context,guide_selector]{
+        const auto guide=guide_selector->currentData().toString().toStdString();
+        perform([&]{
+            verify_artboard_guide_context(template_context);
+            if(layout_preview_active_||layout_preview_invalid_)cancel_layout_draft();
+            canvas->arm_artboard_guide_drag(template_context.composition,template_context.artboard,guide);
+            canvas->setFocus(Qt::OtherFocusReason);
+        });
+    });
     connect(guide_add,&QPushButton::clicked,this,[this,template_context]{perform([&]{add_artboard_guide(template_context);});});
     connect(guide_edit_button,&QPushButton::clicked,this,[this,template_context,guide_selector]{
         const auto guide=guide_selector->currentData().toString().toStdString();

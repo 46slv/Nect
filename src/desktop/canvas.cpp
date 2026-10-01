@@ -169,9 +169,10 @@ void Canvas::refresh() {
     }
     if(drag_==Drag::guide&&!guide_context_current()) {
         if(gesture_owned_&&session_.gesture_active())session_.cancel_gesture();
-        gesture_owned_=false;drag_=Drag::none;guide_drag_invalid_=false;
+        gesture_owned_=false;drag_=Drag::none;guide_drag_invalid_=false;disarm_scoped_guide();
         report_error(Error("REVISION_CONFLICT","Guide drag belongs to an older document session or revision"));
     }
+    if(armed_guide_&&!scoped_guide_context_current(*armed_guide_))disarm_scoped_guide();
     const auto& document = session_.preview_document();
     const auto previous_composition = active_composition_, previous_artboard = active_artboard_;
     try {
@@ -1236,7 +1237,7 @@ void Canvas::set_snap_grid_enabled(bool enabled) {
 
 void Canvas::set_show_guides(bool enabled) {
     if(show_guides_==enabled)return;
-    if(!enabled&&drag_==Drag::guide)cancel_interaction();
+    if(!enabled&&(drag_==Drag::guide||armed_guide_))cancel_interaction();
     show_guides_=enabled;update();if(view_state_changed)view_state_changed();
 }
 
@@ -1252,13 +1253,69 @@ void Canvas::set_show_margin(bool enabled) {
 
 void Canvas::set_guide_edit_mode(bool enabled) {
     if(guide_edit_mode_==enabled)return;
-    if(!enabled&&drag_==Drag::guide)cancel_interaction();
+    if(!enabled&&(drag_==Drag::guide||armed_guide_))cancel_interaction();
     if(enabled) {set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();}
     guide_edit_mode_=enabled;
+    update_cursor();update();if(view_state_changed)view_state_changed();
+}
+
+void Canvas::disarm_scoped_guide() {
+    const bool scoped=armed_guide_.has_value()||scoped_guide_drag_.has_value();
+    armed_guide_.reset();scoped_guide_drag_.reset();
+    if(scoped) {guide_edit_mode_=false;if(view_state_changed)view_state_changed();}
+}
+
+bool Canvas::scoped_guide_context_current(const ScopedGuideTarget& target) const {
+    if(session_.document().id!=target.document||session_.revision()!=target.revision||
+       active_composition_!=target.composition||active_artboard_!=target.artboard||
+       (session_identity_provider_?session_identity_provider_():QString::fromStdString(session_.document().id))!=target.session)return false;
+    try {
+        const auto guides=effective_artboard_guides(session_.document(),target.composition,target.artboard);
+        return std::any_of(guides.begin(),guides.end(),[&](const auto& guide){
+            return guide.guide_id==target.guide&&guide.source_artboard==target.source&&
+                guide.inherited==target.inherited&&guide.enabled;
+        });
+    }catch(const Error&) {return false;}
+}
+
+void Canvas::arm_artboard_guide_drag(const Id& composition,const Id& artboard,const Id& guide_id) {
+    if(!show_guides_)throw Error("GUIDES_HIDDEN","Show Guide overlays before arming an Artboard Guide drag");
+    if(composition!=active_composition_||artboard!=active_artboard_)
+        throw Error("ARTBOARD_CONTEXT_CONFLICT","Select the captured Artboard before dragging its Guide");
+    const auto& document=session_.document();
+    const auto guides=effective_artboard_guides(document,composition,artboard);
+    const auto found=std::find_if(guides.begin(),guides.end(),[&](const auto& guide){return guide.guide_id==guide_id;});
+    if(found==guides.end()||!found->enabled)throw Error("GUIDE_UNAVAILABLE","The selected Guide occurrence is missing or disabled");
+    const auto& comp=*std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==composition;});
+    const auto board=evaluate_artboard(comp,artboard);
+    const auto extent=found->axis=="x"?board.width:board.height;
+    if(found->position<0||found->position>extent)throw Error("GUIDE_OUTSIDE_FRAME","The selected Guide is outside its clipped Artboard");
+    cancel_interaction();clear_circle_source_edit();set_guide_edit_mode(true);
+    armed_guide_=ScopedGuideTarget{document.id,composition,artboard,found->source_artboard,guide_id,
+        session_identity_provider_?session_identity_provider_():QString::fromStdString(document.id),session_.revision(),found->inherited};
     update_cursor();update();
 }
 
+std::optional<EffectiveArtboardGuide> Canvas::hit_armed_guide(QPointF screen) const {
+    if(!guide_edit_mode_||!show_guides_||!armed_guide_||!scoped_guide_context_current(*armed_guide_))return std::nullopt;
+    const auto& target=*armed_guide_;const auto& document=session_.document();
+    const auto& comp=*std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==target.composition;});
+    const auto board=evaluate_artboard(comp,target.artboard);
+    const auto frame=view().mapRect(QRectF(board.x,board.y,board.width,board.height));
+    for(const auto& guide:effective_artboard_guides(document,target.composition,target.artboard)) {
+        if(guide.guide_id!=target.guide||!guide.enabled)continue;
+        const bool x=guide.axis=="x";
+        if(guide.position<0||guide.position>(x?board.width:board.height))return std::nullopt;
+        const auto line=view().map(QPointF(board.x+(x?guide.position:0),board.y+(x?0:guide.position)));
+        const auto separation=x?std::abs(screen.x()-line.x()):std::abs(screen.y()-line.y());
+        const bool along=x?(screen.y()>=frame.top()&&screen.y()<=frame.bottom()):(screen.x()>=frame.left()&&screen.x()<=frame.right());
+        if(separation<=6.0&&along)return guide;
+    }
+    return std::nullopt;
+}
+
 bool Canvas::guide_context_current() const {
+    if(scoped_guide_drag_)return scoped_guide_context_current(*scoped_guide_drag_);
     if(guide_drag_document_.empty()||guide_drag_composition_.empty())return false;
     if(session_.document().id!=guide_drag_document_||session_.revision()!=guide_drag_revision_||
        active_composition_!=guide_drag_composition_)return false;
@@ -1270,7 +1327,7 @@ bool Canvas::guide_context_current() const {
 }
 
 const Guide* Canvas::hit_guide(QPointF screen) const {
-    if(!guide_edit_mode_||!show_guides_||active_composition_.empty())return nullptr;
+    if(armed_guide_||!guide_edit_mode_||!show_guides_||active_composition_.empty())return nullptr;
     const auto& document=session_.preview_document();
     const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),
         [&](const auto& item){return item.id==active_composition_;});
@@ -1290,7 +1347,7 @@ const Guide* Canvas::hit_guide(QPointF screen) const {
     return chosen;
 }
 
-void Canvas::begin_guide_drag(const Guide& guide,QPointF screen) {
+void Canvas::begin_guide_drag(const Guide& guide,QPointF screen,std::optional<ScopedGuideTarget> scope) {
     try {
         if(guide.position_driver||guide.position_expression)
             throw Error("DRIVEN_GUIDE_POSITION","Unlink the Guide position in Composition setup before dragging it");
@@ -1299,7 +1356,7 @@ void Canvas::begin_guide_drag(const Guide& guide,QPointF screen) {
         guide_drag_document_=session_.document().id;guide_drag_composition_=active_composition_;
         guide_drag_revision_=session_.revision();guide_drag_invalid_=false;
         press_position_=screen;press_pan_=pan_;drag_moved_=false;
-        session_.begin_gesture(guide_drag_revision_);gesture_owned_=true;drag_=Drag::guide;
+        session_.begin_gesture(guide_drag_revision_);scoped_guide_drag_=std::move(scope);gesture_owned_=true;drag_=Drag::guide;
         if (timing_observation_enabled()) ++input_sequence_;
         update_cursor();update();
     } catch(const std::exception& exception) {report_error(exception);}
@@ -1917,7 +1974,14 @@ void Canvas::update_drag(QPointF screen) {
         changed.position=guide_drag_start_.position+(guide_drag_start_.axis=="x"
             ?world.x()-guide_drag_world_start_.x():world.y()-guide_drag_world_start_.y());
         try {
-            session_.update_gesture({UpdateGuide{guide_drag_composition_,changed}});
+            if(scoped_guide_drag_) {
+                const auto& target=*scoped_guide_drag_;
+                if(changed.position==guide_drag_start_.position)session_.update_gesture({});
+                else if(target.inherited)session_.update_gesture({ArtboardGuideCommand{SetArtboardGuideOverride{
+                    target.composition,target.artboard,target.guide,"position",changed.position}}});
+                else session_.update_gesture({ArtboardGuideCommand{UpdateArtboardGuide{target.composition,target.artboard,
+                    {changed.id,changed.name,changed.axis,changed.position,true}}}});
+            }else session_.update_gesture({UpdateGuide{guide_drag_composition_,changed}});
             guide_drag_invalid_=false;refresh();
         } catch(const std::exception& exception) {
             guide_drag_invalid_=true;report_error(exception);
@@ -2071,6 +2135,7 @@ void Canvas::finish_drag() {
         }
         gesture_owned_ = false;
         drag_ = Drag::none;
+        disarm_scoped_guide();
         if(session_.revision()!=revision) {
             // The last successful preview already projected these exact committed
             // values. The Window callback refreshes Inspector/structure once; a
@@ -2089,6 +2154,7 @@ void Canvas::finish_drag() {
 }
 
 void Canvas::cancel_interaction() {
+    disarm_scoped_guide();
     snap_guide_x_.reset(); snap_guide_y_.reset();
     snap_prepared_=false;snap_point_mode_=false;snap_point_world_.reset();snap_bounds_.reset();
     snap_x_sources_.clear();snap_y_sources_.clear();snap_x_targets_.clear();snap_y_targets_.clear();
@@ -2154,6 +2220,7 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
     setFocus(Qt::MouseFocusReason);
     if (event->button() == Qt::MiddleButton ||
         (event->button() == Qt::LeftButton && space_down_)) {
+        if(armed_guide_||scoped_guide_drag_)cancel_interaction();
         begin_drag(Drag::pan, event->position());
         event->accept();
         return;
@@ -2172,6 +2239,13 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         if(source_hit.kind==Drag::circle_center||source_hit.kind==Drag::circle_radius) {
             begin_drag(source_hit.kind,event->position());event->accept();return;
         }
+    }
+    if(armed_guide_) {
+        if(const auto guide=hit_armed_guide(event->position())) {
+            begin_guide_drag(Guide{guide->guide_id,guide->name,guide->axis,guide->position},event->position(),armed_guide_);
+            event->accept();return;
+        }
+        disarm_scoped_guide();
     }
     if(const auto* guide=hit_guide(event->position())) {
         begin_guide_drag(*guide,event->position());event->accept();return;
@@ -2212,14 +2286,14 @@ void Canvas::mouseMoveEvent(QMouseEvent* event) {
     if (drag_ != Drag::none) update_drag(event->position());
     else if (!space_down_ && !draw_mode_) {
         const auto hit = hit_control(event->position());
-        setCursor((guide_edit_mode_&&hit_guide(event->position()))||hit.kind != Drag::none ? Qt::CrossCursor : Qt::ArrowCursor);
+        setCursor((guide_edit_mode_&&(hit_armed_guide(event->position()).has_value()||hit_guide(event->position())))||hit.kind != Drag::none ? Qt::CrossCursor : Qt::ArrowCursor);
     }
     event->accept();
 }
 
 void Canvas::mouseReleaseEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
-        if(drag_==Drag::marquee)update_drag(event->position());
+        if(drag_==Drag::marquee||scoped_guide_drag_)update_drag(event->position());
         finish_drag();
     }
     event->accept();
@@ -2257,7 +2331,7 @@ void Canvas::wheelEvent(QWheelEvent* event) {
 
 void Canvas::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) {
-        if (drag_ != Drag::none) cancel_interaction();
+        if (drag_ != Drag::none||armed_guide_) cancel_interaction();
         else if (draw_mode_) set_draw_mode(false);
         else if(anchor_edit_)set_anchor_edit(false);
         else if(circle_source_edit_)set_circle_source_edit(false);
