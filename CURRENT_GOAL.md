@@ -14,15 +14,15 @@
 
 **Goal:** Advance accepted R03/R10 layout behavior while preserving Template family independence, canonical identities and explicit platform limits.
 
-**Current phase:** ORIGINAL SVG FIXTURES RECOVERED / PARSER-SESSION SUBSET QUALIFIED / HISTORY SAFETY SLICE NEXT. Exact CP2 JSON inputs are reproducible source mirrors with pinned byte integrity and newline protection. Parser/Session stage PASS even from fresh scratch CWD. Full SVG Host test still fails INVALID_SVG_PATH on Linux. Full70 =43pass/1skip/26fail; same failed names, SVG cause now correctly classified. See `docs/r12-svg-fixture-replay.md`.
+**Current phase:** HISTORY BUDGET/GESTURE SUBSET QUALIFIED / DUPLICATION REMAP SAFETY NEXT. Existing Point Edit, Group-follow relation accounting and limits/gestures34 checks PASS, with original function bodies and default full order unchanged. Full71 =44pass/1skip/26fail; no changed failure names. See `docs/r12-history-budget-gesture-slice.md`. SVG parser/Session source-backed replay remains qualified; its full Host test remains Windows-path blocked.
 
 **Proven:** Latest production checkpoint `b3e2b97d46c4dc28ab2997297d435c3d15a90457` (tree `4aa84f84fbba24f835379baab0d659c22e87906a`) qualifies Template Frame97 checks after Margin/Grid128, scoped Guide drag107, inherited Grid80, scoped Guide Align74 and Template duplicate63 dedicated checks. Their bounded packets preserve exact receipts and residuals. Final all-target desktop build, named focused tests and real-process smoke PASS at those checkpoints; no whole-suite/Windows/GUI/MCP promotion. Current SVG work changes only tests/fixtures/CMake/docs, not production behavior.
 
-**Next task:** Add a separately named invocation of the existing History Point Edit, Group Path Follow accounting and limits/gestures safety functions. They are currently unreachable after the full history_contract's unsupported Text stage on Linux. Run the exact unchanged oracles; do not remove/reorder/skip assertions in the default full test or alter backend policy.
+**Next task:** Qualify and run the existing independent Duplication visibility-driver and Point Edit enabled driver/expression remapping functions, currently obscured by the default suite's first mixed WIC fixture. Keep every original oracle and full invocation unchanged.
 
-**Approach:** Use a strict explicit test-binary mode and separate CTest name. Preserve full default call order, unknown-argument refusal and clear subset output. Any newly exposed actual defect is repaired only within existing History/atomicity authority; otherwise record concrete limits rather than weakening expected behavior.
+**Approach:** Strict named test mode and separate CTest only after confirming the functions do not depend on mixed Raster/Text fixtures. Test unknown arguments, compare original helper bodies, run selected functions and full aggregate, and independently review. No production backend, path policy, schema or candidate feature changes.
 
-**Done for next:** Exact original History budget/gesture functions execute, independent review and required regression establish results, then checkpoint and continue the next eligible accepted Route step. Keep Text/Windows obligations open.
+**Done for next:** Existing remapping oracles execute with positive/atomicity evidence or expose a concrete defect; review/repair/checkpoint, then choose the next highest-value eligible Route step. Unsupported full contracts stay open.
 
 **State:** Own cloud checkout, isolated `dot/d0-cloud-canary`, [Draft PR13](https://github.com/46slv/Nect/pull/13). Primary `codex/practical-alpha@01a909097ba222db0340e1c15cdeba6018f445ff` is untouched. GitHub-plugin non-force tree/commit/ref synchronization is qualified; shell push has no credentials. Temporary dependencies/build outputs remain ignored. No CI runs for this PR target under current workflow filters.
 
