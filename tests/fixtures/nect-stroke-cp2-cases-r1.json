@@ -1,0 +1,71 @@
+{
+  "kind": "review-fixture-specification-not-runtime-evidence",
+  "packet_id": "NECT-STROKE-CP2",
+  "packet_revision": 3,
+  "fixture_revision": 1,
+  "baseline": "083b53d520634abb797973612e640ec344c9384c",
+  "status": "REVIEW_PENDING; NOT_RUN_ON_NECT",
+  "canonical_brief": "https://app.notion.com/p/3e3fd279a6f3818e877bc08effc9e600",
+  "materialization": {
+    "root": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"240\" viewBox=\"0 0 320 240\" fill=\"none\" stroke=\"#000000\" stroke-width=\"12\">BODY</svg>",
+    "instruction": "Replace BODY with the case body without changing attributes or expected values. A case without a body declares the exact expansion rule. Use fresh task-owned files, not user artwork. Input IDs become labels; native IDs must be fresh."
+  },
+  "positive_cases": [
+    {
+      "id": "I00-default",
+      "body": "<path id=\"default\" d=\"M20 20 L80 20\"/>",
+      "expected": [{"label":"default","cap":"butt","join":"miter","miter":4,"version":1}]
+    },
+    {
+      "id": "I01-nine-styles",
+      "expansion": "Enumerate cap in [butt,round,square] with i=0..2 and join in [miter,round,bevel] with j=0..2. Set x=20+90*i, y=20+65*j. Emit path id=cap-join, d=M{x} {y+30} L{x+25} {y} L{x+50} {y+30}, stroke-linecap=cap, stroke-linejoin=join. Preserve this enumeration order.",
+      "expected_count": 9,
+      "expected_miter": 4,
+      "expected_version": "1 only for butt-miter; 2 for the other eight combinations"
+    },
+    {
+      "id": "I02-inheritance",
+      "body": "<g stroke-linecap=\"round\" stroke-linejoin=\"bevel\" stroke-miterlimit=\"2\"><path id=\"parent-values\" d=\"M20 30 L100 30\"/><g stroke-linecap=\"square\" stroke-linejoin=\"miter\" stroke-miterlimit=\"8\"><path id=\"nested-values\" d=\"M20 70 L100 70\"/></g><path id=\"sibling-values\" d=\"M20 110 L100 110\"/><path id=\"inline-wins\" d=\"M20 150 L100 150\" stroke-linecap=\"butt\" stroke-linejoin=\"miter\" stroke-miterlimit=\"4\" style=\"stroke-linecap:square;stroke-linejoin:round;stroke-miterlimit:6\"/><path id=\"inline-inherit\" d=\"M20 190 L100 190\" stroke-linecap=\"butt\" stroke-linejoin=\"miter\" stroke-miterlimit=\"4\" style=\"stroke-linecap:inherit;stroke-linejoin:inherit;stroke-miterlimit:inherit\"/></g>",
+      "expected": [
+        {"label":"parent-values","cap":"round","join":"bevel","miter":2,"version":2},
+        {"label":"nested-values","cap":"square","join":"miter","miter":8,"version":2},
+        {"label":"sibling-values","cap":"round","join":"bevel","miter":2,"version":2},
+        {"label":"inline-wins","cap":"square","join":"round","miter":6,"version":2},
+        {"label":"inline-inherit","cap":"round","join":"bevel","miter":2,"version":2}
+      ]
+    },
+    {
+      "id": "I03-limits",
+      "body": "<path id=\"minimum\" d=\"M20 20 L80 20\" stroke-miterlimit=\"1\"/><path id=\"maximum\" d=\"M20 60 L80 60\" stroke-miterlimit=\"1000\"/>",
+      "expected": [{"label":"minimum","cap":"butt","join":"miter","miter":1,"version":2},{"label":"maximum","cap":"butt","join":"miter","miter":1000,"version":2}]
+    },
+    {
+      "id": "I04-root-inherit",
+      "body": "<path id=\"root-inherit\" d=\"M20 20 L80 20\" stroke-linecap=\"inherit\" stroke-linejoin=\"inherit\" stroke-miterlimit=\"inherit\"/>",
+      "expected": [{"label":"root-inherit","cap":"butt","join":"miter","miter":4,"version":1}]
+    }
+  ],
+  "negative_template": "<path id=\"valid-first\" d=\"M20 20 L80 20\"/><path id=\"bad-second\" d=\"M20 60 L80 60\" ATTRIBUTE/>",
+  "negative_cases": [
+    {"id":"N00-cap","attribute":"stroke-linecap=\"triangle\""},
+    {"id":"N01-join","attribute":"stroke-linejoin=\"arcs\""},
+    {"id":"N02-limit-low","attribute":"stroke-miterlimit=\"0\""},
+    {"id":"N03-limit-high","attribute":"stroke-miterlimit=\"1001\""},
+    {"id":"N04-limit-unit","attribute":"stroke-miterlimit=\"4px\""},
+    {"id":"N05-nonfinite","attribute":"stroke-miterlimit=\"1e309\""},
+    {"id":"N06-dash","attribute":"stroke-dasharray=\"3 2\""},
+    {"id":"N07-initial","attribute":"stroke-linecap=\"initial\""},
+    {"id":"N08-important","attribute":"style=\"stroke-linecap:round !important\""}
+  ],
+  "negative_expected": "Reject the entire import. Preserve the pre-existing authored document, revision, History and source bytes. Do not keep valid-first. Do not classify malformed XML as proof of unsupported-style rejection: these fixtures are well-formed XML.",
+  "observations": "Obtain actual values from the real imported Session and evaluated Stroke, not from reparsing source XML or copying expected values. Record session/document/revision, returned IDs, native before/after, error code and the test command. Use existing Host/MCP/Qt tests. These fixtures alone do not prove GUI, recovery, performance or full product acceptance.",
+  "paint_support_check": {
+    "source": "M20 20 L80 20; width12; identity transform",
+    "source_centerline_bounds": [20,20,80,20],
+    "butt_support_bounds": [20,14,80,26],
+    "round_support_bounds": [14,14,86,26],
+    "square_support_bounds": [14,14,86,26],
+    "distinction": "The point (14.25,14.25) lies inside square support and outside round support. Exact geometric support is not an antialiased pixel threshold; use existing renderer pixel oracles with their declared tolerance. Do not replace geometric alignment bounds with paint support bounds."
+  },
+  "baseline_note": "Non-default SVG styles and explicit inherit are CP2 design requirements, not claims of existing importer support. Default-equivalent intake remains v1. The packet requires independent review and execution authority before implementation."
+}
