@@ -174,23 +174,23 @@ Open, self-intersecting or touching compound outlines reject visibly. Curves use
 bounded0.1du polygon approximation in evaluated output; native source points stay
 editable. Zero Amount and bypass preserve input exactly.
 
-The Effects dock also has a searchable Presets tab for document-local native
-PresetDefinition v1. Save Current Stack as Preset captures exactly one Offset
-followed by one Repeater in source stack order; the panel displays their source
-instance IDs, while other paint entries are excluded. Enabled state, numeric
-parameters and supported options are saved as literals. Capture rejects a link or
-expression on a captured field and reports the exact source Ref. Apply appends a
-fresh Offset→Repeater pair in one Session edit and one Undo. Rename, update from
-the current stack and delete edit the named definition; re-editing never changes
-already-applied operation snapshots. Native 0.64 saves these definitions and
-reopens them with the document.
+The Effects dock has a searchable Presets tab for document-local PresetDefinition
+v1/v2. Save Current Stack captures supported built-ins and pinned Macros in Path
+or Text stack order; driven or unsupported entries are reported with their source
+Refs. Apply appends fresh processing entries in one Session edit and one Undo.
+Rename, update from the current stack and delete edit the named definition;
+re-editing never changes already-applied snapshots. Publish Selected Preset to
+Library copies a built-in literal definition into the workspace Preset Library.
+Macro entries are not supported by the workspace Library yet.
 
 The same API/MCP Session surface supports `presets`, `preset {id}` and single
 `apply` requests with `create_preset`, `create_preset_from_stack`, `rename_preset`,
-`update_preset`, `delete_preset` or `apply_preset`. `create_preset_from_stack`
-returns the exact captured source operation IDs and types. These v1 presets cover
-the built-in Offset/Repeater stack only; they do not implement Macros, Actions,
-published parameter libraries or cross-document libraries.
+`update_preset`, `delete_preset`, `apply_preset` or `import_apply_preset`.
+`create_preset_from_stack` returns the exact captured source operation IDs and
+types. A workspace Preset Favorite or Quick Access slot imports and applies to
+the current selected Path/Text in one Undo step; it does not look up the source
+document. Asset updates affect future imports only and keep existing applications
+unchanged.
 
 Same-document Definition/Instance v1 reuses an existing source Object subtree and
 its stable IDs; it does not add duplicate authored source Objects. Instance placement,
@@ -386,9 +386,11 @@ accepted pixels available for editing, export and recovery.
 **Library → Folder Library…** registers selected local folders for hierarchical
 browse, search and explicit Refresh. Choose a PNG/JPEG item to Place Linked or
 Place Embedded through the same image import path. Favorites retain their exact
-folder/file reference and may use Quick Access slots 1–9; missing or moved
-sources remain visibly broken until you update the source. The folder registry
-and Favorites are workspace settings, separate from document assets.
+folder/file, built-in Effect or workspace Preset AssetID and may use Quick Access
+slots 1–9; missing or unavailable items remain visible. Preset updates preserve
+the AssetID and Favorite while advancing its accepted revision. The bounded
+canonical Preset payload files are separate from the workspace roots/Favorites
+settings; publication does not silently create a Favorite.
 
 Windows WIC uses only its built-in PNG/JPEG codecs from bounded memory. Eight-bit
 RGB/gray/palette sources, alpha, JPEG EXIF orientations1–8 and usable bounded

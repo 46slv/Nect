@@ -1,9 +1,11 @@
 #include "folder_library.hpp"
 #include "window.hpp"
+#include "nect/io.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QDialog>
 #include <QFile>
@@ -12,9 +14,11 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QProcess>
 #include <QSettings>
+#include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
@@ -254,6 +258,24 @@ void model_and_persistence(const QString& scratch) {
     rejects("SETTINGS_WRITE_FAILED", [&] { failing_library.register_root(root_b_path); });
     check(failing_library.roots().isEmpty() && !failing_settings.contains("library/v1/state"),
         "A settings write failure leaves both the visible registry and persisted value unchanged");
+}
+
+void write_qbytes(const QString& path,const QByteArray& bytes) {
+    QFile file(path);
+    check(file.open(QIODevice::WriteOnly|QIODevice::Truncate),"Open exact Folder Library byte fixture");
+    check(file.write(bytes)==bytes.size(),"Write exact Folder Library byte fixture");
+}
+
+PresetDefinition portable_preset(const std::string& id,const std::string& label,double amount=18) {
+    PresetDefinition definition;definition.id=id;definition.schema_version=2;definition.label=label;
+    definition.category="Workspace";definition.tags={"portable","shape"};
+    auto operation=default_operation("portable-template","nect.shape.offset");
+    operation.parameters.at("amount").literal=amount;
+    PresetEntry entry;entry.type=operation.type;entry.version=operation.version;entry.enabled=operation.enabled;
+    for(const auto& [name,value]:operation.parameters)entry.parameters.emplace(name,value.literal);
+    entry.composite=operation.composite;entry.fill_rule=operation.fill_rule;
+    entry.line_join=operation.line_join;entry.line_cap=operation.line_cap;
+    definition.entries.push_back(std::move(entry));return definition;
 }
 
 void grouped_settings_identity(const QString& scratch) {
@@ -497,6 +519,192 @@ void unified_effect_favorites(const QString& scratch) {
         "An unavailable fresh-reader confirmation rolls back the stored and in-memory prior state");
 }
 
+void portable_preset_assets(const QString& scratch) {
+    const auto root=scratch+"/preset-payloads";
+    const auto settings_path=scratch+"/preset-library.ini";
+    QSettings settings(settings_path,QSettings::IniFormat);
+    FolderLibrary library(settings,{}, {},root);
+    check(library.preset_assets().isEmpty()&&!QFileInfo::exists(root),
+        "Injected payload-root listing is empty and read-only until the first explicit publication");
+
+    const auto source=portable_preset("portable-source-definition","Portable Offset");
+    const auto published=library.publish_preset(source);
+    const auto good_source=portable_preset("second-portable-source","Second Good Asset",31);
+    const auto good_asset=library.publish_preset(good_source);
+    const auto asset_path=QDir(root).filePath(published.ref.asset_id+".preset.json");
+    check(QFileInfo::exists(asset_path)&&published.accepted_revision==1&&published.ref.asset_id!=QString::fromStdString(source.id)&&
+        published.payload_schema==2&&published.sha256.size()==64,
+        "Publication creates one revision-1 workspace AssetID distinct from the source DefinitionID");
+    QSettings no_payload_store(settings_path,QSettings::IniFormat);no_payload_store.sync();
+    check(!no_payload_store.contains("library/v1/state"),
+        "Preset definition payload is stored as its bounded Library file, not a QSettings payload value");
+    LibraryPresetAssetV1 read_metadata;
+    const auto read_definition=library.read_preset_asset(published.ref,&read_metadata);
+    check(canonical_preset_payload(read_definition)==canonical_preset_payload(source)&&
+        read_metadata.ref==published.ref&&read_metadata.label==published.label&&
+        read_metadata.accepted_revision==published.accepted_revision&&read_metadata.sha256==published.sha256&&
+        read_metadata.payload_schema==published.payload_schema,
+        "Exact AssetID readback returns the canonical built-in literal payload and metadata");
+
+    const auto original=read_bytes(asset_path);
+    const auto original_bytes=QByteArray(reinterpret_cast<const char*>(original.data()),static_cast<qsizetype>(original.size()));
+    const auto envelope=QJsonDocument::fromJson(original_bytes).object();
+    auto rejects_envelope_value=[&](const QString& name,const QJsonValue& value,const char* code) {
+        auto changed=envelope;changed.insert(name,value);
+        write_qbytes(asset_path,QJsonDocument(changed).toJson(QJsonDocument::Compact));
+        rejects(code,[&]{(void)library.read_preset_asset(published.ref);});
+        write_qbytes(asset_path,original_bytes);
+    };
+    rejects_envelope_value("version",1.5,"INVALID_PRESET_ASSET");
+    rejects_envelope_value("version",2,"UNSUPPORTED_PRESET_ASSET_VERSION");
+    rejects_envelope_value("accepted_revision",-1,"INVALID_PRESET_ASSET");
+    rejects_envelope_value("accepted_revision",1.5,"INVALID_PRESET_ASSET");
+    rejects_envelope_value("accepted_revision","1","INVALID_PRESET_ASSET");
+    rejects_envelope_value("payload_schema",2.25,"INVALID_PRESET_ASSET");
+    rejects_envelope_value("payload_schema",99,"UNSUPPORTED_PRESET_SCHEMA");
+    auto corrupt=envelope;corrupt.insert("sha256",QString(64,'0'));
+    write_qbytes(asset_path,QJsonDocument(corrupt).toJson(QJsonDocument::Compact));
+    const auto mixed_inventory=library.preset_assets();
+    const auto unavailable_first=std::find_if(mixed_inventory.begin(),mixed_inventory.end(),[&](const auto& asset){return asset.ref==published.ref;});
+    const auto available_second=std::find_if(mixed_inventory.begin(),mixed_inventory.end(),[&](const auto& asset){return asset.ref==good_asset.ref;});
+    check(unavailable_first!=mixed_inventory.end()&&!unavailable_first->available&&
+        available_second!=mixed_inventory.end()&&available_second->available&&library.read_preset_asset(good_asset.ref).label==good_source.label,
+        "A corrupt hash remains visible as unavailable while a separate valid asset stays readable");
+    rejects("PRESET_ASSET_HASH_MISMATCH",[&]{(void)library.read_preset_asset(published.ref);});
+    write_qbytes(asset_path,original_bytes);
+    const auto inventory=library.preset_assets();
+    const auto good_entry=std::find_if(inventory.begin(),inventory.end(),[&](const auto& asset){return asset.ref==good_asset.ref;});
+    check(good_entry!=inventory.end()&&good_entry->available&&
+        canonical_preset_payload(library.read_preset_asset(good_asset.ref))==canonical_preset_payload(good_source),
+        "A separate valid asset remains usable while another record is malformed or has an unsupported envelope/schema");
+
+    const auto alias_id=QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const auto alias_path=QDir(root).filePath(alias_id+".preset.json");
+    write_qbytes(alias_path,original_bytes);
+    rejects("PRESET_ASSET_ID_MISMATCH",[&]{(void)library.read_preset_asset({alias_id});});
+    check(QFile::remove(alias_path),"Remove owned wrong-filename Preset fixture");
+
+    write_qbytes(asset_path,QByteArray(512*1024+1,'x'));
+    rejects("PRESET_ASSET_LIMIT",[&]{(void)library.read_preset_asset(published.ref);});
+    write_qbytes(asset_path,original_bytes);
+
+    const auto favorite=library.add_favorite(published.ref,1);
+    check(library.favorite_status(favorite)=="Available"&&library.favorite_for_slot(1)->favorite_id==favorite.favorite_id,
+        "A portable Preset shares the Favorite store and exact Quick Access slot");
+    QProcess cold_reader;
+    cold_reader.start(QCoreApplication::applicationFilePath(),{"--verify-portable-preset",settings_path,root,
+        favorite.favorite_id,published.ref.asset_id,QString::fromStdString(source.id)});
+    const auto cold_reader_ok=cold_reader.waitForFinished(10000)&&cold_reader.exitStatus()==QProcess::NormalExit&&cold_reader.exitCode()==0;
+    const auto cold_reader_diagnostic=QString::fromUtf8(cold_reader.readAllStandardError());
+    check(cold_reader_ok,"Preset AssetID, payload, fresh-target apply and shared Favorite survive a separate process: "+
+        cold_reader_diagnostic.toStdString());
+
+    auto source_edited=source;source_edited.label="Source document renamed";
+    source_edited.entries.front().parameters.at("amount")=6;
+    const auto original_again=library.read_preset_asset(published.ref);
+    check(original_again.label==source.label&&original_again.entries.front().parameters.at("amount")==18,
+        "Editing a source definition after publication does not change the independent Library bytes");
+    auto updated_source=source;updated_source.label="Portable Offset Updated";
+    updated_source.entries.front().parameters.at("amount")=24;
+    const auto updated=library.update_preset_asset(published.ref,updated_source,published.accepted_revision,published.sha256);
+    check(updated.ref==published.ref&&updated.accepted_revision==2&&
+        canonical_preset_payload(library.read_preset_asset(published.ref))==canonical_preset_payload(updated_source)&&
+        library.favorites().front().favorite_id==favorite.favorite_id&&library.favorite_status(favorite)=="Available",
+        "Update advances only the asset revision while preserving AssetID, source payload and Favorite identity");
+    rejects("PRESET_ASSET_REVISION_CONFLICT",[&]{
+        (void)library.update_preset_asset(published.ref,source,published.accepted_revision,published.sha256);
+    });
+    rejects("PRESET_ASSET_REVISION_CONFLICT",[&]{
+        library.delete_preset_asset(published.ref,published.accepted_revision,published.sha256);
+    });
+    FolderLibrary restarted(settings,{}, {},root);
+    check(canonical_preset_payload(restarted.read_preset_asset(published.ref))==canonical_preset_payload(updated_source)&&
+        restarted.favorite_for_slot(1)->favorite_id==favorite.favorite_id,
+        "Fresh Library instance re-reads the updated payload and persisted shared slot");
+
+    auto macro=source;macro.entries.front().kind="macro";
+    rejects("PRESET_NONPORTABLE_SOURCE",[&]{(void)library.publish_preset(macro);});
+
+    auto invalid=source;invalid.entries.front().parameters.at("amount")=1.0e9;
+    rejects("OUT_OF_RANGE",[&]{(void)library.publish_preset(invalid);});
+    invalid=source;invalid.entries.front().composite="above";
+    rejects("INVALID_OPERATOR_OPTIONS",[&]{(void)library.publish_preset(invalid);});
+    invalid=source;invalid.tags.push_back(invalid.tags.front());
+    rejects("INVALID_PRESET_METADATA",[&]{(void)library.publish_preset(invalid);});
+
+    auto v1=portable_preset("portable-v1-source","Portable v1");v1.schema_version=1;
+    auto repeater=default_operation("portable-repeater-template","nect.shape.repeater");
+    repeater.parameters.at("copies").literal=4;repeater.parameters.at("position_x").literal=36;
+    PresetEntry repeater_entry;repeater_entry.type=repeater.type;repeater_entry.version=repeater.version;
+    for(const auto& [name,value]:repeater.parameters)repeater_entry.parameters.emplace(name,value.literal);
+    repeater_entry.composite=repeater.composite;repeater_entry.fill_rule=repeater.fill_rule;
+    v1.entries.push_back(std::move(repeater_entry));
+    const auto v1_payload=canonical_preset_payload(v1);
+    check(canonical_preset_payload(read_canonical_preset_payload(v1_payload))==v1_payload,
+        "Canonical facade reuses native schema-v1 Offset/Repeater literal validation");
+    auto styled=portable_preset("portable-stroke-v2","Styled Stroke v2");
+    styled.entries.clear();
+    auto stroke=default_operation("portable-stroke-template","nect.paint.stroke");
+    PresetEntry stroke_entry;stroke_entry.type=stroke.type;stroke_entry.version=2;
+    for(const auto& [name,value]:stroke.parameters)stroke_entry.parameters.emplace(name,value.literal);
+    stroke_entry.parameters.emplace("miter_limit",4);
+    stroke_entry.line_join="round";stroke_entry.line_cap="square";
+    styled.entries.push_back(std::move(stroke_entry));
+    const auto styled_payload=canonical_preset_payload(styled);
+    check(canonical_preset_payload(read_canonical_preset_payload(styled_payload))==styled_payload,
+        "Canonical facade reuses native styled Stroke@2 support rather than a partial Library schema");
+
+    const auto effect_favorite=library.add_favorite(BuiltinEffectTypeRefV1{"nect.shape.offset",1},2);
+    const auto prior_favorites=library.favorites().size();
+    rejects("QUICK_SLOT_OCCUPIED",[&]{(void)library.add_favorite(good_asset.ref,2);});
+    check(library.favorites().size()==prior_favorites&&library.favorite_for_slot(2)->favorite_id==effect_favorite.favorite_id,
+        "Cross-kind Preset/Effect slot collision leaves both stable Favorites unchanged");
+    FolderLibrary failed_settings(settings,[](const QByteArray&,QString& error) {
+        error="injected preference write failure";return false;
+    },{},root);
+    rejects("SETTINGS_WRITE_FAILED",[&]{(void)failed_settings.add_favorite(good_asset.ref,3);});
+    check(library.favorites().size()==prior_favorites&&
+        canonical_preset_payload(library.read_preset_asset(good_asset.ref))==canonical_preset_payload(good_source)&&
+        !library.favorite_for_slot(3),
+        "Failed Favorite preference persistence preserves the published payload and every prior Favorite");
+
+    FolderLibrary fail_first(settings,{}, {},root,[](const QString&,const QByteArray&,QString& error) {
+        error="injected first-write failure";return false;
+    });
+    const auto before_failed_update=read_bytes(asset_path);
+    auto failed_candidate=updated_source;failed_candidate.label="Must Not Publish";
+    rejects("PRESET_LIBRARY_WRITE_FAILED",[&]{
+        (void)fail_first.update_preset_asset(published.ref,failed_candidate,updated.accepted_revision,updated.sha256);
+    });
+    check(read_bytes(asset_path)==before_failed_update,
+        "A first-write failure preserves the exact published bytes and revision");
+
+    const QByteArray external_replacement("uncooperative replacement");
+    FolderLibrary readback_race(settings,{}, {},root,[&](const QString& path,const QByteArray&,QString&) {
+        write_qbytes(path,external_replacement);return true;
+    });
+    rejects("PRESET_LIBRARY_ROLLBACK_FAILED",[&]{
+        (void)readback_race.update_preset_asset(published.ref,failed_candidate,updated.accepted_revision,updated.sha256);
+    });
+    const auto replacement=read_bytes(asset_path);
+    check(QByteArray(reinterpret_cast<const char*>(replacement.data()),static_cast<qsizetype>(replacement.size()))==external_replacement,
+        "Readback ambiguity preserves a different observed file instead of rolling it back");
+    write_qbytes(asset_path,QByteArray(reinterpret_cast<const char*>(before_failed_update.data()),
+        static_cast<qsizetype>(before_failed_update.size())));
+
+    const auto outside=scratch+"/outside";const auto escaped_root=scratch+"/preset-root-link";QDir().mkpath(outside);
+    if(create_directory_escape_link(outside,escaped_root)) {
+        FolderLibrary escaped(settings,{}, {},escaped_root);
+        rejects("UNSAFE_PRESET_LIBRARY_ROOT",[&]{(void)escaped.read_preset_asset(published.ref);});
+    }
+    library.delete_preset_asset(published.ref,updated.accepted_revision,updated.sha256);
+    const auto remaining_assets=library.preset_assets();
+    check(std::none_of(remaining_assets.begin(),remaining_assets.end(),[&](const auto& item){return item.ref==published.ref;})&&
+        std::any_of(remaining_assets.begin(),remaining_assets.end(),[&](const auto& item){return item.ref==good_asset.ref;})&&
+        library.favorite_status(favorite).contains("MISSING_PRESET_ASSET"),
+        "Delete removes only the selected AssetID, retains a separate good asset and leaves its Favorite as an explicit broken reference");
+}
+
 void host_and_ui_placement(const QString& scratch) {
     const auto root_path=scratch+"/assets";QDir().mkpath(root_path+"/brand");
     const auto linked_path=root_path+"/brand/logo.png";const auto embedded_path=root_path+"/paper.png";
@@ -590,6 +798,235 @@ void host_and_ui_placement(const QString& scratch) {
     check(window.host.session.document().objects.size()==1,"Folder Library dialog completes the UI placement interaction");
     window.close();window.host.flush();
 }
+
+void portable_preset_library_ui(const QString& scratch) {
+    const auto settings_path=scratch+"/preset-ui.ini";
+    const auto payload_root=scratch+"/preset-assets";
+    QSettings settings(settings_path,QSettings::IniFormat);
+    FolderLibrary seeded(settings,{}, {},payload_root);
+    const auto asset_a=seeded.publish_preset(portable_preset("ui-payload-a","A Portable Preset",18));
+    const auto asset_b=seeded.publish_preset(portable_preset("ui-payload-b","B Portable Preset",25));
+    const auto effect=seeded.add_favorite(BuiltinEffectTypeRefV1{"nect.shape.offset",1},2);
+    auto injected=std::make_unique<FolderLibrary>(settings,FolderLibrary::PersistOverride{},
+        FolderLibrary::ReadbackOverride{},payload_root);
+    Window window(scratch+"/recovery",std::move(injected));window.show();QApplication::processEvents();
+
+    auto document_source=portable_preset("ui-document-preset","UI Document Source",12);
+    window.host.session.apply_preset_command(PresetCommand{CreatePreset{document_source}},window.host.session.revision());
+    const auto composition=window.host.session.document().compositions.front().id;
+    const auto object_id=new_id();
+    auto primitive=default_primitive(new_id(),"nect.shape.rectangle");
+    window.host.session.apply({Command{CreatePrimitive{composition,"",object_id,"Portable Preset target",primitive}}},
+        window.host.session.revision());
+    window.canvas->set_selection(object_id);window.host.edited();QApplication::processEvents();
+
+    auto* publish=window.findChild<QPushButton*>("preset-publish-library");
+    auto* preset_catalog=window.findChild<QListWidget*>("presets-catalog");
+    check(publish&&preset_catalog,"Presets panel exposes Publish to Library for a selected document definition");
+    for(int row=0;row<preset_catalog->count();++row)if(preset_catalog->item(row)->data(Qt::UserRole).toString()==
+        QString::fromStdString(document_source.id))preset_catalog->setCurrentRow(row);
+    const auto document_before_publish=encode(window.host.session.document());
+    const auto revision_before_publish=window.host.session.revision();
+    const auto history_before_publish=window.host.session.history();
+    QTest::mouseClick(publish,Qt::LeftButton);QApplication::processEvents();
+    check(encode(window.host.session.document())==document_before_publish&&
+        window.host.session.revision()==revision_before_publish&&window.host.session.history()==history_before_publish,
+        "Publishing a selected source Preset leaves Document bytes, revision and History unchanged");
+
+    QTimer::singleShot(0,&window,[&] {
+        auto* dialog=window.findChild<QDialog*>("folder-library-dialog");check(dialog,"Library opens with injected payload root");
+        auto* assets=dialog->findChild<QComboBox*>("folder-library-preset-assets");
+        auto* source_presets=dialog->findChild<QComboBox*>("folder-library-source-presets");
+        auto* add_favorite=dialog->findChild<QPushButton*>("folder-library-favorite-add");
+        auto* favorites=dialog->findChild<QListWidget*>("folder-library-favorites");
+        auto* slot=dialog->findChild<QComboBox*>("folder-library-slot");
+        auto* assign=dialog->findChild<QPushButton*>("folder-library-slot-set");
+        auto* use_favorite=dialog->findChild<QPushButton*>("folder-library-use-favorite");
+        auto* use_slot=dialog->findChild<QPushButton*>("folder-library-use-slot");
+        auto* update=dialog->findChild<QPushButton*>("folder-library-preset-update");
+        auto* remove=dialog->findChild<QPushButton*>("folder-library-preset-delete");
+        auto* status=dialog->findChild<QLabel*>("folder-library-status");
+        check(assets&&source_presets&&add_favorite&&favorites&&slot&&assign&&use_favorite&&use_slot&&update&&remove&&status,
+            "Workspace asset, source Preset, Favorite and guarded apply controls are available");
+        const auto asset_a_index=assets->findData(asset_a.ref.asset_id);
+        const auto asset_b_index=assets->findData(asset_b.ref.asset_id);
+        check(asset_a_index>0&&asset_b_index>0,"Both exact workspace AssetIDs appear in the Library selector");
+        assets->setCurrentIndex(asset_a_index);
+        const auto source_index=source_presets->findData(QString::fromStdString(document_source.id));
+        check(source_index>0,"The selected document Preset is an explicit update source");
+        source_presets->setCurrentIndex(source_index);
+
+        const auto document_before_preferences=encode(window.host.session.document());
+        const auto revision_before_preferences=window.host.session.revision();
+        const auto history_before_preferences=window.host.session.history();
+        QTest::mouseClick(add_favorite,Qt::LeftButton);
+        check(favorites->count()==2&&encode(window.host.session.document())==document_before_preferences&&
+            window.host.session.revision()==revision_before_preferences&&window.host.session.history()==history_before_preferences,
+            "Adding a Preset Favorite changes only the shared preference record");
+        const auto find_preset_favorite=[&]() -> QListWidgetItem* {
+            for(int row=0;row<favorites->count();++row) {
+                const auto target=FolderLibrary::target_from_json(QJsonDocument::fromJson(
+                    favorites->item(row)->data(Qt::UserRole+1).toByteArray()).object());
+                if(const auto* preset=std::get_if<PresetAssetRefV1>(&target);preset&&preset->asset_id==asset_a.ref.asset_id)
+                    return favorites->item(row);
+            }
+            return nullptr;
+        };
+        auto* preset_favorite=find_preset_favorite();
+        check(preset_favorite,"Favorite stores the exact workspace AssetID");
+        const auto favorite_id=preset_favorite->data(Qt::UserRole).toString();
+        favorites->setCurrentItem(preset_favorite);slot->setCurrentIndex(slot->findData(1));
+        QTest::mouseClick(assign,Qt::LeftButton);
+        check(encode(window.host.session.document())==document_before_preferences&&
+            window.host.session.revision()==revision_before_preferences&&window.host.session.history()==history_before_preferences,
+            "Assigning a Preset quick slot leaves Document bytes, revision and History unchanged");
+        assets->setCurrentIndex(assets->findData(asset_b.ref.asset_id));
+        const auto before_update_document=encode(window.host.session.document());
+        const auto before_update_revision=window.host.session.revision();
+        const auto before_update_history=window.host.session.history();
+        QTest::mouseClick(update,Qt::LeftButton);QApplication::processEvents();
+        QSettings ui_reader_settings(settings_path,QSettings::IniFormat);
+        FolderLibrary ui_reader(ui_reader_settings,{}, {},payload_root);
+        const auto ui_updated=ui_reader.preset_assets();
+        const auto updated_b=std::find_if(ui_updated.begin(),ui_updated.end(),[&](const auto& item){return item.ref==asset_b.ref;});
+        check(updated_b!=ui_updated.end()&&updated_b->accepted_revision==2&&
+            canonical_preset_payload(ui_reader.read_preset_asset(asset_b.ref))==canonical_preset_payload(document_source)&&
+            encode(window.host.session.document())==before_update_document&&window.host.session.revision()==before_update_revision&&
+            window.host.session.history()==before_update_history,
+            "Explicit Update copies the selected source Preset while preserving document state and asset identity");
+
+        preset_favorite=find_preset_favorite();check(preset_favorite&&preset_favorite->data(Qt::UserRole).toString()==favorite_id,
+            "Asset refresh keeps the exact Favorite identity after an unrelated explicit update");
+        assets->setCurrentIndex(assets->findData(asset_a.ref.asset_id));
+        favorites->setCurrentItem(preset_favorite);
+        auto* favorite_slot=dialog->findChild<QPushButton*>("folder-library-use-favorite");
+        const auto target_before=window.host.session.document().objects.at(object_id).stack.size();
+        const auto imported_definitions_before=window.host.session.document().preset_definitions.size();
+        const auto revision_before_import=window.host.session.revision();
+        const auto history_before_import=window.host.session.history().states.size();
+        QTest::mouseClick(favorite_slot,Qt::LeftButton);QApplication::processEvents();
+        check(window.host.session.revision()==revision_before_import+1&&
+            window.host.session.history().states.size()==history_before_import+1&&
+            window.host.session.document().objects.at(object_id).stack.size()==target_before+1&&
+            window.host.session.document().preset_definitions.size()==imported_definitions_before+1&&
+            window.host.session.document().objects.at(object_id).stack.back().type=="nect.shape.offset"&&
+            window.host.session.document().objects.at(object_id).stack.back().parameters.at("amount").literal==18,
+            "Favorite imports a fresh definition and exact fixed literal to the captured target in one Session step");
+
+        QListWidgetItem* effect_item=nullptr;
+        for(int row=0;row<favorites->count();++row) {
+            const auto target=FolderLibrary::target_from_json(QJsonDocument::fromJson(
+                favorites->item(row)->data(Qt::UserRole+1).toByteArray()).object());
+            if(std::get_if<BuiltinEffectTypeRefV1>(&target))effect_item=favorites->item(row);
+        }
+        check(effect_item,"The mixed Favorite list retains its exact built-in Effect target");
+        favorites->setCurrentItem(effect_item);
+        const auto after_import_revision=window.host.session.revision();
+        QTest::mouseClick(use_favorite,Qt::LeftButton);QApplication::processEvents();
+        check(window.host.session.revision()==after_import_revision+1&&
+            window.host.session.document().objects.at(object_id).stack.size()==target_before+2,
+            "The same dialog refreshes its expected revision after Preset use before applying an Effect Favorite");
+
+        slot->setCurrentIndex(slot->findData(1));
+        const auto after_effect_revision=window.host.session.revision();
+        const auto definitions_after_first=window.host.session.document().preset_definitions.size();
+        QTest::mouseClick(use_slot,Qt::LeftButton);QApplication::processEvents();
+        check(window.host.session.revision()==after_effect_revision+1&&
+            window.host.session.document().preset_definitions.size()==definitions_after_first+1&&
+            window.host.session.document().objects.at(object_id).stack.size()==target_before+3,
+            "The same dialog retains exact context for Preset Quick Access after an Effect mutation");
+
+        QSettings external_settings(settings_path,QSettings::IniFormat);
+        FolderLibrary external(external_settings,{}, {},payload_root);
+        auto external_definition=portable_preset("external-source","External Accepted Revision",40);
+        LibraryPresetAssetV1 external_metadata;
+        (void)external.read_preset_asset(asset_a.ref,&external_metadata);
+        const auto externally_updated=external.update_preset_asset(asset_a.ref,external_definition,
+            external_metadata.accepted_revision,external_metadata.sha256);
+        check(externally_updated.accepted_revision==2,"A second writer advanced the selected asset after GUI refresh");
+
+        source_presets->setCurrentIndex(source_index);
+        QTest::mouseClick(update,Qt::LeftButton);QApplication::processEvents();
+        check(window.statusBar()->currentMessage().contains("PRESET_ASSET_REVISION_CONFLICT")&&
+            external.read_preset_asset(asset_a.ref).entries.front().parameters.at("amount")==40,
+            "The widget refuses an update from the stale selected revision without replacing the newer payload");
+
+        auto* refresh=dialog->findChild<QPushButton*>("folder-library-refresh");
+        check(refresh,"Explicit Refresh is available for current Library metadata");
+        QTest::mouseClick(refresh,Qt::LeftButton);QApplication::processEvents();
+        check(assets->currentData().toString()==asset_a.ref.asset_id&&
+            assets->currentData(Qt::UserRole+1).toULongLong()==2,
+            "Explicit Refresh preserves the selected AssetID and accepts its current revision");
+        QTest::mouseClick(update,Qt::LeftButton);QApplication::processEvents();
+        LibraryPresetAssetV1 post_refresh_metadata;
+        const auto refreshed_update=external.read_preset_asset(asset_a.ref,&post_refresh_metadata);
+        check(refreshed_update.entries.front().parameters.at("amount")==18&&post_refresh_metadata.accepted_revision==3,
+            "After explicit Refresh, Update succeeds against the accepted current revision");
+
+        assets->setCurrentIndex(assets->findData(asset_a.ref.asset_id));
+        QTimer::singleShot(0,&window,[&] {
+            auto* confirmation=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+            check(confirmation,"Delete asks about one exact selected workspace asset");
+            assets->setCurrentIndex(assets->findData(asset_b.ref.asset_id));
+            confirmation->done(QMessageBox::Yes);
+        });
+        QTest::mouseClick(remove,Qt::LeftButton);QApplication::processEvents();
+        check(window.statusBar()->currentMessage().contains("PRESET_ASSET_SELECTION_CHANGED")&&
+            QFileInfo::exists(QDir(payload_root).filePath(asset_a.ref.asset_id+".preset.json"))&&
+            QFileInfo::exists(QDir(payload_root).filePath(asset_b.ref.asset_id+".preset.json")),
+            "A reentrant asset-selector change during delete confirmation refuses without deleting either identity");
+        dialog->accept();
+    });
+    auto* open_library=window.findChild<QAction*>("folder-library");check(open_library,"Portable Preset UI uses the normal Folder Library action");open_library->trigger();
+
+    const auto final_stack_size=window.host.session.document().objects.at(object_id).stack.size();
+    const auto final_preset_count=window.host.session.document().preset_definitions.size();
+    window.host.session.undo(window.host.session.revision());window.host.edited();
+    check(window.host.session.document().objects.at(object_id).stack.size()==final_stack_size-1&&
+        window.host.session.document().preset_definitions.size()==final_preset_count-1,
+        "One Undo removes the most recent Favorite import definition and its applied entry");
+    window.host.session.redo(window.host.session.revision());window.host.edited();
+    check(window.host.session.document().objects.at(object_id).stack.size()==final_stack_size&&
+        window.host.session.document().preset_definitions.size()==final_preset_count,
+        "One Redo restores the exact Favorite import and application");
+    window.close();window.host.flush();
+}
+
+void unsafe_preset_root_keeps_legacy_library_usable(const QString& scratch) {
+    const auto outside=scratch+"/outside";const auto unsafe_root=scratch+"/payload-junction";
+    const auto source_root=scratch+"/legacy-assets";QDir().mkpath(outside);QDir().mkpath(source_root);
+    if(!create_directory_escape_link(outside,unsafe_root))return;
+    const auto image_path=source_root+"/legacy.png";write_bytes(image_path,png(20,40,80));
+    const auto settings_path=scratch+"/legacy.ini";QSettings settings(settings_path,QSettings::IniFormat);
+    auto seeded=std::make_unique<FolderLibrary>(settings,FolderLibrary::PersistOverride{},
+        FolderLibrary::ReadbackOverride{},unsafe_root);
+    const auto root=seeded->register_root(source_root,"Legacy assets");seeded->refresh();
+    const auto favorite=seeded->add_favorite({root.root_id,"legacy.png","raster"},1);
+    auto injected=std::make_unique<FolderLibrary>(settings,FolderLibrary::PersistOverride{},
+        FolderLibrary::ReadbackOverride{},unsafe_root);
+    Window window(scratch+"/recovery",std::move(injected));window.show();QApplication::processEvents();
+    QTimer::singleShot(0,&window,[&] {
+        auto* dialog=window.findChild<QDialog*>("folder-library-dialog");
+        auto* tree=dialog?dialog->findChild<QTreeWidget*>("folder-library-tree"):nullptr;
+        auto* assets=dialog?dialog->findChild<QComboBox*>("folder-library-preset-assets"):nullptr;
+        auto* favorites=dialog?dialog->findChild<QListWidget*>("folder-library-favorites"):nullptr;
+        auto* use=dialog?dialog->findChild<QPushButton*>("folder-library-use-slot"):nullptr;
+        check(dialog&&tree&&assets&&favorites&&use,
+            "A reparse-point Preset payload root does not prevent the existing Folder Library dialog from opening");
+        check(assets->count()==1&&assets->currentText().contains("UNSAFE_PRESET_LIBRARY_ROOT"),
+            "The unsafe exact payload root appears as an explicit unavailable Preset row without fallback");
+        check(favorites->count()==1&&favorites->item(0)->data(Qt::UserRole).toString()==favorite.favorite_id&&
+            favorites->item(0)->text().contains("Available"),
+            "Legacy Asset Favorite remains visible and resolvable beside an unavailable Preset pane");
+        auto* slot=dialog->findChild<QComboBox*>("folder-library-slot");slot->setCurrentIndex(slot->findData(1));
+        QTest::mouseClick(use,Qt::LeftButton);QApplication::processEvents();
+        check(window.host.session.document().objects.size()==1,
+            "Legacy Favorite invocation remains usable while the Preset root is unsafe");
+        dialog->accept();
+    });
+    window.findChild<QAction*>("folder-library")->trigger();
+    window.close();window.host.flush();
+}
 }
 
 int main(int argc,char** argv) {
@@ -627,11 +1064,52 @@ int main(int argc,char** argv) {
                 effect->favorite_id==QString::fromUtf8(argv[6])&&effect_ref.type_id=="nect.shape.offset"&&
                 effect_ref.behavior_version==1&&asset->quick_slot==1&&effect->quick_slot==2?0:1;
         }
+        if(argc==7&&QString::fromUtf8(argv[1])=="--verify-portable-preset") {
+            const auto fail=[](const char* message) {std::cerr<<"cold Preset reader: "<<message<<'\n';return 1;};
+            QSettings persisted(QString::fromUtf8(argv[2]),QSettings::IniFormat);
+            FolderLibrary reloaded(persisted,{}, {},QString::fromUtf8(argv[3]));
+            const auto favorite=std::find_if(reloaded.favorites().begin(),reloaded.favorites().end(),[&](const auto& value) {
+                return value.favorite_id==QString::fromUtf8(argv[4]);
+            });
+            if(favorite==reloaded.favorites().end()||favorite->quick_slot!=1||
+                !std::get_if<PresetAssetRefV1>(&favorite->target)||
+                std::get<PresetAssetRefV1>(favorite->target).asset_id!=QString::fromUtf8(argv[5]))return fail("shared Favorite did not retain its exact AssetID and slot");
+            LibraryPresetAssetV1 metadata;
+            const auto definition=reloaded.read_preset_asset(std::get<PresetAssetRefV1>(favorite->target),&metadata);
+            if(definition.id!=QString::fromUtf8(argv[6]).toStdString()||definition.label!="Portable Offset")return fail("payload identity or label changed");
+            auto document=empty_document("cold-session","cold-composition","cold-artboard");
+            Session session(std::move(document));
+            Primitive source=default_primitive("cold-source","nect.shape.rectangle");
+            session.apply({Command{CreatePrimitive{"cold-composition","","cold-target","Cold target",source}}},session.revision());
+            const auto before=encode(session.document());
+            const auto prior_stack_size=session.document().objects.at("cold-target").stack.size();
+            const auto accepted_revision=session.revision();
+            session.apply_preset_command(PresetCommand{ImportAndApplyPreset{definition,"cold-imported-definition",
+                "cold-target","cold-portable-use",QString::fromUtf8(argv[5]).toStdString(),metadata.accepted_revision}},accepted_revision);
+            const auto& stack=session.document().objects.at("cold-target").stack;
+            if(session.revision()!=accepted_revision+1||stack.size()!=prior_stack_size+1||
+                stack.back().id!="cold-portable-use-op-1"||stack.back().type!="nect.shape.offset"||
+                stack.back().parameters.at("amount").literal!=18||
+                !session.document().preset_definitions.contains("cold-imported-definition"))return fail("fresh Session import did not apply amount 18");
+            auto without_import=session.document();
+            without_import.objects.at("cold-target").stack.pop_back();
+            without_import.preset_definitions.erase("cold-imported-definition");
+            if(encode(without_import)!=before)return fail("import changed authored entries outside its exact append");
+            session.undo(session.revision());
+            if(encode(session.document())!=before||session.document().preset_definitions.contains("cold-imported-definition"))return fail("Undo did not restore the cold Session exactly");
+            session.redo(session.revision());
+            return session.document().objects.at("cold-target").stack.back().id=="cold-portable-use-op-1"&&
+                session.document().objects.at("cold-target").stack.back().parameters.at("amount").literal==18&&
+                session.document().preset_definitions.contains("cold-imported-definition")?0:fail("Redo did not restore the cold import");
+        }
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch directory is available");
         model_and_persistence(scratch.path()+"/model");
         grouped_settings_identity(scratch.path()+"/grouped");
         unified_effect_favorites(scratch.path()+"/unified");
+        portable_preset_assets(scratch.path()+"/portable-presets");
         host_and_ui_placement(scratch.path()+"/placement");
+        portable_preset_library_ui(scratch.path()+"/portable-preset-ui");
+        unsafe_preset_root_keeps_legacy_library_usable(scratch.path()+"/unsafe-preset-root-ui");
         std::cout<<"PASS "<<checks<<" Folder Library/settings/Host/UI assertions\n";
         return 0;
     } catch(const std::exception& error) {

@@ -655,6 +655,9 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     presets_save_=new QPushButton("Save Current Stack as Preset",presets_page);presets_save_->setObjectName("preset-save");
     presets_save_->setToolTip("Captures the supported built-in and pinned Macro entries in the current Path/Text processing order. Driven or unsupported entries are reported.");
     presets_layout->addWidget(presets_save_);
+    presets_publish_=new QPushButton("Publish Selected Preset to Library",presets_page);presets_publish_->setObjectName("preset-publish-library");
+    presets_publish_->setToolTip("Copy selected Preset to workspace Library; Macro entries are not supported yet.");
+    presets_layout->addWidget(presets_publish_);
     presets_apply_=new QPushButton("Apply Preset",presets_page);presets_apply_->setObjectName("preset-apply");
     presets_layout->addWidget(presets_apply_);
     presets_rename_=new QPushButton("Rename Preset",presets_page);presets_rename_->setObjectName("preset-rename");
@@ -739,6 +742,21 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Preset document changed elsewhere; refresh the browser before editing");
     };
     const auto set_preset_status=[this](const QString& message){presets_status_->setText(message);statusBar()->showMessage(message,12000);};
+    connect(presets_publish_,&QPushButton::clicked,this,[this,preset_context_current,set_preset_status]{
+        const auto generation=effects_generation_;const auto session=effects_session_;const auto target=effects_target_id_;
+        const auto revision=effects_revision_;const auto* item=presets_catalog_->currentItem();
+        if(!item){set_preset_status("Choose a document Preset to publish.");return;}
+        const auto id=item->data(Qt::UserRole).toString().toStdString();
+        try {
+            preset_context_current(generation,session,target,revision);
+            const auto found=host.session.document().preset_definitions.find(id);
+            if(found==host.session.document().preset_definitions.end())throw Error("MISSING_PRESET",id);
+            const auto published=folder_library_->publish_preset(found->second);
+            set_preset_status("Published “"+QString::fromStdString(found->second.label)+"” to Workspace Preset Library · AssetID "+
+                published.ref.asset_id+" · revision 1.");
+        } catch(const Error& error) {set_preset_status(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+        catch(const std::exception& error) {set_preset_status(QString::fromUtf8(error.what()));}
+    });
     connect(presets_save_,&QPushButton::clicked,this,[this,preset_context_current,set_preset_status]{
         const auto generation=effects_generation_;const auto session=effects_session_;const auto target=effects_target_id_;
         const auto revision=effects_revision_;
@@ -1609,6 +1627,7 @@ void Window::rebuild_effects_panel() {
         (selected->second.kind==Kind::path||selected->second.kind==Kind::text);
     const bool has_preset=selected_preset!=nullptr;
     presets_save_->setEnabled(target_supports_presets);
+    presets_publish_->setEnabled(has_preset);
     presets_apply_->setEnabled(has_preset&&target_supports_presets);
     presets_rename_->setEnabled(has_preset);
     presets_update_->setEnabled(has_preset&&target_supports_presets);
@@ -4359,6 +4378,17 @@ void Window::show_folder_library() {
     auto* refresh_button=new QPushButton("Refresh",&dialog);refresh_button->setObjectName("folder-library-refresh");toolbar->addWidget(refresh_button);
     auto* search=new QLineEdit(&dialog);search->setObjectName("folder-library-search");search->setPlaceholderText("Search registered folders…");search->setClearButtonEnabled(true);toolbar->addWidget(search,1);
 
+    auto* preset_row=new QHBoxLayout;layout->addLayout(preset_row);
+    preset_row->addWidget(new QLabel("Workspace Presets:",&dialog));
+    auto* preset_assets=new QComboBox(&dialog);preset_assets->setObjectName("folder-library-preset-assets");preset_row->addWidget(preset_assets,2);
+    auto* source_presets=new QComboBox(&dialog);source_presets->setObjectName("folder-library-source-presets");
+    source_presets->addItem("Document Preset to update…",QString{});
+    for(const auto& [id,definition]:host.session.document().preset_definitions)
+        source_presets->addItem(QString::fromStdString(definition.label)+" · "+QString::fromStdString(id),QString::fromStdString(id));
+    preset_row->addWidget(source_presets,2);
+    auto* update_preset=new QPushButton("Update Asset",&dialog);update_preset->setObjectName("folder-library-preset-update");preset_row->addWidget(update_preset);
+    auto* delete_preset=new QPushButton("Delete Asset",&dialog);delete_preset->setObjectName("folder-library-preset-delete");preset_row->addWidget(delete_preset);
+
     auto* panes=new QHBoxLayout;layout->addLayout(panes,1);
     auto* tree=new QTreeWidget(&dialog);tree->setObjectName("folder-library-tree");tree->setHeaderLabel("Registered folders");
     tree->setSelectionMode(QAbstractItemView::SingleSelection);panes->addWidget(tree,3);
@@ -4397,13 +4427,45 @@ void Window::show_folder_library() {
         const auto root_label=found==library.roots().end()?QString("Missing root · ")+ref.root_id:found->display_name;
         return ref.normalized_relative_path.isEmpty()?root_label:root_label+" / "+ref.normalized_relative_path;
     };
+    auto refresh_preset_assets=[&] {
+        const auto selected=preset_assets->currentData().toString();
+        const QSignalBlocker blocker(preset_assets);
+        preset_assets->clear();preset_assets->addItem("Choose a Workspace Preset asset…",QString{});
+        try {
+            for(const auto& asset:library.preset_assets()) {
+                const auto label=asset.label+" · r"+QString::number(asset.accepted_revision)+" · "+asset.ref.asset_id;
+                preset_assets->addItem(label,asset.ref.asset_id);
+                const auto index=preset_assets->count()-1;
+                preset_assets->setItemData(index,static_cast<qulonglong>(asset.accepted_revision),Qt::UserRole+1);
+                preset_assets->setItemData(index,asset.sha256,Qt::UserRole+2);
+                preset_assets->setItemData(index,asset.available?"Available":asset.problem,Qt::ToolTipRole);
+                if(!asset.available)preset_assets->setItemData(index,QColor(226,143,143),Qt::ForegroundRole);
+                if(asset.ref.asset_id==selected)preset_assets->setCurrentIndex(index);
+            }
+        } catch(const Error& error) {
+            const auto detail=qs(error.code)+": "+QString::fromUtf8(error.what());
+            preset_assets->clear();preset_assets->addItem("Workspace Presets unavailable · "+detail,QString{});
+            preset_assets->setItemData(0,detail,Qt::ToolTipRole);
+            preset_assets->setItemData(0,QColor(226,143,143),Qt::ForegroundRole);
+            status->setText("Workspace Presets unavailable · "+detail+". Registered folders and existing Favorites remain available.");
+        } catch(const std::exception& error) {
+            const auto detail=QString::fromUtf8(error.what());
+            preset_assets->clear();preset_assets->addItem("Workspace Presets unavailable · "+detail,QString{});
+            preset_assets->setItemData(0,detail,Qt::ToolTipRole);
+            preset_assets->setItemData(0,QColor(226,143,143),Qt::ForegroundRole);
+            status->setText("Workspace Presets unavailable · "+detail+". Registered folders and existing Favorites remain available.");
+        }
+    };
     auto display_target=[&](const LibraryFavoriteTargetV1& target) {
         if(const auto* item=std::get_if<LibraryItemRefV1>(&target))return display_ref(*item);
-        const auto& effect=std::get<BuiltinEffectTypeRefV1>(target);
-        const auto* descriptor=builtin_operation_type(effect.type_id.toStdString());
-        if(descriptor&&descriptor->effects_catalog&&descriptor->version==effect.behavior_version)
-            return qs(descriptor->label)+" · "+effect.type_id+" behavior v"+QString::number(effect.behavior_version);
-        return QString("Unavailable effect · ")+effect.type_id+" behavior v"+QString::number(effect.behavior_version);
+        if(const auto* effect=std::get_if<BuiltinEffectTypeRefV1>(&target)) {
+            const auto* descriptor=builtin_operation_type(effect->type_id.toStdString());
+            if(descriptor&&descriptor->effects_catalog&&descriptor->version==effect->behavior_version)
+                return qs(descriptor->label)+" · "+effect->type_id+" behavior v"+QString::number(effect->behavior_version);
+            return QString("Unavailable effect · ")+effect->type_id+" behavior v"+QString::number(effect->behavior_version);
+        }
+        const auto& preset=std::get<PresetAssetRefV1>(target);
+        return QString("Workspace Preset · ")+preset.asset_id;
     };
     auto rebuild_favorites=[&] {
         const auto selected=favorites->currentItem()?favorites->currentItem()->data(Qt::UserRole).toString():QString{};
@@ -4421,6 +4483,15 @@ void Window::show_folder_library() {
             if(favorite.favorite_id==selected)favorites->setCurrentItem(item);
         }
     };
+    auto sync_preset_controls=[&] {
+        const bool has_asset=!preset_assets->currentData().toString().isEmpty();
+        update_preset->setEnabled(has_asset&&!source_presets->currentData().toString().isEmpty());
+        delete_preset->setEnabled(has_asset);
+    };
+    refresh_preset_assets();
+    connect(preset_assets,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[&]{sync_preset_controls();});
+    connect(source_presets,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,[&]{sync_preset_controls();});
+    sync_preset_controls();
     auto rebuild_tree=[&] {
         tree->clear();node_by_identity.clear();
         QHash<QString,QTreeWidgetItem*> root_nodes;
@@ -4468,8 +4539,8 @@ void Window::show_folder_library() {
         for(int index=0;index<tree->topLevelItemCount();++index)filter(tree->topLevelItem(index));
     };
     auto place_ref=[&](const LibraryItemRefV1& ref,const QString& mode,QString frozen_session,std::uint64_t& expected_revision) {
-        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Document changed while the Folder Library was open");
-        if(host.session.revision()!=expected_revision)throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open");
+        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current target");
+        if(host.session.revision()!=expected_revision)throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current target");
         const auto resolved=library.resolve(ref);
         if(resolved.ref.kind!="raster")throw Error("UNSUPPORTED_LIBRARY_ITEM","Choose a PNG or JPEG file to place");
         const auto composition=canvas->active_composition();
@@ -4495,17 +4566,48 @@ void Window::show_folder_library() {
                 tree->setCurrentItem(item);tree->scrollToItem(item);
                 status->setText("Favorite opened "+display_ref(*item_ref));return;
             }
-            place_ref(*item_ref,"linked",frozen_session,expected_revision);return;
+            place_ref(*item_ref,"linked",frozen_session,expected_revision);
+            frozen_effect_revision=host.session.revision();frozen_effect_generation=effects_generation_;
+            expected_revision=frozen_effect_revision;return;
         }
-        const auto& effect=std::get<BuiltinEffectTypeRefV1>(favorite.target);
+        if(const auto* effect=std::get_if<BuiltinEffectTypeRefV1>(&favorite.target)) {
+            const auto label=display_target(favorite.target);
+            try {
+                apply_builtin_effect_favorite(*effect,frozen_effect_session,frozen_effect_target,
+                    frozen_effect_revision,frozen_effect_generation);
+                frozen_effect_revision=host.session.revision();
+                expected_revision=frozen_effect_revision;
+                frozen_effect_generation=effects_generation_;
+                status->setText("Applied Favorite "+label+" to "+effects_target_->text());
+            } catch(const Error& error) {
+                status->setText(label+" · "+qs(error.code)+": "+QString::fromUtf8(error.what()));
+                throw;
+            }
+            return;
+        }
+        const auto& preset=std::get<PresetAssetRefV1>(favorite.target);
         const auto label=display_target(favorite.target);
         try {
-            apply_builtin_effect_favorite(effect,frozen_effect_session,frozen_effect_target,
-                frozen_effect_revision,frozen_effect_generation);
+            if(host.session_id!=frozen_effect_session)
+                throw Error("SESSION_CONFLICT","Preset Favorite belongs to another document");
+            if(frozen_effect_generation!=effects_generation_)
+                throw Error("REVISION_CONFLICT","Effects panel changed; refresh the target before applying");
+            if(canvas->selected_object!=frozen_effect_target)
+                throw Error("TARGET_CONFLICT","Preset target changed; choose the current target");
+            if(host.session.revision()!=frozen_effect_revision)
+                throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current target");
+            LibraryPresetAssetV1 metadata;
+            auto definition=library.read_preset_asset(preset,&metadata);
+            Id fresh_definition_id;
+            do {fresh_definition_id=new_id();}
+            while(fresh_definition_id==definition.id||QString::fromStdString(fresh_definition_id)==preset.asset_id);
+            host.session.apply_preset_command(PresetCommand{ImportAndApplyPreset{std::move(definition),
+                fresh_definition_id,frozen_effect_target,new_id(),preset.asset_id.toStdString(),metadata.accepted_revision}},frozen_effect_revision);
+            host.edited();
             frozen_effect_revision=host.session.revision();
             expected_revision=frozen_effect_revision;
             frozen_effect_generation=effects_generation_;
-            status->setText("Applied Favorite "+label+" to "+effects_target_->text());
+            status->setText("Imported and applied Favorite "+label+" to "+effects_target_->text()+" in one Undo step.");
         } catch(const Error& error) {
             status->setText(label+" · "+qs(error.code)+": "+QString::fromUtf8(error.what()));
             throw;
@@ -4520,12 +4622,63 @@ void Window::show_folder_library() {
         perform([&]{const auto ref=ref_for_item(current);library.unregister_root(ref.root_id);rebuild_tree();apply_search(search->text());status->setText("Unregistered the folder. Favorites remain as explicit broken references.");});
     });
     connect(refresh_button,&QPushButton::clicked,&dialog,[&,this] {
-        perform([&]{library.refresh();rebuild_tree();apply_search(search->text());status->setText("Registered folders refreshed.");});
+        perform([&]{library.refresh();rebuild_tree();apply_search(search->text());
+            refresh_preset_assets();rebuild_favorites();sync_preset_controls();
+            status->setText("Registered folders and Workspace Presets refreshed.");});
     });
     connect(search,&QLineEdit::textChanged,&dialog,[&](const QString& query){apply_search(query);});
+    connect(update_preset,&QPushButton::clicked,&dialog,[&,this] {
+        perform([&]{
+            if(host.session_id!=frozen_effect_session||host.session.revision()!=frozen_effect_revision||
+                effects_generation_!=frozen_effect_generation)
+                throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current Preset and target");
+            const auto asset_id=preset_assets->currentData().toString();
+            const auto source_id=source_presets->currentData().toString().toStdString();
+            if(asset_id.isEmpty()||source_id.empty())throw Error("NO_SELECTION","Choose both a Workspace asset and a document Preset");
+            bool revision_ok=false;
+            const auto accepted_revision=preset_assets->currentData(Qt::UserRole+1).toULongLong(&revision_ok);
+            const auto expected_hash=preset_assets->currentData(Qt::UserRole+2).toString();
+            if(!revision_ok||accepted_revision==0||expected_hash.size()!=64)
+                throw Error("UNAVAILABLE_PRESET_ASSET","Refresh the Library and choose an available Preset asset");
+            const auto source=host.session.document().preset_definitions.find(source_id);
+            if(source==host.session.document().preset_definitions.end())throw Error("MISSING_PRESET",source_id);
+            const auto updated=library.update_preset_asset({asset_id},source->second,
+                accepted_revision,expected_hash);
+            refresh_preset_assets();rebuild_favorites();sync_preset_controls();
+            status->setText("Updated Workspace Preset asset “"+updated.label+"” · revision "+QString::number(updated.accepted_revision)+
+                ". Existing applications and Favorite identity are unchanged.");
+        });
+    });
+    connect(delete_preset,&QPushButton::clicked,&dialog,[&,this] {
+        const auto asset_id=preset_assets->currentData().toString();
+        bool revision_ok=false;
+        const auto accepted_revision=preset_assets->currentData(Qt::UserRole+1).toULongLong(&revision_ok);
+        const auto expected_hash=preset_assets->currentData(Qt::UserRole+2).toString();
+        if(asset_id.isEmpty()||!revision_ok||accepted_revision==0||expected_hash.size()!=64) {
+            status->setText("Choose an available Workspace Preset asset to delete.");return;
+        }
+        const auto accepted_asset_id=asset_id;
+        if(QMessageBox::question(&dialog,"Delete Workspace Preset",
+            "Delete “"+preset_assets->currentText()+"” (AssetID "+accepted_asset_id+", revision "+QString::number(accepted_revision)+")? Existing Favorites will remain as unavailable references.",
+            QMessageBox::Yes|QMessageBox::Cancel,QMessageBox::Cancel)!=QMessageBox::Yes)return;
+        perform([&]{
+            if(preset_assets->currentData().toString()!=accepted_asset_id||
+                preset_assets->currentData(Qt::UserRole+1).toULongLong()!=accepted_revision||
+                preset_assets->currentData(Qt::UserRole+2).toString()!=expected_hash)
+                throw Error("PRESET_ASSET_SELECTION_CHANGED","Workspace Preset selection changed during delete confirmation; nothing was deleted");
+            library.delete_preset_asset({accepted_asset_id},accepted_revision,expected_hash);
+            refresh_preset_assets();rebuild_favorites();sync_preset_controls();
+            status->setText("Deleted Workspace Preset asset "+accepted_asset_id+". Its Favorites remain as unavailable references.");
+        });
+    });
     connect(add_favorite,&QPushButton::clicked,&dialog,[&,this] {
-        const auto* current=tree->currentItem();if(!current)return;
-        perform([&]{const auto created=library.add_favorite(ref_for_item(current));rebuild_favorites();status->setText("Favorite saved: "+display_target(created.target));});
+        const auto asset_id=preset_assets->currentData().toString();
+        const auto* current=tree->currentItem();if(asset_id.isEmpty()&&!current)return;
+        perform([&]{
+            const auto created=asset_id.isEmpty()?library.add_favorite(ref_for_item(current)):
+                library.add_favorite(PresetAssetRefV1{asset_id});
+            rebuild_favorites();status->setText("Favorite saved: "+display_target(created.target));
+        });
     });
     connect(remove_favorite,&QPushButton::clicked,&dialog,[&,this] {
         const auto* current=favorites->currentItem();if(!current)return;
@@ -4538,11 +4691,13 @@ void Window::show_folder_library() {
     });
     connect(place_linked,&QPushButton::clicked,&dialog,[&,this] {
         const auto* current=tree->currentItem();if(!current)return;
-        perform([&]{place_ref(ref_for_item(current),"linked",frozen_session,expected_revision);});
+        perform([&]{place_ref(ref_for_item(current),"linked",frozen_session,expected_revision);
+            frozen_effect_revision=host.session.revision();frozen_effect_generation=effects_generation_;expected_revision=frozen_effect_revision;});
     });
     connect(place_embedded,&QPushButton::clicked,&dialog,[&,this] {
         const auto* current=tree->currentItem();if(!current)return;
-        perform([&]{place_ref(ref_for_item(current),"embedded",frozen_session,expected_revision);});
+        perform([&]{place_ref(ref_for_item(current),"embedded",frozen_session,expected_revision);
+            frozen_effect_revision=host.session.revision();frozen_effect_generation=effects_generation_;expected_revision=frozen_effect_revision;});
     });
     connect(use_favorite,&QPushButton::clicked,&dialog,[&,this] {
         const auto* current=favorites->currentItem();if(!current)return;

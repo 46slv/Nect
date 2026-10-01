@@ -297,6 +297,32 @@ void validation_and_apply_failures_are_atomic() {
     session.cancel_gesture();
     expect_atomic(session,"MISSING_PRESET",PresetCommand{DeletePreset{"missing"}},session.revision());
 
+    const auto imported=sample_preset("portable-source","Portable Pair");
+    auto import_apply=[&](const Id& asset_id,const Id& document_id,const Id& object="path") {
+        return PresetCommand{ImportAndApplyPreset{imported,document_id,object,"portable-use",asset_id,1}};
+    };
+    const auto import_revision=session.revision();
+    const auto import_history=session.history().states.size();
+    session.apply_preset_command(import_apply("workspace-asset","fresh-document-definition"),import_revision);
+    check(session.revision()==import_revision+1&&session.history().states.size()==import_history+1&&
+        session.document().preset_definitions.contains("fresh-document-definition")&&
+        session.document().objects.at("path").stack.size()==3,
+        "Portable import and apply creates one fresh definition and appends its entries in one Session history state");
+    session.undo(session.revision());
+    check(!session.document().preset_definitions.contains("fresh-document-definition")&&
+        session.document().objects.at("path").stack.size()==1,
+        "One Undo removes both the imported definition and every applied processing entry");
+    session.redo(session.revision());
+    check(session.document().preset_definitions.contains("fresh-document-definition")&&
+        session.document().objects.at("path").stack.size()==3,
+        "One Redo restores the imported definition and complete application");
+    expect_atomic(session,"PRESET_ASSET_ID_MISMATCH",
+        import_apply("portable-source","fresh-id-cannot-fix-source-collision"),session.revision());
+    expect_atomic(session,"PRESET_ASSET_ID_MISMATCH",
+        import_apply("workspace-asset","portable-source"),session.revision());
+    expect_atomic(session,"PRESET_ASSET_ID_MISMATCH",
+        import_apply("asset-collision","asset-collision"),session.revision());
+
     auto open=fixture(false);Session open_session(open);
     open_session.apply_preset_command(PresetCommand{CreatePreset{base}},0);
     expect_atomic(open_session,"OFFSET_OPEN_PATH",PresetCommand{ApplyPreset{"preset","path","open"}},open_session.revision());

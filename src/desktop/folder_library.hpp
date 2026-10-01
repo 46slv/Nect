@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nect/core.hpp"
 #include <QByteArray>
 #include <QJsonObject>
 #include <QList>
@@ -33,7 +34,12 @@ struct BuiltinEffectTypeRefV1 {
     bool operator==(const BuiltinEffectTypeRefV1&) const = default;
 };
 
-using LibraryFavoriteTargetV1 = std::variant<LibraryItemRefV1, BuiltinEffectTypeRefV1>;
+struct PresetAssetRefV1 {
+    QString asset_id;
+    bool operator==(const PresetAssetRefV1&) const = default;
+};
+
+using LibraryFavoriteTargetV1 = std::variant<LibraryItemRefV1, BuiltinEffectTypeRefV1, PresetAssetRefV1>;
 
 struct LibraryItemV1 {
     LibraryItemRefV1 ref;
@@ -49,14 +55,26 @@ struct LibraryFavoriteV1 {
     int quick_slot = 0;
 };
 
+struct LibraryPresetAssetV1 {
+    PresetAssetRefV1 ref;
+    QString label;
+    std::uint64_t accepted_revision=0;
+    QString sha256;
+    unsigned payload_schema=0;
+    bool available=true;
+    QString problem;
+};
+
 class FolderLibrary {
 public:
     using PersistOverride = std::function<bool(const QByteArray&, QString&)>;
     using ReadbackOverride = std::function<std::optional<QByteArray>()>;
+    using PayloadWriteOverride = std::function<bool(const QString&, const QByteArray&, QString&)>;
 
     FolderLibrary();
     explicit FolderLibrary(QSettings& settings, PersistOverride persist_override = {},
-        ReadbackOverride readback_override = {});
+        ReadbackOverride readback_override = {}, QString preset_payload_root = {},
+        PayloadWriteOverride payload_write_override = {});
 
     const QList<LibraryRootV1>& roots() const;
     const QList<LibraryFavoriteV1>& favorites() const;
@@ -81,6 +99,16 @@ public:
     std::optional<LibraryFavoriteV1> favorite_for_slot(int quick_slot) const;
     QString favorite_status(const LibraryFavoriteV1& favorite) const;
 
+    QList<LibraryPresetAssetV1> preset_assets() const;
+    PresetDefinition read_preset_asset(const PresetAssetRefV1& ref,
+        LibraryPresetAssetV1* metadata = nullptr) const;
+    LibraryPresetAssetV1 publish_preset(const PresetDefinition& definition);
+    LibraryPresetAssetV1 update_preset_asset(const PresetAssetRefV1& ref,
+        const PresetDefinition& definition, std::uint64_t expected_revision, const QString& expected_sha256);
+    void delete_preset_asset(const PresetAssetRefV1& ref,
+        std::uint64_t expected_revision, const QString& expected_sha256);
+    LibraryFavoriteV1 add_favorite(const PresetAssetRefV1& preset, int quick_slot = 0);
+
     static QJsonObject ref_to_json(const LibraryItemRefV1& ref);
     static LibraryItemRefV1 ref_from_json(const QJsonObject& json);
     static QJsonObject target_to_json(const LibraryFavoriteTargetV1& target);
@@ -90,8 +118,10 @@ private:
     static constexpr const char* settings_key = "library/v1/state";
     std::unique_ptr<QSettings> owned_settings_;
     QSettings* settings_ = nullptr;
+    QString preset_payload_root_;
     PersistOverride persist_override_;
     ReadbackOverride readback_override_;
+    PayloadWriteOverride payload_write_override_;
     mutable bool loaded_ = false;
     mutable QList<LibraryRootV1> roots_;
     mutable QList<LibraryFavoriteV1> favorites_;
@@ -102,6 +132,7 @@ private:
         const QList<LibraryFavoriteV1>& favorites) const;
     std::optional<QByteArray> read_state_from_fresh_settings(bool use_override) const;
     LibraryFavoriteV1 add_favorite_target(const LibraryFavoriteTargetV1& target, int quick_slot);
+    QString resolved_preset_payload_root(bool create) const;
     void persist_state(const QList<LibraryRootV1>& roots,
         const QList<LibraryFavoriteV1>& favorites);
     const LibraryRootV1& root(const QString& root_id) const;

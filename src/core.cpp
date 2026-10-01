@@ -4064,6 +4064,12 @@ static void validate_preset_definition(const Id& map_id,const PresetDefinition& 
     }
 }
 
+void validate_portable_literal_preset(const PresetDefinition& preset) {
+    require(std::all_of(preset.entries.begin(),preset.entries.end(),[](const auto& entry){return entry.kind=="builtin";}),
+        "PRESET_NONPORTABLE_SOURCE","Workspace Presets support built-in literal entries only; Macro entries are unavailable");
+    validate_preset_definition(preset.id,preset,Document{});
+}
+
 static const MacroPublicParameter* macro_public_parameter(const MacroDefinitionRevision& revision,const std::string& id) {
     const auto found=std::find_if(revision.public_parameters.begin(),revision.public_parameters.end(),
         [&](const auto& parameter){return parameter.id==id;});
@@ -6470,6 +6476,21 @@ ProcessingEntry processing_entry_from_preset(const PresetEntry& entry,const Id& 
     return ProcessingEntry{std::move(operation)};
 }
 
+void append_preset_to_target(Document& candidate,const PresetDefinition& definition,
+    const Id& object_id,const Id& operation_id_prefix) {
+    validate_preset_definition(definition.id,definition,candidate);
+    preflight_preset_macro_entries(candidate,definition);
+    const auto target=candidate.objects.find(object_id);
+    require(target!=candidate.objects.end(),"MISSING_OBJECT",object_id);
+    require(target->second.kind==Kind::path||target->second.kind==Kind::text,
+        "INVALID_DOMAIN","Preset target must be a Path or Text object");
+    require(target->second.stack.size()+definition.entries.size()<=128,
+        "LIMIT","Preset application would exceed the 128-operation stack limit");
+    const auto ids=preset_operation_ids(definition,operation_id_prefix);
+    for(std::size_t i=0;i<definition.entries.size();++i)
+        target->second.stack.push_back(processing_entry_from_preset(definition.entries[i],ids[i]));
+}
+
 void edit_preset(Document& candidate,const PresetCommand& command) {
     std::visit([&](const auto& mutation) {
         using T=std::decay_t<decltype(mutation)>;
@@ -6495,18 +6516,24 @@ void edit_preset(Document& candidate,const PresetCommand& command) {
         } else if constexpr(std::is_same_v<T,ApplyPreset>) {
             const auto found=candidate.preset_definitions.find(mutation.preset);
             require(found!=candidate.preset_definitions.end(),"MISSING_PRESET",mutation.preset);
-            const auto& definition=found->second;
-            validate_preset_definition(found->first,definition,candidate);
-            preflight_preset_macro_entries(candidate,definition);
-            const auto target=candidate.objects.find(mutation.object);
-            require(target!=candidate.objects.end(),"MISSING_OBJECT",mutation.object);
-            require(target->second.kind==Kind::path||target->second.kind==Kind::text,
-                "INVALID_DOMAIN","Preset target must be a Path or Text object");
-            require(target->second.stack.size()+definition.entries.size()<=128,
-                "LIMIT","Preset application would exceed the 128-operation stack limit");
-            const auto ids=preset_operation_ids(definition,mutation.operation_id_prefix);
-            for(std::size_t i=0;i<definition.entries.size();++i)
-                target->second.stack.push_back(processing_entry_from_preset(definition.entries[i],ids[i]));
+            append_preset_to_target(candidate,found->second,mutation.object,mutation.operation_id_prefix);
+        } else if constexpr(std::is_same_v<T,ImportAndApplyPreset>) {
+            require(!mutation.asset_id.empty()&&mutation.accepted_revision>0,
+                "INVALID_PRESET_ASSET_REF","Portable Preset import requires an exact asset ID and positive accepted revision");
+            identity(mutation.asset_id);
+            require(mutation.accepted_revision<=9007199254740991ULL,
+                "INVALID_PRESET_ASSET_REF","Portable Preset accepted revision must remain an exact JSON integer");
+            require(!mutation.document_definition_id.empty(),"INVALID_PRESET_ID","Imported Preset needs a fresh Document Definition ID");
+            require(mutation.asset_id!=mutation.definition.id&&
+                mutation.document_definition_id!=mutation.asset_id&&mutation.document_definition_id!=mutation.definition.id,
+                "PRESET_ASSET_ID_MISMATCH","Workspace AssetID, source DefinitionID and fresh Document DefinitionID must remain distinct");
+            validate_portable_literal_preset(mutation.definition);
+            auto definition=mutation.definition;
+            definition.id=mutation.document_definition_id;
+            require(!candidate.preset_definitions.contains(definition.id),"DUPLICATE_ID",definition.id);
+            candidate.preset_definitions.emplace(definition.id,definition);
+            append_preset_to_target(candidate,candidate.preset_definitions.at(definition.id),
+                mutation.object,mutation.operation_id_prefix);
         }
     },command.mutation);
 }
@@ -6519,10 +6546,10 @@ std::string preset_history_label(const PresetCommand& command,const Document& ca
         else if constexpr(std::is_same_v<T,RenamePreset>)return "Rename Preset: "+mutation.label;
         else if constexpr(std::is_same_v<T,UpdatePreset>)return "Update Preset: "+mutation.definition.label;
         else if constexpr(std::is_same_v<T,DeletePreset>)return "Delete Preset: "+mutation.preset;
-        else {
+        else if constexpr(std::is_same_v<T,ApplyPreset>) {
             const auto found=candidate.preset_definitions.find(mutation.preset);
             return "Apply Preset: "+(found==candidate.preset_definitions.end()?mutation.preset:found->second.label);
-        }
+        } else return "Import and Apply Preset: "+mutation.definition.label;
     },command.mutation);
 }
 

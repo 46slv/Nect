@@ -236,6 +236,49 @@ def main():
         assert {'mcp-use-op-1', 'mcp-use-op-2', 'mcp-use-op-3'}.issubset({
             entry.get('id', entry.get('operation', {}).get('id')) for entry in target_stack})
 
+        # Workspace Library import is the same atomic Session operation through
+        # the direct adapter and the formal MCP surface. The wire payload is a
+        # canonical built-in literal snapshot with independent asset/document IDs.
+        portable = copy.deepcopy(definition)
+        portable['id'] = 'mcp-workspace-source-definition'
+        portable['label'] = 'Portable Offset'
+        portable['schema_version'] = 2
+        portable['entries'] = [copy.deepcopy(definition['entries'][0])]
+        portable_command = dict(type='import_apply_preset', definition=portable,
+            definition_id='mcp-workspace-imported-definition', object='mcp-preset-target',
+            operation_id_prefix='mcp-workspace-use', asset_id='mcp-workspace-asset',
+            accepted_revision=7)
+        before_workspace = compare_read('inspect')['result']
+        direct_workspace = direct_core(dict(op='apply', expected_revision=revision, commands=[portable_command]))
+        assert direct_workspace['ok'], direct_workspace
+        direct_workspace_undo = direct_core(dict(op='undo', expected_revision=direct_workspace['revision']))
+        assert direct_workspace_undo['ok'], direct_workspace_undo
+        revision = direct_workspace_undo['revision']
+        mcp_workspace = core('apply', expected_revision=revision, commands=[portable_command])
+        assert mcp_workspace['ok'] and mcp_workspace['result'] == direct_workspace['result'] and \
+            mcp_workspace['result']['applied_library_presets'] == [dict(asset_id='mcp-workspace-asset',
+                accepted_revision=7, definition_id='mcp-workspace-imported-definition', label='Portable Offset',
+                schema_version=2, target='mcp-preset-target', processing_entry_ids=['mcp-workspace-use-op-1'],
+                asset_identity_source='caller_supplied')], mcp_workspace
+        revision = mcp_workspace['revision']
+        imported = compare_read('preset', id='mcp-workspace-imported-definition')['result']
+        assert imported['id'] == 'mcp-workspace-imported-definition' and imported['label'] == 'Portable Offset'
+        imported_op = next(entry for entry in compare_read('inspect')['result']['objects']
+            if entry['id'] == 'mcp-preset-target')['stack'][-1]['operation']
+        assert imported_op['id'] == 'mcp-workspace-use-op-1' and imported_op['type'] == 'nect.shape.offset' and \
+            imported_op['parameters']['amount']['literal'] == 18
+        workspace_undo = core('undo', expected_revision=revision)
+        assert workspace_undo['ok'], workspace_undo
+        revision = workspace_undo['revision']
+        after_workspace_undo = compare_read('inspect')['result']
+        assert after_workspace_undo['objects'] == before_workspace['objects'] and all(
+            item['id'] != 'mcp-workspace-imported-definition' for item in after_workspace_undo['presets'])
+        workspace_redo = core('redo', expected_revision=revision)
+        assert workspace_redo['ok'], workspace_redo
+        revision = workspace_redo['revision']
+        assert compare_read('preset', id='mcp-workspace-imported-definition')['result']['id'] == \
+            'mcp-workspace-imported-definition'
+
         definition = compare_read('preset', id='mcp-preset-captured')['result']
         definition['entries'][0]['operation']['parameters']['amount'] = 7
         updated = core('apply', expected_revision=revision, commands=[dict(type='update_preset', definition=definition)])

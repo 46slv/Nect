@@ -127,6 +127,25 @@ parameter. Deleting a Macro Definition referenced by a Preset is refused. Native
 0.65 and older reject Preset v2 as a version lie. The closed native 0.66 shape is
 defined in `schemas/native-v0.66.schema.json`.
 
+## Workspace Preset Library v1
+
+The workspace Preset Library copies canonical PresetDefinition v1/v2 payloads
+containing supported built-in literal entries. It refuses Macro entries and
+other source-dependent or executable content. Publication assigns a workspace
+AssetID distinct from the source document DefinitionID and writes one bounded
+payload file; roots, Favorite AssetIDs and shared Quick Access slots remain in
+`library/v1/state`. Native 0.75 is unchanged.
+
+Reading an asset validates the exact requested AssetID, envelope version,
+accepted revision, schema, canonical payload and SHA-256. Unknown versions and
+corrupt or missing assets remain unavailable under their exact identity; the
+Library does not substitute by label. Publishing, updating, deleting, adding a
+Favorite and assigning a slot are separate explicit operations. An update keeps
+AssetID/FavoriteID, advances the accepted revision and affects future imports
+only. Import and apply allocates a fresh document DefinitionID and appends fresh
+operation IDs in one Session commit, so one Undo removes both the definition and
+application. No source document or payload code is needed when applying an asset.
+
 ## Definition / Instance v1
 
 Native 0.64 extends the 0.63 native schema with stable-ID `Definition`s and

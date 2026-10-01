@@ -78,6 +78,17 @@ double number(const j::value& v) {
 std::int64_t signed_integer(const j::value& v) {
     return j::value_to<std::int64_t>(v);
 }
+std::uint64_t preset_unsigned(const j::value& value,std::uint64_t maximum,std::string_view field) {
+    std::uint64_t result=0;
+    if(value.is_uint64())result=value.as_uint64();
+    else if(value.is_int64()) {
+        const auto signed_value=value.as_int64();
+        if(signed_value<0)throw Error("INVALID_PRESET_NUMBER",std::string(field)+" must be a positive integer");
+        result=static_cast<std::uint64_t>(signed_value);
+    } else throw Error("INVALID_PRESET_NUMBER",std::string(field)+" must be an integer number");
+    if(result==0||result>maximum)throw Error("INVALID_PRESET_NUMBER",std::string(field)+" is outside the supported positive integer range");
+    return result;
+}
 Ref read_ref(const j::value& v) {
     const auto& o=v.as_object();
     keys(o,{"object","point","field"});
@@ -1008,7 +1019,8 @@ ProcessingEntry read_processing_entry(const j::value& value,bool allow_enabled_e
 
 PresetEntry read_preset_builtin_entry(const j::object& o) {
     keys(o,{"type","version","enabled","parameters","composite","fill_rule","line_join","line_cap"});
-    PresetEntry entry;entry.kind="builtin";entry.type=text(o.at("type"));entry.version=j::value_to<unsigned>(o.at("version"));
+    PresetEntry entry;entry.kind="builtin";entry.type=text(o.at("type"));
+    entry.version=static_cast<unsigned>(preset_unsigned(o.at("version"),std::numeric_limits<unsigned>::max(),"Preset operation version"));
     entry.enabled=o.at("enabled").as_bool();entry.composite=text(o.at("composite"));entry.fill_rule=text(o.at("fill_rule"));
     entry.line_join=text(o.at("line_join"));entry.line_cap=text(o.at("line_cap"));
     for(const auto& parameter:o.at("parameters").as_object())
@@ -1026,7 +1038,7 @@ PresetEntry read_preset_entry(const j::value& value,unsigned schema_version) {
     if(kind=="macro") {
         keys(o,{"kind","definition","revision","enabled","overrides"});
         PresetEntry entry;entry.kind="macro";entry.type=macro_entry_type;entry.macro_definition=text(o.at("definition"));
-        entry.pinned_revision=j::value_to<std::uint64_t>(o.at("revision"));entry.enabled=o.at("enabled").as_bool();
+        entry.pinned_revision=preset_unsigned(o.at("revision"),std::numeric_limits<std::uint64_t>::max(),"Preset Macro revision");entry.enabled=o.at("enabled").as_bool();
         for(const auto& [parameter,value]:o.at("overrides").as_object())
             entry.overrides.emplace(std::string(parameter),number(value));
         return entry;
@@ -1035,7 +1047,8 @@ PresetEntry read_preset_entry(const j::value& value,unsigned schema_version) {
 }
 PresetDefinition read_preset_definition(const j::value& value) {
     const auto& o=value.as_object();keys(o,{"id","schema_version","label","category","tags","target_domain","entries"});
-    PresetDefinition definition;definition.id=text(o.at("id"));definition.schema_version=j::value_to<unsigned>(o.at("schema_version"));
+    PresetDefinition definition;definition.id=text(o.at("id"));
+    definition.schema_version=static_cast<unsigned>(preset_unsigned(o.at("schema_version"),std::numeric_limits<unsigned>::max(),"Preset schema version"));
     if(definition.schema_version!=1&&definition.schema_version!=2)
         throw Error("UNSUPPORTED_PRESET_SCHEMA","Preset schema version must be 1 or 2");
     definition.label=text(o.at("label"));if(const auto* category=o.if_contains("category"))definition.category=text(*category);
@@ -1062,6 +1075,34 @@ j::value preset_json(const PresetDefinition& definition) {
     }
     return j::object{{"id",definition.id},{"schema_version",definition.schema_version},{"label",definition.label},
         {"category",definition.category},{"tags",tags},{"target_domain",definition.target_domain},{"entries",entries}};
+}
+
+std::string canonical_json(const j::value& value) {
+    if(value.is_object()) {
+        std::vector<const j::key_value_pair*> members;
+        members.reserve(value.as_object().size());
+        for(const auto& member:value.as_object())members.push_back(&member);
+        std::sort(members.begin(),members.end(),[](const auto* left,const auto* right) {
+            return std::string_view(left->key().data(),left->key().size())<
+                std::string_view(right->key().data(),right->key().size());
+        });
+        std::string result="{";bool first=true;
+        for(const auto* member:members) {
+            if(!first)result+=',';first=false;
+            const auto key=member->key();
+            result+=j::serialize(j::value(j::string(key.data(),key.size())));
+            result+=':';result+=canonical_json(member->value());
+        }
+        result+='}';return result;
+    }
+    if(value.is_array()) {
+        std::string result="[";bool first=true;
+        for(const auto& item:value.as_array()) {
+            if(!first)result+=',';first=false;result+=canonical_json(item);
+        }
+        result+=']';return result;
+    }
+    return j::serialize(value);
 }
 
 Definition read_definition(const j::value& value) {
@@ -1452,6 +1493,13 @@ PresetCommand read_preset_command(const j::value& v) {
         keys(o,{"type","preset","object","operation_id_prefix"});
         return PresetCommand{ApplyPreset{text(o.at("preset")),text(o.at("object")),text(o.at("operation_id_prefix"))}};
     }
+    if(type=="import_apply_preset") {
+        keys(o,{"type","definition","definition_id","object","operation_id_prefix","asset_id","accepted_revision"});
+        return PresetCommand{ImportAndApplyPreset{read_preset_definition(o.at("definition")),
+            text(o.at("definition_id")),text(o.at("object")),text(o.at("operation_id_prefix")),
+            text(o.at("asset_id")),preset_unsigned(o.at("accepted_revision"),std::numeric_limits<std::uint64_t>::max(),
+                "Preset asset accepted revision")}};
+    }
     throw Error("UNSUPPORTED_PRESET_OPERATION",type);
 }
 
@@ -1549,7 +1597,7 @@ MacroCommand read_macro_command(const j::value& value) {
 bool is_preset_command(const j::value& v) {
     const auto type=text(v.as_object().at("type"));
     return type=="create_preset"||type=="create_preset_from_stack"||type=="rename_preset"||
-        type=="update_preset"||type=="delete_preset"||type=="apply_preset";
+        type=="update_preset"||type=="delete_preset"||type=="apply_preset"||type=="import_apply_preset";
 }
 
 Command read_command(const j::value& v) {
@@ -2139,6 +2187,47 @@ Command read_command(const j::value& v) {
 
 void validate_json(std::string_view input) { (void)parse(input); }
 
+PortablePresetAssetEnvelope read_portable_preset_asset_envelope(std::string_view input) {
+    j::value parsed;
+    try {parsed=parse(input);}
+    catch(const Error& error) {throw Error("INVALID_PRESET_ASSET",std::string("Preset asset envelope JSON is malformed: ")+error.what());}
+    catch(const std::exception& error) {throw Error("INVALID_PRESET_ASSET",std::string("Preset asset envelope JSON is malformed: ")+error.what());}
+    if(!parsed.is_object())throw Error("INVALID_PRESET_ASSET","Preset asset envelope must be a JSON object");
+    const auto& object=parsed.as_object();
+    static const std::set<std::string> allowed{"version","kind","asset_id","accepted_revision","sha256","payload_schema","payload","label","provenance"};
+    for(const auto& member:object) {
+        const std::string key(member.key().data(),member.key().size());
+        if(!allowed.contains(key))throw Error("INVALID_PRESET_ASSET","Unknown Preset asset envelope field: "+key);
+    }
+    for(const auto* required:{"version","kind","asset_id","accepted_revision","sha256","payload_schema","payload","label"})
+        if(!object.contains(required))throw Error("INVALID_PRESET_ASSET","Preset asset envelope is missing field: "+std::string(required));
+    if(const auto provenance=object.find("provenance");provenance!=object.end()&&!provenance->value().is_object())
+        throw Error("INVALID_PRESET_ASSET","Preset asset provenance must be an object when present");
+    const auto positive_integer=[](const j::value& value,std::string_view field) {
+        std::uint64_t result=0;
+        if(value.is_uint64())result=value.as_uint64();
+        else if(value.is_int64()) {
+            const auto signed_value=value.as_int64();
+            if(signed_value<0)throw Error("INVALID_PRESET_ASSET",std::string(field)+" must be positive");
+            result=static_cast<std::uint64_t>(signed_value);
+        } else throw Error("INVALID_PRESET_ASSET",std::string(field)+" must be an integer JSON number");
+        if(result==0||result>9007199254740991ULL)
+            throw Error("INVALID_PRESET_ASSET",std::string(field)+" is outside its supported positive integer range");
+        return result;
+    };
+    const auto required_string=[&](std::string_view key) {
+        const auto found=object.find(key);
+        if(found==object.end()||!found->value().is_string())
+            throw Error("INVALID_PRESET_ASSET","Preset asset envelope has a missing or mistyped string field: "+std::string(key));
+        return text(found->value());
+    };
+    return {positive_integer(object.at("version"),"Envelope version"),
+        positive_integer(object.at("accepted_revision"),"Accepted revision"),
+        positive_integer(object.at("payload_schema"),"Payload schema"),
+        required_string("kind"),required_string("asset_id"),required_string("sha256"),
+        required_string("payload"),required_string("label")};
+}
+
 Document decode(std::string_view input) {
     try {
         auto parsed=parse(input);
@@ -2390,6 +2479,24 @@ std::string encode(const Document& d) {
         {"units","du96"},{"color_space","srgb"},
         {"compositions",comps},{"objects",objects},{"collections",collections},{"named_colors",named_colors},
         {"raster_assets",raster_assets},{"presets",presets},{"definitions",definitions},{"macros",macros}});
+}
+
+std::string canonical_preset_payload(const PresetDefinition& definition) {
+    validate_portable_literal_preset(definition);
+    const auto payload=canonical_json(preset_json(definition));
+    if(payload.size()>portable_preset_payload_limit)
+        throw Error("PRESET_PAYLOAD_LIMIT","Portable Preset payload exceeds 256 KiB");
+    return payload;
+}
+
+PresetDefinition read_canonical_preset_payload(std::string_view input) {
+    if(input.size()>portable_preset_payload_limit)
+        throw Error("PRESET_PAYLOAD_LIMIT","Portable Preset payload exceeds 256 KiB");
+    const auto definition=read_preset_definition(parse(input));
+    validate_portable_literal_preset(definition);
+    if(canonical_preset_payload(definition)!=input)
+        throw Error("NONCANONICAL_PRESET_PAYLOAD","Portable Preset payload is not in canonical serialized form");
+    return definition;
 }
 
 std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
@@ -3135,6 +3242,7 @@ std::string request(Session& session,std::string_view input) {
                     "Preset commands are single Session operations and cannot be mixed into a generic command batch");
                 const auto preset=read_preset_command(wire_commands.front());
                 const auto* apply=std::get_if<ApplyPreset>(&preset.mutation);
+                const auto* import=std::get_if<ImportAndApplyPreset>(&preset.mutation);
                 j::array captured_source_operations,captured_source_entries;
                 if(const auto* capture=std::get_if<CreatePresetFromStack>(&preset.mutation)) {
                     if(const auto object=session.document().objects.find(capture->object);object!=session.document().objects.end())
@@ -3147,7 +3255,7 @@ std::string request(Session& session,std::string_view input) {
                 }
                 const auto before=session.revision();
                 session.apply_preset_command(preset,expected);
-                j::array applied;
+                j::array applied,applied_library;
                 if(apply&&session.revision()!=before) {
                     const auto& definition=session.document().preset_definitions.at(apply->preset);
                     j::array operation_ids;
@@ -3155,7 +3263,18 @@ std::string request(Session& session,std::string_view input) {
                     applied.push_back(j::object{{"preset",preset_json(definition)},
                         {"target",apply->object},{"operation_ids",operation_ids},{"processing_entry_ids",operation_ids}});
                 }
+                if(import&&session.revision()!=before) {
+                    const auto& definition=session.document().preset_definitions.at(import->document_definition_id);
+                    j::array operation_ids;
+                    for(const auto& id:preset_operation_ids(definition,import->operation_id_prefix))operation_ids.push_back(j::value(id));
+                    applied_library.push_back(j::object{{"asset_id",import->asset_id},
+                        {"accepted_revision",import->accepted_revision},{"definition_id",definition.id},
+                        {"label",definition.label},{"schema_version",definition.schema_version},
+                        {"target",import->object},{"processing_entry_ids",operation_ids},
+                        {"asset_identity_source","caller_supplied"}});
+                }
                 result=j::object{{"changed",session.revision()!=before},{"applied_presets",applied},
+                    {"applied_library_presets",applied_library},
                     {"captured_source_operations",captured_source_operations},{"captured_source_entries",captured_source_entries}};
             } else {
                 std::vector<Command> commands;

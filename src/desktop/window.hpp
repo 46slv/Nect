@@ -64,6 +64,7 @@ private:
     QListWidget* presets_catalog_=nullptr;
     QLabel* presets_status_=nullptr;
     QPushButton* presets_save_=nullptr;
+    QPushButton* presets_publish_=nullptr;
     QPushButton* presets_apply_=nullptr;
     QPushButton* presets_rename_=nullptr;
     QPushButton* presets_update_=nullptr;
