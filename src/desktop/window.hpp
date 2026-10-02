@@ -11,6 +11,8 @@
 #include <QScrollArea>
 #include <QListWidget>
 #include <QPointer>
+#include <functional>
+#include <vector>
 
 class QDialog;
 class QDockWidget;
@@ -92,6 +94,7 @@ private:
     QAction* batch_rename_action_=nullptr;
     QAction* sort_paint_order_action_=nullptr;
     bool refreshing_=false;
+    bool rebuilding_inspector_=false;
     std::optional<std::pair<QString,std::uint64_t>> canvas_notification_;
     bool matrix_expanded_=false;
     std::map<Ref,double> inspector_values_;
@@ -141,7 +144,12 @@ private:
         const std::optional<Id>& guide_artboard={});
     std::string alignment_reference_="selection";
     std::optional<Id> alignment_guide_artboard_;
-    std::function<void(bool)> cancel_primitive_angle_;
+    struct AngleAdapterCancellation { QPointer<QWidget> control; std::function<void(bool)> cancel; };
+    std::vector<AngleAdapterCancellation> angle_adapters_;
+    void register_angle_adapter(QWidget* control,std::function<void(bool)> cancel);
+    void cancel_angle_adapters(bool dispose);
+    void bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& ref,double initial,
+        std::function<void()> validate_target,bool keep_last_valid_on_range,bool refuse_numeric_draft);
     void add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitive& source);
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);

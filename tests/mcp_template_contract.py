@@ -25,6 +25,8 @@ sequence = 0
 identity = {}
 endpoint = ''
 checks = 0
+SOURCE_GRID = dict(id='source-grid', bounds=dict(x=20, y=20, width=760, height=560),
+    columns=2, rows=2, column_gutter=20, row_gutter=20)
 
 
 def check(condition, message):
@@ -68,6 +70,9 @@ def cli_fixture(path):
         primitive = copy.deepcopy(next(item['template'] for item in definitions
             if item['type'] == 'nect.shape.rectangle'))
         primitive['id'] = 'mcp-template-rectangle-source'
+        grid_primitive = copy.deepcopy(primitive)
+        grid_primitive['parameters'].update(center_x=dict(literal=5), center_y=dict(literal=5),
+            width=dict(literal=10), height=dict(literal=10))
         operations = request({'op': 'operator_types'})['result']
         fill = copy.deepcopy(next(item['template'] for item in operations
             if item['type'] == 'nect.paint.fill'))
@@ -78,13 +83,19 @@ def cli_fixture(path):
         board_a = dict(id='target-a', name='Same target', x=900, y=0, width=640, height=480)
         board_b = dict(id='target-b', name='Same target', x=1800, y=0, width=640, height=480)
         board_c = dict(id='target-c', name='Probe', x=2700, y=0, width=640, height=480)
-        grid = dict(id='source-grid', bounds=dict(x=20, y=20, width=760, height=560),
-            columns=2, rows=2, column_gutter=20, row_gutter=20)
+        grid = copy.deepcopy(SOURCE_GRID)
         setup = request({'op': 'apply', 'expected_revision': 0, 'commands': [
             dict(type='update_artboard', composition=composition_id, artboard=source),
             dict(type='add_artboard', composition=composition_id, artboard=board_a, index=1),
             dict(type='add_artboard', composition=composition_id, artboard=board_b, index=2),
             dict(type='add_artboard', composition=composition_id, artboard=board_c, index=3),
+            dict(type='create_folder', composition=composition_id, parent='', id='mcp-grid-probe-root',
+                name='Independent Grid parity probes'),
+            *[dict(type='create_primitive', composition=composition_id, parent='mcp-grid-probe-root',
+                id=f'mcp-grid-probe-{letter}', name=f'Grid probe {letter.upper()}',
+                source=dict(grid_primitive, id=f'mcp-grid-probe-source-{letter}')) for letter in 'abc'],
+            *[dict(type='set', ref=dict(object=f'mcp-grid-probe-{letter}', point='', field='transform.tx'),
+                value=x) for letter, x in zip('abc', (0, 30, 90))],
             dict(type='set_artboard_layout', composition=composition_id, artboard_id=source_id,
                 layout=dict(margin=dict(left=10, top=10, right=10, bottom=10), grid=grid)),
             dict(type='create_folder', composition=composition_id, parent='', id='mcp-template-root',
@@ -261,6 +272,7 @@ def main():
         try:
             temp = Path(directory)
             source_path = temp / 'input.nect'
+            working_path = temp / 'working.nect'
             destination_path = temp / 'save-as.nect'
             composition_id, source_id = cli_fixture(source_path)
             original_bytes = source_path.read_bytes()
@@ -277,11 +289,17 @@ def main():
             description = next(item for item in definitions if item['name'] == 'nect_command')['description']
             for operation in ('create_artboard_template', 'rename_artboard_template', 'delete_artboard_template',
                     'assign_artboard_template', 'set_artboard_template_override', 'reset_artboard_template_override',
-                    'detach_artboard_template'):
+                    'detach_artboard_template', 'duplicate_template_artboard'):
                 check(operation in description, 'Formal MCP description advertises Template lifecycle operation ' + operation)
             for operation in ('add_artboard_guide', 'update_artboard_guide', 'delete_artboard_guide',
                     'set_artboard_guide_override', 'reset_artboard_guide_override', 'detach_artboard_guide'):
                 check(operation in description, 'Formal MCP description advertises Artboard Guide command ' + operation)
+            check('guide_artboard?:id' in description and 'omitted/null scope retains global Guide semantics' in description,
+                'Formal MCP description exposes target-local Guide scope and legacy global behavior')
+            check('inherited Template Grids resolve by target assignment Grid ID without local materialization' in description and
+                'distribute_objects {objects:[id],axis:x/y,reference?:selection|artboard:id|grid:id|key_object:id,spacing?:du}' in description and
+                'Selection reference keeps the outer objects fixed' in description,
+                'Formal MCP description exposes inherited target-local Grid bounds for both Align and Distribute')
             check('artboard.guide.position' in description and f'Native writer {NATIVE_VERSION}' in description,
                 'Formal MCP description states the typed scoped Guide Ref and current native boundary')
             for field in ('transform.tx', 'transform.ty', 'generator.width', 'generator.height'):
@@ -300,11 +318,23 @@ def main():
                 initial_comp['templates'] == [] and initial['definitions'][0]['id'] == 'mcp-template-definition',
                 'Host opened the exact prepared native source Artboard, same-named targets, Grid and Definition')
 
+            working_saved = tool('nect_file', dict(identity, op='save', expected_revision=revision,
+                path=str(working_path)))
+            check(working_saved['ok'] and working_path.exists() and
+                source_path.read_bytes() == original_bytes and
+                hashlib.sha256(source_path.read_bytes()).hexdigest() == original_sha,
+                'Before parity mutations Host Save As selects a distinct working native destination and preserves source bytes')
+            working_native = working_path.read_bytes()
+            check(json.loads(working_native.decode('utf-8')) == initial,
+                'Working destination is the exact cold-readable starting native document')
+
             commands = [
                 dict(type='add_artboard_guide', composition=composition_id, artboard=source_id,
                     guide=dict(id='source-guide-x', name='Source X', axis='x', position=40, enabled=True)),
                 dict(type='add_artboard_guide', composition=composition_id, artboard=source_id,
                     guide=dict(id='source-guide-y', name='Source Y', axis='y', position=60, enabled=True)),
+                dict(type='add_artboard_guide', composition=composition_id, artboard=source_id,
+                    guide=dict(id='GX', name='Scoped X', axis='x', position=40, enabled=True)),
                 dict(type='add_artboard_guide', composition=composition_id, artboard='target-a',
                     guide=dict(id='local-guide-a', name='Local A', axis='x', position=15, enabled=True)),
                 dict(type='add_artboard_guide', composition=composition_id, artboard='target-a',
@@ -318,6 +348,8 @@ def main():
                     template='mcp-template-probe', name='Renamed probe'),
                 dict(type='assign_artboard_template', composition=composition_id, artboard='target-a',
                     template='mcp-template-main', content_instance='content-a'),
+                dict(type='set_artboard_guide_override', composition=composition_id, artboard='target-a',
+                    guide_id='GX', field='position', value=90),
                 dict(type='assign_artboard_template', composition=composition_id, artboard='target-b',
                     template='mcp-template-main', content_instance='content-b'),
                 dict(type='assign_artboard_template', composition=composition_id, artboard='target-c',
@@ -356,6 +388,55 @@ def main():
             check(created['ok'] and created['revision'] == revision + 1,
                 'Template and Artboard Guide lifecycle commands share one formal MCP Session mutation')
             revision = created['revision']
+
+            guide_baseline = compare('inspect')['result']
+            scoped_a = apply_mcp(revision, [dict(type='align_objects', objects=['path-A'], axis='x',
+                alignment='min', reference='guide:GX', guide_artboard='target-a')])
+            check(scoped_a['ok'] and scoped_a['revision'] == revision + 1 and
+                compare('get', ref=dict(object='path-A', point='', field='transform.tx'))['result']['evaluated'] == 890,
+                'MCP Guide GX scoped to A reaches its fixed global bound at 990 from the independent Guide fixture')
+            revision = scoped_a['revision']
+            scoped_b = apply_mcp(revision, [dict(type='align_objects', objects=['path-A'], axis='x',
+                alignment='min', reference='guide:GX', guide_artboard='target-b')])
+            check(scoped_b['ok'] and scoped_b['revision'] == revision + 1 and
+                compare('get', ref=dict(object='path-A', point='', field='transform.tx'))['result']['evaluated'] == 1740,
+                'The same stable Guide GX scoped to B reaches its distinct fixed global bound at 1840')
+            revision = scoped_b['revision']
+            check(compare('inspect')['result'] == direct(dict(op='inspect'))['result'],
+                'Scoped Guide alignment state is identical through formal MCP and the canonical Host API')
+            undone_b = core('undo', expected_revision=revision)
+            check(undone_b['ok'] and undone_b['revision'] == revision + 1 and
+                compare('get', ref=dict(object='path-A', point='', field='transform.tx'))['result']['evaluated'] == 890,
+                'One Host Undo removes only the second scoped Guide alignment')
+            revision = undone_b['revision']
+            undone_a = core('undo', expected_revision=revision)
+            check(undone_a['ok'] and undone_a['revision'] == revision + 1 and
+                compare('inspect')['result'] == guide_baseline,
+                'A second Host Undo restores the exact pre-alignment typed state')
+            revision = undone_a['revision']
+
+            disabled_gx = apply_mcp(revision, [dict(type='set_artboard_guide_override',
+                composition=composition_id, artboard='target-b', guide_id='GX', field='enabled', value=False)])
+            check(disabled_gx['ok'] and disabled_gx['revision'] == revision + 1,
+                'A target-local disabled Guide state is authored through formal MCP')
+            revision = disabled_gx['revision']
+            settled = tool('nect_file', dict(identity, op='save', expected_revision=revision, path=str(working_path)))
+            check(settled['ok'], 'Flush committed working state before the negative Guide parity probe')
+            before_disabled_refusal = compare('inspect')
+            history_before_disabled_refusal = compare('history')
+            native_before_disabled_refusal = working_path.read_bytes()
+            hash_before_disabled_refusal = hashlib.sha256(native_before_disabled_refusal).hexdigest()
+            disabled_command = [dict(type='align_objects', objects=['path-A'], axis='x',
+                alignment='min', reference='guide:GX', guide_artboard='target-b')]
+            disabled_refusal = apply_mcp(revision, disabled_command)
+            disabled_api_refusal = direct(dict(op='apply', expected_revision=revision, commands=disabled_command))
+            check(disabled_refusal == disabled_api_refusal and not disabled_refusal['ok'] and
+                disabled_refusal['error']['code'] == 'DISABLED_ARTBOARD_GUIDE' and
+                disabled_refusal['revision'] == revision and compare('inspect') == before_disabled_refusal and
+                compare('history') == history_before_disabled_refusal and
+                working_path.read_bytes() == native_before_disabled_refusal and
+                hashlib.sha256(working_path.read_bytes()).hexdigest() == hash_before_disabled_refusal,
+                'Disabled scoped Guide refusal preserves exact MCP/API state, revision, History and working native bytes')
 
             inspect = compare('inspect')['result']
             comp = next(item for item in inspect['compositions'] if item['id'] == composition_id)
@@ -477,31 +558,199 @@ def main():
                 c['evaluated']['layout']['grid']['bounds']['width'] == 760,
                 'Reset of all local C families returns to the valid inherited frame, Margin and Grid: ' + repr(c))
 
+            grid_align_b = apply_mcp(revision, [dict(type='align_objects', objects=['path-B'], axis='x',
+                alignment='min', reference='grid:template-grid-target-b')])
+            check(grid_align_b['ok'] and grid_align_b['revision'] == revision + 1 and
+                compare('get', ref=dict(object='path-B', point='', field='transform.tx'))['result']['evaluated'] == 1720,
+                'MCP aligns to inherited target-B Grid bounds at fixed global x=1820')
+            revision = grid_align_b['revision']
+            grid_align_c = apply_mcp(revision, [dict(type='align_objects', objects=['path-B'], axis='x',
+                alignment='min', reference='grid:template-grid-target-c')])
+            check(grid_align_c['ok'] and grid_align_c['revision'] == revision + 1 and
+                compare('get', ref=dict(object='path-B', point='', field='transform.tx'))['result']['evaluated'] == 2620,
+                'The distinct inherited target-C Grid ID aligns to fixed global x=2720')
+            revision = grid_align_c['revision']
+            check(compare('inspect')['result'] == direct(dict(op='inspect'))['result'],
+                'Inherited Grid alignment authored state is identical through formal MCP and the Host API')
+            inherited_state = compare('inspect')['result']
+            source_board = next(item for item in inherited_state['compositions'][0]['artboards'] if item['id'] == source_id)
+            boards_by_id = {item['id']: item for item in inherited_state['compositions'][0]['artboards']}
+            check(source_board['layout']['grid'] == SOURCE_GRID and
+                'layout' not in boards_by_id['target-b'] and 'layout' not in boards_by_id['target-c'],
+                'Aligning to two target-local inherited Grid IDs preserves source Grid bytes and materializes no target layout')
+            undo_grid_c = core('undo', expected_revision=revision)
+            check(undo_grid_c['ok'] and undo_grid_c['revision'] == revision + 1 and
+                compare('get', ref=dict(object='path-B', point='', field='transform.tx'))['result']['evaluated'] == 1720,
+                'One Undo removes only target-C Grid alignment')
+            revision = undo_grid_c['revision']
+            undo_grid_b = core('undo', expected_revision=revision)
+            check(undo_grid_b['ok'] and undo_grid_b['revision'] == revision + 1 and
+                compare('get', ref=dict(object='path-B', point='', field='transform.tx'))['result']['evaluated'] == 0,
+                'Second Undo restores the original independent alignment probe')
+            revision = undo_grid_b['revision']
+
+            for grid_id, expected_minima in (
+                    ('template-grid-target-b', (2002.5, 2195.0, 2387.5)),
+                    ('template-grid-target-c', (2902.5, 3095.0, 3287.5))):
+                distributed = apply_mcp(revision, [dict(type='distribute_objects',
+                    objects=['mcp-grid-probe-a', 'mcp-grid-probe-b', 'mcp-grid-probe-c'],
+                    axis='x', reference='grid:' + grid_id)])
+                check(distributed['ok'] and distributed['revision'] == revision + 1,
+                    'Formal MCP distributes three independent objects into inherited Grid ' + grid_id)
+                revision = distributed['revision']
+                actual_minima = tuple(compare('get', ref=dict(object=f'mcp-grid-probe-{letter}', point='',
+                    field='transform.tx'))['result']['evaluated'] for letter in 'abc')
+                check(all(abs(actual - expected) < 1e-8 for actual, expected in zip(actual_minima, expected_minima)),
+                    'Inherited Grid ' + grid_id + ' distribution matches fixed equal-gap geometry: ' + repr(actual_minima))
+                state = compare('inspect')['result']
+                source_board = next(item for item in state['compositions'][0]['artboards'] if item['id'] == source_id)
+                boards_by_id = {item['id']: item for item in state['compositions'][0]['artboards']}
+                check(source_board['layout']['grid'] == SOURCE_GRID and
+                    'layout' not in boards_by_id['target-b'] and 'layout' not in boards_by_id['target-c'],
+                    'Distribution through ' + grid_id + ' preserves the source and does not materialize local Artboard Grids')
+
+            suppressed_grid = apply_mcp(revision, [dict(type='set_artboard_template_override',
+                composition=composition_id, artboard='target-c', field='layout.grid', value=None)])
+            check(suppressed_grid['ok'] and suppressed_grid['revision'] == revision + 1,
+                'A target-local null override suppresses inherited Grid C through the formal MCP')
+            revision = suppressed_grid['revision']
+            settled_grid = tool('nect_file', dict(identity, op='save', expected_revision=revision,
+                path=str(working_path)))
+            check(settled_grid['ok'], 'Flush committed Grid state before the null-suppression refusal probe')
+            before_grid_refusal = compare('inspect')
+            history_before_grid_refusal = compare('history')
+            native_before_grid_refusal = working_path.read_bytes()
+            hash_before_grid_refusal = hashlib.sha256(native_before_grid_refusal).hexdigest()
+            missing_grid_command = [dict(type='align_objects', objects=['path-B'], axis='x',
+                alignment='min', reference='grid:template-grid-target-c')]
+            missing_grid = apply_mcp(revision, missing_grid_command)
+            missing_grid_api = direct(dict(op='apply', expected_revision=revision, commands=missing_grid_command))
+            check(missing_grid == missing_grid_api and not missing_grid['ok'] and
+                missing_grid['error']['code'] == 'MISSING_GRID' and
+                missing_grid['revision'] == revision and compare('inspect') == before_grid_refusal and
+                compare('history') == history_before_grid_refusal and
+                working_path.read_bytes() == native_before_grid_refusal and
+                hashlib.sha256(working_path.read_bytes()).hexdigest() == hash_before_grid_refusal,
+                'Null-suppressed inherited Grid refusal preserves exact typed state, revision, History and native bytes')
+            reset_grid_c = apply_mcp(revision, [dict(type='reset_artboard_template_override',
+                composition=composition_id, artboard='target-c', field='layout.grid')])
+            check(reset_grid_c['ok'] and reset_grid_c['revision'] == revision + 1,
+                'Reset restores target-C Grid inheritance after the negative MCP probe')
+            revision = reset_grid_c['revision']
+
+            settled_before_duplicate = tool('nect_file', dict(identity, op='save', expected_revision=revision,
+                path=str(working_path)))
+            check(settled_before_duplicate['ok'] and source_path.read_bytes() == original_bytes,
+                'Settle the isolated working file before duplicating the assigned Template Artboard')
+            before_duplicate = compare('inspect')['result']
+            duplicate_command = dict(type='duplicate_template_artboard', composition=composition_id,
+                artboard='target-a', id_prefix='mcp-copy', x=3600, y=200, index=4)
+            duplicated = apply_mcp(revision, [duplicate_command])
+            check(duplicated['ok'] and duplicated['revision'] == revision + 1,
+                'Formal MCP duplicates one assigned Template Artboard in a single Session revision: ' + repr(duplicated))
+            revision = duplicated['revision']
+            after_duplicate = compare('inspect')['result']
+            duplicate_comp = next(item for item in after_duplicate['compositions'] if item['id'] == composition_id)
+            duplicate_board = next(item for item in duplicate_comp['artboards'] if item['id'] == 'mcp-copy-artboard')
+            duplicate_template = duplicate_board['template_assignment']
+            duplicate_guides = duplicate_board['local_guides']
+            duplicate_content = next(item for item in after_duplicate['objects'] if item['id'] == 'mcp-copy-content-1')
+            original_content = next(item for item in after_duplicate['objects'] if item['id'] == 'content-a')
+            original_board = next(item for item in duplicate_comp['artboards'] if item['id'] == 'target-a')
+            before_duplicate_comp = next(item for item in before_duplicate['compositions'] if item['id'] == composition_id)
+            before_duplicate_board = next(item for item in before_duplicate_comp['artboards'] if item['id'] == 'target-a')
+            before_duplicate_content = next(item for item in before_duplicate['objects'] if item['id'] == 'content-a')
+            duplicate_grid = duplicate_board['layout']['grid']
+            expected_duplicate_grid = copy.deepcopy(original_board['layout']['grid'])
+            expected_duplicate_grid['id'] = 'mcp-copy-grid'
+            duplicate_guide_positions = {item['guide_id']: item['position']
+                for item in duplicate_template['guide_position_overrides']}
+            check((duplicate_board['x'], duplicate_board['y']) == (3600, 200) and
+                duplicate_template['template_id'] == 'mcp-template-main' and
+                duplicate_template['content_instance'] == 'mcp-copy-content-1' and
+                duplicate_template['grid_id'] == 'mcp-copy-grid' and duplicate_grid == expected_duplicate_grid and
+                duplicate_board['layout']['margin'] == original_board['layout']['margin'] and
+                duplicate_template['width_override'] == original_board['template_assignment']['width_override'] and
+                [item['id'] for item in duplicate_comp['artboards']] ==
+                    ['art-main', 'target-a', 'target-b', 'target-c', 'mcp-copy-artboard'] and
+                original_board == before_duplicate_board and original_content == before_duplicate_content,
+                'Duplicate preserves source/Template IDs while applying exact x/y placement and fresh Artboard/Content/Grid IDs')
+            check([guide['id'] for guide in duplicate_guides] == ['mcp-copy-guide-1'] and
+                duplicate_guides[0]['name'] == 'Local A' and duplicate_guides[0]['position'] == 15 and
+                duplicate_guide_positions == {'source-guide-x': 90, 'GX': 90},
+                'Duplicate allocates fresh local Guide identity and preserves stable inherited Guide overrides')
+            duplicate_override_fields = {item['target']['field'] for item in duplicate_content['instance']['overrides']}
+            check(duplicate_content['instance']['definition'] == 'mcp-template-definition' and
+                duplicate_content['instance']['overrides'] == original_content['instance']['overrides'] and
+                duplicate_override_fields == {'generator.width', 'transform.tx'} and
+                next(item for item in duplicate_comp['templates'] if item['id'] == 'mcp-template-main')['source_artboard'] == source_id and
+                next(item for item in after_duplicate['definitions'] if item['id'] == 'mcp-template-definition')['root'] ==
+                    'mcp-template-root',
+                'Duplicate preserves source Definition and both exact descendant R04 overrides without changing their source IDs')
+            duplicate_frame = next(item for item in compare('artboards', composition=composition_id)['result']
+                if item['authored']['id'] == 'mcp-copy-artboard')
+            check(compare('get', ref=dict(object='mcp-copy-content-1', point='', field='transform.tx'))['result']['evaluated'] == 3600 and
+                compare('get', ref=dict(object='mcp-copy-content-1', point='', field='transform.ty'))['result']['evaluated'] == 200 and
+                duplicate_frame['evaluated']['height'] == 600,
+                'Fresh duplicate content placement and inherited evaluated frame are exact through MCP/API readback')
+
+            undo_duplicate = core('undo', expected_revision=revision)
+            check(undo_duplicate['ok'] and undo_duplicate['revision'] == revision + 1 and
+                compare('inspect')['result'] == before_duplicate,
+                'One MCP Host Undo removes all generated duplicate identities and restores exact prior state')
+            revision = undo_duplicate['revision']
+            redo_duplicate = core('redo', expected_revision=revision)
+            check(redo_duplicate['ok'] and redo_duplicate['revision'] == revision + 1 and
+                compare('inspect')['result'] == after_duplicate,
+                'One MCP Host Redo restores exact duplicate IDs, placement, source refs and overrides')
+            revision = redo_duplicate['revision']
+
+            settled_duplicate = tool('nect_file', dict(identity, op='save', expected_revision=revision,
+                path=str(working_path)))
+            check(settled_duplicate['ok'], 'Flush duplicate result before the atomic collision refusal probe')
+            duplicate_history = compare('history')
+            duplicate_bytes = working_path.read_bytes()
+            duplicate_hash = hashlib.sha256(duplicate_bytes).hexdigest()
+            collision_commands = [duplicate_command]
+            collision = apply_mcp(revision, collision_commands)
+            collision_api = direct(dict(op='apply', expected_revision=revision, commands=collision_commands))
+            check(collision == collision_api and not collision['ok'] and collision['error']['code'] == 'DUPLICATE_ID' and
+                collision['revision'] == revision and
+                compare('inspect')['result'] == after_duplicate and compare('history') == duplicate_history and
+                working_path.read_bytes() == duplicate_bytes and
+                hashlib.sha256(working_path.read_bytes()).hexdigest() == duplicate_hash,
+                'Duplicate ID collision is atomic across MCP/API state, revision, History and working native bytes')
+
+            settled_before_refusal = tool('nect_file', dict(identity, op='save', expected_revision=revision,
+                path=str(working_path)))
+            check(settled_before_refusal['ok'], 'Flush the current working native file before atomic failure checks')
             before_refusal = compare('inspect')
             history_before = compare('history')
-            current_native = source_path.read_bytes()
+            current_native = working_path.read_bytes()
             current_hash = hashlib.sha256(current_native).hexdigest()
             rejected = apply_mcp(revision, [dict(
                 type='set_artboard_template_override', composition=composition_id, artboard='target-a',
                 field='object.opacity', value=.5)])
             check(not rejected['ok'] and rejected['error']['code'] == 'UNSUPPORTED_TEMPLATE_OVERRIDE' and
                 rejected['revision'] == revision and compare('inspect') == before_refusal and
-                compare('history') == history_before and source_path.read_bytes() == current_native and
-                hashlib.sha256(source_path.read_bytes()).hexdigest() == current_hash,
-                'Unsupported MCP domain refusal preserves typed native state, revision, History and source bytes')
+                compare('history') == history_before and working_path.read_bytes() == current_native and
+                hashlib.sha256(working_path.read_bytes()).hexdigest() == current_hash and
+                source_path.read_bytes() == original_bytes,
+                'Unsupported MCP domain refusal preserves typed native state, revision, History and both source/working bytes')
             stale = direct(dict(op='apply', expected_revision=revision - 1, commands=[dict(
                 type='set_artboard_template_override', composition=composition_id, artboard='target-a',
                 field='frame.width', value=950)]))
             check(not stale['ok'] and stale['error']['code'] == 'REVISION_CONFLICT' and stale['revision'] == revision and
                 compare('inspect') == before_refusal and compare('history') == history_before and
-                source_path.read_bytes() == current_native,
-                'Stale MCP revision refusal is identical to canonical API and preserves native bytes/History')
+                working_path.read_bytes() == current_native and source_path.read_bytes() == original_bytes,
+                'Stale MCP revision refusal is identical to canonical API and preserves source/working native bytes and History')
             in_use = apply_mcp(revision, [dict(
                 type='delete_artboard_template', composition=composition_id, template='mcp-template-main')])
             check(not in_use['ok'] and in_use['error']['code'] == 'ARTBOARD_TEMPLATE_IN_USE' and
                 in_use['revision'] == revision and compare('inspect') == before_refusal and
-                compare('history') == history_before and source_path.read_bytes() == current_native,
-                'Assigned A/B source cannot be deleted and failure is atomic across API, History and native bytes')
+                compare('history') == history_before and working_path.read_bytes() == current_native and
+                source_path.read_bytes() == original_bytes,
+                'Assigned Template source cannot be deleted and failure is atomic across API, History and native bytes')
 
             detached = apply_mcp(revision, [
                 dict(type='detach_artboard_template', composition=composition_id, artboard='target-c',
@@ -517,6 +766,17 @@ def main():
                     if item['id'] == 'target-c'),
                 'Delete removes the exact detached probe Template while assigned A/B ownership remains')
 
+            saved_projection = compare('export_svg', composition=composition_id, artboard='target-a')['result']
+            saved_projection_paths = svg_source_paths(saved_projection, 'Shared mark')
+            check(any(all(abs(actual-expected) < 1e-7 for actual, expected in zip(path['bounds'], expected_bounds)) and
+                path['fill'] == 'rgb(25%,30%,10%)' for path in saved_projection_paths),
+                'Final saved-state projection retains the fixed target-A geometry and source Fill oracle: ' + repr(saved_projection_paths))
+
+            settled_for_save_as = tool('nect_file', dict(identity, op='save', expected_revision=revision,
+                path=str(working_path)))
+            check(settled_for_save_as['ok'], 'Flush exact current document to its isolated working destination before final Save As')
+            working_before_save_as = working_path.read_bytes()
+            working_before_save_as_sha = hashlib.sha256(working_before_save_as).hexdigest()
             destination_saved = tool('nect_file', dict(identity, op='save', expected_revision=revision,
                 path=str(destination_path)))
             check(destination_saved['ok'] and destination_path.exists(),
@@ -524,8 +784,10 @@ def main():
             saved_bytes = destination_path.read_bytes()
             saved_sha = hashlib.sha256(saved_bytes).hexdigest()
             check(source_path.read_bytes() == original_bytes and
-                hashlib.sha256(source_path.read_bytes()).hexdigest() == original_sha,
-                'Host Save As preserves the original input native bytes exactly')
+                hashlib.sha256(source_path.read_bytes()).hexdigest() == original_sha and
+                working_path.read_bytes() == working_before_save_as and
+                hashlib.sha256(working_path.read_bytes()).hexdigest() == working_before_save_as_sha,
+                'Final Host Save As preserves both the original input and settled working native bytes exactly')
             saved_native = json.loads(saved_bytes.decode('utf-8'))
             schema = json.loads((ROOT / f'schemas/native-v{NATIVE_VERSION}.schema.json').read_text(encoding='utf-8'))
             check(schema['$id'] == f'urn:nect:native:{NATIVE_VERSION}' and
@@ -550,15 +812,24 @@ def main():
                 {item['id'] for item in saved_comp['templates']} == {'mcp-template-main'} and
                 {entry['target']['field'] for entry in saved_objects['content-a']['instance']['overrides']} == override_fields and
                 saved_objects['mcp-template-rectangle']['stack'][0]['operation']['parameters']['r']['literal'] == .25 and
-                {guide['id'] for guide in saved_boards['art-main']['local_guides']} == {'source-guide-x','source-guide-y'} and
+                {guide['id'] for guide in saved_boards['art-main']['local_guides']} == {'source-guide-x','source-guide-y','GX'} and
                 [guide['id'] for guide in saved_boards['target-a']['local_guides']] == ['local-guide-a'] and
-                saved_boards['target-a']['template_assignment']['guide_position_overrides'] ==
-                    [dict(guide_id='source-guide-x',position=90)] and
+                {(entry['guide_id'], entry['position']) for entry in
+                    saved_boards['target-a']['template_assignment']['guide_position_overrides']} ==
+                    {('source-guide-x',90),('GX',90)} and
+                {(entry['guide_id'], entry['enabled']) for entry in
+                    saved_boards['target-b']['template_assignment']['guide_enabled_overrides']} ==
+                    {('GX',False)} and
                 [guide['id'] for guide in saved_boards['target-b']['local_guides']] == ['detached-guide-b-y'] and
                 saved_boards['target-b']['local_guides'][0]['position'] == 80 and
                 saved_boards['target-b']['local_guides'][0]['enabled'] is False and
                 saved_boards['target-b']['template_assignment']['detached_guides'] == ['source-guide-y'] and
-                {guide['position'] for guide in saved_boards['target-c']['local_guides']} == {50,80},
+                {guide['position'] for guide in saved_boards['target-c']['local_guides']} == {40,50,80} and
+                saved_boards['mcp-copy-artboard']['x'] == 3600 and saved_boards['mcp-copy-artboard']['y'] == 200 and
+                saved_boards['mcp-copy-artboard']['template_assignment']['content_instance'] == 'mcp-copy-content-1' and
+                saved_boards['mcp-copy-artboard']['template_assignment']['grid_id'] == 'mcp-copy-grid' and
+                saved_boards['mcp-copy-artboard']['local_guides'][0]['id'] == 'mcp-copy-guide-1' and
+                saved_objects['mcp-copy-content-1']['instance']['definition'] == 'mcp-template-definition',
                 'Save As bytes retain exact native Guide authoring, overrides, item detach and full detach beside Template/R04 state')
             check(saved_native == after_detach,
                 'Save As native bytes exactly equal the canonical typed authored Document readback')
@@ -584,6 +855,17 @@ def main():
                 {entry['target']['field'] for entry in cold_a['instance']['overrides']}==override_fields and
                 {item['id'] for item in cold_comp['templates']}=={'mcp-template-main'},
                 'Fresh Host reopen retains assigned Definition content, local descendant overrides and exact Template IDs')
+            cold_copy=next(item for item in cold_comp['artboards'] if item['id']=='mcp-copy-artboard')
+            cold_copy_instance=next(item for item in cold_inspect['objects'] if item['id']=='mcp-copy-content-1')
+            check((cold_copy['x'],cold_copy['y'])==(3600,200) and
+                cold_copy['template_assignment']['template_id']=='mcp-template-main' and
+                cold_copy['template_assignment']['grid_id']=='mcp-copy-grid' and
+                cold_copy['template_assignment']['guide_position_overrides']==
+                    next(item for item in cold_comp['artboards'] if item['id']=='target-a')['template_assignment']['guide_position_overrides'] and
+                cold_copy_instance['instance']['definition']=='mcp-template-definition' and
+                cold_copy_instance['instance']['overrides']==cold_a['instance']['overrides'] and
+                cold_copy['local_guides'][0]['id']=='mcp-copy-guide-1',
+                'Fresh Host cold reopen retains duplicate placement, fresh IDs, source refs, local Guides and exact R04 overrides')
             cold_frames=compare('artboards',composition=composition_id)['result']
             cold_by_id={item['authored']['id']:item for item in cold_frames}
             check(cold_by_id['target-a']['evaluated']==frames['target-a']['evaluated'] and
@@ -592,15 +874,16 @@ def main():
                 'Fresh Host reopen preserves authored/evaluated layout for A/B and detached C state')
             cold_projection=compare('export_svg',composition=composition_id,artboard='target-a')['result']
             cold_paths=svg_source_paths(cold_projection,'Shared mark')
-            check(cold_projection == after_projection,
+            check(cold_projection == saved_projection,
                 'Fresh Host returns the exact same projected SVG after native cold reopen')
             check(any(
                 all(abs(actual-expected)<1e-7 for actual,expected in zip(path['bounds'],expected_bounds)) and
                 path['fill']=='rgb(25%,30%,10%)' for path in cold_paths),
                 'Fresh Host projects fixed numeric geometry and propagated source Fill from assigned content: ' + repr(cold_paths))
             check(destination_path.read_bytes()==saved_bytes and
-                hashlib.sha256(destination_path.read_bytes()).hexdigest()==saved_sha,
-                'Cold open leaves the exact saved destination bytes unchanged')
+                hashlib.sha256(destination_path.read_bytes()).hexdigest()==saved_sha and
+                source_path.read_bytes()==original_bytes and working_path.read_bytes()==working_before_save_as,
+                'Cold open leaves saved destination, original source and working destination bytes unchanged')
             print(f'PASS formal MCP Template/API/Save As/cold Host parity ({checks} assertions)')
         finally:
             stop(mcp);mcp=None

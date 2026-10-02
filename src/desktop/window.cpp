@@ -616,6 +616,103 @@ private:
 };
 }
 
+void Window::register_angle_adapter(QWidget* control,std::function<void(bool)> cancel) {
+    std::erase_if(angle_adapters_,[](const auto& entry){return entry.control.isNull();});
+    angle_adapters_.push_back({control,std::move(cancel)});
+}
+
+void Window::cancel_angle_adapters(bool dispose) {
+    for(auto it=angle_adapters_.begin();it!=angle_adapters_.end();) {
+        if(it->control.isNull()||!it->cancel) {it=angle_adapters_.erase(it);continue;}
+        it->cancel(dispose);
+        if(dispose)it=angle_adapters_.erase(it);else ++it;
+    }
+}
+
+void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& ref,double initial,
+        std::function<void()> validate_target,bool keep_last_valid_on_range,bool refuse_numeric_draft) {
+    auto* knob=dynamic_cast<RotationKnob*>(control);
+    if(!knob)throw std::invalid_argument("Angle adapter requires a RotationKnob");
+    struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;};
+    const auto state=std::make_shared<Interaction>();
+    const auto identity=host.session_id;const auto revision=host.session.revision();
+    const auto document=host.session.document().id;
+    QPointer<RotationKnob> safe_knob=knob;QPointer<QLineEdit> safe_numeric=numeric;
+    auto owns=[this,state,identity,revision,document] {
+        return state->owned&&host.session_id==identity&&host.session.document().id==document&&
+            host.session.revision()==revision&&host.session.gesture_active()&&
+            host.session.gesture_generation()==state->generation;
+    };
+    auto validate=[this,state,identity,revision,document,validate_target] {
+        if(!state->live||host.session_id!=identity||host.session.document().id!=document)
+            throw Error("SESSION_CONFLICT","Angle control belongs to another editing context");
+        if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Angle changed; reopen the Inspector");
+        validate_target();
+    };
+    auto current_value=[this,identity,document,ref,initial] {
+        try {
+            if(host.session_id!=identity||host.session.document().id!=document)return initial;
+            const auto& current=host.session.gesture_active()?host.session.preview_document():host.session.document();
+            const auto values=evaluate(current);const auto found=values.find(ref);
+            return found==values.end()?initial:found->second;
+        } catch(...) {return initial;}
+    };
+    auto report=[this](const std::exception& exception) {
+        if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
+        else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
+    };
+    auto cancel=[this,state,owns,safe_knob,safe_numeric,current_value] {
+        const bool local_interaction=state->owned;const bool active=owns();
+        if(active)host.session.cancel_gesture();
+        state->owned=false;
+        if(local_interaction) {
+            const auto value=current_value();
+            if(safe_knob)safe_knob->disarm_drag(value);
+            if(safe_numeric){safe_numeric->setText(QString::number(value,'g',17));safe_numeric->setModified(false);}
+        }
+        if(active){canvas->refresh();canvas->update();}
+    };
+    register_angle_adapter(knob,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
+    auto last_valid=std::make_shared<double>(initial);
+    knob->begin_drag=[this,state,validate,report,safe_knob,safe_numeric,refuse_numeric_draft,last_valid,initial] {
+        try {
+            if(refuse_numeric_draft&&safe_numeric&&safe_numeric->isModified())
+                throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before using the dial");
+            validate();host.session.begin_gesture(host.session.revision());
+            *last_valid=initial;
+            if(safe_knob)safe_knob->set_value(initial);
+            if(safe_numeric){safe_numeric->setText(QString::number(initial,'g',17));safe_numeric->setModified(false);}
+            state->generation=host.session.gesture_generation();state->owned=true;return true;
+        } catch(const std::exception& exception) {
+            if(safe_numeric)safe_numeric->setFocus(Qt::OtherFocusReason);report(exception);return false;
+        }
+    };
+    knob->preview_value=[this,state,owns,validate,cancel,report,ref,initial,safe_numeric,safe_knob,last_valid,keep_last_valid_on_range](double value) {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {
+            validate();
+            if(std::abs(value-initial)<=1e-10) {
+                value=initial;if(safe_knob)safe_knob->set_value(initial);host.session.update_gesture({});
+            } else host.session.update_gesture({EditProperties{{ref},value,false}});
+            *last_valid=value;canvas->refresh();canvas->update();
+            if(safe_numeric){safe_numeric->setText(QString::number(value,'g',17));safe_numeric->setModified(false);}
+        } catch(const std::exception& exception) {
+            if(keep_last_valid_on_range)if(const auto* error=dynamic_cast<const Error*>(&exception);error&&error->code=="OUT_OF_RANGE") {
+                if(safe_knob)safe_knob->set_value(*last_valid);
+                if(safe_numeric){safe_numeric->setText(QString::number(*last_valid,'g',17));safe_numeric->setModified(false);}
+                report(exception);return;
+            }
+            cancel();report(exception);
+        }
+    };
+    knob->commit_drag=[this,state,owns,validate,cancel,report] {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {validate();host.session.commit_gesture();state->owned=false;host.edited();}
+        catch(const std::exception& exception){cancel();report(exception);}
+    };
+    knob->cancel_drag=cancel;
+}
+
 Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library)
     : host(std::move(recovery_directory),this), folder_library_(std::move(folder_library)) {
     if (!folder_library_) folder_library_ = std::make_unique<FolderLibrary>();
@@ -1247,7 +1344,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
 }
 
 Window::~Window() {
-    if(cancel_primitive_angle_){auto cancel=std::move(cancel_primitive_angle_);cancel_primitive_angle_={};cancel(true);}
+    cancel_angle_adapters(true);
     qApp->removeEventFilter(this);
     cancel_whip();
     cancel_layout_draft(false);
@@ -4154,7 +4251,9 @@ void Window::detach_artboard_template(const ArtboardTemplateContext& context) {
 }
 
 void Window::rebuild_inspector(bool use_canvas_values) {
-    if(cancel_primitive_angle_){auto cancel=std::move(cancel_primitive_angle_);cancel_primitive_angle_={};cancel(true);}
+    if(rebuilding_inspector_)return;
+    QScopedValueRollback guard(rebuilding_inspector_,true);
+    cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
     QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
     for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
@@ -7011,78 +7110,37 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 add_property(form,rotation_ref,QStringLiteral("Rotation · degrees"));
                 const auto reference=QJsonDocument(ref_json(rotation_ref)).toJson(QJsonDocument::Compact);
                 QLineEdit* numeric=nullptr;
-                for(auto* input:form->findChildren<QLineEdit*>())
+                for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
                     if(input->property("nect-reference").toByteArray()==reference){numeric=input;break;}
                 auto* dial_row=new QWidget;auto* dial_layout=new QHBoxLayout(dial_row);dial_layout->setContentsMargins(0,0,0,0);dial_layout->setSpacing(8);
                 auto* knob=new RotationKnob(dial_row);knob->setObjectName("repeater-angle-knob-"+qs(operation.id));
                 knob->setProperty("nect-reference",reference);
                 const auto initial_rotation=inspector_values_.at(rotation_ref);knob->set_value(initial_rotation);
+                if(numeric){numeric->setProperty("nect-exact-value",true);numeric->setText(QString::number(initial_rotation,'g',17));numeric->setModified(false);}
                 const auto& scalar=nect::property(host.session.document(),rotation_ref);
                 const bool driven=scalar.binding.has_value()||scalar.expression.has_value();
                 knob->setEnabled(!driven);
                 if(driven)knob->setToolTip("Rotation is driven by a binding or expression. Unlink it in the numeric editor before using the dial.");
                 auto* dial_note=new QLabel("Dial · modulo 360",dial_row);dial_note->setAccessibleName("Dial shows rotation modulo 360; numeric value is exact");
                 dial_layout->addWidget(knob);dial_layout->addWidget(dial_note);dial_layout->addStretch();form->addRow("Angle dial",dial_row);
-                const auto rotation_session_id=host.session_id;const auto rotation_revision=host.session.revision();
-                auto gesture_active=std::make_shared<bool>(false);auto last_valid=std::make_shared<double>(initial_rotation);
-                auto report=[this](const std::exception& exception) {
-                    if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
-                    else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
+                const auto frozen_kind=host.session.document().objects.at(object.id).kind;
+                const auto frozen_source=host.session.document().objects.at(object.id).source;
+                const auto frozen_operation_version=operation.version;
+                auto validate_target=[this,rotation_ref,object_id=object.id,operation_id=operation.id,frozen_kind,frozen_source,frozen_operation_version] {
+                    const auto found=host.session.document().objects.find(object_id);
+                    if(found==host.session.document().objects.end()||found->second.kind!=frozen_kind||
+                       found->second.source.has_value()!=frozen_source.has_value()||
+                       (frozen_source&&(found->second.source->id!=frozen_source->id||found->second.source->type!=frozen_source->type||
+                           found->second.source->version!=frozen_source->version)))
+                        throw Error("MISSING_PROPERTY","Repeater source identity changed");
+                    const auto& current=find_operation(host.session.document(),object_id,operation_id);
+                    if(current.type!="nect.shape.repeater"||current.version!=frozen_operation_version||!current.parameters.contains("rotation"))
+                        throw Error("MISSING_PROPERTY","Repeater rotation Ref is no longer available");
+                    const auto& current_scalar=nect::property(host.session.document(),rotation_ref);
+                    if(current_scalar.binding||current_scalar.expression)
+                        throw Error("DRIVEN_PROPERTY","Unlink the Repeater rotation before using the dial");
                 };
-                knob->begin_drag=[this,rotation_ref,object_id=object.id,operation_id=operation.id,knob,numeric,rotation_session_id,rotation_revision,gesture_active,driven,report] {
-                    try {
-                        if(driven)throw Error("DRIVEN_PROPERTY","Unlink the Repeater rotation before using the dial");
-                        if(host.session_id!=rotation_session_id)throw Error("SESSION_CONFLICT","Repeater rotation belongs to another document");
-                        if(host.session.revision()!=rotation_revision)throw Error("REVISION_CONFLICT","Repeater rotation changed; reopen the Inspector");
-                        const auto& current=find_operation(host.session.document(),object_id,operation_id);
-                        if(current.type!="nect.shape.repeater"||!current.parameters.contains("rotation"))
-                            throw Error("MISSING_PROPERTY","Repeater rotation Ref is no longer available");
-                        const auto& current_scalar=nect::property(host.session.document(),rotation_ref);
-                        if(current_scalar.binding||current_scalar.expression)throw Error("DRIVEN_PROPERTY","Unlink the Repeater rotation before using the dial");
-                        host.session.begin_gesture(rotation_revision);*gesture_active=true;return true;
-                    } catch(const std::exception& exception) {
-                        if(numeric)numeric->setFocus(Qt::OtherFocusReason);report(exception);
-                        knob->set_value(inspector_values_.contains(rotation_ref)?inspector_values_.at(rotation_ref):knob->value());return false;
-                    }
-                };
-                knob->preview_value=[this,knob,numeric,rotation_ref,rotation_session_id,rotation_revision,gesture_active,last_valid,report](double value) {
-                    if(!*gesture_active)return;
-                    if(host.session_id!=rotation_session_id||host.session.revision()!=rotation_revision) {
-                        if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
-                        *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(*last_valid);
-                        statusBar()->showMessage("REVISION_CONFLICT: Repeater angle drag became stale and was canceled",12000);return;
-                    }
-                    try {
-                        host.session.update_gesture({EditProperties{{rotation_ref},value,false}});
-                        *last_valid=value;canvas->refresh();canvas->update();
-                        if(numeric){numeric->setText(QString::number(value,'g',17));numeric->setModified(false);}
-                    } catch(const std::exception& exception) {
-                        if(const auto* error=dynamic_cast<const Error*>(&exception);error&&error->code=="OUT_OF_RANGE") {
-                            knob->set_value(*last_valid);if(numeric)numeric->setText(QString::number(*last_valid,'g',17));report(exception);return;
-                        }
-                        if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
-                        *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(*last_valid);
-                        if(numeric)numeric->setText(QString::number(*last_valid,'g',17));report(exception);
-                    }
-                };
-                knob->commit_drag=[this,knob,rotation_session_id,rotation_revision,gesture_active,last_valid,report] {
-                    if(!*gesture_active)return;
-                    if(host.session_id!=rotation_session_id||host.session.revision()!=rotation_revision||!host.session.gesture_active()) {
-                        if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
-                        *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(*last_valid);
-                        statusBar()->showMessage("REVISION_CONFLICT: Repeater angle drag became stale and was canceled",12000);return;
-                    }
-                    try {host.session.commit_gesture();*gesture_active=false;host.edited();}
-                    catch(const std::exception& exception) {
-                        if(host.session.gesture_active())host.session.cancel_gesture();*gesture_active=false;
-                        canvas->refresh();canvas->update();knob->set_value(*last_valid);report(exception);
-                    }
-                };
-                knob->cancel_drag=[this,knob,numeric,rotation_session_id,gesture_active,initial_rotation] {
-                    if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
-                    *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(initial_rotation);
-                    if(numeric){numeric->setText(QString::number(initial_rotation,'g',17));numeric->setModified(false);}
-                };
+                bind_angle_adapter(knob,numeric,rotation_ref,initial_rotation,std::move(validate_target),true,true);
             }
             auto* note=new QLabel("Rotation is a fixed step per copy; changing Copies does not divide 360°. Scale 1 is unchanged. Copies remain virtual and share source points.");
             note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");form->addRow(note);
@@ -7334,16 +7392,8 @@ void Window::add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitiv
     knob->setToolTip(driven?"Rotation is driven. Unlink its numeric source before using the dial.":
         "Zero points right (+X); positive degrees turn clockwise. Drag adds signed degrees; whole turns stay authored. Escape cancels.");
     layout->addWidget(knob);layout->addWidget(new QLabel("Dial · +X zero · modulo 360",row));layout->addStretch();form->addRow("Angle dial",row);
-    struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;};
-    const auto state=std::make_shared<Interaction>();const auto identity=host.session_id;
-    const auto revision=host.session.revision();const auto document=host.session.document().id;
     const auto source_id=source.id,source_type=source.type;const auto source_version=source.version;
-    auto owns=[this,state,identity] {return state->owned&&host.session_id==identity&&host.session.gesture_active()&&
-        host.session.gesture_generation()==state->generation;};
-    auto validate=[this,state,identity,revision,document,ref,source_id,source_type,source_version] {
-        if(!state->live||host.session_id!=identity||host.session.document().id!=document)
-            throw Error("SESSION_CONFLICT","Primitive angle belongs to another editing context");
-        if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Primitive angle changed; reopen the Inspector");
+    auto validate_target=[this,ref,source_id,source_type,source_version] {
         const auto object=host.session.document().objects.find(ref.object);
         if(object==host.session.document().objects.end()||!object->second.source||object->second.source->id!=source_id||
            object->second.source->type!=source_type||object->second.source->version!=source_version)
@@ -7351,37 +7401,7 @@ void Window::add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitiv
         const auto& current=nect::property(host.session.document(),ref);
         if(current.binding||current.expression)throw Error("DRIVEN_PROPERTY","Unlink the primitive rotation before using the dial");
     };
-    auto restore=[knob,numeric,initial](bool restore_numeric) {if(knob)knob->disarm_drag(initial);if(restore_numeric&&numeric){numeric->setText(QString::number(initial,'g',17));numeric->setModified(false);}};
-    auto cancel=[this,state,owns,restore] {const bool local_interaction=state->owned;const bool active=owns();if(active)host.session.cancel_gesture();state->owned=false;
-        restore(local_interaction);if(active){canvas->refresh();canvas->update();}};
-    auto report=[this](const std::exception& exception) {
-        if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
-        else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
-    };
-    // Explicit lifetime boundary: Host is alive here, unlike QObject child destruction.
-    cancel_primitive_angle_=[state,cancel](bool dispose) {if(dispose)state->live=false;cancel();};
-    knob->begin_drag=[this,state,validate,report,numeric] {
-        try {
-            if(numeric&&numeric->isModified())throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before using the dial");
-            validate();host.session.begin_gesture(host.session.revision());state->generation=host.session.gesture_generation();state->owned=true;return true;
-        }catch(const std::exception& exception){report(exception);return false;}
-    };
-    knob->preview_value=[this,state,owns,validate,cancel,report,ref,initial,numeric,knob](double value) {
-        if(!owns()){cancel();return;}
-        try {
-            validate();
-            if(std::abs(value-initial)<=1e-10){value=initial;if(knob)knob->set_value(initial);host.session.update_gesture({});}
-            else host.session.update_gesture({EditProperties{{ref},value,false}});
-            canvas->refresh();canvas->update();
-            if(numeric){numeric->setText(QString::number(value,'g',17));numeric->setModified(false);}
-        }catch(const std::exception& exception){cancel();report(exception);}
-    };
-    knob->commit_drag=[this,state,owns,validate,cancel,report] {
-        if(!owns()){cancel();return;}
-        try {validate();host.session.commit_gesture();state->owned=false;host.edited();}
-        catch(const std::exception& exception){cancel();report(exception);}
-    };
-    knob->cancel_drag=cancel;
+    bind_angle_adapter(knob,numeric,ref,initial,std::move(validate_target),false,true);
 }
 
 void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& label) {
@@ -9066,7 +9086,7 @@ void Window::create_folder() {
     canvas->setFocus();
 }
 void Window::closeEvent(QCloseEvent* event) {
-    if(cancel_primitive_angle_)cancel_primitive_angle_(false);
+    cancel_angle_adapters(false);
     cancel_whip();
     canvas->cancel_interaction();
     try {host.flush();event->accept();}
