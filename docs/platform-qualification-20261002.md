@@ -126,3 +126,42 @@ SHA256 `0acc37f35841b5a3073c29d5856aad490d694c55a0e18b43eba26d48ce351809`.
 Screenshots were viewed in the CUA transcript; no durable image files claimed.
 Held-drag Escape/range recovery, Windows GUI and subjective acceptance were NOT_RUN.
 This does not automatically qualify later point-angle code.
+
+## Windows Repeater and D0 MCP wire completion
+
+Exact12b5863334c891efc302861f28b9285c87b4a174/tree25b55029d6370de1a5c9ce13542bc9913d5c7a73
+completed in the clean isolated task-6 checkout after canonical commit metadata was
+reconciled. Release/Qt deployment PASS; focused Repeater/primitive/Utility normal and
+DPR2 tests6/6 PASS; formal MCP Template contract PASS both focused and full. Full78:
+77pass,0skip,1fail known folder-library NativeFormat registry scratch-key denial.
+No source repair, assertion weakening or security change. Source/build released.
+The early Python3.13 configure stopped before compilation; explicit native Python3.12.11
+fixed configuration. Qt translations/VCINSTALLDIR warnings remain documented.
+
+- Build/deploy SHA256 `0e0c6850eb54a7c9701b16a2f912483fe9599cbbd6556565563f7266a0c001ca`
+- Focused6 SHA256 `dd17226c90857e10fb1627224a0ae7b5ed104e26c64df8a7f03ddd396498c441`
+- MCP Template SHA256 `e399f5439e4256ae945342ff9a5b0d3cdb78d88730379dee853520968098f3f0`
+- Full78 SHA256 `566c36ec4a53deb2b098d0cea7143a6e7af47f42fc68ee95aa87005b96c709b2`
+
+Native Windows GUI NOT_RUN; effective model label unknown. No CMake/CTest/Nect process
+remained; resident Visual Studio MSBuild workers were left untouched. This closes the
+new12b5863 D0 wire cases, not newer point/batch candidate verification.
+
+## Single-point actual own-cloud GUI completion
+
+Exact774a12ce2d2f94c5faef77a590c1f1fe50bdf633/tree2bee9c91ee8de6ad2d359e5f6fe6f28c010e1672,
+copied binary SHA256 f7d7404a97362320fbc8e734a51d2f9cc07cecab8b9cdf1a48251318308c3905,
+passed bounded actual Linux/Xfce GUI at normal1180x812 and125%1250x813. Generated
+Polygon and authored Curve incoming/outgoing exact numeric, modulo, actual drag,
+corresponding geometry, one Undo, zero-length editing, no-motion safety, close/reopen
+and stable native identities passed. Normal-scale dirty numeric selection change
+committed only the original point. Three normal/reopened files have the same SHA256
+`54c5a3d6595f56248082bf53e20709e60057f44d3219ac7333f9961126f4139c`, independently
+read back by the integrator. Both logs empty, owned windows closed.
+
+Receipt `build/d0-evidence/gui-point/objective-gui-receipt-774a12c.json` SHA256
+`68f26978338103e0376e50620978ef340d81ca5b5d0812cf116fa72cd2d8a308`.
+Screenshots viewed in CUA transcript, no exported files claimed. Held-drag Escape/range,
+continuous preview capture, driven/stale/no-net GUI negatives, other generated types,
+high-scale dirty interruption, Windows and subjective acceptance remain NOT_RUN.
+This evidence does not automatically qualify the later batch-point adapter.

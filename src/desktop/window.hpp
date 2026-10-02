@@ -152,6 +152,7 @@ private:
         std::function<void()> validate_target,bool keep_last_valid_on_range,bool refuse_numeric_draft);
     void add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitive& source);
     void add_point_angle(QFormLayout* form,const Ref& ref,const Object& object);
+    void add_multi_point_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label);
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
     void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);

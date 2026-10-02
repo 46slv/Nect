@@ -357,7 +357,10 @@ void coexisting_and_teardown(Window& window) {
     const auto all_controls=window.findChildren<QWidget*>();
     const auto visible_point_dials=std::count_if(all_controls.begin(),all_controls.end(),
         [](const auto* item){return item->isVisible()&&item->objectName().startsWith("point-angle-knob");});
-    check(visible_point_dials==0,"multi-point selection does not add single-point radial controls");
+    const auto visible_batch_dials=std::count_if(all_controls.begin(),all_controls.end(),
+        [](const auto* item){return item->isVisible()&&item->objectName().startsWith("batch-point-angle-knob-");});
+    check(visible_point_dials==0&&visible_batch_dials==2,
+        "multi-point selection adds the two batch radial controls without adding single-point controls");
     window.canvas->set_selection("primitive",selected_point);events();
     const Ref point_ref{"primitive",selected_point,"in.angle"};auto* point_dial=dial(window,point_ref);
     const Ref other_point_ref{"primitive",selected_point,"out.angle"};auto* other_point_dial=dial(window,other_point_ref);

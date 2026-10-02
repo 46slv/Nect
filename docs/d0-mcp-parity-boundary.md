@@ -68,3 +68,11 @@ After fan-in, the integrator reran all78 tests:51pass/1skip/26fail, identical fa
 - `repeater-mcp-integrated-tests.log` SHA256 `c5b7567e6c2f1e4a87600827ca0e78c9533d522ee7dee5049aa553d90740c1c4`
 - `repeater-mcp-integrated-smoke.log` SHA256 `7cd237678e4001117718f685f4c612cbbbcb217b79273c1ad43af6dfc8986cb4`
 - `repeater-mcp-integrated-metadata.log` SHA256 `c5685c4099d5969f17f110252e93f56b827c9d1b56e3b83ffa9f1c85ec9a4c6f`
+
+## Subsequent exact Windows qualification
+
+The previously pending formal wire cases passed on exact12b5863334c891efc302861f28b9285c87b4a174,
+tree25b55029d6370de1a5c9ce13542bc9913d5c7a73. The Windows focused MCP Template contract
+and full78 both passed this contract; full aggregate77pass/1known registry failure.
+No parity test or product repair was required. See `platform-qualification-20261002.md`
+for receipt hashes and remaining platform boundaries.

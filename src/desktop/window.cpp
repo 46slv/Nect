@@ -490,6 +490,7 @@ public:
     void set_value(double value) {value_=value;update();update_accessibility();}
     double value() const {return value_;}
     void set_display_zero(double degrees) {display_zero_=degrees;update();}
+    void set_accessibility_context(QString context) {accessibility_context_=std::move(context);update_accessibility();}
     void disarm_drag(double value) {dragging_=false;set_value(value);}
     QSize sizeHint() const override {return {44,44};}
 protected:
@@ -536,6 +537,7 @@ protected:
     void leaveEvent(QEvent* event) override {QWidget::leaveEvent(event);animate_hover(0.90);update();}
 private:
     double value_=0,press_value_=0,previous_angle_=0,accumulated_=0,display_zero_=-90.0;
+    QString accessibility_context_;
     bool dragging_=false;
     QGraphicsOpacityEffect* hover_effect_=nullptr;
     QPropertyAnimation* hover_animation_=nullptr;
@@ -549,8 +551,11 @@ private:
     }
     void update_accessibility() {
         const auto normalized=std::fmod(value_,360.0)<0?std::fmod(value_,360.0)+360.0:std::fmod(value_,360.0);
-        setAccessibleDescription(QString("Authored rotation %1 degrees; dial indicator %2 degrees. Press Escape during a drag to cancel.")
-            .arg(QString::number(value_,'g',17),QString::number(normalized,'g',15)));
+        if(accessibility_context_.isEmpty())
+            setAccessibleDescription(QString("Authored rotation %1 degrees; dial indicator %2 degrees. Press Escape during a drag to cancel.")
+                .arg(QString::number(value_,'g',17),QString::number(normalized,'g',15)));
+        else setAccessibleDescription(accessibility_context_+
+            QString(" Dial indicator %1 degrees; press Escape during a drag to cancel.").arg(QString::number(normalized,'g',15)));
     }
 };
 
@@ -7487,6 +7492,248 @@ void Window::add_point_angle(QFormLayout* form,const Ref& ref,const Object& obje
     bind_angle_adapter(knob,numeric,ref,initial,std::move(validate_target),false,true);
 }
 
+void Window::add_multi_point_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label) {
+    if(targets.size()<2||(targets.front().field!="in.angle"&&targets.front().field!="out.angle"))
+        throw Error("INVALID_SELECTION","A batch point-angle dial needs at least two matching handle targets");
+    const auto target_data=refs_json(targets);
+    QPointer<QLineEdit> numeric;
+    for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
+        if(input->property("nect-targets").toByteArray()==target_data){numeric=input;break;}
+    if(!numeric)throw Error("MISSING_PROPERTY","The point-angle batch has no exact numeric target row");
+
+    struct TargetSnapshot {
+        Ref ref;
+        Id contour;
+        bool generated=false;
+        Id source_id,source_type;
+        unsigned source_version=0;
+        bool had_point_edit=false;
+        Id point_edit_id;
+        unsigned point_edit_version=0;
+        double value=0;
+    };
+    const auto& document=host.session.document();
+    const auto selected=canvas->selections();
+    if(selected.size()!=targets.size())throw Error("INVALID_SELECTION","Point-angle batch selection changed");
+    std::vector<TargetSnapshot> snapshot; snapshot.reserve(targets.size());
+    std::set<Ref> unique_targets;
+    std::vector<double> initial_values;initial_values.reserve(targets.size());
+    bool driven=false;
+    for(std::size_t i=0;i<targets.size();++i) {
+        const auto& ref=targets[i];
+        if(!unique_targets.insert(ref).second)throw Error("DUPLICATE_TARGET","Point-angle batch contains a duplicate target");
+        if(selected[i].object!=ref.object||selected[i].point!=ref.point)
+            throw Error("INVALID_SELECTION","Point-angle batch target order no longer matches the selection");
+        const auto found=document.objects.find(ref.object);
+        if(found==document.objects.end()||found->second.kind!=Kind::path)
+            throw Error("MISSING_PROPERTY","A selected handle target is no longer a Path point");
+        const auto& object=found->second;
+        const auto value=inspector_values_.at(ref);initial_values.push_back(value);
+        TargetSnapshot current;current.ref=ref;current.generated=object.source.has_value();current.value=value;
+        current.source_id=object.source?object.source->id:std::string{};
+        current.source_type=object.source?object.source->type:std::string{};
+        current.source_version=object.source?object.source->version:0;
+        current.had_point_edit=object.point_edit.has_value();
+        current.point_edit_id=object.point_edit?object.point_edit->id:
+            object.source?object.source->id+"-point-edit":std::string{};
+        current.point_edit_version=object.point_edit?object.point_edit->version:1U;
+        const auto contours=object.source?path_contours(object,&inspector_values_):object.contours;
+        bool point_found=false;
+        for(const auto& contour:contours)if(std::any_of(contour.points.begin(),contour.points.end(),[&](const auto& point) {
+            return point.id==ref.point;
+        })) {current.contour=contour.id;point_found=true;break;}
+        if(!point_found)throw Error("MISSING_PROPERTY","A selected point is no longer in its captured contour");
+        if(object.source) {
+            if(object.point_edit)if(const auto point=object.point_edit->overrides.find(ref.point);
+                point!=object.point_edit->overrides.end())if(const auto field=point->second.find(ref.field);field!=point->second.end())
+                    driven=driven||field->second.binding.has_value()||field->second.expression.has_value();
+        } else {
+            const auto scalar=nect::property(document,ref);
+            driven=driven||scalar.binding.has_value()||scalar.expression.has_value();
+        }
+        snapshot.push_back(std::move(current));
+    }
+    const bool common=std::all_of(initial_values.begin()+1,initial_values.end(),[&](double value) {
+        return value==initial_values.front();
+    });
+    const auto initial=common?initial_values.front():0.0;
+    const auto frozen_session=host.session_id;
+    const auto frozen_document=document.id;
+    const auto frozen_revision=host.session.revision();
+    const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
+    auto* row=new QWidget;auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
+    QPointer<RotationKnob> knob=new RotationKnob(row);
+    const auto field=qs(targets.front().field);
+    knob->setObjectName("batch-point-angle-knob-"+field);
+    const auto handle=targets.front().field=="in.angle"?QStringLiteral("incoming"):QStringLiteral("outgoing");
+    const auto target_count=static_cast<qulonglong>(targets.size());
+    const auto signed_delta=[](double delta) {
+        auto text=QString::number(delta,'g',17);if(delta>=0)text.prepend('+');return text;
+    };
+    const auto context_for=[common,initial_values,target_count,signed_delta](double delta) {
+        if(common)return QString("Common angle across %1 points: current unwrapped angle %2 degrees; relative delta %3 degrees applies equally to every target.")
+            .arg(target_count).arg(QString::number(initial_values.front()+delta,'g',17),signed_delta(delta));
+        return QString("Mixed starting angles across %1 points; relative delta %2 degrees applies equally and preserves exact differences.")
+            .arg(target_count).arg(signed_delta(delta));
+    };
+    const auto caption_for=[common,target_count,signed_delta](double delta) {
+        const auto caption=common?QString("Common angle · %1 points · +X zero · modulo 360 · relative Δ")
+            .arg(target_count):QString("Mixed · %1 points · relative Δ").arg(target_count);
+        return std::abs(delta)<=1e-10?caption:caption+" "+signed_delta(delta)+QStringLiteral("°");
+    };
+    knob->setAccessibleName((common?QStringLiteral("Common "):QStringLiteral("Mixed "))+
+        handle+" handle angle batch dial, "+QString::number(target_count)+" points, relative delta");
+    knob->set_accessibility_context(context_for(0)+" Zero points right along local +X; positive degrees turn clockwise.");
+    knob->set_display_zero(0);knob->set_value(initial);knob->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
+    knob->setProperty("nect-targets",target_data);
+    knob->setEnabled(!driven);
+    const auto explanation=driven
+        ?QString("At least one selected handle angle has a stored binding or expression, including bypassed Point Edit data. Unlink every driven angle before using the batch dial.")
+        :context_for(0)+" A dial drag edits relative to each committed value; use the numeric field for a shared absolute value or += / -= edit. Zero is local +X and positive is clockwise.";
+    knob->setToolTip(explanation+" Escape cancels.");
+    numeric->setProperty("nect-exact-value",true);
+    if(!numeric->isModified()) {
+        numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
+        numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));numeric->setModified(false);
+    }
+    row_layout->addWidget(knob);
+    auto* note=new QLabel(caption_for(0),row);note->setWordWrap(true);note->setAccessibleName(caption_for(0));row_layout->addWidget(note);row_layout->addStretch();
+    form->addRow(label+" dial",row);
+
+    const auto validate_target=[this,snapshot,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+            throw Error("SESSION_CONFLICT","Point-angle batch belongs to another document");
+        if(host.session.revision()!=frozen_revision)
+            throw Error("REVISION_CONFLICT","Point-angle batch changed; reopen the Inspector");
+        if(canvas->selections()!=selected||canvas->active_composition()!=composition||canvas->active_artboard()!=artboard)
+            throw Error("MISSING_PROPERTY","Point-angle batch selection or active frame changed");
+        const auto& current_document=host.session.document();
+        const auto values=evaluate(current_document);
+        for(const auto& target:snapshot) {
+            const auto found=current_document.objects.find(target.ref.object);
+            if(found==current_document.objects.end()||found->second.kind!=Kind::path)
+                throw Error("MISSING_PROPERTY","A selected point object changed identity");
+            const auto& object=found->second;
+            if(object.source.has_value()!=target.generated)
+                throw Error("MISSING_PROPERTY","Authored/generated Path identity changed");
+            if(target.generated) {
+                if(!object.source||object.source->id!=target.source_id||object.source->type!=target.source_type||
+                   object.source->version!=target.source_version)
+                    throw Error("MISSING_PROPERTY","Primitive source identity changed");
+                if(object.point_edit.has_value()!=target.had_point_edit||
+                   (object.point_edit&&(object.point_edit->id!=target.point_edit_id||object.point_edit->version!=target.point_edit_version)))
+                    throw Error("MISSING_PROPERTY","Canonical Point Edit destination changed");
+            } else if(object.source)throw Error("MISSING_PROPERTY","Authored Path source identity changed");
+            const auto contours=object.source?path_contours(object,&values):object.contours;
+            const bool point_present=std::any_of(contours.begin(),contours.end(),[&](const auto& contour) {
+                return contour.id==target.contour&&std::any_of(contour.points.begin(),contour.points.end(),[&](const auto& point) {
+                    return point.id==target.ref.point;
+                });
+            });
+            if(!point_present||!values.contains(target.ref))
+                throw Error("MISSING_PROPERTY","Selected point, contour, or angle Ref is no longer active");
+            if(values.at(target.ref)!=target.value)
+                throw Error("MISSING_PROPERTY","A selected angle no longer matches its captured starting value");
+            if(target.generated) {
+                if(object.point_edit)if(const auto point=object.point_edit->overrides.find(target.ref.point);
+                    point!=object.point_edit->overrides.end())if(const auto field=point->second.find(target.ref.field);field!=point->second.end())
+                        if(field->second.binding||field->second.expression)
+                            throw Error("DRIVEN_PROPERTY","Unlink every driven handle angle before using the batch dial");
+            } else {
+                const auto scalar=nect::property(current_document,target.ref);
+                if(scalar.binding||scalar.expression)
+                    throw Error("DRIVEN_PROPERTY","Unlink every driven handle angle before using the batch dial");
+            }
+        }
+    };
+
+    struct Interaction {bool live=true,owned=false,has_preview=false;std::uint64_t generation=0;};
+    const auto state=std::make_shared<Interaction>();
+    QPointer<QLineEdit> safe_numeric=numeric;QPointer<RotationKnob> safe_knob=knob;
+    auto owns=[this,state,frozen_session,frozen_document,frozen_revision] {
+        return state->owned&&host.session_id==frozen_session&&host.session.document().id==frozen_document&&
+            host.session.revision()==frozen_revision&&host.session.gesture_active()&&
+            host.session.gesture_generation()==state->generation;
+    };
+    const auto validate_live=[state,validate_target] {
+        if(!state->live)throw Error("SESSION_CONFLICT","Point-angle batch control has been disposed");
+        validate_target();
+    };
+    auto report=[this](const std::exception& exception) {
+        if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
+        else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
+    };
+    QPointer<QLabel> safe_note=note;
+    auto reset_controls=[safe_knob,safe_numeric,safe_note,initial,initial_values,common,context_for,caption_for] {
+        if(safe_knob) {safe_knob->disarm_drag(initial);safe_knob->set_accessibility_context(
+            context_for(0)+" Zero points right along local +X; positive degrees turn clockwise.");}
+        if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_for(0));}
+        if(safe_numeric&&!safe_numeric->isModified()) {
+            safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
+            safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
+        }
+    };
+    auto cancel=[this,state,owns,reset_controls] {
+        const bool local_interaction=state->owned;const bool active=owns();
+        if(active)host.session.cancel_gesture();state->owned=false;state->has_preview=false;
+        if(local_interaction)reset_controls();
+        if(active){canvas->refresh();canvas->update();}
+    };
+    register_angle_adapter(knob,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
+    const auto target_refs=targets;
+    knob->begin_drag=[this,state,validate_live,report,safe_knob,safe_numeric,safe_note,target_refs,frozen_revision,
+        initial,initial_values,common,context_for,caption_for] {
+        try {
+            if(!state->live)throw Error("SESSION_CONFLICT","Point-angle batch control has been disposed");
+            if(safe_numeric&&safe_numeric->isModified())
+                throw Error("UNCOMMITTED_INPUT","Commit or cancel the batch numeric draft before using the dial");
+            validate_live();host.session.begin_gesture(frozen_revision);
+            if(safe_knob) {safe_knob->set_value(initial);safe_knob->set_accessibility_context(
+                context_for(0)+" Zero points right along local +X; positive degrees turn clockwise.");}
+            if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_for(0));}
+            if(safe_numeric) {
+                safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
+                safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
+            }
+            state->generation=host.session.gesture_generation();state->owned=true;state->has_preview=false;return true;
+        } catch(const std::exception& exception) {report(exception);return false;}
+    };
+    knob->preview_value=[this,state,owns,validate_live,cancel,report,safe_knob,safe_numeric,safe_note,target_refs,
+        initial,initial_values,common,context_for,caption_for](double value) {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {
+            validate_live();const auto delta=value-initial;
+            if(std::abs(delta)<=1e-10) {
+                if(safe_knob)safe_knob->set_value(initial);
+                host.session.update_gesture({});state->has_preview=false;
+            } else {
+                host.session.update_gesture({EditProperties{target_refs,delta,true}});state->has_preview=true;
+            }
+            const auto live_delta=state->has_preview?delta:0.0;
+            if(safe_knob)safe_knob->set_accessibility_context(
+                context_for(live_delta)+" Zero points right along local +X; positive degrees turn clockwise.");
+            if(safe_note) {safe_note->setText(caption_for(live_delta));safe_note->setAccessibleName(caption_for(live_delta));}
+            canvas->refresh();canvas->update();
+            if(safe_numeric&&!safe_numeric->isModified()) {
+                safe_numeric->setText(common&&state->has_preview?QString::number(initial_values.front()+delta,'g',17):
+                    common?QString::number(initial_values.front(),'g',17):QString{});
+                safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
+            }
+        } catch(const std::exception& exception) {cancel();report(exception);}
+    };
+    knob->commit_drag=[this,state,owns,validate_live,cancel,report] {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {
+            validate_live();
+            const bool changed=state->has_preview;
+            if(changed)host.session.commit_gesture();else host.session.cancel_gesture();
+            state->owned=false;state->has_preview=false;
+            if(changed)host.edited();
+        } catch(const std::exception& exception) {cancel();report(exception);}
+    };
+    knob->cancel_drag=cancel;
+}
+
 void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& label) {
     add_properties(layout,{ref},label);
 }
@@ -7708,7 +7955,14 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         std::vector<Ref> refs;for(const auto& item:selected)refs.push_back({item.object,item.point,field});add_properties(form,refs,label);};
     if(!canvas->selected_point.empty()) {
         auto* form=section("Points && handles");
-        for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})common(form,field,QString::fromLatin1(field));
+        for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"}) {
+            common(form,field,QString::fromLatin1(field));
+            if(std::string(field)=="in.angle"||std::string(field)=="out.angle") {
+                std::vector<Ref> refs;refs.reserve(selected.size());
+                for(const auto& item:selected)refs.push_back({item.object,item.point,field});
+                add_multi_point_angle(form,refs,QString::fromLatin1(field));
+            }
+        }
         layout->addStretch();return;
     }
     add_multi_text_weight(layout,selected);
