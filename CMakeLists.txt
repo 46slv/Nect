@@ -197,6 +197,21 @@ if(BUILD_TESTING)
     target_link_libraries(live_save_tests PRIVATE nect_desktop_client Qt6::Test)
     add_dependencies(live_save_tests nect)
     add_test(NAME live_save_contract COMMAND live_save_tests $<TARGET_FILE:nect>)
+    # R12 Q1: explicitly opt-in instrumentation; absent from default production builds.
+    option(NECT_DURABILITY_FAULT_TESTS "Build test-only native durability fault hooks and contracts" OFF)
+    if(NECT_DURABILITY_FAULT_TESTS)
+      target_compile_definitions(nect_desktop_client PRIVATE NECT_STORAGE_FAULT_TESTING)
+      add_executable(durability_fault_tests tests/durability_fault_tests.cpp)
+      target_link_libraries(durability_fault_tests PRIVATE nect_desktop_client Qt6::Test)
+      execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE NECT_DURABILITY_SOURCE_SHA OUTPUT_STRIP_TRAILING_WHITESPACE)
+      target_compile_definitions(durability_fault_tests PRIVATE NECT_STORAGE_FAULT_TESTING
+        NECT_DURABILITY_SOURCE_SHA="${NECT_DURABILITY_SOURCE_SHA}"
+        NECT_DURABILITY_BUILD="${CMAKE_BUILD_TYPE}/${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}/Qt-${Qt6_VERSION}")
+      add_test(NAME durability_fault_contract COMMAND durability_fault_tests)
+      set_tests_properties(durability_fault_contract PROPERTIES TIMEOUT 120)
+    endif()
+    # End isolated R12 Q1 durability registration.
     add_executable(primitive_angle_ui_tests tests/primitive_angle_ui_tests.cpp)
     target_link_libraries(primitive_angle_ui_tests PRIVATE nect_desktop_client Qt6::Test)
     add_test(NAME primitive_angle_ui_interaction COMMAND primitive_angle_ui_tests)
