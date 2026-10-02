@@ -579,7 +579,7 @@ void busy_aba_rebuild_and_close(Window& window) {
 }
 }
 int main(int argc,char** argv) {
-    qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
+    batch_angle_test::configure_test_qpa();QApplication app(argc,argv);batch_angle_test::report_test_qpa();
     try {
         QTemporaryDir directory;check(directory.isValid(),"temporary directory is available");
         QSettings settings(directory.filePath("settings.ini"),QSettings::IniFormat);

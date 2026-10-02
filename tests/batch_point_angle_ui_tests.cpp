@@ -578,7 +578,7 @@ void teardown_and_generated_staleness(Window& window,QTemporaryDir& directory) {
 }
 
 int main(int argc,char** argv) {
-    qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
+    batch_angle_test::configure_test_qpa();QApplication app(argc,argv);batch_angle_test::report_test_qpa();
     try {
         QTemporaryDir directory;check(directory.isValid(),"batch point-angle test scratch exists");
         QSettings settings(directory.filePath("settings.ini"),QSettings::IniFormat);

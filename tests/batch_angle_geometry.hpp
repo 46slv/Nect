@@ -1,16 +1,132 @@
 #pragma once
+#include <QApplication>
 #include <QCoreApplication>
 #include <QFontInfo>
 #include <QFontMetricsF>
 #include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QPainter>
+#include <QScreen>
+#include <QStyle>
 #include <QtMath>
 #include <QLabel>
 #include <QLayout>
 #include <QWidget>
+#include <algorithm>
+#include <cmath>
+#include <iomanip>
 #include <iostream>
+#include <limits>
 
 namespace batch_angle_test {
+// Preserve the normal offscreen contract. Native-platform comparison is an
+// explicit diagnostic opt-in, never an implicit way to make a failing test pass.
+inline void configure_test_qpa() {
+    const auto incoming=qgetenv("QT_QPA_PLATFORM"),requested=qgetenv("NECT_TEST_QPA_PLATFORM");
+    const auto selected=requested.isEmpty()?QByteArray("offscreen"):requested;
+    if(qEnvironmentVariableIsSet("NECT_GEOMETRY_DIAGNOSTICS")||!requested.isEmpty()||
+       (!incoming.isEmpty()&&incoming!=selected))
+        std::cerr<<"BATCH_QPA_REQUEST incoming="<<std::quoted(incoming.toStdString())
+            <<" test-override="<<std::quoted(requested.toStdString())
+            <<" selected="<<std::quoted(selected.toStdString())<<'\n';
+    qputenv("QT_QPA_PLATFORM",selected);
+}
+inline void report_test_qpa() {
+    if(qEnvironmentVariableIsSet("NECT_GEOMETRY_DIAGNOSTICS")||
+       !qEnvironmentVariableIsEmpty("NECT_TEST_QPA_PLATFORM"))
+        std::cerr<<"BATCH_QPA_EFFECTIVE platform="<<QGuiApplication::platformName().toStdString()
+            <<" qt="<<qVersion()<<" scale-factor="<<qEnvironmentVariable("QT_SCALE_FACTOR").toStdString()<<'\n';
+}
+inline std::string codepoints(const QString& text) {
+    QStringList points;
+    for(const auto point:text.toUcs4())points.append("U+"+QString::number(point,16).rightJustified(4,'0').toUpper());
+    return points.join(' ').toStdString();
+}
+inline std::string rectangle(const QRectF& rect) {
+    const auto number=[](qreal value){return QString::number(value,'g',17);};
+    return QString("%1,%2 %3x%4 [left=%5 right=%6]").arg(number(rect.x()),number(rect.y()),
+        number(rect.width()),number(rect.height()),number(rect.left()),number(rect.right())).toStdString();
+}
+inline void report_font(const char* kind,const QFont& font,const QWidget* device) {
+    const QFontInfo info(font);const QFontMetricsF metrics(font,device);
+    std::cerr<<"CAPTION_FONT kind="<<kind<<" toString="<<std::quoted(font.toString().toStdString())
+        <<" resolveMask="<<font.resolveMask()<<" families="<<std::quoted(font.families().join('|').toStdString())
+        <<" resolved-family="<<std::quoted(info.family().toStdString())
+        <<" resolved-style="<<std::quoted(info.styleName().toStdString())
+        <<" resolved-point="<<info.pointSizeF()<<" resolved-pixel="<<info.pixelSize()
+        <<" exact="<<info.exactMatch()<<" weight="<<info.weight()<<" italic="<<info.italic()
+        <<" style-hint="<<font.styleHint()<<" strategy="<<font.styleStrategy()
+        <<" hinting="<<font.hintingPreference()<<" height="<<metrics.height()
+        <<" ascent="<<metrics.ascent()<<" descent="<<metrics.descent()<<" leading="<<metrics.leading()
+        <<" min-left-bearing="<<metrics.minLeftBearing()<<" min-right-bearing="<<metrics.minRightBearing()<<'\n';
+}
+inline qreal report_text_metrics(const char* kind,const QFontMetricsF& metrics,const QString& text) {
+    const auto bounds=metrics.boundingRect(text);
+    const auto advance=metrics.horizontalAdvance(text);
+    const auto span=std::max(advance,bounds.right())-std::min(qreal(0),bounds.left());
+    const auto precision=std::cerr.precision();std::cerr<<std::setprecision(17);
+    std::cerr<<"CAPTION_RESERVE kind="<<kind<<" text="<<std::quoted(QString(text).replace('\n',"\\n").toStdString())
+        <<" codepoints="<<std::quoted(codepoints(text))<<" advance="<<advance
+        <<" bounds="<<rectangle(bounds)<<" tight="<<rectangle(metrics.tightBoundingRect(text))
+        <<" span="<<span<<" ceil="<<std::ceil(span)<<'\n';
+    std::cerr.precision(precision);
+    return span;
+}
+inline void report_caption_reserve(const QLabel* note) {
+    if(!note||!qEnvironmentVariableIsSet("NECT_GEOMETRY_DIAGNOSTICS"))return;
+    const QWidget* dial=nullptr;
+    for(const auto* child:note->parentWidget()->findChildren<QWidget*>(QString{},Qt::FindDirectChildrenOnly))
+        if(child->property("nect-targets").isValid()){dial=child;break;}
+    const auto targets=dial?QJsonDocument::fromJson(dial->property("nect-targets").toByteArray()).array():QJsonArray{};
+    const auto source_font=note->font();auto resolved_font=source_font;
+    resolved_font.setResolveMask(QFont::AllPropertiesResolved);
+    const QFontMetricsF source_metrics(source_font,note),resolved_metrics(resolved_font,note);
+    std::cerr<<"CAPTION_WIDGET stage=initial-settled dial="<<(dial?dial->objectName().toStdString():"unknown")
+        <<" targets="<<targets.size()<<" platform="<<QGuiApplication::platformName().toStdString()
+        <<" style="<<note->style()->metaObject()->className()<<":"<<note->style()->objectName().toStdString()
+        <<" app-style="<<QApplication::style()->metaObject()->className()<<":"<<QApplication::style()->objectName().toStdString()
+        <<" logical-dpi="<<note->logicalDpiX()<<","<<note->logicalDpiY()
+        <<" physical-dpi="<<note->physicalDpiX()<<","<<note->physicalDpiY()<<" dpr="<<note->devicePixelRatioF()
+        <<" minimum="<<note->minimumWidth()<<" allocation="<<note->width()<<"x"<<note->height()
+        <<" text="<<std::quoted(QString(note->text()).replace('\n',"\\n").toStdString())
+        <<" codepoints="<<std::quoted(codepoints(note->text()))<<'\n';
+    if(const auto* screen=note->screen())
+        std::cerr<<"CAPTION_SCREEN name="<<std::quoted(screen->name().toStdString())
+            <<" logical-dpi="<<screen->logicalDotsPerInchX()<<","<<screen->logicalDotsPerInchY()
+            <<" physical-dpi="<<screen->physicalDotsPerInchX()<<","<<screen->physicalDotsPerInchY()
+            <<" dpr="<<screen->devicePixelRatio()<<'\n';
+    report_font("source",source_font,note);report_font("all-resolved",resolved_font,note);
+    report_font("application",QApplication::font(),note);
+    // Window::add_multi_angle_dial candidates replayed with the actual widget.
+    // This is a settled-widget replay, not a claim to observe construction time.
+    QStringList candidates{QStringLiteral("Common \u00b7 %1").arg(targets.size()),
+        QStringLiteral("Mixed \u00b7 %1").arg(targets.size()),note->text().split('\n').value(1)};
+    for(const double magnitude:{0.0,29.74488,999.9999,9999999.0,0.0001234567,0.0009999999,
+            1.234567e-5,1.999999e9,2e9,std::numeric_limits<double>::denorm_min(),
+            std::numeric_limits<double>::min(),std::numeric_limits<double>::max()})
+        for(const double sign:{-1.0,1.0}) {
+            const auto delta=sign*magnitude;auto text=QString::number(delta,'g',7);
+            if(delta>=0)text.prepend('+');candidates.append(text+QStringLiteral("\u00b0"));
+        }
+    qreal replay_minimum=98;QString max_text;
+    for(const auto& text:candidates) {
+        report_text_metrics("source",source_metrics,text);
+        const auto span=report_text_metrics("all-resolved",resolved_metrics,text);
+        if(std::ceil(span)>replay_minimum){replay_minimum=std::ceil(span);max_text=text;}
+    }
+    std::cerr<<"CAPTION_RESERVE_SUMMARY samples="<<candidates.size()<<" actual-minimum="<<note->minimumWidth()
+        <<" replay-minimum="<<replay_minimum<<" max-text="<<std::quoted(max_text.toStdString())
+        <<" matches="<<(replay_minimum==note->minimumWidth())<<'\n';
+    QString glyphs=note->text()+candidates.join(' ');QString seen;
+    for(const auto glyph:glyphs) {
+        if(glyph.isSpace()||seen.contains(glyph))continue;seen+=glyph;
+        std::cerr<<"CAPTION_GLYPH codepoint="<<codepoints(QString(glyph))
+            <<" present="<<resolved_metrics.inFont(glyph)<<" advance="<<resolved_metrics.horizontalAdvance(glyph)
+            <<" left-bearing="<<resolved_metrics.leftBearing(glyph)<<" right-bearing="<<resolved_metrics.rightBearing(glyph)
+            <<" bounds="<<rectangle(resolved_metrics.boundingRect(QString(glyph)))<<'\n';
+    }
+}
 inline QRect global_rect(const QWidget* widget) {
     return {widget->mapToGlobal(QPoint{}),widget->size()};
 }
@@ -56,6 +172,7 @@ struct Geometry {
     }
 };
 inline bool caption_has_reserved_width(const QLabel* note) {
+    report_caption_reserve(note);
     return note&&note->minimumWidth()>=98&&note->width()>=note->minimumWidth();
 }
 // Test the actual plain batch-caption paint contract without any QWidget size
