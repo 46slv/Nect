@@ -7365,6 +7365,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         }
         std::visit([&](const auto& c) {
         using T=std::decay_t<decltype(c)>;
+        // Keep disjoint exact-type dispatch in short chains: MSVC counts each
+        // else-if toward its block nesting limit (C1061). Only one can match.
         if constexpr(std::is_same_v<T,DuplicateObjects>) {
             if(new_anchors.empty())duplicate_objects(candidate,c);
             else {
@@ -7644,7 +7646,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             const auto operation_id=operation_address(c.target.field).first;
             auto& source=operation(candidate.objects.at(c.target.object),operation_id);
             source.fill_rule=value;source.fill_rule_driver.reset();
-        } else if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
+        }
+        if constexpr(std::is_same_v<T,EditProperties>||std::is_same_v<T,LinkProperties>||std::is_same_v<T,UnlinkProperties>) {
             require(!c.targets.empty()&&c.targets.size()<=1000,"INVALID_BATCH","Property targets must contain 1..1000 unique Scalars");
             bool needs_anchor=true;
             if constexpr(!std::is_same_v<T,UnlinkProperties>)needs_anchor=c.relative;
@@ -8109,7 +8112,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 require(old.contains(id),"INVALID_ORDER",id);reordered.push_back(old.at(id));old.erase(id);
             }
             it->points=std::move(reordered);
-        } else if constexpr(std::is_same_v<T,CreateText>) {
+        }
+        if constexpr(std::is_same_v<T,CreateText>) {
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
             require(!c.source.italic_driver,"USE_TYPED_COMMAND","Create Text Italic links with link_text_italic or set_text_italic_expression");
             require(!c.source.weight_driver,"USE_TYPED_COMMAND","Create Text weight links with link_text_weight");

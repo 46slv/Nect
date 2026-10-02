@@ -288,6 +288,8 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         },*follow);
     auto label=std::visit([&](const auto& c)->std::string {
         using T=std::decay_t<decltype(c)>;
+        // Short exact-type chains avoid MSVC's nested else-if limit (C1061).
+        // Every matching branch returns; the final fallback stays shared.
         if constexpr(std::is_same_v<T,Set>)return "Set "+property_label(c.ref);
         else if constexpr(std::is_same_v<T,SetVisibility>)return std::string(c.visible?"Show: ":"Hide: ")+name(c.object);
         else if constexpr(std::is_same_v<T,SetCompositing>)return "Compositing: "+name(c.object);
@@ -317,7 +319,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,UnlinkTextAlignment>)return "Unlink Text alignment: "+property_label(c.target);
         else if constexpr(std::is_same_v<T,LinkFillRule>)return "Link Fill rule: "+property_label(c.target);
         else if constexpr(std::is_same_v<T,UnlinkFillRule>)return "Unlink Fill rule: "+property_label(c.target);
-        else if constexpr(std::is_same_v<T,Rename>)return "Rename: "+c.name;
+        if constexpr(std::is_same_v<T,Rename>)return "Rename: "+c.name;
         else if constexpr(std::is_same_v<T,RenameNamedColor>)return "Rename color: "+c.name;
         else if constexpr(std::is_same_v<T,CreateNamedColor>)return "Add named color: "+c.color.name;
         else if constexpr(std::is_same_v<T,DeleteNamedColor>)return "Delete named color: "+name(c.color);
@@ -353,7 +355,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
             const auto reference=c.artboard&&c.reference=="selection"?"artboard:"+*c.artboard:c.reference;
             return "Align objects: "+c.axis+" "+c.alignment+" to "+reference;
         }
-        else if constexpr(std::is_same_v<T,TransformObjects>)return "Transform "+std::to_string(c.objects.size())+" objects: "+name(c.objects.front());
+        if constexpr(std::is_same_v<T,TransformObjects>)return "Transform "+std::to_string(c.objects.size())+" objects: "+name(c.objects.front());
         else if constexpr(std::is_same_v<T,StrokeStyle>)return "Stroke style: "+name(c.object);
         else if constexpr(std::is_same_v<T,TranslateObjects>)return "Move "+std::to_string(c.objects.size())+" objects: "+name(c.objects.front());
         else if constexpr(std::is_same_v<T,DeleteObjects>)return "Delete "+std::to_string(c.objects.size())+" object(s): "+name(c.objects.front());
