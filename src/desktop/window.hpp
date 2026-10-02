@@ -141,6 +141,8 @@ private:
         const std::optional<Id>& guide_artboard={});
     std::string alignment_reference_="selection";
     std::optional<Id> alignment_guide_artboard_;
+    std::function<void(bool)> cancel_primitive_angle_;
+    void add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitive& source);
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
     void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);

@@ -8436,10 +8436,12 @@ void Session::apply_preset_command(const PresetCommand& command,std::uint64_t ex
 
 void Session::begin_gesture(std::uint64_t expected) {
     check_revision(expected);
+    require(gesture_generation_!=std::numeric_limits<std::uint64_t>::max(),"GESTURE_LIMIT","Start a new Session before beginning another gesture");
     preview_=document_;
     preview_values_.reset();
     preview_changed_=false;
     preview_label_.clear();
+    ++gesture_generation_;
 }
 
 void Session::update_gesture(const std::vector<Command>& commands) {

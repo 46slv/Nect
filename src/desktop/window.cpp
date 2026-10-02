@@ -489,6 +489,8 @@ public:
     std::function<void()> cancel_drag;
     void set_value(double value) {value_=value;update();update_accessibility();}
     double value() const {return value_;}
+    void set_display_zero(double degrees) {display_zero_=degrees;update();}
+    void disarm_drag(double value) {dragging_=false;set_value(value);}
     QSize sizeHint() const override {return {44,44};}
 protected:
     void paintEvent(QPaintEvent*) override {
@@ -498,7 +500,7 @@ protected:
         painter.setPen(QPen(ring,2));painter.setBrush(QColor("#202833"));painter.drawEllipse(face);
         painter.setPen(QPen(isEnabled()?QColor("#48c6e9"):QColor("#69717a"),3,Qt::SolidLine,Qt::RoundCap));
         const auto normalized=std::fmod(value_,360.0)<0?std::fmod(value_,360.0)+360.0:std::fmod(value_,360.0);
-        const auto radians=(normalized-90.0)*std::numbers::pi/180.0;
+        const auto radians=(normalized+display_zero_)*std::numbers::pi/180.0;
         const QPointF center=face.center();
         const QPointF tip=center+QPointF(std::cos(radians),std::sin(radians))*(face.width()*0.34);
         painter.drawLine(center,tip);painter.setPen(Qt::NoPen);painter.setBrush(isEnabled()?QColor("#48c6e9"):QColor("#69717a"));painter.drawEllipse(center,2.5,2.5);
@@ -533,7 +535,7 @@ protected:
     void enterEvent(QEnterEvent* event) override {QWidget::enterEvent(event);animate_hover(1.0);update();}
     void leaveEvent(QEvent* event) override {QWidget::leaveEvent(event);animate_hover(0.90);update();}
 private:
-    double value_=0,press_value_=0,previous_angle_=0,accumulated_=0;
+    double value_=0,press_value_=0,previous_angle_=0,accumulated_=0,display_zero_=-90.0;
     bool dragging_=false;
     QGraphicsOpacityEffect* hover_effect_=nullptr;
     QPropertyAnimation* hover_animation_=nullptr;
@@ -1245,6 +1247,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
 }
 
 Window::~Window() {
+    if(cancel_primitive_angle_){auto cancel=std::move(cancel_primitive_angle_);cancel_primitive_angle_={};cancel(true);}
     qApp->removeEventFilter(this);
     cancel_whip();
     cancel_layout_draft(false);
@@ -4151,6 +4154,7 @@ void Window::detach_artboard_template(const ArtboardTemplateContext& context) {
 }
 
 void Window::rebuild_inspector(bool use_canvas_values) {
+    if(cancel_primitive_angle_){auto cancel=std::move(cancel_primitive_angle_);cancel_primitive_angle_={};cancel(true);}
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
     QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
     for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
@@ -4374,8 +4378,12 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             });
         }
         for(const auto* parameter:{"center_x","center_y","points","rotation","radius","outer_radius","inner_radius","width","height"})
-            if(o.source->parameters.contains(parameter))
-                add_property(generator,{o.id,{},std::string("generator.")+parameter},parameter_label(parameter));
+            if(o.source->parameters.contains(parameter)) {
+                const Ref ref{o.id,{},std::string("generator.")+parameter};
+                add_property(generator,ref,parameter_label(parameter));
+                if(std::string(parameter)=="rotation"&&(o.source->type=="nect.shape.polygon"||o.source->type=="nect.shape.star"))
+                    add_primitive_angle(generator,ref,*o.source);
+            }
         auto* correction=section("2 · Point Edit");
         std::optional<PointEditEnabledProperty> point_edit_state;
         Ref point_edit_ref;
@@ -7309,6 +7317,73 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         current->stops.push_back(stop);apply({SetGradient{id,op,current}});
     });});
 }
+void Window::add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitive& source) {
+    const auto reference=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
+    QPointer<QLineEdit> numeric;
+    for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
+        if(input->property("nect-reference").toByteArray()==reference){numeric=input;break;}
+    auto* row=new QWidget;auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
+    QPointer<RotationKnob> knob=new RotationKnob(row);
+    knob->setObjectName("primitive-angle-knob");knob->setAccessibleName(primitive_label(source)+" source rotation angle knob");
+    knob->set_display_zero(0);knob->setProperty("nect-reference",reference);
+    const auto initial=inspector_values_.at(ref);knob->set_value(initial);
+    // This angle row promises exact numeric round-trip, unlike generic compact labels.
+    if(numeric){numeric->setProperty("nect-exact-value",true);if(!numeric->isModified()){numeric->setText(QString::number(initial,'g',17));numeric->setModified(false);}}
+    const auto& scalar=nect::property(host.session.document(),ref);
+    const bool driven=scalar.binding.has_value()||scalar.expression.has_value();knob->setEnabled(!driven);
+    knob->setToolTip(driven?"Rotation is driven. Unlink its numeric source before using the dial.":
+        "Zero points right (+X); positive degrees turn clockwise. Drag adds signed degrees; whole turns stay authored. Escape cancels.");
+    layout->addWidget(knob);layout->addWidget(new QLabel("Dial · +X zero · modulo 360",row));layout->addStretch();form->addRow("Angle dial",row);
+    struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;};
+    const auto state=std::make_shared<Interaction>();const auto identity=host.session_id;
+    const auto revision=host.session.revision();const auto document=host.session.document().id;
+    const auto source_id=source.id,source_type=source.type;const auto source_version=source.version;
+    auto owns=[this,state,identity] {return state->owned&&host.session_id==identity&&host.session.gesture_active()&&
+        host.session.gesture_generation()==state->generation;};
+    auto validate=[this,state,identity,revision,document,ref,source_id,source_type,source_version] {
+        if(!state->live||host.session_id!=identity||host.session.document().id!=document)
+            throw Error("SESSION_CONFLICT","Primitive angle belongs to another editing context");
+        if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Primitive angle changed; reopen the Inspector");
+        const auto object=host.session.document().objects.find(ref.object);
+        if(object==host.session.document().objects.end()||!object->second.source||object->second.source->id!=source_id||
+           object->second.source->type!=source_type||object->second.source->version!=source_version)
+            throw Error("MISSING_PROPERTY","Primitive source identity changed");
+        const auto& current=nect::property(host.session.document(),ref);
+        if(current.binding||current.expression)throw Error("DRIVEN_PROPERTY","Unlink the primitive rotation before using the dial");
+    };
+    auto restore=[knob,numeric,initial](bool restore_numeric) {if(knob)knob->disarm_drag(initial);if(restore_numeric&&numeric){numeric->setText(QString::number(initial,'g',17));numeric->setModified(false);}};
+    auto cancel=[this,state,owns,restore] {const bool local_interaction=state->owned;const bool active=owns();if(active)host.session.cancel_gesture();state->owned=false;
+        restore(local_interaction);if(active){canvas->refresh();canvas->update();}};
+    auto report=[this](const std::exception& exception) {
+        if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
+        else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
+    };
+    // Explicit lifetime boundary: Host is alive here, unlike QObject child destruction.
+    cancel_primitive_angle_=[state,cancel](bool dispose) {if(dispose)state->live=false;cancel();};
+    knob->begin_drag=[this,state,validate,report,numeric] {
+        try {
+            if(numeric&&numeric->isModified())throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before using the dial");
+            validate();host.session.begin_gesture(host.session.revision());state->generation=host.session.gesture_generation();state->owned=true;return true;
+        }catch(const std::exception& exception){report(exception);return false;}
+    };
+    knob->preview_value=[this,state,owns,validate,cancel,report,ref,initial,numeric,knob](double value) {
+        if(!owns()){cancel();return;}
+        try {
+            validate();
+            if(std::abs(value-initial)<=1e-10){value=initial;if(knob)knob->set_value(initial);host.session.update_gesture({});}
+            else host.session.update_gesture({EditProperties{{ref},value,false}});
+            canvas->refresh();canvas->update();
+            if(numeric){numeric->setText(QString::number(value,'g',17));numeric->setModified(false);}
+        }catch(const std::exception& exception){cancel();report(exception);}
+    };
+    knob->commit_drag=[this,state,owns,validate,cancel,report] {
+        if(!owns()){cancel();return;}
+        try {validate();host.session.commit_gesture();state->owned=false;host.edited();}
+        catch(const std::exception& exception){cancel();report(exception);}
+    };
+    knob->cancel_drag=cancel;
+}
+
 void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& label) {
     add_properties(layout,{ref},label);
 }
@@ -7819,7 +7894,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");
             if(text.startsWith('=')) {
                 try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);host.edited();}
-                catch(const Error& e){if(e.code=="REVISION_CONFLICT"||e.code=="SESSION_CONFLICT")throw;expand(text);input->setText(display_value(inspector_values_.at(ref)));}
+                catch(const Error& e){if(e.code=="REVISION_CONFLICT"||e.code=="SESSION_CONFLICT")throw;expand(text);input->setText(input->property("nect-exact-value").toBool()?QString::number(inspector_values_.at(ref),'g',17):display_value(inspector_values_.at(ref)));}
                 return;
             }
             auto value=(relative?text.mid(2):text).toDouble(&valid);if(relative&&text.startsWith("-="))value=-value;
@@ -8991,6 +9066,7 @@ void Window::create_folder() {
     canvas->setFocus();
 }
 void Window::closeEvent(QCloseEvent* event) {
+    if(cancel_primitive_angle_)cancel_primitive_angle_(false);
     cancel_whip();
     canvas->cancel_interaction();
     try {host.flush();event->accept();}

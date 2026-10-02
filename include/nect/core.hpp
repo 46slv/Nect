@@ -1407,6 +1407,8 @@ public:
     void commit_gesture();
     void cancel_gesture();
     bool gesture_active() const { return preview_.has_value(); }
+    // Transient interaction identity; pair with the owning Host/Session identity.
+    std::uint64_t gesture_generation() const { return gesture_generation_; }
     const Document& preview_document() const { return preview_ ? *preview_ : document_; }
     // Derived values from the last successful preview validation. Null before an
     // update or after an empty/reset/commit/cancel. Invalidated by gesture changes.
@@ -1437,6 +1439,7 @@ private:
     std::uint64_t boundary_id_=0,next_history_id_=1;
     std::optional<Document> preview_;
     std::optional<std::map<Ref,double>> preview_values_;
+    std::uint64_t gesture_generation_ = 0;
     bool preview_changed_ = false;
     std::string preview_label_;
     void check_revision(std::uint64_t expected) const;
