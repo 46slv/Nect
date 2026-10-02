@@ -7580,8 +7580,23 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     const QFontMetricsF caption_metrics(caption_font,note);
     int caption_minimum=98;
     const auto reserve=[&](const QString& text) {
-        const auto bounds=caption_metrics.boundingRect(text);
-        const auto span=std::max(caption_metrics.horizontalAdvance(text),bounds.right())-std::min(0.0,bounds.left());
+        // Reserve actual ink overhang and advance, not the loose logical box:
+        // an unresolved Qt font backend can leave that box at an invalid origin.
+        const auto ink=caption_metrics.tightBoundingRect(text);
+        const auto advance=caption_metrics.horizontalAdvance(text);
+        const bool usable_advance=std::isfinite(advance)&&advance>=0;
+        const bool usable_ink=std::isfinite(ink.left())&&std::isfinite(ink.right())&&ink.width()>=0;
+        // A broken backend must not throw through an Inspector event callback.
+        // Keep whatever measurement is usable, warn, and retain the floor. This
+        // fallback is not a claim that an unsupported font can paint the caption.
+        if(!usable_advance||!usable_ink)qWarning("Batch angle caption has invalid font metrics");
+        auto span=usable_advance?advance:qreal(0);
+        if(usable_ink)span=std::max(span,ink.right())-std::min(qreal(0),ink.left());
+        // Guard the conversion only at QWidget's representable size, never an
+        // arbitrary caption cap. Saturation is explicitly reported as invalid.
+        if(!std::isfinite(span)||span>QWIDGETSIZE_MAX) {
+            qWarning("Batch angle caption width exceeds QWidget's representable size");span=QWIDGETSIZE_MAX;
+        }
         caption_minimum=std::max(caption_minimum,static_cast<int>(std::ceil(span)));
     };
     reserve(QString("Common · %1").arg(target_count));reserve(QString("Mixed · %1").arg(target_count));reserve(zero_label);

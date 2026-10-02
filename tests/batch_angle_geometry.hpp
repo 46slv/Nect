@@ -62,16 +62,29 @@ inline void report_font(const char* kind,const QFont& font,const QWidget* device
         <<" min-left-bearing="<<metrics.minLeftBearing()<<" min-right-bearing="<<metrics.minRightBearing()<<'\n';
 }
 inline qreal report_text_metrics(const char* kind,const QFontMetricsF& metrics,const QString& text) {
-    const auto bounds=metrics.boundingRect(text);
+    const auto bounds=metrics.boundingRect(text),ink=metrics.tightBoundingRect(text);
     const auto advance=metrics.horizontalAdvance(text);
-    const auto span=std::max(advance,bounds.right())-std::min(qreal(0),bounds.left());
+    const auto logical_span=std::max(advance,bounds.right())-std::min(qreal(0),bounds.left());
+    const auto span=std::max(advance,ink.right())-std::min(qreal(0),ink.left());
     const auto precision=std::cerr.precision();std::cerr<<std::setprecision(17);
     std::cerr<<"CAPTION_RESERVE kind="<<kind<<" text="<<std::quoted(QString(text).replace('\n',"\\n").toStdString())
         <<" codepoints="<<std::quoted(codepoints(text))<<" advance="<<advance
-        <<" bounds="<<rectangle(bounds)<<" tight="<<rectangle(metrics.tightBoundingRect(text))
-        <<" span="<<span<<" ceil="<<std::ceil(span)<<'\n';
+        <<" bounds="<<rectangle(bounds)<<" tight="<<rectangle(ink)
+        <<" logical-span="<<logical_span<<" span="<<span<<" ceil="<<std::ceil(span)<<'\n';
     std::cerr.precision(precision);
     return span;
+}
+inline QStringList caption_reserve_samples(const QLabel* note,int target_count) {
+    QStringList candidates{QStringLiteral("Common \u00b7 %1").arg(target_count),
+        QStringLiteral("Mixed \u00b7 %1").arg(target_count),note->text().split('\n').value(1)};
+    for(const double magnitude:{0.0,29.74488,999.9999,9999999.0,0.0001234567,0.0009999999,
+            1.234567e-5,1.999999e9,2e9,std::numeric_limits<double>::denorm_min(),
+            std::numeric_limits<double>::min(),std::numeric_limits<double>::max()})
+        for(const double sign:{-1.0,1.0}) {
+            const auto delta=sign*magnitude;auto text=QString::number(delta,'g',7);
+            if(delta>=0)text.prepend('+');candidates.append(text+QStringLiteral("\u00b0"));
+        }
+    return candidates;
 }
 inline void report_caption_reserve(const QLabel* note) {
     if(!note||!qEnvironmentVariableIsSet("NECT_GEOMETRY_DIAGNOSTICS"))return;
@@ -98,17 +111,8 @@ inline void report_caption_reserve(const QLabel* note) {
             <<" dpr="<<screen->devicePixelRatio()<<'\n';
     report_font("source",source_font,note);report_font("all-resolved",resolved_font,note);
     report_font("application",QApplication::font(),note);
-    // Window::add_multi_angle_dial candidates replayed with the actual widget.
-    // This is a settled-widget replay, not a claim to observe construction time.
-    QStringList candidates{QStringLiteral("Common \u00b7 %1").arg(targets.size()),
-        QStringLiteral("Mixed \u00b7 %1").arg(targets.size()),note->text().split('\n').value(1)};
-    for(const double magnitude:{0.0,29.74488,999.9999,9999999.0,0.0001234567,0.0009999999,
-            1.234567e-5,1.999999e9,2e9,std::numeric_limits<double>::denorm_min(),
-            std::numeric_limits<double>::min(),std::numeric_limits<double>::max()})
-        for(const double sign:{-1.0,1.0}) {
-            const auto delta=sign*magnitude;auto text=QString::number(delta,'g',7);
-            if(delta>=0)text.prepend('+');candidates.append(text+QStringLiteral("\u00b0"));
-        }
+    // Settled-widget replay, not a claim to observe construction-time font state.
+    const auto candidates=caption_reserve_samples(note,targets.size());
     qreal replay_minimum=98;QString max_text;
     for(const auto& text:candidates) {
         report_text_metrics("source",source_metrics,text);
@@ -173,7 +177,31 @@ struct Geometry {
 };
 inline bool caption_has_reserved_width(const QLabel* note) {
     report_caption_reserve(note);
-    return note&&note->minimumWidth()>=98&&note->width()>=note->minimumWidth();
+    if(!note)return false;
+    const QWidget* dial=nullptr;
+    for(const auto* child:note->parentWidget()->findChildren<QWidget*>(QString{},Qt::FindDirectChildrenOnly))
+        if(child->property("nect-targets").isValid()){dial=child;break;}
+    if(!dial)return false;
+    const auto targets=QJsonDocument::fromJson(dial->property("nect-targets").toByteArray()).array();
+    auto font=note->font();font.setResolveMask(QFont::AllPropertiesResolved);
+    const QFontMetricsF metrics(font,note);
+    qreal expected=98;
+    for(const auto& sample:caption_reserve_samples(note,targets.size())) {
+        const auto ink=metrics.tightBoundingRect(sample);
+        const auto advance=metrics.horizontalAdvance(sample);
+        const auto span=std::max(advance,ink.right())-std::min(qreal(0),ink.left());
+        if(!std::isfinite(advance)||advance<0||!std::isfinite(ink.left())||
+           !std::isfinite(ink.right())||ink.width()<0||!std::isfinite(span)||span>QWIDGETSIZE_MAX)return false;
+        expected=std::max(expected,std::ceil(span));
+    }
+    // These fixtures keep font and DPI unchanged between row construction and
+    // initial capture. This deliberately rejects a giant logical-origin reserve;
+    // it does not promise live re-reservation after a font/DPI change.
+    const bool matches=note->minimumWidth()==expected;
+    if(!matches||qEnvironmentVariableIsSet("NECT_GEOMETRY_DIAGNOSTICS"))
+        std::cerr<<"CAPTION_RESERVATION_CHECK actual="<<note->minimumWidth()<<" expected="<<expected
+            <<" matches="<<matches<<'\n';
+    return matches&&note->width()>=note->minimumWidth();
 }
 // Test the actual plain batch-caption paint contract without any QWidget size
 // hint/minimum clamp. TextDontClip also prevents drawText from stopping layout
