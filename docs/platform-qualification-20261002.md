@@ -251,3 +251,65 @@ Windows task `01a0fb70-c778-7111-9a5c-29d0d3993090`, `build-win/evidence/` log h
 - Full CTest: `1b9f2fceb61882318bf908498219ba582867775858b6c822973429b93050057f`
 - Smoke: `aca3430da828d0dd81892d6a3917f6a6247d42fa9cfc57bbaba859e00a993b4c`
 - Diagnostic: `20166564900946f992a3db72b2e69800b92b6d6ce409959f2ba738b503889049`
+
+## Repeater batch actual 125% GUI (2026-10-02)
+
+Frozen local source8ebbd9cd8c6aa7f0a32e407938d6cdcd085a3f4d/tree
+daaa168838e6cabcad9bcf053f0f2b65888b1c5d, desktop SHA256
+`2aed0b2fc8bbe64b681674f2bd70c6338c0556a05a4e8dea03069d41c0f9b5d3`,
+passed bounded actual125% Linux/Xfce replay. Two distinct same-slot Repeater operation
+IDs on Polygon/Star objects retained independent copies/position/source identities.
+Common[0,0] became[90,90]; Mixed[-355,725] became[-265,815] with a calibrated native
+clockwise top-to-right quarter arc. An initial screenshot-estimated path gave equal
+94.76364169072617 and is preserved as a noncardinal sample, not labeled a quarter pass.
+
+Absolute1080.75 and relative+=10.25, modulo-only indicator, zero-net unchanged revision,
+one-Undo, native close/reopen and all unrelated authored fields passed. A full native
+clockwise loop saved[5.000000000000114,1085] from[-355,725]; the floating residual is
+explicitly retained, not rounded or described as exact decimal5. Shared point/primitive
+regressions passed, including incoming Common noncardinal+29.744881296942225 and Mixed
++90, with correct target isolation and Undo. Actual idle captions fit; held/live delta
+caption fitting was NOT_RUN because the native drag API is atomic.
+
+25 saved snapshots passed native validation. Root independently verified all hashes,
+native0.77 JSON and9 exact canonical byte pairs. CLI-normalized static fixtures include
+one terminal LF while GUI serialization omits it; strict Undo comparisons use already
+GUI-saved canonical files, and the one-LF difference is separately documented.
+Five owned Host sessions and run-created windows closed; original windows preserved.
+
+Receipt `/workspace/shared/nect-gui-repeater-batch/objective-gui-receipt-8ebbd9c.json`
+SHA256 `bb3e449d3794148be193d2cdeb0e0e2e1a5403ac80bdd1f1755f964cb943b095`.
+No held-Escape/interruption/range recovery,150% display, Windows GUI or subjective
+acceptance is claimed. This source is included in remote46e84fd, not later Inspector
+feedback changes. Windows caption fitting still requires its pending independent exact-candidate run.
+
+## 46e84fd Windows requalification and measured caption copy
+
+Exact46e84fd72988561b2ea04b9da8fcadf31332e87f/tree89bf93f07f01cfcd0e3aa373ea156a8979b23e8b
+remained clean during Windows requalification. Desktop Release/deploy passed, but the
+all-target build found a Windows-only test error: `mixed_domain` was undeclared in
+repeater_batch_angle_ui_tests.cpp:183. Its intended exact ordered Path/Text Ref vector
+is `expected`, declared at161. All three Repeater cases were NOT_RUN. Full89 therefore
+reported82passed/4failed/3NotRun, not a full pass. The three primitive caption cases
+still failed after width-only repair: label98x80px, heightForWidth124px, row width148px
+at all three scales. The fourth failure remains the registry scratch-key denial.
+Storage/protection/formal MCP Template3/3 and native/SVG smoke passed. Source/build
+released without tracked edits or OpenCode calls.
+
+Receipt `qualification-46e84fd.md` in the isolated Windows evidence directory SHA256
+`da2f242c089b81d441d6ef38c9a5a1c41ddf8f2c048ea97d16bd8a0a25164f4f`.
+A subsequent diagnostic against the exact production label measured Yu Gothic UI9.75pt,
+17px line spacing. Three explicit lines fit98x80 at DPR1/2/1.25:
+`Common · 3` / `+X zero` / `Δ +999.9999°`, and
+`Mixed · 32` / `top zero` / `Δ -999.9999°`.
+Common count12 also fits. Maximum measured compact line width78px; heightForWidth98
+was80px. Fullnoun first lines such as `Common · 3 objects` measured117px (115px highDPI)
+and did not fit98px without wrapping. Full identity and exact delta remain accessible;
+visible text can omit the redundant noun while retaining Common/Mixed, count, direction
+and signed delta. These are diagnostic measurements, not qualification of a product
+patch. Diagnostic files were ignored, original source/tests unchanged, processes closed.
+
+Metrics receipt `caption-layout-summary-46e84fd.md` SHA256
+`a0b658a4f319535f7d770b8eb04a8abbbe7d7fca7409dabb5ba8ad229bad23fb`.
+The next shared-helper candidate must rerun Windows fit and Windows-only Text coverage;
+no width-only repair success is inferred from earlier Linux passes.

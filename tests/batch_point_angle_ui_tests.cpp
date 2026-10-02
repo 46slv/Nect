@@ -118,7 +118,7 @@ void shared_caption_geometry(Window& window) {
     mouse_global(common,QEvent::MouseMove,QPointF(center)+QPointF(14,8),Qt::NoButton,Qt::LeftButton);
     check(common->geometry()==common_geometry&&common->parentWidget()->geometry()==common_row&&
         common->mapToGlobal(QPoint(common->width()/2,common->height()/2))==center&&common_caption&&
-        common_caption->text().contains("+X zero")&&common_caption->text().contains("relative Δ +")&&
+        common_caption->text().contains("+X zero")&&common_caption->text().contains("Δ +")&&
         common_caption->heightForWidth(common_caption->width())<=common_caption->height(),
         "shared point-batch Common caption keeps fixed geometry and fully shows its fractional delta");
     QTest::keyClick(common,Qt::Key_Escape);events();
@@ -140,7 +140,7 @@ void shared_caption_geometry(Window& window) {
             mixed->mapToGlobal(QPoint(mixed->width()/2,mixed->height()/2))==mixed_center,
             "shared point-batch fixed-global arc does not move its dial while caption text wraps");
         const auto* caption=mixed->parentWidget()->findChild<QLabel*>();
-        check(caption&&caption->text().contains("+X zero")&&caption->text().contains("relative Δ +")&&
+        check(caption&&caption->text().contains("+X zero")&&caption->text().contains("Δ +")&&
             caption->heightForWidth(caption->width())<=caption->height(),
             "shared point-batch live signed delta remains fully visible in the fixed row");
     }
@@ -245,7 +245,8 @@ void batch_vector_and_history(Window& window,const QString& directory) {
     authored_fixture(window,{5,365,725});dial=batch_dial(window,"in.angle",targets);
     const auto labels=dial->parentWidget()->findChildren<QLabel*>();
     const bool mixed_caption=std::any_of(labels.begin(),labels.end(),[](const QLabel* label) {
-        return label->isVisible()&&label->text().contains("Mixed · 3 points · +X zero · relative Δ");
+        return label->isVisible()&&label->text().contains("Mixed · 3")&&label->text().contains("+X zero")&&
+            label->text().contains("Δ ");
     });
     const auto* modulo_mixed_numeric=batch_numeric(window,targets);
     check(modulo_mixed_numeric->text().isEmpty()&&modulo_mixed_numeric->placeholderText()=="Mixed"&&

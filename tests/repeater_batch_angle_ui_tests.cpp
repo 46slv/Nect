@@ -97,10 +97,17 @@ QLineEdit* batch_numeric(Window& window,const std::vector<Ref>& targets) {
 QLabel* caption(QWidget* dial) {return dial?dial->parentWidget()->findChild<QLabel*>():nullptr;}
 QString caption_delta(const QLabel* note) {
     if(!note)return {};
-    const auto marker=QStringLiteral("relative Δ ");const auto start=note->text().indexOf(marker);
+    const auto marker=QStringLiteral("Δ ");const auto start=note->text().indexOf(marker);
     if(start<0)return {};
     const auto value_start=start+marker.size();const auto end=note->text().indexOf(QStringLiteral("°"),value_start);
     return end<0?QString{}:note->text().mid(value_start,end-value_start);
+}
+int caption_height_at_width(const QLabel* template_label,const QString& text,int width) {
+    QLabel probe;
+    probe.setFont(template_label->font());probe.setWordWrap(true);probe.setTextFormat(template_label->textFormat());
+    probe.setContentsMargins(template_label->contentsMargins());probe.setMargin(template_label->margin());
+    probe.setIndent(template_label->indent());probe.setAlignment(template_label->alignment());probe.setText(text);
+    return probe.heightForWidth(width);
 }
 QString accessible_delta(const QWidget* dial) {
     if(!dial)return {};
@@ -180,7 +187,7 @@ void discovery_and_exact_refs(Window& window) {
         for(auto& entry:entries)if(entry.id==operation_id)entry.parameters.at("rotation").literal=text_after_values.at(ref);
     }
     check(window.host.session.revision()==text_revision+1&&window.host.session.document()==expected_text_after&&
-        near(values(window,mixed_domain),{13,13})&&
+        near(values(window,expected),{13,13})&&
         window.host.session.document().objects.at("text-b").text->id=="text-source-text-b",
         "mixed Path/Text Repeater drag commits one exact expected document while preserving Text source identity");
 #endif
@@ -370,11 +377,18 @@ void top_zero_geometry_and_indicator(Window& window) {
     const auto common_exact_value=common_exact_delta.toDouble(&common_exact_ok);
     check(common->geometry()==common_dial_geometry&&common->parentWidget()->geometry()==common_row_geometry&&
         common->mapToGlobal(QPoint(common->width()/2,common->height()/2))==common_center&&
-        common_note&&common_note->text().contains("Common")&&common_note->text().contains("3 objects")&&
-        common_note->text().contains("top zero")&&common_note->text().contains("relative Δ "+common_delta+"°")&&
+        common_note&&common_note->text().contains("Common · 3")&&common_note->text().contains("top zero")&&
+        common_note->text().contains("Δ "+common_delta+"°")&&common_note->accessibleName().contains("3 objects")&&
+        common_note->accessibleName().contains(QString("relative delta %1 degrees").arg(common_exact_delta))&&
         common_exact_ok&&common_exact_delta.size()>=17&&common_exact_value>29.7&&common_exact_value<29.8&&
         common_note->heightForWidth(common_note->width())<=common_note->height(),
         "Common top-zero live caption keeps a fixed center, bounded delta, exact accessible delta and fits its reserved row");
+    const QStringList narrow_captions{
+        "Common · 32\n+X zero\nΔ +999.9999°",
+        "Mixed · 32\ntop zero\nΔ -999.9999°"};
+    bool narrow_fit=true;
+    for(const auto& text:narrow_captions)narrow_fit=narrow_fit&&caption_height_at_width(common_note,text,98)<=80;
+    check(narrow_fit,"Measured three-line Common/Mixed captions fit an explicit 98×80px label width with the active UI font");
     QTest::keyClick(common,Qt::Key_Escape);events();
     check(!window.host.session.gesture_active()&&near(values(window,refs),{0,0,0}),
         "Escape restores the Common top-zero caption baseline after the live-fit sample");

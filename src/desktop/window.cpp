@@ -6671,12 +6671,14 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         enabled_driver->setEnabled(true);
         row->addWidget(enabled_driver);
         auto* up=new QPushButton("↑");up->setFixedWidth(28);up->setEnabled(index>0);
-        up->setObjectName("operation-up-"+qs(operation.id));up->setToolTip("Move earlier in the stack");
+        up->setObjectName("operation-up-"+qs(operation.id));
+        up->setAccessibleName("Move "+name+" earlier in the stack");up->setToolTip("Move "+name+" earlier in the stack");
         auto* down=new QPushButton("↓");down->setFixedWidth(28);down->setEnabled(index+1<object.stack.size());
-        down->setObjectName("operation-down-"+qs(operation.id));down->setToolTip("Move later in the stack");
+        down->setObjectName("operation-down-"+qs(operation.id));
+        down->setAccessibleName("Move "+name+" later in the stack");down->setToolTip("Move "+name+" later in the stack");
         auto* remove=new QPushButton("×");remove->setFixedWidth(28);
-        remove->setObjectName("operation-remove-"+qs(operation.id));remove->setToolTip("Remove "+name);
-        remove->setAccessibleName("Remove "+name);
+        remove->setObjectName("operation-remove-"+qs(operation.id));remove->setToolTip("Remove "+name+" from the stack");
+        remove->setAccessibleName("Remove "+name+" from the stack");
         row->addWidget(up);row->addWidget(down);row->addWidget(remove);
         if(operation.macro) {
             auto* detach=new QPushButton("Detach");detach->setObjectName("macro-detach-"+qs(operation.id));
@@ -7122,13 +7124,16 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     if(input->property("nect-reference").toByteArray()==reference){numeric=input;break;}
                 auto* dial_row=new QWidget;auto* dial_layout=new QHBoxLayout(dial_row);dial_layout->setContentsMargins(0,0,0,0);dial_layout->setSpacing(8);
                 auto* knob=new RotationKnob(dial_row);knob->setObjectName("repeater-angle-knob-"+qs(operation.id));
+                const auto dial_name=QString("%1 Repeater rotation angle").arg(qs(object.name));
+                knob->setAccessibleName(dial_name);
                 knob->setProperty("nect-reference",reference);
                 const auto initial_rotation=inspector_values_.at(rotation_ref);knob->set_value(initial_rotation);
                 if(numeric){numeric->setProperty("nect-exact-value",true);numeric->setText(QString::number(initial_rotation,'g',17));numeric->setModified(false);}
                 const auto& scalar=nect::property(host.session.document(),rotation_ref);
                 const bool driven=scalar.binding.has_value()||scalar.expression.has_value();
                 knob->setEnabled(!driven);
-                if(driven)knob->setToolTip("Rotation is driven by a binding or expression. Unlink it in the numeric editor before using the dial.");
+                if(driven)knob->setToolTip(dial_name+" is driven by a binding or expression. Unlink it in the numeric editor before using the dial.");
+                else knob->setToolTip(dial_name+"; drag continuously to add signed degrees. The dial is modulo 360; the adjacent value remains exact. Escape cancels.");
                 auto* dial_note=new QLabel("Dial · modulo 360",dial_row);dial_note->setAccessibleName("Dial shows rotation modulo 360; numeric value is exact");
                 dial_layout->addWidget(knob);dial_layout->addWidget(dial_note);dial_layout->addStretch();form->addRow("Angle dial",dial_row);
                 const auto frozen_kind=host.session.document().objects.at(object.id).kind;
@@ -7397,8 +7402,9 @@ void Window::add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitiv
     if(numeric){numeric->setProperty("nect-exact-value",true);if(!numeric->isModified()){numeric->setText(QString::number(initial,'g',17));numeric->setModified(false);}}
     const auto& scalar=nect::property(host.session.document(),ref);
     const bool driven=scalar.binding.has_value()||scalar.expression.has_value();knob->setEnabled(!driven);
-    knob->setToolTip(driven?"Rotation is driven. Unlink its numeric source before using the dial.":
-        "Zero points right (+X); positive degrees turn clockwise. Drag adds signed degrees; whole turns stay authored. Escape cancels.");
+    const auto target_name=primitive_label(source)+QStringLiteral(" source rotation angle");
+    knob->setToolTip(driven?target_name+" is driven. Unlink its numeric source before using the dial.":
+        "Adjust "+target_name+": zero points right (+X); positive degrees turn clockwise. Drag adds signed degrees; whole turns stay authored. Escape cancels.");
     layout->addWidget(knob);layout->addWidget(new QLabel("Dial · +X zero · modulo 360",row));layout->addStretch();form->addRow("Angle dial",row);
     const auto source_id=source.id,source_type=source.type;const auto source_version=source.version;
     auto validate_target=[this,ref,source_id,source_type,source_version] {
@@ -7440,9 +7446,10 @@ void Window::add_point_angle(QFormLayout* form,const Ref& ref,const Object& obje
         driven=scalar.binding.has_value()||scalar.expression.has_value();
     }
     knob->setEnabled(!driven);
+    const auto target_name=qs(object.name)+" "+handle_name+" angle";
     knob->setToolTip(driven
-        ?"This handle angle has a stored binding or expression. Unlink it before using the dial."
-        :"Zero points right along local +X; positive degrees turn clockwise. Drag adds signed degrees; whole turns stay authored. Escape cancels.");
+        ?target_name+" has a stored binding or expression. Unlink it before using the dial."
+        :"Adjust "+target_name+": zero points right along local +X; positive degrees turn clockwise. Drag adds signed degrees; whole turns stay authored. Escape cancels.");
     row_layout->addWidget(knob);row_layout->addWidget(new QLabel("Dial · +X zero · modulo 360",row));row_layout->addStretch();
     form->addRow(handle_name+" dial",row);
 
@@ -7537,22 +7544,25 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     const auto visible_delta=[](double delta) {
         auto text=QString::number(delta,'g',7);if(delta>=0)text.prepend('+');return text;
     };
-    const auto caption_for=[common,target_count,visible_delta,target_noun,zero_label](double delta) {
-        const auto caption=common?QString("Common angle · %1 %2 · %3 · relative Δ")
-            .arg(target_count).arg(target_noun).arg(zero_label):QString("Mixed · %1 %2 · %3 · relative Δ").arg(target_count).arg(target_noun).arg(zero_label);
-        return std::abs(delta)<=1e-10?caption:caption+" "+visible_delta(delta)+QStringLiteral("°");
+    const auto caption_for=[common,target_count,visible_delta,zero_label](double delta) {
+        return common?QString("Common · %1\n%2\nΔ %3°").arg(target_count).arg(zero_label).arg(visible_delta(delta)):
+            QString("Mixed · %1\n%2\nΔ %3°").arg(target_count).arg(zero_label).arg(visible_delta(delta));
     };
     knob->setAccessibleName((common?QStringLiteral("Common "):QStringLiteral("Mixed "))+
         accessible_subject+" batch dial, "+QString::number(target_count)+" "+target_noun+", relative delta"+
         (top_zero?QStringLiteral(", top zero, clockwise"):QString{}));
     const auto accessibility_orientation=orientation+QStringLiteral(" The indicator is modulo 360 while authored values remain unwrapped.");
+    const auto caption_accessible_for=[context_for,accessibility_orientation](double delta) {
+        return context_for(delta)+" "+accessibility_orientation;
+    };
     knob->set_accessibility_context(context_for(0)+" "+accessibility_orientation);
     knob->set_display_zero(top_zero?-90:0);knob->set_value(initial);
     knob->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
     knob->setProperty("nect-targets",target_data);knob->setEnabled(!driven);
     const auto explanation=driven?driven_explanation:
         context_for(0)+" A dial drag edits relative to each committed value; use the numeric field for a shared absolute value or += / -= edit.";
-    knob->setToolTip(explanation+" "+tooltip_orientation+" The indicator is modulo 360 while authored degrees remain unwrapped. Escape cancels.");
+    knob->setToolTip("Adjust "+accessible_subject+" across "+QString::number(target_count)+" "+target_noun+". "+
+        explanation+" "+tooltip_orientation+" The indicator is modulo 360 while authored degrees remain unwrapped. Escape cancels.");
     numeric->setProperty("nect-exact-value",true);
     if(!numeric->isModified()) {
         numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
@@ -7561,7 +7571,7 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     row_layout->addWidget(knob);
     auto* note=new QLabel(caption_for(0),row);note->setWordWrap(true);note->setFixedHeight(batch_angle_row_height);
     note->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);note->setAlignment(Qt::AlignVCenter|Qt::AlignLeft);
-    note->setAccessibleName(caption_for(0));row_layout->addWidget(note,1);
+    note->setAccessibleName(caption_accessible_for(0));row_layout->addWidget(note,1);
     form->addRow(label+" dial",row);
 
     struct Interaction {bool live=true,owned=false,has_preview=false;std::uint64_t generation=0;};
@@ -7580,10 +7590,11 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
         if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
         else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
     };
-    auto reset_controls=[safe_knob,safe_numeric,safe_note,initial,initial_values,common,context_for,caption_for,accessibility_orientation] {
+    auto reset_controls=[safe_knob,safe_numeric,safe_note,initial,initial_values,common,context_for,caption_for,
+        caption_accessible_for,accessibility_orientation] {
         if(safe_knob) {safe_knob->disarm_drag(initial);safe_knob->set_accessibility_context(
             context_for(0)+" "+accessibility_orientation);}
-        if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_for(0));}
+        if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_accessible_for(0));}
         if(safe_numeric&&!safe_numeric->isModified()) {
             safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
             safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
@@ -7598,7 +7609,7 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     register_angle_adapter(knob,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
     const auto target_refs=targets;
     knob->begin_drag=[this,state,validate_live,report,safe_knob,safe_numeric,safe_note,target_refs,frozen_revision,
-        initial,initial_values,common,context_for,caption_for,accessibility_orientation] {
+        initial,initial_values,common,context_for,caption_for,caption_accessible_for,accessibility_orientation] {
         try {
             if(!state->live)throw Error("SESSION_CONFLICT","Angle batch control has been disposed");
             if(safe_numeric&&safe_numeric->isModified())
@@ -7606,7 +7617,7 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
             validate_live();host.session.begin_gesture(frozen_revision);
             if(safe_knob) {safe_knob->set_value(initial);safe_knob->set_accessibility_context(
                 context_for(0)+" "+accessibility_orientation);}
-            if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_for(0));}
+            if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_accessible_for(0));}
             if(safe_numeric) {
                 safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
                 safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
@@ -7615,7 +7626,7 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
         } catch(const std::exception& exception) {report(exception);return false;}
     };
     knob->preview_value=[this,state,owns,validate_live,cancel,report,safe_knob,safe_numeric,safe_note,target_refs,
-        initial,initial_values,common,context_for,caption_for,accessibility_orientation](double value) {
+        initial,initial_values,common,context_for,caption_for,caption_accessible_for,accessibility_orientation](double value) {
         if(!owns()){if(state->owned)cancel();return;}
         try {
             validate_live();const auto delta=value-initial;
@@ -7628,7 +7639,7 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
             const auto live_delta=state->has_preview?delta:0.0;
             if(safe_knob)safe_knob->set_accessibility_context(
                 context_for(live_delta)+" "+accessibility_orientation);
-            if(safe_note) {safe_note->setText(caption_for(live_delta));safe_note->setAccessibleName(caption_for(live_delta));}
+            if(safe_note) {safe_note->setText(caption_for(live_delta));safe_note->setAccessibleName(caption_accessible_for(live_delta));}
             canvas->refresh();canvas->update();
             if(safe_numeric&&!safe_numeric->isModified()) {
                 safe_numeric->setText(common&&state->has_preview?QString::number(initial_values.front()+delta,'g',17):
@@ -8461,12 +8472,15 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(formula)input->setToolTip(input->toolTip()+"\nExpression: "+qs(formula->source)+"\nDisplayed number is the evaluated result.");
     input->setToolTip(input->toolTip()+"\nEnter =expression or use fx. += / -= makes a one-time relative edit.");
     box->addWidget(input);
-    auto* fx=new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");fx->setToolTip("Edit expression · =prefix · multiline draft");box->addWidget(fx);
+    auto* fx=new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
+    fx->setObjectName("property-expression");
+    fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
     if(formula)fx->setStyleSheet("color: #84d5eb;");
-    auto* pick=new QPushButton("↗");pick->setFixedWidth(28);pick->setToolTip("Pick property source");box->addWidget(pick);
+    auto* pick=new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
+    pick->setAccessibleName("Pick source for "+label);box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
     pick->setProperty("nect-targets",target_data);
-    pick->setToolTip("Drag to a source field; hover Objects to inspect another source. Click to search.");
+    pick->setToolTip("Pick source for "+label+". Drag to a source field; hover Objects to inspect another source. Click to search.");
     layout->addRow(label,row);
     connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
     const auto field_session=host.session_id;

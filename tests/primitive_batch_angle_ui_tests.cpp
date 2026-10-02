@@ -61,7 +61,7 @@ QWidget* visible_batch_dial(Window& window,const std::vector<Ref>& targets) {
 }
 QString caption_delta(const QLabel* caption) {
     if(!caption)return {};
-    const auto marker=QStringLiteral("relative Δ ");const auto start=caption->text().indexOf(marker);
+    const auto marker=QStringLiteral("Δ ");const auto start=caption->text().indexOf(marker);
     if(start<0)return {};
     const auto value_start=start+marker.size();const auto end=caption->text().indexOf(QStringLiteral("°"),value_start);
     return end<0?QString{}:caption->text().mid(value_start,end-value_start);
@@ -133,10 +133,12 @@ void fixed_global_mixed_geometry(Window& window) {
     const auto visible_common_value=common_delta.mid(1).toDouble(&visible_common_ok);
     check(common_dial->geometry()==common_geometry&&common_dial->parentWidget()->geometry()==common_row_geometry&&
         common_dial->mapToGlobal(QPoint(common_dial->width()/2,common_dial->height()/2))==common_center&&
-        common_caption&&common_caption->text().contains("+X zero")&&common_caption->text().contains("relative Δ")&&
+        common_caption&&common_caption->text().contains("+X zero")&&common_caption->text().contains("Δ ")&&
         !common_delta.isEmpty()&&common_delta.startsWith('+')&&common_delta.size()<=10&&
         exact_common_ok&&visible_common_ok&&exact_common_delta.size()>=17&&
         std::abs(exact_common_value-visible_common_value)<1e-5&&
+        common_caption->accessibleName().contains("3 objects")&&
+        common_caption->accessibleName().contains(QString("relative delta %1 degrees").arg(exact_common_delta))&&
         common_dial->accessibleDescription().contains("modulo 360")&&
         common_caption&&common_caption->heightForWidth(common_caption->width())<=common_caption->height(),
         "Common caption keeps a stable center, shows a bounded signed delta and preserves the exact long delta accessibly");
@@ -190,7 +192,7 @@ void fixed_global_mixed_geometry(Window& window) {
     std::vector<double> preview;for(const auto& ref:targets)preview.push_back(preview_values.at(ref));
     const auto* caption=dial->parentWidget()->findChild<QLabel*>();
     check(near_values(preview,{95,455,815})&&
-        caption&&caption->text().contains("relative Δ +90°")&&
+        caption&&caption->text().contains("Δ +90°")&&
         dial->accessibleDescription().contains("relative delta +90 degrees"),
         "fixed global non-cardinal quarter-turn remains exactly +90° while its signed live caption and accessibility update");
     mouse_global(dial,QEvent::MouseButtonRelease,QPointF(center_global)+QPointF(0,16),Qt::LeftButton,Qt::NoButton);
