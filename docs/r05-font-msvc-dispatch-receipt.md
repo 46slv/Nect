@@ -1,9 +1,10 @@
 # R05 font authoring — bounded MSVC dispatch repair
 
-Isolated candidate on `dot/font-authoring-01`, based on
+Initial isolated candidate on `dot/font-authoring-01`, based on
 `4db79c74f02dcc42792b9bbe310889dbbc59eb1c`, tree
 `a07427213ad4444b2ba563289c4445dffc19abc1`. No commit, push, main integration,
-Windows execution, backend application or REQ-15 completion is claimed here.
+Windows execution, backend application or REQ-15 completion was claimed for
+that initial Linux-only validation. The subsequent Windows replay is below.
 
 ## Observed Windows blocker
 
@@ -70,3 +71,38 @@ Logs and the additional read-only parity harness are under
 The source/build owner releases this candidate for review and exact Windows
 replay. Linux evidence and source reasoning do not establish that MSVC now
 compiles, or that guarded DirectWrite code compiles or applies font intent.
+
+## Windows replay and shaping-oracle conversion repair, 2026-10-02
+
+The exact replay of `fdcae91505e646a4c50cdd8908f54afd2924dee1`, tree
+`f42dac9e64027cc41913b34a727bed18733518f8`, resolved both C1061 errors and
+built core, IO, `nect` and the portable font contract. Seven of eight selected
+Windows tests passed: core 50, text 17078, text authoring 2035, portable font 50
+(platform-conditional count), History 408, History budget/gesture 34, and
+process 223 plus 1154 migration checks. Optional process JSON Schema checks were
+NOT_RUN because that package was unavailable; inline checks ran. No executed
+test failed or skipped. The eighth test, shaping, was NOT_RUN because its binary
+was not produced. Desktop/MCP was not attempted while this gate was incomplete.
+Replay report SHA-256:
+`DD7489E9719229D050093AB3402B285828EBA5CC8DF69C43E84C616BC453A2AD`.
+
+The next actual compiler error is C2397 at `tests/font_shaping_tests.cpp:55`:
+`DWRITE_FONT_SIMULATIONS` implicitly list-initializes the oracle's `UINT32`
+simulation-mask field. The bounded repair explicitly casts that one returned
+mask to `UINT32`. [Documented simulation flags](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ne-dwrite-dwrite_font_simulations)
+are 0, 1 and 2, with bitwise combinations; all fit without losing bits.
+The destination and adjacent index/weight/style types, captured values and test
+assertions remain unchanged. Inspection found no second instance of this
+enum-to-`UINT32` aggregate-initialization pattern in the test source. Reversing
+the single cast yields exact full-file equality with the replayed revision.
+
+Linux rebuilt `font_shaping_tests`, `font_authoring_contract_tests`,
+`text_tests`, `core_tests` and `history_tests` successfully. The focused run
+passed core 50, portable font 52, portable text 3 and budget/gesture 34 checks;
+shaping explicitly SKIPPED with code 77. `git diff --check` passed. Evidence:
+`build-font-authoring/evidence/msvc-simulations/{build.log,contracts.log,source-audit.log,sha256.txt}`.
+
+This one-line test-source repair remains uncompiled under Windows until its
+next exact replay. The guarded shaping assertions have not run; no feature or
+axis effect is established by these results. Source/build ownership is released
+for review and replay, without commit, push or integration by this worker.

@@ -52,7 +52,7 @@ public:
             ComPtr<IDWriteFontFace3> face;hr(value->fontFace->QueryInterface(IID_PPV_ARGS(&face)));
             runs.push_back({{value->glyphIndices,value->glyphIndices+value->glyphCount},
                 {value->glyphAdvances,value->glyphAdvances+value->glyphCount},value->fontFace->GetIndex(),
-                value->fontFace->GetSimulations(),face->GetWeight(),face->GetStyle()});return S_OK;
+                static_cast<UINT32>(value->fontFace->GetSimulations()),face->GetWeight(),face->GetStyle()});return S_OK;
         } catch(...){return E_FAIL;}
     }
     HRESULT STDMETHODCALLTYPE DrawUnderline(void*,FLOAT,FLOAT,const DWRITE_UNDERLINE*,IUnknown*) override {return E_NOTIMPL;}
