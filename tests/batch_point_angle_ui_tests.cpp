@@ -1,10 +1,12 @@
 #include "window.hpp"
 #include "nect/io.hpp"
 #include <QApplication>
+#include <QCoreApplication>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
 #include <QMouseEvent>
 #include <QSettings>
 #include <QStatusBar>
@@ -82,6 +84,11 @@ void mouse(QWidget* control,QEvent::Type type,double angle,Qt::MouseButton butto
 void press(QWidget* control) {mouse(control,QEvent::MouseButtonPress,0,Qt::LeftButton,Qt::LeftButton);}
 void move(QWidget* control,double angle) {mouse(control,QEvent::MouseMove,angle,Qt::NoButton,Qt::LeftButton);}
 void release(QWidget* control,double angle) {mouse(control,QEvent::MouseButtonRelease,angle,Qt::LeftButton,Qt::NoButton);}
+void mouse_global(QWidget* control,QEvent::Type type,const QPointF& global,Qt::MouseButton button,Qt::MouseButtons buttons) {
+    const QPointF local(control->mapFromGlobal(global.toPoint()));
+    QMouseEvent event(type,local,global,button,buttons,Qt::NoModifier);
+    QApplication::sendEvent(control,&event);events();
+}
 void edit_batch(QLineEdit* input,const QString& text) {
     input->setText(text);input->setModified(true);input->editingFinished();events();
 }
@@ -96,6 +103,59 @@ void authored_fixture(Window& window,const std::vector<double>& incoming={-355,5
         {{"contour-a",false,{a,b}},{"contour-b",false,{c,d}}}}},setup.revision());
     window.host.session=Session(setup.document());window.host.session_id+="-batch-authored";window.host.edited();
     window.canvas->set_selections({{"authored","a"},{"authored","b"},{"authored","c"}});events();
+}
+void shared_caption_geometry(Window& window) {
+    window.resize(1000,650);
+    if(auto* scroll=window.findChild<QWidget*>("inspector-scroll"))scroll->setFixedWidth(300);
+    if(auto* dock=window.findChild<QWidget*>("properties"))dock->setFixedWidth(320);
+    events();
+    authored_fixture(window,{45,45,45});QTest::qWait(80);window.grab();events();
+    const auto targets=refs_for("in.angle");auto* common=batch_dial(window,"in.angle",targets);
+    const QPoint center=common->mapToGlobal(QPoint(common->width()/2,common->height()/2));
+    const auto common_geometry=common->geometry(),common_row=common->parentWidget()->geometry();
+    const auto* common_caption=common->parentWidget()->findChild<QLabel*>();
+    mouse_global(common,QEvent::MouseButtonPress,QPointF(center)+QPointF(16,0),Qt::LeftButton,Qt::LeftButton);
+    mouse_global(common,QEvent::MouseMove,QPointF(center)+QPointF(14,8),Qt::NoButton,Qt::LeftButton);
+    check(common->geometry()==common_geometry&&common->parentWidget()->geometry()==common_row&&
+        common->mapToGlobal(QPoint(common->width()/2,common->height()/2))==center&&common_caption&&
+        common_caption->text().contains("+X zero")&&common_caption->text().contains("relative Δ +")&&
+        common_caption->heightForWidth(common_caption->width())<=common_caption->height(),
+        "shared point-batch Common caption keeps fixed geometry and fully shows its fractional delta");
+    QTest::keyClick(common,Qt::Key_Escape);events();
+    check(!window.host.session.gesture_active()&&batch_numeric(window,targets)->text()=="45",
+        "shared point-batch Common value restores after Escape");
+    const int common_height=common->parentWidget()->height();
+    const int common_dial_height=common->height();
+
+    authored_fixture(window,{-355,5,725});QTest::qWait(80);window.grab();events();
+    auto* mixed=batch_dial(window,"in.angle",targets);
+    const auto mixed_geometry=mixed->geometry();const auto mixed_row=mixed->parentWidget()->geometry();
+    const QPoint mixed_center=mixed->mapToGlobal(QPoint(mixed->width()/2,mixed->height()/2));
+    check(common_height==mixed->parentWidget()->height()&&common_dial_height==mixed->height(),
+        "shared point-batch Common and Mixed captions retain identical fixed row and dial sizes");
+    mouse_global(mixed,QEvent::MouseButtonPress,QPointF(mixed_center)+QPointF(16,0),Qt::LeftButton,Qt::LeftButton);
+    for(const auto& offset:{QPointF(14,8),QPointF(8,14),QPointF(0,16)}) {
+        mouse_global(mixed,QEvent::MouseMove,QPointF(mixed_center)+offset,Qt::NoButton,Qt::LeftButton);
+        check(mixed->geometry()==mixed_geometry&&mixed->parentWidget()->geometry()==mixed_row&&
+            mixed->mapToGlobal(QPoint(mixed->width()/2,mixed->height()/2))==mixed_center,
+            "shared point-batch fixed-global arc does not move its dial while caption text wraps");
+        const auto* caption=mixed->parentWidget()->findChild<QLabel*>();
+        check(caption&&caption->text().contains("+X zero")&&caption->text().contains("relative Δ +")&&
+            caption->heightForWidth(caption->width())<=caption->height(),
+            "shared point-batch live signed delta remains fully visible in the fixed row");
+    }
+    const auto values=evaluate(window.host.session.preview_document());
+    check(std::abs(values.at(targets[0])-(-265))<1e-8&&std::abs(values.at(targets[1])-95)<1e-8&&
+        std::abs(values.at(targets[2])-815)<1e-8&&mixed->accessibleDescription().contains("relative delta +90 degrees"),
+        "shared point-batch non-cardinal fixed-global quarter turn remains exactly +90 degrees");
+    QTest::keyClick(mixed,Qt::Key_Escape);events();
+    if(auto* scroll=window.findChild<QWidget*>("inspector-scroll")) {
+        scroll->setMinimumWidth(300);scroll->setMaximumWidth(QWIDGETSIZE_MAX);
+    }
+    if(auto* dock=window.findChild<QWidget*>("properties")) {
+        dock->setMinimumWidth(0);dock->setMaximumWidth(QWIDGETSIZE_MAX);
+    }
+    window.resize(1400,900);events();
 }
 std::vector<Ref> generated_refs(const Document& document,const std::string& object,const std::string& field,std::size_t count=2) {
     const auto values=evaluate(document);const auto contours=path_contours(document.objects.at(object),&values);
@@ -185,7 +245,7 @@ void batch_vector_and_history(Window& window,const QString& directory) {
     authored_fixture(window,{5,365,725});dial=batch_dial(window,"in.angle",targets);
     const auto labels=dial->parentWidget()->findChildren<QLabel*>();
     const bool mixed_caption=std::any_of(labels.begin(),labels.end(),[](const QLabel* label) {
-        return label->isVisible()&&label->text().contains("Mixed · 3 points · relative Δ");
+        return label->isVisible()&&label->text().contains("Mixed · 3 points · +X zero · relative Δ");
     });
     const auto* modulo_mixed_numeric=batch_numeric(window,targets);
     check(modulo_mixed_numeric->text().isEmpty()&&modulo_mixed_numeric->placeholderText()=="Mixed"&&
@@ -514,6 +574,13 @@ int main(int argc,char** argv) {
         Window window(directory.path(),std::make_unique<FolderLibrary>(settings));window.show();events();
         if(qEnvironmentVariable("QT_SCALE_FACTOR")=="2")
             check(window.devicePixelRatioF()>=1.9,"high-DPI batch-angle run uses an actual scaled widget DPR");
+        if(qEnvironmentVariable("QT_SCALE_FACTOR")=="1.25")
+            check(window.devicePixelRatioF()>=1.2,"125% batch-angle geometry run uses an actual fractional widget DPR");
+        if(qEnvironmentVariableIsSet("NECT_GEOMETRY_ONLY")) {
+            shared_caption_geometry(window);
+            std::cout<<"PASS fixed-global point-batch geometry\n";return 0;
+        }
+        shared_caption_geometry(window);
         batch_vector_and_history(window,directory.path());field_isolation_and_generated_sources(window);
         cross_object_sources_and_atomic_rejection(window);no_net_dirty_and_range(window);
         driven_batch_rejection(window);stale_and_arbitration(window);

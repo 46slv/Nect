@@ -165,3 +165,30 @@ Screenshots viewed in CUA transcript, no exported files claimed. Held-drag Escap
 continuous preview capture, driven/stale/no-net GUI negatives, other generated types,
 high-scale dirty interruption, Windows and subjective acceptance remain NOT_RUN.
 This evidence does not automatically qualify the later batch-point adapter.
+
+## f24 point-batch platform findings (2026-10-02)
+
+Exact `f24e33c4006bda894101d5276e5f68a14e9aeca0`, tree
+`659bbddff437d6f11606b05ee13c91a59cc560d2`, was qualified separately:
+
+- Windows task `01a0fb01-1c09-7206-83da-609e55a9e0bb` verified all327 source blobs,
+  configured82 tests, and passed six available standalone contracts. Release desktop
+  build failed with MSVC19.29 C1001 in the nested generic point-membership predicate
+  in `Window::add_multi_point_angle`. Desktop/deploy/UI/MCP/full82 stages were NOT_RUN.
+  Source and flags were unchanged; writer ownership was released. Build-log SHA256
+  `064fd6e30e72971b6ed2b517749174a19bfe6775e0b975766b04138177a10932`.
+- Own-cloud Linux/Xfce real-GUI replay passed bounded normal-scale batch numeric,
+  relative drag, dirty-selection ownership, no-motion, multi-source and one-Undo checks.
+  Sixteen saved snapshots independently passed native0.77 validation. At125%, a Mixed
+  incoming Polygon selection starting5/365/725 produced a common delta approximately
+  -5.97432328648 on a sampled quarter-circle pointer path, while a Common selection
+  produced+90. This is a recorded GUI finding, not a Windows result. Screenshot-based
+  centers are estimates; no held-phase widget bounds were exposed.
+
+Frozen GUI binary SHA256
+`249363b4b0e25576df21e20ef2f3405a2a7e02bf03d9e497913dd64ec0c16f11`.
+Receipt `build/d0-evidence/gui-batch-point/objective-gui-receipt-f24e33c.json` SHA256
+`843ce26ae320547be41d3a13eb6010e294256eef493b47d2636cf7a4a0df227c`.
+All owned GUI windows were closed. Source patch556b122 uses explicit membership loops
+and stable-height batch layout, with automated geometry regression evidence recorded
+separately. These changes do not close the findings until exact repaired-platform replay.

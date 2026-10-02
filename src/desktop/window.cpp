@@ -7492,15 +7492,158 @@ void Window::add_point_angle(QFormLayout* form,const Ref& ref,const Object& obje
     bind_angle_adapter(knob,numeric,ref,initial,std::move(validate_target),false,true);
 }
 
-void Window::add_multi_point_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label) {
-    if(targets.size()<2||(targets.front().field!="in.angle"&&targets.front().field!="out.angle"))
-        throw Error("INVALID_SELECTION","A batch point-angle dial needs at least two matching handle targets");
+void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targets,const QString& label,
+        const QString& dial_object_name,const QString& accessible_subject,const QString& target_noun,
+        const std::vector<double>& initial_values,bool driven,const QString& driven_explanation,
+        std::function<void()> validate_target) {
+    if(targets.size()<2||initial_values.size()!=targets.size())
+        throw Error("INVALID_SELECTION","A batch angle dial needs at least two complete targets and values");
     const auto target_data=refs_json(targets);
     QPointer<QLineEdit> numeric;
     for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
         if(input->property("nect-targets").toByteArray()==target_data){numeric=input;break;}
-    if(!numeric)throw Error("MISSING_PROPERTY","The point-angle batch has no exact numeric target row");
+    if(!numeric)throw Error("MISSING_PROPERTY","The angle batch has no exact numeric target row");
 
+    const bool common=std::all_of(initial_values.begin()+1,initial_values.end(),[&](double value) {
+        return value==initial_values.front();
+    });
+    const auto initial=common?initial_values.front():0.0;
+    const auto frozen_session=host.session_id;
+    const auto frozen_document=host.session.document().id;
+    const auto frozen_revision=host.session.revision();
+    // A live caption may wrap at a narrow Inspector width. Keep its row fixed so
+    // a text update cannot recenter the hit target under a stationary pointer.
+    auto* row=new QWidget;row->setFixedHeight(80);row->setObjectName("batch-angle-dial-row");
+    row->setToolTip(label+" angle batch control · drag adds the same signed delta to every selected target");
+    auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
+    QPointer<RotationKnob> knob=new RotationKnob(row);knob->setObjectName(dial_object_name);
+    const auto target_count=static_cast<qulonglong>(targets.size());
+    const auto signed_delta=[](double delta) {
+        auto text=QString::number(delta,'g',17);if(delta>=0)text.prepend('+');return text;
+    };
+    const auto context_for=[common,initial_values,target_count,signed_delta,target_noun](double delta) {
+        if(common)return QString("Common angle across %1 %2: current unwrapped angle %3 degrees; relative delta %4 degrees applies equally to every target.")
+            .arg(target_count).arg(target_noun).arg(QString::number(initial_values.front()+delta,'g',17),signed_delta(delta));
+        return QString("Mixed starting angles across %1 %2; relative delta %3 degrees applies equally and preserves exact differences.")
+            .arg(target_count).arg(target_noun).arg(signed_delta(delta));
+    };
+    const auto visible_delta=[](double delta) {
+        auto text=QString::number(delta,'g',7);if(delta>=0)text.prepend('+');return text;
+    };
+    const auto caption_for=[common,target_count,visible_delta,target_noun](double delta) {
+        const auto caption=common?QString("Common angle · %1 %2 · +X zero · relative Δ")
+            .arg(target_count).arg(target_noun):QString("Mixed · %1 %2 · +X zero · relative Δ").arg(target_count).arg(target_noun);
+        return std::abs(delta)<=1e-10?caption:caption+" "+visible_delta(delta)+QStringLiteral("°");
+    };
+    knob->setAccessibleName((common?QStringLiteral("Common "):QStringLiteral("Mixed "))+
+        accessible_subject+" batch dial, "+QString::number(target_count)+" "+target_noun+", relative delta");
+    knob->set_accessibility_context(context_for(0)+" Zero points right along local +X; positive degrees turn clockwise. The indicator is modulo 360 while authored values remain unwrapped.");
+    knob->set_display_zero(0);knob->set_value(initial);
+    knob->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
+    knob->setProperty("nect-targets",target_data);knob->setEnabled(!driven);
+    const auto explanation=driven?driven_explanation:
+        context_for(0)+" A dial drag edits relative to each committed value; use the numeric field for a shared absolute value or += / -= edit.";
+    knob->setToolTip(explanation+" Zero is local +X; positive degrees turn clockwise. The indicator is modulo 360 while authored degrees remain unwrapped. Escape cancels.");
+    numeric->setProperty("nect-exact-value",true);
+    if(!numeric->isModified()) {
+        numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
+        numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));numeric->setModified(false);
+    }
+    row_layout->addWidget(knob);
+    auto* note=new QLabel(caption_for(0),row);note->setWordWrap(true);note->setFixedHeight(80);
+    note->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);note->setAlignment(Qt::AlignVCenter|Qt::AlignLeft);
+    note->setAccessibleName(caption_for(0));row_layout->addWidget(note);row_layout->addStretch();
+    form->addRow(label+" dial",row);
+
+    struct Interaction {bool live=true,owned=false,has_preview=false;std::uint64_t generation=0;};
+    const auto state=std::make_shared<Interaction>();
+    QPointer<QLineEdit> safe_numeric=numeric;QPointer<RotationKnob> safe_knob=knob;QPointer<QLabel> safe_note=note;
+    auto owns=[this,state,frozen_session,frozen_document,frozen_revision] {
+        return state->owned&&host.session_id==frozen_session&&host.session.document().id==frozen_document&&
+            host.session.revision()==frozen_revision&&host.session.gesture_active()&&
+            host.session.gesture_generation()==state->generation;
+    };
+    const auto validate_live=[state,validate_target] {
+        if(!state->live)throw Error("SESSION_CONFLICT","Angle batch control has been disposed");
+        validate_target();
+    };
+    auto report=[this](const std::exception& exception) {
+        if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
+        else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
+    };
+    auto reset_controls=[safe_knob,safe_numeric,safe_note,initial,initial_values,common,context_for,caption_for] {
+        if(safe_knob) {safe_knob->disarm_drag(initial);safe_knob->set_accessibility_context(
+            context_for(0)+" Zero points right along local +X; positive degrees turn clockwise. The indicator is modulo 360 while authored values remain unwrapped.");}
+        if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_for(0));}
+        if(safe_numeric&&!safe_numeric->isModified()) {
+            safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
+            safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
+        }
+    };
+    auto cancel=[this,state,owns,reset_controls] {
+        const bool local_interaction=state->owned;const bool active=owns();
+        if(active)host.session.cancel_gesture();state->owned=false;state->has_preview=false;
+        if(local_interaction)reset_controls();
+        if(active){canvas->refresh();canvas->update();}
+    };
+    register_angle_adapter(knob,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
+    const auto target_refs=targets;
+    knob->begin_drag=[this,state,validate_live,report,safe_knob,safe_numeric,safe_note,target_refs,frozen_revision,
+        initial,initial_values,common,context_for,caption_for] {
+        try {
+            if(!state->live)throw Error("SESSION_CONFLICT","Angle batch control has been disposed");
+            if(safe_numeric&&safe_numeric->isModified())
+                throw Error("UNCOMMITTED_INPUT","Commit or cancel the batch numeric draft before using the dial");
+            validate_live();host.session.begin_gesture(frozen_revision);
+            if(safe_knob) {safe_knob->set_value(initial);safe_knob->set_accessibility_context(
+                context_for(0)+" Zero points right along local +X; positive degrees turn clockwise. The indicator is modulo 360 while authored values remain unwrapped.");}
+            if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_for(0));}
+            if(safe_numeric) {
+                safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
+                safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
+            }
+            state->generation=host.session.gesture_generation();state->owned=true;state->has_preview=false;return true;
+        } catch(const std::exception& exception) {report(exception);return false;}
+    };
+    knob->preview_value=[this,state,owns,validate_live,cancel,report,safe_knob,safe_numeric,safe_note,target_refs,
+        initial,initial_values,common,context_for,caption_for](double value) {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {
+            validate_live();const auto delta=value-initial;
+            if(std::abs(delta)<=1e-10) {
+                if(safe_knob)safe_knob->set_value(initial);
+                host.session.update_gesture({});state->has_preview=false;
+            } else {
+                host.session.update_gesture({EditProperties{target_refs,delta,true}});state->has_preview=true;
+            }
+            const auto live_delta=state->has_preview?delta:0.0;
+            if(safe_knob)safe_knob->set_accessibility_context(
+                context_for(live_delta)+" Zero points right along local +X; positive degrees turn clockwise. The indicator is modulo 360 while authored values remain unwrapped.");
+            if(safe_note) {safe_note->setText(caption_for(live_delta));safe_note->setAccessibleName(caption_for(live_delta));}
+            canvas->refresh();canvas->update();
+            if(safe_numeric&&!safe_numeric->isModified()) {
+                safe_numeric->setText(common&&state->has_preview?QString::number(initial_values.front()+delta,'g',17):
+                    common?QString::number(initial_values.front(),'g',17):QString{});
+                safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
+            }
+        } catch(const std::exception& exception) {cancel();report(exception);}
+    };
+    knob->commit_drag=[this,state,owns,validate_live,cancel,report] {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {
+            validate_live();
+            const bool changed=state->has_preview;
+            if(changed)host.session.commit_gesture();else host.session.cancel_gesture();
+            state->owned=false;state->has_preview=false;
+            if(changed)host.edited();
+        } catch(const std::exception& exception) {cancel();report(exception);}
+    };
+    knob->cancel_drag=cancel;
+}
+
+void Window::add_multi_point_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label) {
+    if(targets.size()<2||(targets.front().field!="in.angle"&&targets.front().field!="out.angle"))
+        throw Error("INVALID_SELECTION","A batch point-angle dial needs at least two matching handle targets");
     struct TargetSnapshot {
         Ref ref;
         Id contour;
@@ -7553,53 +7696,10 @@ void Window::add_multi_point_angle(QFormLayout* form,const std::vector<Ref>& tar
         }
         snapshot.push_back(std::move(current));
     }
-    const bool common=std::all_of(initial_values.begin()+1,initial_values.end(),[&](double value) {
-        return value==initial_values.front();
-    });
-    const auto initial=common?initial_values.front():0.0;
     const auto frozen_session=host.session_id;
     const auto frozen_document=document.id;
     const auto frozen_revision=host.session.revision();
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
-    auto* row=new QWidget;auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
-    QPointer<RotationKnob> knob=new RotationKnob(row);
-    const auto field=qs(targets.front().field);
-    knob->setObjectName("batch-point-angle-knob-"+field);
-    const auto handle=targets.front().field=="in.angle"?QStringLiteral("incoming"):QStringLiteral("outgoing");
-    const auto target_count=static_cast<qulonglong>(targets.size());
-    const auto signed_delta=[](double delta) {
-        auto text=QString::number(delta,'g',17);if(delta>=0)text.prepend('+');return text;
-    };
-    const auto context_for=[common,initial_values,target_count,signed_delta](double delta) {
-        if(common)return QString("Common angle across %1 points: current unwrapped angle %2 degrees; relative delta %3 degrees applies equally to every target.")
-            .arg(target_count).arg(QString::number(initial_values.front()+delta,'g',17),signed_delta(delta));
-        return QString("Mixed starting angles across %1 points; relative delta %2 degrees applies equally and preserves exact differences.")
-            .arg(target_count).arg(signed_delta(delta));
-    };
-    const auto caption_for=[common,target_count,signed_delta](double delta) {
-        const auto caption=common?QString("Common angle · %1 points · +X zero · modulo 360 · relative Δ")
-            .arg(target_count):QString("Mixed · %1 points · relative Δ").arg(target_count);
-        return std::abs(delta)<=1e-10?caption:caption+" "+signed_delta(delta)+QStringLiteral("°");
-    };
-    knob->setAccessibleName((common?QStringLiteral("Common "):QStringLiteral("Mixed "))+
-        handle+" handle angle batch dial, "+QString::number(target_count)+" points, relative delta");
-    knob->set_accessibility_context(context_for(0)+" Zero points right along local +X; positive degrees turn clockwise.");
-    knob->set_display_zero(0);knob->set_value(initial);knob->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
-    knob->setProperty("nect-targets",target_data);
-    knob->setEnabled(!driven);
-    const auto explanation=driven
-        ?QString("At least one selected handle angle has a stored binding or expression, including bypassed Point Edit data. Unlink every driven angle before using the batch dial.")
-        :context_for(0)+" A dial drag edits relative to each committed value; use the numeric field for a shared absolute value or += / -= edit. Zero is local +X and positive is clockwise.";
-    knob->setToolTip(explanation+" Escape cancels.");
-    numeric->setProperty("nect-exact-value",true);
-    if(!numeric->isModified()) {
-        numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
-        numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));numeric->setModified(false);
-    }
-    row_layout->addWidget(knob);
-    auto* note=new QLabel(caption_for(0),row);note->setWordWrap(true);note->setAccessibleName(caption_for(0));row_layout->addWidget(note);row_layout->addStretch();
-    form->addRow(label+" dial",row);
-
     const auto validate_target=[this,snapshot,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
         if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
             throw Error("SESSION_CONFLICT","Point-angle batch belongs to another document");
@@ -7625,11 +7725,12 @@ void Window::add_multi_point_angle(QFormLayout* form,const std::vector<Ref>& tar
                     throw Error("MISSING_PROPERTY","Canonical Point Edit destination changed");
             } else if(object.source)throw Error("MISSING_PROPERTY","Authored Path source identity changed");
             const auto contours=object.source?path_contours(object,&values):object.contours;
-            const bool point_present=std::any_of(contours.begin(),contours.end(),[&](const auto& contour) {
-                return contour.id==target.contour&&std::any_of(contour.points.begin(),contour.points.end(),[&](const auto& point) {
-                    return point.id==target.ref.point;
-                });
-            });
+            bool point_present=false;
+            for(const auto& contour:contours) {
+                if(contour.id!=target.contour)continue;
+                for(const auto& point:contour.points)if(point.id==target.ref.point) {point_present=true;break;}
+                if(point_present)break;
+            }
             if(!point_present||!values.contains(target.ref))
                 throw Error("MISSING_PROPERTY","Selected point, contour, or angle Ref is no longer active");
             if(values.at(target.ref)!=target.value)
@@ -7646,92 +7747,74 @@ void Window::add_multi_point_angle(QFormLayout* form,const std::vector<Ref>& tar
             }
         }
     };
+    const auto field=qs(targets.front().field);
+    const auto subject=targets.front().field=="in.angle"?QStringLiteral("incoming handle angle"):QStringLiteral("outgoing handle angle");
+    const auto explanation=QString("At least one selected handle angle has a stored binding or expression, including bypassed Point Edit data. Unlink every driven angle before using the batch dial.");
+    add_multi_angle_dial(form,targets,label,"batch-point-angle-knob-"+field,subject,"points",initial_values,driven,
+        explanation,validate_target);
+}
 
-    struct Interaction {bool live=true,owned=false,has_preview=false;std::uint64_t generation=0;};
-    const auto state=std::make_shared<Interaction>();
-    QPointer<QLineEdit> safe_numeric=numeric;QPointer<RotationKnob> safe_knob=knob;
-    auto owns=[this,state,frozen_session,frozen_document,frozen_revision] {
-        return state->owned&&host.session_id==frozen_session&&host.session.document().id==frozen_document&&
-            host.session.revision()==frozen_revision&&host.session.gesture_active()&&
-            host.session.gesture_generation()==state->generation;
-    };
-    const auto validate_live=[state,validate_target] {
-        if(!state->live)throw Error("SESSION_CONFLICT","Point-angle batch control has been disposed");
-        validate_target();
-    };
-    auto report=[this](const std::exception& exception) {
-        if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
-        else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
-    };
-    QPointer<QLabel> safe_note=note;
-    auto reset_controls=[safe_knob,safe_numeric,safe_note,initial,initial_values,common,context_for,caption_for] {
-        if(safe_knob) {safe_knob->disarm_drag(initial);safe_knob->set_accessibility_context(
-            context_for(0)+" Zero points right along local +X; positive degrees turn clockwise.");}
-        if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_for(0));}
-        if(safe_numeric&&!safe_numeric->isModified()) {
-            safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
-            safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
+void Window::add_multi_primitive_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label) {
+    if(targets.size()<2||targets.front().field!="generator.rotation")
+        throw Error("INVALID_SELECTION","A primitive rotation batch needs at least two source-rotation targets");
+    struct TargetSnapshot {Ref ref;Id source_id,source_type;unsigned source_version=0;double value=0;};
+    const auto& document=host.session.document();const auto selected=canvas->selections();
+    if(selected.size()!=targets.size())throw Error("INVALID_SELECTION","Primitive-angle batch selection changed");
+    std::vector<TargetSnapshot> snapshot;snapshot.reserve(targets.size());
+    std::vector<double> initial_values;initial_values.reserve(targets.size());std::set<Ref> unique_targets;bool driven=false;
+    for(std::size_t i=0;i<targets.size();++i) {
+        const auto& ref=targets[i];
+        if(ref.field!="generator.rotation"||!ref.point.empty()||!unique_targets.insert(ref).second)
+            throw Error("INVALID_SELECTION","Primitive-angle batch must contain unique whole-object rotation Refs");
+        if(selected[i].object!=ref.object||!selected[i].point.empty())
+            throw Error("INVALID_SELECTION","Primitive-angle target order no longer matches whole-object selection");
+        const auto found=document.objects.find(ref.object);
+        if(found==document.objects.end()||found->second.kind!=Kind::path||!found->second.source)
+            throw Error("MISSING_PROPERTY","A selected rotation target is no longer a generated primitive");
+        const auto& object=found->second;const auto& source=*object.source;
+        if(source.type!="nect.shape.polygon"&&source.type!="nect.shape.star")
+            throw Error("UNSUPPORTED_SOURCE","Primitive batch angle applies only to Polygon and Star sources");
+        if(!source.parameters.contains("rotation"))
+            throw Error("MISSING_PROPERTY","The exact generator.rotation field is unavailable");
+        const auto value=inspector_values_.at(ref);
+        if(!std::isfinite(value)||std::abs(value)>1e9)
+            throw Error("OUT_OF_RANGE","A selected source rotation is outside the authored angle range");
+        const auto& scalar=source.parameters.at("rotation");driven=driven||scalar.binding.has_value()||scalar.expression.has_value();
+        initial_values.push_back(value);snapshot.push_back({ref,source.id,source.type,source.version,value});
+    }
+    const auto frozen_session=host.session_id;const auto frozen_document=document.id;
+    const auto frozen_revision=host.session.revision();const auto composition=canvas->active_composition();
+    const auto artboard=canvas->active_artboard();
+    const auto validate_target=[this,snapshot,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+            throw Error("SESSION_CONFLICT","Primitive-angle batch belongs to another document");
+        if(host.session.revision()!=frozen_revision)
+            throw Error("REVISION_CONFLICT","Primitive-angle batch changed; reopen the Inspector");
+        if(canvas->selections()!=selected||canvas->active_composition()!=composition||canvas->active_artboard()!=artboard)
+            throw Error("MISSING_PROPERTY","Primitive-angle batch selection or active frame changed");
+        const auto& current_document=host.session.document();const auto values=evaluate(current_document);
+        for(const auto& target:snapshot) {
+            const auto found=current_document.objects.find(target.ref.object);
+            if(found==current_document.objects.end()||found->second.kind!=Kind::path||!found->second.source)
+                throw Error("MISSING_PROPERTY","A selected primitive object or source was removed");
+            const auto& source=*found->second.source;
+            if(source.id!=target.source_id||source.type!=target.source_type||source.version!=target.source_version)
+                throw Error("MISSING_PROPERTY","A selected Polygon or Star source identity changed");
+            if(source.type!="nect.shape.polygon"&&source.type!="nect.shape.star")
+                throw Error("UNSUPPORTED_SOURCE","Primitive batch angle applies only to Polygon and Star sources");
+            if(!source.parameters.contains("rotation")||!values.contains(target.ref))
+                throw Error("MISSING_PROPERTY","The exact generator.rotation Ref is no longer active");
+            if(values.at(target.ref)!=target.value||!std::isfinite(values.at(target.ref))||std::abs(values.at(target.ref))>1e9)
+                throw Error("MISSING_PROPERTY","A selected source rotation no longer matches its valid captured starting value");
+            const auto& scalar=source.parameters.at("rotation");
+            if(scalar.binding||scalar.expression)
+                throw Error("DRIVEN_PROPERTY","Unlink every driven Polygon or Star rotation before using the batch dial");
         }
     };
-    auto cancel=[this,state,owns,reset_controls] {
-        const bool local_interaction=state->owned;const bool active=owns();
-        if(active)host.session.cancel_gesture();state->owned=false;state->has_preview=false;
-        if(local_interaction)reset_controls();
-        if(active){canvas->refresh();canvas->update();}
-    };
-    register_angle_adapter(knob,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
-    const auto target_refs=targets;
-    knob->begin_drag=[this,state,validate_live,report,safe_knob,safe_numeric,safe_note,target_refs,frozen_revision,
-        initial,initial_values,common,context_for,caption_for] {
-        try {
-            if(!state->live)throw Error("SESSION_CONFLICT","Point-angle batch control has been disposed");
-            if(safe_numeric&&safe_numeric->isModified())
-                throw Error("UNCOMMITTED_INPUT","Commit or cancel the batch numeric draft before using the dial");
-            validate_live();host.session.begin_gesture(frozen_revision);
-            if(safe_knob) {safe_knob->set_value(initial);safe_knob->set_accessibility_context(
-                context_for(0)+" Zero points right along local +X; positive degrees turn clockwise.");}
-            if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_for(0));}
-            if(safe_numeric) {
-                safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
-                safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
-            }
-            state->generation=host.session.gesture_generation();state->owned=true;state->has_preview=false;return true;
-        } catch(const std::exception& exception) {report(exception);return false;}
-    };
-    knob->preview_value=[this,state,owns,validate_live,cancel,report,safe_knob,safe_numeric,safe_note,target_refs,
-        initial,initial_values,common,context_for,caption_for](double value) {
-        if(!owns()){if(state->owned)cancel();return;}
-        try {
-            validate_live();const auto delta=value-initial;
-            if(std::abs(delta)<=1e-10) {
-                if(safe_knob)safe_knob->set_value(initial);
-                host.session.update_gesture({});state->has_preview=false;
-            } else {
-                host.session.update_gesture({EditProperties{target_refs,delta,true}});state->has_preview=true;
-            }
-            const auto live_delta=state->has_preview?delta:0.0;
-            if(safe_knob)safe_knob->set_accessibility_context(
-                context_for(live_delta)+" Zero points right along local +X; positive degrees turn clockwise.");
-            if(safe_note) {safe_note->setText(caption_for(live_delta));safe_note->setAccessibleName(caption_for(live_delta));}
-            canvas->refresh();canvas->update();
-            if(safe_numeric&&!safe_numeric->isModified()) {
-                safe_numeric->setText(common&&state->has_preview?QString::number(initial_values.front()+delta,'g',17):
-                    common?QString::number(initial_values.front(),'g',17):QString{});
-                safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
-            }
-        } catch(const std::exception& exception) {cancel();report(exception);}
-    };
-    knob->commit_drag=[this,state,owns,validate_live,cancel,report] {
-        if(!owns()){if(state->owned)cancel();return;}
-        try {
-            validate_live();
-            const bool changed=state->has_preview;
-            if(changed)host.session.commit_gesture();else host.session.cancel_gesture();
-            state->owned=false;state->has_preview=false;
-            if(changed)host.edited();
-        } catch(const std::exception& exception) {cancel();report(exception);}
-    };
-    knob->cancel_drag=cancel;
+    add_multi_angle_dial(form,targets,label,"batch-primitive-angle-knob",QStringLiteral("source rotation angle"),
+        QStringLiteral("objects"),initial_values,driven,
+        QStringLiteral("At least one selected Polygon or Star rotation is driven. Unlink every driven source rotation before using the batch dial."),
+        validate_target);
 }
 
 void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& label) {
@@ -7986,8 +8069,18 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         auto* form=section(text?"Common Text parameters":"Common source parameters");
         for(const auto& [name,scalar]:parameters) {
             (void)scalar;
-            if(std::all_of(selected.begin(),selected.end(),[&](const auto& item){const auto& o=d.objects.at(item.object);return (text?o.text->parameters:o.source->parameters).contains(name);}))
+            if(std::all_of(selected.begin(),selected.end(),[&](const auto& item){const auto& o=d.objects.at(item.object);return (text?o.text->parameters:o.source->parameters).contains(name);})) {
                 common(form,(text?"text.":"generator.")+name,parameter_label(name));
+                if(!text&&name=="rotation"&&selected.size()>1&&
+                   std::all_of(selected.begin(),selected.end(),[&](const auto& item) {
+                       const auto& source=*d.objects.at(item.object).source;
+                       return (source.type=="nect.shape.polygon"||source.type=="nect.shape.star")&&source.parameters.contains("rotation");
+                   })) {
+                    std::vector<Ref> rotation_targets;
+                    for(const auto& item:selected)rotation_targets.push_back({item.object,"","generator.rotation"});
+                    add_multi_primitive_angle(form,rotation_targets,parameter_label(name));
+                }
+            }
         }
     }
     for(std::size_t slot=0;slot<first.stack.size();++slot) {

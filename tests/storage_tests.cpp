@@ -148,7 +148,7 @@ void interruption(const QString& directory) {
     child.kill();check(child.waitForFinished(5000),"Terminate staged helper before atomic commit");
     check(read(path)==initial&&load_native(path).stamp==current,"Process interruption after QSaveFile staging preserves the previous native bytes");
     store_native(path,native(43),current,true);check(load_native(path).document.compositions.front().name=="Revision 43","Normal save remains usable after an interrupted staging process");
-    std::cout<<"Interruption boundary: test-only helper uses QSaveFile with direct fallback disabled; killed after staged flush, before commit. Power-loss durability is not measured.\n";
+    std::cout<<"Supplemental QSaveFile primitive boundary: killed after staged flush, before commit. Actual store_native/Host fault and crash qualification is in the opt-in durability_fault_contract. Power-loss durability is not measured.\n";
 }
 }
 int main(int argc,char** argv) {
@@ -157,6 +157,7 @@ int main(int argc,char** argv) {
     try {
         QTemporaryDir temporary;check(temporary.isValid(),"Create owned storage test directory");
         stamps_and_conflicts(temporary.path());retention_and_restore(temporary.path());failures(temporary.path());interruption(temporary.path());
+        const auto root=temporary.path();check(temporary.remove()&&!QFileInfo::exists(root),"Remove owned storage scratch files and staging remnants");
         std::cout<<"PASS "<<checks<<" native storage checks\n";return 0;
     }catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }
