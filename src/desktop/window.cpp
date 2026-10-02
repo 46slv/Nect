@@ -7495,7 +7495,7 @@ void Window::add_point_angle(QFormLayout* form,const Ref& ref,const Object& obje
 void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targets,const QString& label,
         const QString& dial_object_name,const QString& accessible_subject,const QString& target_noun,
         const std::vector<double>& initial_values,bool driven,const QString& driven_explanation,
-        std::function<void()> validate_target) {
+        std::function<void()> validate_target,bool top_zero) {
     if(targets.size()<2||initial_values.size()!=targets.size())
         throw Error("INVALID_SELECTION","A batch angle dial needs at least two complete targets and values");
     const auto target_data=refs_json(targets);
@@ -7511,10 +7511,17 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     const auto frozen_session=host.session_id;
     const auto frozen_document=host.session.document().id;
     const auto frozen_revision=host.session.revision();
-    // A live caption may wrap at a narrow Inspector width. Keep its row fixed so
-    // a text update cannot recenter the hit target under a stationary pointer.
-    auto* row=new QWidget;row->setFixedHeight(80);row->setObjectName("batch-angle-dial-row");
-    row->setToolTip(label+" angle batch control · drag adds the same signed delta to every selected target");
+    // Keep the hit target in a fixed row, and give the caption all width left
+    // after the dial so its text wraps within that stable height.
+    constexpr int batch_angle_row_height=80;
+    auto* row=new QWidget;row->setFixedHeight(batch_angle_row_height);row->setObjectName("batch-angle-dial-row");
+    const auto zero_label=top_zero?QStringLiteral("top zero"):QStringLiteral("+X zero");
+    const auto orientation=top_zero
+        ?QStringLiteral("Zero points up at the top; positive degrees turn clockwise.")
+        :QStringLiteral("Zero points right along local +X; positive degrees turn clockwise.");
+    const auto tooltip_orientation=top_zero?orientation:QStringLiteral("Zero is local +X; positive degrees turn clockwise.");
+    row->setToolTip(label+" angle batch control · drag adds the same signed delta to every selected target"+
+        (top_zero?QStringLiteral(". ")+orientation:QString{}));
     auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
     QPointer<RotationKnob> knob=new RotationKnob(row);knob->setObjectName(dial_object_name);
     const auto target_count=static_cast<qulonglong>(targets.size());
@@ -7530,29 +7537,31 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     const auto visible_delta=[](double delta) {
         auto text=QString::number(delta,'g',7);if(delta>=0)text.prepend('+');return text;
     };
-    const auto caption_for=[common,target_count,visible_delta,target_noun](double delta) {
-        const auto caption=common?QString("Common angle · %1 %2 · +X zero · relative Δ")
-            .arg(target_count).arg(target_noun):QString("Mixed · %1 %2 · +X zero · relative Δ").arg(target_count).arg(target_noun);
+    const auto caption_for=[common,target_count,visible_delta,target_noun,zero_label](double delta) {
+        const auto caption=common?QString("Common angle · %1 %2 · %3 · relative Δ")
+            .arg(target_count).arg(target_noun).arg(zero_label):QString("Mixed · %1 %2 · %3 · relative Δ").arg(target_count).arg(target_noun).arg(zero_label);
         return std::abs(delta)<=1e-10?caption:caption+" "+visible_delta(delta)+QStringLiteral("°");
     };
     knob->setAccessibleName((common?QStringLiteral("Common "):QStringLiteral("Mixed "))+
-        accessible_subject+" batch dial, "+QString::number(target_count)+" "+target_noun+", relative delta");
-    knob->set_accessibility_context(context_for(0)+" Zero points right along local +X; positive degrees turn clockwise. The indicator is modulo 360 while authored values remain unwrapped.");
-    knob->set_display_zero(0);knob->set_value(initial);
+        accessible_subject+" batch dial, "+QString::number(target_count)+" "+target_noun+", relative delta"+
+        (top_zero?QStringLiteral(", top zero, clockwise"):QString{}));
+    const auto accessibility_orientation=orientation+QStringLiteral(" The indicator is modulo 360 while authored values remain unwrapped.");
+    knob->set_accessibility_context(context_for(0)+" "+accessibility_orientation);
+    knob->set_display_zero(top_zero?-90:0);knob->set_value(initial);
     knob->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
     knob->setProperty("nect-targets",target_data);knob->setEnabled(!driven);
     const auto explanation=driven?driven_explanation:
         context_for(0)+" A dial drag edits relative to each committed value; use the numeric field for a shared absolute value or += / -= edit.";
-    knob->setToolTip(explanation+" Zero is local +X; positive degrees turn clockwise. The indicator is modulo 360 while authored degrees remain unwrapped. Escape cancels.");
+    knob->setToolTip(explanation+" "+tooltip_orientation+" The indicator is modulo 360 while authored degrees remain unwrapped. Escape cancels.");
     numeric->setProperty("nect-exact-value",true);
     if(!numeric->isModified()) {
         numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
         numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));numeric->setModified(false);
     }
     row_layout->addWidget(knob);
-    auto* note=new QLabel(caption_for(0),row);note->setWordWrap(true);note->setFixedHeight(80);
+    auto* note=new QLabel(caption_for(0),row);note->setWordWrap(true);note->setFixedHeight(batch_angle_row_height);
     note->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);note->setAlignment(Qt::AlignVCenter|Qt::AlignLeft);
-    note->setAccessibleName(caption_for(0));row_layout->addWidget(note);row_layout->addStretch();
+    note->setAccessibleName(caption_for(0));row_layout->addWidget(note,1);
     form->addRow(label+" dial",row);
 
     struct Interaction {bool live=true,owned=false,has_preview=false;std::uint64_t generation=0;};
@@ -7571,9 +7580,9 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
         if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
         else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
     };
-    auto reset_controls=[safe_knob,safe_numeric,safe_note,initial,initial_values,common,context_for,caption_for] {
+    auto reset_controls=[safe_knob,safe_numeric,safe_note,initial,initial_values,common,context_for,caption_for,accessibility_orientation] {
         if(safe_knob) {safe_knob->disarm_drag(initial);safe_knob->set_accessibility_context(
-            context_for(0)+" Zero points right along local +X; positive degrees turn clockwise. The indicator is modulo 360 while authored values remain unwrapped.");}
+            context_for(0)+" "+accessibility_orientation);}
         if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_for(0));}
         if(safe_numeric&&!safe_numeric->isModified()) {
             safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
@@ -7589,14 +7598,14 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     register_angle_adapter(knob,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
     const auto target_refs=targets;
     knob->begin_drag=[this,state,validate_live,report,safe_knob,safe_numeric,safe_note,target_refs,frozen_revision,
-        initial,initial_values,common,context_for,caption_for] {
+        initial,initial_values,common,context_for,caption_for,accessibility_orientation] {
         try {
             if(!state->live)throw Error("SESSION_CONFLICT","Angle batch control has been disposed");
             if(safe_numeric&&safe_numeric->isModified())
                 throw Error("UNCOMMITTED_INPUT","Commit or cancel the batch numeric draft before using the dial");
             validate_live();host.session.begin_gesture(frozen_revision);
             if(safe_knob) {safe_knob->set_value(initial);safe_knob->set_accessibility_context(
-                context_for(0)+" Zero points right along local +X; positive degrees turn clockwise. The indicator is modulo 360 while authored values remain unwrapped.");}
+                context_for(0)+" "+accessibility_orientation);}
             if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_for(0));}
             if(safe_numeric) {
                 safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
@@ -7606,7 +7615,7 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
         } catch(const std::exception& exception) {report(exception);return false;}
     };
     knob->preview_value=[this,state,owns,validate_live,cancel,report,safe_knob,safe_numeric,safe_note,target_refs,
-        initial,initial_values,common,context_for,caption_for](double value) {
+        initial,initial_values,common,context_for,caption_for,accessibility_orientation](double value) {
         if(!owns()){if(state->owned)cancel();return;}
         try {
             validate_live();const auto delta=value-initial;
@@ -7618,7 +7627,7 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
             }
             const auto live_delta=state->has_preview?delta:0.0;
             if(safe_knob)safe_knob->set_accessibility_context(
-                context_for(live_delta)+" Zero points right along local +X; positive degrees turn clockwise. The indicator is modulo 360 while authored values remain unwrapped.");
+                context_for(live_delta)+" "+accessibility_orientation);
             if(safe_note) {safe_note->setText(caption_for(live_delta));safe_note->setAccessibleName(caption_for(live_delta));}
             canvas->refresh();canvas->update();
             if(safe_numeric&&!safe_numeric->isModified()) {
@@ -7815,6 +7824,122 @@ void Window::add_multi_primitive_angle(QFormLayout* form,const std::vector<Ref>&
         QStringLiteral("objects"),initial_values,driven,
         QStringLiteral("At least one selected Polygon or Star rotation is driven. Unlink every driven source rotation before using the batch dial."),
         validate_target);
+}
+
+void Window::add_multi_repeater_angle(QFormLayout* form,const std::vector<Ref>& targets,std::size_t slot,const QString& label) {
+    if(targets.size()<2)throw Error("INVALID_SELECTION","A Repeater rotation batch needs at least two targets");
+    struct EntrySignature {Id id;std::string type;unsigned version=0;bool macro=false;};
+    struct TargetSnapshot {
+        Ref ref;
+        std::size_t slot=0;
+        Id operation_id;
+        std::string operation_type;
+        unsigned operation_version=0;
+        Kind kind=Kind::path;
+        bool has_primitive=false;
+        Id primitive_id,primitive_type;
+        unsigned primitive_version=0;
+        bool has_text=false;
+        Id text_id;
+        unsigned text_version=0;
+        std::vector<EntrySignature> stack;
+        Scalar rotation;
+        double value=0;
+    };
+    const auto& document=host.session.document();const auto selected=canvas->selections();
+    if(selected.size()!=targets.size())throw Error("INVALID_SELECTION","Repeater batch selection changed");
+    const auto committed=evaluate(document);
+    std::vector<TargetSnapshot> snapshot;snapshot.reserve(targets.size());
+    std::vector<double> initial_values;initial_values.reserve(targets.size());
+    std::set<Ref> unique_targets;bool driven=false;
+    for(std::size_t i=0;i<targets.size();++i) {
+        const auto& ref=targets[i];
+        if(!unique_targets.insert(ref).second||!ref.point.empty()||ref.field.empty())
+            throw Error("INVALID_SELECTION","Repeater batch contains an invalid or duplicate whole-object Ref");
+        if(selected[i].object!=ref.object||!selected[i].point.empty())
+            throw Error("INVALID_SELECTION","Repeater batch Ref order no longer matches whole-object selection");
+        const auto found=document.objects.find(ref.object);
+        if(found==document.objects.end()||(found->second.kind!=Kind::path&&found->second.kind!=Kind::text))
+            throw Error("INVALID_SELECTION","Repeater batches apply only to whole Path or Text objects");
+        const auto& object=found->second;
+        if(slot>=object.stack.size())throw Error("MISSING_PROPERTY","A selected Repeater slot is no longer present");
+        const auto& operation=object.stack[slot];
+        if(operation.type!="nect.shape.repeater"||operation.version!=1||operation.macro||
+           !operation.parameters.contains("rotation"))
+            throw Error("MISSING_PROPERTY","A selected ordinary Repeater v1 rotation is unavailable at this slot");
+        const Ref expected{ref.object,"","op."+operation.id+".rotation"};
+        if(ref!=expected)throw Error("INVALID_REFERENCE","Repeater batch does not use each object's own operation rotation Ref");
+        const auto value_it=committed.find(ref);
+        if(value_it==committed.end())throw Error("MISSING_PROPERTY","A selected Repeater rotation Ref is not evaluated");
+        const auto value=value_it->second;
+        if(!std::isfinite(value)||std::abs(value)>1e9)
+            throw Error("OUT_OF_RANGE","A selected Repeater rotation is outside the authored angle range");
+        const auto& scalar=operation.parameters.at("rotation");
+        driven=driven||scalar.binding.has_value()||scalar.expression.has_value();
+        TargetSnapshot current;current.ref=ref;current.slot=slot;current.operation_id=operation.id;
+        current.operation_type=operation.type;current.operation_version=operation.version;current.kind=object.kind;
+        current.has_primitive=object.source.has_value();
+        if(object.source) {current.primitive_id=object.source->id;current.primitive_type=object.source->type;current.primitive_version=object.source->version;}
+        current.has_text=object.text.has_value();
+        if(object.text) {current.text_id=object.text->id;current.text_version=object.text->version;}
+        current.stack.reserve(object.stack.size());
+        for(const auto& entry:object.stack)current.stack.push_back({entry.id,entry.type,entry.version,entry.macro.has_value()});
+        current.rotation=scalar;current.value=value;
+        initial_values.push_back(value);snapshot.push_back(std::move(current));
+    }
+    const auto frozen_session=host.session_id;const auto frozen_document=document.id;
+    const auto frozen_revision=host.session.revision();const auto composition=canvas->active_composition();
+    const auto artboard=canvas->active_artboard();
+    const auto validate_target=[this,snapshot,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+            throw Error("SESSION_CONFLICT","Repeater batch belongs to another document");
+        if(host.session.revision()!=frozen_revision)
+            throw Error("REVISION_CONFLICT","Repeater batch changed; reopen the Inspector");
+        if(canvas->selections()!=selected||canvas->active_composition()!=composition||canvas->active_artboard()!=artboard)
+            throw Error("MISSING_PROPERTY","Repeater batch selection or active frame changed");
+        const auto& current_document=host.session.document();const auto values=evaluate(current_document);
+        for(const auto& target:snapshot) {
+            const auto found=current_document.objects.find(target.ref.object);
+            if(found==current_document.objects.end()||found->second.kind!=target.kind||
+               (target.kind!=Kind::path&&target.kind!=Kind::text))
+                throw Error("MISSING_PROPERTY","A selected Path or Text object identity changed");
+            const auto& object=found->second;
+            if(object.source.has_value()!=target.has_primitive||object.text.has_value()!=target.has_text)
+                throw Error("MISSING_PROPERTY","A selected source identity changed");
+            if(target.has_primitive&&(!object.source||object.source->id!=target.primitive_id||
+               object.source->type!=target.primitive_type||object.source->version!=target.primitive_version))
+                throw Error("MISSING_PROPERTY","A selected primitive source identity changed");
+            if(target.has_text&&(!object.text||object.text->id!=target.text_id||object.text->version!=target.text_version))
+                throw Error("MISSING_PROPERTY","A selected Text source identity changed");
+            if(object.stack.size()!=target.stack.size())
+                throw Error("MISSING_PROPERTY","A selected object's ordered stack changed");
+            for(std::size_t i=0;i<target.stack.size();++i) {
+                const auto& expected=target.stack[i];const auto& current=object.stack[i];
+                if(current.id!=expected.id||current.type!=expected.type||current.version!=expected.version||
+                   current.macro.has_value()!=expected.macro)
+                    throw Error("MISSING_PROPERTY","A selected object's ordered stack identity changed");
+            }
+            if(target.slot>=object.stack.size())
+                throw Error("MISSING_PROPERTY","A selected Repeater slot is no longer present");
+            const auto& operation=object.stack[target.slot];
+            if(operation.id!=target.operation_id||operation.type!=target.operation_type||
+               operation.version!=target.operation_version||operation.type!="nect.shape.repeater"||
+               operation.version!=1||operation.macro||!operation.parameters.contains("rotation"))
+                throw Error("MISSING_PROPERTY","A selected ordinary Repeater v1 operation identity changed");
+            const auto& scalar=operation.parameters.at("rotation");
+            if(scalar!=target.rotation)
+                throw Error("MISSING_PROPERTY","A selected Repeater rotation Scalar changed");
+            if(scalar.binding||scalar.expression)
+                throw Error("DRIVEN_PROPERTY","Unlink every driven Repeater rotation before using the batch dial");
+            const auto value=values.find(target.ref);
+            if(value==values.end()||!std::isfinite(value->second)||std::abs(value->second)>1e9||value->second!=target.value)
+                throw Error("MISSING_PROPERTY","A selected Repeater rotation no longer matches its valid captured value");
+        }
+    };
+    add_multi_angle_dial(form,targets,label,"batch-repeater-angle-knob",QStringLiteral("Repeater rotation angle"),
+        QStringLiteral("objects"),initial_values,driven,
+        QStringLiteral("At least one selected Repeater rotation is driven. Unlink every driven rotation before using the batch dial."),
+        validate_target,true);
 }
 
 void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& label) {
@@ -8089,9 +8214,33 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
             return stack.size()>slot&&stack[slot].type==operation.type;}))continue;
         auto* form=section("Stack "+QString::number(slot+1)+" · "+operation_label(operation));
         for(const auto& [name,scalar]:operation.parameters) {
-            (void)scalar;std::vector<Ref> refs;
+            (void)scalar;
+            // Guard Repeater rows before add_properties constructs their
+            // per-object Refs: every selected operation must expose this key.
+            bool all_have_parameter=true;
+            if(operation.type=="nect.shape.repeater")for(const auto& item:selected) {
+                const auto& stack=d.objects.at(item.object).stack;
+                if(slot>=stack.size()||!stack[slot].parameters.contains(name)) {all_have_parameter=false;break;}
+            }
+            if(!all_have_parameter)continue;
+            std::vector<Ref> refs;refs.reserve(selected.size());
             for(const auto& item:selected)refs.push_back({item.object,"","op."+d.objects.at(item.object).stack[slot].id+"."+name});
             add_properties(form,refs,parameter_label(name));
+            if(name=="rotation"&&operation.type=="nect.shape.repeater"&&selected.size()>1) {
+                bool eligible=operation.version==1&&!operation.macro;
+                for(const auto& item:selected) {
+                    const auto& object=d.objects.at(item.object);
+                    if(object.kind!=Kind::path&&object.kind!=Kind::text)eligible=false;
+                    if(slot>=object.stack.size()) {eligible=false;continue;}
+                    const auto& own=object.stack[slot];
+                    if(own.type!="nect.shape.repeater"||own.version!=1||own.macro||!own.parameters.contains("rotation")) {
+                        eligible=false;continue;
+                    }
+                    const Ref own_ref{item.object,"","op."+own.id+".rotation"};
+                    if(!inspector_values_.contains(own_ref))eligible=false;
+                }
+                if(eligible)add_multi_repeater_angle(form,refs,slot,parameter_label(name));
+            }
         }
     }
     auto* hint=new QLabel("↗ freezes all these targets while you choose a source. Paint rows match the same operation type at the same stack position.");

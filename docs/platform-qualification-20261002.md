@@ -192,3 +192,62 @@ Receipt `build/d0-evidence/gui-batch-point/objective-gui-receipt-f24e33c.json` S
 All owned GUI windows were closed. Source patch556b122 uses explicit membership loops
 and stable-height batch layout, with automated geometry regression evidence recorded
 separately. These changes do not close the findings until exact repaired-platform replay.
+
+## Repaired point/primitive batch actual 125% GUI (2026-10-02)
+
+Exact local UI candidate `556b122a47248a571e93f67088248ac0e88c731d`, tree
+`3ad7f2091f2ae16c41506defedafa06d032e66de`, copied desktop SHA256
+`2e8c7d23f9ff9639b68ed70034e356772c63070014a4e0a6a608da6fcb0d234c`,
+passed bounded actual Linux/Xfce125% replay on1364x1024 display, client1250x813.
+Point Mixed incoming5/365/725 became95/455/815 under a native quarter-circle pointer
+path, while Common45 became135 using the identical global path. Mixed outgoing also
+added exactly90. Fixed visible incoming center remained approximately1127,530 across
+Common/Mixed state. This closes the sampled f24 mapping discrepancy on the repaired
+candidate; it does not establish its original cause through held-phase capture.
+
+Whole-object Polygon+Star Common[-90,-90] became[0,0]; Mixed[-90,270] became[0,360]
+under identical quarter arcs. Absolute45 and relative+=10, one document Undo,
+zero-net unchanged revision, stable unrelated fields/identities, and fresh Host
+close/reopen passed. Root independently read all22 artifact hashes, native0.77 JSON,
+and every documented Undo/zero-net/reopen byte-equality pair. Both owned windows closed;
+application log remained empty. Screenshots were viewed in the native CUA transcript,
+not exported as durable image files.
+
+Receipt `/workspace/shared/nect-gui-repaired/objective-gui-receipt-556b122.json` SHA256
+`8149631a25a8fe266913941e2bb3737db6b136d3fad6ffe1b50b76c81a472b51`.
+This UI candidate is included unchanged in remoteacc1534, with separately qualified
+storage Q1 fan-in. It is not evidence for later Repeater-batch edits. New100% GUI,
+150% (display too narrow), held-drag/Escape/range interruption, complete driven/stale
+matrix, Windows GUI and subjective acceptance remain NOT_RUN for this exact candidate.
+
+## acc1534 Windows qualification and caption-fit repair obligation
+
+Exact `acc153464122beababbe47d7815bc89b0a39fd49` / tree
+`ea9a64597ff57ad5880ab0ca966d2fe6689561d5`, clean task-10/Nect-qual2 checkout,
+passed all-target Release and Qt deployment on VS2019/MSVC19.29.30137. The previous
+f24 C1001 compile failure is resolved on this candidate without source/flag weakening.
+An initial build session lost its completion status; the worker first confirmed no
+active compiler/linker/CMake job, then completed an incremental continuation with exit0.
+Desktop SHA256 `a18c833e67944e482ff01f118f3e01355781cdb4258b40786110bb75d4d78f54`.
+
+Focused angle9/12 passed. Three primitive batch normal/DPR2/1.25 cases failed the
+Common caption fit assertion. A separate ignored diagnostic copy against pristine
+Release libraries isolated heightForWidth124px versus fixed80px label/row; center,
+geometry, caption markers, parsed delta and full-precision accessibility passed.
+The visible caption was `Common angle · 3 objects · +X zero · relative Δ +29.74488°`;
+accessible delta stayed `+29.744881296942225`. This is a real portability repair
+obligation, not an assertion to relax or a contradiction of the bounded Linux replay.
+
+Storage/protection/formal MCP Template3/3 passed (verbose78 storage/180 protection
+checks). Full86=82pass/0skip/4fail: those three captions plus the known NativeFormat
+registry scratch-key denial. No ACL/security change. Native/SVG smoke passed, while
+its MCP/GUI flags remained false; genuine MCP evidence comes from its separate
+contract. Default fault instrumentation stayedOFF; Windows opt-inQ1 and nativeGUI
+were NOT_RUN. Source/build ownership released, no owned build/test/app process left.
+
+Windows task `01a0fb70-c778-7111-9a5c-29d0d3993090`, `build-win/evidence/` log hashes:
+- Release continuation: `6581b38bc78f821babb03eeb5589d77fcf0febcba70afdc9c187b8032f9482c6`
+- Focused angle: `997a12656c7193d17d661f2b02b8d0af6d3a4d4a812d7f21f02b9271b0b90a92`
+- Full CTest: `1b9f2fceb61882318bf908498219ba582867775858b6c822973429b93050057f`
+- Smoke: `aca3430da828d0dd81892d6a3917f6a6247d42fa9cfc57bbaba859e00a993b4c`
+- Diagnostic: `20166564900946f992a3db72b2e69800b92b6d6ce409959f2ba738b503889049`

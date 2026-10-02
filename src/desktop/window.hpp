@@ -155,9 +155,10 @@ private:
     void add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targets,const QString& label,
         const QString& dial_object_name,const QString& accessible_subject,const QString& target_noun,
         const std::vector<double>& initial_values,bool driven,const QString& driven_explanation,
-        std::function<void()> validate_target);
+        std::function<void()> validate_target,bool top_zero=false);
     void add_multi_point_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label);
     void add_multi_primitive_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label);
+    void add_multi_repeater_angle(QFormLayout* form,const std::vector<Ref>& targets,std::size_t slot,const QString& label);
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
     void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);
