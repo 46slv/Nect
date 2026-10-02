@@ -341,4 +341,15 @@ void point_edit_enabled_expression_remapping() {
         "Duplicating only the expression target keeps its external source ID and exact expression text");
 }
 }
-int main(){try{retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();geometry_mask_enabled_driver_remapping();geometry_mask_enabled_expression_remapping();point_edit_enabled_driver_remapping();point_edit_enabled_expression_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}
+int main(int argc,char** argv){try{
+    const bool portable_safety_only=argc==2&&std::string(argv[1])=="--portable-safety-only";
+    if(argc!=1&&!portable_safety_only)throw std::runtime_error("Usage: duplication_tests [--portable-safety-only]");
+    if(portable_safety_only) {
+        selection_and_failures();
+        object_visibility_driver_remapping();
+        point_edit_enabled_driver_remapping();
+        point_edit_enabled_expression_remapping();
+        std::cout<<"PASS "<<checks<<" duplication selection/reference safety subset checks (Raster/Text/full contract not covered)\n";
+        return 0;
+    }
+    retained_group();selection_and_failures();nested_selection_and_roles();text_italic_drivers();text_weight_drivers();object_visibility_driver_remapping();geometry_mask_enabled_driver_remapping();geometry_mask_enabled_expression_remapping();point_edit_enabled_driver_remapping();point_edit_enabled_expression_remapping();std::cout<<"PASS "<<checks<<" duplication checks\n";return 0;}catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

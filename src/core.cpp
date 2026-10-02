@@ -5489,7 +5489,8 @@ void transform_objects(Document& document,const TransformObjects& command) {
 }
 void arrange_objects(Document& document,const std::vector<Id>& objects,const std::string& axis,
     const std::optional<std::string>& alignment,const std::string& requested_reference,
-    const std::optional<double>& spacing,const std::optional<Id>& legacy_artboard={}) {
+    const std::optional<double>& spacing,const std::optional<Id>& legacy_artboard={},
+    const std::optional<Id>& guide_artboard={}) {
     require(axis=="x"||axis=="y","INVALID_ALIGNMENT","Axis must be x or y");
     require(!alignment||*alignment=="min"||*alignment=="center"||*alignment=="max"||*alignment=="baseline",
         "INVALID_ALIGNMENT","Alignment must be min, center, max or baseline");
@@ -5512,6 +5513,11 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         throw Error("INVALID_REFERENCE","Unsupported layout reference: "+reference);
     };
     const auto target=parse_reference();
+    if(guide_artboard) {
+        identity(*guide_artboard);
+        require(target.kind==ReferenceKind::guide&&alignment&&!legacy_artboard,"INVALID_REFERENCE",
+            "guide_artboard requires a Guide alignment reference without the legacy Artboard alias");
+    }
     const bool baseline=alignment&&*alignment=="baseline";
     if(baseline)require(axis=="y","INVALID_ALIGNMENT","First-line baseline alignment only supports y");
     if(alignment)require(!spacing,"UNEXPECTED_SPACING","Spacing is only valid for key-object distribution");
@@ -5552,27 +5558,40 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         for(const auto& composition:document.compositions)if(&composition!=plane) {
             if(kind==ReferenceKind::artboard&&std::any_of(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item){return item.id==id;}))return true;
             if(kind==ReferenceKind::guide&&std::any_of(composition.guides.begin(),composition.guides.end(),[&](const auto& item){return item.id==id;}))return true;
-            if(kind==ReferenceKind::grid&&std::any_of(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item){return item.layout&&item.layout->grid&&item.layout->grid->id==id;}))return true;
+            if(kind==ReferenceKind::grid&&effective_grid_artboard(composition,id))return true;
         }
         return false;
     };
     const Artboard* target_artboard=nullptr;
-    const Grid* target_grid=nullptr;
     const Guide* target_guide=nullptr;
+    std::optional<double> scoped_guide_position;
     if(target.kind==ReferenceKind::artboard) {
         const auto found=std::find_if(plane->artboards.begin(),plane->artboards.end(),[&](const auto& item){return item.id==target.id;});
         if(found==plane->artboards.end())throw Error(cross_composition(target.id,target.kind)?"CROSS_COMPOSITION":"MISSING_ARTBOARD",target.id);
         target_artboard=&*found;
     } else if(target.kind==ReferenceKind::grid) {
-        for(const auto& board:plane->artboards)if(board.layout&&board.layout->grid&&board.layout->grid->id==target.id) {
-            target_artboard=&board;target_grid=&*board.layout->grid;break;
-        }
-        if(!target_grid)throw Error(cross_composition(target.id,target.kind)?"CROSS_COMPOSITION":"MISSING_GRID",target.id);
+        target_artboard=effective_grid_artboard(*plane,target.id);
+        if(!target_artboard)throw Error(cross_composition(target.id,target.kind)?"CROSS_COMPOSITION":"MISSING_GRID",target.id);
     } else if(target.kind==ReferenceKind::guide) {
+        if(guide_artboard) {
+            const auto board=std::find_if(plane->artboards.begin(),plane->artboards.end(),
+                [&](const auto& item){return item.id==*guide_artboard;});
+            if(board==plane->artboards.end())
+                throw Error(cross_composition(*guide_artboard,ReferenceKind::artboard)?"CROSS_COMPOSITION":"MISSING_ARTBOARD",*guide_artboard);
+            const auto occurrences=effective_artboard_guides(document,plane->id,*guide_artboard);
+            const auto guide=std::find_if(occurrences.begin(),occurrences.end(),[&](const auto& item){return item.guide_id==target.id;});
+            require(guide!=occurrences.end(),"MISSING_ARTBOARD_GUIDE",target.id);
+            require(guide->enabled,"DISABLED_ARTBOARD_GUIDE",target.id);
+            require(guide->axis==axis,"GUIDE_AXIS_MISMATCH","Guide axis does not match the requested alignment axis: "+target.id);
+            const auto frame=evaluate_artboard(*plane,*guide_artboard);
+            scoped_guide_position=(axis=="x"?frame.x:frame.y)+guide->position;
+            finite(*scoped_guide_position);
+        } else {
         const auto found=std::find_if(plane->guides.begin(),plane->guides.end(),[&](const auto& item){return item.id==target.id;});
         if(found==plane->guides.end())throw Error(cross_composition(target.id,target.kind)?"CROSS_COMPOSITION":"MISSING_GUIDE",target.id);
         target_guide=&*found;
         require(target_guide->axis==axis,"GUIDE_AXIS_MISMATCH","Guide axis does not match the requested alignment axis: "+target.id);
+        }
     }
     const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
     std::map<Id,Bounds> initial;std::optional<Bounds> selection_bounds;
@@ -5631,7 +5650,8 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
                 return *alignment=="min"?minimum:*alignment=="max"?maximum:minimum+(maximum-minimum)/2;
             };
             double desired=0;
-            if(target.kind==ReferenceKind::guide)desired=evaluate_guide_position(document,plane->id,target_guide->id);
+            if(target.kind==ReferenceKind::guide)desired=scoped_guide_position?*scoped_guide_position:
+                evaluate_guide_position(document,plane->id,target_guide->id);
             else desired=coordinate(*reference_bounds());
             for(const auto& id:objects) {
                 if(target.kind==ReferenceKind::key_object&&id==target.id)continue;
@@ -6320,6 +6340,41 @@ void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& c
                 board.template_assignment->template_id==mutation.template_id)
                 throw Error("ARTBOARD_TEMPLATE_IN_USE","Template "+mutation.template_id+" is assigned to Artboard "+board.id);
             composition.templates.erase(found);
+        } else if constexpr(std::is_same_v<T,DuplicateTemplateArtboard>) {
+            identity(mutation.id_prefix);
+            require(mutation.id_prefix.size()<=32,"INVALID_ID","Template duplicate prefix is limited to 32 characters");
+            finite(mutation.x);finite(mutation.y);
+            require(mutation.index<=composition.artboards.size(),"INVALID_INDEX","Artboard insertion index is out of range");
+            const auto source=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
+                return item.id==mutation.artboard_id;
+            });
+            require(source!=composition.artboards.end(),"MISSING_ARTBOARD",mutation.artboard_id);
+            require(source->template_assignment&&source->template_assignment->content_instance,
+                "MISSING_TEMPLATE_CONTENT","Duplicate requires a Template-owned Definition Instance");
+            auto copied=*source;
+            const auto content=*copied.template_assignment->content_instance;
+            const auto& instance=candidate.objects.at(content);
+            require(!instance.transform_parent&&!instance.transform[4].binding&&!instance.transform[4].expression&&
+                !instance.transform[5].binding&&!instance.transform[5].expression,
+                "DRIVEN_TEMPLATE_PLACEMENT","Duplicate requires literal unparented content translation");
+            const double tx=instance.transform[4].literal+mutation.x-copied.x;
+            const double ty=instance.transform[5].literal+mutation.y-copied.y;
+            finite(tx);finite(ty);
+            copied.id=mutation.id_prefix+"-artboard";
+            if(copied.name.size()<=4091)copied.name+=" copy";
+            copied.x=mutation.x;copied.y=mutation.y;
+            copied.template_assignment->grid_id=mutation.id_prefix+"-grid";
+            if(copied.layout&&copied.layout->grid)copied.layout->grid->id=copied.template_assignment->grid_id;
+            for(std::size_t i=0;i<copied.local_guides.size();++i)
+                copied.local_guides[i].id=mutation.id_prefix+"-guide-"+std::to_string(i+1);
+            const DuplicateObjects duplicate{{content},mutation.id_prefix+"-content"};
+            const auto plan=plan_duplication(candidate,duplicate);
+            const auto new_content=plan.ids.at(content);
+            duplicate_objects(candidate,duplicate);
+            candidate.objects.at(new_content).transform[4].literal=tx;
+            candidate.objects.at(new_content).transform[5].literal=ty;
+            copied.template_assignment->content_instance=new_content;
+            composition.artboards.insert(composition.artboards.begin()+static_cast<std::ptrdiff_t>(mutation.index),std::move(copied));
         } else if constexpr(std::is_same_v<T,AssignArtboardTemplate>) {
             auto board=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
                 return item.id==mutation.artboard_id;
@@ -7599,7 +7654,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         } else if constexpr(std::is_same_v<T,TransformObjects>) {
             transform_objects(candidate,c);
         } else if constexpr(std::is_same_v<T,AlignObjects>) {
-            arrange_objects(candidate,c.objects,c.axis,c.alignment,c.reference,{},c.artboard);
+            arrange_objects(candidate,c.objects,c.axis,c.alignment,c.reference,{},c.artboard,c.guide_artboard);
         } else if constexpr(std::is_same_v<T,DistributeObjects>) {
             arrange_objects(candidate,c.objects,c.axis,{},c.reference,c.spacing);
         } else if constexpr(std::is_same_v<T,CenterAnchor>) {
@@ -8381,10 +8436,12 @@ void Session::apply_preset_command(const PresetCommand& command,std::uint64_t ex
 
 void Session::begin_gesture(std::uint64_t expected) {
     check_revision(expected);
+    require(gesture_generation_!=std::numeric_limits<std::uint64_t>::max(),"GESTURE_LIMIT","Start a new Session before beginning another gesture");
     preview_=document_;
     preview_values_.reset();
     preview_changed_=false;
     preview_label_.clear();
+    ++gesture_generation_;
 }
 
 void Session::update_gesture(const std::vector<Command>& commands) {

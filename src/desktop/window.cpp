@@ -15,6 +15,7 @@
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QFrame>
+#include <QFontMetricsF>
 #include <QGraphicsOpacityEffect>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -23,6 +24,9 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QIcon>
+#include <QPixmap>
+#include <QPainterPath>
 #include <QLineEdit>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -486,6 +490,9 @@ public:
     std::function<void()> cancel_drag;
     void set_value(double value) {value_=value;update();update_accessibility();}
     double value() const {return value_;}
+    void set_display_zero(double degrees) {display_zero_=degrees;update();}
+    void set_accessibility_context(QString context) {accessibility_context_=std::move(context);update_accessibility();}
+    void disarm_drag(double value) {dragging_=false;set_value(value);}
     QSize sizeHint() const override {return {44,44};}
 protected:
     void paintEvent(QPaintEvent*) override {
@@ -495,7 +502,7 @@ protected:
         painter.setPen(QPen(ring,2));painter.setBrush(QColor("#202833"));painter.drawEllipse(face);
         painter.setPen(QPen(isEnabled()?QColor("#48c6e9"):QColor("#69717a"),3,Qt::SolidLine,Qt::RoundCap));
         const auto normalized=std::fmod(value_,360.0)<0?std::fmod(value_,360.0)+360.0:std::fmod(value_,360.0);
-        const auto radians=(normalized-90.0)*std::numbers::pi/180.0;
+        const auto radians=(normalized+display_zero_)*std::numbers::pi/180.0;
         const QPointF center=face.center();
         const QPointF tip=center+QPointF(std::cos(radians),std::sin(radians))*(face.width()*0.34);
         painter.drawLine(center,tip);painter.setPen(Qt::NoPen);painter.setBrush(isEnabled()?QColor("#48c6e9"):QColor("#69717a"));painter.drawEllipse(center,2.5,2.5);
@@ -530,7 +537,8 @@ protected:
     void enterEvent(QEnterEvent* event) override {QWidget::enterEvent(event);animate_hover(1.0);update();}
     void leaveEvent(QEvent* event) override {QWidget::leaveEvent(event);animate_hover(0.90);update();}
 private:
-    double value_=0,press_value_=0,previous_angle_=0,accumulated_=0;
+    double value_=0,press_value_=0,previous_angle_=0,accumulated_=0,display_zero_=-90.0;
+    QString accessibility_context_;
     bool dragging_=false;
     QGraphicsOpacityEffect* hover_effect_=nullptr;
     QPropertyAnimation* hover_animation_=nullptr;
@@ -544,10 +552,52 @@ private:
     }
     void update_accessibility() {
         const auto normalized=std::fmod(value_,360.0)<0?std::fmod(value_,360.0)+360.0:std::fmod(value_,360.0);
-        setAccessibleDescription(QString("Authored rotation %1 degrees; dial indicator %2 degrees. Press Escape during a drag to cancel.")
-            .arg(QString::number(value_,'g',17),QString::number(normalized,'g',15)));
+        if(accessibility_context_.isEmpty())
+            setAccessibleDescription(QString("Authored rotation %1 degrees; dial indicator %2 degrees. Press Escape during a drag to cancel.")
+                .arg(QString::number(value_,'g',17),QString::number(normalized,'g',15)));
+        else setAccessibleDescription(accessibility_context_+
+            QString(" Dial indicator %1 degrees; press Escape during a drag to cancel.").arg(QString::number(normalized,'g',15)));
     }
 };
+
+enum class UtilityToggleGlyph { guides, grid, snap };
+QIcon utility_toggle_icon(UtilityToggleGlyph glyph) {
+    QIcon icon;
+    for(const auto mode:{QIcon::Normal,QIcon::Active,QIcon::Disabled,QIcon::Selected})
+        for(const auto state:{QIcon::Off,QIcon::On})for(const int dpr:{1,2,3}) {
+            QPixmap pixels(20*dpr,20*dpr);pixels.setDevicePixelRatio(dpr);pixels.fill(Qt::transparent);
+            QPainter painter(&pixels);painter.setRenderHint(QPainter::Antialiasing);
+            const bool on=state==QIcon::On;
+            const auto ink=mode==QIcon::Disabled?QColor(on?"#9ca7b1":"#77818d"):
+                QColor(on||mode==QIcon::Active||mode==QIcon::Selected?"#e9fbff":"#adb9c7");
+            QPen pen(ink,1.5,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
+            painter.setPen(pen);painter.setBrush(Qt::NoBrush);
+            if(glyph==UtilityToggleGlyph::guides) {
+                painter.drawLine(QPointF(3.5,6.5),QPointF(3.5,3.5));
+                painter.drawLine(QPointF(3.5,3.5),QPointF(6.5,3.5));
+                painter.drawLine(QPointF(13.5,16.5),QPointF(16.5,16.5));
+                painter.drawLine(QPointF(16.5,16.5),QPointF(16.5,13.5));
+                pen.setStyle(Qt::DashLine);painter.setPen(pen);
+                painter.drawLine(QPointF(10,2.5),QPointF(10,17.5));
+                painter.drawLine(QPointF(2.5,10),QPointF(17.5,10));
+            } else if(glyph==UtilityToggleGlyph::grid) {
+                painter.drawRect(QRectF(3.5,3.5,13,13));
+                for(const auto position:{8.0,12.0}) {
+                    painter.drawLine(QPointF(position,3.5),QPointF(position,16.5));
+                    painter.drawLine(QPointF(3.5,position),QPointF(16.5,position));
+                }
+            } else {
+                pen.setWidthF(3);pen.setCapStyle(Qt::FlatCap);painter.setPen(pen);
+                QPainterPath magnet;magnet.moveTo(5,3);magnet.lineTo(5,10.5);
+                magnet.cubicTo(5,18,15,18,15,10.5);magnet.lineTo(15,3);painter.drawPath(magnet);
+                pen.setWidthF(1);pen.setColor(QColor("#252d38"));painter.setPen(pen);
+                painter.drawLine(QPointF(3.5,7),QPointF(6.5,7));
+                painter.drawLine(QPointF(13.5,7),QPointF(16.5,7));
+            }
+            painter.end();icon.addPixmap(pixels,mode,state);
+        }
+    return icon;
+}
 
 class HoverFeedback final : public QObject {
 public:
@@ -570,6 +620,103 @@ private:
     QGraphicsOpacityEffect* effect_=nullptr;
     QPropertyAnimation* animation_=nullptr;
 };
+}
+
+void Window::register_angle_adapter(QWidget* control,std::function<void(bool)> cancel) {
+    std::erase_if(angle_adapters_,[](const auto& entry){return entry.control.isNull();});
+    angle_adapters_.push_back({control,std::move(cancel)});
+}
+
+void Window::cancel_angle_adapters(bool dispose) {
+    for(auto it=angle_adapters_.begin();it!=angle_adapters_.end();) {
+        if(it->control.isNull()||!it->cancel) {it=angle_adapters_.erase(it);continue;}
+        it->cancel(dispose);
+        if(dispose)it=angle_adapters_.erase(it);else ++it;
+    }
+}
+
+void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& ref,double initial,
+        std::function<void()> validate_target,bool keep_last_valid_on_range,bool refuse_numeric_draft) {
+    auto* knob=dynamic_cast<RotationKnob*>(control);
+    if(!knob)throw std::invalid_argument("Angle adapter requires a RotationKnob");
+    struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;};
+    const auto state=std::make_shared<Interaction>();
+    const auto identity=host.session_id;const auto revision=host.session.revision();
+    const auto document=host.session.document().id;
+    QPointer<RotationKnob> safe_knob=knob;QPointer<QLineEdit> safe_numeric=numeric;
+    auto owns=[this,state,identity,revision,document] {
+        return state->owned&&host.session_id==identity&&host.session.document().id==document&&
+            host.session.revision()==revision&&host.session.gesture_active()&&
+            host.session.gesture_generation()==state->generation;
+    };
+    auto validate=[this,state,identity,revision,document,validate_target] {
+        if(!state->live||host.session_id!=identity||host.session.document().id!=document)
+            throw Error("SESSION_CONFLICT","Angle control belongs to another editing context");
+        if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Angle changed; reopen the Inspector");
+        validate_target();
+    };
+    auto current_value=[this,identity,document,ref,initial] {
+        try {
+            if(host.session_id!=identity||host.session.document().id!=document)return initial;
+            const auto& current=host.session.gesture_active()?host.session.preview_document():host.session.document();
+            const auto values=evaluate(current);const auto found=values.find(ref);
+            return found==values.end()?initial:found->second;
+        } catch(...) {return initial;}
+    };
+    auto report=[this](const std::exception& exception) {
+        if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
+        else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
+    };
+    auto cancel=[this,state,owns,safe_knob,safe_numeric,current_value] {
+        const bool local_interaction=state->owned;const bool active=owns();
+        if(active)host.session.cancel_gesture();
+        state->owned=false;
+        if(local_interaction) {
+            const auto value=current_value();
+            if(safe_knob)safe_knob->disarm_drag(value);
+            if(safe_numeric){safe_numeric->setText(QString::number(value,'g',17));safe_numeric->setModified(false);}
+        }
+        if(active){canvas->refresh();canvas->update();}
+    };
+    register_angle_adapter(knob,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
+    auto last_valid=std::make_shared<double>(initial);
+    knob->begin_drag=[this,state,validate,report,safe_knob,safe_numeric,refuse_numeric_draft,last_valid,initial] {
+        try {
+            if(refuse_numeric_draft&&safe_numeric&&safe_numeric->isModified())
+                throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before using the dial");
+            validate();host.session.begin_gesture(host.session.revision());
+            *last_valid=initial;
+            if(safe_knob)safe_knob->set_value(initial);
+            if(safe_numeric){safe_numeric->setText(QString::number(initial,'g',17));safe_numeric->setModified(false);}
+            state->generation=host.session.gesture_generation();state->owned=true;return true;
+        } catch(const std::exception& exception) {
+            if(safe_numeric)safe_numeric->setFocus(Qt::OtherFocusReason);report(exception);return false;
+        }
+    };
+    knob->preview_value=[this,state,owns,validate,cancel,report,ref,initial,safe_numeric,safe_knob,last_valid,keep_last_valid_on_range](double value) {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {
+            validate();
+            if(std::abs(value-initial)<=1e-10) {
+                value=initial;if(safe_knob)safe_knob->set_value(initial);host.session.update_gesture({});
+            } else host.session.update_gesture({EditProperties{{ref},value,false}});
+            *last_valid=value;canvas->refresh();canvas->update();
+            if(safe_numeric){safe_numeric->setText(QString::number(value,'g',17));safe_numeric->setModified(false);}
+        } catch(const std::exception& exception) {
+            if(keep_last_valid_on_range)if(const auto* error=dynamic_cast<const Error*>(&exception);error&&error->code=="OUT_OF_RANGE") {
+                if(safe_knob)safe_knob->set_value(*last_valid);
+                if(safe_numeric){safe_numeric->setText(QString::number(*last_valid,'g',17));safe_numeric->setModified(false);}
+                report(exception);return;
+            }
+            cancel();report(exception);
+        }
+    };
+    knob->commit_drag=[this,state,owns,validate,cancel,report] {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {validate();host.session.commit_gesture();state->owned=false;host.edited();}
+        catch(const std::exception& exception){cancel();report(exception);}
+    };
+    knob->cancel_drag=cancel;
 }
 
 Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library)
@@ -1078,6 +1225,16 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         button->setAccessibleDescription(help+" Current state: "+state+".");button->setToolTip(help+" Current state: "+state+".");button->setEnabled(enabled);
     };
     for(auto* button:{utility_guides_,utility_grid_,utility_snap_})style_utility(button);
+    utility_guides_->setIcon(utility_toggle_icon(UtilityToggleGlyph::guides));
+    utility_grid_->setIcon(utility_toggle_icon(UtilityToggleGlyph::grid));
+    // Keep the icon on the owner action: subsequent text/checked updates must
+    // not restore an empty default-action icon on the Snap tool button.
+    snap->setIcon(utility_toggle_icon(UtilityToggleGlyph::snap));
+    for(auto* button:{utility_guides_,utility_grid_,utility_snap_}) {
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);button->setIconSize(QSize(20,20));
+        button->setFixedSize(36,32);
+        button->setStyleSheet(button->styleSheet()+"QToolButton{padding:4px;}");
+    }
     connect(utility_guides_,&QToolButton::toggled,canvas,&Canvas::set_show_guides);
     connect(utility_grid_,&QToolButton::toggled,canvas,&Canvas::set_show_grid);
     auto* fit_button=new QToolButton(utility_contents);fit_button->setObjectName("utility-fit");fit_button->setText("Fit");
@@ -1193,6 +1350,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
 }
 
 Window::~Window() {
+    cancel_angle_adapters(true);
     qApp->removeEventFilter(this);
     cancel_whip();
     cancel_layout_draft(false);
@@ -1341,7 +1499,7 @@ bool Window::reject_stale_layout_draft() {
        (layout_preview_session_==host.session_id&&layout_preview_revision_==host.session.revision()))return false;
     cancel_layout_draft();
     statusBar()->showMessage("REVISION_CONFLICT: Discarded a stale layout draft",12000);
-    QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();else if(artboard_editing_)rebuild_inspector();});
+    QTimer::singleShot(0,this,[this]{refresh();if(utility_setup_dialog_)rebuild_layout_setup();});
     return true;
 }
 
@@ -1684,6 +1842,9 @@ void Window::rebuild_effects_panel() {
 }
 
 void Window::sync_utility_view_state() {
+    for(auto* box:findChildren<QCheckBox*>("guide-edit-mode")) {
+        const QSignalBlocker blocker(box);box->setChecked(canvas->guide_edit_mode());
+    }
     if(!utility_guides_||!utility_grid_||!utility_snap_action_||!utility_snap_)return;
     const auto state=[](bool enabled){return enabled?QStringLiteral("ON"):QStringLiteral("OFF");};
     {
@@ -1862,9 +2023,22 @@ void Window::add_artboard(bool duplicate) {
     canvas->cancel_interaction();
     const auto& comp=find_composition(host.session.document(),canvas->active_composition());
     const auto& selected=find_artboard(comp,canvas->active_artboard());
-    if(duplicate&&selected.template_assignment&&selected.template_assignment->content_instance)
-        throw Error("ARTBOARD_DUPLICATE_CONTENT_UNSUPPORTED",
-            "Duplicate Template frames with owned Definition content after content duplication is supported");
+    if(duplicate&&selected.template_assignment&&selected.template_assignment->content_instance) {
+        const auto resolved=evaluate_artboard(comp,selected.id);
+        double right=resolved.x+resolved.width;
+        for(const auto& entry:comp.artboards) {
+            const auto frame=evaluate_artboard(comp,entry.id);
+            right=std::max(right,frame.x+frame.width);
+        }
+        auto prefix=new_id();std::erase(prefix,'-');
+        const auto composition=comp.id,source=selected.id,target=prefix+"-artboard";
+        const auto index=static_cast<std::size_t>(std::distance(comp.artboards.begin(),
+            std::find_if(comp.artboards.begin(),comp.artboards.end(),[&](const auto& item){return item.id==source;})))+1;
+        host.session.apply({ArtboardTemplateCommand{DuplicateTemplateArtboard{
+            composition,source,prefix,right+40,resolved.y,index}}},host.session.revision());
+        canvas->set_selection({});artboard_editing_=true;
+        canvas->set_active_artboard(composition,target);host.edited();return;
+    }
     auto board=duplicate?selected:evaluate_artboard(comp,selected.id);
     std::vector<ArtboardGuide> copied_local_guides;
     if(duplicate)for(const auto& guide:selected.local_guides) {
@@ -2057,9 +2231,14 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* input=new QLineEdit(display_value(resolved.*member));input->setObjectName(QString("artboard-")+key);
         input->setAccessibleName(label);form->addRow(label,input);
         if(std::string(key)=="width"||std::string(key)=="height") {
-            const bool typed_driven=std::string(key)=="width"?board.width_driver.has_value():board.height_driver.has_value();
-            input->setReadOnly(typed_driven);
-            input->setToolTip(typed_driven?"Unlink the typed source before entering a literal size.":
+            const bool width=std::string(key)=="width";
+            const bool typed_driven=width?board.width_driver.has_value():board.height_driver.has_value();
+            const bool assigned_parent=board.template_assignment&&board.parent_size&&
+                (width?board.parent_size->width:board.parent_size->height);
+            input->setReadOnly(typed_driven||assigned_parent);
+            input->setToolTip(assigned_parent?"Use Template Reset or Parent size controls before entering a literal size.":
+                typed_driven?"Unlink the typed size source before entering a literal size.":
+                board.template_assignment?"Typing a size creates an override for this Template axis only. Reset override restores Template inheritance.":
                 "Typing a size creates a local override. Use Inherit below to reset to the parent size.");
         }
         else input->setToolTip("Crop position only; this does not move any artwork.");
@@ -2067,7 +2246,15 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             if(!input->isModified())return;input->setModified(false);
             perform([&]{bool valid=false;const auto value=input->text().trimmed().toDouble(&valid);
                 if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite frame coordinate or size");
-                auto board=read();board.*member=value;
+                auto board=read();
+                if(board.template_assignment&&(key=="width"||key=="height")) {
+                    // An explicit field edit must not disappear when its value
+                    // equals the retained authored fallback used by UpdateArtboard.
+                    apply({ArtboardTemplateCommand{SetArtboardTemplateOverride{
+                        composition,board.id,"frame."+key,value}}});
+                    return;
+                }
+                board.*member=value;
                 if(board.parent_size) {
                     if(key=="width")board.parent_size->width=false;
                     if(key=="height")board.parent_size->height=false;
@@ -2087,7 +2274,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* source_box=new QGroupBox(axis+" source");source_box->setObjectName("artboard-"+axis+"-source");
         auto* source_layout=new QVBoxLayout(source_box);
         auto* status=new QLabel(source_box);status->setObjectName("artboard-"+axis+"-source-state");
-        QString kind=parent_driven?"parent_size":driver?(std::holds_alternative<Ref>(driver->value)?"link":"expression"):"literal";
+        const auto kind=qs(artboard_size_property(host.session.document(),target).source_kind);
         status->setText("Source: "+kind+" · Literal: "+display_value(width?board.width:board.height)+
             " du · Evaluated: "+display_value(width?resolved.width:resolved.height)+" du");
         status->setWordWrap(true);source_layout->addWidget(status);
@@ -2185,7 +2372,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         if(reject_stale_layout_draft())return true;
         if(host.session_id==frozen_session&&host.session.revision()==frozen_revision)return false;
         statusBar()->showMessage("REVISION_CONFLICT: Refresh layout controls before editing",12000);
-        QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();else if(artboard_editing_)rebuild_inspector();});
+        QTimer::singleShot(0,this,[this]{refresh();if(utility_setup_dialog_)rebuild_layout_setup();});
         return true;
     };
     using LayoutBuilder=std::function<std::vector<Command>()>;
@@ -2211,15 +2398,26 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         connect(input,&QLineEdit::textEdited,this,[preview_from,scope,build]{preview_from(scope,build);});
         connect(input,&QLineEdit::returnPressed,this,[commit_from,scope,build]{commit_from(scope,build);});
     };
-    auto set_layout_command=[composition,id](const ArtboardLayout& value)->std::vector<Command> {
+    auto set_layout_command=[composition,id,assigned=board.template_assignment.has_value()](
+        const ArtboardLayout& value,const std::string& family)->std::vector<Command> {
+        if(assigned) {
+            if(family=="layout.margin")return {ArtboardTemplateCommand{SetArtboardTemplateOverride{
+                composition,id,family,value.margin}}};
+            return {ArtboardTemplateCommand{SetArtboardTemplateOverride{composition,id,family,value.grid}}};
+        }
         auto payload=std::optional<ArtboardLayout>{value};
         if(!payload->margin&&!payload->grid)payload.reset();
         return {SetArtboardLayout{composition,id,std::move(payload)}};
     };
 
+    const auto cancel_layout_editor=[this] {
+        cancel_layout_draft();
+        if(utility_setup_dialog_)rebuild_layout_setup();else rebuild_inspector();
+    };
     auto* margin_box=new QGroupBox("Margin inset · du");margin_box->setObjectName("layout-margin");
     auto* margin_form=new QFormLayout(margin_box);margin_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
-    const Margin initial_margin=board.layout&&board.layout->margin?*board.layout->margin:Margin{};
+    const Margin initial_margin=board.layout&&board.layout->margin?*board.layout->margin:
+        resolved.layout&&resolved.layout->margin?*resolved.layout->margin:Margin{};
     auto* margin_left=make_number(margin_box,"margin-left","Left",QString::number(initial_margin.left,'g',15));
     auto* margin_top=make_number(margin_box,"margin-top","Top",QString::number(initial_margin.top,'g',15));
     auto* margin_right=make_number(margin_box,"margin-right","Right",QString::number(initial_margin.right,'g',15));
@@ -2267,7 +2465,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         value.margin->right_driver=margin_right_driver;value.margin->right_expression=margin_right_expression;
         value.margin->bottom_driver=margin_bottom_driver;
         value.margin->bottom_expression=margin_bottom_expression;
-        return set_layout_command(value);
+        return set_layout_command(value,"layout.margin");
     };
     auto* margin_source_box=new QGroupBox("Left source",margin_box);margin_source_box->setObjectName("margin-left-source");
     auto* margin_source_layout=new QVBoxLayout(margin_source_box);
@@ -2341,12 +2539,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_unlink,&QPushButton::clicked,this,[this,margin_left_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginLeftCommand{UnlinkMarginLeft{margin_left_ref}}});});
     });
-    connect(margin_source_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_source_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(margin_expression_apply,&QPushButton::clicked,this,[this,margin_expression,margin_replace,margin_left_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginLeftCommand{SetMarginLeftExpression{margin_left_ref,
             {margin_expression->toPlainText().toStdString(),1},margin_replace->isChecked()}}});
     });});
-    connect(margin_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     auto* margin_top_source_box=new QGroupBox("Top source",margin_box);margin_top_source_box->setObjectName("margin-top-source");
     auto* margin_top_source_layout=new QVBoxLayout(margin_top_source_box);
     auto* margin_top_source_state=new QLabel(margin_top_source_box);margin_top_source_state->setObjectName("margin-top-source-state");
@@ -2414,12 +2612,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_top_unlink,&QPushButton::clicked,this,[this,margin_top_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginTopCommand{UnlinkMarginTop{margin_top_ref}}});});
     });
-    connect(margin_top_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_top_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(margin_top_expression_apply,&QPushButton::clicked,this,[this,margin_top_expression,margin_top_replace,margin_top_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginTopCommand{SetMarginTopExpression{margin_top_ref,
             {margin_top_expression->toPlainText().toStdString(),1},margin_top_replace->isChecked()}}});
     });});
-    connect(margin_top_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_top_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref margin_right_ref{id,"","margin.right"};
     auto* margin_right_source_box=new QGroupBox("Right source",margin_box);margin_right_source_box->setObjectName("margin-right-source");
     auto* margin_right_source_layout=new QVBoxLayout(margin_right_source_box);
@@ -2492,13 +2690,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_right_unlink,&QPushButton::clicked,this,[this,margin_right_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginRightCommand{UnlinkMarginRight{margin_right_ref}}});});
     });
-    connect(margin_right_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_right_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(margin_right_expression_apply,&QPushButton::clicked,this,[this,margin_right_expression_input,margin_right_replace,
         margin_right_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginRightCommand{SetMarginRightExpression{margin_right_ref,
             {margin_right_expression_input->toPlainText().toStdString(),1},margin_right_replace->isChecked()}}});
     });});
-    connect(margin_right_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_right_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref margin_bottom_ref{id,"","margin.bottom"};
     auto* margin_bottom_source_box=new QGroupBox("Bottom source",margin_box);
     margin_bottom_source_box->setObjectName("margin-bottom-source");
@@ -2583,31 +2781,33 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_bottom_unlink,&QPushButton::clicked,this,[this,margin_bottom_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginBottomCommand{UnlinkMarginBottom{margin_bottom_ref}}});});
     });
-    connect(margin_bottom_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_bottom_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(margin_bottom_expression_apply,&QPushButton::clicked,this,[this,margin_bottom_expression_input,
         margin_bottom_replace,margin_bottom_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginBottomCommand{SetMarginBottomExpression{margin_bottom_ref,
             {margin_bottom_expression_input->toPlainText().toStdString(),1},margin_bottom_replace->isChecked()}}});
     });});
-    connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new QHBoxLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
-    auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(board.layout&&board.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
+    auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(resolved.layout&&resolved.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
     if(!margin_left_is_driven)bind_number(margin_left,margin_box,margin_builder);
     if(!margin_top_is_driven)bind_number(margin_top,margin_box,margin_builder);
     if(!margin_right_is_driven)bind_number(margin_right,margin_box,margin_builder);
     if(!margin_bottom_is_driven)bind_number(margin_bottom,margin_box,margin_builder);
     connect(margin_apply,&QPushButton::clicked,this,[commit_from,margin_box,margin_builder]{commit_from(margin_box,margin_builder);});
-    connect(margin_clear,&QPushButton::clicked,this,[this,read,composition,id,commit_explicit,margin_box] {
+    connect(margin_clear,&QPushButton::clicked,this,[read,set_layout_command,commit_explicit,guard_editor,margin_box] {
+        if(guard_editor())return;
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});value.margin.reset();
-        const auto payload=(value.grid?std::optional<ArtboardLayout>(value):std::nullopt);
-        commit_explicit(margin_box,[composition,id,payload]{return std::vector<Command>{SetArtboardLayout{composition,id,payload}};});
+        commit_explicit(margin_box,[set_layout_command,value]{return set_layout_command(value,"layout.margin");});
     });
     layout->addWidget(margin_box);
 
     auto* grid_box=new QGroupBox("Grid · Artboard-local bounds and cells · du");grid_box->setObjectName("layout-grid");
     auto* grid_form=new QFormLayout(grid_box);grid_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
-    const Grid initial_grid=board.layout&&board.layout->grid?*board.layout->grid:Grid{new_id(),{0,0,resolved.width,resolved.height},1,1,0,0};
+    const Grid initial_grid=board.layout&&board.layout->grid?*board.layout->grid:
+        resolved.layout&&resolved.layout->grid?*resolved.layout->grid:
+        Grid{board.template_assignment?board.template_assignment->grid_id:new_id(),{0,0,resolved.width,resolved.height},1,1,0,0};
     const Id grid_id=initial_grid.id;
     const auto grid_bounds_x_driver=board.layout&&board.layout->grid?board.layout->grid->bounds_x_driver:std::optional<Ref>{};
     const auto grid_bounds_x_expression=board.layout&&board.layout->grid?board.layout->grid->bounds_x_expression:std::optional<Expression>{};
@@ -2707,7 +2907,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         grid.bounds_width_expression=grid_bounds_width_expression;
         grid.bounds_height_driver=grid_bounds_height_driver;
         grid.bounds_height_expression=grid_bounds_height_expression;
-        value.grid=std::move(grid);return set_layout_command(value);
+        value.grid=std::move(grid);return set_layout_command(value,"layout.grid");
     };
     auto* grid_source_box=new QGroupBox("X source",grid_box);grid_source_box->setObjectName("grid-bounds-x-source");
     auto* grid_source_layout=new QVBoxLayout(grid_source_box);
@@ -2851,13 +3051,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_columns_unlink,&QPushButton::clicked,this,[this,grid_columns_ref,grid_source_commit] {
         perform([&]{grid_source_commit({GridColumnsCommand{UnlinkGridColumns{grid_columns_ref}}});});
     });
-    connect(grid_columns_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_columns_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_columns_expression_apply,&QPushButton::clicked,this,
         [this,grid_columns_expression_input,grid_columns_replace,grid_columns_ref,grid_source_commit]{perform([&]{
         grid_source_commit({GridColumnsCommand{SetGridColumnsExpression{grid_columns_ref,
             {grid_columns_expression_input->toPlainText().toStdString(),1},grid_columns_replace->isChecked()}}});
     });});
-    connect(grid_columns_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_columns_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref grid_rows_ref{grid_id,"","grid.rows"};
     auto* grid_rows_source_box=new QGroupBox("Rows source",grid_box);
     grid_rows_source_box->setObjectName("grid-rows-source");
@@ -2925,7 +3125,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_rows_unlink,&QPushButton::clicked,this,[this,grid_rows_ref,grid_source_commit] {
         perform([&]{grid_source_commit({GridRowsCommand{UnlinkGridRows{grid_rows_ref}}});});
     });
-    connect(grid_rows_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_rows_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     auto* grid_rows_expression_input=new ExpressionInput;
     grid_rows_expression_input->setParent(grid_rows_source_box);
     grid_rows_expression_input->setObjectName("grid-rows-expression");
@@ -2946,7 +3146,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         grid_source_commit({GridRowsCommand{SetGridRowsExpression{grid_rows_ref,
             {grid_rows_expression_input->toPlainText().toStdString(),1},grid_rows_replace->isChecked()}}});
     });});
-    connect(grid_rows_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_rows_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref grid_bounds_x_ref{grid_id,"","grid.bounds.x"};
     const Ref grid_bounds_y_ref{grid_id,"","grid.bounds.y"};
     auto* grid_y_source_box=new QGroupBox("Y source",grid_box);grid_y_source_box->setObjectName("grid-bounds-y-source");
@@ -3017,12 +3217,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_y_unlink,&QPushButton::clicked,this,[this,grid_bounds_y_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsYCommand{UnlinkGridBoundsY{grid_bounds_y_ref}}});});
     });
-    connect(grid_y_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_y_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_y_expression_apply,&QPushButton::clicked,this,[this,grid_y_expression,grid_y_replace,grid_bounds_y_ref,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsYCommand{SetGridBoundsYExpression{grid_bounds_y_ref,
             {grid_y_expression->toPlainText().toStdString(),1},grid_y_replace->isChecked()}}});
     });});
-    connect(grid_y_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_y_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_x_link,&QPushButton::clicked,this,[this,grid_x_source,grid_x_sources,grid_bounds_x_ref,grid_x_replace,grid_source_commit]{perform([&]{
         bool valid=false;const auto candidate=grid_x_source->currentData(Qt::UserRole).toInt(&valid);
         if(grid_x_source->currentIndex()<0||!valid||candidate<0||static_cast<std::size_t>(candidate)>=grid_x_sources.size())
@@ -3033,12 +3233,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_x_unlink,&QPushButton::clicked,this,[this,grid_bounds_x_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsXCommand{UnlinkGridBoundsX{grid_bounds_x_ref}}});});
     });
-    connect(grid_x_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_x_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_x_expression_apply,&QPushButton::clicked,this,[this,grid_x_expression,grid_x_replace,grid_bounds_x_ref,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsXCommand{SetGridBoundsXExpression{grid_bounds_x_ref,
             {grid_x_expression->toPlainText().toStdString(),1},grid_x_replace->isChecked()}}});
     });});
-    connect(grid_x_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_x_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref grid_bounds_width_ref{grid_id,"","grid.bounds.width"};
     auto* grid_width_source_box=new QGroupBox("Width source",grid_box);grid_width_source_box->setObjectName("grid-bounds-width-source");
     auto* grid_width_source_layout=new QVBoxLayout(grid_width_source_box);
@@ -3117,13 +3317,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_width_unlink,&QPushButton::clicked,this,[this,grid_bounds_width_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsWidthCommand{UnlinkGridBoundsWidth{grid_bounds_width_ref}}});});
     });
-    connect(grid_width_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_width_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_width_expression_apply,&QPushButton::clicked,this,[this,grid_bounds_width_ref,grid_width_expression,
         grid_width_replace,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsWidthCommand{SetGridBoundsWidthExpression{grid_bounds_width_ref,
             {grid_width_expression->toPlainText().toStdString(),1},grid_width_replace->isChecked()}}});
     });});
-    connect(grid_width_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_width_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref grid_bounds_height_ref{grid_id,"","grid.bounds.height"};
     auto* grid_height_source_box=new QGroupBox("Height source",grid_box);
     grid_height_source_box->setObjectName("grid-bounds-height-source");
@@ -3211,13 +3411,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_height_unlink,&QPushButton::clicked,this,[this,grid_bounds_height_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsHeightCommand{UnlinkGridBoundsHeight{grid_bounds_height_ref}}});});
     });
-    connect(grid_height_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_height_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     connect(grid_height_expression_apply,&QPushButton::clicked,this,[this,grid_bounds_height_ref,grid_height_expression,
         grid_height_replace,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsHeightCommand{SetGridBoundsHeightExpression{grid_bounds_height_ref,
             {grid_height_expression->toPlainText().toStdString(),1},grid_height_replace->isChecked()}}});
     });});
-    connect(grid_height_expression_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_height_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     const Ref grid_column_gutter_ref{grid_id,"","grid.column_gutter"};
     auto* grid_column_gutter_source_box=new QGroupBox("Column gutter source",grid_box);
     grid_column_gutter_source_box->setObjectName("grid-column-gutter-source");
@@ -3296,7 +3496,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_column_gutter_unlink,&QPushButton::clicked,this,[this,grid_column_gutter_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridColumnGutterCommand{UnlinkGridColumnGutter{grid_column_gutter_ref}}});});
     });
-    connect(grid_column_gutter_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_column_gutter_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     auto* grid_column_gutter_expression_input=new ExpressionInput;
     grid_column_gutter_expression_input->setObjectName("grid-column-gutter-expression");
     grid_column_gutter_expression_input->setAccessibleName("Grid column gutter expression draft");
@@ -3407,30 +3607,37 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             grid_source_commit({GridRowGutterCommand{SetGridRowGutterExpression{grid_row_gutter_ref,
                 {grid_row_gutter_expression_input->toPlainText().toStdString(),1},grid_row_gutter_replace->isChecked()}}});
         });});
-    connect(grid_row_gutter_cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+    connect(grid_row_gutter_cancel,&QPushButton::clicked,this,cancel_layout_editor);
     auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new QHBoxLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
     auto* grid_apply=new QPushButton("Apply Grid",grid_actions);grid_apply->setObjectName("grid-apply");grid_buttons->addWidget(grid_apply);
     auto* grid_copy=new QPushButton("Set Grid to margin box",grid_actions);grid_copy->setObjectName("grid-copy-margin-box");grid_copy->setToolTip("Copy the evaluated Margin box once; later Margin edits do not change Grid.");grid_buttons->addWidget(grid_copy);
-    auto* grid_clear=new QPushButton("Clear Grid",grid_actions);grid_clear->setObjectName("grid-clear");grid_clear->setEnabled(board.layout&&board.layout->grid);grid_buttons->addWidget(grid_clear);
+    auto* grid_clear=new QPushButton("Clear Grid",grid_actions);grid_clear->setObjectName("grid-clear");grid_clear->setEnabled(resolved.layout&&resolved.layout->grid);grid_buttons->addWidget(grid_clear);
     grid_form->addRow(grid_actions);
     for(auto* input:{grid_x,grid_y,grid_width,grid_height,grid_columns,grid_rows,grid_column_gutter,grid_row_gutter})bind_number(input,grid_box,grid_builder);
     connect(grid_apply,&QPushButton::clicked,this,[commit_from,grid_box,grid_builder]{commit_from(grid_box,grid_builder);});
-    connect(grid_copy,&QPushButton::clicked,this,[this,read,composition,id,grid_id,commit_explicit,guard_editor,grid_box] {
+    connect(grid_copy,&QPushButton::clicked,this,[this,read,composition,id,grid_id,set_layout_command,commit_explicit,guard_editor,grid_box] {
         if(guard_editor())return;
         const auto current=read();
-        if(!current.layout||!current.layout->margin) {statusBar()->showMessage("INVALID_LAYOUT: Add an authored Margin before copying its box",12000);return;}
         const auto board_now=evaluate_artboard(find_composition(host.session.document(),composition),id);
-        const auto& margin=*board_now.layout->margin;auto value=current.layout.value();
+        if(!board_now.layout||!board_now.layout->margin) {statusBar()->showMessage("INVALID_LAYOUT: Add a Margin before copying its box",12000);return;}
+        const auto& margin=*board_now.layout->margin;auto value=current.layout.value_or(ArtboardLayout{});
         auto grid=value.grid.value_or(Grid{grid_id,{},1,1,0,0});
+        if(!value.grid&&board_now.layout->grid) {
+            // Inherited source metadata belongs to its authored owner. This is a
+            // one-shot literal family override, not a cloned source dependency.
+            const auto& inherited=*board_now.layout->grid;
+            grid=Grid{grid_id,inherited.bounds,inherited.columns,inherited.rows,
+                inherited.column_gutter,inherited.row_gutter};
+        }
         grid.bounds={margin.left,margin.top,board_now.width-margin.left-margin.right,
             board_now.height-margin.top-margin.bottom};
         value.grid=std::move(grid);
-        commit_explicit(grid_box,[composition,id,value]{return std::vector<Command>{SetArtboardLayout{composition,id,value}};});
+        commit_explicit(grid_box,[set_layout_command,value]{return set_layout_command(value,"layout.grid");});
     });
-    connect(grid_clear,&QPushButton::clicked,this,[this,read,composition,id,commit_explicit,grid_box] {
+    connect(grid_clear,&QPushButton::clicked,this,[read,set_layout_command,commit_explicit,guard_editor,grid_box] {
+        if(guard_editor())return;
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});value.grid.reset();
-        const auto payload=(value.margin?std::optional<ArtboardLayout>(value):std::nullopt);
-        commit_explicit(grid_box,[composition,id,payload]{return std::vector<Command>{SetArtboardLayout{composition,id,payload}};});
+        commit_explicit(grid_box,[set_layout_command,value]{return set_layout_command(value,"layout.grid");});
     });
     layout->addWidget(grid_box);
 
@@ -3609,9 +3816,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* guide_override=new QPushButton("Override field…",guide_box);guide_override->setObjectName("artboard-guide-override");
     auto* guide_reset=new QPushButton("Reset field…",guide_box);guide_reset->setObjectName("artboard-guide-reset");
     auto* guide_detach=new QPushButton("Detach occurrence",guide_box);guide_detach->setObjectName("artboard-guide-detach");
+    auto* guide_drag=new QPushButton("Drag once…",guide_box);guide_drag->setObjectName("artboard-guide-drag");
+    guide_drag->setToolTip("Arm only the selected visible Guide occurrence, then drag its clipped line once on Canvas. Escape cancels.");
+    guide_actions->addWidget(guide_drag,2,0,1,3);
     guide_actions->addWidget(guide_add,0,0);guide_actions->addWidget(guide_edit_button,0,1);guide_actions->addWidget(guide_delete,0,2);
     guide_actions->addWidget(guide_override,1,0);guide_actions->addWidget(guide_reset,1,1);guide_actions->addWidget(guide_detach,1,2);
-    const auto update_guide_buttons=[guide_selector,guide_edit_button,guide_delete,guide_override,guide_reset,guide_detach,
+    const auto update_guide_buttons=[guide_selector,guide_edit_button,guide_delete,guide_override,guide_reset,guide_detach,guide_drag,
         occurrences,assignment=board.template_assignment](int) {
         const auto selected=guide_selector->currentData().toString().toStdString();
         const auto found=std::find_if(occurrences.begin(),occurrences.end(),[&](const auto& value) {
@@ -3621,6 +3831,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         const bool local=present&&!found->inherited;
         const bool inherited=present&&found->inherited;
         guide_edit_button->setEnabled(local);guide_delete->setEnabled(local);
+        guide_drag->setEnabled(present&&found->enabled);
+        guide_drag->setText(inherited?"Drag position override once…":"Drag local position once…");
         guide_override->setEnabled(inherited);guide_detach->setEnabled(inherited);
         const bool has_reset=inherited&&assignment&&
             (assignment->guide_position_overrides.contains(selected)||assignment->guide_enabled_overrides.contains(selected));
@@ -3628,6 +3840,15 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     };
     update_guide_buttons(guide_selector->currentIndex());
     connect(guide_selector,qOverload<int>(&QComboBox::currentIndexChanged),this,update_guide_buttons);
+    connect(guide_drag,&QPushButton::clicked,this,[this,template_context,guide_selector]{
+        const auto guide=guide_selector->currentData().toString().toStdString();
+        perform([&]{
+            verify_artboard_guide_context(template_context);
+            if(layout_preview_active_||layout_preview_invalid_)cancel_layout_draft();
+            canvas->arm_artboard_guide_drag(template_context.composition,template_context.artboard,guide);
+            canvas->setFocus(Qt::OtherFocusReason);
+        });
+    });
     connect(guide_add,&QPushButton::clicked,this,[this,template_context]{perform([&]{add_artboard_guide(template_context);});});
     connect(guide_edit_button,&QPushButton::clicked,this,[this,template_context,guide_selector]{
         const auto guide=guide_selector->currentData().toString().toStdString();
@@ -4036,6 +4257,9 @@ void Window::detach_artboard_template(const ArtboardTemplateContext& context) {
 }
 
 void Window::rebuild_inspector(bool use_canvas_values) {
+    if(rebuilding_inspector_)return;
+    QScopedValueRollback guard(rebuilding_inspector_,true);
+    cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
     QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
     for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
@@ -4259,8 +4483,12 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             });
         }
         for(const auto* parameter:{"center_x","center_y","points","rotation","radius","outer_radius","inner_radius","width","height"})
-            if(o.source->parameters.contains(parameter))
-                add_property(generator,{o.id,{},std::string("generator.")+parameter},parameter_label(parameter));
+            if(o.source->parameters.contains(parameter)) {
+                const Ref ref{o.id,{},std::string("generator.")+parameter};
+                add_property(generator,ref,parameter_label(parameter));
+                if(std::string(parameter)=="rotation"&&(o.source->type=="nect.shape.polygon"||o.source->type=="nect.shape.star"))
+                    add_primitive_angle(generator,ref,*o.source);
+            }
         auto* correction=section("2 · Point Edit");
         std::optional<PointEditEnabledProperty> point_edit_state;
         Ref point_edit_ref;
@@ -4431,8 +4659,11 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     }
     if(!canvas->selected_point.empty()) {
         auto* form=section("Point && handles");
-        for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})
-            add_property(form,{o.id,canvas->selected_point,field},QString::fromLatin1(field));
+        for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"}) {
+            const Ref ref{o.id,canvas->selected_point,field};
+            add_property(form,ref,QString::fromLatin1(field));
+            if(ref.field=="in.angle"||ref.field=="out.angle")add_point_angle(form,ref,o);
+        }
     }
     if(o.compositing.mask)add_compositing_properties(layout,o);
     add_transform_properties(layout,o);
@@ -6441,12 +6672,14 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         enabled_driver->setEnabled(true);
         row->addWidget(enabled_driver);
         auto* up=new QPushButton("↑");up->setFixedWidth(28);up->setEnabled(index>0);
-        up->setObjectName("operation-up-"+qs(operation.id));up->setToolTip("Move earlier in the stack");
+        up->setObjectName("operation-up-"+qs(operation.id));
+        up->setAccessibleName("Move "+name+" earlier in the stack");up->setToolTip("Move "+name+" earlier in the stack");
         auto* down=new QPushButton("↓");down->setFixedWidth(28);down->setEnabled(index+1<object.stack.size());
-        down->setObjectName("operation-down-"+qs(operation.id));down->setToolTip("Move later in the stack");
+        down->setObjectName("operation-down-"+qs(operation.id));
+        down->setAccessibleName("Move "+name+" later in the stack");down->setToolTip("Move "+name+" later in the stack");
         auto* remove=new QPushButton("×");remove->setFixedWidth(28);
-        remove->setObjectName("operation-remove-"+qs(operation.id));remove->setToolTip("Remove "+name);
-        remove->setAccessibleName("Remove "+name);
+        remove->setObjectName("operation-remove-"+qs(operation.id));remove->setToolTip("Remove "+name+" from the stack");
+        remove->setAccessibleName("Remove "+name+" from the stack");
         row->addWidget(up);row->addWidget(down);row->addWidget(remove);
         if(operation.macro) {
             auto* detach=new QPushButton("Detach");detach->setObjectName("macro-detach-"+qs(operation.id));
@@ -6602,31 +6835,54 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 const auto initial=macro_parameter_value(host.session.document(),object.id,operation.id,parameter_id);
                 const auto frozen_macro_session=host.session_id;
                 const auto frozen_macro_revision=host.session.revision();
-                auto* editor=new QDoubleSpinBox(group);editor->setObjectName("macro-amount-"+qs(operation.id));
-                editor->setAccessibleName(name+" / "+qs(parameter->label));editor->setDecimals(3);
-                editor->setRange(-1e6,1e6);editor->setSingleStep(1);editor->setSuffix(" "+qs(parameter->unit));
-                editor->setValue(initial);
+                // Macro amounts retain full double precision; fixed decimals can author a rounded no-op.
+                auto* editor=new QLineEdit(QString::number(initial,'g',17),group);
+                editor->setObjectName("macro-amount-"+qs(operation.id));
+                editor->setAccessibleName(name+" / "+qs(parameter->label)+" / "+qs(parameter->unit));
+                editor->setToolTip("Enter a finite amount in "+qs(parameter->unit)+" from -1000000 to 1000000. Escape cancels the edit.");
                 editor->setProperty("nect-reference",QJsonDocument(ref_json(amount_ref)).toJson(QJsonDocument::Compact));
-                connect(editor,&QDoubleSpinBox::editingFinished,this,[this,editor,initial,id=object.id,
-                    instance=operation.id,parameter_id,frozen_macro_session,frozen_macro_revision]{perform([&]{
-                    if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
-                    if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
-                    if(editor->value()==initial)return;
-                    host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,editor->value()}}},frozen_macro_revision);
-                    host.edited();
-                });});
-                auto* amount_row=new QWidget(group);auto* amount_layout=new QHBoxLayout(amount_row);
-                amount_layout->setContentsMargins(0,0,0,0);amount_layout->addWidget(editor);
-                if(operation.macro->overrides.contains(parameter_id)) {
-                    auto* reset=new QPushButton("Reset");reset->setObjectName("macro-reset-amount-"+qs(operation.id));
-                    reset->setToolTip("Restore the value published by the pinned Macro revision.");amount_layout->addWidget(reset);
-                    connect(reset,&QPushButton::clicked,this,[this,id=object.id,instance=operation.id,parameter_id,
-                        frozen_macro_session,frozen_macro_revision]{perform([&]{
+                auto* reset=operation.macro->overrides.contains(parameter_id)?new QPushButton("Reset",group):nullptr;
+                if(reset)reset->setObjectName("macro-reset-amount-"+qs(operation.id));
+                auto* cancel=new QAction(editor);cancel->setShortcut(QKeySequence(Qt::Key_Escape));
+                cancel->setShortcutContext(Qt::WidgetShortcut);editor->addAction(cancel);
+                connect(cancel,&QAction::triggered,editor,[editor,initial]{
+                    editor->setText(QString::number(initial,'g',17));editor->setModified(false);
+                });
+                auto finish_amount=[this,editor,reset,initial,id=object.id,
+                    instance=operation.id,parameter_id,frozen_macro_session,frozen_macro_revision]{
+                    if(!editor->isModified())return;
+                    // Reset owns this mouse gesture; a normal keyboard/focus exit still commits the edit.
+                    if(reset&&QApplication::focusWidget()==reset&&(QApplication::mouseButtons()&Qt::LeftButton))return;
+                    editor->setModified(false);
+                    perform([&]{
                         if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
                         if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
-                        host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
+                        bool valid=false;const auto value=editor->text().trimmed().toDouble(&valid);
+                        if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite Macro Amount");
+                        if(value==initial)return;
+                        host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,value}}},frozen_macro_revision);
                         host.edited();
-                    });});
+                    });
+                };
+                connect(editor,&QLineEdit::editingFinished,this,finish_amount);
+                if(reset)connect(qApp,&QApplication::focusChanged,editor,[editor,finish_amount](QWidget* previous,QWidget*){
+                    // Qt consumes editingFinished on the deferred Reset blur. A cancelled gesture keeps a pending draft.
+                    if(previous==editor)finish_amount();
+                });
+                auto* amount_row=new QWidget(group);auto* amount_layout=new QHBoxLayout(amount_row);
+                amount_layout->setContentsMargins(0,0,0,0);amount_layout->addWidget(editor);
+                if(reset) {
+                    reset->setToolTip("Restore the value published by the pinned Macro revision.");amount_layout->addWidget(reset);
+                    connect(reset,&QPushButton::clicked,this,[this,editor,id=object.id,instance=operation.id,parameter_id,
+                        frozen_macro_session,frozen_macro_revision]{
+                        editor->setModified(false);
+                        perform([&]{
+                            if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
+                            if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
+                            host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
+                            host.edited();
+                        });
+                    });
                 }
                 form->addRow(qs(parameter->label)+" · "+qs(parameter->unit),amount_row);
             } else {
@@ -6888,78 +7144,40 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 add_property(form,rotation_ref,QStringLiteral("Rotation · degrees"));
                 const auto reference=QJsonDocument(ref_json(rotation_ref)).toJson(QJsonDocument::Compact);
                 QLineEdit* numeric=nullptr;
-                for(auto* input:form->findChildren<QLineEdit*>())
+                for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
                     if(input->property("nect-reference").toByteArray()==reference){numeric=input;break;}
                 auto* dial_row=new QWidget;auto* dial_layout=new QHBoxLayout(dial_row);dial_layout->setContentsMargins(0,0,0,0);dial_layout->setSpacing(8);
                 auto* knob=new RotationKnob(dial_row);knob->setObjectName("repeater-angle-knob-"+qs(operation.id));
+                const auto dial_name=QString("%1 Repeater rotation angle").arg(qs(object.name));
+                knob->setAccessibleName(dial_name);
                 knob->setProperty("nect-reference",reference);
                 const auto initial_rotation=inspector_values_.at(rotation_ref);knob->set_value(initial_rotation);
+                if(numeric){numeric->setProperty("nect-exact-value",true);numeric->setText(QString::number(initial_rotation,'g',17));numeric->setModified(false);}
                 const auto& scalar=nect::property(host.session.document(),rotation_ref);
                 const bool driven=scalar.binding.has_value()||scalar.expression.has_value();
                 knob->setEnabled(!driven);
-                if(driven)knob->setToolTip("Rotation is driven by a binding or expression. Unlink it in the numeric editor before using the dial.");
+                if(driven)knob->setToolTip(dial_name+" is driven by a binding or expression. Unlink it in the numeric editor before using the dial.");
+                else knob->setToolTip(dial_name+"; drag continuously to add signed degrees. The dial is modulo 360; the adjacent value remains exact. Escape cancels.");
                 auto* dial_note=new QLabel("Dial · modulo 360",dial_row);dial_note->setAccessibleName("Dial shows rotation modulo 360; numeric value is exact");
                 dial_layout->addWidget(knob);dial_layout->addWidget(dial_note);dial_layout->addStretch();form->addRow("Angle dial",dial_row);
-                const auto rotation_session_id=host.session_id;const auto rotation_revision=host.session.revision();
-                auto gesture_active=std::make_shared<bool>(false);auto last_valid=std::make_shared<double>(initial_rotation);
-                auto report=[this](const std::exception& exception) {
-                    if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
-                    else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
+                const auto frozen_kind=host.session.document().objects.at(object.id).kind;
+                const auto frozen_source=host.session.document().objects.at(object.id).source;
+                const auto frozen_operation_version=operation.version;
+                auto validate_target=[this,rotation_ref,object_id=object.id,operation_id=operation.id,frozen_kind,frozen_source,frozen_operation_version] {
+                    const auto found=host.session.document().objects.find(object_id);
+                    if(found==host.session.document().objects.end()||found->second.kind!=frozen_kind||
+                       found->second.source.has_value()!=frozen_source.has_value()||
+                       (frozen_source&&(found->second.source->id!=frozen_source->id||found->second.source->type!=frozen_source->type||
+                           found->second.source->version!=frozen_source->version)))
+                        throw Error("MISSING_PROPERTY","Repeater source identity changed");
+                    const auto& current=find_operation(host.session.document(),object_id,operation_id);
+                    if(current.type!="nect.shape.repeater"||current.version!=frozen_operation_version||!current.parameters.contains("rotation"))
+                        throw Error("MISSING_PROPERTY","Repeater rotation Ref is no longer available");
+                    const auto& current_scalar=nect::property(host.session.document(),rotation_ref);
+                    if(current_scalar.binding||current_scalar.expression)
+                        throw Error("DRIVEN_PROPERTY","Unlink the Repeater rotation before using the dial");
                 };
-                knob->begin_drag=[this,rotation_ref,object_id=object.id,operation_id=operation.id,knob,numeric,rotation_session_id,rotation_revision,gesture_active,driven,report] {
-                    try {
-                        if(driven)throw Error("DRIVEN_PROPERTY","Unlink the Repeater rotation before using the dial");
-                        if(host.session_id!=rotation_session_id)throw Error("SESSION_CONFLICT","Repeater rotation belongs to another document");
-                        if(host.session.revision()!=rotation_revision)throw Error("REVISION_CONFLICT","Repeater rotation changed; reopen the Inspector");
-                        const auto& current=find_operation(host.session.document(),object_id,operation_id);
-                        if(current.type!="nect.shape.repeater"||!current.parameters.contains("rotation"))
-                            throw Error("MISSING_PROPERTY","Repeater rotation Ref is no longer available");
-                        const auto& current_scalar=nect::property(host.session.document(),rotation_ref);
-                        if(current_scalar.binding||current_scalar.expression)throw Error("DRIVEN_PROPERTY","Unlink the Repeater rotation before using the dial");
-                        host.session.begin_gesture(rotation_revision);*gesture_active=true;return true;
-                    } catch(const std::exception& exception) {
-                        if(numeric)numeric->setFocus(Qt::OtherFocusReason);report(exception);
-                        knob->set_value(inspector_values_.contains(rotation_ref)?inspector_values_.at(rotation_ref):knob->value());return false;
-                    }
-                };
-                knob->preview_value=[this,knob,numeric,rotation_ref,rotation_session_id,rotation_revision,gesture_active,last_valid,report](double value) {
-                    if(!*gesture_active)return;
-                    if(host.session_id!=rotation_session_id||host.session.revision()!=rotation_revision) {
-                        if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
-                        *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(*last_valid);
-                        statusBar()->showMessage("REVISION_CONFLICT: Repeater angle drag became stale and was canceled",12000);return;
-                    }
-                    try {
-                        host.session.update_gesture({EditProperties{{rotation_ref},value,false}});
-                        *last_valid=value;canvas->refresh();canvas->update();
-                        if(numeric){numeric->setText(QString::number(value,'g',17));numeric->setModified(false);}
-                    } catch(const std::exception& exception) {
-                        if(const auto* error=dynamic_cast<const Error*>(&exception);error&&error->code=="OUT_OF_RANGE") {
-                            knob->set_value(*last_valid);if(numeric)numeric->setText(QString::number(*last_valid,'g',17));report(exception);return;
-                        }
-                        if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
-                        *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(*last_valid);
-                        if(numeric)numeric->setText(QString::number(*last_valid,'g',17));report(exception);
-                    }
-                };
-                knob->commit_drag=[this,knob,rotation_session_id,rotation_revision,gesture_active,last_valid,report] {
-                    if(!*gesture_active)return;
-                    if(host.session_id!=rotation_session_id||host.session.revision()!=rotation_revision||!host.session.gesture_active()) {
-                        if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
-                        *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(*last_valid);
-                        statusBar()->showMessage("REVISION_CONFLICT: Repeater angle drag became stale and was canceled",12000);return;
-                    }
-                    try {host.session.commit_gesture();*gesture_active=false;host.edited();}
-                    catch(const std::exception& exception) {
-                        if(host.session.gesture_active())host.session.cancel_gesture();*gesture_active=false;
-                        canvas->refresh();canvas->update();knob->set_value(*last_valid);report(exception);
-                    }
-                };
-                knob->cancel_drag=[this,knob,numeric,rotation_session_id,gesture_active,initial_rotation] {
-                    if(host.session_id==rotation_session_id&&host.session.gesture_active())host.session.cancel_gesture();
-                    *gesture_active=false;canvas->refresh();canvas->update();knob->set_value(initial_rotation);
-                    if(numeric){numeric->setText(QString::number(initial_rotation,'g',17));numeric->setModified(false);}
-                };
+                bind_angle_adapter(knob,numeric,rotation_ref,initial_rotation,std::move(validate_target),true,true);
             }
             auto* note=new QLabel("Rotation is a fixed step per copy; changing Copies does not divide 360°. Scale 1 is unchanged. Copies remain virtual and share source points.");
             note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");form->addRow(note);
@@ -7194,6 +7412,607 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         current->stops.push_back(stop);apply({SetGradient{id,op,current}});
     });});
 }
+void Window::add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitive& source) {
+    const auto reference=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
+    QPointer<QLineEdit> numeric;
+    for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
+        if(input->property("nect-reference").toByteArray()==reference){numeric=input;break;}
+    auto* row=new QWidget;auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
+    QPointer<RotationKnob> knob=new RotationKnob(row);
+    knob->setObjectName("primitive-angle-knob");knob->setAccessibleName(primitive_label(source)+" source rotation angle knob");
+    knob->set_display_zero(0);knob->setProperty("nect-reference",reference);
+    const auto initial=inspector_values_.at(ref);knob->set_value(initial);
+    // This angle row promises exact numeric round-trip, unlike generic compact labels.
+    if(numeric){numeric->setProperty("nect-exact-value",true);if(!numeric->isModified()){numeric->setText(QString::number(initial,'g',17));numeric->setModified(false);}}
+    const auto& scalar=nect::property(host.session.document(),ref);
+    const bool driven=scalar.binding.has_value()||scalar.expression.has_value();knob->setEnabled(!driven);
+    const auto target_name=primitive_label(source)+QStringLiteral(" source rotation angle");
+    knob->setToolTip(driven?target_name+" is driven. Unlink its numeric source before using the dial.":
+        "Adjust "+target_name+": zero points right (+X); positive degrees turn clockwise. Drag adds signed degrees; whole turns stay authored. Escape cancels.");
+    layout->addWidget(knob);layout->addWidget(new QLabel("Dial · +X zero · modulo 360",row));layout->addStretch();form->addRow("Angle dial",row);
+    const auto source_id=source.id,source_type=source.type;const auto source_version=source.version;
+    auto validate_target=[this,ref,source_id,source_type,source_version] {
+        const auto object=host.session.document().objects.find(ref.object);
+        if(object==host.session.document().objects.end()||!object->second.source||object->second.source->id!=source_id||
+           object->second.source->type!=source_type||object->second.source->version!=source_version)
+            throw Error("MISSING_PROPERTY","Primitive source identity changed");
+        const auto& current=nect::property(host.session.document(),ref);
+        if(current.binding||current.expression)throw Error("DRIVEN_PROPERTY","Unlink the primitive rotation before using the dial");
+    };
+    bind_angle_adapter(knob,numeric,ref,initial,std::move(validate_target),false,true);
+}
+
+void Window::add_point_angle(QFormLayout* form,const Ref& ref,const Object& object) {
+    const auto encoded=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
+    QPointer<QLineEdit> numeric;
+    for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
+        if(input->property("nect-reference").toByteArray()==encoded){numeric=input;break;}
+
+    auto* row=new QWidget;auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
+    QPointer<RotationKnob> knob=new RotationKnob(row);
+    knob->setObjectName("point-angle-knob-"+qs(ref.field));
+    const auto handle_name=ref.field=="in.angle"?QStringLiteral("incoming handle"):QStringLiteral("outgoing handle");
+    knob->setAccessibleName(qs(object.name)+" "+handle_name+" angle knob");
+    knob->set_display_zero(0);knob->setProperty("nect-reference",encoded);
+    const auto initial=inspector_values_.at(ref);knob->set_value(initial);
+    // Point angles use exact signed degrees just like their adjacent numeric field.
+    if(numeric) {
+        numeric->setProperty("nect-exact-value",true);
+        if(!numeric->isModified()) {numeric->setText(QString::number(initial,'g',17));numeric->setModified(false);}
+    }
+
+    const auto& document=host.session.document();
+    const auto origin=property_origin(document,ref);
+    const bool generated=object.source.has_value()&&origin!="authored";
+    bool driven=false;
+    if(origin!="generated") {
+        const auto& scalar=nect::property(document,ref);
+        driven=scalar.binding.has_value()||scalar.expression.has_value();
+    }
+    knob->setEnabled(!driven);
+    const auto target_name=qs(object.name)+" "+handle_name+" angle";
+    knob->setToolTip(driven
+        ?target_name+" has a stored binding or expression. Unlink it before using the dial."
+        :"Adjust "+target_name+": zero points right along local +X; positive degrees turn clockwise. Drag adds signed degrees; whole turns stay authored. Escape cancels.");
+    row_layout->addWidget(knob);row_layout->addWidget(new QLabel("Dial · +X zero · modulo 360",row));row_layout->addStretch();
+    form->addRow(handle_name+" dial",row);
+
+    const auto object_id=object.id;
+    const auto contour_id=[&] {
+        const auto contours=object.source?path_contours(object,&inspector_values_):object.contours;
+        for(const auto& contour:contours)
+            if(std::any_of(contour.points.begin(),contour.points.end(),[&](const auto& point){return point.id==ref.point;}))
+                return contour.id;
+        throw Error("MISSING_PROPERTY","Selected point identity is no longer present");
+    }();
+    const auto source_id=object.source?object.source->id:std::string{};
+    const auto source_type=object.source?object.source->type:std::string{};
+    const auto source_version=object.source?object.source->version:0U;
+    const bool had_point_edit=object.point_edit.has_value();
+    const auto point_edit_id=object.point_edit?object.point_edit->id:
+        object.source?object.source->id+"-point-edit":std::string{};
+    const auto point_edit_version=object.point_edit?object.point_edit->version:1U;
+    auto validate_target=[this,object_id,ref,generated,contour_id,source_id,source_type,source_version,
+        had_point_edit,point_edit_id,point_edit_version] {
+        const auto found=host.session.document().objects.find(object_id);
+        if(found==host.session.document().objects.end()||found->second.kind!=Kind::path)
+            throw Error("MISSING_PROPERTY","Selected point object identity changed");
+        const auto& current=found->second;
+        if(generated) {
+            if(!current.source||current.source->id!=source_id||current.source->type!=source_type||
+               current.source->version!=source_version)
+                throw Error("MISSING_PROPERTY","Primitive source identity changed");
+            if(current.point_edit.has_value()!=had_point_edit||
+               (current.point_edit&&(current.point_edit->id!=point_edit_id||current.point_edit->version!=point_edit_version)))
+                throw Error("MISSING_PROPERTY","Canonical Point Edit destination changed");
+        } else if(current.source)throw Error("MISSING_PROPERTY","Authored Path source identity changed");
+        const auto values=evaluate(host.session.document());
+        if(!values.contains(ref))throw Error("MISSING_PROPERTY","Selected point or angle Ref is no longer active");
+        const auto current_contours=current.source?path_contours(current,&values):current.contours;
+        bool same_point=false;
+        for(const auto& contour:current_contours)if(contour.id==contour_id&&
+            std::any_of(contour.points.begin(),contour.points.end(),[&](const auto& point){return point.id==ref.point;}))
+            same_point=true;
+        if(!same_point)throw Error("MISSING_PROPERTY","Selected point identity changed");
+        if(property_origin(host.session.document(),ref)!="generated") {
+            const auto& scalar=nect::property(host.session.document(),ref);
+            if(scalar.binding||scalar.expression)
+                throw Error("DRIVEN_PROPERTY","Unlink the handle angle before using its dial");
+        }
+    };
+    bind_angle_adapter(knob,numeric,ref,initial,std::move(validate_target),false,true);
+}
+
+void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targets,const QString& label,
+        const QString& dial_object_name,const QString& accessible_subject,const QString& target_noun,
+        const std::vector<double>& initial_values,bool driven,const QString& driven_explanation,
+        std::function<void()> validate_target,bool top_zero) {
+    if(targets.size()<2||initial_values.size()!=targets.size())
+        throw Error("INVALID_SELECTION","A batch angle dial needs at least two complete targets and values");
+    const auto target_data=refs_json(targets);
+    QPointer<QLineEdit> numeric;
+    for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
+        if(input->property("nect-targets").toByteArray()==target_data){numeric=input;break;}
+    if(!numeric)throw Error("MISSING_PROPERTY","The angle batch has no exact numeric target row");
+
+    const bool common=std::all_of(initial_values.begin()+1,initial_values.end(),[&](double value) {
+        return value==initial_values.front();
+    });
+    const auto initial=common?initial_values.front():0.0;
+    const auto frozen_session=host.session_id;
+    const auto frozen_document=host.session.document().id;
+    const auto frozen_revision=host.session.revision();
+    // Keep the hit target in a fixed row, and give the caption all width left
+    // after the dial so its text wraps within that stable height.
+    constexpr int batch_angle_row_height=80;
+    auto* row=new QWidget(form->parentWidget());row->setFixedHeight(batch_angle_row_height);row->setObjectName("batch-angle-dial-row");
+    const auto zero_label=top_zero?QStringLiteral("top zero"):QStringLiteral("+X zero");
+    const auto orientation=top_zero
+        ?QStringLiteral("Zero points up at the top; positive degrees turn clockwise.")
+        :QStringLiteral("Zero points right along local +X; positive degrees turn clockwise.");
+    const auto tooltip_orientation=top_zero?orientation:QStringLiteral("Zero is local +X; positive degrees turn clockwise.");
+    row->setToolTip(label+" angle batch control · drag adds the same signed delta to every selected target"+
+        (top_zero?QStringLiteral(". ")+orientation:QString{}));
+    auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
+    QPointer<RotationKnob> knob=new RotationKnob(row);knob->setObjectName(dial_object_name);
+    const auto target_count=static_cast<qulonglong>(targets.size());
+    const auto signed_delta=[](double delta) {
+        auto text=QString::number(delta,'g',17);if(delta>=0)text.prepend('+');return text;
+    };
+    const auto context_for=[common,initial_values,target_count,signed_delta,target_noun](double delta) {
+        if(common)return QString("Common angle across %1 %2: current unwrapped angle %3 degrees; relative delta %4 degrees applies equally to every target.")
+            .arg(target_count).arg(target_noun).arg(QString::number(initial_values.front()+delta,'g',17),signed_delta(delta));
+        return QString("Mixed starting angles across %1 %2; relative delta %3 degrees applies equally and preserves exact differences.")
+            .arg(target_count).arg(target_noun).arg(signed_delta(delta));
+    };
+    const auto visible_delta=[](double delta) {
+        auto text=QString::number(delta,'g',7);if(delta>=0)text.prepend('+');return text;
+    };
+    const auto caption_for=[common,target_count,visible_delta,zero_label](double delta) {
+        return common?QString("Common · %1\n%2\nΔ %3°").arg(target_count).arg(zero_label).arg(visible_delta(delta)):
+            QString("Mixed · %1\n%2\nΔ %3°").arg(target_count).arg(zero_label).arg(visible_delta(delta));
+    };
+    knob->setAccessibleName((common?QStringLiteral("Common "):QStringLiteral("Mixed "))+
+        accessible_subject+" batch dial, "+QString::number(target_count)+" "+target_noun+", relative delta"+
+        (top_zero?QStringLiteral(", top zero, clockwise"):QString{}));
+    const auto accessibility_orientation=orientation+QStringLiteral(" The indicator is modulo 360 while authored values remain unwrapped.");
+    const auto caption_accessible_for=[context_for,accessibility_orientation](double delta) {
+        return context_for(delta)+" "+accessibility_orientation;
+    };
+    knob->set_accessibility_context(context_for(0)+" "+accessibility_orientation);
+    knob->set_display_zero(top_zero?-90:0);knob->set_value(initial);
+    knob->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
+    knob->setProperty("nect-targets",target_data);knob->setEnabled(!driven);
+    const auto explanation=driven?driven_explanation:
+        context_for(0)+" A dial drag edits relative to each committed value; use the numeric field for a shared absolute value or += / -= edit.";
+    knob->setToolTip("Adjust "+accessible_subject+" across "+QString::number(target_count)+" "+target_noun+". "+
+        explanation+" "+tooltip_orientation+" The indicator is modulo 360 while authored degrees remain unwrapped. Escape cancels.");
+    numeric->setProperty("nect-exact-value",true);
+    if(!numeric->isModified()) {
+        numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
+        numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));numeric->setModified(false);
+    }
+    row_layout->addWidget(knob);
+    auto* note=new QLabel(caption_for(0),row);note->setWordWrap(true);note->setFixedHeight(batch_angle_row_height);
+    // Live hints must not make WrapLongRows relocate an active dial. Reserve a
+    // floor once, in the real Inspector font, before the form negotiates its row.
+    // 98px is the independently measured Windows allocation; larger fonts/counts
+    // can grow it. This is a minimum, so the stretch still uses wider Inspectors.
+    note->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);note->setAlignment(Qt::AlignVCenter|Qt::AlignLeft);
+    note->ensurePolished();auto caption_font=note->font();caption_font.setResolveMask(QFont::AllPropertiesResolved);
+    const QFontMetricsF caption_metrics(caption_font,note);
+    int caption_minimum=98;
+    const auto reserve=[&](const QString& text) {
+        // Reserve actual ink overhang and advance, not the loose logical box:
+        // an unresolved Qt font backend can leave that box at an invalid origin.
+        const auto ink=caption_metrics.tightBoundingRect(text);
+        const auto advance=caption_metrics.horizontalAdvance(text);
+        const bool usable_advance=std::isfinite(advance)&&advance>=0;
+        const bool usable_ink=std::isfinite(ink.left())&&std::isfinite(ink.right())&&ink.width()>=0;
+        // A broken backend must not throw through an Inspector event callback.
+        // Keep whatever measurement is usable, warn, and retain the floor. This
+        // fallback is not a claim that an unsupported font can paint the caption.
+        if(!usable_advance||!usable_ink)qWarning("Batch angle caption has invalid font metrics");
+        auto span=usable_advance?advance:qreal(0);
+        if(usable_ink)span=std::max(span,ink.right())-std::min(qreal(0),ink.left());
+        // Guard the conversion only at QWidget's representable size, never an
+        // arbitrary caption cap. Saturation is explicitly reported as invalid.
+        if(!std::isfinite(span)||span>QWIDGETSIZE_MAX) {
+            qWarning("Batch angle caption width exceeds QWidget's representable size");span=QWIDGETSIZE_MAX;
+        }
+        caption_minimum=std::max(caption_minimum,static_cast<int>(std::ceil(span)));
+    };
+    reserve(QString("Common · %1").arg(target_count));reserve(QString("Mixed · %1").arg(target_count));reserve(zero_label);
+    // Stable g7 shapes, including leading-zero fractions and three-digit
+    // exponents. Δ may wrap at its existing space; numeric tokens must not clip.
+    // Samples qualify this font, not every possible font or every digit sequence.
+    for(const double magnitude:{0.0,29.74488,999.9999,9999999.0,0.0001234567,0.0009999999,
+            1.234567e-5,1.999999e9,2e9,std::numeric_limits<double>::denorm_min(),
+            std::numeric_limits<double>::min(),std::numeric_limits<double>::max()})
+        for(const double sign:{-1.0,1.0})reserve(visible_delta(sign*magnitude)+QStringLiteral("°"));
+    note->setMinimumWidth(caption_minimum);
+    note->setAccessibleName(caption_accessible_for(0));row_layout->addWidget(note,1);
+    form->addRow(label+" dial",row);
+
+    struct Interaction {bool live=true,owned=false,has_preview=false;std::uint64_t generation=0;};
+    const auto state=std::make_shared<Interaction>();
+    QPointer<QLineEdit> safe_numeric=numeric;QPointer<RotationKnob> safe_knob=knob;QPointer<QLabel> safe_note=note;
+    auto owns=[this,state,frozen_session,frozen_document,frozen_revision] {
+        return state->owned&&host.session_id==frozen_session&&host.session.document().id==frozen_document&&
+            host.session.revision()==frozen_revision&&host.session.gesture_active()&&
+            host.session.gesture_generation()==state->generation;
+    };
+    const auto validate_live=[state,validate_target] {
+        if(!state->live)throw Error("SESSION_CONFLICT","Angle batch control has been disposed");
+        validate_target();
+    };
+    auto report=[this](const std::exception& exception) {
+        if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
+        else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
+    };
+    auto reset_controls=[safe_knob,safe_numeric,safe_note,initial,initial_values,common,context_for,caption_for,
+        caption_accessible_for,accessibility_orientation] {
+        if(safe_knob) {safe_knob->disarm_drag(initial);safe_knob->set_accessibility_context(
+            context_for(0)+" "+accessibility_orientation);}
+        if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_accessible_for(0));}
+        if(safe_numeric&&!safe_numeric->isModified()) {
+            safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
+            safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
+        }
+    };
+    auto cancel=[this,state,owns,reset_controls] {
+        const bool local_interaction=state->owned;const bool active=owns();
+        if(active)host.session.cancel_gesture();state->owned=false;state->has_preview=false;
+        if(local_interaction)reset_controls();
+        if(active){canvas->refresh();canvas->update();}
+    };
+    register_angle_adapter(knob,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
+    const auto target_refs=targets;
+    knob->begin_drag=[this,state,validate_live,report,safe_knob,safe_numeric,safe_note,target_refs,frozen_revision,
+        initial,initial_values,common,context_for,caption_for,caption_accessible_for,accessibility_orientation] {
+        try {
+            if(!state->live)throw Error("SESSION_CONFLICT","Angle batch control has been disposed");
+            if(safe_numeric&&safe_numeric->isModified())
+                throw Error("UNCOMMITTED_INPUT","Commit or cancel the batch numeric draft before using the dial");
+            validate_live();host.session.begin_gesture(frozen_revision);
+            if(safe_knob) {safe_knob->set_value(initial);safe_knob->set_accessibility_context(
+                context_for(0)+" "+accessibility_orientation);}
+            if(safe_note) {safe_note->setText(caption_for(0));safe_note->setAccessibleName(caption_accessible_for(0));}
+            if(safe_numeric) {
+                safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
+                safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
+            }
+            state->generation=host.session.gesture_generation();state->owned=true;state->has_preview=false;return true;
+        } catch(const std::exception& exception) {report(exception);return false;}
+    };
+    knob->preview_value=[this,state,owns,validate_live,cancel,report,safe_knob,safe_numeric,safe_note,target_refs,
+        initial,initial_values,common,context_for,caption_for,caption_accessible_for,accessibility_orientation](double value) {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {
+            validate_live();const auto delta=value-initial;
+            if(std::abs(delta)<=1e-10) {
+                if(safe_knob)safe_knob->set_value(initial);
+                host.session.update_gesture({});state->has_preview=false;
+            } else {
+                host.session.update_gesture({EditProperties{target_refs,delta,true}});state->has_preview=true;
+            }
+            const auto live_delta=state->has_preview?delta:0.0;
+            if(safe_knob)safe_knob->set_accessibility_context(
+                context_for(live_delta)+" "+accessibility_orientation);
+            if(safe_note) {safe_note->setText(caption_for(live_delta));safe_note->setAccessibleName(caption_accessible_for(live_delta));}
+            canvas->refresh();canvas->update();
+            if(safe_numeric&&!safe_numeric->isModified()) {
+                safe_numeric->setText(common&&state->has_preview?QString::number(initial_values.front()+delta,'g',17):
+                    common?QString::number(initial_values.front(),'g',17):QString{});
+                safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
+            }
+        } catch(const std::exception& exception) {cancel();report(exception);}
+    };
+    knob->commit_drag=[this,state,owns,validate_live,cancel,report] {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {
+            validate_live();
+            const bool changed=state->has_preview;
+            if(changed)host.session.commit_gesture();else host.session.cancel_gesture();
+            state->owned=false;state->has_preview=false;
+            if(changed)host.edited();
+        } catch(const std::exception& exception) {cancel();report(exception);}
+    };
+    knob->cancel_drag=cancel;
+}
+
+void Window::add_multi_point_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label) {
+    if(targets.size()<2||(targets.front().field!="in.angle"&&targets.front().field!="out.angle"))
+        throw Error("INVALID_SELECTION","A batch point-angle dial needs at least two matching handle targets");
+    struct TargetSnapshot {
+        Ref ref;
+        Id contour;
+        bool generated=false;
+        Id source_id,source_type;
+        unsigned source_version=0;
+        bool had_point_edit=false;
+        Id point_edit_id;
+        unsigned point_edit_version=0;
+        double value=0;
+    };
+    const auto& document=host.session.document();
+    const auto selected=canvas->selections();
+    if(selected.size()!=targets.size())throw Error("INVALID_SELECTION","Point-angle batch selection changed");
+    std::vector<TargetSnapshot> snapshot; snapshot.reserve(targets.size());
+    std::set<Ref> unique_targets;
+    std::vector<double> initial_values;initial_values.reserve(targets.size());
+    bool driven=false;
+    for(std::size_t i=0;i<targets.size();++i) {
+        const auto& ref=targets[i];
+        if(!unique_targets.insert(ref).second)throw Error("DUPLICATE_TARGET","Point-angle batch contains a duplicate target");
+        if(selected[i].object!=ref.object||selected[i].point!=ref.point)
+            throw Error("INVALID_SELECTION","Point-angle batch target order no longer matches the selection");
+        const auto found=document.objects.find(ref.object);
+        if(found==document.objects.end()||found->second.kind!=Kind::path)
+            throw Error("MISSING_PROPERTY","A selected handle target is no longer a Path point");
+        const auto& object=found->second;
+        const auto value=inspector_values_.at(ref);initial_values.push_back(value);
+        TargetSnapshot current;current.ref=ref;current.generated=object.source.has_value();current.value=value;
+        current.source_id=object.source?object.source->id:std::string{};
+        current.source_type=object.source?object.source->type:std::string{};
+        current.source_version=object.source?object.source->version:0;
+        current.had_point_edit=object.point_edit.has_value();
+        current.point_edit_id=object.point_edit?object.point_edit->id:
+            object.source?object.source->id+"-point-edit":std::string{};
+        current.point_edit_version=object.point_edit?object.point_edit->version:1U;
+        const auto contours=object.source?path_contours(object,&inspector_values_):object.contours;
+        bool point_found=false;
+        for(const auto& contour:contours)if(std::any_of(contour.points.begin(),contour.points.end(),[&](const auto& point) {
+            return point.id==ref.point;
+        })) {current.contour=contour.id;point_found=true;break;}
+        if(!point_found)throw Error("MISSING_PROPERTY","A selected point is no longer in its captured contour");
+        if(object.source) {
+            if(object.point_edit)if(const auto point=object.point_edit->overrides.find(ref.point);
+                point!=object.point_edit->overrides.end())if(const auto field=point->second.find(ref.field);field!=point->second.end())
+                    driven=driven||field->second.binding.has_value()||field->second.expression.has_value();
+        } else {
+            const auto scalar=nect::property(document,ref);
+            driven=driven||scalar.binding.has_value()||scalar.expression.has_value();
+        }
+        snapshot.push_back(std::move(current));
+    }
+    const auto frozen_session=host.session_id;
+    const auto frozen_document=document.id;
+    const auto frozen_revision=host.session.revision();
+    const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
+    const auto validate_target=[this,snapshot,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+            throw Error("SESSION_CONFLICT","Point-angle batch belongs to another document");
+        if(host.session.revision()!=frozen_revision)
+            throw Error("REVISION_CONFLICT","Point-angle batch changed; reopen the Inspector");
+        if(canvas->selections()!=selected||canvas->active_composition()!=composition||canvas->active_artboard()!=artboard)
+            throw Error("MISSING_PROPERTY","Point-angle batch selection or active frame changed");
+        const auto& current_document=host.session.document();
+        const auto values=evaluate(current_document);
+        for(const auto& target:snapshot) {
+            const auto found=current_document.objects.find(target.ref.object);
+            if(found==current_document.objects.end()||found->second.kind!=Kind::path)
+                throw Error("MISSING_PROPERTY","A selected point object changed identity");
+            const auto& object=found->second;
+            if(object.source.has_value()!=target.generated)
+                throw Error("MISSING_PROPERTY","Authored/generated Path identity changed");
+            if(target.generated) {
+                if(!object.source||object.source->id!=target.source_id||object.source->type!=target.source_type||
+                   object.source->version!=target.source_version)
+                    throw Error("MISSING_PROPERTY","Primitive source identity changed");
+                if(object.point_edit.has_value()!=target.had_point_edit||
+                   (object.point_edit&&(object.point_edit->id!=target.point_edit_id||object.point_edit->version!=target.point_edit_version)))
+                    throw Error("MISSING_PROPERTY","Canonical Point Edit destination changed");
+            } else if(object.source)throw Error("MISSING_PROPERTY","Authored Path source identity changed");
+            const auto contours=object.source?path_contours(object,&values):object.contours;
+            bool point_present=false;
+            for(const auto& contour:contours) {
+                if(contour.id!=target.contour)continue;
+                for(const auto& point:contour.points)if(point.id==target.ref.point) {point_present=true;break;}
+                if(point_present)break;
+            }
+            if(!point_present||!values.contains(target.ref))
+                throw Error("MISSING_PROPERTY","Selected point, contour, or angle Ref is no longer active");
+            if(values.at(target.ref)!=target.value)
+                throw Error("MISSING_PROPERTY","A selected angle no longer matches its captured starting value");
+            if(target.generated) {
+                if(object.point_edit)if(const auto point=object.point_edit->overrides.find(target.ref.point);
+                    point!=object.point_edit->overrides.end())if(const auto field=point->second.find(target.ref.field);field!=point->second.end())
+                        if(field->second.binding||field->second.expression)
+                            throw Error("DRIVEN_PROPERTY","Unlink every driven handle angle before using the batch dial");
+            } else {
+                const auto scalar=nect::property(current_document,target.ref);
+                if(scalar.binding||scalar.expression)
+                    throw Error("DRIVEN_PROPERTY","Unlink every driven handle angle before using the batch dial");
+            }
+        }
+    };
+    const auto field=qs(targets.front().field);
+    const auto subject=targets.front().field=="in.angle"?QStringLiteral("incoming handle angle"):QStringLiteral("outgoing handle angle");
+    const auto explanation=QString("At least one selected handle angle has a stored binding or expression, including bypassed Point Edit data. Unlink every driven angle before using the batch dial.");
+    add_multi_angle_dial(form,targets,label,"batch-point-angle-knob-"+field,subject,"points",initial_values,driven,
+        explanation,validate_target);
+}
+
+void Window::add_multi_primitive_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label) {
+    if(targets.size()<2||targets.front().field!="generator.rotation")
+        throw Error("INVALID_SELECTION","A primitive rotation batch needs at least two source-rotation targets");
+    struct TargetSnapshot {Ref ref;Id source_id,source_type;unsigned source_version=0;double value=0;};
+    const auto& document=host.session.document();const auto selected=canvas->selections();
+    if(selected.size()!=targets.size())throw Error("INVALID_SELECTION","Primitive-angle batch selection changed");
+    std::vector<TargetSnapshot> snapshot;snapshot.reserve(targets.size());
+    std::vector<double> initial_values;initial_values.reserve(targets.size());std::set<Ref> unique_targets;bool driven=false;
+    for(std::size_t i=0;i<targets.size();++i) {
+        const auto& ref=targets[i];
+        if(ref.field!="generator.rotation"||!ref.point.empty()||!unique_targets.insert(ref).second)
+            throw Error("INVALID_SELECTION","Primitive-angle batch must contain unique whole-object rotation Refs");
+        if(selected[i].object!=ref.object||!selected[i].point.empty())
+            throw Error("INVALID_SELECTION","Primitive-angle target order no longer matches whole-object selection");
+        const auto found=document.objects.find(ref.object);
+        if(found==document.objects.end()||found->second.kind!=Kind::path||!found->second.source)
+            throw Error("MISSING_PROPERTY","A selected rotation target is no longer a generated primitive");
+        const auto& object=found->second;const auto& source=*object.source;
+        if(source.type!="nect.shape.polygon"&&source.type!="nect.shape.star")
+            throw Error("UNSUPPORTED_SOURCE","Primitive batch angle applies only to Polygon and Star sources");
+        if(!source.parameters.contains("rotation"))
+            throw Error("MISSING_PROPERTY","The exact generator.rotation field is unavailable");
+        const auto value=inspector_values_.at(ref);
+        if(!std::isfinite(value)||std::abs(value)>1e9)
+            throw Error("OUT_OF_RANGE","A selected source rotation is outside the authored angle range");
+        const auto& scalar=source.parameters.at("rotation");driven=driven||scalar.binding.has_value()||scalar.expression.has_value();
+        initial_values.push_back(value);snapshot.push_back({ref,source.id,source.type,source.version,value});
+    }
+    const auto frozen_session=host.session_id;const auto frozen_document=document.id;
+    const auto frozen_revision=host.session.revision();const auto composition=canvas->active_composition();
+    const auto artboard=canvas->active_artboard();
+    const auto validate_target=[this,snapshot,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+            throw Error("SESSION_CONFLICT","Primitive-angle batch belongs to another document");
+        if(host.session.revision()!=frozen_revision)
+            throw Error("REVISION_CONFLICT","Primitive-angle batch changed; reopen the Inspector");
+        if(canvas->selections()!=selected||canvas->active_composition()!=composition||canvas->active_artboard()!=artboard)
+            throw Error("MISSING_PROPERTY","Primitive-angle batch selection or active frame changed");
+        const auto& current_document=host.session.document();const auto values=evaluate(current_document);
+        for(const auto& target:snapshot) {
+            const auto found=current_document.objects.find(target.ref.object);
+            if(found==current_document.objects.end()||found->second.kind!=Kind::path||!found->second.source)
+                throw Error("MISSING_PROPERTY","A selected primitive object or source was removed");
+            const auto& source=*found->second.source;
+            if(source.id!=target.source_id||source.type!=target.source_type||source.version!=target.source_version)
+                throw Error("MISSING_PROPERTY","A selected Polygon or Star source identity changed");
+            if(source.type!="nect.shape.polygon"&&source.type!="nect.shape.star")
+                throw Error("UNSUPPORTED_SOURCE","Primitive batch angle applies only to Polygon and Star sources");
+            if(!source.parameters.contains("rotation")||!values.contains(target.ref))
+                throw Error("MISSING_PROPERTY","The exact generator.rotation Ref is no longer active");
+            if(values.at(target.ref)!=target.value||!std::isfinite(values.at(target.ref))||std::abs(values.at(target.ref))>1e9)
+                throw Error("MISSING_PROPERTY","A selected source rotation no longer matches its valid captured starting value");
+            const auto& scalar=source.parameters.at("rotation");
+            if(scalar.binding||scalar.expression)
+                throw Error("DRIVEN_PROPERTY","Unlink every driven Polygon or Star rotation before using the batch dial");
+        }
+    };
+    add_multi_angle_dial(form,targets,label,"batch-primitive-angle-knob",QStringLiteral("source rotation angle"),
+        QStringLiteral("objects"),initial_values,driven,
+        QStringLiteral("At least one selected Polygon or Star rotation is driven. Unlink every driven source rotation before using the batch dial."),
+        validate_target);
+}
+
+void Window::add_multi_repeater_angle(QFormLayout* form,const std::vector<Ref>& targets,std::size_t slot,const QString& label) {
+    if(targets.size()<2)throw Error("INVALID_SELECTION","A Repeater rotation batch needs at least two targets");
+    struct EntrySignature {Id id;std::string type;unsigned version=0;bool macro=false;};
+    struct TargetSnapshot {
+        Ref ref;
+        std::size_t slot=0;
+        Id operation_id;
+        std::string operation_type;
+        unsigned operation_version=0;
+        Kind kind=Kind::path;
+        bool has_primitive=false;
+        Id primitive_id,primitive_type;
+        unsigned primitive_version=0;
+        bool has_text=false;
+        Id text_id;
+        unsigned text_version=0;
+        std::vector<EntrySignature> stack;
+        Scalar rotation;
+        double value=0;
+    };
+    const auto& document=host.session.document();const auto selected=canvas->selections();
+    if(selected.size()!=targets.size())throw Error("INVALID_SELECTION","Repeater batch selection changed");
+    const auto committed=evaluate(document);
+    std::vector<TargetSnapshot> snapshot;snapshot.reserve(targets.size());
+    std::vector<double> initial_values;initial_values.reserve(targets.size());
+    std::set<Ref> unique_targets;bool driven=false;
+    for(std::size_t i=0;i<targets.size();++i) {
+        const auto& ref=targets[i];
+        if(!unique_targets.insert(ref).second||!ref.point.empty()||ref.field.empty())
+            throw Error("INVALID_SELECTION","Repeater batch contains an invalid or duplicate whole-object Ref");
+        if(selected[i].object!=ref.object||!selected[i].point.empty())
+            throw Error("INVALID_SELECTION","Repeater batch Ref order no longer matches whole-object selection");
+        const auto found=document.objects.find(ref.object);
+        if(found==document.objects.end()||(found->second.kind!=Kind::path&&found->second.kind!=Kind::text))
+            throw Error("INVALID_SELECTION","Repeater batches apply only to whole Path or Text objects");
+        const auto& object=found->second;
+        if(slot>=object.stack.size())throw Error("MISSING_PROPERTY","A selected Repeater slot is no longer present");
+        const auto& operation=object.stack[slot];
+        if(operation.type!="nect.shape.repeater"||operation.version!=1||operation.macro||
+           !operation.parameters.contains("rotation"))
+            throw Error("MISSING_PROPERTY","A selected ordinary Repeater v1 rotation is unavailable at this slot");
+        const Ref expected{ref.object,"","op."+operation.id+".rotation"};
+        if(ref!=expected)throw Error("INVALID_REFERENCE","Repeater batch does not use each object's own operation rotation Ref");
+        const auto value_it=committed.find(ref);
+        if(value_it==committed.end())throw Error("MISSING_PROPERTY","A selected Repeater rotation Ref is not evaluated");
+        const auto value=value_it->second;
+        if(!std::isfinite(value)||std::abs(value)>1e9)
+            throw Error("OUT_OF_RANGE","A selected Repeater rotation is outside the authored angle range");
+        const auto& scalar=operation.parameters.at("rotation");
+        driven=driven||scalar.binding.has_value()||scalar.expression.has_value();
+        TargetSnapshot current;current.ref=ref;current.slot=slot;current.operation_id=operation.id;
+        current.operation_type=operation.type;current.operation_version=operation.version;current.kind=object.kind;
+        current.has_primitive=object.source.has_value();
+        if(object.source) {current.primitive_id=object.source->id;current.primitive_type=object.source->type;current.primitive_version=object.source->version;}
+        current.has_text=object.text.has_value();
+        if(object.text) {current.text_id=object.text->id;current.text_version=object.text->version;}
+        current.stack.reserve(object.stack.size());
+        for(const auto& entry:object.stack)current.stack.push_back({entry.id,entry.type,entry.version,entry.macro.has_value()});
+        current.rotation=scalar;current.value=value;
+        initial_values.push_back(value);snapshot.push_back(std::move(current));
+    }
+    const auto frozen_session=host.session_id;const auto frozen_document=document.id;
+    const auto frozen_revision=host.session.revision();const auto composition=canvas->active_composition();
+    const auto artboard=canvas->active_artboard();
+    const auto validate_target=[this,snapshot,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+            throw Error("SESSION_CONFLICT","Repeater batch belongs to another document");
+        if(host.session.revision()!=frozen_revision)
+            throw Error("REVISION_CONFLICT","Repeater batch changed; reopen the Inspector");
+        if(canvas->selections()!=selected||canvas->active_composition()!=composition||canvas->active_artboard()!=artboard)
+            throw Error("MISSING_PROPERTY","Repeater batch selection or active frame changed");
+        const auto& current_document=host.session.document();const auto values=evaluate(current_document);
+        for(const auto& target:snapshot) {
+            const auto found=current_document.objects.find(target.ref.object);
+            if(found==current_document.objects.end()||found->second.kind!=target.kind||
+               (target.kind!=Kind::path&&target.kind!=Kind::text))
+                throw Error("MISSING_PROPERTY","A selected Path or Text object identity changed");
+            const auto& object=found->second;
+            if(object.source.has_value()!=target.has_primitive||object.text.has_value()!=target.has_text)
+                throw Error("MISSING_PROPERTY","A selected source identity changed");
+            if(target.has_primitive&&(!object.source||object.source->id!=target.primitive_id||
+               object.source->type!=target.primitive_type||object.source->version!=target.primitive_version))
+                throw Error("MISSING_PROPERTY","A selected primitive source identity changed");
+            if(target.has_text&&(!object.text||object.text->id!=target.text_id||object.text->version!=target.text_version))
+                throw Error("MISSING_PROPERTY","A selected Text source identity changed");
+            if(object.stack.size()!=target.stack.size())
+                throw Error("MISSING_PROPERTY","A selected object's ordered stack changed");
+            for(std::size_t i=0;i<target.stack.size();++i) {
+                const auto& expected=target.stack[i];const auto& current=object.stack[i];
+                if(current.id!=expected.id||current.type!=expected.type||current.version!=expected.version||
+                   current.macro.has_value()!=expected.macro)
+                    throw Error("MISSING_PROPERTY","A selected object's ordered stack identity changed");
+            }
+            if(target.slot>=object.stack.size())
+                throw Error("MISSING_PROPERTY","A selected Repeater slot is no longer present");
+            const auto& operation=object.stack[target.slot];
+            if(operation.id!=target.operation_id||operation.type!=target.operation_type||
+               operation.version!=target.operation_version||operation.type!="nect.shape.repeater"||
+               operation.version!=1||operation.macro||!operation.parameters.contains("rotation"))
+                throw Error("MISSING_PROPERTY","A selected ordinary Repeater v1 operation identity changed");
+            const auto& scalar=operation.parameters.at("rotation");
+            if(scalar!=target.rotation)
+                throw Error("MISSING_PROPERTY","A selected Repeater rotation Scalar changed");
+            if(scalar.binding||scalar.expression)
+                throw Error("DRIVEN_PROPERTY","Unlink every driven Repeater rotation before using the batch dial");
+            const auto value=values.find(target.ref);
+            if(value==values.end()||!std::isfinite(value->second)||std::abs(value->second)>1e9||value->second!=target.value)
+                throw Error("MISSING_PROPERTY","A selected Repeater rotation no longer matches its valid captured value");
+        }
+    };
+    add_multi_angle_dial(form,targets,label,"batch-repeater-angle-knob",QStringLiteral("Repeater rotation angle"),
+        QStringLiteral("objects"),initial_values,driven,
+        QStringLiteral("At least one selected Repeater rotation is driven. Unlink every driven rotation before using the batch dial."),
+        validate_target,true);
+}
+
 void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& label) {
     add_properties(layout,{ref},label);
 }
@@ -7248,11 +8067,12 @@ void Window::distribute_selection(const std::string& axis,const std::string& ref
     if(host.session.revision()!=revision)host.edited();
 }
 
-void Window::align_selection(const std::string& axis,const std::string& alignment,const std::string& reference) {
+void Window::align_selection(const std::string& axis,const std::string& alignment,const std::string& reference,
+    const std::optional<Id>& guide_artboard) {
     if(std::any_of(canvas->selections().begin(),canvas->selections().end(),[](const auto& selection){return !selection.point.empty();}))
         throw Error("INVALID_SELECTION","Select whole objects to align their bounds");
     const auto revision=host.session.revision();
-    host.session.apply({AlignObjects{canvas->selected_objects(),axis,alignment,{},reference}},revision);
+    host.session.apply({AlignObjects{canvas->selected_objects(),axis,alignment,{},reference,guide_artboard}},revision);
     if(host.session.revision()!=revision)host.edited();
 }
 
@@ -7275,22 +8095,43 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
         const auto& object=d.objects.at(id);
         alignment_target->addItem(QString("Key object: %1 (%2)").arg(qs(object.name),qs(id)),qs("key_object:"+id));
     }
-    for(const auto& board:active_composition.artboards)if(board.layout&&board.layout->grid)
-        alignment_target->addItem(QString("Grid: %1 · Artboard: %2 (%3)")
-            .arg(qs(board.layout->grid->id),qs(board.name),qs(board.id)),qs("grid:"+board.layout->grid->id));
+    for(const auto& board:active_composition.artboards) {
+        const auto frame=evaluate_artboard(active_composition,board.id);
+        if(frame.layout&&frame.layout->grid)
+            alignment_target->addItem(QString("Grid: %1 · Artboard: %2 (%3)")
+                .arg(qs(frame.layout->grid->id),qs(board.name),qs(board.id)),qs("grid:"+frame.layout->grid->id));
+    }
     const auto guide_positions=evaluate_guide_positions(d,active_composition.id);
     for(const auto& guide:active_composition.guides)
         alignment_target->addItem(QString("Guide: %1 (%2) · %3=%4")
             .arg(qs(guide.name),qs(guide.id),qs(guide.axis),QString::number(guide_positions.at(guide.id),'g',15)),qs("guide:"+guide.id));
+    for(const auto& board:active_composition.artboards) {
+        const auto frame=evaluate_artboard(active_composition,board.id);
+        for(const auto& guide:effective_artboard_guides(d,active_composition.id,board.id))if(guide.enabled) {
+            const auto position=(guide.axis=="x"?frame.x:frame.y)+guide.position;
+            alignment_target->addItem(QString("Guide: %1 (%2) · Artboard: %3 (%4) · %5=%6")
+                .arg(qs(guide.name),qs(guide.guide_id),qs(board.name),qs(board.id),qs(guide.axis),QString::number(position,'g',15)),
+                qs("guide:"+guide.guide_id));
+            alignment_target->setItemData(alignment_target->count()-1,qs(board.id),Qt::UserRole+1);
+            alignment_target->setItemData(alignment_target->count()-1,qs(guide.axis),Qt::UserRole+2);
+        }
+    }
     for(int index=0;index<alignment_target->count();++index)
         alignment_target->setItemData(index,alignment_target->itemText(index),Qt::ToolTipRole);
-    auto target_index=alignment_target->findData(qs(alignment_reference_));
-    if(target_index<0){alignment_reference_="selection";target_index=0;}
+    int target_index=-1;
+    for(int i=0;i<alignment_target->count();++i) {
+        const auto scope=alignment_target->itemData(i,Qt::UserRole+1).toString();
+        if(alignment_target->itemData(i).toString()==qs(alignment_reference_)&&
+            (alignment_guide_artboard_?scope==qs(*alignment_guide_artboard_):scope.isEmpty())){target_index=i;break;}
+    }
+    if(target_index<0){alignment_reference_="selection";alignment_guide_artboard_.reset();target_index=0;}
     alignment_target->setCurrentIndex(target_index);
     alignment_target->setToolTip(alignment_target->itemText(target_index));
     alignment_layout->addWidget(alignment_target);
     connect(alignment_target,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,alignment_target](int index){
         alignment_reference_=alignment_target->itemData(index).toString().toStdString();
+        const auto scope=alignment_target->itemData(index,Qt::UserRole+1).toString();
+        alignment_guide_artboard_=scope.isEmpty()?std::optional<Id>{}:std::optional<Id>{scope.toStdString()};
         alignment_target->setToolTip(alignment_target->itemText(index));
     });
     auto* spacing_row=new QVBoxLayout;alignment_layout->addLayout(spacing_row);
@@ -7326,7 +8167,9 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
             button->setToolTip("Align evaluated geometric bounds in Composition du; excludes stroke width.");row->addWidget(button);
             connect(button,&QPushButton::clicked,this,[this,axis,mode,alignment_target]{
                 const auto reference=alignment_target->currentData().toString().toStdString();
-                perform([&]{align_selection(axis,mode,reference);});
+                const auto scope=alignment_target->currentData(Qt::UserRole+1).toString();
+                perform([&]{align_selection(axis,mode,reference,
+                    scope.isEmpty()?std::optional<Id>{}:std::optional<Id>{scope.toStdString()});});
             });
         }
     }
@@ -7359,9 +8202,12 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
         const auto reference=alignment_target->currentData().toString().toStdString();
         const auto& composition=find_composition(host.session.document(),active_composition_id);
         const auto guide=reference.starts_with("guide:")?std::find_if(composition.guides.begin(),composition.guides.end(),[&](const auto& item){return "guide:"+item.id==reference;}):composition.guides.end();
+        const auto scope=alignment_target->currentData(Qt::UserRole+1).toString();
+        const auto guide_axis=scope.isEmpty()?(guide!=composition.guides.end()?qs(guide->axis):QString{}):
+            alignment_target->currentData(Qt::UserRole+2).toString();
         for(const auto axis:{"x","y"})for(const auto mode:{"min","center","max"})
             if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-align-%1-%2").arg(axis,mode)))
-                button->setEnabled(ordinary&&(!reference.starts_with("guide:")||(guide!=composition.guides.end()&&guide->axis==axis)));
+                button->setEnabled(ordinary&&(!reference.starts_with("guide:")||guide_axis==QString::fromLatin1(axis)));
         if(auto* button=alignment_box->findChild<QPushButton*>("quick-align-y-baseline"))button->setEnabled(baseline_ok);
         for(const auto axis:{"x","y"})if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-distribute-%1").arg(axis)))button->setEnabled(distribution);
         spacing_input->setEnabled(reference.starts_with("key_object:"));
@@ -7388,7 +8234,14 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         std::vector<Ref> refs;for(const auto& item:selected)refs.push_back({item.object,item.point,field});add_properties(form,refs,label);};
     if(!canvas->selected_point.empty()) {
         auto* form=section("Points && handles");
-        for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})common(form,field,QString::fromLatin1(field));
+        for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"}) {
+            common(form,field,QString::fromLatin1(field));
+            if(std::string(field)=="in.angle"||std::string(field)=="out.angle") {
+                std::vector<Ref> refs;refs.reserve(selected.size());
+                for(const auto& item:selected)refs.push_back({item.object,item.point,field});
+                add_multi_point_angle(form,refs,QString::fromLatin1(field));
+            }
+        }
         layout->addStretch();return;
     }
     add_multi_text_weight(layout,selected);
@@ -7412,8 +8265,18 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         auto* form=section(text?"Common Text parameters":"Common source parameters");
         for(const auto& [name,scalar]:parameters) {
             (void)scalar;
-            if(std::all_of(selected.begin(),selected.end(),[&](const auto& item){const auto& o=d.objects.at(item.object);return (text?o.text->parameters:o.source->parameters).contains(name);}))
+            if(std::all_of(selected.begin(),selected.end(),[&](const auto& item){const auto& o=d.objects.at(item.object);return (text?o.text->parameters:o.source->parameters).contains(name);})) {
                 common(form,(text?"text.":"generator.")+name,parameter_label(name));
+                if(!text&&name=="rotation"&&selected.size()>1&&
+                   std::all_of(selected.begin(),selected.end(),[&](const auto& item) {
+                       const auto& source=*d.objects.at(item.object).source;
+                       return (source.type=="nect.shape.polygon"||source.type=="nect.shape.star")&&source.parameters.contains("rotation");
+                   })) {
+                    std::vector<Ref> rotation_targets;
+                    for(const auto& item:selected)rotation_targets.push_back({item.object,"","generator.rotation"});
+                    add_multi_primitive_angle(form,rotation_targets,parameter_label(name));
+                }
+            }
         }
     }
     for(std::size_t slot=0;slot<first.stack.size();++slot) {
@@ -7422,9 +8285,33 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
             return stack.size()>slot&&stack[slot].type==operation.type;}))continue;
         auto* form=section("Stack "+QString::number(slot+1)+" · "+operation_label(operation));
         for(const auto& [name,scalar]:operation.parameters) {
-            (void)scalar;std::vector<Ref> refs;
+            (void)scalar;
+            // Guard Repeater rows before add_properties constructs their
+            // per-object Refs: every selected operation must expose this key.
+            bool all_have_parameter=true;
+            if(operation.type=="nect.shape.repeater")for(const auto& item:selected) {
+                const auto& stack=d.objects.at(item.object).stack;
+                if(slot>=stack.size()||!stack[slot].parameters.contains(name)) {all_have_parameter=false;break;}
+            }
+            if(!all_have_parameter)continue;
+            std::vector<Ref> refs;refs.reserve(selected.size());
             for(const auto& item:selected)refs.push_back({item.object,"","op."+d.objects.at(item.object).stack[slot].id+"."+name});
             add_properties(form,refs,parameter_label(name));
+            if(name=="rotation"&&operation.type=="nect.shape.repeater"&&selected.size()>1) {
+                bool eligible=operation.version==1&&!operation.macro;
+                for(const auto& item:selected) {
+                    const auto& object=d.objects.at(item.object);
+                    if(object.kind!=Kind::path&&object.kind!=Kind::text)eligible=false;
+                    if(slot>=object.stack.size()) {eligible=false;continue;}
+                    const auto& own=object.stack[slot];
+                    if(own.type!="nect.shape.repeater"||own.version!=1||own.macro||!own.parameters.contains("rotation")) {
+                        eligible=false;continue;
+                    }
+                    const Ref own_ref{item.object,"","op."+own.id+".rotation"};
+                    if(!inspector_values_.contains(own_ref))eligible=false;
+                }
+                if(eligible)add_multi_repeater_angle(form,refs,slot,parameter_label(name));
+            }
         }
     }
     auto* hint=new QLabel("↗ freezes all these targets while you choose a source. Paint rows match the same operation type at the same stack position.");
@@ -7645,12 +8532,15 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(formula)input->setToolTip(input->toolTip()+"\nExpression: "+qs(formula->source)+"\nDisplayed number is the evaluated result.");
     input->setToolTip(input->toolTip()+"\nEnter =expression or use fx. += / -= makes a one-time relative edit.");
     box->addWidget(input);
-    auto* fx=new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");fx->setToolTip("Edit expression · =prefix · multiline draft");box->addWidget(fx);
+    auto* fx=new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
+    fx->setObjectName("property-expression");
+    fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
     if(formula)fx->setStyleSheet("color: #84d5eb;");
-    auto* pick=new QPushButton("↗");pick->setFixedWidth(28);pick->setToolTip("Pick property source");box->addWidget(pick);
+    auto* pick=new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
+    pick->setAccessibleName("Pick source for "+label);box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
     pick->setProperty("nect-targets",target_data);
-    pick->setToolTip("Drag to a source field; hover Objects to inspect another source. Click to search.");
+    pick->setToolTip("Pick source for "+label+". Drag to a source field; hover Objects to inspect another source. Click to search.");
     layout->addRow(label,row);
     connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
     const auto field_session=host.session_id;
@@ -7677,7 +8567,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");
             if(text.startsWith('=')) {
                 try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);host.edited();}
-                catch(const Error& e){if(e.code=="REVISION_CONFLICT"||e.code=="SESSION_CONFLICT")throw;expand(text);input->setText(display_value(inspector_values_.at(ref)));}
+                catch(const Error& e){if(e.code=="REVISION_CONFLICT"||e.code=="SESSION_CONFLICT")throw;expand(text);input->setText(input->property("nect-exact-value").toBool()?QString::number(inspector_values_.at(ref),'g',17):display_value(inspector_values_.at(ref)));}
                 return;
             }
             auto value=(relative?text.mid(2):text).toDouble(&valid);if(relative&&text.startsWith("-="))value=-value;
@@ -8849,6 +9739,7 @@ void Window::create_folder() {
     canvas->setFocus();
 }
 void Window::closeEvent(QCloseEvent* event) {
+    cancel_angle_adapters(false);
     cancel_whip();
     canvas->cancel_interaction();
     try {host.flush();event->accept();}

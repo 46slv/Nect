@@ -317,12 +317,53 @@ void window_template_command_parity() {
     select_artboard(window,"target");
     const auto before_content_duplicate=encode(window.host.session.document());
     const auto before_content_duplicate_revision=window.host.session.revision();
+    double expected_content_copy_x=0;
+    for(const auto& frame:window.host.session.document().compositions.front().artboards){
+        const auto resolved=evaluate_artboard(window.host.session.document().compositions.front(),frame.id);
+        expected_content_copy_x=std::max(expected_content_copy_x,resolved.x+resolved.width);
+    }
+    expected_content_copy_x+=40;
     button(window,"artboard-duplicate")->click();QApplication::processEvents();
-    check(encode(window.host.session.document())==before_content_duplicate&&
-        window.host.session.revision()==before_content_duplicate_revision&&
-        window.canvas->active_artboard()=="target"&&
-        window.statusBar()->currentMessage().startsWith("ARTBOARD_DUPLICATE_CONTENT_UNSUPPORTED"),
-        "Public Duplicate refuses a Template-owned content Instance without sharing or mutating identity");
+    const Id duplicated_content_frame=window.canvas->active_artboard();
+    const auto& duplicated_content_boards=window.host.session.document().compositions.front().artboards;
+    const auto duplicated_content_board=std::find_if(duplicated_content_boards.begin(),duplicated_content_boards.end(),
+        [&](const auto& value){return value.id==duplicated_content_frame;});
+    check(duplicated_content_frame!="target"&&duplicated_content_board!=duplicated_content_boards.end()&&
+        window.host.session.revision()==before_content_duplicate_revision+1&&
+        duplicated_content_board->template_assignment&&duplicated_content_board->template_assignment->content_instance&&
+        duplicated_content_board->template_assignment->template_id==content_template&&
+        *duplicated_content_board->template_assignment->content_instance!=content_instance,
+        "Public Duplicate creates a fresh frame and owned Instance through one canonical command");
+    check(duplicated_content_board->x==expected_content_copy_x&&duplicated_content_board->y==100&&
+        duplicated_content_board==duplicated_content_boards.begin()+1,
+        "Public Duplicate uses rightmost frame plus gap and inserts immediately after source");
+    const auto copied_content_id=*duplicated_content_board->template_assignment->content_instance;
+    check(window.host.session.document().objects.at(copied_content_id).instance->definition==
+        window.host.session.document().objects.at(content_instance).instance->definition,
+        "Public Duplicate retains the exact source Definition");
+    const auto duplicated_content_native=encode(window.host.session.document());
+    button(window,"artboard-duplicate")->click();QApplication::processEvents();
+    check(window.canvas->active_artboard()!=duplicated_content_frame&&
+        window.host.session.revision()==before_content_duplicate_revision+2,
+        "Repeated Duplicate creates a separate valid frame and Instance");
+    auto* content_undo=action_text(window,"Undo");auto* content_redo=action_text(window,"Redo");
+    check(content_undo&&content_redo&&content_undo->isEnabled(),"Content duplicate is undoable");
+    content_undo->trigger();QApplication::processEvents();
+    check(encode(window.host.session.document())==duplicated_content_native,"One Undo removes only the repeated duplicate");
+    content_undo->trigger();QApplication::processEvents();
+    check(encode(window.host.session.document())==before_content_duplicate,"Second Undo restores source frame and content exactly");
+    content_redo->trigger();QApplication::processEvents();
+    check(encode(window.host.session.document())==duplicated_content_native,"Redo restores identical copied content IDs");
+    content_undo->trigger();QApplication::processEvents();
+    select_artboard(window,"target");
+    window.host.session.apply({Link{{content_instance,"","transform.tx"},Binding{{"logo-path","","transform.tx"}}}},window.host.session.revision());
+    window.host.edited();QApplication::processEvents();
+    const auto driven_bytes=encode(window.host.session.document());const auto driven_revision=window.host.session.revision();
+    button(window,"artboard-duplicate")->click();QApplication::processEvents();
+    check(encode(window.host.session.document())==driven_bytes&&window.host.session.revision()==driven_revision&&
+        window.canvas->active_artboard()=="target"&&window.statusBar()->currentMessage().startsWith("DRIVEN_TEMPLATE_PLACEMENT"),
+        "Public Duplicate refuses driven content placement without mutating state or active frame");
+    content_undo->trigger();QApplication::processEvents();
     select_artboard(window,"target");button(window,"artboard-edit")->click();QApplication::processEvents();
     auto* precision_selector=visible_child<QComboBox>(window,"artboard-guide-selector");
     check(precision_selector!=nullptr,"The assigned Template exposes inherited Guide occurrences");

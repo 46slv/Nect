@@ -11,6 +11,8 @@
 #include <QScrollArea>
 #include <QListWidget>
 #include <QPointer>
+#include <functional>
+#include <vector>
 
 class QDialog;
 class QDockWidget;
@@ -92,6 +94,7 @@ private:
     QAction* batch_rename_action_=nullptr;
     QAction* sort_paint_order_action_=nullptr;
     bool refreshing_=false;
+    bool rebuilding_inspector_=false;
     std::optional<std::pair<QString,std::uint64_t>> canvas_notification_;
     bool matrix_expanded_=false;
     std::map<Ref,double> inspector_values_;
@@ -137,8 +140,25 @@ private:
     void add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected);
     void transform_selection();
     void distribute_selection(const std::string& axis,const std::string& reference="selection",std::optional<double> spacing={});
-    void align_selection(const std::string& axis,const std::string& alignment,const std::string& reference);
+    void align_selection(const std::string& axis,const std::string& alignment,const std::string& reference,
+        const std::optional<Id>& guide_artboard={});
     std::string alignment_reference_="selection";
+    std::optional<Id> alignment_guide_artboard_;
+    struct AngleAdapterCancellation { QPointer<QWidget> control; std::function<void(bool)> cancel; };
+    std::vector<AngleAdapterCancellation> angle_adapters_;
+    void register_angle_adapter(QWidget* control,std::function<void(bool)> cancel);
+    void cancel_angle_adapters(bool dispose);
+    void bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& ref,double initial,
+        std::function<void()> validate_target,bool keep_last_valid_on_range,bool refuse_numeric_draft);
+    void add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitive& source);
+    void add_point_angle(QFormLayout* form,const Ref& ref,const Object& object);
+    void add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targets,const QString& label,
+        const QString& dial_object_name,const QString& accessible_subject,const QString& target_noun,
+        const std::vector<double>& initial_values,bool driven,const QString& driven_explanation,
+        std::function<void()> validate_target,bool top_zero=false);
+    void add_multi_point_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label);
+    void add_multi_primitive_angle(QFormLayout* form,const std::vector<Ref>& targets,const QString& label);
+    void add_multi_repeater_angle(QFormLayout* form,const std::vector<Ref>& targets,std::size_t slot,const QString& label);
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
     void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);

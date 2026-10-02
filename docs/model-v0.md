@@ -2091,3 +2091,42 @@ in-frame segment; global Guide behavior is unchanged. Projected local-Guide
 drag and Align remain outside this version. Native 0.1–0.76 remain readable;
 Guide fields under an older version reject. `schemas/native-v0.77.schema.json`
 closes the new Guide and assignment state shapes.
+
+## Same-Composition Template Artboard duplication (native 0.77 unchanged)
+
+The `duplicate_template_artboard` Session/JSON command takes `composition`,
+`artboard` (source), `id_prefix` (up to 32 characters), finite `x`/`y`, and insertion
+`index`. Its bounded first vertical requires Template-owned Definition content.
+It creates fresh frame, Grid, local Guide and Instance identities while retaining
+Template/Definition/source-item references and field-local overrides. Source
+Definitions and unrelated artwork are not copied or moved. The owned Instance's
+literal translation changes by the frame-origin delta; transform-parent or driven
+translation refuses atomically instead of freezing it. Other affine components
+and appearance are retained. Copied content follows its original root in paint
+order; the frame uses the explicit index. One command is one normal Undo step.
+
+Generated IDs are `PREFIX-artboard`, `PREFIX-grid`, `PREFIX-guide-N` and
+`PREFIX-content-1`. All participate in existing identity validation. Existing
+frame/layout sources, Guide overrides and suppression stay authored references;
+rename/reorder never retargets them. Native 0.77 already represents the result;
+no format bump or alternate persistence is introduced. The core/JSON vertical is
+also used by the desktop Duplicate control, with Qt offscreen interaction coverage.
+Windows/Host/MCP/hands-on acceptance remain separate. See `docs/r10-template-duplicate-boundary.md` for its exact scope.
+
+## Scoped Artboard/Template Guide alignment (native 0.77 unchanged)
+
+`align_objects` accepts optional `guide_artboard` alongside `reference: "guide:ID"`.
+The two stable IDs identify an authored or inherited Guide occurrence, independent
+of its label/order. Omitted/null scope retains Composition-global Guide behavior.
+Scoped lookup uses the existing effective Artboard Guide evaluator; its local
+position plus the target frame origin gives the explicit Composition coordinate.
+Only enabled, present, axis-matching occurrences in the selected Composition are
+accepted. Min/center/max move the selected geometry in one normal Session edit.
+
+This is one-shot alignment, not a snap constraint or Artboard clipping restriction.
+Frame/source changes affect the next requested alignment and do not implicitly
+move artwork. Guide distribution and baseline-to-Guide remain unsupported. The
+Window selector stores both IDs, labels the frame and occurrence, and resets to
+Selection if the scoped occurrence disappears rather than choosing another copy.
+Malformed scope/reference combinations and failed batches preserve native state,
+revision and History. See docs/r03-artboard-guide-align-boundary.md for evidence.

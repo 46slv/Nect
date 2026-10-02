@@ -73,7 +73,7 @@ void budgets() {
 }
 int main() {
 #ifndef _WIN32
-    std::cout<<"Raster semantic fixtures require Windows WIC\n";return 0;
+    std::cout<<"Raster semantic fixtures require Windows WIC\n";return 77;
 #else
     try{semantics();budgets();std::cout<<"PASS "<<checks<<" retained Image semantic/codec checks\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

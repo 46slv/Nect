@@ -664,9 +664,14 @@ struct SetArtboardTemplateOverride {
 };
 struct ResetArtboardTemplateOverride { Id composition,artboard_id; std::string field; };
 struct DetachArtboardTemplate { Id composition,artboard_id,id_prefix; };
+struct DuplicateTemplateArtboard {
+    Id composition,artboard_id,id_prefix;
+    double x=0,y=0;
+    std::size_t index=0;
+};
 using ArtboardTemplateMutation=std::variant<CreateArtboardTemplate,RenameArtboardTemplate,
     DeleteArtboardTemplate,AssignArtboardTemplate,SetArtboardTemplateOverride,
-    ResetArtboardTemplateOverride,DetachArtboardTemplate>;
+    ResetArtboardTemplateOverride,DetachArtboardTemplate,DuplicateTemplateArtboard>;
 struct ArtboardTemplateCommand { ArtboardTemplateMutation mutation; };
 struct AddArtboardGuide { Id composition,artboard_id; ArtboardGuide guide; };
 struct UpdateArtboardGuide { Id composition,artboard_id; ArtboardGuide guide; };
@@ -973,6 +978,9 @@ struct AlignObjects {
     // Retained as a source-compatible C++ alias. JSON callers should use reference.
     std::optional<Id> artboard;
     std::string reference="selection";
+    // With a Guide reference, identify an Artboard-local/inherited occurrence.
+    // Separate IDs avoid delimiter-packed identities; omitted means global Guide.
+    std::optional<Id> guide_artboard;
 };
 struct AttachGroupPathFollow { Id group; GroupPathFollow relation; };
 struct UpdateGroupPathFollow { Id group; GroupPathFollow relation; };
@@ -1399,6 +1407,8 @@ public:
     void commit_gesture();
     void cancel_gesture();
     bool gesture_active() const { return preview_.has_value(); }
+    // Transient interaction identity; pair with the owning Host/Session identity.
+    std::uint64_t gesture_generation() const { return gesture_generation_; }
     const Document& preview_document() const { return preview_ ? *preview_ : document_; }
     // Derived values from the last successful preview validation. Null before an
     // update or after an empty/reset/commit/cancel. Invalidated by gesture changes.
@@ -1429,6 +1439,7 @@ private:
     std::uint64_t boundary_id_=0,next_history_id_=1;
     std::optional<Document> preview_;
     std::optional<std::map<Ref,double>> preview_values_;
+    std::uint64_t gesture_generation_ = 0;
     bool preview_changed_ = false;
     std::string preview_label_;
     void check_revision(std::uint64_t expected) const;

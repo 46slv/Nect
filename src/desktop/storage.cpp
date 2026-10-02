@@ -15,6 +15,20 @@ constexpr auto backup_time_format="yyyyMMdd-HHmmsszzz";
 struct ReadFile {QByteArray bytes;FileStamp stamp;};
 FileStamp stamp(const QByteArray& bytes){return {true,QCryptographicHash::hash(bytes,QCryptographicHash::Sha256)};}
 [[noreturn]] void io_error(const QString& message){throw Error("IO_ERROR",message.toStdString());}
+#ifdef NECT_STORAGE_FAULT_TESTING
+thread_local NativeWriteHook native_write_hook;
+NativeWriteFault write_fault(const QString& path,NativeWritePhase phase) {
+    return native_write_hook?native_write_hook(path,phase):NativeWriteFault::none;
+}
+void refuse_fault(NativeWriteFault fault) {
+    switch(fault) {
+    case NativeWriteFault::none:return;
+    case NativeWriteFault::permission_denied:io_error("Injected PERMISSION_DENIED at native atomic writer");
+    case NativeWriteFault::no_space:io_error("Injected NO_SPACE at native atomic writer");
+    case NativeWriteFault::short_write:io_error("SHORT_WRITE injection requires before_write phase");
+    }
+}
+#endif
 ReadFile read_file(const QString& path,bool missing_allowed) {
     const QFileInfo info(path);
     if(!info.exists()) {
@@ -76,6 +90,13 @@ void prune_backups(const QString& path) {
 }
 }
 
+#ifdef NECT_STORAGE_FAULT_TESTING
+ScopedNativeWriteHook::ScopedNativeWriteHook(NativeWriteHook hook):previous_(std::move(native_write_hook)) {
+    native_write_hook=std::move(hook);
+}
+ScopedNativeWriteHook::~ScopedNativeWriteHook(){native_write_hook=std::move(previous_);}
+#endif
+
 QString native_path(const QString& path) {
     if(path.trimmed().isEmpty())io_error("Choose a native file path");
     const QFileInfo file(QDir::cleanPath(QFileInfo(path).absoluteFilePath()));
@@ -110,15 +131,39 @@ FileStamp store_native(const QString& path,const QByteArray& bytes,const std::op
     if(previous.stamp==next)return next;
     if(keep_previous&&previous.stamp.exists)keep_backup(target,previous);
     QSaveFile file(target);file.setDirectWriteFallback(false);
+#ifdef NECT_STORAGE_FAULT_TESTING
+    refuse_fault(write_fault(target,NativeWritePhase::before_open));
+#endif
     if(!file.open(QIODevice::WriteOnly))io_error(file.errorString());
+#ifdef NECT_STORAGE_FAULT_TESTING
+    const auto fault=write_fault(target,NativeWritePhase::before_write);
+    if(fault==NativeWriteFault::short_write) {
+        // Exercise a real bounded partial temporary-file write, never truncate
+        // the authoritative destination or consume unbounded disk capacity.
+        const auto written=file.write(bytes.constData(),bytes.size()/2);
+        file.cancelWriting();
+        io_error("Injected SHORT_WRITE: staged "+QString::number(written)+" of "+QString::number(bytes.size())+" bytes");
+    }
+    refuse_fault(fault);
+#endif
     if(file.write(bytes)!=bytes.size()){const auto error=file.errorString();file.cancelWriting();io_error(error);}
+#ifdef NECT_STORAGE_FAULT_TESTING
+    refuse_fault(write_fault(target,NativeWritePhase::after_write));
+#endif
     // The sidecar protects cooperating writers; this second content check also
     // catches external edits made while the backup/staging write was in flight.
     if(read_file(target,true).stamp!=previous.stamp) {
         file.cancelWriting();throw Error("FILE_CHANGED","The native file changed while the replacement was being prepared");
     }
+#ifdef NECT_STORAGE_FAULT_TESTING
+    refuse_fault(write_fault(target,NativeWritePhase::before_commit));
+#endif
     if(!file.commit())io_error(file.errorString());
     try {
+#ifdef NECT_STORAGE_FAULT_TESTING
+        refuse_fault(write_fault(target,NativeWritePhase::after_commit));
+        refuse_fault(write_fault(target,NativeWritePhase::before_readback));
+#endif
         if(read_file(target,false).stamp!=next)throw Error("IO_ERROR","Saved content hash differs");
     } catch(const std::exception& error) {
         throw Error("IO_VERIFY_FAILED","Native replacement may have succeeded; readback could not be verified: "+std::string(error.what()));

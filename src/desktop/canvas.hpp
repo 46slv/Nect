@@ -89,6 +89,7 @@ public:
     bool show_margin() const { return show_margin_; }
     void set_guide_edit_mode(bool enabled);
     bool guide_edit_mode() const { return guide_edit_mode_; }
+    void arm_artboard_guide_drag(const Id& composition,const Id& artboard,const Id& guide);
     void set_session_identity_provider(std::function<QString()> provider) { session_identity_provider_=std::move(provider); }
 
     // Raw widget paint observations, not a claim about presentation/GPU latency.
@@ -251,6 +252,13 @@ private:
     bool snap_guides_enabled_=true,snap_grid_enabled_=true;
     bool show_guides_=true,show_grid_=true,show_margin_=true,guide_edit_mode_=false;
     std::function<QString()> session_identity_provider_;
+    struct ScopedGuideTarget {
+        Id document,composition,artboard,source,guide;
+        QString session;
+        std::uint64_t revision=0;
+        bool inherited=false;
+    };
+    std::optional<ScopedGuideTarget> armed_guide_,scoped_guide_drag_;
     Guide guide_drag_start_;
     QPointF guide_drag_world_start_;
     QTransform guide_drag_inverse_view_;
@@ -303,7 +311,10 @@ private:
     void begin_drag(Drag kind, QPointF screen);
     bool guide_context_current() const;
     const Guide* hit_guide(QPointF screen) const;
-    void begin_guide_drag(const Guide&,QPointF screen);
+    void begin_guide_drag(const Guide&,QPointF screen,std::optional<ScopedGuideTarget> scope=std::nullopt);
+    bool scoped_guide_context_current(const ScopedGuideTarget&) const;
+    std::optional<EffectiveArtboardGuide> hit_armed_guide(QPointF screen) const;
+    void disarm_scoped_guide();
     void paint_layout_overlays(QPainter&,const Document&) const;
     void prepare_snap(bool point_drag=false);
     QPointF snap_delta(QPointF delta);

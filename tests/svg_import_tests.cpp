@@ -23,6 +23,7 @@ void check(bool v,const char* why){if(!v)throw std::runtime_error(why);}
 void near(double a,double b){check(std::abs(a-b)<1e-7,"Unexpected imported coordinate");}
 QString fixture_file(const QString& name) {
     const QStringList candidates{
+        QDir(QString::fromUtf8(NECT_TEST_FIXTURE_DIR)).filePath(name),
         QDir::current().filePath("stroke-cp2-r4-fixtures/"+name),
         QDir::current().filePath("../build/stroke-cp2-r4-fixtures/"+name),
         QStringLiteral("D:/Documents/Nect/build/stroke-cp2-r4-fixtures/")+name};
@@ -114,7 +115,7 @@ void verify_host_reject_atomic(const QByteArray& svg,const char* expected_code,c
     const auto document_before=host.session.document();const auto history_before=host.session.history();const auto revision=host.session.revision();
     const auto input=temp.path()+"/"+label+".svg";write_owned_file(input,svg);
     bool rejected=false;try { (void)host.import_svg(input,composition,std::string("reject-")+label,label,0,0,revision); }
-    catch(const Error& error) {rejected=true;check(error.code==expected_code,"Unexpected production SVG reject code");}
+    catch(const Error& error) {rejected=true;if(error.code!=expected_code)throw std::runtime_error(std::string("Production SVG reject ")+label+": expected "+expected_code+", got "+error.code+" ("+error.what()+")");}
     if(!rejected)throw std::runtime_error(std::string("Production Host import must reject the negative fixture: ")+label);
     check(host.session.document()==document_before&&host.session.history()==history_before&&host.session.revision()==revision,
         "Rejected SVG must preserve document, History and revision");
@@ -126,6 +127,8 @@ std::string budget_body(const QString& matrix,const QString& last={}) {
     QString body;for(int i=0;i<100;++i) {const auto transform=i==99&&!last.isEmpty()?last:matrix;body+=QString("<path id=\"budget-%1\" d=\"M20 20 L80 20\" transform=\"%2\"/>").arg(i).arg(transform);}return body.toStdString();
 }
 int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try {
+    const bool parser_session_only=argc==2&&QString::fromLocal8Bit(argv[1])=="--parser-session-only";
+    check(argc==1||parser_session_only,"Usage: svg_import_tests [--parser-session-only]");
     const std::string svg=R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="10 20 100 100"><title>Original fixture</title><g id="mark" fill="#e04020" transform="translate(10,5)"><path id="outline" d="M10 20h30v20h-30z"/><path d="M0 0q3 6 9 0t9 0" style="fill:none;stroke:#123;stroke-width:2"/></g></svg>)svg";
     auto plan=read_svg(svg,"comp","asset","Artwork",20,30);Session s(empty_document("doc","comp","art"));const auto before=s.document();s.apply(plan.commands,0);
     check(plan.paths==2&&plan.root=="asset"&&s.document().objects.at("asset").kind==Kind::group,"SVG becomes editable Group");
@@ -235,6 +238,8 @@ int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplicati
         if(id=="N11-over-command-budget") {bool rejected=false;try{(void)read_svg(materialize_root(root2,QString::fromStdString(budget_body("matrix(2 1 1 2 3 4)")),r2.value("generators").toObject().value("budget100").toObject().value("root_extra").toString()),"comp","r2-n11","Negative",0,0);}catch(const Error& e){rejected=true;check(e.code=="SVG_LIMIT","Over-budget fixture reports SVG_LIMIT");}check(rejected,"Over-budget fixture must reject");continue;}
         auto body=r2_template;body.replace("ATTRIBUTE",entry.value("attribute").toString());bool rejected=false;try{(void)read_svg(materialize_root(root2,body),"comp","r2-neg","Negative",0,0);}catch(const Error& e){rejected=true;const auto expected=entry.value("expected_error").toString();if(!expected.isEmpty())check(e.code==expected.toStdString(),"Supplement negative fixture error code mismatch");}check(rejected,"Supplement negative fixture must reject");
     }
+    std::cout<<"PASS SVG parser/Session, strict refusal, native/Undo and exact CP2 r1/r2 fixture stage"<<std::endl;
+    if(parser_session_only)return 0; // Explicit named subset; full Host contract below remains required.
     auto r1_negative=[&](const QString& id) {
         for(const auto& item:r1.value("negative_cases").toArray())if(item.toObject().value("id").toString()==id) {
             auto body=r1_template;body.replace("ATTRIBUTE",item.toObject().value("attribute").toString());return QByteArray::fromStdString(materialize_root(root1,body));

@@ -1,0 +1,33 @@
+{
+  "kind":"reviewed-input-specification-not-runtime-evidence",
+  "packet_id":"NECT-STROKE-CP2",
+  "packet_revision":4,
+  "fixture_revision":2,
+  "baseline":"083b53d520634abb797973612e640ec344c9384c",
+  "canonical_brief":"https://app.notion.com/p/3e3fd279a6f3818e877bc08effc9e600",
+  "execution_status":"NOT_RUN_ON_NECT",
+  "base":{"file_upload_id":"3e3fd279-a6f3-8124-a198-00b2a64fda2d","filename":"nect-stroke-cp2-cases-r1.json","reuse":"Reuse I00-I04 and N00-N08 unchanged as historical r1 inputs explicitly admitted by packet r4. I04 tests inherit on a child path; it does not exercise inherit on the svg root. I05 below supplies that missing case."},
+  "default_root":"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"240\" viewBox=\"0 0 320 240\" fill=\"none\" stroke=\"#000000\" stroke-width=\"12\">BODY</svg>",
+  "positive_cases":[
+    {"id":"I05-svg-root-inherit","root_extra":"stroke-linecap=\"inherit\" stroke-linejoin=\"inherit\" stroke-miterlimit=\"inherit\"","body":"<path id=\"svg-root-inherit\" d=\"M20 20 L80 20\"/>","expected":[{"label":"svg-root-inherit","cap":"butt","join":"miter","miter":4,"version":1}]},
+    {"id":"I06-no-painted-stroke","body":"<path id=\"stroke-none\" d=\"M20 20 L80 20\" stroke=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"bevel\" stroke-miterlimit=\"8\"/><path id=\"width-zero\" d=\"M20 60 L80 60\" stroke-width=\"0\" stroke-linecap=\"square\"/>","expected_path_labels":["stroke-none","width-zero"],"expected_stroke_operations":0,"expected_stroke_style_commands":0,"expected_paths":2},
+    {"id":"I07-trimmed-style-values","body":"<path id=\"trimmed\" d=\"M20 20 L80 20\" stroke-linecap=\" round \" stroke-linejoin=\" bevel \" stroke-miterlimit=\" 8 \"/>","expected":[{"label":"trimmed","cap":"round","join":"bevel","miter":8,"version":2}]},
+    {"id":"I08-exact-command-budget","generator":"budget100","last_matrix":"matrix(1 1 1 2 3 4)","expected_paths":100,"expected_stroke_operations":100,"expected_stroke_style_commands":100,"expected_plan_commands":1000,"each_stroke":{"cap":"round","join":"miter","miter":4,"version":2}},
+    {"id":"I09-inline-last-declaration","body":"<path id=\"last-wins\" d=\"M20 20 L80 20\" stroke-linecap=\"square\" style=\"stroke-linecap:round;stroke-linecap:butt\"/>","expected":[{"label":"last-wins","cap":"butt","join":"miter","miter":4,"version":1}]}
+  ],
+  "negative_template":"<path id=\"valid-first\" d=\"M20 20 L80 20\"/><path id=\"bad-second\" d=\"M20 60 L80 60\" ATTRIBUTE/>",
+  "negative_cases":[
+    {"id":"N09-hidden-invalid-cap","attribute":"stroke=\"none\" stroke-linecap=\"triangle\"","expected_error":"SVG_UNSUPPORTED"},
+    {"id":"N10-zero-width-invalid-limit","attribute":"stroke-width=\"0\" stroke-miterlimit=\"0\"","expected_error":"SVG_RANGE"},
+    {"id":"N11-over-command-budget","generator":"budget100","last_matrix":"matrix(2 1 1 2 3 4)","expected_error":"SVG_LIMIT","would_be_plan_commands":1001},
+    {"id":"N12-important-overridden","attribute":"style=\"stroke-linecap:round !important;stroke-linecap:butt\"","expected_error":"SVG_UNSUPPORTED"},
+    {"id":"N13-miter-clip","attribute":"stroke-linejoin=\"miter-clip\"","expected_error":"SVG_UNSUPPORTED"}
+  ],
+  "generators":{"budget100":{"root_extra":"stroke-linecap=\"round\"","count":100,"index":"i=0..99 in this exact order","path":"<path id=\"budget-i\" d=\"M20 20 L80 20\" transform=\"MATRIX\"/>","matrix":"matrix(2 1 1 2 3 4)","last":"For i=99 use the case last_matrix. Replace the literal i in budget-i with its decimal index.","explanation":"At this parser baseline each path produces CreatePath + RemoveOperation + AddOperation(stroke) + StrokeStyle and one Set per nonidentity affine component. The first 99 paths each have 10 commands. The last has 9 or 10. The root contributes exactly one GroupContiguous. Thus totals are 1000 and 1001. Use import origin (0,0), identity viewport and no extra opacity or transforms. Inspect the real parser plan; do not use this arithmetic as actual execution evidence."}},
+  "materialization":"For each ordinary case replace BODY in default_root with body or negative_template after ATTRIBUTE replacement. For root_extra, insert it immediately before the first > in default_root. For budget100 generate the body as specified. All files are UTF-8 well-formed XML; no DTD or external content. Use scratch files only.",
+  "negative_expected":"Reject before committing any part of the import; preserve the existing nonempty authored Document, revision, History and source file bytes. For the budget case none of its 100 paths is committed.",
+  "base_error_expectations":{"N00-cap":"SVG_UNSUPPORTED","N01-join":"SVG_UNSUPPORTED","N02-limit-low":"SVG_RANGE","N03-limit-high":"SVG_RANGE","N04-limit-unit":"SVG_UNSUPPORTED","N05-nonfinite":"SVG_RANGE","N06-dash":"SVG_UNSUPPORTED","N07-initial":"SVG_UNSUPPORTED","N08-important":"SVG_UNSUPPORTED"},
+  "oracle_rule":"Read actual imported objects and evaluated Stroke values from the real Session. Do not reparse SVG into an imitation importer, reapply the expected StrokeStyle before checking, or bless XML validity as Nect acceptance. Use production Host/MCP path for atomicity.",
+  "pixel_oracle":"Reuse tests/png_export_tests.cpp::stroke_pixels at the baseline: width20, line(100,100)-(200,100), scale1 transparent. Butt alpha(95,100)=0; Round alpha(95,100)=255 and alpha(91,91)=0; Square alpha(91,91)=255. For the acute polyline(100,200)-(150,100)-(200,200), Miter4 alpha(149,82)>200, Miter1 same point=0; Round alpha(149,92)>200, Bevel same point=0. Do not change the existing 128+/-1 overlap tolerance.",
+  "not_covered_by_these_svg_files":"GUI initial/same-value no-op, stale UI, Binding and Expression source preservation, retained primitive/Text source preservation, native/recovery, visible Windows operation and T8 performance remain mandatory in the brief. These are input artifacts, not results."
+}

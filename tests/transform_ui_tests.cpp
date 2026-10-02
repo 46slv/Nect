@@ -76,7 +76,9 @@ void creation_surface_parity() {
         const auto before=session.document();const auto revision=session.revision();
         window.findChild<QAction*>(action)->trigger();QApplication::processEvents();
         const auto id=window.canvas->selected_object;const auto created=session.document();
-        check(created.objects.size()==before.objects.size()+1&&session.revision()==revision+1,"One Desktop creation action is one atomic revision");
+        check(created.objects.size()==before.objects.size()+1&&session.revision()==revision+1,
+            (std::string(action)+": one Desktop creation action must be one atomic revision; status="+
+                window.statusBar()->currentMessage().toStdString()).c_str());
         const auto& object=created.objects.at(id);const auto& composition=before.compositions.front();
         Session direct(before);
         if(object.text)direct.apply({CreateText{composition.id,"",id,object.name,*object.text}},0);

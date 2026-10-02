@@ -1,0 +1,3 @@
+# CP2 source specifications are byte-pinned; never convert checkout line endings.
+/tests/fixtures/nect-stroke-cp2-cases-r1.json -text
+/tests/fixtures/nect-stroke-cp2-fixture-supplement-r2.json -text

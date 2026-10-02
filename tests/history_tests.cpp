@@ -269,5 +269,15 @@ void limits_and_gestures() {
     rejects("INVALID_HISTORY_LIMITS",[&]{Session invalid(document,{0,1000});});
 }
 }
-int main(){try{long_history();authored_roundtrip();typed_text_layout_history();point_edit_enabled_history();group_path_follow_history_accounts_for_relation_items();limits_and_gestures();std::cout<<"PASS "<<checks<<" history checks\n";return 0;}
+int main(int argc,char** argv){try{
+    const bool budget_gesture_only=argc==2&&std::string(argv[1])=="--budget-gesture-only";
+    if(argc!=1&&!budget_gesture_only)throw std::runtime_error("Usage: history_tests [--budget-gesture-only]");
+    if(budget_gesture_only) {
+        point_edit_enabled_history();
+        group_path_follow_history_accounts_for_relation_items();
+        limits_and_gestures();
+        std::cout<<"PASS "<<checks<<" history budget/gesture subset checks (Text/full contract not covered)\n";
+        return 0;
+    }
+    long_history();authored_roundtrip();typed_text_layout_history();point_edit_enabled_history();group_path_follow_history_accounts_for_relation_items();limits_and_gestures();std::cout<<"PASS "<<checks<<" history checks\n";return 0;}
 catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}
