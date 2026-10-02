@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include "batch_angle_geometry.hpp"
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QCoreApplication>
@@ -124,6 +125,7 @@ void fixed_global_mixed_geometry(Window& window) {
     const QPoint common_center=common_dial->mapToGlobal(QPoint(common_dial->width()/2,common_dial->height()/2));
     const int common_row_height=common_dial->parentWidget()->height();
     const auto common_geometry=common_dial->geometry();const auto common_row_geometry=common_dial->parentWidget()->geometry();
+    const batch_angle_test::Geometry common_stable(common_dial);
     mouse_global(common_dial,QEvent::MouseButtonPress,QPointF(common_center)+QPointF(16,0),Qt::LeftButton,Qt::LeftButton);
     mouse_global(common_dial,QEvent::MouseMove,QPointF(common_center)+QPointF(14,8),Qt::NoButton,Qt::LeftButton);
     const auto* common_caption=common_dial->parentWidget()->findChild<QLabel*>();
@@ -131,7 +133,7 @@ void fixed_global_mixed_geometry(Window& window) {
     const auto exact_common_delta=accessible_delta(common_dial);bool exact_common_ok=false,visible_common_ok=false;
     const auto exact_common_value=exact_common_delta.toDouble(&exact_common_ok);
     const auto visible_common_value=common_delta.mid(1).toDouble(&visible_common_ok);
-    check(common_dial->geometry()==common_geometry&&common_dial->parentWidget()->geometry()==common_row_geometry&&
+    check(common_stable.stable(common_dial)&&common_dial->geometry()==common_geometry&&common_dial->parentWidget()->geometry()==common_row_geometry&&
         common_dial->mapToGlobal(QPoint(common_dial->width()/2,common_dial->height()/2))==common_center&&
         common_caption&&common_caption->text().contains("+X zero")&&common_caption->text().contains("Δ ")&&
         !common_delta.isEmpty()&&common_delta.startsWith('+')&&common_delta.size()<=10&&
@@ -140,8 +142,11 @@ void fixed_global_mixed_geometry(Window& window) {
         common_caption->accessibleName().contains("3 objects")&&
         common_caption->accessibleName().contains(QString("relative delta %1 degrees").arg(exact_common_delta))&&
         common_dial->accessibleDescription().contains("modulo 360")&&
+        batch_angle_test::caption_fits(common_caption)&&
         common_caption&&common_caption->heightForWidth(common_caption->width())<=common_caption->height(),
         "Common caption keeps a stable center, shows a bounded signed delta and preserves the exact long delta accessibly");
+    check(batch_angle_test::narrow_caption_samples_fit(common_caption),
+        "shared primitive-batch caption samples fit 98×80px with the active UI font metrics");
     QTest::keyClick(common_dial,Qt::Key_Escape);events();
     check(!window.host.session.gesture_active()&&batch_numeric(window,common_targets)->text()=="45"&&
         common_dial->accessibleDescription().contains("current unwrapped angle 45 degrees"),
@@ -154,10 +159,11 @@ void fixed_global_mixed_geometry(Window& window) {
     if(center_global!=common_center||dial->parentWidget()->height()!=common_row_height)
         std::cerr<<"GEOMETRY common row-height="<<common_row_height<<" center="<<common_center.x()<<","<<common_center.y()
             <<" mixed row-height="<<dial->parentWidget()->height()<<" center="<<center_global.x()<<","<<center_global.y()<<"\n";
-    check(center_global==common_center&&dial->parentWidget()->height()==common_row_height,
+    check(common_stable.stable(dial)&&center_global==common_center&&dial->parentWidget()->height()==common_row_height,
         "Common and Mixed batch caption content keeps the same fixed row height and dial center");
     check(dial_geometry.width()==44&&dial_geometry.height()==44,
         "whole-object batch dial keeps its fixed 44-pixel hit geometry");
+    const batch_angle_test::Geometry mixed_stable(dial);
     mouse_global(dial,QEvent::MouseButtonPress,QPointF(center_global)+QPointF(16,0),Qt::LeftButton,Qt::LeftButton);
     for(const auto& vector:{QPointF(14,8),QPointF(8,14),QPointF(0,16)}) {
         mouse_global(dial,QEvent::MouseMove,QPointF(center_global)+vector,Qt::NoButton,Qt::LeftButton);
@@ -169,7 +175,7 @@ void fixed_global_mixed_geometry(Window& window) {
                 <<" row="<<dial->parentWidget()->geometry().x()<<","<<dial->parentWidget()->geometry().y()<<" "
                 <<dial->parentWidget()->geometry().width()<<"x"<<dial->parentWidget()->geometry().height()
                 <<" center="<<center_after.x()<<","<<center_after.y()<<"\n";
-        check(dial->geometry()==dial_geometry&&dial->parentWidget()->geometry()==row_geometry&&
+        check(mixed_stable.stable(dial)&&dial->geometry()==dial_geometry&&dial->parentWidget()->geometry()==row_geometry&&
             center_after==center_global,
             "live Mixed caption updates leave the dial, row and global center fixed in a narrow Inspector");
         const auto* live_caption=dial->parentWidget()->findChild<QLabel*>();
@@ -185,7 +191,7 @@ void fixed_global_mixed_geometry(Window& window) {
             !visible_delta.isEmpty()&&visible_delta.startsWith('+')&&
             visible_delta.size()<=(non_cardinal?10:3)&&exact_ok&&visible_ok&&
             (!non_cardinal||exact_delta.size()>=17)&&std::abs(exact_value-visible_value)<1e-5&&
-            content_height<=live_caption->height(),
+            batch_angle_test::caption_fits(live_caption)&&content_height<=live_caption->height(),
             "fixed Mixed caption shows its bounded live delta without clipping and retains the exact value accessibly");
     }
     const auto preview_values=evaluate(window.host.session.preview_document());

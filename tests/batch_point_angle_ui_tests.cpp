@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include "batch_angle_geometry.hpp"
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QCoreApplication>
@@ -114,13 +115,17 @@ void shared_caption_geometry(Window& window) {
     const QPoint center=common->mapToGlobal(QPoint(common->width()/2,common->height()/2));
     const auto common_geometry=common->geometry(),common_row=common->parentWidget()->geometry();
     const auto* common_caption=common->parentWidget()->findChild<QLabel*>();
+    const batch_angle_test::Geometry common_stable(common);
     mouse_global(common,QEvent::MouseButtonPress,QPointF(center)+QPointF(16,0),Qt::LeftButton,Qt::LeftButton);
     mouse_global(common,QEvent::MouseMove,QPointF(center)+QPointF(14,8),Qt::NoButton,Qt::LeftButton);
-    check(common->geometry()==common_geometry&&common->parentWidget()->geometry()==common_row&&
+    check(common_stable.stable(common)&&common->geometry()==common_geometry&&common->parentWidget()->geometry()==common_row&&
         common->mapToGlobal(QPoint(common->width()/2,common->height()/2))==center&&common_caption&&
         common_caption->text().contains("+X zero")&&common_caption->text().contains("Δ +")&&
+        batch_angle_test::caption_fits(common_caption)&&
         common_caption->heightForWidth(common_caption->width())<=common_caption->height(),
         "shared point-batch Common caption keeps fixed geometry and fully shows its fractional delta");
+    check(batch_angle_test::narrow_caption_samples_fit(common_caption),
+        "shared point-batch caption samples fit 98×80px with the active UI font metrics");
     QTest::keyClick(common,Qt::Key_Escape);events();
     check(!window.host.session.gesture_active()&&batch_numeric(window,targets)->text()=="45",
         "shared point-batch Common value restores after Escape");
@@ -131,17 +136,18 @@ void shared_caption_geometry(Window& window) {
     auto* mixed=batch_dial(window,"in.angle",targets);
     const auto mixed_geometry=mixed->geometry();const auto mixed_row=mixed->parentWidget()->geometry();
     const QPoint mixed_center=mixed->mapToGlobal(QPoint(mixed->width()/2,mixed->height()/2));
-    check(common_height==mixed->parentWidget()->height()&&common_dial_height==mixed->height(),
+    check(common_stable.stable(mixed)&&common_height==mixed->parentWidget()->height()&&common_dial_height==mixed->height(),
         "shared point-batch Common and Mixed captions retain identical fixed row and dial sizes");
+    const batch_angle_test::Geometry mixed_stable(mixed);
     mouse_global(mixed,QEvent::MouseButtonPress,QPointF(mixed_center)+QPointF(16,0),Qt::LeftButton,Qt::LeftButton);
     for(const auto& offset:{QPointF(14,8),QPointF(8,14),QPointF(0,16)}) {
         mouse_global(mixed,QEvent::MouseMove,QPointF(mixed_center)+offset,Qt::NoButton,Qt::LeftButton);
-        check(mixed->geometry()==mixed_geometry&&mixed->parentWidget()->geometry()==mixed_row&&
+        check(mixed_stable.stable(mixed)&&mixed->geometry()==mixed_geometry&&mixed->parentWidget()->geometry()==mixed_row&&
             mixed->mapToGlobal(QPoint(mixed->width()/2,mixed->height()/2))==mixed_center,
             "shared point-batch fixed-global arc does not move its dial while caption text wraps");
         const auto* caption=mixed->parentWidget()->findChild<QLabel*>();
         check(caption&&caption->text().contains("+X zero")&&caption->text().contains("Δ +")&&
-            caption->heightForWidth(caption->width())<=caption->height(),
+            batch_angle_test::caption_fits(caption)&&caption->heightForWidth(caption->width())<=caption->height(),
             "shared point-batch live signed delta remains fully visible in the fixed row");
     }
     const auto values=evaluate(window.host.session.preview_document());

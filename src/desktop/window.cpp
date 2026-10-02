@@ -7570,7 +7570,9 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     }
     row_layout->addWidget(knob);
     auto* note=new QLabel(caption_for(0),row);note->setWordWrap(true);note->setFixedHeight(batch_angle_row_height);
-    note->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);note->setAlignment(Qt::AlignVCenter|Qt::AlignLeft);
+    // Live caption hints must not make WrapLongRows relocate an active dial.
+    // The layout stretch supplies the remaining width without a text-derived minimum.
+    note->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);note->setAlignment(Qt::AlignVCenter|Qt::AlignLeft);
     note->setAccessibleName(caption_accessible_for(0));row_layout->addWidget(note,1);
     form->addRow(label+" dial",row);
 

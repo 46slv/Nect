@@ -313,3 +313,34 @@ Metrics receipt `caption-layout-summary-46e84fd.md` SHA256
 `a0b658a4f319535f7d770b8eb04a8abbbe7d7fca7409dabb5ba8ad229bad23fb`.
 The next shared-helper candidate must rerun Windows fit and Windows-only Text coverage;
 no width-only repair success is inferred from earlier Linux passes.
+
+## Packet C actual hover/focus and caption GUI (2026-10-02)
+
+Frozen local48112962e02e17cb414a1a2a7135867e9c7e4f77/tree64b87820f6fd6df3d63b4b3a65298cdb08907cdb,
+desktop SHA256 `6dbfd18211f98386179db2097048c983816e1a7f04651f248039b575effe0c23`,
+passed bounded actual Linux/Xfce normal/125% compact-feedback replay. Visible native
+hover tooltips identified CenterX source-pick/fx, stack move/remove, primitive/Repeater
+single/batch rotation, and incoming/outgoing point single/batch controls while retaining
+instructions. Native Tab focus and AT-SPI names were observed on representative enabled
+controls. No destructive stack/source-link action was needed. This is not a screen-reader
+spoken/action/value or keyboard arrow-increment acceptance claim.
+
+Fresh125% Repeater and point sessions preserved exact native bytes, revision0 and
+History0 through the hover/focus groups. A separate normal-scale wheel-over-Line-join
+incident changed Round then Bevel; both edits were undone and authored bytes restored.
+The receipt discloses that incident and its redo History rather than mislabeling the
+whole normal session mutation-free. Hover geometry was visually stable within screenshot
+resolution, not introspected as a complete hidden hit map.
+
+Measured three-line idle captions Common/Mixed with counts2/3 fit at the observed scales.
+Repeater numeric1080.75 and calibrated quarter+90, plus point numeric45 and incoming
+quarter+90, saved exact intended values and restored canonical bytes with one Undo.
+14 snapshots passed native validation; root independently verified their hashes/native
+JSON and6 exact byte pairs. Three owned sessions closed; original desktop windows stayed.
+CLI/GUI terminal-LF differences remain distinguished from strict GUI-canonical Undo pairs.
+
+Receipt `/workspace/shared/nect-gui-inspector-feedback/objective-gui-receipt-4811296.json`
+SHA256 `161c81a2f833ed6a0eba648d8406dc240a24716dd68e7818fe43465ff39067f6`.
+No held-live delta caption,150%, Windows GUI, actual screen-reader behavior, human
+subjective/motion acceptance or wholeREQ45 completion is inferred. This source is
+included unchanged in remotee554dbd; exact Windows qualification remains separate.

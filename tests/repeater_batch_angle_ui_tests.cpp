@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include "batch_angle_geometry.hpp"
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QCoreApplication>
@@ -101,13 +102,6 @@ QString caption_delta(const QLabel* note) {
     if(start<0)return {};
     const auto value_start=start+marker.size();const auto end=note->text().indexOf(QStringLiteral("°"),value_start);
     return end<0?QString{}:note->text().mid(value_start,end-value_start);
-}
-int caption_height_at_width(const QLabel* template_label,const QString& text,int width) {
-    QLabel probe;
-    probe.setFont(template_label->font());probe.setWordWrap(true);probe.setTextFormat(template_label->textFormat());
-    probe.setContentsMargins(template_label->contentsMargins());probe.setMargin(template_label->margin());
-    probe.setIndent(template_label->indent());probe.setAlignment(template_label->alignment());probe.setText(text);
-    return probe.heightForWidth(width);
 }
 QString accessible_delta(const QWidget* dial) {
     if(!dial)return {};
@@ -370,25 +364,23 @@ void top_zero_geometry_and_indicator(Window& window) {
         "caption, tooltip and accessibility consistently identify top-zero clockwise modulo-only Repeater orientation");
     const QPoint common_center=common->mapToGlobal(QPoint(common->width()/2,common->height()/2));
     const auto common_dial_geometry=common->geometry();const auto common_row_geometry=common->parentWidget()->geometry();
+    const batch_angle_test::Geometry common_stable(common);
     mouse_global(common,QEvent::MouseButtonPress,QPointF(common_center)+QPointF(0,-16),Qt::LeftButton,Qt::LeftButton);
     mouse_global(common,QEvent::MouseMove,QPointF(common_center)+QPointF(8,-14),Qt::NoButton,Qt::LeftButton);
     const auto* common_note=caption(common);const auto common_delta=caption_delta(common_note);
     const auto common_exact_delta=accessible_delta(common);bool common_exact_ok=false;
     const auto common_exact_value=common_exact_delta.toDouble(&common_exact_ok);
-    check(common->geometry()==common_dial_geometry&&common->parentWidget()->geometry()==common_row_geometry&&
+    check(common_stable.stable(common)&&common->geometry()==common_dial_geometry&&common->parentWidget()->geometry()==common_row_geometry&&
         common->mapToGlobal(QPoint(common->width()/2,common->height()/2))==common_center&&
         common_note&&common_note->text().contains("Common · 3")&&common_note->text().contains("top zero")&&
         common_note->text().contains("Δ "+common_delta+"°")&&common_note->accessibleName().contains("3 objects")&&
         common_note->accessibleName().contains(QString("relative delta %1 degrees").arg(common_exact_delta))&&
         common_exact_ok&&common_exact_delta.size()>=17&&common_exact_value>29.7&&common_exact_value<29.8&&
+        batch_angle_test::caption_fits(common_note)&&
         common_note->heightForWidth(common_note->width())<=common_note->height(),
         "Common top-zero live caption keeps a fixed center, bounded delta, exact accessible delta and fits its reserved row");
-    const QStringList narrow_captions{
-        "Common · 32\n+X zero\nΔ +999.9999°",
-        "Mixed · 32\ntop zero\nΔ -999.9999°"};
-    bool narrow_fit=true;
-    for(const auto& text:narrow_captions)narrow_fit=narrow_fit&&caption_height_at_width(common_note,text,98)<=80;
-    check(narrow_fit,"Measured three-line Common/Mixed captions fit an explicit 98×80px label width with the active UI font");
+    check(batch_angle_test::narrow_caption_samples_fit(common_note),
+        "Measured three-line Common/Mixed captions fit an explicit 98×80px label width with the active UI font");
     QTest::keyClick(common,Qt::Key_Escape);events();
     check(!window.host.session.gesture_active()&&near(values(window,refs),{0,0,0}),
         "Escape restores the Common top-zero caption baseline after the live-fit sample");
@@ -400,15 +392,19 @@ void top_zero_geometry_and_indicator(Window& window) {
     const QPoint center=dial->mapToGlobal(QPoint(dial->width()/2,dial->height()/2));
     const QRect dial_geometry=dial->geometry();const QRect row_geometry=dial->parentWidget()->geometry();
     const int row_height=dial->parentWidget()->height();
+    check(common_stable.stable(dial),
+        "Common and Mixed Repeater captions keep identical global row and dial allocations");
+    const batch_angle_test::Geometry mixed_stable(dial);
     mouse_global(dial,QEvent::MouseButtonPress,QPointF(center)+QPointF(0,-16),Qt::LeftButton,Qt::LeftButton);
     for(const auto& vector:{QPointF(8,-14),QPointF(14,-8),QPointF(16,0)}) {
         mouse_global(dial,QEvent::MouseMove,QPointF(center)+vector,Qt::NoButton,Qt::LeftButton);
         const auto center_after=dial->mapToGlobal(QPoint(dial->width()/2,dial->height()/2));
-        check(dial->geometry()==dial_geometry&&dial->parentWidget()->geometry()==row_geometry&&center_after==center,
+        check(mixed_stable.stable(dial)&&dial->geometry()==dial_geometry&&dial->parentWidget()->geometry()==row_geometry&&center_after==center,
             "fixed-global top-to-right arc keeps the dial, row, and hit target center stable");
         const auto* note=caption(dial);const auto delta=caption_delta(note);const auto content_height=note?note->heightForWidth(note->width()):0;
         check(note&&note->text().contains("top zero")&&!note->text().contains("+X zero")&&
-            !delta.isEmpty()&&delta.startsWith('+')&&delta.size()<=10&&content_height<=note->height(),
+            !delta.isEmpty()&&delta.startsWith('+')&&delta.size()<=10&&
+            batch_angle_test::caption_fits(note)&&content_height<=note->height(),
             "top-zero narrow row displays its bounded signed delta without clipping");
     }
     const auto preview=evaluate(window.host.session.preview_document());const auto delta=caption_delta(caption(dial));
