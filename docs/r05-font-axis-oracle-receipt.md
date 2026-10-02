@@ -1,0 +1,11 @@
+# R05 independent actual-axis oracle
+
+Base c65be09a4640a3d67c046320f3e600f721f992ba. Test-only repair; production src/text.cpp remains SHA256c8d9c8b700b203708f70b94dc7c6f670ae20e400963942c7a5acfe1a8111dd17.
+
+Exact Windows c65 compiled all seven targets; eight contracts executed7pass/1fail/0skip/0NotRun. Shaping reached154 successful assertions, including actual static faces, feature effect/removal, fallback, empty text, TextOnPath and combined Bahnschrift axes. The precise width assertion incorrectly required Face5 actual readback to equal the submitted float. Authored84.280864197253081, submitted84.280860900878906, actual84.280868530273438. Actual familyBahnschrift,Light SemiCondensed,VARIABLEtrue,range75–100default100; product already reported resolved_different without rewriting intent. Captured diagnostic did not include its warning list. Later float/native persistence/CJK/Arabic assertions were not reached. ReportSHA256dd2573316b632e937744e5a7f2a808e07f619c3815bc5d2684bf27b5fb653211.
+
+The replacement test constructs an independent DirectWrite variable-format/layout and captures actual DrawGlyphRun Face5 axes, glyphs and advances. It matches exact actual values, combined axes, face family, run ranges, glyph identities/advances and truthful status/warnings across normal/extrema/out-of-range/precise/unsubmitted cases. No arbitrary tolerance, forced clamping or relabeling backend adjustment as exact intent. Fixture admission remains independent of product evaluation. Authored double, submitted float and actual result remain distinct.
+
+Reviewed test SHA256e31b9ffbdc913026e17116eeeee47f5e300db461bbeb8eee695e145731bccc2c. Sole independent source review found no blocking issue, including SDK16299/MSVC19.29 source compatibility; this is not a Windows compile claim. Linux Release builds pass; core50/text3/font52/History-budget34 pass, shaping explicitly skips77. New guarded Windows oracle code is still uncompiled/unrun until exact replay. Evidence: build-font-authoring/evidence/axis-resolution-oracle/.
+
+Advanced Typography controls are being implemented independently and are not part of this checkpoint. No GUI, live MCP, G11 or main integration acceptance is claimed.

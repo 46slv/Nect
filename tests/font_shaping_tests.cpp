@@ -1,6 +1,7 @@
 #include "nect/io.hpp"
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -25,16 +26,21 @@ bool warning(const TextLayout& layout,const std::string& code) {
 }
 #ifdef _WIN32
 using Microsoft::WRL::ComPtr;
-void hr(HRESULT result) {if(FAILED(result))throw std::runtime_error("Legacy DirectWrite oracle failed");}
+void hr(HRESULT result) {if(FAILED(result))throw std::runtime_error("Independent DirectWrite oracle failed");}
 std::wstring wide(const std::string& source) {
     const auto count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,source.data(),static_cast<int>(source.size()),nullptr,0);
     std::wstring result(count,L'\0');MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,source.data(),static_cast<int>(source.size()),result.data(),count);return result;
 }
-// Independent legacy CreateTextFormat route, deliberately without TextFormat3.
-// Compare the real drawn face/glyph/advance oracle, not a requested format getter.
+// Capture actual drawn faces; never use requested format getters as evidence.
+// The legacy route leaves axis_family empty and does not require Face5.
 class LegacyCapture final : public IDWriteTextRenderer {
 public:
-    struct Run {std::vector<UINT16> glyphs;std::vector<double> advances;UINT32 index=0,simulations=0;DWRITE_FONT_WEIGHT weight{};DWRITE_FONT_STYLE style{};};
+    struct Run {
+        std::vector<UINT16> glyphs;std::vector<double> advances;UINT32 index=0,simulations=0;
+        DWRITE_FONT_WEIGHT weight{};DWRITE_FONT_STYLE style{};
+        std::vector<DWRITE_FONT_AXIS_VALUE> axes;UINT32 start=0,length=0;
+    };
+    explicit LegacyCapture(std::wstring axis_family={}):axis_family_(std::move(axis_family)){}
     std::vector<Run> runs;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** object) override {
         if(!object)return E_POINTER;*object=nullptr;
@@ -46,20 +52,37 @@ public:
     HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(void*,BOOL* value) override {*value=TRUE;return S_OK;}
     HRESULT STDMETHODCALLTYPE GetCurrentTransform(void*,DWRITE_MATRIX* value) override {*value={1,0,0,1,0,0};return S_OK;}
     HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*,FLOAT* value) override {*value=1;return S_OK;}
-    HRESULT STDMETHODCALLTYPE DrawGlyphRun(void*,FLOAT,FLOAT,DWRITE_MEASURING_MODE,const DWRITE_GLYPH_RUN* value,const DWRITE_GLYPH_RUN_DESCRIPTION*,IUnknown*) override {
+    HRESULT STDMETHODCALLTYPE DrawGlyphRun(void*,FLOAT,FLOAT,DWRITE_MEASURING_MODE,const DWRITE_GLYPH_RUN* value,const DWRITE_GLYPH_RUN_DESCRIPTION* description,IUnknown*) override {
         try {
             if(!value||!value->fontFace||!value->glyphIndices||!value->glyphAdvances)return E_FAIL;
             ComPtr<IDWriteFontFace3> face;hr(value->fontFace->QueryInterface(IID_PPV_ARGS(&face)));
-            runs.push_back({{value->glyphIndices,value->glyphIndices+value->glyphCount},
+            Run run{{value->glyphIndices,value->glyphIndices+value->glyphCount},
                 {value->glyphAdvances,value->glyphAdvances+value->glyphCount},value->fontFace->GetIndex(),
-                static_cast<UINT32>(value->fontFace->GetSimulations()),face->GetWeight(),face->GetStyle()});return S_OK;
+                static_cast<UINT32>(value->fontFace->GetSimulations()),face->GetWeight(),face->GetStyle()};
+            if(!axis_family_.empty()) {
+                if(!description)return E_FAIL;
+                run.start=description->textPosition;run.length=description->stringLength;
+                ComPtr<IDWriteFontFace5> face5;hr(face.As(&face5));
+                if(!face5->HasVariations())return E_FAIL;
+                const auto count=face5->GetFontAxisValueCount();if(count==0||count>256)return E_FAIL;
+                run.axes.resize(count);hr(face5->GetFontAxisValues(run.axes.data(),count));
+                if(std::any_of(run.axes.begin(),run.axes.end(),[](const auto& axis){return !std::isfinite(axis.value);}))return E_FAIL;
+                ComPtr<IDWriteLocalizedStrings> names;hr(face->GetFamilyNames(&names));bool matches=false;
+                for(UINT32 i=0;i<names->GetCount();++i) {
+                    UINT32 size=0;hr(names->GetStringLength(i,&size));std::wstring name(size+1,L'\0');
+                    hr(names->GetString(i,name.data(),size+1));name.resize(size);matches=matches||name==axis_family_;
+                }
+                if(!matches)return E_FAIL; // Never admit a fallback face as the fixture.
+            }
+            runs.push_back(std::move(run));return S_OK;
         } catch(...){return E_FAIL;}
     }
     HRESULT STDMETHODCALLTYPE DrawUnderline(void*,FLOAT,FLOAT,const DWRITE_UNDERLINE*,IUnknown*) override {return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE DrawStrikethrough(void*,FLOAT,FLOAT,const DWRITE_STRIKETHROUGH*,IUnknown*) override {return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE DrawInlineObject(void*,FLOAT,FLOAT,IDWriteInlineObject*,BOOL,BOOL,IUnknown*) override {return E_NOTIMPL;}
-private:std::atomic<ULONG> refs_{1};
+private:std::atomic<ULONG> refs_{1};std::wstring axis_family_;
 };
+// Independent legacy CreateTextFormat route, deliberately without TextFormat3.
 std::vector<LegacyCapture::Run> legacy(const TextSource& source) {
     ComPtr<IDWriteFactory> factory;hr(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,__uuidof(IDWriteFactory),reinterpret_cast<IUnknown**>(factory.GetAddressOf())));
     ComPtr<IDWriteFontCollection> fonts;hr(factory->GetSystemFontCollection(&fonts));
@@ -70,6 +93,37 @@ std::vector<LegacyCapture::Run> legacy(const TextSource& source) {
     ComPtr<IDWriteTextLayout> layout;hr(factory->CreateTextLayout(text.c_str(),static_cast<UINT32>(text.size()),format.Get(),1000000,1000000,&layout));
     ComPtr<LegacyCapture> renderer;renderer.Attach(new LegacyCapture);
     hr(layout->Draw(nullptr,renderer.Get(),0,0));return renderer->runs;
+}
+// Same installed fixture, combined axes and layout settings as the variable
+// test, constructed independently of evaluate_text and its submission/receipt.
+// Face5 documents actual supported coordinates, not an exact submission echo:
+// https://learn.microsoft.com/en-us/windows/win32/api/dwrite_3/nf-dwrite_3-idwritefontface5-getfontaxisvalues
+std::vector<LegacyCapture::Run> variable_oracle(const TextSource& source) {
+    check(source.layout=="auto"&&source.direction=="horizontal"&&source.alignment=="start"&&
+        source.font_features.empty()&&source.parameters.at("line_spacing").literal==0&&
+        source.additional_axis_values.size()==1&&source.additional_axis_values.contains("wdth"),
+        "Variable oracle is scoped to this whole-text width fixture and layout");
+    ComPtr<IDWriteFactory2> factory;hr(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,__uuidof(IDWriteFactory2),reinterpret_cast<IUnknown**>(factory.GetAddressOf())));
+    ComPtr<IDWriteFontCollection> fonts;hr(factory->GetSystemFontCollection(&fonts));
+    const auto family=wide(source.family),locale=wide(source.locale),text=wide(source.content);
+    ComPtr<IDWriteTextFormat> format;hr(factory->CreateTextFormat(family.c_str(),fonts.Get(),static_cast<DWRITE_FONT_WEIGHT>(source.weight),
+        source.italic?DWRITE_FONT_STYLE_ITALIC:DWRITE_FONT_STYLE_NORMAL,DWRITE_FONT_STRETCH_NORMAL,
+        static_cast<float>(source.parameters.at("font_size").literal),locale.c_str(),&format));
+    std::vector<DWRITE_FONT_AXIS_VALUE> axes{{DWRITE_FONT_AXIS_TAG_WEIGHT,static_cast<float>(source.weight)},
+        {DWRITE_FONT_AXIS_TAG_ITALIC,source.italic?1.0f:0.0f}};
+    const auto width=source.additional_axis_values.at("wdth");
+    if(std::abs(width)<=std::numeric_limits<float>::max())axes.push_back({DWRITE_FONT_AXIS_TAG_WIDTH,static_cast<float>(width)});
+    ComPtr<IDWriteTextFormat3> format3;hr(format.As(&format3));hr(format3->SetFontAxisValues(axes.data(),static_cast<UINT32>(axes.size())));
+    hr(format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));hr(format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR));
+    const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_NONE,0,0};hr(format->SetTrimming(&trimming,nullptr));
+    ComPtr<IDWriteTextLayout> base;ComPtr<IDWriteTextLayout2> layout;
+    hr(factory->CreateTextLayout(text.c_str(),static_cast<UINT32>(text.size()),format.Get(),1000000,1000000,&base));hr(base.As(&layout));
+    hr(layout->SetVerticalGlyphOrientation(DWRITE_VERTICAL_GLYPH_ORIENTATION_DEFAULT));hr(layout->SetLastLineWrapping(TRUE));
+    hr(layout->SetCharacterSpacing(0,static_cast<float>(source.parameters.at("tracking").literal),0,{0,static_cast<UINT32>(text.size())}));
+    DWRITE_TEXT_METRICS1 metrics{};hr(layout->GetMetrics(&metrics));
+    hr(layout->SetMaxWidth(std::max(0.001f,metrics.widthIncludingTrailingWhitespace)));
+    hr(layout->SetMaxHeight(std::max(0.001f,metrics.heightIncludingTrailingWhitespace)));hr(layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING));
+    ComPtr<LegacyCapture> renderer;renderer.Attach(new LegacyCapture(family));hr(layout->Draw(nullptr,renderer.Get(),0,0));return renderer->runs;
 }
 struct VariableCapability {
     DWRITE_FONT_AXIS_RANGE weight{},width{};
@@ -115,16 +169,48 @@ const TextFontAxisCheck& axis_check(const TextFontRun& run,const std::string& ta
     const auto found=std::find_if(run.axis_checks.begin(),run.axis_checks.end(),[&](const auto& value){return value.tag==tag;});
     check(found!=run.axis_checks.end(),"Every requested axis has an explicit actual-run assessment");return *found;
 }
-void require_axis(const TextLayout& layout,const std::string& tag,double value) {
-    check(!layout.font_runs.empty(),"Variable fixture emits actual drawn runs");
-    for(const auto& run:layout.font_runs) {
+void require_axis(const TextLayout& layout,const std::vector<LegacyCapture::Run>& expected,const std::string& tag,
+    const DWRITE_FONT_AXIS_RANGE& range,double requested) {
+    check(!expected.empty()&&layout.font_runs.size()==expected.size(),"Variable product and independent oracle emit the same actual run count");
+    const std::optional<double> submitted=std::abs(requested)<=std::numeric_limits<float>::max()?
+        std::optional<double>{static_cast<float>(requested)}:std::nullopt;
+    const auto request_axis=layout.font_request.submitted_axis_values.find(tag);
+    check(submitted?(request_axis!=layout.font_request.submitted_axis_values.end()&&request_axis->second==*submitted):
+        request_axis==layout.font_request.submitted_axis_values.end(),"Request receipt exposes the exact submitted float or its absence");
+    for(std::size_t i=0;i<expected.size();++i) {
+        const auto& run=layout.font_runs[i];const auto& oracle=expected[i];
+        const auto expected_axis=std::find_if(oracle.axes.begin(),oracle.axes.end(),[&](const auto& axis){return axis.axisTag==range.axisTag;});
+        check(expected_axis!=oracle.axes.end(),"Independent drawn Face5 exposes the requested axis tag");
         const auto& axis=axis_check(run,tag);
-        check(axis.resolved&&*axis.resolved==value,"Actual Face5 readback agrees with requested variable axis");
-        check(axis.status=="resolved"||axis.status=="resolved_float_rounded","Available variable axis receives an affirmative resolution assessment");
+        std::cout<<"axis_oracle: "<<tag<<" requested="<<std::setprecision(17)<<requested<<" submitted=";
+        if(submitted)std::cout<<*submitted;else std::cout<<"none";
+        std::cout<<" independent="<<expected_axis->value<<" actual=";
+        if(axis.resolved)std::cout<<*axis.resolved;else std::cout<<"unknown";
+        std::cout<<" status="<<axis.status<<'\n';
+        check(axis.requested==requested&&axis.submitted==submitted&&axis.owner==(tag=="wght"?"text.weight":"additional_axis_values"),
+            "Run assessment separates exact authored intent, owner and submitted float");
+        check(axis.resolved&&*axis.resolved==expected_axis->value,"Actual Face5 receipt exactly matches independent drawn-face readback");
+        const std::string status=!submitted?"not_submitted_float_range":requested<range.minValue||requested>range.maxValue?"out_of_range":
+            *submitted!=expected_axis->value?"resolved_different":requested!=*submitted?"resolved_float_rounded":"resolved";
+        check(axis.status==status,"Axis assessment truthfully distinguishes submission rounding, backend difference and unsupported intent");
+        const auto incompatible="FONT_AXIS_INCOMPATIBLE: Axis '"+tag+"' has status '"+status+"'";
+        if(status!="resolved"&&status!="resolved_float_rounded")check(warning(layout,incompatible),"Actual mismatch or unsubmitted intent has an explicit incompatibility warning");
         const auto actual=std::find_if(run.axes.begin(),run.axes.end(),[&](const auto& entry){return entry.tag==tag;});
-        check(actual!=run.axes.end()&&actual->variable==true,"Actual resource VARIABLE metadata establishes interpolation support");
+        check(actual!=run.axes.end()&&actual->value==axis.resolved&&actual->variable==true&&
+            actual->minimum==range.minValue&&actual->maximum==range.maxValue,"Actual value and variable range agree with independent fixture evidence");
         check(run.has_variations==true&&run.axis_values_known&&run.axis_ranges_known,"Variable receipt has actual face/resource evidence");
+        check(run.glyph_indices==oracle.glyphs&&run.glyph_advances==oracle.advances&&run.face_index==oracle.index&&run.simulations==oracle.simulations&&
+            run.resolved_weight==static_cast<std::uint32_t>(oracle.weight)&&run.resolved_style==static_cast<std::uint32_t>(oracle.style)&&
+            run.utf16_start==oracle.start&&run.utf16_length==oracle.length&&run.fallback==false,
+            "Variable glyphs, advances, face selection and ranges exactly match the independent nonfallback oracle");
     }
+}
+void require_variable(const TextSource& source,const TextLayout& layout,const VariableCapability& capability) {
+    check(layout.font_request.axis_application=="submitted"&&layout.font_request.additional_axis_values==source.additional_axis_values&&
+        layout.font_request.weight==source.weight,"Every variable case preserves exact authored request independently of submitted and actual coordinates");
+    const auto expected=variable_oracle(source);
+    require_axis(layout,expected,"wght",capability.weight,source.weight);
+    require_axis(layout,expected,"wdth",capability.width,source.additional_axis_values.at("wdth"));
 }
 bool same_glyphs(const TextLayout& a,const TextLayout& b) {
     if(a.font_runs.size()!=b.font_runs.size())return false;
@@ -256,25 +342,29 @@ int main() {
                 source.additional_axis_values={{"wdth",width}};
                 const auto requested=source;const auto actual=evaluate_text(source,values(source));
                 check(actual.font_request.axis_application=="submitted","Independent available API requires product to submit axes");
-                require_axis(actual,"wght",source.weight);require_axis(actual,"wdth",width);
+                require_variable(source,actual,*capability);
                 check(source==requested&&actual.font_request.additional_axis_values==source.additional_axis_values,"Actual axes remain separate from exact authored intent");
-                source.additional_axis_values["wdth"]=*width_axis.minimum;const auto narrow=evaluate_text(source,values(source));
-                source.additional_axis_values["wdth"]=*width_axis.maximum;const auto wide=evaluate_text(source,values(source));
+                source.additional_axis_values["wdth"]=*width_axis.minimum;const auto narrow=evaluate_text(source,values(source));require_variable(source,narrow,*capability);
+                source.additional_axis_values["wdth"]=*width_axis.maximum;const auto wide=evaluate_text(source,values(source));require_variable(source,wide,*capability);
                 check(!same_glyphs(narrow,wide),"Variable width range changes actual glyph/advance oracle");
                 source.weight=static_cast<unsigned>(std::ceil(*weight_axis.minimum));
-                require_axis(evaluate_text(source,values(source)),"wght",source.weight);
+                require_variable(source,evaluate_text(source,values(source)),*capability);
                 const auto outside_value=*width_axis.maximum+std::max(1.0,*width_axis.maximum-*width_axis.minimum);
                 source.additional_axis_values["wdth"]=outside_value;const auto outside=evaluate_text(source,values(source));
+                require_variable(source,outside,*capability);
                 check(axis_check(outside.font_runs.front(),"wdth").status=="out_of_range"&&source.additional_axis_values.at("wdth")==outside_value,
                     "Out-of-range intent remains exact and backend resolution is an explicit incompatibility");
                 const double precise=*width_axis.minimum+(*width_axis.maximum-*width_axis.minimum)*0.371234567890123;
                 source.additional_axis_values["wdth"]=precise;
-                const auto rounded=evaluate_text(source,values(source));require_axis(rounded,"wdth",static_cast<float>(precise));
+                const auto rounded=evaluate_text(source,values(source));require_variable(source,rounded,*capability);
                 check(warning(rounded,"FONT_AXIS_FLOAT_ROUNDED:")&&rounded.font_request.additional_axis_values.at("wdth")==precise,
                     "Narrowing is explicit while exact authored double is preserved");
                 source.additional_axis_values["wdth"]=std::numeric_limits<double>::max();const auto huge=evaluate_text(source,values(source));
+                require_variable(source,huge,*capability);
                 check(warning(huge,"FONT_AXIS_FLOAT_UNREPRESENTABLE:")&&axis_check(huge.font_runs.front(),"wdth").status=="not_submitted_float_range",
                     "Finite double outside float range stays authored with explicit unsubmitted status");
+                check(axis_check(rounded.font_runs.front(),"wdth").resolved!=axis_check(huge.font_runs.front(),"wdth").resolved&&
+                    !same_glyphs(rounded,huge),"Precise width takes effect independently of omitted-axis default selection");
                 Session session(empty_document("axis-doc","axis-comp","axis-art"));
                 session.apply({CreateText{"axis-comp","","axis-text","Variable text",source}},0);
                 session.apply({SetTextAdditionalAxis{"axis-text","wdth",precise}},session.revision());
