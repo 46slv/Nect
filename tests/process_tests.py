@@ -150,6 +150,113 @@ check('TYPE_MISMATCH' in run('--validate', malformed_visibility_ref).stderr,
       'native 0.32 rejects a visibility driver Ref with the wrong field')
 
 current_native_schema = json.loads((Path(__file__).parent.parent / f'schemas/native-v{CURRENT_NATIVE_VERSION}.schema.json').read_text(encoding='utf-8'))
+font_authoring_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.78.schema.json').read_text(encoding='utf-8'))
+font_authoring_v77_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.77.schema.json').read_text(encoding='utf-8'))
+font_authoring_text = font_authoring_schema['$defs']['text_source']
+font_authoring_feature = font_authoring_text['properties']['font_features']['items']
+font_authoring_axes = font_authoring_text['properties']['additional_axis_values']
+check(font_authoring_schema['properties']['version']['const'] == '0.78' and
+      font_authoring_text['additionalProperties'] is False and
+      'font_features' not in font_authoring_v77_schema['$defs']['text_source']['properties'] and
+      'additional_axis_values' not in font_authoring_v77_schema['$defs']['text_source']['properties'] and
+      font_authoring_feature['additionalProperties'] is False and
+      font_authoring_feature['required'] == ['feature_tag', 'parameter', 'scope'] and
+      font_authoring_feature['properties']['feature_tag']['minLength'] == 4 and
+      font_authoring_feature['properties']['feature_tag']['maxLength'] == 4 and
+      font_authoring_feature['properties']['feature_tag']['pattern'] == '^[\\x20-\\x7E]{4}$' and
+      font_authoring_feature['properties']['parameter']['minimum'] == 0 and
+      font_authoring_feature['properties']['parameter']['maximum'] == 4294967295 and
+      font_authoring_feature['properties']['scope']['const'] == 'whole_text' and
+      font_authoring_axes['propertyNames']['allOf'][0]['minLength'] == 4 and
+      font_authoring_axes['propertyNames']['allOf'][0]['maxLength'] == 4 and
+      font_authoring_axes['propertyNames']['allOf'][0]['pattern'] == '^[\\x20-\\x7E]{4}$' and
+      font_authoring_axes['propertyNames']['allOf'][1]['not']['enum'] == ['wght', 'ital'] and
+      font_authoring_axes['additionalProperties']['type'] == 'number' and
+      font_authoring_axes['additionalProperties']['minimum'] == -1.7976931348623157e+308 and
+      font_authoring_axes['additionalProperties']['maximum'] == 1.7976931348623157e+308,
+      'native 0.78 schema strictly declares whole-text features and non-conflicting additional-axis values')
+try:
+    import jsonschema
+except ImportError:
+    print('FONT_AUTHORING_SCHEMA_VALIDATION=NOT_RUN (jsonschema unavailable; schema shape checks ran)')
+else:
+    source = dict(id='font-source', version=1, content='Example', family='Family', locale='en-US',
+                  layout='auto', direction='horizontal', alignment='start', weight=400, italic=False,
+                  parameters={name: {'literal': 0} for name in
+                              ['origin_x', 'origin_y', 'font_size', 'frame_width', 'frame_height', 'tracking', 'line_spacing']},
+                  font_features=[dict(feature_tag='lig ', parameter=4294967295, scope='whole_text')],
+                  additional_axis_values={'wdth': 87.125, 'XTRA': -0.000000000000001})
+    validator = jsonschema.Draft202012Validator(font_authoring_schema)
+    text_validator = validator.evolve(schema=font_authoring_text)
+    check(not list(text_validator.iter_errors(source)), 'native 0.78 schema accepts precise authored feature and axis collections')
+    invalid_cases = []
+    for feature in [dict(feature_tag='lig', parameter=1, scope='whole_text'),
+                    dict(feature_tag='liga\n', parameter=1, scope='whole_text'),
+                    dict(feature_tag='liga', parameter=4294967296, scope='whole_text'),
+                    dict(feature_tag='liga', parameter=1, scope='range'),
+                    dict(feature_tag='liga', parameter=1, scope='whole_text', unexpected=True)]:
+        candidate = dict(source, font_features=[feature])
+        invalid_cases.append(not list(text_validator.iter_errors(candidate)))
+    for axis in [{'wght': 400}, {'ital': 0}, {'bad': 1}, {'wdth\n': 87.5},
+                 {'wdth': float('inf')}, {'wdth': float('-inf')}]:
+        candidate = dict(source, additional_axis_values=axis)
+        invalid_cases.append(not list(text_validator.iter_errors(candidate)))
+    previous_validator = jsonschema.Draft202012Validator(font_authoring_v77_schema).evolve(
+        schema=font_authoring_v77_schema['$defs']['text_source'])
+    invalid_cases.append(not list(previous_validator.iter_errors(source)))
+    check(not any(invalid_cases), 'native schemas reject malformed tags, non-uint32 features, wrong scope, reserved axes, extras and old-version lies')
+
+# Portable font-authoring cold-reopen fixture is pre-authored native Text. Do not
+# route this Linux contract through CreateText, which initializes Anchor by shaping.
+font_native = json.loads(run('--demo').stdout)
+font_source = dict(id='font-source', version=1, content='Portable typography fixture',
+                   family='Pre-authored fixture family', locale='en-US', layout='auto',
+                   direction='horizontal', alignment='start', weight=600, italic=False,
+                   parameters={'origin_x': {'literal': 0}, 'origin_y': {'literal': 0},
+                               'font_size': {'literal': 48}, 'frame_width': {'literal': 400},
+                               'frame_height': {'literal': 200}, 'tracking': {'literal': 0},
+                               'line_spacing': {'literal': 0}})
+font_object = dict(id='font-text', name='Typography fixture', visible=True,
+                   compositing=dict(version=1, opacity={'literal': 1}, blend='normal', isolated=False, mask=None),
+                   kind='text', transform=[{'literal': 1}, {'literal': 0}, {'literal': 0},
+                                           {'literal': 1}, {'literal': 0}, {'literal': 0}],
+                   anchor=[{'literal': 0}, {'literal': 0}], transform_parent=None,
+                   text=font_source, stack=[], legacy_stroke='')
+font_native['objects'].append(font_object)
+font_native['compositions'][0]['roots'].append('font-text')
+check(run('--validate', font_native).returncode == 0, 'pre-authored Text/native fixture validates without CreateText')
+with tempfile.TemporaryDirectory() as tmp:
+    font_path = Path(tmp) / 'font-authoring.nect'
+    font_path.write_text(json.dumps(font_native), encoding='utf-8')
+    font_commands = [
+        dict(type='add_text_font_feature', object='font-text',
+             feature=dict(feature_tag='lig ', parameter=0, scope='whole_text')),
+        dict(type='add_text_font_feature', object='font-text',
+             feature=dict(feature_tag='KERN', parameter=1, scope='whole_text')),
+        dict(type='update_text_font_feature', object='font-text', feature_tag='lig ', parameter=4294967295),
+        dict(type='set_text_additional_axis', object='font-text', axis_tag='wdth', value=87.1234567890123),
+        dict(type='set_text_additional_axis', object='font-text', axis_tag='WIDE', value=12.25)]
+    editing = subprocess.run([exe, '--serve', str(font_path)],
+                             input='\n'.join(map(json.dumps, [dict(op='apply', expected_revision=0, commands=font_commands),
+                                                                dict(op='inspect')]))+'\n',
+                             capture_output=True, text=True, encoding='utf-8', timeout=10)
+    replies = [json.loads(line) for line in editing.stdout.splitlines()]
+    check(editing.returncode == 0 and len(replies) == 2 and replies[0]['ok'] and replies[1]['ok'],
+          'JSON-lines applies authored font features and axes to a native fixture')
+    edited_native = replies[1]['result']
+    authored_source = next(item for item in edited_native['objects'] if item['id'] == 'font-text')['text']
+    check(edited_native['version'] == CURRENT_NATIVE_VERSION and
+          authored_source['font_features'] == [dict(feature_tag='lig ', parameter=4294967295, scope='whole_text'),
+                                               dict(feature_tag='KERN', parameter=1, scope='whole_text')] and
+          authored_source['additional_axis_values'] == {'WIDE': 12.25, 'wdth': 87.1234567890123},
+          'JSON-lines inspect exposes ordered features and lexical axis values')
+    font_path.write_text(json.dumps(edited_native), encoding='utf-8')
+    reopened = subprocess.run([exe, '--serve', str(font_path)], input='{"op":"inspect"}\n',
+                              capture_output=True, text=True, encoding='utf-8', timeout=10)
+    reopened_reply = json.loads(reopened.stdout)
+    check(reopened.returncode == 0 and reopened_reply['ok'] and
+          next(item for item in reopened_reply['result']['objects'] if item['id'] == 'font-text')['text'] == authored_source,
+          'Fresh process cold-reopens exact authored font intent from native 0.78')
 operation_enabled_expression_schema = current_native_schema['$defs']['operation_enabled_expression']
 previous_native_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.67.schema.json').read_text(encoding='utf-8'))
 previous_operation_native_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.66.schema.json').read_text(encoding='utf-8'))

@@ -78,6 +78,18 @@ double number(const j::value& v) {
 std::int64_t signed_integer(const j::value& v) {
     return j::value_to<std::int64_t>(v);
 }
+std::uint32_t uint32_number(const j::value& value,std::string_view field) {
+    std::uint64_t result=0;
+    if(value.is_uint64())result=value.as_uint64();
+    else if(value.is_int64()) {
+        const auto signed_value=value.as_int64();
+        if(signed_value<0)throw Error("INVALID_TEXT_FONT_FEATURE",std::string(field)+" must be an integer from 0 through 4294967295");
+        result=static_cast<std::uint64_t>(signed_value);
+    } else throw Error("INVALID_TEXT_FONT_FEATURE",std::string(field)+" must be an integer from 0 through 4294967295");
+    if(result>std::numeric_limits<std::uint32_t>::max())
+        throw Error("INVALID_TEXT_FONT_FEATURE",std::string(field)+" must be an integer from 0 through 4294967295");
+    return static_cast<std::uint32_t>(result);
+}
 std::uint64_t preset_unsigned(const j::value& value,std::uint64_t maximum,std::string_view field) {
     std::uint64_t result=0;
     if(value.is_uint64())result=value.as_uint64();
@@ -450,7 +462,11 @@ j::object group_path_follow_json(const GroupPathFollow& relation) {
     if(relation.mode=="deform"||relation.deform_axis!="x")result["deform_axis"]=relation.deform_axis;
     return result;
 }
-TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true,bool allow_locale_driver=true,bool allow_direction_driver=true,bool allow_layout_driver=true,bool allow_alignment_driver=true,bool allow_path_attachment=true,bool allow_weight_expression=true,bool allow_weight_offset=true) {
+TextFontFeature read_text_font_feature(const j::value& value) {
+    const auto& object=value.as_object();keys(object,{"feature_tag","parameter","scope"});
+    return {text(object.at("feature_tag")),uint32_number(object.at("parameter"),"feature parameter"),text(object.at("scope"))};
+}
+TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_italic_driver=true,bool allow_weight_driver=true,bool allow_content_driver=true,bool allow_family_driver=true,bool allow_locale_driver=true,bool allow_direction_driver=true,bool allow_layout_driver=true,bool allow_alignment_driver=true,bool allow_path_attachment=true,bool allow_weight_expression=true,bool allow_weight_offset=true,bool allow_font_authoring=true) {
     const auto& o=v.as_object();
     if(!allow_italic_driver&&o.contains("italic_driver"))throw Error("UNSUPPORTED_TEXT_ITALIC_DRIVER","Text italic drivers require native 0.15");
     if(!allow_weight_driver&&o.contains("weight_driver"))throw Error("UNSUPPORTED_TEXT_WEIGHT_DRIVER","Text weight drivers require native 0.16");
@@ -464,7 +480,9 @@ TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_ita
     if(!allow_layout_driver&&o.contains("layout_driver"))throw Error("UNSUPPORTED_TEXT_LAYOUT_DRIVER","Text layout drivers require native 0.20");
     if(!allow_alignment_driver&&o.contains("alignment_driver"))throw Error("UNSUPPORTED_TEXT_ALIGNMENT_DRIVER","Text alignment drivers require native 0.21");
     if(!allow_path_attachment&&o.contains("path_attachment"))throw Error("UNSUPPORTED_TEXT_PATH_ATTACHMENT","Text path attachments require native 0.24");
-    keys(o,{"id","version","content","content_driver","family","family_driver","locale","locale_driver","layout","layout_driver","direction","direction_driver","alignment","alignment_driver","weight","italic","italic_driver","weight_driver","weight_expression","parameters","path_attachment"});
+    if(!allow_font_authoring&&(o.contains("font_features")||o.contains("additional_axis_values")))
+        throw Error("NATIVE_VERSION_MISMATCH","Text font features and additional axes require native 0.78 or later");
+    keys(o,{"id","version","content","content_driver","family","family_driver","locale","locale_driver","layout","layout_driver","direction","direction_driver","alignment","alignment_driver","weight","italic","italic_driver","weight_driver","weight_expression","parameters","path_attachment","font_features","additional_axis_values"});
     TextSource s;s.id=text(o.at("id"));s.version=j::value_to<unsigned>(o.at("version"));
     s.content=text(o.at("content"));s.family=text(o.at("family"));s.locale=text(o.at("locale"));
     s.layout=text(o.at("layout"));s.direction=text(o.at("direction"));s.alignment=text(o.at("alignment"));
@@ -481,6 +499,10 @@ TextSource read_text(const j::value& v,bool allow_expression=true,bool allow_ita
     if(const auto* driver=o.if_contains("alignment_driver"))s.alignment_driver=read_text_alignment_driver(*driver);
     if(const auto* attachment=o.if_contains("path_attachment"))s.path_attachment=read_text_path_attachment(*attachment);
     for(const auto& p:o.at("parameters").as_object())s.parameters.emplace(std::string(p.key()),read_scalar(p.value(),allow_expression));
+    if(const auto* features=o.if_contains("font_features"))
+        for(const auto& feature:features->as_array())s.font_features.push_back(read_text_font_feature(feature));
+    if(const auto* axes=o.if_contains("additional_axis_values"))
+        for(const auto& [tag,value]:axes->as_object())s.additional_axis_values.emplace(std::string(tag),number(value));
     return s;
 }
 j::value color_json(const ColorValue& color) {
@@ -529,6 +551,16 @@ j::value text_json(const TextSource& s) {
     if(s.layout_driver)result["layout_driver"]=text_layout_driver_json(*s.layout_driver);
     if(s.alignment_driver)result["alignment_driver"]=text_alignment_driver_json(*s.alignment_driver);
     if(s.path_attachment)result["path_attachment"]=text_path_attachment_json(*s.path_attachment);
+    if(!s.font_features.empty()) {
+        j::array features;
+        for(const auto& feature:s.font_features)features.push_back(j::object{
+            {"feature_tag",feature.feature_tag},{"parameter",feature.parameter},{"scope",feature.scope}});
+        result["font_features"]=std::move(features);
+    }
+    if(!s.additional_axis_values.empty()) {
+        j::object axes;for(const auto& [tag,value]:s.additional_axis_values)axes[tag]=value;
+        result["additional_axis_values"]=std::move(axes);
+    }
     return result;
 }
 j::object text_italic_property_json(const Document& d,const Ref& ref,const TextItalicProperty& value) {
@@ -1906,6 +1938,23 @@ Command read_command(const j::value& v) {
     if(type=="update_text") {
         keys(o,{"type","object","source"});return UpdateText{text(o.at("object")),read_text(o.at("source"))};
     }
+    if(type=="add_text_font_feature") {
+        keys(o,{"type","object","feature"});return AddTextFontFeature{text(o.at("object")),read_text_font_feature(o.at("feature"))};
+    }
+    if(type=="update_text_font_feature") {
+        keys(o,{"type","object","feature_tag","parameter"});
+        return UpdateTextFontFeature{text(o.at("object")),text(o.at("feature_tag")),uint32_number(o.at("parameter"),"feature parameter")};
+    }
+    if(type=="remove_text_font_feature") {
+        keys(o,{"type","object","feature_tag"});return RemoveTextFontFeature{text(o.at("object")),text(o.at("feature_tag"))};
+    }
+    if(type=="set_text_additional_axis") {
+        keys(o,{"type","object","axis_tag","value"});
+        return SetTextAdditionalAxis{text(o.at("object")),text(o.at("axis_tag")),number(o.at("value"))};
+    }
+    if(type=="remove_text_additional_axis") {
+        keys(o,{"type","object","axis_tag"});return RemoveTextAdditionalAxis{text(o.at("object")),text(o.at("axis_tag"))};
+    }
     if(type=="link_text_italic") {
         keys(o,{"type","target","source","replace_driver"});
         return LinkTextItalic{read_ref(o.at("target")),read_ref(o.at("source")),o.at("replace_driver").as_bool()};
@@ -2499,10 +2548,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,77> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77"};
+        constexpr std::array<std::string_view,78> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.77 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.78 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
@@ -2633,7 +2682,7 @@ Document decode(std::string_view input) {
 
                 if(obj.kind==Kind::text) {
                     if(o.contains("source")||o.contains("point_edit")||o.contains("contours"))throw Error("INVALID_OBJECT","Text has incompatible geometry fields");
-                    obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17,minor>=18,minor>=22,minor>=19,minor>=20,minor>=21,minor>=24,minor>=55,minor>=61);
+                    obj.text=read_text(o.at("text"),minor>=10,minor>=15,minor>=16,minor>=17,minor>=18,minor>=22,minor>=19,minor>=20,minor>=21,minor>=24,minor>=55,minor>=61,minor>=78);
                 } else if(o.contains("source")) {
                     if(o.contains("contours"))throw Error("INVALID_OBJECT","Generator and authored contours are mutually exclusive");
                     obj.source=read_primitive(o.at("source"),minor>=8,minor>=10,minor>=73);

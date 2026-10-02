@@ -160,6 +160,13 @@ struct ImageSource {
     bool operator==(const ImageSource&) const=default;
 };
 
+struct TextFontFeature {
+    std::string feature_tag;
+    std::uint32_t parameter=0;
+    std::string scope="whole_text";
+    bool operator==(const TextFontFeature&) const = default;
+};
+
 struct TextSource {
     Id id;
     unsigned version=1;
@@ -178,6 +185,8 @@ struct TextSource {
     bool italic=false;
     std::optional<TextItalicDriver> italic_driver;
     std::map<std::string,Scalar> parameters;
+    std::vector<TextFontFeature> font_features;
+    std::map<std::string,double> additional_axis_values;
     bool operator==(const TextSource&) const = default;
 };
 TextSource default_text(Id id,std::string content="Text");
@@ -873,6 +882,11 @@ struct DeleteRasterAsset { Id asset; };
 struct CreateImage { Id composition,parent,id; std::string name; ImageSource source; };
 struct CreateText { Id composition; Id parent; Id id; std::string name; TextSource source; };
 struct UpdateText { Id object; TextSource source; };
+struct AddTextFontFeature { Id object; TextFontFeature feature; };
+struct UpdateTextFontFeature { Id object; std::string feature_tag; std::uint32_t parameter=0; };
+struct RemoveTextFontFeature { Id object; std::string feature_tag; };
+struct SetTextAdditionalAxis { Id object; std::string axis_tag; double value=0; };
+struct RemoveTextAdditionalAxis { Id object; std::string axis_tag; };
 struct LinkTextItalic { Ref target; Ref source; bool replace_driver=false; };
 struct SetTextItalicExpression { Ref target; Expression expression; bool replace_driver=false; };
 struct UnlinkTextItalic { Ref target; };
@@ -995,6 +1009,7 @@ using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguou
     CreatePrimitive,EnablePointEdit,ClearPointEdit,LinkPointEditEnabled,UnlinkPointEditEnabled,ConvertToPath,AddOperation,RemoveOperation,
     ReorderOperations,EnableOperation,LinkOperationEnabled,UnlinkOperationEnabled,LinkGradientEnabled,UnlinkGradientEnabled,OperationOptions,LinkFillRule,UnlinkFillRule,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
     DeleteArtboard,ReorderArtboards,DetachArtboardParent,LinkArtboardSize,SetArtboardSizeExpression,UnlinkArtboardSize,LayoutDependencyCommand,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,SetGuidePositionExpression,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
+    AddTextFontFeature,UpdateTextFontFeature,RemoveTextFontFeature,SetTextAdditionalAxis,RemoveTextAdditionalAxis,
     CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
     LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
     CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,

@@ -33,6 +33,7 @@ std::size_t extra(const FillRuleDriver&);
 std::size_t extra(const Scalar&);
 std::size_t extra(const Point&);
 std::size_t extra(const Contour&);
+std::size_t extra(const TextFontFeature&);
 std::size_t extra(const TextSource&);
 std::size_t extra(const Primitive&);
 std::size_t extra(const PointEdit&);
@@ -107,7 +108,8 @@ std::size_t extra(const FillRuleDriver& v){return extra(v.link);}
 std::size_t extra(const Scalar& v){return total(extra(v.binding),extra(v.expression));}
 std::size_t extra(const Point& v){return total(extra(v.id),extra(v.x),extra(v.y),extra(v.in_angle),extra(v.in_length),extra(v.out_angle),extra(v.out_length));}
 std::size_t extra(const Contour& v){return total(extra(v.id),extra(v.points));}
-std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content),extra(v.family),extra(v.locale),extra(v.layout),extra(v.direction),extra(v.alignment),extra(v.content_driver),extra(v.family_driver),extra(v.locale_driver),extra(v.direction_driver),extra(v.layout_driver),extra(v.alignment_driver),extra(v.weight_driver),extra(v.weight_expression),extra(v.italic_driver),extra(v.parameters));}
+std::size_t extra(const TextFontFeature& v){return total(extra(v.feature_tag),extra(v.scope));}
+std::size_t extra(const TextSource& v){return total(extra(v.id),extra(v.content),extra(v.family),extra(v.locale),extra(v.layout),extra(v.direction),extra(v.alignment),extra(v.content_driver),extra(v.family_driver),extra(v.locale_driver),extra(v.direction_driver),extra(v.layout_driver),extra(v.alignment_driver),extra(v.weight_driver),extra(v.weight_expression),extra(v.italic_driver),extra(v.parameters),extra(v.font_features),extra(v.additional_axis_values));}
 std::size_t extra(const Primitive& v){return total(extra(v.id),extra(v.type),extra(v.parameters));}
 std::size_t extra(const PointEdit& v){return total(extra(v.id),extra(v.overrides),extra(v.enabled_driver),extra(v.enabled_expression));}
 std::size_t extra(const GradientStop& v){return total(extra(v.id),extra(v.offset),extra(v.rgba));}
@@ -329,6 +331,11 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         else if constexpr(std::is_same_v<T,CreateImage>)return "Place Image: "+c.name;
         else if constexpr(std::is_same_v<T,CreateText>)return "Add Text: "+c.name;
         else if constexpr(std::is_same_v<T,UpdateText>)return "Edit Text: "+name(c.object);
+        else if constexpr(std::is_same_v<T,AddTextFontFeature>)return "Add Text font feature: "+name(c.object);
+        else if constexpr(std::is_same_v<T,UpdateTextFontFeature>)return "Update Text font feature: "+name(c.object);
+        else if constexpr(std::is_same_v<T,RemoveTextFontFeature>)return "Remove Text font feature: "+name(c.object);
+        else if constexpr(std::is_same_v<T,SetTextAdditionalAxis>)return "Set Text axis: "+name(c.object);
+        else if constexpr(std::is_same_v<T,RemoveTextAdditionalAxis>)return "Remove Text axis: "+name(c.object);
         else if constexpr(std::is_same_v<T,GroupContiguous>)return "Group: "+c.name;
         else if constexpr(std::is_same_v<T,CenterAnchor>)return "Center Anchor: "+name(c.object);
         else if constexpr(std::is_same_v<T,SetPosition>)return "Set Position: "+name(c.object);

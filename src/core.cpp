@@ -53,6 +53,24 @@ void identity(const Id& id) {
     for(const unsigned char c : id)
         require((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-',"INVALID_ID",id);
 }
+void require_font_tag(std::string_view tag) {
+    require(tag.size()==4,"INVALID_TEXT_FONT_TAG","OpenType tags must contain exactly four printable ASCII bytes");
+    for(const unsigned char byte:tag)
+        require(byte>=0x20&&byte<=0x7e,"INVALID_TEXT_FONT_TAG","OpenType tags must contain exactly four printable ASCII bytes");
+}
+void validate_text_font_authoring(const TextSource& text) {
+    std::set<std::string> feature_tags;
+    for(const auto& feature:text.font_features) {
+        require_font_tag(feature.feature_tag);
+        require(feature.scope=="whole_text","INVALID_TEXT_FONT_SCOPE","Text font features support whole_text scope only");
+        require(feature_tags.insert(feature.feature_tag).second,"DUPLICATE_TEXT_FONT_FEATURE",feature.feature_tag);
+    }
+    for(const auto& [tag,value]:text.additional_axis_values) {
+        require_font_tag(tag);
+        require(tag!="wght"&&tag!="ital","TEXT_AXIS_CONFLICT","wght and ital are owned by text.weight and text.italic");
+        finite(value);
+    }
+}
 std::pair<Id,std::string> operation_address(const std::string& field);
 struct ParsedBooleanExpression {
     bool is_literal=false;
@@ -4779,6 +4797,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
             if(o.kind==Kind::text) {
                 require(o.text.has_value()&&!o.source&&!o.point_edit&&o.contours.empty(),"INVALID_TEXT","Text owns one editable text source only");
                 const auto& text=*o.text;add(text.id);require(text.version==1,"UNSUPPORTED_TEXT_VERSION","Only Text version 1 is supported");
+                validate_text_font_authoring(text);
                 require(text.content.size()<=32768&&!text.family.empty()&&text.family.size()<=1024&&!text.locale.empty()&&text.locale.size()<=128,"LIMIT","Text content/family/locale limit");
                 text_utf8(text.content);text_utf8(text.family);text_utf8(text.locale);
                 require(text.layout=="auto"||text.layout=="frame","UNSUPPORTED_TEXT_LAYOUT",text.layout);
@@ -8109,6 +8128,9 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);auto& o=candidate.objects.at(c.object);
             require(o.kind==Kind::text&&o.text.has_value(),"INVALID_TEXT","Select an editable Text object");
             require(c.source.id==o.text->id,"ID_MISMATCH","Text edits must retain the source identity");
+            require(c.source.font_features==o.text->font_features&&
+                c.source.additional_axis_values==o.text->additional_axis_values,
+                "USE_TYPED_COMMAND","UpdateText cannot change font_features or additional_axis_values; use their typed commands");
             auto next=c.source;
             if(o.text->italic_driver) {
                 require(!next.italic_driver||next.italic_driver==o.text->italic_driver,"DRIVEN_PROPERTY","UpdateText cannot replace or remove a Text italic driver");
@@ -8156,6 +8178,54 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 next.alignment_driver=o.text->alignment_driver;
             } else require(!next.alignment_driver,"USE_TYPED_COMMAND","Create Text alignment links with link_text_alignment");
             o.text=std::move(next);
+        } else if constexpr(std::is_same_v<T,AddTextFontFeature>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& object=candidate.objects.at(c.object);
+            require(object.kind==Kind::text&&object.text.has_value(),"INVALID_TEXT","Font features require an editable Text object");
+            require_font_tag(c.feature.feature_tag);
+            require(c.feature.scope=="whole_text","INVALID_TEXT_FONT_SCOPE","Text font features support whole_text scope only");
+            auto& features=object.text->font_features;
+            require(std::none_of(features.begin(),features.end(),[&](const TextFontFeature& item) {
+                return item.feature_tag==c.feature.feature_tag;
+            }),"DUPLICATE_TEXT_FONT_FEATURE",c.feature.feature_tag);
+            features.push_back(c.feature);
+        } else if constexpr(std::is_same_v<T,UpdateTextFontFeature>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& object=candidate.objects.at(c.object);
+            require(object.kind==Kind::text&&object.text.has_value(),"INVALID_TEXT","Font features require an editable Text object");
+            require_font_tag(c.feature_tag);
+            auto& features=object.text->font_features;
+            const auto found=std::find_if(features.begin(),features.end(),[&](const TextFontFeature& item) {
+                return item.feature_tag==c.feature_tag;
+            });
+            require(found!=features.end(),"MISSING_TEXT_FONT_FEATURE",c.feature_tag);
+            found->parameter=c.parameter;
+        } else if constexpr(std::is_same_v<T,RemoveTextFontFeature>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& object=candidate.objects.at(c.object);
+            require(object.kind==Kind::text&&object.text.has_value(),"INVALID_TEXT","Font features require an editable Text object");
+            require_font_tag(c.feature_tag);
+            auto& features=object.text->font_features;
+            const auto found=std::find_if(features.begin(),features.end(),[&](const TextFontFeature& item) {
+                return item.feature_tag==c.feature_tag;
+            });
+            require(found!=features.end(),"MISSING_TEXT_FONT_FEATURE",c.feature_tag);
+            features.erase(found);
+        } else if constexpr(std::is_same_v<T,SetTextAdditionalAxis>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& object=candidate.objects.at(c.object);
+            require(object.kind==Kind::text&&object.text.has_value(),"INVALID_TEXT","Additional axes require an editable Text object");
+            require_font_tag(c.axis_tag);
+            require(c.axis_tag!="wght"&&c.axis_tag!="ital","TEXT_AXIS_CONFLICT","wght and ital are owned by text.weight and text.italic");
+            finite(c.value);
+            object.text->additional_axis_values.insert_or_assign(c.axis_tag,c.value);
+        } else if constexpr(std::is_same_v<T,RemoveTextAdditionalAxis>) {
+            require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);
+            auto& object=candidate.objects.at(c.object);
+            require(object.kind==Kind::text&&object.text.has_value(),"INVALID_TEXT","Additional axes require an editable Text object");
+            require_font_tag(c.axis_tag);
+            require(c.axis_tag!="wght"&&c.axis_tag!="ital","TEXT_AXIS_CONFLICT","wght and ital are owned by text.weight and text.italic");
+            require(object.text->additional_axis_values.erase(c.axis_tag)==1,"MISSING_TEXT_AXIS",c.axis_tag);
         } else if constexpr(std::is_same_v<T,CreatePrimitive>) {
             require(!candidate.objects.contains(c.id),"DUPLICATE_ID",c.id);
             Object object;object.id=c.id;object.name=c.name;object.source=c.source;

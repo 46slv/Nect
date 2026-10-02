@@ -7,7 +7,7 @@ Scalar, Binding, Expression, Collection, Named Color, retained Circle/Ellipse/Re
 Point Edit, gradients, local Fill/Stroke/Repeater stacks, document-local PresetDefinitions,
 same-document Definitions/Instances and Macros, geometry masks and common compositing.
 
-The current native writer is 0.75.
+The current native writer is 0.78.
 
 ## Point Edit enabled expression v1
 
@@ -524,8 +524,10 @@ families; `text_layout {object}` returns dimensions, glyph count, overflow,
 warnings and actual fonts. `export_plan {composition,artboard}` discloses which
 text will be outlined. SVG also carries that disclosure in each Text object's
 description. Native content remains editable. Rich text runs, text-on-path,
-per-glyph editing, variable-font axes and editable SVG text import/export remain
-unsupported; the projection does not pretend to preserve them.
+partial feature ranges, per-glyph editing and editable SVG text import/export
+remain unsupported. Native 0.78 adds authored whole-text feature and additional-
+axis intent; this portable model checkpoint does not yet apply that intent in
+the Windows projection or return resolved feature/axis evidence.
 
 The GUI adds Text directly. Its content editor holds an IME draft independently
 of Inspector/recovery refresh and commits one undo step on Apply. Cancel discards
@@ -2130,3 +2132,48 @@ Window selector stores both IDs, labels the frame and occurrence, and resets to
 Selection if the scoped occurrence disappears rather than choosing another copy.
 Malformed scope/reference combinations and failed batches preserve native state,
 revision and History. See docs/r03-artboard-guide-align-boundary.md for evidence.
+
+## Native 0.78 — Text OpenType feature and additional-axis authoring
+
+Native 0.78 adds optional `font_features` and `additional_axis_values` fields to
+TextSource. Empty collections are omitted, Text source behavior version remains
+1, and native 0.1–0.77 read with empty local collections. Either new field under
+an earlier native version is a version lie and rejects, including an explicitly
+empty field. The closed new serialization shape is
+`schemas/native-v0.78.schema.json`; earlier schemas remain unchanged.
+
+`font_features` is an ordered vector of `{feature_tag, parameter, scope}`.
+Tags are exactly four printable ASCII bytes and remain case-sensitive, including
+meaningful space bytes. Scope is `whole_text`; parameter is the complete uint32
+range. Feature identity is the exact tag: add appends a new tag, update changes
+its parameter without moving it, and remove deletes that tag. Duplicate tags,
+malformed tags and other scope values reject.
+
+`additional_axis_values` is a lexically ordered object from an exact four-byte
+printable ASCII tag to a finite double. Authored values round-trip without float
+narrowing. `wght` and `ital` are reserved because `text.weight` and `text.italic`
+remain the sole authored owners of those intents; other tags are not restricted
+by this model. The source's existing stable ID, all Text fields and property
+drivers remain unchanged by these dedicated edits.
+
+JSON-lines and the shared Session command variant expose:
+
+- `add_text_font_feature {object, feature:{feature_tag, parameter, scope}}`
+- `update_text_font_feature {object, feature_tag, parameter}`
+- `remove_text_font_feature {object, feature_tag}`
+- `set_text_additional_axis {object, axis_tag, value}`
+- `remove_text_additional_axis {object, axis_tag}`
+
+Set-axis adds or replaces only that exact tag. Update/remove require the exact
+feature/axis to exist. `CreateText` can carry valid initial collections.
+`UpdateText` preserves collections only when its payload matches the current
+values; use the typed commands to change them. Malformed, duplicate, conflicting,
+missing, non-Text, stale-revision or history-budget failures preserve native
+bytes, Session revision and History. These commands use the ordinary batch,
+validation, Undo/Redo and cold-reopen boundary.
+
+This is the portable authored-model/codec/command checkpoint only. It does not
+connect new feature or axis intent to DirectWrite, change Text defaults or
+weight/italic ownership, or supply a resolved-face/run receipt. Linux continues
+to report `TEXT_PLATFORM_UNSUPPORTED` for projection, and ordinary `CreateText`
+continues to initialize Anchor through geometry projection rather than a stub.
