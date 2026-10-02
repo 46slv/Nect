@@ -125,6 +125,8 @@ void fixed_global_mixed_geometry(Window& window) {
     const QPoint common_center=common_dial->mapToGlobal(QPoint(common_dial->width()/2,common_dial->height()/2));
     const int common_row_height=common_dial->parentWidget()->height();
     const auto common_geometry=common_dial->geometry();const auto common_row_geometry=common_dial->parentWidget()->geometry();
+    check(batch_angle_test::caption_has_reserved_width(common_dial->parentWidget()->findChild<QLabel*>()),
+        "primitive-batch caption reserves a content-independent minimum before interaction");
     const batch_angle_test::Geometry common_stable(common_dial);
     mouse_global(common_dial,QEvent::MouseButtonPress,QPointF(common_center)+QPointF(16,0),Qt::LeftButton,Qt::LeftButton);
     mouse_global(common_dial,QEvent::MouseMove,QPointF(common_center)+QPointF(14,8),Qt::NoButton,Qt::LeftButton);
@@ -204,6 +206,8 @@ void fixed_global_mixed_geometry(Window& window) {
     mouse_global(dial,QEvent::MouseButtonRelease,QPointF(center_global)+QPointF(0,16),Qt::LeftButton,Qt::NoButton);
     check(near_values(evaluated(window,targets),{95,455,815}),
         "fixed global mixed-angle gesture commits the expected common quarter-turn");
+    check(batch_angle_test::wider_inspector_caption_expands(visible_batch_dial(window,targets)),
+        "caption expands in a wider Inspector without changing its reserved minimum or compact height");
     if(auto* scroll=window.findChild<QWidget*>("inspector-scroll")) {
         scroll->setMinimumWidth(300);scroll->setMaximumWidth(QWIDGETSIZE_MAX);
     }

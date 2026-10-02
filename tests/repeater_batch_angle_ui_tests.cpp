@@ -364,6 +364,8 @@ void top_zero_geometry_and_indicator(Window& window) {
         "caption, tooltip and accessibility consistently identify top-zero clockwise modulo-only Repeater orientation");
     const QPoint common_center=common->mapToGlobal(QPoint(common->width()/2,common->height()/2));
     const auto common_dial_geometry=common->geometry();const auto common_row_geometry=common->parentWidget()->geometry();
+    check(batch_angle_test::caption_has_reserved_width(caption(common)),
+        "Repeater-batch caption reserves a content-independent minimum before interaction");
     const batch_angle_test::Geometry common_stable(common);
     mouse_global(common,QEvent::MouseButtonPress,QPointF(common_center)+QPointF(0,-16),Qt::LeftButton,Qt::LeftButton);
     mouse_global(common,QEvent::MouseMove,QPointF(common_center)+QPointF(8,-14),Qt::NoButton,Qt::LeftButton);
@@ -416,6 +418,8 @@ void top_zero_geometry_and_indicator(Window& window) {
     mouse_global(dial,QEvent::MouseButtonRelease,QPointF(center)+QPointF(16,0),Qt::LeftButton,Qt::NoButton);
     check(near(values(window,refs),{-265,95,815}),
         "top-to-right Repeater batch gesture commits the unwrapped +90-degree result after the fixed-height live arc");
+    check(batch_angle_test::wider_inspector_caption_expands(batch_dial(window,refs)),
+        "caption expands in a wider Inspector without changing its reserved minimum or compact height");
     if(auto* scroll=window.findChild<QWidget*>("inspector-scroll")) {scroll->setMinimumWidth(300);scroll->setMaximumWidth(QWIDGETSIZE_MAX);}
     if(auto* dock=window.findChild<QWidget*>("properties")) {dock->setMinimumWidth(0);dock->setMaximumWidth(QWIDGETSIZE_MAX);}
     window.resize(1400,900);events();

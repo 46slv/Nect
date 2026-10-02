@@ -15,6 +15,7 @@
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QFrame>
+#include <QFontMetricsF>
 #include <QGraphicsOpacityEffect>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -7521,7 +7522,7 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     // Keep the hit target in a fixed row, and give the caption all width left
     // after the dial so its text wraps within that stable height.
     constexpr int batch_angle_row_height=80;
-    auto* row=new QWidget;row->setFixedHeight(batch_angle_row_height);row->setObjectName("batch-angle-dial-row");
+    auto* row=new QWidget(form->parentWidget());row->setFixedHeight(batch_angle_row_height);row->setObjectName("batch-angle-dial-row");
     const auto zero_label=top_zero?QStringLiteral("top zero"):QStringLiteral("+X zero");
     const auto orientation=top_zero
         ?QStringLiteral("Zero points up at the top; positive degrees turn clockwise.")
@@ -7570,9 +7571,28 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     }
     row_layout->addWidget(knob);
     auto* note=new QLabel(caption_for(0),row);note->setWordWrap(true);note->setFixedHeight(batch_angle_row_height);
-    // Live caption hints must not make WrapLongRows relocate an active dial.
-    // The layout stretch supplies the remaining width without a text-derived minimum.
+    // Live hints must not make WrapLongRows relocate an active dial. Reserve a
+    // floor once, in the real Inspector font, before the form negotiates its row.
+    // 98px is the independently measured Windows allocation; larger fonts/counts
+    // can grow it. This is a minimum, so the stretch still uses wider Inspectors.
     note->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);note->setAlignment(Qt::AlignVCenter|Qt::AlignLeft);
+    note->ensurePolished();auto caption_font=note->font();caption_font.setResolveMask(QFont::AllPropertiesResolved);
+    const QFontMetricsF caption_metrics(caption_font,note);
+    int caption_minimum=98;
+    const auto reserve=[&](const QString& text) {
+        const auto bounds=caption_metrics.boundingRect(text);
+        const auto span=std::max(caption_metrics.horizontalAdvance(text),bounds.right())-std::min(0.0,bounds.left());
+        caption_minimum=std::max(caption_minimum,static_cast<int>(std::ceil(span)));
+    };
+    reserve(QString("Common · %1").arg(target_count));reserve(QString("Mixed · %1").arg(target_count));reserve(zero_label);
+    // Stable g7 shapes, including leading-zero fractions and three-digit
+    // exponents. Δ may wrap at its existing space; numeric tokens must not clip.
+    // Samples qualify this font, not every possible font or every digit sequence.
+    for(const double magnitude:{0.0,29.74488,999.9999,9999999.0,0.0001234567,0.0009999999,
+            1.234567e-5,1.999999e9,2e9,std::numeric_limits<double>::denorm_min(),
+            std::numeric_limits<double>::min(),std::numeric_limits<double>::max()})
+        for(const double sign:{-1.0,1.0})reserve(visible_delta(sign*magnitude)+QStringLiteral("°"));
+    note->setMinimumWidth(caption_minimum);
     note->setAccessibleName(caption_accessible_for(0));row_layout->addWidget(note,1);
     form->addRow(label+" dial",row);
 
