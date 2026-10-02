@@ -6835,31 +6835,54 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 const auto initial=macro_parameter_value(host.session.document(),object.id,operation.id,parameter_id);
                 const auto frozen_macro_session=host.session_id;
                 const auto frozen_macro_revision=host.session.revision();
-                auto* editor=new QDoubleSpinBox(group);editor->setObjectName("macro-amount-"+qs(operation.id));
-                editor->setAccessibleName(name+" / "+qs(parameter->label));editor->setDecimals(3);
-                editor->setRange(-1e6,1e6);editor->setSingleStep(1);editor->setSuffix(" "+qs(parameter->unit));
-                editor->setValue(initial);
+                // Macro amounts retain full double precision; fixed decimals can author a rounded no-op.
+                auto* editor=new QLineEdit(QString::number(initial,'g',17),group);
+                editor->setObjectName("macro-amount-"+qs(operation.id));
+                editor->setAccessibleName(name+" / "+qs(parameter->label)+" / "+qs(parameter->unit));
+                editor->setToolTip("Enter a finite amount in "+qs(parameter->unit)+" from -1000000 to 1000000. Escape cancels the edit.");
                 editor->setProperty("nect-reference",QJsonDocument(ref_json(amount_ref)).toJson(QJsonDocument::Compact));
-                connect(editor,&QDoubleSpinBox::editingFinished,this,[this,editor,initial,id=object.id,
-                    instance=operation.id,parameter_id,frozen_macro_session,frozen_macro_revision]{perform([&]{
-                    if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
-                    if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
-                    if(editor->value()==initial)return;
-                    host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,editor->value()}}},frozen_macro_revision);
-                    host.edited();
-                });});
-                auto* amount_row=new QWidget(group);auto* amount_layout=new QHBoxLayout(amount_row);
-                amount_layout->setContentsMargins(0,0,0,0);amount_layout->addWidget(editor);
-                if(operation.macro->overrides.contains(parameter_id)) {
-                    auto* reset=new QPushButton("Reset");reset->setObjectName("macro-reset-amount-"+qs(operation.id));
-                    reset->setToolTip("Restore the value published by the pinned Macro revision.");amount_layout->addWidget(reset);
-                    connect(reset,&QPushButton::clicked,this,[this,id=object.id,instance=operation.id,parameter_id,
-                        frozen_macro_session,frozen_macro_revision]{perform([&]{
+                auto* reset=operation.macro->overrides.contains(parameter_id)?new QPushButton("Reset",group):nullptr;
+                if(reset)reset->setObjectName("macro-reset-amount-"+qs(operation.id));
+                auto* cancel=new QAction(editor);cancel->setShortcut(QKeySequence(Qt::Key_Escape));
+                cancel->setShortcutContext(Qt::WidgetShortcut);editor->addAction(cancel);
+                connect(cancel,&QAction::triggered,editor,[editor,initial]{
+                    editor->setText(QString::number(initial,'g',17));editor->setModified(false);
+                });
+                auto finish_amount=[this,editor,reset,initial,id=object.id,
+                    instance=operation.id,parameter_id,frozen_macro_session,frozen_macro_revision]{
+                    if(!editor->isModified())return;
+                    // Reset owns this mouse gesture; a normal keyboard/focus exit still commits the edit.
+                    if(reset&&QApplication::focusWidget()==reset&&(QApplication::mouseButtons()&Qt::LeftButton))return;
+                    editor->setModified(false);
+                    perform([&]{
                         if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
                         if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
-                        host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
+                        bool valid=false;const auto value=editor->text().trimmed().toDouble(&valid);
+                        if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite Macro Amount");
+                        if(value==initial)return;
+                        host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,value}}},frozen_macro_revision);
                         host.edited();
-                    });});
+                    });
+                };
+                connect(editor,&QLineEdit::editingFinished,this,finish_amount);
+                if(reset)connect(qApp,&QApplication::focusChanged,editor,[editor,finish_amount](QWidget* previous,QWidget*){
+                    // Qt consumes editingFinished on the deferred Reset blur. A cancelled gesture keeps a pending draft.
+                    if(previous==editor)finish_amount();
+                });
+                auto* amount_row=new QWidget(group);auto* amount_layout=new QHBoxLayout(amount_row);
+                amount_layout->setContentsMargins(0,0,0,0);amount_layout->addWidget(editor);
+                if(reset) {
+                    reset->setToolTip("Restore the value published by the pinned Macro revision.");amount_layout->addWidget(reset);
+                    connect(reset,&QPushButton::clicked,this,[this,editor,id=object.id,instance=operation.id,parameter_id,
+                        frozen_macro_session,frozen_macro_revision]{
+                        editor->setModified(false);
+                        perform([&]{
+                            if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
+                            if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
+                            host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
+                            host.edited();
+                        });
+                    });
                 }
                 form->addRow(qs(parameter->label)+" · "+qs(parameter->unit),amount_row);
             } else {
