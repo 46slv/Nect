@@ -23,6 +23,9 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QIcon>
+#include <QPixmap>
+#include <QPainterPath>
 #include <QLineEdit>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -548,6 +551,45 @@ private:
             .arg(QString::number(value_,'g',17),QString::number(normalized,'g',15)));
     }
 };
+
+enum class UtilityToggleGlyph { guides, grid, snap };
+QIcon utility_toggle_icon(UtilityToggleGlyph glyph) {
+    QIcon icon;
+    for(const auto mode:{QIcon::Normal,QIcon::Active,QIcon::Disabled,QIcon::Selected})
+        for(const auto state:{QIcon::Off,QIcon::On})for(const int dpr:{1,2,3}) {
+            QPixmap pixels(20*dpr,20*dpr);pixels.setDevicePixelRatio(dpr);pixels.fill(Qt::transparent);
+            QPainter painter(&pixels);painter.setRenderHint(QPainter::Antialiasing);
+            const bool on=state==QIcon::On;
+            const auto ink=mode==QIcon::Disabled?QColor(on?"#9ca7b1":"#77818d"):
+                QColor(on||mode==QIcon::Active||mode==QIcon::Selected?"#e9fbff":"#adb9c7");
+            QPen pen(ink,1.5,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
+            painter.setPen(pen);painter.setBrush(Qt::NoBrush);
+            if(glyph==UtilityToggleGlyph::guides) {
+                painter.drawLine(QPointF(3.5,6.5),QPointF(3.5,3.5));
+                painter.drawLine(QPointF(3.5,3.5),QPointF(6.5,3.5));
+                painter.drawLine(QPointF(13.5,16.5),QPointF(16.5,16.5));
+                painter.drawLine(QPointF(16.5,16.5),QPointF(16.5,13.5));
+                pen.setStyle(Qt::DashLine);painter.setPen(pen);
+                painter.drawLine(QPointF(10,2.5),QPointF(10,17.5));
+                painter.drawLine(QPointF(2.5,10),QPointF(17.5,10));
+            } else if(glyph==UtilityToggleGlyph::grid) {
+                painter.drawRect(QRectF(3.5,3.5,13,13));
+                for(const auto position:{8.0,12.0}) {
+                    painter.drawLine(QPointF(position,3.5),QPointF(position,16.5));
+                    painter.drawLine(QPointF(3.5,position),QPointF(16.5,position));
+                }
+            } else {
+                pen.setWidthF(3);pen.setCapStyle(Qt::FlatCap);painter.setPen(pen);
+                QPainterPath magnet;magnet.moveTo(5,3);magnet.lineTo(5,10.5);
+                magnet.cubicTo(5,18,15,18,15,10.5);magnet.lineTo(15,3);painter.drawPath(magnet);
+                pen.setWidthF(1);pen.setColor(QColor("#252d38"));painter.setPen(pen);
+                painter.drawLine(QPointF(3.5,7),QPointF(6.5,7));
+                painter.drawLine(QPointF(13.5,7),QPointF(16.5,7));
+            }
+            painter.end();icon.addPixmap(pixels,mode,state);
+        }
+    return icon;
+}
 
 class HoverFeedback final : public QObject {
 public:
@@ -1078,6 +1120,16 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         button->setAccessibleDescription(help+" Current state: "+state+".");button->setToolTip(help+" Current state: "+state+".");button->setEnabled(enabled);
     };
     for(auto* button:{utility_guides_,utility_grid_,utility_snap_})style_utility(button);
+    utility_guides_->setIcon(utility_toggle_icon(UtilityToggleGlyph::guides));
+    utility_grid_->setIcon(utility_toggle_icon(UtilityToggleGlyph::grid));
+    // Keep the icon on the owner action: subsequent text/checked updates must
+    // not restore an empty default-action icon on the Snap tool button.
+    snap->setIcon(utility_toggle_icon(UtilityToggleGlyph::snap));
+    for(auto* button:{utility_guides_,utility_grid_,utility_snap_}) {
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);button->setIconSize(QSize(20,20));
+        button->setFixedSize(36,32);
+        button->setStyleSheet(button->styleSheet()+"QToolButton{padding:4px;}");
+    }
     connect(utility_guides_,&QToolButton::toggled,canvas,&Canvas::set_show_guides);
     connect(utility_grid_,&QToolButton::toggled,canvas,&Canvas::set_show_grid);
     auto* fit_button=new QToolButton(utility_contents);fit_button->setObjectName("utility-fit");fit_button->setText("Fit");
