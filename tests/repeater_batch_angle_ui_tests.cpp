@@ -10,6 +10,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMouseEvent>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QStatusBar>
 #include <QTest>
@@ -137,15 +139,53 @@ bool near(const std::vector<double>& a,const std::vector<double>& b,double toler
 }
 std::vector<double> values_from_document(const Document& document,const std::vector<Ref>& refs);
 QPointF rendered_indicator(Window& window,QWidget* dial) {
-    events();QTest::qWait(80);const auto whole=window.grab().toImage();const auto dpr=whole.devicePixelRatio();
+    events();QTest::qWait(80);
+    const auto before_window=window.geometry(),before_dial=dial->geometry();
+    const QRect before_dial_in_window(dial->mapTo(&window,QPoint(0,0)),dial->size());
+    const auto before_visible=dial->visibleRegion();
+    QScrollArea* scroll=nullptr;
+    for(auto* parent=dial->parentWidget();parent;parent=parent->parentWidget())
+        if((scroll=qobject_cast<QScrollArea*>(parent)))break;
+    const auto before_viewport=scroll?scroll->viewport()->rect():QRect{};
+    const auto before_dial_in_viewport=scroll
+        ?QRect(dial->mapTo(scroll->viewport(),QPoint(0,0)),dial->size()):QRect{};
+    const int before_scroll_x=scroll?scroll->horizontalScrollBar()->value():0;
+    const int before_scroll_y=scroll?scroll->verticalScrollBar()->value():0;
+    const auto whole=window.grab().toImage();const auto dpr=whole.devicePixelRatio();
     const auto origin=dial->mapTo(&window,QPoint(0,0));
-    const auto image=whole.copy(QRect(qRound(origin.x()*dpr),qRound(origin.y()*dpr),
-        qRound(dial->width()*dpr),qRound(dial->height()*dpr)));
-    QPointF sum;int count=0;
+    const QRect crop(qRound(origin.x()*dpr),qRound(origin.y()*dpr),
+        qRound(dial->width()*dpr),qRound(dial->height()*dpr));
+    const auto image=whole.copy(crop);
+    QPointF sum;int count=0,all_ink=0,nontransparent=0;
     for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
         const auto color=image.pixelColor(x,y);const QPointF delta((x+0.5)/dpr-22,(y+0.5)/dpr-22);
         const auto radius=std::hypot(delta.x(),delta.y());
+        if(color.blue()-color.red()>50&&color.green()>100)++all_ink;
+        if(color.alpha()>0)++nontransparent;
         if(radius>4&&radius<14&&color.blue()-color.red()>50&&color.green()>100){sum+=delta;++count;}
+    }
+    if(qEnvironmentVariableIsSet("NECT_GEOMETRY_DIAGNOSTICS")||count<=5) {
+        std::cerr<<"REPEATER_INDICATOR_PRE window="<<batch_angle_test::rectangle(before_window)
+            <<" dial="<<batch_angle_test::rectangle(before_dial)
+            <<" dial-in-window="<<batch_angle_test::rectangle(before_dial_in_window)
+            <<" visible-region="<<batch_angle_test::rectangle(before_visible.boundingRect())
+            <<" visible-region-full="<<before_visible.contains(QRect(QPoint(0,0),before_dial.size()))
+            <<" scroll-found="<<(scroll!=nullptr)<<" viewport="<<batch_angle_test::rectangle(before_viewport)
+            <<" dial-in-viewport="<<batch_angle_test::rectangle(before_dial_in_viewport)
+            <<" viewport-intersection="<<batch_angle_test::rectangle(before_viewport.intersected(before_dial_in_viewport))
+            <<" scroll-offset="<<before_scroll_x<<","<<before_scroll_y<<'\n';
+        std::cerr<<"REPEATER_INDICATOR_CAPTURE platform="<<QGuiApplication::platformName().toStdString()
+            <<" scale-factor="<<qEnvironmentVariable("QT_SCALE_FACTOR").toStdString()
+            <<" window="<<batch_angle_test::rectangle(window.rect())
+            <<" widget-logical-rect="<<batch_angle_test::rectangle(dial->rect())
+            <<" dial-in-window="<<batch_angle_test::rectangle(QRect(origin,dial->size()))
+            <<" widget-dpr="<<dial->devicePixelRatioF()<<" window-dpr="<<window.devicePixelRatioF()
+            <<" image-dpr="<<dpr<<" image-pixels="<<batch_angle_test::rectangle(whole.rect())
+            <<" crop-pixels="<<batch_angle_test::rectangle(crop)<<" crop-contained="<<whole.rect().contains(crop)
+            <<" crop-intersection="<<batch_angle_test::rectangle(whole.rect().intersected(crop))
+            <<" crop-result="<<batch_angle_test::rectangle(image.rect())<<" crop-dpr="<<image.devicePixelRatio()
+            <<" enabled="<<dial->isEnabled()<<" visible="<<dial->isVisible()
+            <<" nontransparent="<<nontransparent<<" all-ink="<<all_ink<<" annular-ink="<<count<<'\n';
     }
     check(count>5,"rendered batch Repeater dial exposes a visible indicator stroke");return sum/count;
 }
@@ -364,6 +404,8 @@ void top_zero_geometry_and_indicator(Window& window) {
         "caption, tooltip and accessibility consistently identify top-zero clockwise modulo-only Repeater orientation");
     const QPoint common_center=common->mapToGlobal(QPoint(common->width()/2,common->height()/2));
     const auto common_dial_geometry=common->geometry();const auto common_row_geometry=common->parentWidget()->geometry();
+    check(batch_angle_test::caption_has_reserved_width(caption(common)),
+        "Repeater-batch caption reserves a content-independent minimum before interaction");
     const batch_angle_test::Geometry common_stable(common);
     mouse_global(common,QEvent::MouseButtonPress,QPointF(common_center)+QPointF(0,-16),Qt::LeftButton,Qt::LeftButton);
     mouse_global(common,QEvent::MouseMove,QPointF(common_center)+QPointF(8,-14),Qt::NoButton,Qt::LeftButton);
@@ -416,6 +458,8 @@ void top_zero_geometry_and_indicator(Window& window) {
     mouse_global(dial,QEvent::MouseButtonRelease,QPointF(center)+QPointF(16,0),Qt::LeftButton,Qt::NoButton);
     check(near(values(window,refs),{-265,95,815}),
         "top-to-right Repeater batch gesture commits the unwrapped +90-degree result after the fixed-height live arc");
+    check(batch_angle_test::wider_inspector_caption_expands(batch_dial(window,refs)),
+        "caption expands in a wider Inspector without changing its reserved minimum or compact height");
     if(auto* scroll=window.findChild<QWidget*>("inspector-scroll")) {scroll->setMinimumWidth(300);scroll->setMaximumWidth(QWIDGETSIZE_MAX);}
     if(auto* dock=window.findChild<QWidget*>("properties")) {dock->setMinimumWidth(0);dock->setMaximumWidth(QWIDGETSIZE_MAX);}
     window.resize(1400,900);events();
@@ -575,7 +619,7 @@ void busy_aba_rebuild_and_close(Window& window) {
 }
 }
 int main(int argc,char** argv) {
-    qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
+    batch_angle_test::configure_test_qpa();QApplication app(argc,argv);batch_angle_test::report_test_qpa();
     try {
         QTemporaryDir directory;check(directory.isValid(),"temporary directory is available");
         QSettings settings(directory.filePath("settings.ini"),QSettings::IniFormat);

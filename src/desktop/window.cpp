@@ -15,6 +15,7 @@
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QFrame>
+#include <QFontMetricsF>
 #include <QGraphicsOpacityEffect>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -63,6 +64,8 @@
 #include <QPainter>
 #include <QPropertyAnimation>
 #include <QEasingCurve>
+#include <QRegularExpression>
+#include <QRegularExpressionValidator>
 
 namespace nect::desktop {
 namespace {
@@ -1330,7 +1333,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         else canvas_notification_.reset();
         host.edited();
     };
-    canvas->selection_changed=[this]{if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();rebuild_effects_panel();update_batch_rename_action();update_sort_paint_order_action();};
+    canvas->selection_changed=[this]{++text_selection_generation_;if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();rebuild_effects_panel();update_batch_rename_action();update_sort_paint_order_action();};
     canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
     canvas->view_state_changed=[this]{sync_utility_view_state();};
     canvas->zoom_changed=[this](double zoom){
@@ -5879,8 +5882,18 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     connect(path_detach,&QPushButton::clicked,this,[this,update,refresh_path_inspector]{perform([&]{update([](TextSource& next){next.path_attachment.reset();});refresh_path_inspector();});});
     if(!font_families_) {
         font_families_=new QStringListModel(this);
-        auto reload=[this]{QStringList names;for(const auto& name:text_fonts())names<<qs(name);font_families_->setStringList(names);};
+        auto reload=[this]{
+            QStringList names;font_discovery_error_.clear();
+            try {for(const auto& name:text_fonts())names<<qs(name);}
+            catch(const Error& error){font_discovery_error_=qs(error.code)+": "+QString::fromUtf8(error.what());}
+            font_families_->setStringList(names);
+        };
         reload();connect(qApp,&QGuiApplication::fontDatabaseChanged,this,[this,reload]{perform(reload);});
+    }
+    if(!font_discovery_error_.isEmpty()) {
+        auto* discovery=new QLabel(font_discovery_error_+" Authored font settings remain editable.");
+        discovery->setObjectName("text-font-discovery-status");discovery->setWordWrap(true);discovery->setTextFormat(Qt::PlainText);
+        form->addRow(discovery);
     }
     const Ref family_ref{id,"","text.family"};const auto family_state=text_family_property(host.session.document(),family_ref);
     const auto family_revision=host.session.revision();
@@ -6543,14 +6556,219 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     locale_status->setObjectName("text-locale-state");locale_status->setWordWrap(true);locale_status->setTextFormat(Qt::PlainText);form->addRow("",locale_status);
     for(const auto* parameter:{"origin_x","origin_y","font_size","frame_width","frame_height","tracking","line_spacing"})
         add_property(form,{id,"",std::string("text.")+parameter},parameter_label(parameter));
-    const auto current_values=evaluate(host.session.document());
-    const auto result=evaluate_text_projection(host.session.document(),id,current_values);
-    QStringList lines;lines<<QString("%1 × %2 du · %3 glyphs").arg(display_value(result.width),display_value(result.height)).arg(result.glyph_count);
-    if(result.overflow)lines<<"Text extends outside its frame. Increase the frame or reduce the type size.";
-    for(const auto& warning:result.warnings)lines<<qs(warning);
-    QStringList fonts;for(const auto& name:result.used_fonts)fonts<<qs(name);
-    lines<<"Rendered fonts: "+fonts.join(", ")<<"Native text stays editable. SVG exports glyph outlines; fonts are not embedded.";
+    auto* receipt=add_text_typography(layout,object);
+    QStringList lines;
+    try {
+        const auto current_values=evaluate(host.session.document());
+        const auto result=evaluate_text_projection(host.session.document(),id,current_values);
+        lines<<QString("%1 × %2 du · %3 glyphs").arg(display_value(result.width),display_value(result.height)).arg(result.glyph_count);
+        if(result.overflow)lines<<"Text extends outside its frame. Increase the frame or reduce the type size.";
+        for(const auto& warning:result.warnings)lines<<qs(warning);
+        QStringList fonts;for(const auto& name:result.used_fonts)fonts<<qs(name);
+        lines<<"Rendered fonts: "+fonts.join(", ")<<"Native text stays editable. SVG exports glyph outlines; fonts are not embedded.";
+        receipt->setText(format_text_font_receipt(result));
+    } catch(const Error& error) {
+        const auto failure=qs(error.code)+": "+QString::fromUtf8(error.what());
+        lines<<failure;
+        receipt->setText(failure+"\nNo backend submission or actual-run receipt is available. Authored feature and axis values above are retained.");
+    }
     auto* status=new QLabel(lines.join('\n'));status->setObjectName("text-layout-status");status->setWordWrap(true);status->setTextFormat(Qt::PlainText);form->addRow(status);
+}
+
+QString format_text_font_receipt(const TextLayout& result) {
+    // Receipt strings and valid font tags may contain literal %-digit sequences.
+    // Concatenate them as data; later QString::arg calls must never reinterpret them.
+    const auto number=[](double value){return QString::number(value,'g',std::numeric_limits<double>::max_digits10);};
+    const auto optional_number=[&](const std::optional<double>& value){return value?number(*value):QString("unknown");};
+    const auto& request=result.font_request;
+    QStringList evidence;
+    evidence<<"Requested (evaluated): "+qs(request.family)+" · weight "+QString::number(request.weight)+
+        " · italic "+(request.italic?QString("yes"):QString("no"))+" · locale "+qs(request.locale);
+    for(const auto& [tag,value]:request.additional_axis_values)
+        evidence<<"Requested additional axis ["+qs(tag)+"] = "+number(value);
+    for(const auto& feature:request.font_features)
+        evidence<<"Requested feature ["+qs(feature.feature_tag)+"] = "+QString::number(feature.parameter)+" · whole text";
+    evidence<<"Backend axis submission: "+qs(request.axis_application);
+    for(const auto& [tag,value]:request.submitted_axis_values)
+        evidence<<"Submitted axis ["+qs(tag)+"] = "+number(value);
+    evidence<<"Backend feature submission: "+qs(request.feature_application);
+    evidence<<"Submission and feature availability do not prove a visible effect. Actual drawn runs follow (UTF-16 ranges).";
+    if(result.font_runs.empty())evidence<<"No drawn runs; no actual font or axis values are inferred.";
+    for(std::size_t index=0;index<result.font_runs.size();++index) {
+        const auto& run=result.font_runs[index];
+        evidence<<"Run "+QString::number(index+1)+" · start "+(run.utf16_start?QString::number(*run.utf16_start):"unknown")+
+            ", length "+(run.utf16_length?QString::number(*run.utf16_length):"unknown")+
+            " · family "+(run.family?qs(*run.family):"unknown")+" · face "+(run.face?qs(*run.face):"unknown")+
+            " · locale "+(run.locale?qs(*run.locale):"unknown");
+        evidence<<QString("Fallback: %1 · resolved weight %2 · style %3 · missing glyphs %4")
+            .arg(run.fallback?(*run.fallback?"yes":"no"):"unknown")
+            .arg(run.resolved_weight?QString::number(*run.resolved_weight):"unknown")
+            .arg(run.resolved_style?QString::number(*run.resolved_style):"unknown").arg(run.missing_glyph_count);
+        for(const auto& axis:run.axis_checks)
+            evidence<<"Axis ["+qs(axis.tag)+"] · "+qs(axis.owner)+" · requested "+number(axis.requested)+
+                " · submitted "+optional_number(axis.submitted)+" · actual "+optional_number(axis.resolved)+" · "+qs(axis.status);
+        for(const auto& axis:run.axes)
+            evidence<<"Actual axis ["+qs(axis.tag)+"] = "+optional_number(axis.value)+
+                " · range "+optional_number(axis.minimum)+" to "+optional_number(axis.maximum)+
+                " · default "+optional_number(axis.default_value)+" · variable "+
+                (axis.variable?(*axis.variable?QString("yes"):QString("no")):QString("unknown"));
+        for(const auto& script:run.script_features)for(const auto& feature:script.features)
+            evidence<<"Feature ["+qs(feature.tag)+"] = "+QString::number(feature.parameter)+" · script "+QString::number(script.script)+
+                " · start "+QString::number(script.utf16_start)+", length "+QString::number(script.utf16_length)+
+                " · availability "+qs(feature.availability);
+        for(const auto& warning:run.warnings)evidence<<"Run warning: "+qs(warning);
+    }
+    for(const auto& warning:result.warnings)evidence<<"Layout warning: "+qs(warning);
+    return evidence.join('\n');
+}
+
+void Window::verify_text_typography_context(const TextTypographyContext& context) const {
+    if(host.session_id!=context.session)throw Error("SESSION_CONFLICT","The document changed. Copy this draft, cancel, and reopen the current Text.");
+    if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The document was edited. Copy this draft, cancel, and reopen the latest Text.");
+    const auto found=host.session.document().objects.find(context.object);
+    if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=context.source)
+        throw Error("TEXT_EDIT_CONFLICT","The original Text source no longer exists. This draft cannot target a replacement.");
+    if(artboard_editing_||text_selection_generation_!=context.selection_generation||
+       canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}}||
+       canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard)
+        throw Error("SELECTION_CONFLICT","The whole-Text selection changed. Copy this draft, cancel, and reopen the intended Text.");
+    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying typography.");
+}
+
+QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
+    auto* box=new QGroupBox("Advanced Typography");box->setObjectName("text-advanced-typography");
+    auto* rows=new QVBoxLayout(box);layout->addWidget(box);
+    auto label=[&](const QString& text){auto* value=new QLabel(text,box);value->setWordWrap(true);value->setTextFormat(Qt::PlainText);rows->addWidget(value);return value;};
+    label("Authored settings apply to the entire Text, including Text on Path. Exact four-character tags are case-sensitive; spaces inside [brackets] are significant. Unsupported intent is retained.");
+    const bool whole=object.kind==Kind::text&&canvas->selections()==std::vector<Canvas::Selection>{{object.id,{}}};
+    const TextTypographyContext context{host.session_id,object.id,object.text->id,canvas->active_composition(),canvas->active_artboard(),
+        host.session.revision(),text_selection_generation_};
+    const auto action=[&](const QString& title,const QString& name,bool axis,const std::optional<std::string>& tag,bool remove,QHBoxLayout* row=nullptr) {
+        auto* button=new QPushButton(title,box);button->setObjectName(name);button->setEnabled(whole);
+        const auto subject=axis?QString("additional axis"):QString("whole-text feature");
+        const auto description=tag?subject+" ["+qs(*tag)+"]":subject;
+        button->setAccessibleName((remove?"Remove ":tag?"Edit ":"Add ")+description);
+        // QWidget tooltips auto-detect rich text. Valid tags such as <br> must
+        // remain literal, and significant spaces inside the tag must survive.
+        button->setToolTip("<qt>"+button->accessibleName().toHtmlEscaped().replace(" ","&nbsp;")+
+            ". Apply commits one Undo step; Cancel leaves authored settings unchanged.</qt>");
+        if(tag)button->setProperty("font-tag",qs(*tag));
+        if(row)row->addWidget(button);else rows->addWidget(button);
+        connect(button,&QPushButton::clicked,this,[this,context,axis,tag,remove]{perform([&]{edit_text_typography(context,axis,tag,remove);});});
+    };
+    label("Whole-text features · authored order")->setObjectName("text-font-features-heading");
+    for(std::size_t index=0;index<object.text->font_features.size();++index) {
+        const auto& feature=object.text->font_features[index];
+        auto* value=label(QString::number(index+1)+". ["+qs(feature.feature_tag)+"] = "+QString::number(feature.parameter)+" · whole text");
+        value->setObjectName("text-font-feature-row");value->setProperty("font-tag",qs(feature.feature_tag));
+        auto* row=new QHBoxLayout;rows->addLayout(row);
+        action("Edit parameter…","text-font-feature-edit",false,feature.feature_tag,false,row);
+        action("Remove…","text-font-feature-remove",false,feature.feature_tag,true,row);row->addStretch();
+    }
+    if(object.text->font_features.empty())label("No authored features; the font's default typography is used.");
+    action("Add feature…","text-font-feature-add",false,{},false);
+    label("Additional axes · lexical tag order")->setObjectName("text-font-axes-heading");
+    label("[wght] is owned by Weight and [ital] by Italic above. Edit those controls instead; additional axes cannot override them.")
+        ->setObjectName("text-font-reserved-axes");
+    for(const auto& [tag,value]:object.text->additional_axis_values) {
+        auto* entry=label("["+qs(tag)+"] = "+QString::number(value,'g',std::numeric_limits<double>::max_digits10));
+        entry->setObjectName("text-font-axis-row");entry->setProperty("font-tag",qs(tag));
+        auto* row=new QHBoxLayout;rows->addLayout(row);
+        action("Edit value…","text-font-axis-edit",true,tag,false,row);
+        action("Remove…","text-font-axis-remove",true,tag,true,row);row->addStretch();
+    }
+    if(object.text->additional_axis_values.empty())label("No authored additional axes.");
+    action("Add axis…","text-font-axis-add",true,{},false);
+    if(!whole)label("Select one whole editable Text to change Advanced Typography.");
+    label("Derived font receipt · read-only");
+    auto* receipt=label("No projection receipt yet.");receipt->setObjectName("text-font-receipt");
+    receipt->setAccessibleName("Requested, submitted, and actual font receipt");
+    receipt->setTextInteractionFlags(Qt::TextSelectableByMouse|Qt::TextSelectableByKeyboard);
+    return receipt;
+}
+
+void Window::edit_text_typography(const TextTypographyContext& context,bool axis,const std::optional<std::string>& existing_tag,bool remove) {
+    verify_text_typography_context(context);
+    const auto& source=*host.session.document().objects.at(context.object).text;
+    const auto subject=axis?QString("additional axis"):QString("whole-text feature");
+    auto* dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setWindowModality(Qt::WindowModal);
+    dialog->setObjectName("text-typography-dialog");dialog->setWindowTitle((remove?"Remove ":existing_tag?"Edit ":"Add ")+subject);
+    dialog->resize(440,300);
+    auto* body=new QVBoxLayout(dialog);auto* fields=new QFormLayout;fields->setRowWrapPolicy(QFormLayout::WrapLongRows);body->addLayout(fields);
+    auto* tag=new QLineEdit(existing_tag?qs(*existing_tag):QString{},dialog);tag->setObjectName("text-typography-tag");
+    tag->setReadOnly(existing_tag.has_value());tag->setAccessibleName("Exact four-character "+subject+" tag");
+    tag->setToolTip("Exactly four printable ASCII characters, including meaningful spaces. No trimming or case conversion.");
+    fields->addRow("&Exact tag",tag);
+    auto* boundary=new QLabel(dialog);boundary->setObjectName("text-typography-tag-boundary");boundary->setTextFormat(Qt::PlainText);
+    boundary->setWordWrap(true);fields->addRow("Tag boundaries",boundary);
+    const auto show_tag=[tag,boundary]{boundary->setText("["+tag->text()+"] · "+QString::number(tag->text().size())+" characters (spaces count)");};
+    connect(tag,&QLineEdit::textChanged,dialog,[show_tag]{show_tag();});show_tag();
+    auto* value=new QLineEdit(dialog);value->setObjectName("text-typography-value");
+    if(axis) {
+        value->setText(existing_tag?QString::number(source.additional_axis_values.at(*existing_tag),'g',std::numeric_limits<double>::max_digits10):"0");
+        value->setAccessibleName("Finite additional axis value");value->setPlaceholderText("Finite decimal or scientific notation");
+    } else {
+        auto feature=std::find_if(source.font_features.begin(),source.font_features.end(),[&](const TextFontFeature& item){return existing_tag&&item.feature_tag==*existing_tag;});
+        value->setText(feature==source.font_features.end()?"1":QString::number(feature->parameter));
+        value->setAccessibleName("Whole-text feature parameter, 0 to 4294967295");value->setPlaceholderText("0 to 4294967295");
+        value->setValidator(new QRegularExpressionValidator(QRegularExpression("[0-9]{1,10}"),value));
+    }
+    value->setReadOnly(remove);fields->addRow(axis?"&Value":"&Parameter",value);
+    auto* status=new QLabel(remove?"Apply removes only this exact authored tag. Cancel keeps it.":
+        "Apply commits one Undo step for a changed value. Cancel discards this draft. Tags stay exact; numeric values are never clamped.",dialog);
+    status->setObjectName("text-typography-status");status->setWordWrap(true);status->setTextFormat(Qt::PlainText);body->addWidget(status);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,dialog);body->addWidget(buttons);
+    buttons->button(QDialogButtonBox::Apply)->setObjectName("text-typography-apply");
+    buttons->button(QDialogButtonBox::Apply)->setAccessibleName("Apply "+subject+(remove?" removal":" change"));
+    buttons->button(QDialogButtonBox::Cancel)->setObjectName("text-typography-cancel");
+    connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
+    connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
+        [this,context,axis,existing_tag,remove,dialog,tag,value,status]{
+        try {
+            verify_text_typography_context(context);
+            const auto exact=tag->text();
+            if(exact.size()!=4||std::any_of(exact.begin(),exact.end(),[](QChar c){return c.unicode()<0x20||c.unicode()>0x7e;}))
+                throw Error("INVALID_TEXT_FONT_TAG","Enter exactly four printable ASCII characters. Spaces are significant; tags are not trimmed.");
+            const auto key=exact.toStdString();
+            if(existing_tag&&key!=*existing_tag)throw Error("TEXT_EDIT_CONFLICT","An existing tag cannot be renamed. Remove it and add the intended tag separately.");
+            const auto& current=*host.session.document().objects.at(context.object).text;
+            std::optional<Command> command;
+            if(axis) {
+                if(key=="wght"||key=="ital")throw Error("TEXT_AXIS_CONFLICT","[wght] is owned by Weight and [ital] by Italic. Use those Text controls instead.");
+                const auto found=current.additional_axis_values.find(key);
+                if(!existing_tag&&found!=current.additional_axis_values.end())throw Error("DUPLICATE_TEXT_AXIS","This exact axis tag already exists. Edit its value in the existing row.");
+                if(remove)command=RemoveTextAdditionalAxis{context.object,key};
+                else {
+                    bool valid=false;const auto numeric=value->text().toDouble(&valid);
+                    if(!valid||!std::isfinite(numeric))throw Error("INVALID_TEXT_AXIS_VALUE","Enter a finite decimal or scientific-notation value, with a decimal point and no grouping separators.");
+                    if(found==current.additional_axis_values.end()||numeric!=found->second)command=SetTextAdditionalAxis{context.object,key,numeric};
+                }
+            } else {
+                const auto found=std::find_if(current.font_features.begin(),current.font_features.end(),[&](const TextFontFeature& feature){return feature.feature_tag==key;});
+                if(!existing_tag&&found!=current.font_features.end())throw Error("DUPLICATE_TEXT_FONT_FEATURE","This exact feature tag already exists. Edit its parameter in the existing row.");
+                if(remove)command=RemoveTextFontFeature{context.object,key};
+                else {
+                    const auto digits=value->text();bool valid=false;const auto numeric=digits.toULongLong(&valid);
+                    if(!valid||digits.isEmpty()||std::any_of(digits.begin(),digits.end(),[](QChar c){return c<'0'||c>'9';})||
+                       numeric>std::numeric_limits<std::uint32_t>::max())
+                        throw Error("INVALID_TEXT_FONT_FEATURE","Enter a decimal integer from 0 through 4294967295.");
+                    const auto parameter=static_cast<std::uint32_t>(numeric);
+                    if(existing_tag) {
+                        if(found==current.font_features.end())throw Error("MISSING_TEXT_FONT_FEATURE","The original feature no longer exists.");
+                        if(parameter!=found->parameter)command=UpdateTextFontFeature{context.object,key,parameter};
+                    } else command=AddTextFontFeature{context.object,{key,parameter,"whole_text"}};
+                }
+            }
+            if(command)host.session.apply({*command},context.revision);
+            dialog->accept();
+            if(command)perform([this]{host.edited();});
+        } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+        catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+    });
+    dialog->show();
+    if(remove)buttons->button(QDialogButtonBox::Cancel)->setFocus();
+    else if(existing_tag){value->setFocus();value->selectAll();}
+    else tag->setFocus();
 }
 void Window::edit_text_content(const Id& id) {
     const auto session=host.session_id;auto source=*host.session.document().objects.at(id).text;
@@ -7521,7 +7739,7 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     // Keep the hit target in a fixed row, and give the caption all width left
     // after the dial so its text wraps within that stable height.
     constexpr int batch_angle_row_height=80;
-    auto* row=new QWidget;row->setFixedHeight(batch_angle_row_height);row->setObjectName("batch-angle-dial-row");
+    auto* row=new QWidget(form->parentWidget());row->setFixedHeight(batch_angle_row_height);row->setObjectName("batch-angle-dial-row");
     const auto zero_label=top_zero?QStringLiteral("top zero"):QStringLiteral("+X zero");
     const auto orientation=top_zero
         ?QStringLiteral("Zero points up at the top; positive degrees turn clockwise.")
@@ -7570,9 +7788,43 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     }
     row_layout->addWidget(knob);
     auto* note=new QLabel(caption_for(0),row);note->setWordWrap(true);note->setFixedHeight(batch_angle_row_height);
-    // Live caption hints must not make WrapLongRows relocate an active dial.
-    // The layout stretch supplies the remaining width without a text-derived minimum.
+    // Live hints must not make WrapLongRows relocate an active dial. Reserve a
+    // floor once, in the real Inspector font, before the form negotiates its row.
+    // 98px is the independently measured Windows allocation; larger fonts/counts
+    // can grow it. This is a minimum, so the stretch still uses wider Inspectors.
     note->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);note->setAlignment(Qt::AlignVCenter|Qt::AlignLeft);
+    note->ensurePolished();auto caption_font=note->font();caption_font.setResolveMask(QFont::AllPropertiesResolved);
+    const QFontMetricsF caption_metrics(caption_font,note);
+    int caption_minimum=98;
+    const auto reserve=[&](const QString& text) {
+        // Reserve actual ink overhang and advance, not the loose logical box:
+        // an unresolved Qt font backend can leave that box at an invalid origin.
+        const auto ink=caption_metrics.tightBoundingRect(text);
+        const auto advance=caption_metrics.horizontalAdvance(text);
+        const bool usable_advance=std::isfinite(advance)&&advance>=0;
+        const bool usable_ink=std::isfinite(ink.left())&&std::isfinite(ink.right())&&ink.width()>=0;
+        // A broken backend must not throw through an Inspector event callback.
+        // Keep whatever measurement is usable, warn, and retain the floor. This
+        // fallback is not a claim that an unsupported font can paint the caption.
+        if(!usable_advance||!usable_ink)qWarning("Batch angle caption has invalid font metrics");
+        auto span=usable_advance?advance:qreal(0);
+        if(usable_ink)span=std::max(span,ink.right())-std::min(qreal(0),ink.left());
+        // Guard the conversion only at QWidget's representable size, never an
+        // arbitrary caption cap. Saturation is explicitly reported as invalid.
+        if(!std::isfinite(span)||span>QWIDGETSIZE_MAX) {
+            qWarning("Batch angle caption width exceeds QWidget's representable size");span=QWIDGETSIZE_MAX;
+        }
+        caption_minimum=std::max(caption_minimum,static_cast<int>(std::ceil(span)));
+    };
+    reserve(QString("Common · %1").arg(target_count));reserve(QString("Mixed · %1").arg(target_count));reserve(zero_label);
+    // Stable g7 shapes, including leading-zero fractions and three-digit
+    // exponents. Δ may wrap at its existing space; numeric tokens must not clip.
+    // Samples qualify this font, not every possible font or every digit sequence.
+    for(const double magnitude:{0.0,29.74488,999.9999,9999999.0,0.0001234567,0.0009999999,
+            1.234567e-5,1.999999e9,2e9,std::numeric_limits<double>::denorm_min(),
+            std::numeric_limits<double>::min(),std::numeric_limits<double>::max()})
+        for(const double sign:{-1.0,1.0})reserve(visible_delta(sign*magnitude)+QStringLiteral("°"));
+    note->setMinimumWidth(caption_minimum);
     note->setAccessibleName(caption_accessible_for(0));row_layout->addWidget(note,1);
     form->addRow(label+" dial",row);
 

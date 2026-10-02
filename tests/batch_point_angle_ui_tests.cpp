@@ -115,6 +115,8 @@ void shared_caption_geometry(Window& window) {
     const QPoint center=common->mapToGlobal(QPoint(common->width()/2,common->height()/2));
     const auto common_geometry=common->geometry(),common_row=common->parentWidget()->geometry();
     const auto* common_caption=common->parentWidget()->findChild<QLabel*>();
+    check(batch_angle_test::caption_has_reserved_width(common_caption),
+        "point-batch caption reserves a content-independent minimum before interaction");
     const batch_angle_test::Geometry common_stable(common);
     mouse_global(common,QEvent::MouseButtonPress,QPointF(center)+QPointF(16,0),Qt::LeftButton,Qt::LeftButton);
     mouse_global(common,QEvent::MouseMove,QPointF(center)+QPointF(14,8),Qt::NoButton,Qt::LeftButton);
@@ -155,6 +157,8 @@ void shared_caption_geometry(Window& window) {
         std::abs(values.at(targets[2])-815)<1e-8&&mixed->accessibleDescription().contains("relative delta +90 degrees"),
         "shared point-batch non-cardinal fixed-global quarter turn remains exactly +90 degrees");
     QTest::keyClick(mixed,Qt::Key_Escape);events();
+    check(batch_angle_test::wider_inspector_caption_expands(batch_dial(window,"in.angle",targets)),
+        "caption expands in a wider Inspector without changing its reserved minimum or compact height");
     if(auto* scroll=window.findChild<QWidget*>("inspector-scroll")) {
         scroll->setMinimumWidth(300);scroll->setMaximumWidth(QWIDGETSIZE_MAX);
     }
@@ -574,7 +578,7 @@ void teardown_and_generated_staleness(Window& window,QTemporaryDir& directory) {
 }
 
 int main(int argc,char** argv) {
-    qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
+    batch_angle_test::configure_test_qpa();QApplication app(argc,argv);batch_angle_test::report_test_qpa();
     try {
         QTemporaryDir directory;check(directory.isValid(),"batch point-angle test scratch exists");
         QSettings settings(directory.filePath("settings.ini"),QSettings::IniFormat);

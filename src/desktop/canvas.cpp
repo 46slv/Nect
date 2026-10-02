@@ -564,13 +564,33 @@ void Canvas::select_many(std::vector<Selection> items,bool enter_parent) {
     // Object and point selection are distinct editing contexts. The active
     // (last) item determines the context, including extended tree selection.
     const bool points=!items.empty()&&!items.back().point.empty();
+    // A failed Text projection must not make its native source unreachable from
+    // Structure / the Inspector. Admit only whole authored Text in this plane;
+    // never manufacture geometry, point targets, or viewport hit-test results.
+    // Programmatic Structure selection already includes hidden authored objects.
+    std::map<Id,Id> unprojected_text_parents;
+    if(projection_error_&&!points) {
+        const auto& document=session_.preview_document();
+        const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),
+            [&](const auto& value){return value.id==active_composition_;});
+        if(composition!=document.compositions.end()) {
+            std::function<void(const Id&,const Id&)> visit=[&](const Id& id,const Id& parent) {
+                const auto found=document.objects.find(id);if(found==document.objects.end())return;
+                if(found->second.kind==Kind::text&&found->second.text&&!world_.contains(id))
+                    unprojected_text_parents.emplace(id,parent);
+                for(const auto& child:found->second.children)visit(child,id);
+            };
+            for(const auto& root:composition->roots)visit(root,{});
+        }
+    }
     for(const auto& item:items) {
-        if(!world_.contains(item.object)||(!item.point.empty())!=points)continue;
+        if((!world_.contains(item.object)&&!unprojected_text_parents.contains(item.object))||(!item.point.empty())!=points)continue;
         const auto* g=geometry(item.object);
         if(points&&(!g||!point(*g,item.point)))continue;
         if(std::find(valid.begin(),valid.end(),item)==valid.end())valid.push_back(item);
     }
-    if(enter_parent)set_scope(valid.empty()?Id{}:parents_.at(valid.back().object));
+    if(enter_parent)set_scope(valid.empty()?Id{}:unprojected_text_parents.contains(valid.back().object)?
+        unprojected_text_parents.at(valid.back().object):parents_.at(valid.back().object));
     if(valid==selections_)return;
     if(valid.size()!=1||valid.back().object!=gradient_object_||!valid.back().point.empty())clear_gradient_edit();
     if(circle_source_edit_&&(valid.size()!=1||valid.back()!=Selection{circle_source_object_,{}}))

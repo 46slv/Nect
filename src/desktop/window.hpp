@@ -24,6 +24,8 @@ class QToolButton;
 class QTabWidget;
 
 namespace nect::desktop {
+// Pure presentation of an existing derived receipt; does not shape or infer runs.
+QString format_text_font_receipt(const TextLayout& result);
 class ColorTools;
 class Window : public QMainWindow {
 public:
@@ -40,6 +42,8 @@ private:
     ColorTools* color_tools_;
     std::unique_ptr<FolderLibrary> folder_library_;
     QStringListModel* font_families_=nullptr;
+    QString font_discovery_error_;
+    std::uint64_t text_selection_generation_=0;
     QPointer<QDialog> history_dialog_;
     QPointer<QDialog> utility_setup_dialog_;
     QListWidget* history_states_=nullptr;
@@ -177,6 +181,15 @@ private:
     void show_folder_library();
     void add_image_properties(QVBoxLayout*,const Object&);
     void add_text_properties(QVBoxLayout* layout,const Object& object);
+    struct TextTypographyContext {
+        QString session;
+        Id object,source,composition,artboard;
+        std::uint64_t revision=0,selection_generation=0;
+    };
+    void verify_text_typography_context(const TextTypographyContext& context) const;
+    QLabel* add_text_typography(QVBoxLayout* layout,const Object& object);
+    void edit_text_typography(const TextTypographyContext& context,bool axis,
+        const std::optional<std::string>& tag={},bool remove=false);
     void add_transform_properties(QVBoxLayout* layout,const Object& object);
     void add_compositing_properties(QVBoxLayout* layout,const Object& object);
     std::vector<Id> selected_siblings(Id& parent,std::size_t minimum=2) const;
