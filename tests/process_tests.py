@@ -153,6 +153,8 @@ current_native_schema = json.loads((Path(__file__).parent.parent / f'schemas/nat
 font_authoring_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.78.schema.json').read_text(encoding='utf-8'))
 font_authoring_v77_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.77.schema.json').read_text(encoding='utf-8'))
 font_authoring_text = font_authoring_schema['$defs']['text_source']
+check(current_native_schema['$defs']['text_source'] == font_authoring_text,
+      'current native writer preserves the 0.78 feature/axis TextSource schema exactly')
 font_authoring_feature = font_authoring_text['properties']['font_features']['items']
 font_authoring_axes = font_authoring_text['properties']['additional_axis_values']
 check(font_authoring_schema['properties']['version']['const'] == '0.78' and
@@ -256,7 +258,7 @@ with tempfile.TemporaryDirectory() as tmp:
     reopened_reply = json.loads(reopened.stdout)
     check(reopened.returncode == 0 and reopened_reply['ok'] and
           next(item for item in reopened_reply['result']['objects'] if item['id'] == 'font-text')['text'] == authored_source,
-          'Fresh process cold-reopens exact authored font intent from native 0.78')
+          'Fresh process cold-reopens exact authored font intent from the current native writer')
 operation_enabled_expression_schema = current_native_schema['$defs']['operation_enabled_expression']
 previous_native_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.67.schema.json').read_text(encoding='utf-8'))
 previous_operation_native_schema = json.loads((Path(__file__).parent.parent / 'schemas/native-v0.66.schema.json').read_text(encoding='utf-8'))

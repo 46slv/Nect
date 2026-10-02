@@ -200,7 +200,7 @@ def live_contract(exe, directory):
         check(opened['ok'], opened)
         client.refresh()
         initial = client.snapshot()
-        check(initial == native and initial['version'] == '0.78', initial)
+        check(initial == native and initial['version'] == '0.79', initial)
         original = copy.deepcopy(text_source(initial))
         revision = 0
         mutations = 0
@@ -329,7 +329,7 @@ def live_contract(exe, directory):
         check(not stale['ok'] and stale['error']['code'] == 'SESSION_CONFLICT', stale)
         check(client.snapshot() == retained and client.refresh()['revision'] == 0, 'Stale identity changed reopened state')
         return dict(status='PASS', checks=CHECKS, mutation_api_mcp_replays=mutations,
-                    rejected_requests=len(invalid) + 3, native_version='0.78',
+                    rejected_requests=len(invalid) + 3, native_version='0.79',
                     actual_desktop_processes=2, mcp_initialize_tools_resources=True,
                     uint32_max_exact=True, finite_doubles_exact=True, undo_redo=True,
                     native_cold_reopen=True, projection=projection,

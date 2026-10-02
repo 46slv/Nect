@@ -1,4 +1,5 @@
 #include "nect/core.hpp"
+#include "nect/blend.hpp"
 #include "nect/expression.hpp"
 #include <algorithm>
 #include <cmath>
@@ -4695,8 +4696,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
         require(id==o.id,"ID_MISMATCH",id);
         const auto& composite=o.compositing;
         require(composite.version==1,"UNSUPPORTED_COMPOSITING_VERSION","Only compositing version 1 is supported");
-        static const std::array<std::string,12> blends{"normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion"};
-        require(std::find(blends.begin(),blends.end(),composite.blend)!=blends.end(),"UNSUPPORTED_BLEND",composite.blend);
+        require(find_blend_mode(composite.blend)!=nullptr,"UNSUPPORTED_BLEND",composite.blend);
         if(composite.mask) {
             const auto& mask=*composite.mask;add(mask.id);identity(mask.source);
             require(mask.version==1,"UNSUPPORTED_MASK_VERSION","Only mask version 1 is supported");

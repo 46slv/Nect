@@ -1,4 +1,5 @@
 #include "nect/io.hpp"
+#include "nect/blend.hpp"
 #include <boost/json.hpp>
 #include <boost/json/basic_parser_impl.hpp>
 #include <set>
@@ -224,6 +225,24 @@ j::value mask_json(const std::optional<GeometryMask>& mask) {
     if(mask->enabled_driver)result["enabled_driver"]=j::object{{"link",ref_json(*mask->enabled_driver)}};
     if(mask->enabled_expression)result["enabled_expression"]=expression_json(*mask->enabled_expression);
     return result;
+}
+j::object blend_descriptor_json(const BlendModeDescriptor& descriptor) {
+    j::array profiles;
+    for(const auto& profile:descriptor.profiles)profiles.push_back(j::object{{"id",profile.id},
+        {"channel_bits",profile.channel_bits},{"alpha_bits",profile.alpha_bits},{"color_space",profile.color_space},
+        {"alpha_representation",profile.alpha_representation},{"intermediate_precision",profile.intermediate_precision},
+        {"quantization",profile.quantization}});
+    return j::object{{"id",descriptor.id},{"label",descriptor.label},{"family",descriptor.family},
+        {"behavior_version",descriptor.behavior_version},{"color_operation",descriptor.color_operation},
+        {"alpha_behavior",descriptor.alpha_behavior},{"backdrop_scope",descriptor.backdrop_scope},
+        {"time_dependency",descriptor.time_dependency},{"profiles",profiles},{"ae_oracle_status",descriptor.ae_oracle_status},
+        {"introduced_native_version","0."+std::to_string(descriptor.introduced_native_minor)},
+        {"renderer",descriptor.renderer},{"svg",j::object{{"representation",descriptor.svg_representation},
+            {"reader_requirement",descriptor.svg_reader_requirement},{"cross_reader_pixel_identity",false},
+            {"native_source_preserved",true},{"nect_svg_intake_supported",false}}}};
+}
+j::array blend_descriptors_json() {
+    j::array result;for(const auto& descriptor:blend_modes())result.push_back(blend_descriptor_json(descriptor));return result;
 }
 Compositing read_compositing(const j::value& value,bool allow_isolated_driver,bool allow_mask_enabled_driver=false,
     bool allow_isolated_expression=false,bool allow_mask_enabled_expression=false,
@@ -2449,7 +2468,17 @@ Command read_command(const j::value& v) {
         keys(o,{"type","object"});return CenterAnchor{text(o.at("object"))};
     }
     if(type=="set_visibility") {keys(o,{"type","object","visible"});return SetVisibility{text(o.at("object")),o.at("visible").as_bool()};}
-    if(type=="set_compositing") {keys(o,{"type","object","blend","isolated"});return SetCompositing{text(o.at("object")),text(o.at("blend")),o.at("isolated").as_bool()};}
+    if(type=="set_compositing") {
+        keys(o,{"type","object","blend","isolated","profile"});
+        const auto mode=text(o.at("blend"));const auto* descriptor=find_blend_mode(mode);
+        if(!descriptor)throw Error("UNSUPPORTED_BLEND",mode);
+        if(const auto* profile=o.if_contains("profile")) {
+            const auto selected=text(*profile);
+            if(std::none_of(descriptor->profiles.begin(),descriptor->profiles.end(),[&](const auto& supported){return supported.id==selected;}))
+                throw Error("UNSUPPORTED_BLEND_PROFILE",selected);
+        }
+        return SetCompositing{text(o.at("object")),mode,o.at("isolated").as_bool()};
+    }
     if(type=="set_mask") {
         keys(o,{"type","object","mask"});std::optional<GeometryMask> mask;
         if(!o.at("mask").is_null())mask=read_mask(o.at("mask"),false,false,true,false,true,false);
@@ -2603,11 +2632,24 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,78> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78"};
+        constexpr std::array<std::string_view,79> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.78 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.79 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
+        // Introduction gate precedes historical-field validation so an Object
+        // carrying a new mode cannot claim any older native version, even one
+        // that predates the compositing field. Definition sources live here too.
+        for(const auto& value:root.at("objects").as_array()) {
+            const auto* composite=value.as_object().if_contains("compositing");
+            if(!composite)continue;
+            const auto* blend=composite->as_object().if_contains("blend");
+            if(!blend)continue;
+            const auto id=text(*blend);const auto* descriptor=find_blend_mode(id);
+            if(!descriptor)throw Error("UNSUPPORTED_BLEND",id);
+            if(static_cast<unsigned>(minor)<descriptor->introduced_native_minor)
+                throw Error("NATIVE_VERSION_MISMATCH",id+" requires native 0."+std::to_string(descriptor->introduced_native_minor)+" or later");
+        }
         if(minor>=65)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions","macros"});
         else if(minor>=64)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets","definitions"});
         else if(minor>=63)keys(root,{"format","version","id","units","color_space","compositions","objects","collections","named_colors","raster_assets","presets"});
@@ -2671,7 +2713,11 @@ Document decode(std::string_view input) {
             Object obj;
             obj.id=text(o.at("id"));
             obj.name=text(o.at("name"));
-            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"),minor>=30,minor>=31,minor>=62,minor>=68,minor>=71,minor>=71,minor>=72,minor>=72);}
+            if(minor>=11){obj.visible=o.at("visible").as_bool();obj.compositing=read_compositing(o.at("compositing"),minor>=30,minor>=31,minor>=62,minor>=68,minor>=71,minor>=71,minor>=72,minor>=72);
+                const auto* blend=find_blend_mode(obj.compositing.blend);
+                if(!blend)throw Error("UNSUPPORTED_BLEND",obj.compositing.blend);
+                if(static_cast<unsigned>(minor)<blend->introduced_native_minor)
+                    throw Error("NATIVE_VERSION_MISMATCH",obj.compositing.blend+" requires native 0."+std::to_string(blend->introduced_native_minor)+" or later");}
             if(minor>=27)if(const auto* driver=o.if_contains("visibility_driver")) {
                 const auto& fields=driver->as_object();keys(fields,{"link"});obj.visibility_driver=read_ref(fields.at("link"));
             }
@@ -3481,11 +3527,18 @@ std::string request(Session& session,std::string_view input) {
                 {"image_policy","accepted snapshot projected to oriented sRGB PNG in SVG; original bytes and links preserved in native"},
                 {"image_limits",j::object{{"normalized_png_bytes",raster_png_limit},{"aggregate_png_bytes",32*1024*1024}}},
                 {"compositing_policy","vector_geometry_clips_group_opacity_css_blend_and_isolation"},{"blend_reader_requirement","SVG CSS mix-blend-mode and isolation support"},
+                {"blend_capabilities",blend_descriptors_json()},{"cross_reader_pixel_identity",false},{"nect_svg_blend_intake_supported",false},
                 {"text_policy","outlines"},{"native_source_preserved",true},{"fonts_embedded",false}};
         } else if(op=="compositing_types") {
-            keys(o,{"op"});
+            keys(o,{"op"});j::array blends;for(const auto& descriptor:blend_modes())blends.push_back(j::value(descriptor.id));
             result=j::object{{"version",1},{"space","srgb"},{"alpha","source-over premultiplied compositing"},
-                {"blends",j::array{"normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion"}},
+                {"blends",blends},{"blend_descriptors",blend_descriptors_json()},
+                {"production_profile",nonseparable_blend_profile_id},
+                {"profile_selection","fixed-production-profile"},
+                {"unavailable_profiles",j::array{
+                    j::object{{"channel_bits",16},{"supported",false},{"reason","No 16-bpc production renderer"}},
+                    j::object{{"channel_bits",32},{"supported",false},{"reason","No 32-bpc production renderer"}},
+                    j::object{{"color_space","linear-srgb"},{"supported",false},{"reason","Only encoded-sRGB production blending is implemented"}}}},
                 {"mask","final_path_geometry_or_alpha_or_srgb_luma_rgba"},{"mask_sources",j::array{"path","text"}},
                 {"mask_modes",j::array{"geometry","alpha","luma"}},{"geometry_mask_sources",j::array{"path","text"}},
                 {"alpha_mask_sources",j::array{"path","text","image","group"}},{"mask_space","composition"},

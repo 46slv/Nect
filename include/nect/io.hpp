@@ -3,7 +3,7 @@
 #include <string_view>
 
 namespace nect {
-inline constexpr const char* native_version="0.78";
+inline constexpr const char* native_version="0.79";
 inline constexpr std::size_t native_size_limit=64*1024*1024;
 inline constexpr std::size_t portable_preset_payload_limit=256*1024;
 inline constexpr std::size_t portable_macro_payload_limit=256*1024;

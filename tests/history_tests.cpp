@@ -229,6 +229,101 @@ void group_path_follow_history_accounts_for_relation_items() {
     check(limited.document()==before&&limited.history()==history&&limited.revision()==0,
         "Relation item footprint above admitted budget refuses atomically with Undo preserved");
 }
+Document margin_history_document() {
+    auto document=empty_document("margin-history-doc","margin-comp","margin-art");
+    auto& boards=document.compositions.front().artboards;
+    boards.front().layout=ArtboardLayout{Margin{5,5,5,5},std::nullopt};
+    boards.push_back({"short-source","Short source",0,0,1,1});
+    boards.push_back({"margin-source-"+std::string(82,'s'),"Long source",0,0,1,1});
+    return document;
+}
+Command margin_history_source(int side,bool expression,const std::string& source,bool replace=false) {
+    const Ref target{"margin-art","",std::string("margin.")+std::array{"left","top","right","bottom"}[side]};
+    if(expression) {
+        const Expression value{source,1};
+        switch(side) {
+        case 0:return LayoutDependencyCommand{SetMarginLeftExpression{target,value,replace}};
+        case 1:return LayoutDependencyCommand{SetMarginTopExpression{target,value,replace}};
+        case 2:return LayoutDependencyCommand{SetMarginRightExpression{target,value,replace}};
+        default:return LayoutDependencyCommand{SetMarginBottomExpression{target,value,replace}};
+        }
+    }
+    const Ref value{source,"","artboard.width"};
+    switch(side) {
+    case 0:return LayoutDependencyCommand{LinkMarginLeft{target,value,replace}};
+    case 1:return LayoutDependencyCommand{LinkMarginTop{target,value,replace}};
+    case 2:return LayoutDependencyCommand{LinkMarginRight{target,value,replace}};
+    default:return LayoutDependencyCommand{LinkMarginBottom{target,value,replace}};
+    }
+}
+void margin_source_history(int side,bool expression) {
+    const auto document=margin_history_document();
+    const auto small=expression?"1":document.compositions.front().artboards[1].id;
+    // Maximum valid expression text; spaces preserve the value and content bounds.
+    const auto large=expression?"1"+std::string(4095,' '):document.compositions.front().artboards[2].id;
+    const auto short_command=margin_history_source(side,expression,small);
+    const auto long_command=margin_history_source(side,expression,large);
+    Session short_measure(document),long_measure(document);
+    apply(short_measure,{short_command});apply(long_measure,{long_command});
+    const auto short_bytes=short_measure.history().retained_bytes;
+    const auto long_bytes=long_measure.history().retained_bytes;
+    std::cout<<"Margin "<<std::array{"left","top","right","bottom"}[side]
+        <<(expression?" expression":" Ref")<<" short="<<short_bytes<<" long="<<long_bytes<<'\n';
+    check(long_bytes>=short_bytes+(expression?4000:70),
+        "Every Margin edge accounts for owned expression text and stable Ref strings");
+    const auto authored=long_measure.document();const auto native=encode(authored);const auto history=long_measure.history();
+    check(decode(native)==authored,"Native roundtrip preserves exact Margin source and Artboard identities");
+    long_measure.undo(long_measure.revision());
+    check(long_measure.document()==document&&long_measure.history().retained_bytes==long_bytes&&
+        long_measure.history().states==history.states&&long_measure.can_redo(),
+        "Margin Undo restores exact authored state while retaining accounted redo payload");
+    long_measure.redo(long_measure.revision());
+    check(long_measure.document()==authored&&encode(long_measure.document())==native&&long_measure.history()==history,
+        "Margin Redo restores exact native source and stable history state identity");
+
+    Session limited(document,{10,short_bytes});apply(limited,{short_command});
+    const auto short_native=encode(limited.document());limited.undo(limited.revision());
+    const auto before=limited.document();const auto before_history=limited.history();const auto revision=limited.revision();
+    rejects("HISTORY_LIMIT",[&]{apply(limited,{long_command});});
+    check(limited.document()==before&&limited.history()==before_history&&limited.revision()==revision&&limited.can_redo(),
+        "Oversized Margin source refuses atomically and preserves the existing redo branch");
+    limited.redo(limited.revision());
+    check(encode(limited.document())==short_native,"Rejected Margin edit leaves the prior native state redoable");
+    Session exact(document,{10,long_bytes});apply(exact,{long_command});
+    check(exact.history().retained_bytes==long_bytes,"A Margin transition fits at its exact estimated byte boundary");
+    Session below(document,{10,long_bytes-1});
+    rejects("HISTORY_LIMIT",[&]{apply(below,{long_command});});
+    check(below.document()==document&&below.revision()==0&&below.history().states.size()==1,
+        "One byte below the Margin transition estimate rejects without losing Undo");
+
+    Session replace(authored);apply(replace,{margin_history_source(side,expression,small,true)});
+    check(replace.history().retained_bytes>=short_bytes+(expression?4000:70),
+        "Replacing a large Margin source still accounts for its retained before snapshot");
+    const auto replaced=encode(replace.document());replace.undo(replace.revision());
+    check(encode(replace.document())==native,"Undo replacement restores exact large Margin source");
+    replace.redo(replace.revision());check(encode(replace.document())==replaced,"Redo replacement restores exact small Margin source");
+    Session pruning(authored,{10,replace.history().retained_bytes});
+    apply(pruning,{margin_history_source(side,expression,small,true)});
+    const auto boundary=state(pruning);const auto boundary_native=encode(pruning.document());
+    apply(pruning,{margin_history_source(side,expression,large,true)});
+    const auto pruned=pruning.history();
+    check(pruned.pruned_entries==1&&pruned.states.size()==2&&pruned.states.front().id==boundary&&
+        pruned.retained_bytes<=pruned.max_bytes,"Margin payload growth prunes the oldest transition within the byte budget");
+    pruning.undo(pruning.revision());
+    check(encode(pruning.document())==boundary_native&&!pruning.can_undo(),"Pruned Margin boundary retains exact authored source");
+    pruning.redo(pruning.revision());check(encode(pruning.document())==native,"Pruned Margin timeline remains exactly redoable");
+}
+void margin_budget_history() {
+    int failures=0;
+    for(int side=0;side<4;++side)for(bool expression:{true,false}) {
+        try{margin_source_history(side,expression);}
+        catch(const std::exception& error) {
+            ++failures;std::cerr<<"FAIL Margin "<<std::array{"left","top","right","bottom"}[side]
+                <<(expression?" expression: ":" Ref: ")<<error.what()<<'\n';
+        }
+    }
+    check(failures==0,"All four Margin edges must satisfy expression and Ref history budgets");
+}
 void limits_and_gestures() {
     const auto document=demo_document();const Ref x{"path-A","point-A1","x"};
     Session limited(document,{3,64*1024*1024});
@@ -271,13 +366,18 @@ void limits_and_gestures() {
 }
 int main(int argc,char** argv){try{
     const bool budget_gesture_only=argc==2&&std::string(argv[1])=="--budget-gesture-only";
-    if(argc!=1&&!budget_gesture_only)throw std::runtime_error("Usage: history_tests [--budget-gesture-only]");
+    const bool margin_budget_only=argc==2&&std::string(argv[1])=="--margin-budget-only";
+    if(argc!=1&&!budget_gesture_only&&!margin_budget_only)throw std::runtime_error("Usage: history_tests [--budget-gesture-only|--margin-budget-only]");
+    if(margin_budget_only) {
+        margin_budget_history();std::cout<<"PASS "<<checks<<" Margin history budget checks\n";return 0;
+    }
     if(budget_gesture_only) {
         point_edit_enabled_history();
         group_path_follow_history_accounts_for_relation_items();
+        margin_budget_history();
         limits_and_gestures();
         std::cout<<"PASS "<<checks<<" history budget/gesture subset checks (Text/full contract not covered)\n";
         return 0;
     }
-    long_history();authored_roundtrip();typed_text_layout_history();point_edit_enabled_history();group_path_follow_history_accounts_for_relation_items();limits_and_gestures();std::cout<<"PASS "<<checks<<" history checks\n";return 0;}
+    long_history();authored_roundtrip();typed_text_layout_history();point_edit_enabled_history();group_path_follow_history_accounts_for_relation_items();margin_budget_history();limits_and_gestures();std::cout<<"PASS "<<checks<<" history checks\n";return 0;}
 catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}}

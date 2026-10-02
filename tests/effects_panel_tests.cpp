@@ -474,18 +474,23 @@ int main(int argc,char** argv) {
             "Applying a custom Effects catalog entry creates one pinned Macro stack instance");
         const auto macro_instance_id=macro_instance->id;
         click(window,"effects-edit-properties-"+QString::fromStdString(macro_instance_id));
-        auto* macro_amount=named<QDoubleSpinBox>(window,"macro-amount-"+QString::fromStdString(macro_instance_id));
+        auto* macro_amount=named<QLineEdit>(window,"macro-amount-"+QString::fromStdString(macro_instance_id));
         const Ref macro_amount_ref=macro_parameter_ref(ui_object,macro_instance_id,"macro.offset.amount");
         const auto macro_amount_ref_json=QJsonDocument(QJsonObject{{"object",QString::fromStdString(macro_amount_ref.object)},
             {"point",QString::fromStdString(macro_amount_ref.point)},{"field",QString::fromStdString(macro_amount_ref.field)}})
             .toJson(QJsonDocument::Compact);
-        check(macro_amount->suffix().contains("du")&&macro_amount->property("nect-reference").toByteArray()==
+        check(macro_amount->accessibleName().contains("du")&&macro_amount->property("nect-reference").toByteArray()==
             macro_amount_ref_json,
             "Properties exposes the Macro amount as the same canonical stable Ref");
-        const auto macro_edit_revision=session.revision();macro_amount->setValue(22);
+        const auto macro_noop_document=session.document();const auto macro_noop_history=session.history();
+        const auto macro_edit_revision=session.revision();
+        macro_amount->setFocus();macro_amount->clearFocus();events();
+        check(session.document()==macro_noop_document&&session.history()==macro_noop_history&&
+            session.revision()==macro_edit_revision,"Macro Amount focus/blur preserves authored state and history");
+        macro_amount->setFocus();macro_amount->selectAll();QTest::keyClicks(macro_amount,"22.1234567890123");
         QTest::keyClick(macro_amount,Qt::Key_Return);events();
         check(session.revision()==macro_edit_revision+1&&
-            macro_parameter_value(session.document(),ui_object,macro_instance_id,"macro.offset.amount")==22,
+            macro_parameter_value(session.document(),ui_object,macro_instance_id,"macro.offset.amount")==22.1234567890123,
             "Macro Amount editor writes through one Macro Session command");
         auto* detach=named<QPushButton>(window,"macro-detach-"+QString::fromStdString(macro_instance_id));
         const auto& before_detach=session.document().objects.at(ui_object).stack;
@@ -498,7 +503,7 @@ int main(int argc,char** argv) {
             detached[macro_index].type=="nect.shape.offset"&&!detached[macro_index].macro&&
             detached[macro_index+1].type=="nect.shape.repeater"&&!detached[macro_index+1].macro&&
             detached[macro_index].id!=macro_instance_id&&detached[macro_index+1].id!=macro_instance_id&&
-            detached[macro_index].parameters.at("amount").literal==22,
+            detached[macro_index].parameters.at("amount").literal==22.1234567890123,
             "Properties Detach replaces the Macro in place with fresh operations and copies its public value");
 
         search->setText("offset");events();

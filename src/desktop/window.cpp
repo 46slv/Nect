@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include "nect/blend.hpp"
 #include "colors.hpp"
 #include <QAction>
 #include <QAbstractItemView>
@@ -70,6 +71,19 @@
 namespace nect::desktop {
 namespace {
 QString qs(const std::string& s) { return QString::fromStdString(s); }
+// Grid scopes carry the exact edit context and acquired Session gesture. These
+// guards apply only to Grid dismissal; other layout editors keep their contract.
+bool grid_draft_current(const QObject* scope,const Host& host) {
+    return scope&&scope->property("nect-grid-draft-session").toString()==host.session_id&&
+        scope->property("nect-grid-draft-document").toString()==QString::fromStdString(host.session.document().id)&&
+        scope->property("nect-grid-draft-revision").toULongLong()==host.session.revision();
+}
+bool grid_draft_owned(const QObject* scope,const Host& host) {
+    bool valid=false;
+    const auto generation=scope?scope->property("nect-grid-draft-generation").toULongLong(&valid):0;
+    return valid&&grid_draft_current(scope,host)&&host.session.gesture_active()&&
+        generation==host.session.gesture_generation();
+}
 QJsonObject ref_json(const Ref& r) { return {{"object",qs(r.object)},{"point",qs(r.point)},{"field",qs(r.field)}}; }
 Ref read_ref(const QByteArray& data) {
     const auto o=QJsonDocument::fromJson(data).object();
@@ -1366,8 +1380,18 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
         if(event->type()==QEvent::KeyPress) {
             const auto key=static_cast<QKeyEvent*>(event)->key();
             if(key==Qt::Key_Escape&&inside) {
+                const QPointer<QWidget> scope=layout_preview_scope_;
+                const bool grid_scope=scope->property("nect-grid-draft-session").isValid();
+                const bool rebuild=!grid_scope||(grid_draft_current(scope,host)&&
+                    (!host.session.gesture_active()||grid_draft_owned(scope,host)));
                 cancel_layout_draft();
-                QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();else if(artboard_editing_)rebuild_inspector();});
+                if(rebuild)QTimer::singleShot(0,this,[this,scope,grid_scope]{
+                    // A later caller may start a real draft before this event
+                    // drains. An obsolete Grid Escape must never rebuild it.
+                    if(grid_scope&&(!scope||!scope->isVisible()||!grid_draft_current(scope,host)||
+                       host.session.gesture_active()||layout_preview_active_||layout_preview_invalid_))return;
+                    if(utility_setup_dialog_)rebuild_layout_setup();else if(artboard_editing_)rebuild_inspector();
+                });
                 return true;
             } else if(!inside) {
                 cancel_layout_draft();
@@ -1507,10 +1531,16 @@ bool Window::reject_stale_layout_draft() {
 
 void Window::cancel_layout_draft(bool refresh_canvas) {
     const bool active=layout_preview_active_;
-    if(active&&host.session.gesture_active())host.session.cancel_gesture();
+    // Keep the Grid token on Window too: Qt can destroy its scope and clear the
+    // QPointer before the stale view bookkeeping is dismissed.
+    const bool grid_scope=property("nect-grid-draft-session").isValid();
+    const bool owns=!grid_scope||grid_draft_owned(this,host);
+    if(active&&owns&&host.session.gesture_active())host.session.cancel_gesture();
+    if(grid_scope&&layout_preview_scope_)layout_preview_scope_->setProperty("nect-grid-draft-generation",QVariant{});
+    setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
     layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
     layout_preview_revision_=0;layout_preview_scope_.clear();
-    if(refresh_canvas&&active&&canvas) {canvas->refresh();canvas->update();}
+    if(refresh_canvas&&active&&owns&&canvas) {canvas->refresh();canvas->update();}
 }
 
 bool Window::preview_layout_draft(const std::vector<Command>& commands,QWidget* scope) {
@@ -1522,6 +1552,12 @@ bool Window::preview_layout_draft(const std::vector<Command>& commands,QWidget* 
         if(starting) {
             layout_preview_session_=host.session_id;layout_preview_revision_=host.session.revision();
             layout_preview_scope_=scope;host.session.begin_gesture(layout_preview_revision_);layout_preview_active_=true;
+            const bool grid_scope=scope->property("nect-grid-draft-session").isValid();
+            for(const auto* key:{"nect-grid-draft-session","nect-grid-draft-document","nect-grid-draft-revision"})
+                setProperty(key,grid_scope?scope->property(key):QVariant{});
+            const auto generation=grid_scope?QVariant::fromValue<qulonglong>(host.session.gesture_generation()):QVariant{};
+            setProperty("nect-grid-draft-generation",generation);
+            if(grid_scope)scope->setProperty("nect-grid-draft-generation",generation);
         }
         if(!layout_draft_current())throw Error("REVISION_CONFLICT","Layout draft belongs to an older document session or revision");
         host.session.update_gesture(commands);layout_preview_invalid_=false;
@@ -1548,6 +1584,7 @@ bool Window::commit_layout_draft(const std::vector<Command>& commands,QWidget* s
         host.session.commit_gesture();
         layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
         layout_preview_revision_=0;layout_preview_scope_.clear();
+        setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
         host.edited();
         QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();});
         return true;
@@ -2806,11 +2843,42 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     layout->addWidget(margin_box);
 
     auto* grid_box=new QGroupBox("Grid · Artboard-local bounds and cells · du");grid_box->setObjectName("layout-grid");
+    grid_box->setProperty("nect-grid-draft-session",frozen_session);
+    grid_box->setProperty("nect-grid-draft-document",qs(host.session.document().id));
+    grid_box->setProperty("nect-grid-draft-revision",QVariant::fromValue<qulonglong>(frozen_revision));
+    const auto cancel_grid_editor=[this,grid_box] {
+        // A rebuilt Grid may dismiss its token once the old scope is hidden
+        // or destroyed. A different visible scope still owns its separate draft.
+        const bool orphaned_grid=(!layout_preview_scope_||!layout_preview_scope_->isVisible())&&
+            property("nect-grid-draft-session").isValid();
+        if(!grid_box->isVisible()||((layout_preview_active_||layout_preview_invalid_)&&
+           layout_preview_scope_!=grid_box&&!orphaned_grid))return;
+        const bool current=grid_draft_current(grid_box,host);
+        cancel_layout_draft();
+        if(!current||host.session.gesture_active())return;
+        statusBar()->clearMessage();
+        if(utility_setup_dialog_)rebuild_layout_setup();else rebuild_inspector();
+    };
     auto* grid_form=new QFormLayout(grid_box);grid_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     const Grid initial_grid=board.layout&&board.layout->grid?*board.layout->grid:
         resolved.layout&&resolved.layout->grid?*resolved.layout->grid:
         Grid{board.template_assignment?board.template_assignment->grid_id:new_id(),{0,0,resolved.width,resolved.height},1,1,0,0};
     const Id grid_id=initial_grid.id;
+    // Resolve each preview against the captured count, never the previous preview.
+    const auto parse_columns=[parse_count,base=initial_grid.columns](QLineEdit* input) {
+        const auto text=input->text().trimmed();
+        const bool subtract=text.startsWith("-=");
+        if(!subtract&&!text.startsWith("+="))return parse_count(input);
+        const auto digits=text.mid(2);
+        if(digits.isEmpty()||std::any_of(digits.begin(),digits.end(),[](QChar ch){return ch<'0'||ch>'9';}))
+            throw Error("INVALID_INTEGER","Enter a column count, +=integer or -=integer");
+        bool valid=false;const auto amount=digits.toLongLong(&valid,10);
+        const auto count=static_cast<qlonglong>(base);
+        // Check before arithmetic so even the largest integer draft cannot overflow.
+        if(!valid||(subtract?amount>=count:amount>1000-count))
+            throw Error("INVALID_LAYOUT","Counts must be whole numbers from 1 to 1000");
+        return static_cast<std::size_t>(subtract?count-amount:count+amount);
+    };
     const auto grid_bounds_x_driver=board.layout&&board.layout->grid?board.layout->grid->bounds_x_driver:std::optional<Ref>{};
     const auto grid_bounds_x_expression=board.layout&&board.layout->grid?board.layout->grid->bounds_x_expression:std::optional<Expression>{};
     const auto grid_bounds_y_driver=board.layout&&board.layout->grid?board.layout->grid->bounds_y_driver:std::optional<Ref>{};
@@ -2852,7 +2920,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_columns->setReadOnly(grid_columns_is_driven);
     grid_columns->setToolTip(grid_columns_is_driven?
         "This authored integer is read-only while its Grid source is active. Unlink to edit it.":
-        "Unitless Grid column count from 1 to 1000.");
+        "Unitless Grid column count from 1 to 1000. Use +=integer or -=integer to adjust it.");
     const auto evaluated_grid_rows=resolved.layout&&resolved.layout->grid?resolved.layout->grid->rows:initial_grid.rows;
     auto* grid_rows=make_number(grid_box,"grid-rows","Rows",QString::number(static_cast<qulonglong>(grid_rows_is_driven?evaluated_grid_rows:initial_grid.rows)));
     grid_rows->setReadOnly(grid_rows_is_driven);
@@ -2876,7 +2944,27 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto authored_grid_x=initial_grid.bounds.x;
     const auto authored_grid_y=initial_grid.bounds.y;
     const auto authored_grid_width=initial_grid.bounds.width;
-    const LayoutBuilder grid_builder=[read,composition,id,parse_number,parse_count,set_layout_command,grid_id,grid_x,grid_y,grid_width,grid_height,grid_columns,grid_rows,grid_column_gutter,grid_row_gutter,
+    // Display text is deliberately compact; untouched controls must not reparse
+    // its rounded representation and mutate exact sibling literals.
+    const auto grid_number_reader=[parse_number](QLineEdit* input,double initial) {
+        return [parse_number,input,initial,displayed=input->text()] {
+            return input->text().trimmed()==displayed?initial:parse_number(input);
+        };
+    };
+    const auto grid_x_value=grid_number_reader(grid_x,initial_grid.bounds.x);
+    const auto grid_y_value=grid_number_reader(grid_y,initial_grid.bounds.y);
+    const auto grid_width_value=grid_number_reader(grid_width,initial_grid.bounds.width);
+    const auto grid_height_value=grid_number_reader(grid_height,initial_grid.bounds.height);
+    const auto grid_column_gutter_value=grid_number_reader(grid_column_gutter,initial_grid.column_gutter);
+    const auto grid_row_gutter_value=grid_number_reader(grid_row_gutter,initial_grid.row_gutter);
+    const bool grid_is_inherited=board.template_assignment&&!board.template_assignment->grid_overridden&&
+        resolved.layout&&resolved.layout->grid;
+    const bool grid_exists=(board.layout&&board.layout->grid)||(resolved.layout&&resolved.layout->grid);
+    const Grid initial_grid_values=grid_is_inherited?
+        Grid{grid_id,initial_grid.bounds,initial_grid.columns,initial_grid.rows,initial_grid.column_gutter,initial_grid.row_gutter}:initial_grid;
+    const auto build_grid=[read,composition,id,parse_count,parse_columns,set_layout_command,grid_id,grid_columns,grid_rows,
+        grid_x_value,grid_y_value,grid_width_value,grid_height_value,grid_column_gutter_value,grid_row_gutter_value,
+        grid_is_inherited,grid_exists,initial_grid_values,
         grid_columns_driver,grid_columns_expression,grid_columns_is_driven,authored_grid_columns=initial_grid.columns,
         grid_rows_driver,grid_rows_expression,grid_rows_is_driven,authored_grid_rows=initial_grid.rows,
         grid_bounds_x_driver,grid_bounds_x_expression,grid_bounds_x_is_driven,authored_grid_x,grid_bounds_y_driver,grid_bounds_y_expression,grid_bounds_y_is_driven,authored_grid_y,
@@ -2885,15 +2973,15 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         grid_column_gutter_driver,grid_column_gutter_expression,grid_column_gutter_is_driven,authored_grid_column_gutter=initial_grid.column_gutter,
         grid_row_gutter_driver,grid_row_gutter_expression,grid_row_gutter_is_driven,
         authored_grid_row_gutter=initial_grid.row_gutter,
-        authored_grid_height=initial_grid.bounds.height] {
+        authored_grid_height=initial_grid.bounds.height](bool explicit_override) {
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});
-        Grid grid{grid_id,{grid_bounds_x_is_driven?authored_grid_x:parse_number(grid_x),
-            grid_bounds_y_is_driven?authored_grid_y:parse_number(grid_y),
-            grid_bounds_width_is_driven?authored_grid_width:parse_number(grid_width),
-            grid_bounds_height_is_driven?authored_grid_height:parse_number(grid_height)},
-            grid_columns_is_driven?authored_grid_columns:parse_count(grid_columns),
-            grid_rows_is_driven?authored_grid_rows:parse_count(grid_rows),grid_column_gutter_is_driven?authored_grid_column_gutter:parse_number(grid_column_gutter),
-            grid_row_gutter_is_driven?authored_grid_row_gutter:parse_number(grid_row_gutter)};
+        Grid grid{grid_id,{grid_bounds_x_is_driven?authored_grid_x:grid_x_value(),
+            grid_bounds_y_is_driven?authored_grid_y:grid_y_value(),
+            grid_bounds_width_is_driven?authored_grid_width:grid_width_value(),
+            grid_bounds_height_is_driven?authored_grid_height:grid_height_value()},
+            grid_columns_is_driven?authored_grid_columns:parse_columns(grid_columns),
+            grid_rows_is_driven?authored_grid_rows:parse_count(grid_rows),grid_column_gutter_is_driven?authored_grid_column_gutter:grid_column_gutter_value(),
+            grid_row_gutter_is_driven?authored_grid_row_gutter:grid_row_gutter_value()};
         grid.columns_driver=grid_columns_driver;
         grid.columns_expression=grid_columns_expression;
         grid.rows_driver=grid_rows_driver;
@@ -2909,6 +2997,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         grid.bounds_width_expression=grid_bounds_width_expression;
         grid.bounds_height_driver=grid_bounds_height_driver;
         grid.bounds_height_expression=grid_bounds_height_expression;
+        // Equal-value commands would still add gesture History. Keep existing
+        // authored state on zero-net input, while explicit inherited Apply
+        // materializes the established evaluated family override.
+        if(grid_exists&&(!grid_is_inherited||!explicit_override)&&grid==initial_grid_values)return std::vector<Command>{};
         value.grid=std::move(grid);return set_layout_command(value,"layout.grid");
     };
     auto* grid_source_box=new QGroupBox("X source",grid_box);grid_source_box->setObjectName("grid-bounds-x-source");
@@ -3053,13 +3145,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_columns_unlink,&QPushButton::clicked,this,[this,grid_columns_ref,grid_source_commit] {
         perform([&]{grid_source_commit({GridColumnsCommand{UnlinkGridColumns{grid_columns_ref}}});});
     });
-    connect(grid_columns_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_columns_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     connect(grid_columns_expression_apply,&QPushButton::clicked,this,
         [this,grid_columns_expression_input,grid_columns_replace,grid_columns_ref,grid_source_commit]{perform([&]{
         grid_source_commit({GridColumnsCommand{SetGridColumnsExpression{grid_columns_ref,
             {grid_columns_expression_input->toPlainText().toStdString(),1},grid_columns_replace->isChecked()}}});
     });});
-    connect(grid_columns_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_columns_expression_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     const Ref grid_rows_ref{grid_id,"","grid.rows"};
     auto* grid_rows_source_box=new QGroupBox("Rows source",grid_box);
     grid_rows_source_box->setObjectName("grid-rows-source");
@@ -3127,7 +3219,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_rows_unlink,&QPushButton::clicked,this,[this,grid_rows_ref,grid_source_commit] {
         perform([&]{grid_source_commit({GridRowsCommand{UnlinkGridRows{grid_rows_ref}}});});
     });
-    connect(grid_rows_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_rows_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     auto* grid_rows_expression_input=new ExpressionInput;
     grid_rows_expression_input->setParent(grid_rows_source_box);
     grid_rows_expression_input->setObjectName("grid-rows-expression");
@@ -3148,7 +3240,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         grid_source_commit({GridRowsCommand{SetGridRowsExpression{grid_rows_ref,
             {grid_rows_expression_input->toPlainText().toStdString(),1},grid_rows_replace->isChecked()}}});
     });});
-    connect(grid_rows_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_rows_expression_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     const Ref grid_bounds_x_ref{grid_id,"","grid.bounds.x"};
     const Ref grid_bounds_y_ref{grid_id,"","grid.bounds.y"};
     auto* grid_y_source_box=new QGroupBox("Y source",grid_box);grid_y_source_box->setObjectName("grid-bounds-y-source");
@@ -3219,12 +3311,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_y_unlink,&QPushButton::clicked,this,[this,grid_bounds_y_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsYCommand{UnlinkGridBoundsY{grid_bounds_y_ref}}});});
     });
-    connect(grid_y_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_y_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     connect(grid_y_expression_apply,&QPushButton::clicked,this,[this,grid_y_expression,grid_y_replace,grid_bounds_y_ref,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsYCommand{SetGridBoundsYExpression{grid_bounds_y_ref,
             {grid_y_expression->toPlainText().toStdString(),1},grid_y_replace->isChecked()}}});
     });});
-    connect(grid_y_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_y_expression_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     connect(grid_x_link,&QPushButton::clicked,this,[this,grid_x_source,grid_x_sources,grid_bounds_x_ref,grid_x_replace,grid_source_commit]{perform([&]{
         bool valid=false;const auto candidate=grid_x_source->currentData(Qt::UserRole).toInt(&valid);
         if(grid_x_source->currentIndex()<0||!valid||candidate<0||static_cast<std::size_t>(candidate)>=grid_x_sources.size())
@@ -3235,12 +3327,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_x_unlink,&QPushButton::clicked,this,[this,grid_bounds_x_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsXCommand{UnlinkGridBoundsX{grid_bounds_x_ref}}});});
     });
-    connect(grid_x_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_x_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     connect(grid_x_expression_apply,&QPushButton::clicked,this,[this,grid_x_expression,grid_x_replace,grid_bounds_x_ref,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsXCommand{SetGridBoundsXExpression{grid_bounds_x_ref,
             {grid_x_expression->toPlainText().toStdString(),1},grid_x_replace->isChecked()}}});
     });});
-    connect(grid_x_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_x_expression_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     const Ref grid_bounds_width_ref{grid_id,"","grid.bounds.width"};
     auto* grid_width_source_box=new QGroupBox("Width source",grid_box);grid_width_source_box->setObjectName("grid-bounds-width-source");
     auto* grid_width_source_layout=new QVBoxLayout(grid_width_source_box);
@@ -3319,13 +3411,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_width_unlink,&QPushButton::clicked,this,[this,grid_bounds_width_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsWidthCommand{UnlinkGridBoundsWidth{grid_bounds_width_ref}}});});
     });
-    connect(grid_width_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_width_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     connect(grid_width_expression_apply,&QPushButton::clicked,this,[this,grid_bounds_width_ref,grid_width_expression,
         grid_width_replace,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsWidthCommand{SetGridBoundsWidthExpression{grid_bounds_width_ref,
             {grid_width_expression->toPlainText().toStdString(),1},grid_width_replace->isChecked()}}});
     });});
-    connect(grid_width_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_width_expression_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     const Ref grid_bounds_height_ref{grid_id,"","grid.bounds.height"};
     auto* grid_height_source_box=new QGroupBox("Height source",grid_box);
     grid_height_source_box->setObjectName("grid-bounds-height-source");
@@ -3413,13 +3505,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_height_unlink,&QPushButton::clicked,this,[this,grid_bounds_height_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridBoundsHeightCommand{UnlinkGridBoundsHeight{grid_bounds_height_ref}}});});
     });
-    connect(grid_height_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_height_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     connect(grid_height_expression_apply,&QPushButton::clicked,this,[this,grid_bounds_height_ref,grid_height_expression,
         grid_height_replace,grid_source_commit]{perform([&]{
         grid_source_commit({GridBoundsHeightCommand{SetGridBoundsHeightExpression{grid_bounds_height_ref,
             {grid_height_expression->toPlainText().toStdString(),1},grid_height_replace->isChecked()}}});
     });});
-    connect(grid_height_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_height_expression_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     const Ref grid_column_gutter_ref{grid_id,"","grid.column_gutter"};
     auto* grid_column_gutter_source_box=new QGroupBox("Column gutter source",grid_box);
     grid_column_gutter_source_box->setObjectName("grid-column-gutter-source");
@@ -3498,7 +3590,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_column_gutter_unlink,&QPushButton::clicked,this,[this,grid_column_gutter_ref,grid_source_commit]{
         perform([&]{grid_source_commit({GridColumnGutterCommand{UnlinkGridColumnGutter{grid_column_gutter_ref}}});});
     });
-    connect(grid_column_gutter_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_column_gutter_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     auto* grid_column_gutter_expression_input=new ExpressionInput;
     grid_column_gutter_expression_input->setObjectName("grid-column-gutter-expression");
     grid_column_gutter_expression_input->setAccessibleName("Grid column gutter expression draft");
@@ -3609,14 +3701,65 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             grid_source_commit({GridRowGutterCommand{SetGridRowGutterExpression{grid_row_gutter_ref,
                 {grid_row_gutter_expression_input->toPlainText().toStdString(),1},grid_row_gutter_replace->isChecked()}}});
         });});
-    connect(grid_row_gutter_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(grid_row_gutter_cancel,&QPushButton::clicked,this,cancel_grid_editor);
     auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new QHBoxLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
     auto* grid_apply=new QPushButton("Apply Grid",grid_actions);grid_apply->setObjectName("grid-apply");grid_buttons->addWidget(grid_apply);
     auto* grid_copy=new QPushButton("Set Grid to margin box",grid_actions);grid_copy->setObjectName("grid-copy-margin-box");grid_copy->setToolTip("Copy the evaluated Margin box once; later Margin edits do not change Grid.");grid_buttons->addWidget(grid_copy);
     auto* grid_clear=new QPushButton("Clear Grid",grid_actions);grid_clear->setObjectName("grid-clear");grid_clear->setEnabled(resolved.layout&&resolved.layout->grid);grid_buttons->addWidget(grid_clear);
     grid_form->addRow(grid_actions);
-    for(auto* input:{grid_x,grid_y,grid_width,grid_height,grid_columns,grid_rows,grid_column_gutter,grid_row_gutter})bind_number(input,grid_box,grid_builder);
-    connect(grid_apply,&QPushButton::clicked,this,[commit_from,grid_box,grid_builder]{commit_from(grid_box,grid_builder);});
+    const auto grid_generation=std::make_shared<std::optional<std::uint64_t>>();
+    const auto grid_document=host.session.document().id;
+    const auto grid_input=[this,build_grid,grid_box,grid_generation,grid_document,frozen_session,frozen_revision,
+        guard_editor,mark_invalid](bool commit,bool explicit_override) {
+        const bool local_scope=layout_preview_scope_==grid_box;
+        const bool owns=local_scope&&layout_draft_current()&&*grid_generation&&
+            host.session.gesture_active()&&host.session.gesture_generation()==**grid_generation;
+        if(host.session_id!=frozen_session||host.session.document().id!=grid_document||
+           host.session.revision()!=frozen_revision||(local_scope&&layout_preview_active_&&!owns)) {
+            // Retire only this adapter's view bookkeeping. A replacement Session
+            // or gesture remains owned by its current caller and must not cancel.
+            if(local_scope) {
+                layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
+                layout_preview_revision_=0;layout_preview_scope_.clear();
+                setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
+            }
+            grid_generation->reset();
+            statusBar()->showMessage("REVISION_CONFLICT: Refresh Grid controls before editing",12000);
+            return;
+        }
+        // A rebuilt editor can leave an inactive error on a removed/hidden
+        // widget awaiting deletion. Retire its view state, never a live gesture.
+        if(layout_preview_invalid_&&!layout_preview_active_&&
+           (layout_preview_scope_.isNull()||!layout_preview_scope_->isVisible())&&
+           !host.session.gesture_active())cancel_layout_draft(false);
+        if((host.session.gesture_active()&&!owns)||
+           ((layout_preview_active_||layout_preview_invalid_)&&!local_scope)) {
+            statusBar()->showMessage("GESTURE_ACTIVE: Finish the other draft before editing Grid",12000);return;
+        }
+        if(guard_editor())return;
+        try {
+            const auto commands=build_grid(explicit_override);
+            if(commands.empty()) {
+                // A fully validated zero-net candidate replaces the last-valid
+                // preview and clears recovered invalidity, without History.
+                if(local_scope)cancel_layout_draft();
+                grid_generation->reset();statusBar()->clearMessage();return;
+            }
+            if(!preview_layout_draft(commands,grid_box))return;
+            *grid_generation=host.session.gesture_generation();
+            if(commit) {
+                commit_layout_draft(commands,grid_box);
+                if(!host.session.gesture_active())grid_generation->reset();
+            }
+        } catch(const Error& error) {mark_invalid(grid_box,qs(error.code)+": "+QString::fromUtf8(error.what()));}
+        catch(const std::exception& error) {mark_invalid(grid_box,QString::fromUtf8(error.what()));}
+    };
+    for(auto* input:{grid_x,grid_y,grid_width,grid_height,grid_columns,grid_rows,grid_column_gutter,grid_row_gutter}) {
+        if(input->isReadOnly())continue;
+        connect(input,&QLineEdit::textEdited,this,[grid_input]{grid_input(false,false);});
+        connect(input,&QLineEdit::returnPressed,this,[grid_input]{grid_input(true,false);});
+    }
+    connect(grid_apply,&QPushButton::clicked,this,[grid_input]{grid_input(true,true);});
     connect(grid_copy,&QPushButton::clicked,this,[this,read,composition,id,grid_id,set_layout_command,commit_explicit,guard_editor,grid_box] {
         if(guard_editor())return;
         const auto current=read();
@@ -4762,8 +4905,16 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     add_visibility_control(box,form,id,"Show artwork","object-visible");
     add_property(form,{id,"","composite.opacity"},"Object opacity");
     auto* blend=new QComboBox;blend->setObjectName("object-blend");
-    for(const auto* mode:{"normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion"})blend->addItem(QString::fromLatin1(mode),QString::fromLatin1(mode));
+    for(const auto& mode:blend_modes())blend->addItem(QString::fromUtf8(mode.label.data(),static_cast<int>(mode.label.size())),QString::fromLatin1(mode.id.data(),static_cast<int>(mode.id.size())));
     blend->setCurrentIndex(blend->findData(qs(object.compositing.blend)));form->addRow("Blend",blend);
+    auto* blend_status=new QLabel(box);blend_status->setObjectName("object-blend-status");blend_status->setWordWrap(true);
+    if(const auto* descriptor=find_blend_mode(object.compositing.blend)) {
+        const auto& profile=descriptor->profiles.front();
+        blend_status->setText(QString("sRGB · 8-bit premultiplied · AE parity unverified · %1")
+            .arg(QString::fromLatin1(descriptor->renderer.data(),static_cast<int>(descriptor->renderer.size()))));
+        blend_status->setToolTip(QString::fromLatin1(profile.quantization.data(),static_cast<int>(profile.quantization.size())));
+    }
+    form->addRow("Blend support",blend_status);
     connect(blend,&QComboBox::currentIndexChanged,this,[this,blend,id,apply](int){perform([&]{const auto& current=host.session.document().objects.at(id).compositing;apply(SetCompositing{id,blend->currentData().toString().toStdString(),current.isolated});});});
     const Ref isolation_ref{id,"","composite.isolated"};const auto isolation_state=composite_isolation_state(host.session.document(),isolation_ref);
     const bool isolation_driven=isolation_state.driver.has_value()||isolation_state.expression.has_value();
@@ -6662,7 +6813,7 @@ QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
         auto* value=label(QString::number(index+1)+". ["+qs(feature.feature_tag)+"] = "+QString::number(feature.parameter)+" · whole text");
         value->setObjectName("text-font-feature-row");value->setProperty("font-tag",qs(feature.feature_tag));
         auto* row=new QHBoxLayout;rows->addLayout(row);
-        action("Edit parameter…","text-font-feature-edit",false,feature.feature_tag,false,row);
+        action("Edit value…","text-font-feature-edit",false,feature.feature_tag,false,row);
         action("Remove…","text-font-feature-remove",false,feature.feature_tag,true,row);row->addStretch();
     }
     if(object.text->font_features.empty())label("No authored features; the font's default typography is used.");
@@ -6681,9 +6832,15 @@ QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
     action("Add axis…","text-font-axis-add",true,{},false);
     if(!whole)label("Select one whole editable Text to change Advanced Typography.");
     label("Derived font receipt · read-only");
-    auto* receipt=label("No projection receipt yet.");receipt->setObjectName("text-font-receipt");
+    // Actual-run warning codes and arbitrary face names can exceed a narrow Inspector.
+    // Keep the exact selectable plain text reachable without widening the authoring controls.
+    auto* receipt_view=new QScrollArea(box);receipt_view->setObjectName("text-font-receipt-scroll");
+    receipt_view->setWidgetResizable(true);receipt_view->setFrameShape(QFrame::NoFrame);
+    auto* receipt=new QLabel("No projection receipt yet.");receipt->setObjectName("text-font-receipt");
+    receipt->setWordWrap(true);receipt->setTextFormat(Qt::PlainText);
     receipt->setAccessibleName("Requested, submitted, and actual font receipt");
     receipt->setTextInteractionFlags(Qt::TextSelectableByMouse|Qt::TextSelectableByKeyboard);
+    receipt_view->setWidget(receipt);rows->addWidget(receipt_view);
     return receipt;
 }
 
@@ -7052,31 +7209,54 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 const auto initial=macro_parameter_value(host.session.document(),object.id,operation.id,parameter_id);
                 const auto frozen_macro_session=host.session_id;
                 const auto frozen_macro_revision=host.session.revision();
-                auto* editor=new QDoubleSpinBox(group);editor->setObjectName("macro-amount-"+qs(operation.id));
-                editor->setAccessibleName(name+" / "+qs(parameter->label));editor->setDecimals(3);
-                editor->setRange(-1e6,1e6);editor->setSingleStep(1);editor->setSuffix(" "+qs(parameter->unit));
-                editor->setValue(initial);
+                // Macro amounts retain full double precision; fixed decimals can author a rounded no-op.
+                auto* editor=new QLineEdit(QString::number(initial,'g',17),group);
+                editor->setObjectName("macro-amount-"+qs(operation.id));
+                editor->setAccessibleName(name+" / "+qs(parameter->label)+" / "+qs(parameter->unit));
+                editor->setToolTip("Enter a finite amount in "+qs(parameter->unit)+" from -1000000 to 1000000. Escape cancels the edit.");
                 editor->setProperty("nect-reference",QJsonDocument(ref_json(amount_ref)).toJson(QJsonDocument::Compact));
-                connect(editor,&QDoubleSpinBox::editingFinished,this,[this,editor,initial,id=object.id,
-                    instance=operation.id,parameter_id,frozen_macro_session,frozen_macro_revision]{perform([&]{
-                    if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
-                    if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
-                    if(editor->value()==initial)return;
-                    host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,editor->value()}}},frozen_macro_revision);
-                    host.edited();
-                });});
-                auto* amount_row=new QWidget(group);auto* amount_layout=new QHBoxLayout(amount_row);
-                amount_layout->setContentsMargins(0,0,0,0);amount_layout->addWidget(editor);
-                if(operation.macro->overrides.contains(parameter_id)) {
-                    auto* reset=new QPushButton("Reset");reset->setObjectName("macro-reset-amount-"+qs(operation.id));
-                    reset->setToolTip("Restore the value published by the pinned Macro revision.");amount_layout->addWidget(reset);
-                    connect(reset,&QPushButton::clicked,this,[this,id=object.id,instance=operation.id,parameter_id,
-                        frozen_macro_session,frozen_macro_revision]{perform([&]{
+                auto* reset=operation.macro->overrides.contains(parameter_id)?new QPushButton("Reset",group):nullptr;
+                if(reset)reset->setObjectName("macro-reset-amount-"+qs(operation.id));
+                auto* cancel=new QAction(editor);cancel->setShortcut(QKeySequence(Qt::Key_Escape));
+                cancel->setShortcutContext(Qt::WidgetShortcut);editor->addAction(cancel);
+                connect(cancel,&QAction::triggered,editor,[editor,initial]{
+                    editor->setText(QString::number(initial,'g',17));editor->setModified(false);
+                });
+                auto finish_amount=[this,editor,reset,initial,id=object.id,
+                    instance=operation.id,parameter_id,frozen_macro_session,frozen_macro_revision]{
+                    if(!editor->isModified())return;
+                    // Reset owns this mouse gesture; a normal keyboard/focus exit still commits the edit.
+                    if(reset&&QApplication::focusWidget()==reset&&(QApplication::mouseButtons()&Qt::LeftButton))return;
+                    editor->setModified(false);
+                    perform([&]{
                         if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
                         if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
-                        host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
+                        bool valid=false;const auto value=editor->text().trimmed().toDouble(&valid);
+                        if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite Macro Amount");
+                        if(value==initial)return;
+                        host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,value}}},frozen_macro_revision);
                         host.edited();
-                    });});
+                    });
+                };
+                connect(editor,&QLineEdit::editingFinished,this,finish_amount);
+                if(reset)connect(qApp,&QApplication::focusChanged,editor,[editor,finish_amount](QWidget* previous,QWidget*){
+                    // Qt consumes editingFinished on the deferred Reset blur. A cancelled gesture keeps a pending draft.
+                    if(previous==editor)finish_amount();
+                });
+                auto* amount_row=new QWidget(group);auto* amount_layout=new QHBoxLayout(amount_row);
+                amount_layout->setContentsMargins(0,0,0,0);amount_layout->addWidget(editor);
+                if(reset) {
+                    reset->setToolTip("Restore the value published by the pinned Macro revision.");amount_layout->addWidget(reset);
+                    connect(reset,&QPushButton::clicked,this,[this,editor,id=object.id,instance=operation.id,parameter_id,
+                        frozen_macro_session,frozen_macro_revision]{
+                        editor->setModified(false);
+                        perform([&]{
+                            if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
+                            if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
+                            host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
+                            host.edited();
+                        });
+                    });
                 }
                 form->addRow(qs(parameter->label)+" · "+qs(parameter->unit),amount_row);
             } else {
@@ -8932,9 +9112,12 @@ void Window::export_png() {
 }
 
 void Window::save(bool choose) {
+    const auto identity=host.session_id;
     auto path=host.file_path;
     if(choose||path.isEmpty())path=QFileDialog::getSaveFileName(this,"Save Nect document",path,"Nect (*.nect)");
-    if(!path.isEmpty())host.save(path);
+    if(path.isEmpty())return;
+    if(identity!=host.session_id)throw Error("SESSION_CONFLICT","Document changed while choosing a save destination");
+    host.save(path);
 }
 void Window::add_curve() {
     const auto& comp=find_composition(host.session.document(),canvas->active_composition());

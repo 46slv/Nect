@@ -1,4 +1,5 @@
 #include "canvas.hpp"
+#include "nect/blend.hpp"
 
 #include <QApplication>
 #include <QFocusEvent>
@@ -962,12 +963,18 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                     return QRect(left,top,right-left,bottom-top).intersected(parent);
                 };
                 const auto origin=[&](const QRect& region){return QPointF(region.x()/dpr,region.y()/dpr);};
-                std::function<void(QPainter&,const EvaluatedSceneNode&,unsigned,const QRect&,bool,bool)> render;
-                const auto content=[&](QPainter& target,const EvaluatedSceneNode& node,unsigned depth,const QRect& region) {
-                    if(const auto* item=geometry(node.id))draw_leaf(target,*item,origin(region));
+                std::function<void(QImage&,const EvaluatedSceneNode&,unsigned,const QRect&,bool,bool)> render;
+                const auto content=[&](QImage& target,const EvaluatedSceneNode& node,unsigned depth,const QRect& region) {
+                    // A scope image must never detach or mutate while a painter
+                    // owns it. Leaf/legacy draws use short-lived painters; each
+                    // recursive child completes after the preceding painter ends.
+                    if(const auto* item=geometry(node.id)) {
+                        QPainter leaf(&target);leaf.setRenderHint(QPainter::Antialiasing);
+                        draw_leaf(leaf,*item,origin(region));
+                    }
                     for(const auto& child:node.children)render(target,child,depth,region,false,false);
                 };
-                render=[&](QPainter& target,const EvaluatedSceneNode& node,unsigned depth,const QRect& parent,
+                render=[&](QImage& target,const EvaluatedSceneNode& node,unsigned depth,const QRect& parent,
                     bool ignore_root_visibility,bool ignore_root_blend) {
                     if((!ignore_root_visibility&&!node.visible)||node.opacity<=0)return;
                     if(!node.isolated){content(target,node,depth,parent);return;}
@@ -975,7 +982,7 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                     const auto region=pixel_region(node,parent,ignore_root_visibility);if(region.isEmpty())return;
                     const auto bytes=byte_size(region);auto image=surface(region);
                     {
-                        {QPainter layer(&image);layer.setRenderHint(QPainter::Antialiasing);content(layer,node,depth+1,region);}
+                        content(image,node,depth+1,region);
                         for(const auto levels:node.posterize_levels)posterize_premultiplied_srgb(image,levels);
                         if(node.mask) {
                             auto coverage=surface(region);
@@ -990,8 +997,7 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                                 const auto source=scene_nodes.find(node.mask->source);
                                 if(source==scene_nodes.end())throw Error("MISSING_MASK_SOURCE",node.mask->source);
                                 auto projected=surface(region);
-                                {QPainter source_painter(&projected);source_painter.setRenderHint(QPainter::Antialiasing);
-                                 render(source_painter,*source->second,depth+1,region,true,true);}
+                                render(projected,*source->second,depth+1,region,true,true);
                                 for(int y=0;y<region.height();++y) {
                                     const auto* source_row=reinterpret_cast<const QRgb*>(projected.constScanLine(y));
                                     auto* coverage_row=reinterpret_cast<QRgb*>(coverage.scanLine(y));
@@ -1020,12 +1026,41 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                             allocated-=bytes;
                         }
                     }
-                    target.save();target.resetTransform();target.setOpacity(node.opacity);
-                    target.setCompositionMode(blend_mode(ignore_root_blend?"normal":node.blend));
-                    target.drawImage(origin(region)-origin(parent),image);target.restore();allocated-=bytes;
+                    const auto mode=ignore_root_blend?std::string_view("normal"):std::string_view(node.blend);
+                    const auto* descriptor=find_blend_mode(mode);
+                    if(!descriptor)throw Error("UNSUPPORTED_BLEND",std::string(mode));
+                    if(descriptor->renderer=="w3c-binary64") {
+                        if(target.paintingActive()||image.paintingActive())
+                            throw Error("RENDER_PAINTER_ACTIVE","Nonseparable scope pixels cannot be accessed while a painter is active");
+                        if(target.format()!=QImage::Format_ARGB32_Premultiplied||image.format()!=QImage::Format_ARGB32_Premultiplied)
+                            throw Error("RENDER_FORMAT","Nonseparable blending requires premultiplied RGBA8 sRGB scope pixels");
+                        const auto logical=[](QRgb pixel) {return PremultipliedSrgb8{
+                            static_cast<std::uint8_t>(qRed(pixel)),static_cast<std::uint8_t>(qGreen(pixel)),
+                            static_cast<std::uint8_t>(qBlue(pixel)),static_cast<std::uint8_t>(qAlpha(pixel))};};
+                        // Crop offsets are integer physical pixels in the current
+                        // destination scope, independent of QImage DPR/endian layout.
+                        const int left=region.x()-parent.x(),top=region.y()-parent.y();
+                        for(int y=0;y<region.height();++y) {
+                            const auto* source_row=reinterpret_cast<const QRgb*>(image.constScanLine(y));
+                            auto* target_row=reinterpret_cast<QRgb*>(target.scanLine(y+top));
+                            for(int x=0;x<region.width();++x) {
+                                const auto result=composite_nonseparable_srgb8_opacity(mode,logical(target_row[x+left]),
+                                    logical(source_row[x]),node.opacity);
+                                if(result.status!=BlendKernelStatus::ok)
+                                    throw Error(std::string(blend_kernel_status_code(result.status)),"Nonseparable scope compositor refused input");
+                                const auto pixel=result.value;
+                                target_row[x+left]=qRgba(pixel.r,pixel.g,pixel.b,pixel.a);
+                            }
+                        }
+                    } else if(descriptor->renderer=="qt-raster") {
+                        QPainter composite(&target);composite.setOpacity(node.opacity);
+                        composite.setCompositionMode(blend_mode(std::string(mode)));
+                        composite.drawImage(origin(region)-origin(parent),image);
+                    } else throw Error("UNSUPPORTED_BLEND_RENDERER",std::string(descriptor->renderer));
+                    allocated-=bytes;
                 };
                 auto artwork=surface(viewport);
-                {QPainter layer(&artwork);layer.setRenderHint(QPainter::Antialiasing);for(const auto& node:scene_.roots)render(layer,node,0,viewport,false,false);}
+                for(const auto& node:scene_.roots)render(artwork,node,0,viewport,false,false);
                 painter.save();painter.resetTransform();painter.drawImage(QPointF(0,0),artwork);painter.restore();
             }
 }

@@ -140,7 +140,9 @@ std::size_t extra(const ArtboardParent& v){return extra(v.artboard);}
 std::size_t extra(const Guide& v){return total(extra(v.id),extra(v.name),extra(v.axis),extra(v.position_driver));}
 std::size_t extra(const ArtboardGuide& v){return total(extra(v.id),extra(v.name),extra(v.axis));}
 std::size_t extra(const LayoutRect&){return 0;}
-std::size_t extra(const Margin& v){return total(extra(v.left_driver),extra(v.left_expression));}
+std::size_t extra(const Margin& v){return total(extra(v.left_driver),extra(v.left_expression),
+    extra(v.top_driver),extra(v.top_expression),extra(v.right_driver),extra(v.right_expression),
+    extra(v.bottom_driver),extra(v.bottom_expression));}
 std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds),extra(v.columns_driver),extra(v.columns_expression),extra(v.rows_driver),extra(v.rows_expression),extra(v.column_gutter_driver),extra(v.column_gutter_expression),extra(v.row_gutter_driver),extra(v.row_gutter_expression),extra(v.bounds_x_driver),extra(v.bounds_x_expression),extra(v.bounds_y_driver),extra(v.bounds_y_expression),extra(v.bounds_width_driver),extra(v.bounds_width_expression),extra(v.bounds_height_driver),extra(v.bounds_height_expression));}
 std::size_t extra(const ArtboardLayout& v){return total(extra(v.margin),extra(v.grid));}
 std::size_t extra(const ArtboardTemplate& v){return total(extra(v.id),extra(v.name),extra(v.source_artboard),extra(v.definition));}

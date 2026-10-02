@@ -12,6 +12,7 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -309,10 +310,31 @@ int main(int argc,char** argv) {
             window.resizeDocks({dock},{300},Qt::Horizontal);break;
         }
         events();section=visible<QGroupBox>(window,"text-advanced-typography");
+        if(section->minimumSizeHint().width()>300) {
+            std::cerr<<"Typography section minimum width: "<<section->minimumSizeHint().width()<<'\n';
+            for(auto* widget:section->findChildren<QWidget*>())
+                std::cerr<<widget->metaObject()->className()<<" "<<widget->objectName().toStdString()<<" minimum-hint="<<widget->minimumSizeHint().width()<<" minimum="<<widget->minimumWidth()<<" hint="<<widget->sizeHint().width()<<'\n';
+            for(auto* value:section->findChildren<QLabel*>())
+                std::cerr<<value->objectName().toStdString()<<" minimum="<<value->minimumSizeHint().width()<<" text="<<value->text().toStdString()<<'\n';
+        }
         check(section->minimumSizeHint().width()<=300,"Advanced Typography itself requires no more than a 300-logical-pixel Inspector width");
         for(auto* button:section->findChildren<QPushButton*>()) {
             accessible(button);const QRect rect(button->mapTo(section,QPoint{}),button->size());
             check(section->rect().contains(rect)&&button->width()>=60,"Narrow Inspector keeps labeled typography actions inside the section");
+        }
+        {
+            auto* receipt=visible<QLabel>(window,"text-font-receipt");
+            auto* viewport=visible<QScrollArea>(window,"text-font-receipt-scroll");
+            const auto actual=receipt->text();const auto literal=QString(80,QChar('W'))+" %3 <br> [KEY ]";
+            receipt->setText(literal);viewport->setFixedWidth(260);events();
+            check(section->minimumSizeHint().width()<=300,"Long literal receipt tokens never widen narrow typography controls");
+            check(receipt->text()==literal&&receipt->textFormat()==Qt::PlainText,"Scrollable receipt retains exact literal text without injected breaks or markup");
+            auto* horizontal=viewport->horizontalScrollBar();
+            check(horizontal->maximum()>0,"Long unbroken receipt text exposes horizontal navigation");
+            horizontal->setValue(horizontal->maximum());events();
+            const QRect receipt_rect(receipt->mapTo(viewport->viewport(),QPoint{}),receipt->size());
+            check(receipt_rect.right()<=viewport->viewport()->rect().right(),"Narrow receipt navigation reaches the complete trailing text");
+            receipt->setText(actual);events();
         }
         std::cout<<"PASS "<<checks<<" Advanced Typography Qt contract checks (offscreen; not real GUI or shaping acceptance)\n";
         return 0;

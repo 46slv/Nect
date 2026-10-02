@@ -138,14 +138,32 @@ bool near(const std::vector<double>& a,const std::vector<double>& b,double toler
     return true;
 }
 std::vector<double> values_from_document(const Document& document,const std::vector<Ref>& refs);
-QPointF rendered_indicator(Window& window,QWidget* dial) {
-    events();QTest::qWait(80);
-    const auto before_window=window.geometry(),before_dial=dial->geometry();
-    const QRect before_dial_in_window(dial->mapTo(&window,QPoint(0,0)),dial->size());
-    const auto before_visible=dial->visibleRegion();
+QScrollArea* expose_batch_dial(Window& window,QWidget* dial) {
+    // Fixture exposure must precede geometry snapshots and every live gesture.
+    // A new Session/selection context resets the Inspector's scroll position.
+    check(!window.host.session.gesture_active(),"batch dial fixture exposure occurs before a live gesture");
+    events();QTest::qWait(20);
     QScrollArea* scroll=nullptr;
     for(auto* parent=dial->parentWidget();parent;parent=parent->parentWidget())
         if((scroll=qobject_cast<QScrollArea*>(parent)))break;
+    check(scroll,"Repeater batch dial belongs to an Inspector scroll area");
+    scroll->ensureWidgetVisible(dial);events();QTest::qWait(150);
+    const QRect dial_in_viewport(dial->mapTo(scroll->viewport(),QPoint(0,0)),dial->size());
+    const bool contained=scroll->viewport()->rect().contains(dial_in_viewport);
+    const bool exposed=QRegion(dial->rect()).subtracted(dial->visibleRegion()).isEmpty();
+    if(qEnvironmentVariableIsSet("NECT_GEOMETRY_DIAGNOSTICS")||!contained||!exposed)
+        std::cerr<<"REPEATER_INDICATOR_EXPOSURE viewport="<<batch_angle_test::rectangle(scroll->viewport()->rect())
+            <<" dial-in-viewport="<<batch_angle_test::rectangle(dial_in_viewport)
+            <<" viewport-contained="<<contained<<" visible-region-full="<<exposed
+            <<" scroll-offset="<<scroll->horizontalScrollBar()->value()<<","<<scroll->verticalScrollBar()->value()<<'\n';
+    check(contained&&exposed,"settled Repeater batch dial is fully exposed inside the Inspector viewport");
+    return scroll;
+}
+QPointF rendered_indicator(Window& window,QWidget* dial) {
+    auto* scroll=expose_batch_dial(window,dial);
+    const auto before_window=window.geometry(),before_dial=dial->geometry();
+    const QRect before_dial_in_window(dial->mapTo(&window,QPoint(0,0)),dial->size());
+    const auto before_visible=dial->visibleRegion();
     const auto before_viewport=scroll?scroll->viewport()->rect():QRect{};
     const auto before_dial_in_viewport=scroll
         ?QRect(dial->mapTo(scroll->viewport(),QPoint(0,0)),dial->size()):QRect{};
@@ -164,12 +182,12 @@ QPointF rendered_indicator(Window& window,QWidget* dial) {
         if(color.alpha()>0)++nontransparent;
         if(radius>4&&radius<14&&color.blue()-color.red()>50&&color.green()>100){sum+=delta;++count;}
     }
-    if(qEnvironmentVariableIsSet("NECT_GEOMETRY_DIAGNOSTICS")||count<=5) {
+    if(qEnvironmentVariableIsSet("NECT_GEOMETRY_DIAGNOSTICS")||count<=5||!whole.rect().contains(crop)) {
         std::cerr<<"REPEATER_INDICATOR_PRE window="<<batch_angle_test::rectangle(before_window)
             <<" dial="<<batch_angle_test::rectangle(before_dial)
             <<" dial-in-window="<<batch_angle_test::rectangle(before_dial_in_window)
             <<" visible-region="<<batch_angle_test::rectangle(before_visible.boundingRect())
-            <<" visible-region-full="<<before_visible.contains(QRect(QPoint(0,0),before_dial.size()))
+            <<" visible-region-full="<<QRegion(QRect(QPoint(0,0),before_dial.size())).subtracted(before_visible).isEmpty()
             <<" scroll-found="<<(scroll!=nullptr)<<" viewport="<<batch_angle_test::rectangle(before_viewport)
             <<" dial-in-viewport="<<batch_angle_test::rectangle(before_dial_in_viewport)
             <<" viewport-intersection="<<batch_angle_test::rectangle(before_viewport.intersected(before_dial_in_viewport))
@@ -187,6 +205,7 @@ QPointF rendered_indicator(Window& window,QWidget* dial) {
             <<" enabled="<<dial->isEnabled()<<" visible="<<dial->isVisible()
             <<" nontransparent="<<nontransparent<<" all-ink="<<all_ink<<" annular-ink="<<count<<'\n';
     }
+    check(!whole.isNull()&&whole.rect().contains(crop),"Repeater batch dial pixel crop is fully contained in the rendered window");
     check(count>5,"rendered batch Repeater dial exposes a visible indicator stroke");return sum/count;
 }
 bool has_repeater_dial(Window& window) {
@@ -431,6 +450,7 @@ void top_zero_geometry_and_indicator(Window& window) {
         {"second",Kind::path,0,{{1,"second-repeat",5}}},
         {"third",Kind::path,0,{{1,"third-repeat",725}}}});
     refs=rotation_refs(window,1);auto* dial=batch_dial(window,refs);
+    expose_batch_dial(window,dial);
     const QPoint center=dial->mapToGlobal(QPoint(dial->width()/2,dial->height()/2));
     const QRect dial_geometry=dial->geometry();const QRect row_geometry=dial->parentWidget()->geometry();
     const int row_height=dial->parentWidget()->height();

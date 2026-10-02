@@ -604,13 +604,16 @@ void render_limits_remain_visible() {
 int main(int argc,char** argv) {
     // Pixel and interaction correctness only; no compositor/presentation timing claims.
     if(qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))qputenv("QT_QPA_PLATFORM","offscreen");
+    const bool portable=argc==2&&std::string(argv[1])=="--portable-only";
     QApplication application(argc,argv);
     try {
         group_opacity_is_applied_once();group_posterize_uses_independent_postcomposite_pixel_oracle();pass_through_and_isolation_have_distinct_backdrops();blend_alpha_and_transparent_root();
         all_supported_blends_match_independent_channel_formulas();standard_blends_compose_two_transparent_layers();
         open_mask_hole_and_fill_rule();alpha_mask_path_and_group_pixel_oracle();luma_mask_srgb_pixel_oracle();
         luma_source_internal_mask_and_effect();
-        alpha_mask_image_source_pixel_oracle();alpha_mask_invert_uses_target_bounds_and_source_world();
+        if(portable)std::cout<<"SKIP alpha_mask_image_source_pixel_oracle: Windows WIC image backend excluded by explicit portable-only entrypoint\n";
+        else alpha_mask_image_source_pixel_oracle();
+        alpha_mask_invert_uses_target_bounds_and_source_world();
         linked_visibility_controls_canvas_pixels();expression_visibility_projects_own_value_to_canvas();linked_fill_rule_projects_to_canvas_and_svg();
         linked_mask_enabled_projects_to_canvas_and_svg();repeated_mask_uses_external_world_transform();hidden_sources_do_not_hit_but_keep_direct_controls();
         mask_outline_is_separate_from_inherited_selection();cropped_unmasked_scope_preserves_stroke_gradient_and_repeater();

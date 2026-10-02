@@ -76,6 +76,7 @@ void stroke_pixels() {
     check(std::abs(render(dot,"square").pixelColor(91,91).alpha()-128)<=1,"Compositing bounds preserve zero-length caps");
 }
 int main(int argc,char** argv) {
+ const bool portable=argc==2&&std::string(argv[1])=="--portable-only";
  QApplication app(argc,argv);
  try {
   stroke_pixels();
@@ -111,9 +112,12 @@ int main(int argc,char** argv) {
   request["expected_revision"]=1;reply=QJsonDocument::fromJson(host.dispatch(QJsonDocument(request).toJson())).object();check(!reply["ok"].toBool(),"Stale revision rejects");
   host.session.begin_gesture(0);rejected=false;try{host.export_png(path,"composition","artboard",1,false,0);}catch(const Error& e){rejected=e.code=="GESTURE_ACTIVE";}check(rejected,"Gesture draft not exported");host.session.cancel_gesture();
   rejected=false;try{host.export_png(dir.path()+"/missing/out.png","composition","artboard",1,false,0);}catch(const Error& e){rejected=e.code=="IO_ERROR";}check(rejected,"Write failure is explicit");
+  if(portable)std::cout<<"SKIP WIC reimport/linked-source fixture: Windows drive-path/WIC backend excluded by explicit portable-only entrypoint\n";
+  else {
   host.import_image(path,"linked","composition","","exported-asset","exported-image","Reimport",0,0,0);
   check(host.session.document().raster_assets.at("exported-asset").payload->width()==300,"Export reimports through production WIC parser");
   rejected=false;try{host.export_png(path,"composition","artboard",1,false,1);}catch(const Error& e){rejected=e.code=="EXPORT_TARGET";}check(rejected,"Linked source protected");
+  }
   Window window(dir.path()+"/ui-recovery");window.host.session=Session(d);window.refresh();
   auto* export_action=window.findChild<QAction*>("export-png");check(export_action,"Discoverable export action");
   bool valid_dimensions=false,invalid_disabled=false;
