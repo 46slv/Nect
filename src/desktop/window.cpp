@@ -4653,8 +4653,11 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     }
     if(!canvas->selected_point.empty()) {
         auto* form=section("Point && handles");
-        for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"})
-            add_property(form,{o.id,canvas->selected_point,field},QString::fromLatin1(field));
+        for(const auto* field:{"x","y","in.angle","in.length","out.angle","out.length"}) {
+            const Ref ref{o.id,canvas->selected_point,field};
+            add_property(form,ref,QString::fromLatin1(field));
+            if(ref.field=="in.angle"||ref.field=="out.angle")add_point_angle(form,ref,o);
+        }
     }
     if(o.compositing.mask)add_compositing_properties(layout,o);
     add_transform_properties(layout,o);
@@ -7400,6 +7403,86 @@ void Window::add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitiv
             throw Error("MISSING_PROPERTY","Primitive source identity changed");
         const auto& current=nect::property(host.session.document(),ref);
         if(current.binding||current.expression)throw Error("DRIVEN_PROPERTY","Unlink the primitive rotation before using the dial");
+    };
+    bind_angle_adapter(knob,numeric,ref,initial,std::move(validate_target),false,true);
+}
+
+void Window::add_point_angle(QFormLayout* form,const Ref& ref,const Object& object) {
+    const auto encoded=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
+    QPointer<QLineEdit> numeric;
+    for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
+        if(input->property("nect-reference").toByteArray()==encoded){numeric=input;break;}
+
+    auto* row=new QWidget;auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
+    QPointer<RotationKnob> knob=new RotationKnob(row);
+    knob->setObjectName("point-angle-knob-"+qs(ref.field));
+    const auto handle_name=ref.field=="in.angle"?QStringLiteral("incoming handle"):QStringLiteral("outgoing handle");
+    knob->setAccessibleName(qs(object.name)+" "+handle_name+" angle knob");
+    knob->set_display_zero(0);knob->setProperty("nect-reference",encoded);
+    const auto initial=inspector_values_.at(ref);knob->set_value(initial);
+    // Point angles use exact signed degrees just like their adjacent numeric field.
+    if(numeric) {
+        numeric->setProperty("nect-exact-value",true);
+        if(!numeric->isModified()) {numeric->setText(QString::number(initial,'g',17));numeric->setModified(false);}
+    }
+
+    const auto& document=host.session.document();
+    const auto origin=property_origin(document,ref);
+    const bool generated=object.source.has_value()&&origin!="authored";
+    bool driven=false;
+    if(origin!="generated") {
+        const auto& scalar=nect::property(document,ref);
+        driven=scalar.binding.has_value()||scalar.expression.has_value();
+    }
+    knob->setEnabled(!driven);
+    knob->setToolTip(driven
+        ?"This handle angle has a stored binding or expression. Unlink it before using the dial."
+        :"Zero points right along local +X; positive degrees turn clockwise. Drag adds signed degrees; whole turns stay authored. Escape cancels.");
+    row_layout->addWidget(knob);row_layout->addWidget(new QLabel("Dial · +X zero · modulo 360",row));row_layout->addStretch();
+    form->addRow(handle_name+" dial",row);
+
+    const auto object_id=object.id;
+    const auto contour_id=[&] {
+        const auto contours=object.source?path_contours(object,&inspector_values_):object.contours;
+        for(const auto& contour:contours)
+            if(std::any_of(contour.points.begin(),contour.points.end(),[&](const auto& point){return point.id==ref.point;}))
+                return contour.id;
+        throw Error("MISSING_PROPERTY","Selected point identity is no longer present");
+    }();
+    const auto source_id=object.source?object.source->id:std::string{};
+    const auto source_type=object.source?object.source->type:std::string{};
+    const auto source_version=object.source?object.source->version:0U;
+    const bool had_point_edit=object.point_edit.has_value();
+    const auto point_edit_id=object.point_edit?object.point_edit->id:
+        object.source?object.source->id+"-point-edit":std::string{};
+    const auto point_edit_version=object.point_edit?object.point_edit->version:1U;
+    auto validate_target=[this,object_id,ref,generated,contour_id,source_id,source_type,source_version,
+        had_point_edit,point_edit_id,point_edit_version] {
+        const auto found=host.session.document().objects.find(object_id);
+        if(found==host.session.document().objects.end()||found->second.kind!=Kind::path)
+            throw Error("MISSING_PROPERTY","Selected point object identity changed");
+        const auto& current=found->second;
+        if(generated) {
+            if(!current.source||current.source->id!=source_id||current.source->type!=source_type||
+               current.source->version!=source_version)
+                throw Error("MISSING_PROPERTY","Primitive source identity changed");
+            if(current.point_edit.has_value()!=had_point_edit||
+               (current.point_edit&&(current.point_edit->id!=point_edit_id||current.point_edit->version!=point_edit_version)))
+                throw Error("MISSING_PROPERTY","Canonical Point Edit destination changed");
+        } else if(current.source)throw Error("MISSING_PROPERTY","Authored Path source identity changed");
+        const auto values=evaluate(host.session.document());
+        if(!values.contains(ref))throw Error("MISSING_PROPERTY","Selected point or angle Ref is no longer active");
+        const auto current_contours=current.source?path_contours(current,&values):current.contours;
+        bool same_point=false;
+        for(const auto& contour:current_contours)if(contour.id==contour_id&&
+            std::any_of(contour.points.begin(),contour.points.end(),[&](const auto& point){return point.id==ref.point;}))
+            same_point=true;
+        if(!same_point)throw Error("MISSING_PROPERTY","Selected point identity changed");
+        if(property_origin(host.session.document(),ref)!="generated") {
+            const auto& scalar=nect::property(host.session.document(),ref);
+            if(scalar.binding||scalar.expression)
+                throw Error("DRIVEN_PROPERTY","Unlink the handle angle before using its dial");
+        }
     };
     bind_angle_adapter(knob,numeric,ref,initial,std::move(validate_target),false,true);
 }

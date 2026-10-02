@@ -89,3 +89,40 @@ scoped Guide alignment with `guide_artboard`, and inherited `grid:` alignment/
 distribution. A separate test/docs-only parity packet addresses those cases; its
 new formal Windows execution must be recorded separately. Guide committed update/
 override commands already cross MCP; pointer gestures are not a new MCP operation.
+
+## Later Windows primitive qualification
+
+Exact740cd0b/tree7df3242 was verified in a fresh clean task-5/Nect-windows checkout.
+Release/deploy PASS; primitive normal/high-DPI2/2 and selected regression19/19 PASS.
+Full76=75pass/0skip/1fail, the same known registry scratch-key denial. No source
+repair or security change. Runtime model label was unavailable; native Windows GUI
+was NOT_RUN. Source/build ownership was released, with all build/test commands ended.
+Qt deployment warned about missing translations and unset VCINSTALLDIR.
+Full log SHA256 `6e3164f91d4c7ca9429edd40657f4368ca2e2106058f5509f14890f34bbe1809`.
+Build/deploy SHA256 `73620f71347b67569b1fbbd058a4f8f1a7e9a20120aee113afe1b9b61cb99887`.
+
+A fresh task-6 began setting up12b5863 but shiro-WS went offline before any build
+or test. Its staged source tree matches25b5502, while reconstructed commit4cbf025
+is not the canonical requested SHA; branch creation and metadata reconciliation
+remain pending. No result or test log exists for that candidate. Resume the existing
+incomplete task only after connection and exact workspace/state reconciliation.
+
+## Repeater actual own-cloud GUI replay
+
+Exact12b5863334c891efc302861f28b9285c87b4a174/tree25b55029d6370de1a5c9ce13542bc9913d5c7a73
+was replayed with copied immutable binary SHA256
+eeee2731a0e610e79aa077a92c50fdf738f858835e54540867715f9ca74d30f2.
+Actual Linux/Xfce GUI at normal1180x812 and125%1250x813 passed bounded Repeater
+zero-at-top, signed/multi-turn numeric and modulo display, actual drag/geometry and
+single Undo, repeated drag, dirty focus-out selection change and same-object reselect,
+primitive +X-zero coexistence, close and fresh-Host reopen. The saved native file
+preserved document/source/operation identities and exact rotation1080.75.
+Final native SHA256 `ee88e96852927214d7a3437806ea572bb5d1cfbafd50408fb99042b7c6f4c335`
+equals the pre-reopen bytes after the high-scale replay and Undo actions. The integrator
+read back this hash and verified both runtime logs empty. All owned Nect windows closed.
+
+Ignored receipt `build/d0-evidence/gui-repeater/objective-gui-receipt-12b5863.json`
+SHA256 `0acc37f35841b5a3073c29d5856aad490d694c55a0e18b43eba26d48ce351809`.
+Screenshots were viewed in the CUA transcript; no durable image files claimed.
+Held-drag Escape/range recovery, Windows GUI and subjective acceptance were NOT_RUN.
+This does not automatically qualify later point-angle code.
