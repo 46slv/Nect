@@ -1054,6 +1054,74 @@ struct EvaluatedTextGlyph {
     Vec2 baseline;
     std::vector<EvaluatedContour> contours;
 };
+// Derived, read-only DirectWrite evidence. None of these receipts are native
+// authoring state. Optional fields are unknown when metadata is unavailable.
+struct TextFontRequest {
+    std::string family,locale;
+    unsigned weight=400;
+    bool italic=false;
+    double requested_em_size=0,layout_em_size=0;
+    std::vector<TextFontFeature> font_features;
+    std::map<std::string,double> additional_axis_values,submitted_axis_values;
+    std::string axis_application="legacy",feature_application="default";
+    bool operator==(const TextFontRequest&) const = default;
+};
+struct TextFontFileReference {
+    // A digest of an opaque loader key, NOT a digest of font-file contents.
+    // Loader IDs are scoped to this layout receipt; no paths or raw keys escape.
+    std::string loader_scope,key_sha256;
+    std::size_t key_size=0;
+    bool local_loader=false;
+    bool operator==(const TextFontFileReference&) const = default;
+};
+struct TextFontAxis {
+    std::string tag;
+    std::optional<double> value,minimum,maximum,default_value;
+    // Resource VARIABLE attribute, not inferred from range width.
+    std::optional<bool> variable;
+    bool operator==(const TextFontAxis&) const = default;
+};
+struct TextFontAxisCheck {
+    std::string tag,owner,status;
+    double requested=0;
+    std::optional<double> submitted,resolved;
+    bool operator==(const TextFontAxisCheck&) const = default;
+};
+struct TextFontFeatureCheck {
+    std::string tag;
+    std::uint32_t parameter=0;
+    // API availability includes partial glyph support, never visual effect.
+    std::string availability="unknown";
+    bool operator==(const TextFontFeatureCheck&) const = default;
+};
+struct TextFontScriptFeatures {
+    std::uint32_t utf16_start=0,utf16_length=0;
+    std::uint16_t script=0;
+    unsigned shapes=0;
+    std::vector<TextFontFeatureCheck> features;
+    bool operator==(const TextFontScriptFeatures&) const = default;
+};
+struct TextFontRun {
+    std::optional<std::uint32_t> utf16_start,utf16_length;
+    std::optional<std::string> locale,family,face;
+    std::uint32_t face_index=0,simulations=0,bidi_level=0;
+    std::optional<std::uint32_t> resolved_weight,resolved_style;
+    bool sideways=false;
+    std::optional<bool> fallback,has_variations;
+    double font_em_size=0;
+    // Actual run em size / layout em size. Not IDWriteFontFallback::MapCharacters scale.
+    std::optional<double> em_size_ratio;
+    std::vector<TextFontFileReference> files;
+    bool axis_values_known=false,axis_ranges_known=false;
+    std::vector<TextFontAxis> axes;
+    std::vector<TextFontAxisCheck> axis_checks;
+    std::vector<std::uint16_t> glyph_indices;
+    std::optional<std::vector<double>> glyph_advances;
+    std::size_t missing_glyph_count=0;
+    std::vector<TextFontScriptFeatures> script_features;
+    std::vector<std::string> warnings;
+    bool operator==(const TextFontRun&) const = default;
+};
 struct TextLayout {
     std::shared_ptr<const std::vector<EvaluatedContour>> contours;
     double x=0,y=0,width=0,height=0;
@@ -1071,6 +1139,8 @@ struct TextLayout {
     // including whitespace advances and an intact, baseline-relative outline.
     std::vector<EvaluatedTextGlyph> glyphs;
     std::vector<std::string> warnings,used_fonts;
+    TextFontRequest font_request;
+    std::vector<TextFontRun> font_runs;
 };
 // Pure projection of authored text and evaluated text.* parameters. Windows uses
 // DirectWrite shaping, including vertical glyph orientation; no font is embedded.

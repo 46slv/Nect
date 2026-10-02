@@ -862,6 +862,60 @@ j::object text_readonly_property_json(const Document& d,const Ref& ref,const Tex
     }
     return result;
 }
+j::value font_optional(const std::optional<double>& value) {return value?j::value(*value):j::value(nullptr);}
+j::value font_optional(const std::optional<std::string>& value) {return value?j::value(*value):j::value(nullptr);}
+j::value font_optional(const std::optional<bool>& value) {return value?j::value(*value):j::value(nullptr);}
+j::value font_optional(const std::optional<std::uint32_t>& value) {return value?j::value(*value):j::value(nullptr);}
+j::object font_request_json(const TextFontRequest& request) {
+    j::array features;for(const auto& feature:request.font_features)
+        features.push_back(j::object{{"feature_tag",feature.feature_tag},{"parameter",feature.parameter},{"scope",feature.scope}});
+    j::object axes,submitted;
+    for(const auto& [tag,value]:request.additional_axis_values)axes[tag]=value;
+    for(const auto& [tag,value]:request.submitted_axis_values)submitted[tag]=value;
+    return {{"family",request.family},{"locale",request.locale},{"weight",request.weight},{"italic",request.italic},
+        {"requested_em_size",request.requested_em_size},{"layout_em_size",request.layout_em_size},
+        {"font_features",std::move(features)},{"additional_axis_values",std::move(axes)},
+        {"submitted_axis_values",std::move(submitted)},{"axis_application",request.axis_application},
+        {"feature_application",request.feature_application},{"authority","evaluated_request_not_resolved_face"}};
+}
+j::array font_runs_json(const std::vector<TextFontRun>& runs) {
+    j::array result;
+    for(const auto& run:runs) {
+        j::array files,axes,axis_checks,glyphs,scripts;
+        for(const auto& file:run.files)files.push_back(j::object{{"loader_scope",file.loader_scope},{"key_sha256",file.key_sha256},
+            {"key_size",file.key_size},{"local_loader",file.local_loader},{"identity_kind","loader_scoped_reference_key_digest"},
+            {"portable_file_hash",false}});
+        for(const auto& axis:run.axes)axes.push_back(j::object{{"tag",axis.tag},{"value",font_optional(axis.value)},
+            {"minimum",font_optional(axis.minimum)},{"maximum",font_optional(axis.maximum)},{"default",font_optional(axis.default_value)},
+            {"variable",font_optional(axis.variable)}});
+        for(const auto& check:run.axis_checks)axis_checks.push_back(j::object{{"tag",check.tag},{"owner",check.owner},
+            {"requested",check.requested},{"submitted",font_optional(check.submitted)},{"resolved",font_optional(check.resolved)},
+            {"status",check.status}});
+        for(const auto glyph:run.glyph_indices)glyphs.push_back(glyph);
+        j::value advances=nullptr;
+        if(run.glyph_advances){j::array values;for(const auto value:*run.glyph_advances)values.push_back(value);advances=std::move(values);}
+        for(const auto& context:run.script_features) {
+            j::array features;for(const auto& feature:context.features)features.push_back(j::object{{"feature_tag",feature.tag},
+                {"parameter",feature.parameter},{"availability",feature.availability}});
+            scripts.push_back(j::object{{"utf16_start",context.utf16_start},{"utf16_length",context.utf16_length},
+                {"script_id",context.script},{"script_shapes",context.shapes},{"features",std::move(features)}});
+        }
+        result.push_back(j::object{{"utf16_start",font_optional(run.utf16_start)},{"utf16_length",font_optional(run.utf16_length)},
+            {"locale",font_optional(run.locale)},{"resolved_family",font_optional(run.family)},{"resolved_face",font_optional(run.face)},
+            {"face_index",run.face_index},{"simulations",run.simulations},{"bidi_level",run.bidi_level},{"sideways",run.sideways},
+            {"resolved_weight",font_optional(run.resolved_weight)},{"resolved_style",font_optional(run.resolved_style)},
+            {"fallback",font_optional(run.fallback)},{"font_em_size",run.font_em_size},{"em_size_ratio",font_optional(run.em_size_ratio)},
+            {"em_size_ratio_kind","actual_run_em_size_over_layout_em_size_not_mapcharacters_scale"},
+            {"file_references",std::move(files)},{"has_variations",font_optional(run.has_variations)},
+            {"axis_values_known",run.axis_values_known},{"axis_ranges_known",run.axis_ranges_known},{"axes",std::move(axes)},
+            {"axis_checks",std::move(axis_checks)},{"glyph_count",run.glyph_indices.size()},{"glyph_indices",std::move(glyphs)},
+            {"glyph_advances",std::move(advances)},{"missing_glyph_count",run.missing_glyph_count},
+            {"script_features",std::move(scripts)},{"feature_effect","not_established_by_availability_query"},
+            {"warnings",ids_json(run.warnings)}});
+    }
+    return result;
+}
+
 j::object text_layout_json(const Document& d,const Id& id) {
     const auto object=d.objects.find(id);
     if(object==d.objects.end())throw Error("MISSING_OBJECT",id);
@@ -873,7 +927,8 @@ j::object text_layout_json(const Document& d,const Id& id) {
     if(text_source.path_attachment)attachment=text_path_attachment_json(*text_source.path_attachment);
     return {{"object",id},{"weight",text_source.weight},{"x",layout.x},{"y",layout.y},{"width",layout.width},{"height",layout.height},
         {"overflow",layout.overflow},{"glyph_count",layout.glyph_count},{"warnings",ids_json(layout.warnings)},
-        {"used_fonts",ids_json(layout.used_fonts)},{"path_attachment",std::move(attachment)},
+        {"used_fonts",ids_json(layout.used_fonts)},{"font_request",font_request_json(layout.font_request)},
+        {"font_runs",font_runs_json(layout.font_runs)},{"path_attachment",std::move(attachment)},
         {"attachment_status",text_source.path_attachment?"attached":"detached"},{"svg_text","outlined"},{"font_embedded",false}};
 }
 
