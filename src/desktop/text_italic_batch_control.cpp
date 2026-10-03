@@ -57,7 +57,6 @@ QWidget* make_text_italic_batch_controls(Host& host,const std::vector<Id>& targe
     box->setObjectName("text-italic-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-italic-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
-    auto* row=new QHBoxLayout;
     auto* editor=new ItalicChoice(box);editor->setObjectName("text-italic-batch-editor");
     editor->setAccessibleName("Italic for every selected Text object");
     editor->setToolTip("Mixed is a display state. Click or press Space to choose On, then again for Off. Apply sets every captured Text object.");
@@ -65,7 +64,10 @@ QWidget* make_text_italic_batch_controls(Host& host,const std::vector<Id>& targe
     apply->setToolTip("Sets every captured Text target in one Undo step.");apply->setEnabled(false);
     auto* cancel=new QPushButton("Cancel",box);cancel->setObjectName("text-italic-batch-cancel");
     cancel->setToolTip("Discard the italic draft without editing the document.");
-    row->addWidget(editor,1);row->addWidget(apply);row->addWidget(cancel);layout->addLayout(row);
+    // Keep the value usable at narrow Inspector widths; actions have their own row.
+    layout->addWidget(editor);
+    auto* actions=new QHBoxLayout;actions->addStretch(1);
+    actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
     auto* status=new QLabel(box);status->setObjectName("text-italic-batch-status");
     status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 

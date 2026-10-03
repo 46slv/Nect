@@ -158,6 +158,9 @@ QWidget* make_text_string_source_batch_controls(Host& host,const std::vector<Id>
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
     auto* mode=new QComboBox(box);mode->setObjectName("text-string-source-batch-mode");
     mode->setAccessibleName("Link or Unlink every retained Text target");
+    // Long source/action labels stay in the popup instead of widening the panel.
+    mode->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    mode->setMinimumContentsLength(12);
     mode->addItem("Choose source action",QString{});mode->addItem("Link to another Text","link");
     mode->addItem("Unlink sources (freeze each value)","unlink");layout->addWidget(mode);
     auto* search=new QLineEdit(box);search->setObjectName("text-string-source-batch-source-search");
@@ -165,6 +168,9 @@ QWidget* make_text_string_source_batch_controls(Host& host,const std::vector<Id>
     search->setPlaceholderText("Search Text name, ID or property path…");layout->addWidget(search);
     auto* source=new QComboBox(box);source->setObjectName("text-string-source-batch-source");
     source->setAccessibleName("Same-field same-composition Text source");layout->addWidget(source);
+    // Long source/action labels stay in the popup instead of widening the panel.
+    source->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    source->setMinimumContentsLength(12);
     auto* replace=new QCheckBox("Replace existing sources",box);replace->setObjectName("text-string-source-batch-replace-driver");
     replace->setChecked(false);layout->addWidget(replace);
     auto* actions=new QHBoxLayout;

@@ -61,7 +61,6 @@ QWidget* make_text_direction_batch_controls(Host& host,const std::vector<Id>& ta
     box->setObjectName("text-direction-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-direction-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
-    auto* row=new QHBoxLayout;
     auto* editor=new QComboBox(box);editor->setObjectName("text-direction-batch-editor");
     editor->setAccessibleName("Writing direction for every selected Text object");
     editor->addItem("Horizontal","horizontal");editor->addItem("Vertical","vertical");
@@ -71,7 +70,10 @@ QWidget* make_text_direction_batch_controls(Host& host,const std::vector<Id>& ta
     auto* cancel=new QPushButton("Cancel",box);cancel->setObjectName("text-direction-batch-cancel");
     cancel->setToolTip("Discards the direction draft without changing the document or Undo history.");
     cancel->setEnabled(false);
-    row->addWidget(editor,1);row->addWidget(apply);row->addWidget(cancel);layout->addLayout(row);
+    // Keep the value usable at narrow Inspector widths; actions have their own row.
+    layout->addWidget(editor);
+    auto* actions=new QHBoxLayout;actions->addStretch(1);
+    actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
     auto* status=new QLabel(box);status->setObjectName("text-direction-batch-status");
     status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 

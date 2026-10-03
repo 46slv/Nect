@@ -29,6 +29,8 @@
 #include "semantic_enum_control.hpp"
 #include "semantic_color_control.hpp"
 #include "semantic_point_control.hpp"
+#include "viewport_layout.hpp"
+#include "visual_style.hpp"
 #include "artboard_background_control.hpp"
 #include "analysis_contour_control.hpp"
 #include "macro_authoring_control.hpp"
@@ -899,23 +901,15 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     canvas=new Canvas(host.session,this);
     canvas->set_session_identity_provider([this]{return host.session_id;});
     color_tools_=new ColorTools(*this);
-    auto* central=new QWidget(this);auto* central_layout=new QVBoxLayout(central);
-    central_layout->setContentsMargins(0,0,0,0);central_layout->setSpacing(0);
-    utility_scroll_=new QScrollArea(central);utility_scroll_->setObjectName("canvas-utility-scroll");
-    utility_scroll_->setFrameShape(QFrame::NoFrame);utility_scroll_->setWidgetResizable(true);
-    utility_scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);utility_scroll_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    utility_scroll_->setFixedHeight(42);
-    connect(utility_scroll_->horizontalScrollBar(),&QScrollBar::rangeChanged,this,[this](int,int maximum){utility_scroll_->setFixedHeight(maximum>0?58:42);});
-    auto* utility_contents=new QWidget;utility_contents->setObjectName("canvas-utility-strip");
-    utility_layout_=new QHBoxLayout(utility_contents);utility_layout_->setContentsMargins(6,4,6,4);utility_layout_->setSpacing(4);
-    utility_scroll_->setWidget(utility_contents);central_layout->addWidget(utility_scroll_);
-    central_layout->addWidget(canvas,1);setCentralWidget(central);
+    auto* central=new ViewportLayout(canvas,this);
+    utility_scroll_=central->utility_scroll();utility_layout_=central->utility_layout();
+    auto* utility_contents=central->utility_contents();setCentralWidget(central);
     tree_=new QTreeWidget;
     tree_->setHeaderHidden(true);
     tree_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     tree_->setMinimumWidth(180);
     auto* structure=new QDockWidget("Artboards & Objects",this);
-    structure->setObjectName("structure");
+    structure->setObjectName("structure");configure_fixed_panel(structure,Qt::LeftDockWidgetArea);
     auto* navigator=new QWidget;auto* navigation=new QVBoxLayout(navigator);navigation->setContentsMargins(6,6,6,6);
     navigation->addWidget(new QLabel("Artboards · ordered frames"));
     artboards_=new QListWidget;artboards_->setObjectName("artboards");artboards_->setMaximumHeight(150);
@@ -947,13 +941,13 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     });
     addDockWidget(Qt::LeftDockWidgetArea,structure);
     auto* right=new QDockWidget("Properties",this);
-    right->setObjectName("properties");
+    right->setObjectName("properties");configure_fixed_panel(right,Qt::RightDockWidgetArea);
     auto* scroll=new QScrollArea;inspector_scroll_=scroll;scroll->setObjectName("inspector-scroll");
     scroll->setWidgetResizable(true); scroll->setMinimumWidth(300);
     inspector_=new QWidget; scroll->setWidget(inspector_); right->setWidget(scroll);
     addDockWidget(Qt::RightDockWidgetArea,right);
     effects_dock_=new QDockWidget("Effects",this);
-    effects_dock_->setObjectName("effects");
+    effects_dock_->setObjectName("effects");configure_fixed_panel(effects_dock_,Qt::RightDockWidgetArea);
     auto* effects_body=new QWidget(effects_dock_);
     auto* effects_root_layout=new QVBoxLayout(effects_body);
     effects_root_layout->setContentsMargins(8,8,8,8);effects_root_layout->setSpacing(6);
@@ -1421,11 +1415,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     auto style_utility=[](QToolButton* button) {
         button->setMinimumHeight(30);button->setToolButtonStyle(Qt::ToolButtonTextOnly);button->setAutoRaise(false);
         button->setMouseTracking(true);new HoverFeedback(button);
-        button->setStyleSheet("QToolButton{color:#dbe4ee;background:#252d38;border:1px solid #566373;border-radius:4px;padding:4px 8px;}"
-            "QToolButton:hover{background:#354556;border-color:#63cce9;}"
-            "QToolButton:checked{color:#e9fbff;background:#244b5b;border-color:#48c6e9;}"
-            "QToolButton:focus{border:2px solid #f3d17a;}"
-            "QToolButton:disabled{color:#77818d;background:#20252c;border-color:#38414c;}");
+        button->setStyleSheet(utility_button_style_sheet());
     };
     auto sync_button=[](QToolButton* button,const QString& label,const QString& state,const QString& help,bool enabled) {
         const QSignalBlocker blocker(button);button->setText(label+" "+state);button->setAccessibleName(label+" · "+state);
@@ -1438,8 +1428,8 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     // not restore an empty default-action icon on the Snap tool button.
     snap->setIcon(utility_toggle_icon(UtilityToggleGlyph::snap));
     for(auto* button:{utility_guides_,utility_grid_,utility_snap_}) {
-        button->setToolButtonStyle(Qt::ToolButtonIconOnly);button->setIconSize(QSize(20,20));
-        button->setFixedSize(36,32);
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);button->setIconSize(QSize(VisualMetrics::utility_icon_size,VisualMetrics::utility_icon_size));
+        button->setFixedSize(VisualMetrics::utility_toggle_width,VisualMetrics::utility_toggle_height);
         button->setStyleSheet(button->styleSheet()+"QToolButton{padding:4px;}");
     }
     connect(utility_guides_,&QToolButton::toggled,canvas,&Canvas::set_show_guides);
@@ -1449,11 +1439,11 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     connect(fit_button,&QToolButton::clicked,canvas,&Canvas::fit_artboard);utility_layout_->addWidget(fit_button);
     utility_zoom_=new QDoubleSpinBox(utility_contents);utility_zoom_->setObjectName("canvas-zoom-percent");utility_zoom_->setAccessibleName("Canvas zoom percentage");
     utility_zoom_->setRange(2,6400);utility_zoom_->setDecimals(0);utility_zoom_->setSingleStep(10);utility_zoom_->setSuffix("%");
-    utility_zoom_->setKeyboardTracking(false);utility_zoom_->setFixedWidth(92);utility_zoom_->setToolTip("Canvas view zoom · 2% to 6400%. This does not change the document.");
+    utility_zoom_->setKeyboardTracking(false);utility_zoom_->setFixedWidth(VisualMetrics::utility_zoom_width);utility_zoom_->setToolTip("Canvas view zoom · 2% to 6400%. This does not change the document.");
     new HoverFeedback(utility_zoom_);
     utility_layout_->addWidget(utility_zoom_);connect(utility_zoom_,qOverload<double>(&QDoubleSpinBox::valueChanged),this,[this](double percent){canvas->set_zoom(percent/100.0);});
     utility_artboard_=new QLabel(utility_contents);utility_artboard_->setObjectName("canvas-output-readback");
-    utility_artboard_->setAccessibleName("Active Artboard and output dimensions");utility_artboard_->setMinimumWidth(185);utility_artboard_->setMaximumWidth(270);
+    utility_artboard_->setAccessibleName("Active Artboard and output dimensions");utility_artboard_->setMinimumWidth(VisualMetrics::utility_readback_min_width);utility_artboard_->setMaximumWidth(VisualMetrics::utility_readback_max_width);
     utility_artboard_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Preferred);utility_layout_->addWidget(utility_artboard_);
     auto* setup_button=new QToolButton(utility_contents);setup_button->setObjectName("utility-setup");setup_button->setText("Setup…");
     setup_button->setAccessibleName("Open active Artboard Margin, Grid and Guide setup");
@@ -2127,8 +2117,8 @@ void Window::show_layout_setup(QWidget* anchor) {
     auto* dialog=new QDialog(this);utility_setup_dialog_=dialog;
     dialog->setObjectName("utility-setup-popover");dialog->setAccessibleName("Active Artboard layout setup popover");
     dialog->setWindowTitle("Artboard layout setup");dialog->setWindowFlags(Qt::Popup|Qt::FramelessWindowHint);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setStyleSheet("QDialog#utility-setup-popover{background:#202833;border:1px solid #566373;border-radius:6px;color:#dbe4ee;}");
-    auto* outer=new QVBoxLayout(dialog);outer->setContentsMargins(8,8,8,8);outer->setSpacing(6);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setStyleSheet(utility_popover_style_sheet());
+    auto* outer=new QVBoxLayout(dialog);outer->setContentsMargins(VisualMetrics::utility_popover_margin,VisualMetrics::utility_popover_margin,VisualMetrics::utility_popover_margin,VisualMetrics::utility_popover_margin);outer->setSpacing(VisualMetrics::utility_popover_spacing);
     auto* heading=new QHBoxLayout;auto* title=new QLabel("Margin · Grid · Guides",dialog);title->setAccessibleName("Margin, Grid and Guide setup");
     heading->addWidget(title);heading->addStretch();auto* close=new QToolButton(dialog);close->setObjectName("layout-setup-close");close->setText("Close");close->setAccessibleName("Close layout setup and cancel any draft");
     new HoverFeedback(close);heading->addWidget(close);outer->addLayout(heading);
@@ -2145,9 +2135,11 @@ void Window::show_layout_setup(QWidget* anchor) {
     const auto popup_width=std::min(480,std::max(1,available.width()-16));
     const auto popup_height=std::min(700,std::max(1,available.height()-24));
     dialog->setMinimumSize(0,0);dialog->resize(popup_width,popup_height);
-    QPoint position=anchor?anchor->mapToGlobal(QPoint(0,anchor->height()+2)):QPoint(available.left()+24,available.top()+24);
-    position.setX(std::clamp(position.x(),available.left(),std::max(available.left(),available.right()-dialog->width()+1)));
-    position.setY(std::clamp(position.y(),available.top(),std::max(available.top(),available.bottom()-dialog->height()+1)));
+    const QRect anchor_rect=anchor?QRect(anchor->mapToGlobal(QPoint(0,0)),anchor->size()):
+        QRect(available.topLeft()+QPoint(24,24),QSize(1,1));
+    const auto* viewport=dynamic_cast<ViewportLayout*>(centralWidget());
+    const auto position=anchored_popup_position(anchor_rect,dialog->size(),available,
+        viewport&&viewport->utility_placement()==UtilityPlacement::bottom);
     dialog->move(position);dialog->show();
 }
 
@@ -4605,17 +4597,21 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
     QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
     for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
-    const auto scroll=context==inspector_context_?inspector_scroll_->verticalScrollBar()->value():0;
-    inspector_context_=context;
+    // Preserve a queued context reset across back-to-back selection and host refreshes.
+    const auto scroll=context==inspector_context_?
+        inspector_pending_scroll_.value_or(inspector_scroll_->verticalScrollBar()->value()):0;
+    inspector_context_=context;inspector_pending_scroll_=scroll;
+    const auto generation=++inspector_scroll_generation_;
     // Qt may scroll to a disappearing focused field while the new form lays out.
     // Restore the previous viewport only for the same editing context.
-    const auto restore_scroll=[this,context,scroll]{QTimer::singleShot(0,this,[this,context,scroll]{
-        if(inspector_context_!=context)return;
+    const auto restore_scroll=[this,context,scroll,generation]{QTimer::singleShot(0,this,[this,context,scroll,generation]{
+        if(inspector_context_!=context||inspector_scroll_generation_!=generation)return;
         if(auto* current_layout=inspector_->layout()) {
             current_layout->activate();
             inspector_->updateGeometry();
         }
         inspector_scroll_->verticalScrollBar()->setValue(scroll);
+        inspector_pending_scroll_.reset();
     });};
     // Avoid deleting a focused field synchronously from its editingFinished signal.
     if(auto* old=inspector_->layout()) {
@@ -7170,6 +7166,12 @@ void Window::add_text() {
     source.parameters.at("origin_y").literal=board.y+board.height*.2;
     const auto id=new_id();host.session.apply({CreateText{comp.id,"",id,"Text "+std::to_string(host.session.document().objects.size()+1),source}},host.session.revision());
     canvas->set_selection(id);host.edited();canvas->setFocus();
+    const auto session=host.session_id;
+    QTimer::singleShot(0,this,[this,id,session] {
+        if(host.session_id!=session||canvas->selected_object!=id)return;
+        if(auto* edit=inspector_->findChild<QPushButton*>("edit-text-content"))
+            inspector_scroll_->ensureWidgetVisible(edit,0,20);
+    });
 }
 void Window::add_stack(QVBoxLayout* layout,const Object& object) {
     auto* heading=new QWidget;
@@ -7464,11 +7466,16 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     // Qt consumes editingFinished on the deferred Reset blur. A cancelled gesture keeps a pending draft.
                     if(previous==editor)finish_amount();
                 });
-                auto* amount_row=new QWidget(group);auto* amount_layout=new QHBoxLayout(amount_row);
-                amount_layout->setContentsMargins(0,0,0,0);amount_layout->addWidget(editor);
+                auto* amount_row=new QWidget(group);auto* amount_column=new QVBoxLayout(amount_row);
+                amount_column->setContentsMargins(0,0,0,0);amount_column->setSpacing(4);
+                auto* amount_layout=new QHBoxLayout;amount_layout->setContentsMargins(0,0,0,0);
+                amount_column->addLayout(amount_layout);
+                editor->setMinimumWidth(72);editor->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
+                amount_layout->addWidget(editor);
                 add_semantic_scrub(amount_layout,editor,{amount_ref},metadata,true);
                 if(reset) {
-                    reset->setToolTip("Restore the value published by the pinned Macro revision.");amount_layout->addWidget(reset);
+                    auto* reset_row=new QHBoxLayout;reset_row->setContentsMargins(0,0,0,0);reset_row->addStretch();
+                    reset->setToolTip("Restore the value published by the pinned Macro revision.");reset_row->addWidget(reset);amount_column->addLayout(reset_row);
                     connect(reset,&QPushButton::clicked,this,[this,editor,id=object.id,instance=operation.id,parameter_id,
                         frozen_macro_session,frozen_macro_revision]{
                         editor->setModified(false);
@@ -7480,7 +7487,9 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                         });
                     });
                 }
-                form->addRow(qs(parameter->label)+" · "+qs(parameter->unit),amount_row);
+                auto* published_label=new QLabel(qs(parameter->label)+" · "+qs(parameter->unit),group);
+                published_label->setTextFormat(Qt::PlainText);published_label->setWordWrap(true);
+                form->addRow(published_label,amount_row);
             }
             if(macro_revision.public_parameters.empty()) {
                 auto* no_parameters=new QLabel("This pinned Macro revision has no published controls.",group);

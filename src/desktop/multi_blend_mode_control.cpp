@@ -71,7 +71,6 @@ QWidget* make_multi_blend_mode_controls(Host& host,const std::vector<Id>& target
     box->setObjectName("multi-blend-mode-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("multi-blend-mode-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
-    auto* row=new QHBoxLayout;
     auto* selector=new QComboBox(box);selector->setObjectName("multi-blend-mode-selector");
     selector->setAccessibleName("Blend mode for every selected object");
     selector->setToolTip("Select a supported blend mode, then Apply. Each object's isolation, opacity and mask stay unchanged.");
@@ -83,7 +82,10 @@ QWidget* make_multi_blend_mode_controls(Host& host,const std::vector<Id>& target
     apply->setToolTip("Sets every retained object's blend mode in one Undo step.");apply->setEnabled(false);
     auto* cancel=new QPushButton("Cancel",box);cancel->setObjectName("multi-blend-mode-cancel");
     cancel->setToolTip("Discard the blend draft without editing the document.");cancel->setEnabled(false);
-    row->addWidget(selector,1);row->addWidget(apply);row->addWidget(cancel);layout->addLayout(row);
+    // Keep the value usable at narrow Inspector widths; actions have their own row.
+    layout->addWidget(selector);
+    auto* actions=new QHBoxLayout;actions->addStretch(1);
+    actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
     auto* status=new QLabel(box);status->setObjectName("multi-blend-mode-status");
     status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 

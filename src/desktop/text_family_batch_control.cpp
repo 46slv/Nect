@@ -49,10 +49,12 @@ QWidget* make_text_family_batch_controls(Host& host,const std::vector<Id>& targe
     box->setObjectName("text-family-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-family-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
-    auto* row=new QHBoxLayout;
     auto* editor=new QComboBox(box);editor->setObjectName("text-family-batch-editor");
     editor->setAccessibleName("Font family for every selected Text object");
     editor->setEditable(true);
+    // Installed font names must not determine the Inspector's minimum width.
+    editor->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    editor->setMinimumContentsLength(12);
     editor->setInsertPolicy(QComboBox::NoInsert);
     try{for(const auto& name:text_fonts())editor->addItem(QString::fromStdString(name));}catch(const std::exception&){}
     editor->setCurrentIndex(-1);
@@ -60,7 +62,10 @@ QWidget* make_text_family_batch_controls(Host& host,const std::vector<Id>& targe
     auto* apply=new QPushButton("Apply",box);apply->setObjectName("text-family-batch-apply");
     apply->setToolTip("Sets every retained Text target in one Undo step.");apply->setEnabled(false);
     auto* cancel=new QPushButton("Cancel",box);cancel->setObjectName("text-family-batch-cancel");
-    row->addWidget(editor,1);row->addWidget(apply);row->addWidget(cancel);layout->addLayout(row);
+    // Keep the value usable at narrow Inspector widths; actions have their own row.
+    layout->addWidget(editor);
+    auto* actions=new QHBoxLayout;actions->addStretch(1);
+    actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
     auto* status=new QLabel(box);status->setObjectName("text-family-batch-status");
     status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 

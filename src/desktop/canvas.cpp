@@ -90,7 +90,9 @@ void posterize_premultiplied_srgb(QImage& image,unsigned levels) {
 } // namespace
 
 Canvas::Canvas(Session& session, QWidget* parent) : QWidget(parent), session_(session) {
-    setMinimumSize(640, 480);
+    // Let the parent allocate the actual visible viewport, including narrow
+    // center regions between panels. A hard minimum here can exceed that region
+    // and make Fit measure pixels that the parent clips away.
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
     setAttribute(Qt::WA_OpaquePaintEvent);

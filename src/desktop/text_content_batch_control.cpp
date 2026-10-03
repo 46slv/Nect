@@ -47,7 +47,6 @@ QWidget* make_text_content_batch_controls(Host& host,const std::vector<Id>& targ
     box->setObjectName("text-content-literal-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-content-literal-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
-    auto* row=new QHBoxLayout;
     auto* editor=new QPlainTextEdit(box);editor->setObjectName("text-content-literal-editor");
     editor->setMaximumHeight(140);editor->setAccessibleName("Literal content for every selected Text object");
     editor->setToolTip("Enter literal text, then Apply to every retained Text object. Other Text properties remain unchanged.");
@@ -55,7 +54,10 @@ QWidget* make_text_content_batch_controls(Host& host,const std::vector<Id>& targ
     apply->setToolTip("Sets every retained Text content in one Undo step.");apply->setEnabled(false);
     auto* cancel=new QPushButton("Cancel",box);cancel->setObjectName("text-content-literal-cancel");
     cancel->setToolTip("Discard the content draft without editing the document.");cancel->setEnabled(false);
-    row->addWidget(editor,1);row->addWidget(apply);row->addWidget(cancel);layout->addLayout(row);
+    // Keep the value usable at narrow Inspector widths; actions have their own row.
+    layout->addWidget(editor);
+    auto* actions=new QHBoxLayout;actions->addStretch(1);
+    actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
     auto* clear=new QPushButton("Clear draft",box);clear->setObjectName("text-content-literal-clear");
     clear->setToolTip("Stage empty text for every selected Text object; Apply commits it.");layout->addWidget(clear);
     auto* status=new QLabel(box);status->setObjectName("text-content-literal-status");

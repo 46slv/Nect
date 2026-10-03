@@ -106,6 +106,8 @@ private:
     std::map<Ref,double> inspector_values_;
     QString tree_signature_;
     QString inspector_context_;
+    std::optional<int> inspector_pending_scroll_;
+    std::uint64_t inspector_scroll_generation_=0;
     struct ExpressionDraft {
         QString session,source;
         std::uint64_t revision=0;

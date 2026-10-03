@@ -161,6 +161,9 @@ QWidget* make_multi_fill_rule_controls(Host& host,const std::vector<MultiFillRul
     state->setWordWrap(true);layout->addWidget(state);
     auto* mode=new QComboBox(box);mode->setObjectName("multi-fill-rule-mode");mode->addItem("Edit literal","edit");
     mode->setAccessibleName("Fill rule edit mode for every retained Fill target");layout->addWidget(mode);
+    // Long source/action labels stay in the popup instead of widening the panel.
+    mode->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    mode->setMinimumContentsLength(12);
     auto* value=new QComboBox(box);value->setObjectName("multi-fill-rule-value");
     value->setAccessibleName("Fill rule for every retained Fill target");
     value->addItem("Nonzero winding","nonzero");value->addItem("Even-odd","evenodd");layout->addWidget(value);
@@ -168,6 +171,9 @@ QWidget* make_multi_fill_rule_controls(Host& host,const std::vector<MultiFillRul
     search->setPlaceholderText("Search object ID, Fill ID or property path");layout->addWidget(search);
     auto* source=new QComboBox(box);source->setObjectName("multi-fill-rule-source");
     source->setAccessibleName("Same-composition Fill rule source");layout->addWidget(source);
+    // Long source/action labels stay in the popup instead of widening the panel.
+    source->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    source->setMinimumContentsLength(12);
     auto* replace=new QCheckBox("Replace existing drivers",box);replace->setObjectName("multi-fill-rule-replace-driver");
     layout->addWidget(replace);
     auto* actions=new QHBoxLayout;

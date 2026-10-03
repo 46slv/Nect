@@ -68,7 +68,6 @@ QWidget* make_operation_enabled_batch_controls(Host& host,
     box->setObjectName("operation-enabled-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("operation-enabled-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
-    auto* row=new QHBoxLayout;
     auto* editor=new QComboBox(box);editor->setObjectName("operation-enabled-batch-editor");
     editor->setAccessibleName("Enable or bypass every captured built-in operation");
     editor->addItem("Enable","enable");editor->addItem("Bypass","bypass");
@@ -77,7 +76,10 @@ QWidget* make_operation_enabled_batch_controls(Host& host,
     apply->setToolTip("Sets all captured operations in one Undo step.");apply->setEnabled(false);
     auto* cancel=new QPushButton("Cancel",box);cancel->setObjectName("operation-enabled-batch-cancel");
     cancel->setToolTip("Discard the enabled draft without editing the document.");
-    row->addWidget(editor,1);row->addWidget(apply);row->addWidget(cancel);layout->addLayout(row);
+    // Keep the value usable at narrow Inspector widths; actions have their own row.
+    layout->addWidget(editor);
+    auto* actions=new QHBoxLayout;actions->addStretch(1);
+    actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
     auto* status=new QLabel(box);status->setObjectName("operation-enabled-batch-status");
     status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 

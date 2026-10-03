@@ -44,7 +44,6 @@ QWidget* make_multi_visibility_controls(Host& host,const std::vector<Id>& target
     box->setObjectName("multi-visibility-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("multi-visibility-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
-    auto* row=new QHBoxLayout;
     auto* editor=new QComboBox(box);editor->setObjectName("multi-visibility-editor");
     editor->setAccessibleName("Own visibility for every selected object");
     editor->addItem("Show","show");editor->addItem("Hide","hide");
@@ -53,7 +52,10 @@ QWidget* make_multi_visibility_controls(Host& host,const std::vector<Id>& target
     apply->setToolTip("Sets every captured object's own visibility in one Undo step.");apply->setEnabled(false);
     auto* cancel=new QPushButton("Cancel",box);cancel->setObjectName("multi-visibility-cancel");
     cancel->setToolTip("Discard the visibility draft without changing the document or Undo history.");cancel->setEnabled(false);
-    row->addWidget(editor,1);row->addWidget(apply);row->addWidget(cancel);layout->addLayout(row);
+    // Keep the value usable at narrow Inspector widths; actions have their own row.
+    layout->addWidget(editor);
+    auto* actions=new QHBoxLayout;actions->addStretch(1);
+    actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
     auto* note=new QLabel("Own visibility only. Hidden ancestors still apply.",box);
     note->setWordWrap(true);layout->addWidget(note);
     auto* status=new QLabel(box);status->setObjectName("multi-visibility-status");

@@ -88,7 +88,6 @@ QWidget* make_composite_isolation_batch_controls(Host& host,const std::vector<Id
     box->setObjectName("composite-isolation-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("composite-isolation-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
-    auto* row=new QHBoxLayout;
     auto* editor=new IsolationChoice(box);editor->setObjectName("composite-isolation-batch-editor");
     editor->setAccessibleName("Isolate every selected object from backdrop");
     editor->setToolTip("Shared/Mixed describes evaluated isolation. Click or press Space to choose On or Off, then Apply to every retained object.");
@@ -96,7 +95,10 @@ QWidget* make_composite_isolation_batch_controls(Host& host,const std::vector<Id
     apply->setToolTip("Changes only isolation on every retained object in one Undo step.");apply->setEnabled(false);
     auto* cancel=new QPushButton("Cancel",box);cancel->setObjectName("composite-isolation-batch-cancel");
     cancel->setToolTip("Discard the isolation draft without editing the document.");cancel->setEnabled(false);
-    row->addWidget(editor,1);row->addWidget(apply);row->addWidget(cancel);layout->addLayout(row);
+    // Keep the value usable at narrow Inspector widths; actions have their own row.
+    layout->addWidget(editor);
+    auto* actions=new QHBoxLayout;actions->addStretch(1);
+    actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
     auto* source_note=new QLabel(box);source_note->setObjectName("composite-isolation-batch-sources");
     source_note->setTextFormat(Qt::PlainText);source_note->setWordWrap(true);layout->addWidget(source_note);
     auto* unlink=new QPushButton("Unlink sources",box);unlink->setObjectName("composite-isolation-batch-unlink");
