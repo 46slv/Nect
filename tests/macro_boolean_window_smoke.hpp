@@ -171,7 +171,12 @@ inline int run_api(){checks=0;Session session(fixture());api_mutations(session,c
 
 namespace macro_boolean_window_smoke {
 using namespace nect::desktop;
-inline void events(){QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);}
+inline void events(){
+    QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    // Queued Macro callbacks rebuild the Inspector during the first event pass.
+    // Settle layout/show events for the new controls before checking visibility.
+    QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+}
 inline QByteArray reference(const Ref& ref){return QJsonDocument(QJsonObject{{"object",QString::fromStdString(ref.object)},
     {"point",QString::fromStdString(ref.point)},{"field",QString::fromStdString(ref.field)}}).toJson(QJsonDocument::Compact);}
 template<class T>inline T* visible(Window& window,const QString& name){
