@@ -38,16 +38,37 @@ double opacity(QString text) {
     return std::clamp(scalar(text)/(percent?100:1),0.0,1.0);
 }
 std::array<double,4> paint_color(const QString& text) {
+    if(text.compare("transparent",Qt::CaseInsensitive)==0)return {0,0,0,0};
     if(text.contains('(')) {
         const auto open=text.indexOf('(');const auto name=text.left(open);
         need((name.compare("rgb",Qt::CaseInsensitive)==0||name.compare("rgba",Qt::CaseInsensitive)==0)&&text.endsWith(')'),
-            "SVG_UNSUPPORTED","Only numeric comma-separated rgb/rgba colors supported");
+            "SVG_UNSUPPORTED","Only numeric rgb/rgba colors supported");
         const auto body=text.mid(open+1,text.size()-open-2);const auto commas=body.count(',');
+        if(commas==0) {
+            // Modern RGB allows independent number/percentage channels, CSS
+            // whitespace separators and optional slash alpha (CSS Color 4 5.1).
+            // Intake accepts only finite components within their reference ranges.
+            qsizetype at=0;std::array<double,4> result{0,0,0,1};
+            auto space=[&]() {const auto start=at;while(at<body.size()&&(body[at]==' '||body[at]=='\t'||body[at]=='\n'||body[at]=='\r'||body[at]=='\f'))++at;return at>start;};
+            auto component=[&](qsizetype i) {
+                static const QRegularExpression token(R"(([+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(%?))");
+                const auto match=token.match(body,at,QRegularExpression::NormalMatch,QRegularExpression::AnchorAtOffsetMatchOption);
+                need(match.hasMatch(),"SVG_UNSUPPORTED","Expected a numeric modern RGB component");at=match.capturedEnd();
+                bool ok=false;const auto value=match.captured(1).toDouble(&ok);const auto maximum=!match.captured(2).isEmpty()?100.0:i<3?255.0:1.0;
+                need(ok&&std::isfinite(value)&&value>=0&&value<=maximum,"SVG_RANGE","Modern RGB component outside supported range");
+                result[i]=value/maximum;
+            };
+            space();for(qsizetype i=0;i<3;++i) {if(i>0)need(space(),"SVG_UNSUPPORTED","Modern RGB channels require whitespace separators");component(i);}
+            space();if(at<body.size()) {
+                need(body[at++]=='/',"SVG_UNSUPPORTED","Modern RGB alpha requires a slash");space();component(3);space();
+            }
+            need(at==body.size(),"SVG_UNSUPPORTED","Unexpected modern RGB color content");return result;
+        }
         need(commas==2||commas==3,"SVG_UNSUPPORTED","RGB colors require three channels and optional alpha");
         const auto parts=body.split(',');std::array<double,4> result{0,0,0,1};bool rgb_percent=false;
         // CSS number tokens differ from compact SVG path numbers: no adjacent
         // signs, trailing decimal point, units, expressions or missing channels.
-        // This deliberately supports legacy RGB syntax only (CSS Color 4 5.1).
+        // Legacy comma syntax retains its qualified CSS clamping behavior.
         static const QRegularExpression token(R"(\A[ \t\n\r\f]*([+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(%?)[ \t\n\r\f]*\z)");
         for(qsizetype i=0;i<parts.size();++i) {
             const auto match=token.match(parts[i]);need(match.hasMatch(),"SVG_UNSUPPORTED","Expected a numeric RGB color component");
