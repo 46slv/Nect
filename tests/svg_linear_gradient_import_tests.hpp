@@ -67,7 +67,7 @@ inline void run() {
         fixture(definition(stops(),"gradientTransform=\"matrix(1 0 0 1 0 0)\"")),fixture(definition(stops(),"spreadMethod=\"repeat\"")),fixture(definition(stops(),"color-interpolation=\"linearRGB\"")),fixture(definition(stops(),"href=\"#paint\"")),
         fixture("<radialGradient id=\"paint\"/>"),fixture(definition(),"url(https://example.invalid/paint.svg#paint)"),fixture(definition(),"url(#missing)"),fixture(definition()+definition()),
         fixture(definition(R"svg(<stop offset=".5"/><stop offset=".5"/>)svg")),fixture(definition(R"svg(<stop offset=".8"/><stop offset=".2"/>)svg")),fixture(definition(R"svg(<stop offset="0"/><stop offset="1.1"/>)svg")),fixture(definition("<stop offset=\"0\"/>")),
-        fixture("<linearGradient id=\"paint\" gradientUnits=\"objectBoundingBox\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\">"+stops()+"</linearGradient>"),
+        fixture("<linearGradient id=\"paint\" gradientUnits=\"objectBoundingBox\" x1=\"0px\" y1=\"0\" x2=\"1\" y2=\"0\">"+stops()+"</linearGradient>"),
         fixture("<linearGradient id=\"paint\" gradientUnits=\"userSpaceOnUse\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"0\">"+stops()+"</linearGradient>")
     };
     auto many=[](int n){std::string body;for(int i=0;i<n;++i)body+="<stop offset=\""+std::to_string(i)+"%\"/>";return body;};

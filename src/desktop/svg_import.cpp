@@ -293,7 +293,9 @@ Style style(Attributes& a,Style s,double& alpha,Affine& matrix) {
 }
 class Reader {
     QXmlStreamReader xml;Id composition,prefix;std::string name;std::size_t nodes=0,parsed_points=0;double x,y;
-    std::map<QString,Gradient> gradients;std::map<QString,std::size_t> source_ids;
+    struct GradientDefinition {Gradient gradient;bool bounding_box=false;};
+    std::map<QString,GradientDefinition> gradients;std::map<QString,std::size_t> source_ids;
+    Document geometry;std::set<Id> arc_paths;
     struct GradientUse {Id object,operation;QString source;};std::vector<GradientUse> gradient_uses;
     Id fresh(){need(++nodes<=128,"SVG_LIMIT","SVG element limit128");return prefix+"-n"+std::to_string(nodes);}
     void append(Command command) {
@@ -333,7 +335,9 @@ class Reader {
         need(a.contains("id")&&QRegularExpression(R"(\A[A-Za-z0-9_.:-]{1,128}\z)").match(a.at("id")).hasMatch(),"SVG_UNSUPPORTED","Gradient requires a bounded internal ID");
         const auto source=a.at("id");++source_ids[source];a.erase("id");
         need(!gradients.contains(source)&&gradients.size()<128,"SVG_UNSUPPORTED","Duplicate or excessive gradient definitions");
-        need(a.contains("gradientUnits")&&a.at("gradientUnits")=="userSpaceOnUse","SVG_UNSUPPORTED","Only explicit userSpaceOnUse gradients supported");a.erase("gradientUnits");
+        const auto units=a.contains("gradientUnits")?a.at("gradientUnits"):QString("objectBoundingBox");a.erase("gradientUnits");
+        const bool bounding_box=units=="objectBoundingBox";
+        need(units=="userSpaceOnUse"||(!radial&&bounding_box),"SVG_UNSUPPORTED","Only linear objectBoundingBox or explicit userSpaceOnUse gradients supported");
         if(a.contains("spreadMethod")){need(a.at("spreadMethod")=="pad","SVG_UNSUPPORTED","Only pad gradient spread supported");a.erase("spreadMethod");}
         if(a.contains("color-interpolation")){need(a.at("color-interpolation")=="sRGB","SVG_UNSUPPORTED","Only sRGB gradient interpolation supported");a.erase("color-interpolation");}
         Gradient gradient;
@@ -347,8 +351,13 @@ class Reader {
             need(std::abs(gradient.end_x.literal)<=1e7&&retained_radius>1e-9&&std::abs(retained_radius-radius)<=radius*1e-12,
                 "SVG_RANGE","Radial radius endpoint exceeds range or loses supported precision");
         } else {
-            gradient.start_x.literal=coordinate("x1");gradient.start_y.literal=coordinate("y1");gradient.end_x.literal=coordinate("x2");gradient.end_y.literal=coordinate("y2");
-            need(std::hypot(gradient.end_x.literal-gradient.start_x.literal,gradient.end_y.literal-gradient.start_y.literal)>1e-9,"SVG_UNSUPPORTED","Degenerate linear gradient unsupported by native paint");
+            auto fraction=[&](const QString& key,double fallback) {
+                if(!a.contains(key))return fallback;auto text=a.at(key).trimmed();a.erase(key);const bool percent=text.endsWith('%');if(percent)text.chop(1);
+                return scalar(text)/(percent?100.0:1.0);
+            };
+            gradient.start_x.literal=bounding_box?fraction("x1",0):coordinate("x1");gradient.start_y.literal=bounding_box?fraction("y1",0):coordinate("y1");
+            gradient.end_x.literal=bounding_box?fraction("x2",1):coordinate("x2");gradient.end_y.literal=bounding_box?fraction("y2",0):coordinate("y2");
+            need(std::hypot(gradient.end_x.literal-gradient.start_x.literal,gradient.end_y.literal-gradient.start_y.literal)>(bounding_box?0:1e-9),"SVG_UNSUPPORTED","Degenerate linear gradient unsupported by native paint");
         }
         need(a.empty(),"SVG_UNSUPPORTED","Gradient focal attributes, transforms, inheritance and other attributes unsupported");
         while(true) {
@@ -367,7 +376,7 @@ class Reader {
                 gradient.stops.push_back(std::move(stop));empty_gradient_content();
             } else need(xml.isComment()||(xml.isCharacters()&&xml.isWhitespace()),"SVG_UNSUPPORTED","Unexpected gradient content");
         }
-        need(gradient.stops.size()>=2,"SVG_UNSUPPORTED","Native editable gradients require at least two stops");gradients.emplace(source,std::move(gradient));
+        need(gradient.stops.size()>=2,"SVG_UNSUPPORTED","Native editable gradients require at least two stops");gradients.emplace(source,GradientDefinition{std::move(gradient),bounding_box});
     }
     void definitions(unsigned depth) {
         need(depth<=32,"SVG_LIMIT","SVG nesting limit32");svg_namespace();need(xml.attributes().empty(),"SVG_UNSUPPORTED","Defs attributes unsupported");
@@ -378,9 +387,32 @@ class Reader {
     }
     void resolve_gradients() {
         for(const auto& [source,gradient]:gradients) {(void)gradient;need(source_ids.at(source)==1,"SVG_UNSUPPORTED","Ambiguous duplicate gradient source ID");}
+        std::map<Id,Bounds> boxes;std::optional<std::map<Ref,double>> geometry_values;
         for(const auto& use:gradient_uses) {
             const auto found=gradients.find(use.source);need(found!=gradients.end(),"SVG_UNSUPPORTED","Missing internal gradient definition");
-            auto gradient=found->second;gradient.id=use.operation+"-gradient";
+            auto gradient=found->second.gradient;gradient.id=use.operation+"-gradient";
+            if(found->second.bounding_box) {
+                need(!arc_paths.contains(use.object),"SVG_UNSUPPORTED","ObjectBoundingBox gradients on approximated SVG arc paths unsupported");
+                if(!boxes.contains(use.object)) {
+                    if(!geometry_values)geometry_values=evaluate(geometry);
+                    const auto box=object_bounds(geometry,use.object,*geometry_values,{{use.object,EvaluatedTransform{}}},false,true);
+                    need(box.has_value()&&box->right>box->left&&box->bottom>box->top,"SVG_UNSUPPORTED","ObjectBoundingBox gradient requires nonempty positive local geometry bounds");boxes.emplace(use.object,*box);
+                }
+                const auto& box=boxes.at(use.object);const auto width=box.right-box.left,height=box.bottom-box.top;
+                const auto dx=gradient.end_x.literal-gradient.start_x.literal,dy=gradient.end_y.literal-gradient.start_y.literal,length=std::hypot(dx,dy);
+                // Preserve the SVG color planes under nonuniform bbox scaling.
+                // Simply scaling both endpoints is wrong for a diagonal vector.
+                const auto qx=(dx/length)/width,qy=(dy/length)/height,qnorm=std::hypot(qx,qy),span=length/qnorm;
+                need(std::isfinite(qnorm)&&qnorm>0&&std::isfinite(span)&&span>1e-9,"SVG_RANGE","ObjectBoundingBox gradient projection exceeds supported range");
+                const auto ex=(qx/qnorm)*span,ey=(qy/qnorm)*span;
+                gradient.start_x.literal=box.left+gradient.start_x.literal*width;gradient.start_y.literal=box.top+gradient.start_y.literal*height;
+                gradient.end_x.literal=gradient.start_x.literal+ex;gradient.end_y.literal=gradient.start_y.literal+ey;
+                for(const auto value:{gradient.start_x.literal,gradient.start_y.literal,gradient.end_x.literal,gradient.end_y.literal})
+                    need(std::isfinite(value)&&std::abs(value)<=1e7,"SVG_RANGE","Resolved gradient endpoint exceeds supported range");
+                need(std::hypot(gradient.end_x.literal-gradient.start_x.literal,gradient.end_y.literal-gradient.start_y.literal)>1e-9&&
+                    std::hypot((gradient.end_x.literal-gradient.start_x.literal)-ex,(gradient.end_y.literal-gradient.start_y.literal)-ey)<=span*1e-12,
+                    "SVG_RANGE","ObjectBoundingBox gradient loses supported endpoint precision");
+            }
             for(std::size_t i=0;i<gradient.stops.size();++i)gradient.stops[i].id=gradient.id+"-s"+std::to_string(i);
             append(SetGradient{use.object,use.operation,std::move(gradient)});
         }
@@ -405,9 +437,10 @@ class Reader {
         const bool drawable=tag!="svg"&&tag!="g";
         if(drawable) {
             std::vector<Contour> contours;
-            if(tag=="path"){need(a.contains("d"),"SVG_SYNTAX","Path requires d");contours=path(a.at("d"),id,parsed_points);a.erase("d");}
+            if(tag=="path"){need(a.contains("d"),"SVG_SYNTAX","Path requires d");if(a.at("d").contains(QRegularExpression("[Aa]")))arc_paths.insert(id);contours=path(a.at("d"),id,parsed_points);a.erase("d");}
             else contours=shape(tag,a,id,parsed_points);
             for(const auto& c:contours)plan.points+=c.points.size();
+            Object source;source.id=id;source.contours=contours;geometry.objects.emplace(id,std::move(source));
             append(CreatePath{composition,"",id,label,std::move(contours)});paint(id,inherited_style);++plan.paths;
         }
         need(a.empty(),"SVG_UNSUPPORTED",a.empty()?"":"Unsupported SVG attribute: "+a.begin()->first.toStdString());

@@ -38,6 +38,11 @@ Supported subset:
   cx/cy/r (radial), pad spread and sRGB interpolation. This covers the native
   gradient exporter subset and forward references. Radial focal attributes
   fx/fy/fr must be omitted, retaining the centered, zero focal-radius defaults.
+- Linear `objectBoundingBox` gradients, including omitted gradientUnits and the
+  SVG default vector (0,0) to (1,0). Coordinates accept finite unitless fractions
+  or percentages, including fractions outside [0,1]; px/other units refuse.
+  Each paint uses its target's local geometric box, including cubic extrema and
+  zero-length subpaths, excluding stroke width and ancestor/object transforms.
 
 Color functions accept legacy comma-separated RGB channels with matching numeric
 or percentage units and optional alpha, or modern whitespace-separated channels
@@ -76,14 +81,27 @@ the canonical endpoint must remain within the 1e7 coordinate bound and preserve
 radius to relative error at most 1e-12, otherwise intake refuses.
 See [SVG paint servers](https://www.w3.org/TR/SVG2/pservers.html).
 
+Bbox linear gradients become editable local native endpoint literals; changes to
+the geometry box no longer automatically remap them. On a non-square box, the
+conversion preserves gradient color planes using the inverse scale of the vector
+normal, rather than simply scaling both endpoints. The native end can therefore
+differ from the mapped SVG end while preserving the same linear paint function.
+Shared definitions still clone per paint, with each target resolved separately.
+Bounds use the existing cubic-extrema geometry API. Empty/zero-width/zero-height
+boxes, bbox radial gradients and bbox use on SVG arc paths explicitly refuse;
+arc lowering is approximate and cannot supply the exact source arc box here.
+Converted endpoints retain the 1e7 bound and 1e-12 relative vector precision.
+See [SVG object bounds](https://www.w3.org/TR/SVG2/coords.html#BoundingBoxes)
+and [bbox units](https://www.w3.org/TR/SVG2/coords.html#ObjectBoundingBox).
+
 Unsupported semantics reject the entire import:
-text/images, objectBoundingBox gradients, explicit radial focal attributes,
+text/images, objectBoundingBox radial gradients, explicit radial focal attributes,
 gradient transforms/inheritance,
 repeat/reflect spread, alternate interpolation, patterns, external paint URLs,
 use/links, masks/clips/filters, CSS stylesheets,
 classes, variables, dashes, `initial`/`unset`/`revert`, `!important`, miter-clip,
 unknown attributes/elements,
-physical/percentage lengths, other aspect policies and foreign namespaces.
+physical/percentage geometry or userSpaceOnUse lengths, other aspect policies and foreign namespaces.
 DTD, entity references, processing instructions, scripts and external resources
 never execute or fetch. XML declaration/comments and predefined XML escapes are
 ordinary parsing, not an extension mechanism.
