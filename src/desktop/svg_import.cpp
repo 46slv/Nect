@@ -103,6 +103,11 @@ std::array<double,4> paint_color(const QString& text) {
     const QColor value(text);need(value.isValid()&&value.alpha()==255,"SVG_UNSUPPORTED","Only named/HEX or numeric RGB sRGB colors supported");
     return {value.redF(),value.greenF(),value.blueF(),1};
 }
+std::array<double,4> resolved_color(const QString& text,const std::array<double,4>& inherited) {
+    const auto value=text.trimmed();
+    if(value.compare("currentColor",Qt::CaseInsensitive)==0||value.compare("inherit",Qt::CaseInsensitive)==0)return inherited;
+    return paint_color(value);
+}
 Affine transform(QString text) {
     Numbers n(text);Affine result=identity;
     while(!n.end()) {
@@ -201,6 +206,7 @@ std::vector<Contour> path(QString text,const Id& id,std::size_t& total) {
 }
 struct Style {
     QString fill="black",stroke="none",rule="nonzero";
+    std::array<double,4> color{0,0,0,1};
     QString line_cap="butt",line_join="miter";
     double fill_alpha=1,stroke_alpha=1,width=1,miter_limit=4;
 };
@@ -246,12 +252,15 @@ Attributes attributes(const QXmlStreamReader& xml) {
     if(const auto style=result.find("style");style!=result.end()) {
         for(const auto& part:style->second.split(';',Qt::SkipEmptyParts)) {
             const auto colon=part.indexOf(':');need(colon>0&&part.indexOf(':',colon+1)<0,"SVG_UNSUPPORTED","Unsupported inline style");
-            const auto key=part.left(colon).trimmed();need(std::set<QString>{"fill","stroke","fill-opacity","stroke-opacity","stroke-width","fill-rule","opacity","stroke-linecap","stroke-linejoin","stroke-miterlimit"}.contains(key),"SVG_UNSUPPORTED","Unsupported style property: "+key.toStdString());
+            const auto key=part.left(colon).trimmed();need(std::set<QString>{"color","fill","stroke","fill-opacity","stroke-opacity","stroke-width","fill-rule","opacity","stroke-linecap","stroke-linejoin","stroke-miterlimit"}.contains(key),"SVG_UNSUPPORTED","Unsupported style property: "+key.toStdString());
             const auto value=part.mid(colon+1).trimmed();
             // Reject !important before a later duplicate declaration can overwrite
             // the rejected value. SVG intake deliberately does not implement CSS.
             if(key=="stroke-linecap"||key=="stroke-linejoin"||key=="stroke-miterlimit")
                 need(!value.contains('!'),"SVG_UNSUPPORTED","!important is unsupported for stroke style");
+            // Every color declaration stays bounded, including overwritten
+            // declarations: intake does not implement CSS invalid-value fallback.
+            if(key=="color")(void)resolved_color(value,{0,0,0,1});
             result[key]=value;
         }
         result.erase("style");
@@ -260,6 +269,7 @@ Attributes attributes(const QXmlStreamReader& xml) {
 }
 Style style(Attributes& a,Style s,double& alpha,Affine& matrix) {
     auto take=[&](const QString& key)->std::optional<QString>{auto i=a.find(key);if(i==a.end())return {};auto v=i->second;a.erase(i);return v;};
+    if(auto v=take("color"))s.color=resolved_color(*v,s.color);
     if(auto v=take("fill"))s.fill=*v;if(auto v=take("stroke"))s.stroke=*v;
     if(auto v=take("fill-rule")){need(*v=="nonzero"||*v=="evenodd","SVG_UNSUPPORTED","Unsupported fill-rule");s.rule=*v;}
     if(auto v=take("fill-opacity"))s.fill_alpha=opacity(*v);if(auto v=take("stroke-opacity"))s.stroke_alpha=opacity(*v);
@@ -300,7 +310,7 @@ class Reader {
         for(const bool stroke:{false,true}) {
             const auto color=(stroke?s.stroke:s.fill).trimmed();if(color=="none"||(stroke&&s.width==0))continue;
             static const QRegularExpression reference(R"(\Aurl\(#([A-Za-z0-9_.:-]{1,128})\)\z)");
-            const auto ref=reference.match(color);const auto value=ref.hasMatch()?std::array<double,4>{0,0,0,1}:paint_color(color);
+            const auto ref=reference.match(color);const auto value=ref.hasMatch()?std::array<double,4>{0,0,0,1}:color.compare("currentColor",Qt::CaseInsensitive)==0?s.color:paint_color(color);
             const auto operation_id=id+(stroke?"-paint-stroke":"-paint-fill");
             auto op=default_operation(operation_id,stroke?"nect.paint.stroke":"nect.paint.fill");op.fill_rule=s.rule.toStdString();
             op.parameters["r"].literal=value[0];op.parameters["g"].literal=value[1];op.parameters["b"].literal=value[2];op.parameters["a"].literal=value[3]*(stroke?s.stroke_alpha:s.fill_alpha);

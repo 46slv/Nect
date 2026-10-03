@@ -28,7 +28,11 @@ Supported subset:
   fill/stroke opacity and width, nonzero/evenodd, object/Group opacity. Restricted
   inline style overrides presentation attributes. Stroke linecap butt/round/square,
   linejoin miter/round/bevel and finite unitless miterlimit 1–1000 are supported;
-  explicit `inherit` is accepted for those three properties only.
+  explicit `inherit` is accepted for those three stroke properties.
+- Inherited `color` on svg/groups/shapes, defaulting to opaque black; fill/stroke
+  `currentColor` resolves against the same element's final color, including inline
+  style overrides. `color:currentColor` and `color:inherit` retain the inherited
+  color. Color uses the qualified solid sRGB subset below, including alpha.
 - Internal `url(#id)` linear/centered radial gradients in `defs`, with explicit
   `gradientUnits="userSpaceOnUse"`, finite unitless/px x1/y1/x2/y2 (linear) or
   cx/cy/r (radial), pad spread and sRGB interpolation. This covers the native
@@ -45,6 +49,17 @@ The existing legacy comma behavior retains CSS clamping within its finite 1e7
 numeric safety bound. Both forms reject missing (`none`) components, expressions,
 relative colors, comments and mixed separators. Color syntax follows the bounded
 subset of [CSS Color 4](https://www.w3.org/TR/css-color-4/#rgb-functions).
+
+Static `currentColor` becomes editable literal RGBA; its live linkage to `color`
+is lost. Inherited fill/stroke keywords resolve using each descendant's color,
+not the ancestor's color. Color alpha multiplies fill/stroke opacity once;
+object/Group opacity stays separate. Same-element declaration order does not
+change resolution. Unsupported color declarations refuse, including overwritten
+inline declarations, rather than applying CSS invalid-value fallback. Gradient
+stop `currentColor` and color declarations on defs/gradients/stops remain
+unsupported: their paint-server inheritance is outside this slice.
+See [CSS currentcolor resolution](https://www.w3.org/TR/css-color-4/#resolving-other-colors)
+and [SVG color](https://www.w3.org/TR/SVG2/painting.html#ColorProperty).
 
 Gradient stops use the qualified solid colors above and independent stop opacity;
 color alpha multiplies stop opacity, then native paint alpha applies fill/stroke

@@ -122,7 +122,7 @@ inline void run() {
         "rgb(1,2,3))","rgb(1,2,3","rgb(1. 2,3,4)","rgb(1.,2,3)","rgb(1% ,2,3%)","rgb(1,2%,3)",
         "rgb(1 2)","rgba(1,2,3 / .5)","rgb(1px,2,3)","rgb(1e,2,3)","rgb(NaN,2,3)","rgb(infinity,2,3)",
         "rgb(calc(1),2,3)","rgb(var(--red),2,3)","rgb(from red r g b)","rgb(none,2,3)","hsl(0,100%,50%)",
-        "color(srgb 1 0 0)","url(#paint)","rgb(1,2,3)!important","#12345","#1234567","currentColor",
+        "color(srgb 1 0 0)","url(#paint)","rgb(1,2,3)!important","#12345","#1234567","currentColour",
         "rgb(1 2,3)","rgb(1 2 3 /)","rgb(1 2 3 .5)","rgb(1 2 3 / .5 / .6)","rgb(1/**/ 2 3)"
     };
     for(const auto* input:invalid) {
