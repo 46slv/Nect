@@ -60,9 +60,26 @@ std::array<double,4> paint_color(const QString& text) {
         }
         return result;
     }
+    if(text.startsWith('#')&&(text.size()==5||text.size()==9)) {
+        // CSS #RGBA/#RRGGBBAA put alpha last; QColor's eight-digit HEX
+        // notation puts it first. Decode directly to retain exact normalization.
+        auto digit=[](QChar ch) {
+            const auto c=ch.unicode();
+            if(c>='0'&&c<='9')return int(c-'0');
+            if(c>='a'&&c<='f')return int(c-'a'+10);
+            if(c>='A'&&c<='F')return int(c-'A'+10);
+            throw Error("SVG_UNSUPPORTED","CSS HEX colors require ASCII hexadecimal digits");
+        };
+        const qsizetype step=text.size()==5?1:2;std::array<double,4> result{};
+        for(qsizetype i=0;i<4;++i) {
+            const auto at=1+i*step;const auto value=step==1?digit(text[at]):16*digit(text[at])+digit(text[at+1]);
+            result[i]=value/(step==1?15.0:255.0);
+        }
+        return result;
+    }
     need(!text.contains('!')&&(!text.startsWith('#')||text.size()==4||text.size()==7),
         "SVG_UNSUPPORTED","Unsupported SVG color: "+text.toStdString());
-    const QColor value(text);need(value.isValid()&&value.alpha()==255,"SVG_UNSUPPORTED","Only opaque named/HEX or numeric RGB sRGB colors supported");
+    const QColor value(text);need(value.isValid()&&value.alpha()==255,"SVG_UNSUPPORTED","Only named/HEX or numeric RGB sRGB colors supported");
     return {value.redF(),value.greenF(),value.blueF(),1};
 }
 Affine transform(QString text) {

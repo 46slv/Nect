@@ -1,3 +1,9 @@
+#include "text_direction_batch_control.hpp"
+#include "text_layout_batch_control.hpp"
+#include "text_italic_batch_control.hpp"
+#include "text_family_batch_control.hpp"
+#include "text_locale_batch_control.hpp"
+#include "paint_color_batch_control.hpp"
 #include "flattened_svg_export.hpp"
 #include "compatibility_plan_control.hpp"
 #include "macro_revision_control.hpp"
@@ -8767,6 +8773,16 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         std::vector<Id> targets;targets.reserve(selected.size());
         for(const auto& item:selected)targets.push_back(item.object);
         layout->addWidget(make_text_alignment_batch_controls(host,targets,inspector_));
+        const bool all_text=std::all_of(targets.begin(),targets.end(),[&](const auto& id){
+            const auto& object=host.session.document().objects.at(id);return object.kind==Kind::text&&object.text.has_value();
+        });
+        if(all_text) {
+            layout->addWidget(make_text_family_batch_controls(host,targets,inspector_));
+            layout->addWidget(make_text_layout_batch_controls(host,targets,inspector_));
+            layout->addWidget(make_text_direction_batch_controls(host,targets,inspector_));
+            layout->addWidget(make_text_italic_batch_controls(host,targets,inspector_));
+            layout->addWidget(make_text_locale_batch_controls(host,targets,inspector_));
+        }
     }
     add_alignment_controls(layout,selected);
     auto* selection_transform=new QPushButton("Rotate / scale selection…");selection_transform->setObjectName("selection-transform-open");
@@ -8835,6 +8851,25 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
                 }
                 if(eligible)add_multi_repeater_angle(form,refs,slot,parameter_label(name));
             }
+        }
+    }
+    std::size_t paint_slots=0;
+    for(const auto& item:selected)paint_slots=std::max(paint_slots,d.objects.at(item.object).stack.size());
+    for(std::size_t slot=0;slot<paint_slots;++slot) {
+        bool any_paint=false,all_paint=true;std::vector<Ref> targets;targets.reserve(selected.size());
+        for(const auto& item:selected) {
+            const auto& object=d.objects.at(item.object);
+            const auto* entry=slot<object.stack.size()?&object.stack[slot]:nullptr;
+            const bool paint=entry&&(entry->type=="nect.paint.fill"||entry->type=="nect.paint.stroke");
+            if(!paint){all_paint=false;continue;}any_paint=true;
+            targets.push_back(operation_ref(object.id,entry->id,"color"));
+        }
+        if(!any_paint)continue;
+        if(all_paint)layout->addWidget(make_paint_color_batch_controls(host,targets,inspector_));
+        else {
+            auto* form=section(QString("Stack %1 paint color").arg(slot+1));
+            auto* refusal=new QLabel("INCOMPATIBLE_PAINT: Every selected object must have a solid Fill or Stroke at this stack position.");
+            refusal->setTextFormat(Qt::PlainText);refusal->setWordWrap(true);form->addRow(refusal);
         }
     }
     auto* hint=new QLabel("↗ freezes all these targets while you choose a source. Paint rows match the same operation type at the same stack position.");

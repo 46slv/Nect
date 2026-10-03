@@ -24,16 +24,19 @@ inline std::string artwork(const std::string& color) {
 inline void color(const ShapeOperation& operation,const std::array<double,4>& expected,double opacity=1,double tolerance=1e-13) {
     for(std::size_t i=0;i<4;++i)near(operation.parameters.at(std::array<const char*,4>{"r","g","b","a"}[i]).literal,expected[i]*(i==3?opacity:1),tolerance);
 }
-inline void roundtrip() {
+inline void roundtrip(bool alpha_hex=false) {
     Session source(empty_document("source-doc","comp","art"));
-    source.apply(read_svg(artwork("#204060"),"comp","source","Source",0,0).commands,0);
-    const std::array<double,4> fill{.123456789012345,1e-9,.75,.4},stroke{.2,.6,.9,.7};
+    source.apply(read_svg(artwork(alpha_hex?"#1A3c":"#204060"),"comp","source","Source",0,0).commands,0);
+    const std::array<double,4> fill=alpha_hex?std::array<double,4>{1.0/15,10.0/15,3.0/15,.64}:std::array<double,4>{.123456789012345,1e-9,.75,.4};
+    const std::array<double,4> stroke=alpha_hex?std::array<double,4>{1.0/15,10.0/15,3.0/15,.32}:std::array<double,4>{.2,.6,.9,.7};
     std::vector<Command> commands;
     for(const bool is_stroke:{false,true}) {
         const auto& expected=is_stroke?stroke:fill;const auto op=is_stroke?"source-n1-paint-stroke":"source-n1-paint-fill";
         for(std::size_t i=0;i<4;++i)commands.push_back(Set{operation_ref("source-n1",op,std::array<const char*,4>{"r","g","b","a"}[i]),expected[i]});
     }
-    source.apply(commands,source.revision());const auto native_source=encode(source.document());
+    if(!alpha_hex)source.apply(commands,source.revision());
+    color(source.document().objects.at("source-n1").stack[0],fill);color(source.document().objects.at("source-n1").stack[1],stroke);
+    const auto native_source=encode(source.document());
     const auto exported=export_svg(source.document(),"comp","art");
     require(exported.find("rgb(")!=std::string::npos&&exported.find("%)")!=std::string::npos,"Real Nect exporter must emit percentage RGB");
     QTemporaryDir temp;require(temp.isValid(),"Allocate roundtrip scratch");const auto path=temp.path()+"/export.svg";write(path,exported);
@@ -53,10 +56,11 @@ inline void roundtrip() {
     const auto accepted=destination.session.document();require(decode(encode(accepted))==accepted,"Imported paint native roundtrip");
     destination.session.undo(revision+1);require(destination.session.document()==before,"One Undo must remove entire SVG import");
     destination.session.redo(revision+2);require(destination.session.document()==accepted,"Redo must restore exact imported paint");
-    std::cout<<"PASS real exporter RGB roundtrip, source bytes, transaction, Undo/Redo\n";
+    std::cout<<(alpha_hex?"PASS CSS alpha HEX exact numeric oracle and exporter/importer roundtrip, source bytes, transaction, Undo/Redo\n":"PASS real exporter RGB roundtrip, source bytes, transaction, Undo/Redo\n");
 }
 inline void run() {
     roundtrip();
+    roundtrip(true);
     struct Case {const char* input;std::array<double,4> expected;};
     const Case cases[]{
         {"rgb(12.5%,25%,75%)",{.125,.25,.75,1}},
@@ -70,14 +74,19 @@ inline void run() {
         {"rgba(-10%,120%,50%,-5%)",{0,1,.5,0}},
         {"rgba(0%,100%,0%,100%)",{0,1,0,1}},
         {"#abc",{170.0/255,187.0/255,204.0/255,1}},
+        {"#1A3c",{1.0/15,10.0/15,3.0/15,12.0/15}},
+        {"#12345678",{18.0/255,52.0/255,86.0/255,120.0/255}},
+        {"#abc0",{10.0/15,11.0/15,12.0/15,0}},
+        {"#12AB34ff",{18.0/255,171.0/255,52.0/255,1}},
         {"red",{1,0,0,1}}
     };
     for(const auto& item:cases) {
         Session session(empty_document("case-doc","comp","art"));session.apply(read_svg(artwork(item.input),"comp","case","Case",0,0).commands,0);
         const auto& stack=session.document().objects.at("case-n1").stack;require(stack.size()==2,"RGB fill/stroke count");
         // Existing named/HEX intake uses QColor's float channel accessors;
-        // numeric functional colors must retain native double precision.
-        const auto tolerance=item.input[0]=='#'?1e-7:1e-13;
+        // numeric functional and CSS alpha HEX colors retain double precision.
+        const auto length=std::string_view(item.input).size();
+        const auto tolerance=item.input[0]=='#'&&(length==4||length==7)?1e-7:1e-13;
         color(stack[0],item.expected,.8,tolerance);color(stack[1],item.expected,.4,tolerance);
     }
     const auto alpha=read_svg(R"svg(<svg viewBox="0 0 20 20" opacity=".25"><g fill="rgba(10%,20%,30%,.5)" fill-opacity=".4" stroke="rgba(4,5,6,25%)" stroke-opacity=".8" opacity=".6"><path d="M0 0L10 10" opacity=".7"/><path d="M0 0L10 10" fill-opacity=".2" stroke-opacity=".4" style="fill:rgba(50%,25%,75%,.8)"/></g></svg>)svg","comp","alpha","Alpha",0,0);
@@ -86,13 +95,13 @@ inline void run() {
     color(first[0],{.1,.2,.3,.2});color(first[1],{4.0/255,5.0/255,6.0/255,.2});
     color(second[0],{.5,.25,.75,.16});color(second[1],{4.0/255,5.0/255,6.0/255,.1});
     const auto values=evaluate(inherited.document());near(values.at({"alpha","","composite.opacity"}),.25);near(values.at({"alpha-n1","","composite.opacity"}),.6);near(values.at({"alpha-n2","","composite.opacity"}),.7);
-    std::cout<<"PASS 12 numeric/named/HEX cases and inherited/inline color alpha with separate object/Group opacity\n";
+    std::cout<<"PASS 16 numeric/named/HEX cases and inherited/inline color alpha with separate object/Group opacity\n";
     const char* invalid[]{
         "rgb()","rgb(1,2)","rgb(1,2,3,4,5)","rgb(,2,3)","rgb(1,,3)","rgb(1,2,3,)","rgb(1,2,3)tail",
         "rgb(1,2,3))","rgb(1,2,3","rgb(1. 2,3,4)","rgb(1.,2,3)","rgb(1% ,2,3%)","rgb(1,2%,3)",
         "rgb(1 2 3)","rgba(1,2,3 / .5)","rgb(1px,2,3)","rgb(1e,2,3)","rgb(NaN,2,3)","rgb(infinity,2,3)",
         "rgb(calc(1),2,3)","rgb(var(--red),2,3)","rgb(from red r g b)","rgb(none,2,3)","hsl(0,100%,50%)",
-        "color(srgb 1 0 0)","url(#paint)","rgb(1,2,3)!important","#1234","#12345678","transparent"
+        "color(srgb 1 0 0)","url(#paint)","rgb(1,2,3)!important","#12345","#1234567","transparent"
     };
     for(const auto* input:invalid) {
         bool rejected=false;try{(void)read_svg(artwork(input),"comp","bad","Bad",0,0);}catch(const Error& error){require(error.code=="SVG_UNSUPPORTED","Malformed RGB reject code");rejected=true;}
@@ -108,7 +117,7 @@ inline void run() {
     const auto native=temp.path()+"/existing.nect";host.save(native);host.recover();
     const auto recovery=host.persistence().value("recovery_file").toString();
     const auto native_before=bytes(native),recovery_before=bytes(recovery);const auto document_before=host.session.document();const auto history_before=host.session.history();const auto revision=host.session.revision();
-    for(const auto* input:{"rgb(1,2%,3)","rgb(1e309,0,0)","rgb(1,2,3)tail","url(#paint)","rgb(1 2 3)"}) {
+    for(const auto* input:{"rgb(1,2%,3)","rgb(1e309,0,0)","rgb(1,2,3)tail","url(#paint)","rgb(1 2 3)","#12345","#1234567","#12g4","#1234567z"}) {
         const auto svg="<svg viewBox=\"0 0 20 20\"><path d=\"M0 0L1 1\" fill=\"rgb(10%,20%,30%)\"/><path d=\"M0 0L2 2\" fill=\""+std::string(input)+"\"/></svg>";
         const auto path=temp.path()+"/reject.svg";write(path,svg);bool rejected=false;
         try{host.import_svg(path,composition,"reject","Reject",0,0,revision);}catch(const Error& error){require(error.code==(std::string(input).find("1e309")!=std::string::npos?"SVG_RANGE":"SVG_UNSUPPORTED"),"Host RGB reject code");rejected=true;}
@@ -117,6 +126,6 @@ inline void run() {
         require(bytes(native)==native_before&&bytes(recovery)==recovery_before&&bytes(path)==QByteArray::fromStdString(svg),"Rejected import must preserve native/recovery/SVG source bytes");
     }
     host.session.undo(revision);require(host.session.document().objects.empty(),"Refusal must preserve the preceding Undo entry");
-    std::cout<<"PASS 30 unsupported, 4 bounded-range refusals and 5 late Host atomic refusals\n";
+    std::cout<<"PASS 30 unsupported, 4 bounded-range refusals and 9 late Host atomic refusals\n";
 }
 }
