@@ -45,11 +45,17 @@ QWidget* make_artboard_background_controls(Host& host,const Id& composition,cons
         choose->setToolTip(QString("RGBA %1, %2, %3, %4").arg(rgba[0],0,'g',17).arg(rgba[1],0,'g',17).arg(rgba[2],0,'g',17).arg(rgba[3],0,'g',17));
     }
     QObject::connect(choose,&QPushButton::clicked,box,[=]{
-        const auto selected=QColorDialog::getColor(initial,safe_box,"Artboard background",QColorDialog::ShowAlphaChannel);
-        if(!safe_box||!selected.isValid())return;
+        if(!safe_box)return;
+        auto* dialog=new QColorDialog(initial,safe_box);dialog->setWindowTitle("Artboard background");
+        dialog->setOption(QColorDialog::ShowAlphaChannel);
+        const auto displayed_initial=dialog->currentColor();const QPointer<QColorDialog> safe_dialog(dialog);
+        const bool accepted=dialog->exec()==QDialog::Accepted;
+        const auto selected=safe_dialog?safe_dialog->currentColor():QColor{};
+        if(safe_dialog)safe_dialog->deleteLater();
+        if(!safe_box||!accepted||!selected.isValid())return;
         ColorValue value;
         // QColor's display precision must not rewrite an untouched authored color.
-        if(original&&selected==initial)value=*original;
+        if(original&&selected==displayed_initial)value=*original;
         else value.rgba={selected.redF(),selected.greenF(),selected.blueF(),selected.alphaF()};
         if((!assigned||state.overridden)&&authored==std::optional<ColorValue>{value})return;
         apply(SetArtboardBackground{composition,artboard,value});
