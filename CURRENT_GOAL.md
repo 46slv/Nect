@@ -18,11 +18,39 @@ Native 0.81 development candidate combines:
 - Optional Artboard background values with Template inheritance, local override, Reset and full detach freeze. Background is an output underlay after transparent artwork, not an object-blend backdrop. PNG/viewport/SVG include it; region analysis does not.
 
 ## Current evidence and remaining work
-The background model, native migration, Undo, API and SVG primary path passed 18 focused smoke checks. The compatibility planner passed focused Linux checks and Windows API/formal-MCP readback. The two worker candidates passed their focused Windows checks before integration.
+The `dot/req65-contour-path` candidate starts from verified public
+`dot/fast-build-native081@f3c61ef708342c379cd8d587c126b3e32ced3105`. It adds a
+REQ-65 outer-contour adoption entry through Host/API/MCP and Add > Outer contour
+to Path, using the existing CreatePath command and native schema. Exact snapshot
+and contour IDs are rechecked; original artwork is retained, each corner receives
+a fresh authored ID, and adoption is one Undo. No holes or curve fitting are claimed.
 
-The combined 0.81 desktop build and real-use smoke remain pending. Linux desktop compilation encountered a compiler process kill; this is not a successful desktop build. Prior Windows/native 0.80 binaries are preserved separately. Background UI, retained Text-content fan-out UI, additional widget families, physical input acceptance, final interoperability and full milestone hardening remain explicit residuals.
+The batch includes the portable helper from `5dcffeb`, standalone Macro authoring
+from `74330ad`, its Effects-panel entry, and the qualified background precision
+repair from `37dd7dd`. These additions retain native 0.81. Shared Windows builds
+use `Local\NectBuild`; prior task-18 worktrees, launchers and processes are preserved.
+
+Windows Release build and five focused contracts passed: geometry helper (36),
+Host/Window adoption (62), existing region analysis, formal desktop MCP adoption/restart,
+and Macro authoring UI (48). Adoption covers
+real Canvas analysis, nonzero Artboard origin/scale, original artwork/native
+preservation, point edit, Undo/Redo, cold process reopen, stale Session/revision/
+snapshot/contour rejection, gesture refusal and draft cancellation. The background
+repair was then integrated and the desktop rebuilt. Final integration passed both
+background UI (14) and actual desktop/MCP cold restart (16 semantic checks). A
+shell-wrapper launch failure was isolated to copied Python PATH/Qt resolution;
+the explicit-Qt Python runner passes. This is USABLE_UNHARDENED;
+physical input/visual comfort, broad regression, whole REQ-65 and full Macro graph
+authoring remain open.
+
+The earlier Linux desktop compiler kill remains historical evidence. These Windows
+primary-path checks do not establish final interoperability or milestone hardening.
 
 ## Next
-Build and smoke this integrated candidate on the supported host, fix demonstrated blockers, and advance as `USABLE_UNHARDENED` once the primary path works without immediate corruption. Continue adjacent accepted implementation; do not stop at a routine test, commit or packet boundary.
+Use the supported candidate and collect demonstrated authoring failures. The parent
+owns the next independent DefinitionInstance/Template visibility lane; keep its core
+and native-version changes separate until the next batch integration. Current scope
+is released after source publication and remote SHA verification; no primary merge
+or release is authorized by this checkpoint.
 
 Source policy: [Fast Build / Bug Harvest Directive](https://app.notion.com/p/3eefd279a6f381e8a206ef658c90714a).

@@ -40,6 +40,9 @@ public:
         std::optional<QString> intersect_color_component_id=std::nullopt);
     QJsonObject analyze_dataset(const QString& operator_type_id,int operator_version,const QString& input_domain,
         const Id& composition,const QJsonObject& parameters,std::uint64_t expected);
+    QJsonObject adopt_analysis_contour(const Id& composition,const Id& artboard,double scale,int threshold,
+        const QString& analysis_id,const QString& contour_id,const std::string& name,
+        const QString& expected_session,std::uint64_t expected);
     void recover();
     void flush();
     QString recovery_directory() const { return recovery_directory_; }

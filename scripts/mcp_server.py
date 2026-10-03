@@ -157,6 +157,21 @@ TOOLS = [
           intersect_color_component_id={'type':'string','minLength':1}),
          'required':['session_id','document_id','op','expected_revision','composition','artboard','scale','threshold'],'additionalProperties':False},
      'annotations':{'readOnlyHint':True,'destructiveHint':False,'openWorldHint':False}},
+    {'name': 'nect_adopt_analysis_contour',
+     'description': ('Create one editable Path from an existing analyze_regions outer contour in one Undo. '
+                     'Requires the exact live Session, revision, analysis_id, contour_id and original analysis parameters. '
+                     'Rechecks the current rendered snapshot; stale or mismatched IDs reject without mutation. '
+                     'Inserts at the Composition root, preserving source artwork. Pixel corners map to Artboard origin '
+                     'plus pixel/scale, with fresh authored point IDs and straight anchors. Holes are omitted; '
+                     'no smoothing, curve fitting or appearance preservation is claimed. At most 10000 anchors.'),
+     'inputSchema': {'type':'object','properties':dict(IDENTITY,
+         op={'type':'string','enum':['adopt_analysis_contour']},expected_revision={'type':'integer','minimum':0},
+         composition={'type':'string'},artboard={'type':'string'},scale={'type':'number','exclusiveMinimum':0,'maximum':16},
+         threshold={'type':'integer','minimum':1,'maximum':255},analysis_id={'type':'string','minLength':1},
+         contour_id={'type':'string','minLength':1},name={'type':'string'}),
+         'required':['session_id','document_id','op','expected_revision','composition','artboard','scale','threshold',
+                     'analysis_id','contour_id','name'],'additionalProperties':False},
+     'annotations':{'readOnlyHint':False,'destructiveHint':False,'openWorldHint':False}},
     {'name': 'nect_analyze_dataset',
      'description': ('Read-only typed analysis.dataset/v1 from the live desktop Session. Operators are '
                      'nect.analysis.image.regions@1 (input domain artboard.rgba8_srgb_premultiplied; parameters '

@@ -3,6 +3,8 @@
 #include "colors.hpp"
 #include "semantic_control.hpp"
 #include "artboard_background_control.hpp"
+#include "analysis_contour_control.hpp"
+#include "macro_authoring_control.hpp"
 #include <QAction>
 #include <QAbstractItemView>
 #include <QApplication>
@@ -914,6 +916,12 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     effects_layout->setContentsMargins(4,4,4,4);effects_layout->setSpacing(6);
     auto* effects_heading=new QLabel("Built-in effects",effects_page);effects_heading->setObjectName("effects-heading");
     effects_layout->addWidget(effects_heading);
+    auto* create_macro=new QPushButton("Create Macro...",effects_page);
+    create_macro->setObjectName("effects-create-macro");effects_layout->addWidget(create_macro);
+    connect(create_macro,&QPushButton::clicked,this,[this]{
+        auto* dialog=new MacroAuthoringDialog(host,this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->open();
+    });
     effects_search_=new QLineEdit(effects_page);effects_search_->setObjectName("effects-search");
     effects_search_->setPlaceholderText("Search effects…");effects_search_->setClearButtonEnabled(true);
     effects_layout->addWidget(effects_search_);
@@ -1165,6 +1173,10 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         auto* a=menu->addAction(label); a->setShortcut(shortcut);
         connect(a,&QAction::triggered,this,[this,fn]{perform(fn);}); return a;
     };
+    action(add,"Outer contour to Path...",{},[this]{
+        make_analysis_contour_dialog(host,canvas->active_composition(),canvas->active_artboard(),
+            [this](const Id& object){canvas->set_selection(object);refresh();canvas->setFocus();},this)->show();
+    })->setObjectName("analysis-contour-to-path");
     action(library_menu,"Folder Library…",{},[this]{show_folder_library();})->setObjectName("folder-library");
     action(definitions,"Create Definition from selected Group…",{},[this]{create_definition_from_selection();})
         ->setObjectName("create-definition-from-selection");

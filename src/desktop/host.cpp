@@ -1,4 +1,5 @@
 #include "host.hpp"
+#include "nect/analysis_adoption.hpp"
 #include "svg_import.hpp"
 #include "canvas.hpp"
 #include <QSaveFile>
@@ -1370,6 +1371,51 @@ QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,doubl
         intersect_color_component_index,intersect_color_component_id,session.document().id,composition,artboard);
 }
 
+QJsonObject Host::adopt_analysis_contour(const Id& composition,const Id& artboard,double scale,int threshold,
+    const QString& analysis_id,const QString& contour_id,const std::string& name,
+    const QString& expected_session,std::uint64_t expected) {
+    if(expected_session!=session_id)throw Error("SESSION_CONFLICT","Document changed; analyze the current document again");
+    if(analysis_id.isEmpty()||contour_id.isEmpty())throw Error("INVALID_REQUEST","Analysis and outer contour IDs required");
+    // Re-render the exact committed source: IDs are snapshot identities, never a
+    // client-supplied vertex list or an index into a possibly different result.
+    const auto analysis=analyze_regions(composition,artboard,scale,threshold,expected);
+    if(analysis.value("analysis_id").toString()!=analysis_id)
+        throw Error("ANALYSIS_CONFLICT","Analysis snapshot changed; analyze again before adopting");
+    QJsonObject selected;
+    for(const auto& candidate:analysis.value("outer_contours").toArray()) {
+        const auto contour=candidate.toObject();
+        if(contour.value("id").toString()==contour_id){selected=contour;break;}
+    }
+    if(selected.isEmpty())throw Error("INVALID_REQUEST","Outer contour does not belong to this analysis snapshot");
+    const auto comp=std::find_if(session.document().compositions.begin(),session.document().compositions.end(),
+        [&](const auto& value){return value.id==composition;});
+    const auto board=evaluate_artboard(*comp,artboard);
+    std::vector<Vec2> corners;
+    std::vector<Id> point_ids;
+    QJsonArray authored_point_ids;
+    for(const auto& vertex:selected.value("vertices").toArray()) {
+        const auto xy=vertex.toArray();
+        corners.push_back({xy.at(0).toDouble(),xy.at(1).toDouble()});
+        point_ids.push_back(new_id());
+        authored_point_ids.append(QString::fromStdString(point_ids.back()));
+    }
+    const auto object_id=new_id(),authored_contour_id=new_id();
+    auto contour=adopt_analysis_outer_contour(corners,
+        {{board.x,board.y},scale,analysis.value("width").toInt(),analysis.value("height").toInt()},
+        authored_contour_id,point_ids);
+    // Root insertion keeps Composition coordinates and preserves every source
+    // object. CreatePath supplies the normal editable Path and one Undo entry.
+    session.apply({CreatePath{composition,{},object_id,name,{std::move(contour)}}},expected);
+    QJsonObject result{{"object_id",QString::fromStdString(object_id)},
+        {"contour_id",QString::fromStdString(authored_contour_id)},{"point_ids",authored_point_ids},
+        {"source_analysis_id",analysis_id},{"source_contour_id",contour_id},
+        {"source_revision",static_cast<qint64>(expected)},{"revision",static_cast<qint64>(session.revision())},
+        {"coordinate_space","composition"},{"geometry","outer-contour-straight-anchors"},
+        {"holes_preserved",false}};
+    edited();
+    return result;
+}
+
 QByteArray Host::dispatch(const QByteArray& input) {
     QJsonObject response;
     try {
@@ -1377,6 +1423,7 @@ QByteArray Host::dispatch(const QByteArray& input) {
         auto outer=QJsonDocument::fromJson(input).object();
         const auto operation=string(outer,"op");
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
+             operation=="adopt_analysis_contour"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","analysis_id","contour_id","name"}:
             (operation=="analysis_dataset"?QStringList{"op","session_id","document_id","expected_revision","operator_type_id","operator_version","input_domain","composition_id","parameters"}:
             (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","include_color_groups","include_color_components","intersect_color_component_index","intersect_color_component_id"}:
             (operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
@@ -1427,6 +1474,16 @@ QByteArray Host::dispatch(const QByteArray& input) {
                         throw Error("INVALID_REQUEST","Numeric scale and transparent/white background required");
                     response={{"ok",true},{"result",export_png(string(outer,"path"),string(outer,"composition").toStdString(),
                         string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),background=="white",session.revision())}};
+                } else if(op=="adopt_analysis_contour") {
+                    if(!outer.value("scale").isDouble()||!outer.value("threshold").isDouble())
+                        throw Error("INVALID_REQUEST","Numeric scale and integer alpha threshold required");
+                    const auto threshold=outer.value("threshold").toDouble();
+                    if(!std::isfinite(threshold)||std::floor(threshold)!=threshold||threshold<1||threshold>255)
+                        throw Error("INVALID_THRESHOLD","Alpha threshold must be an integer from 1 through 255");
+                    response={{"ok",true},{"result",adopt_analysis_contour(string(outer,"composition").toStdString(),
+                        string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),static_cast<int>(threshold),
+                        string(outer,"analysis_id"),string(outer,"contour_id"),string(outer,"name").toStdString(),
+                        string(outer,"session_id"),session.revision())}};
                 } else if(op=="analyze_regions") {
                     if(!outer.value("scale").isDouble()||!outer.value("threshold").isDouble())
                         throw Error("INVALID_REQUEST","Numeric scale and integer alpha threshold required");
