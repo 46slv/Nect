@@ -29,6 +29,10 @@ Supported subset:
   inline style overrides presentation attributes. Stroke linecap butt/round/square,
   linejoin miter/round/bevel and finite unitless miterlimit 1–1000 are supported;
   explicit `inherit` is accepted for those three properties only.
+- Internal `url(#id)` linear gradients in `defs`, with explicit
+  `gradientUnits="userSpaceOnUse"` and finite unitless/px x1/y1/x2/y2 coordinates,
+  pad spread and sRGB interpolation. This covers the native linear-gradient
+  exporter subset and forward references.
 
 Color functions accept legacy comma-separated RGB channels with matching numeric
 or percentage units and optional alpha, or modern whitespace-separated channels
@@ -41,8 +45,21 @@ numeric safety bound. Both forms reject missing (`none`) components, expressions
 relative colors, comments and mixed separators. Color syntax follows the bounded
 subset of [CSS Color 4](https://www.w3.org/TR/css-color-4/#rgb-functions).
 
+Gradient stops use the qualified solid colors above and independent stop opacity;
+color alpha multiplies stop opacity, then native paint alpha applies fill/stroke
+opacity once. Object/Group opacity remains separate. Definitions are limited to
+128; each editable native gradient requires 2..64 strictly increasing offsets in
+[0,1] (number or percentage) and an endpoint distance greater than 1e-9. The pinned
+native model cannot preserve 65..256 stops or coincident hard edges, so those cases
+explicitly refuse. Coordinates, stop offsets and RGBA remain editable native
+Scalars. Each paint receives its own gradient and stop IDs: shared SVG definitions
+are cloned, so linked-edit sharing is lost. Gradients are not flattened or sampled.
+See [SVG paint servers](https://www.w3.org/TR/SVG2/pservers.html).
+
 Unsupported semantics reject the entire import:
-text/images, gradients/patterns, use/links, masks/clips/filters, CSS stylesheets,
+text/images, radial/objectBoundingBox gradients, gradient transforms/inheritance,
+repeat/reflect spread, alternate interpolation, patterns, external paint URLs,
+use/links, masks/clips/filters, CSS stylesheets,
 classes, variables, dashes, `initial`/`unset`/`revert`, `!important`, miter-clip,
 unknown attributes/elements,
 physical/percentage lengths, other aspect policies and foreign namespaces.
