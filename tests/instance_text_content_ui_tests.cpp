@@ -14,6 +14,7 @@
 #include <QTemporaryDir>
 #include <QVariantMap>
 #include <QWidget>
+#include "instance_text_content_window_smoke.hpp"
 #endif
 
 using namespace nect;
@@ -213,11 +214,17 @@ void interruption_and_identity_guards(){
     i.load();i.editor()->setPlainText("Old source draft");i.select("second-item");const Snapshot retarget(session);i.apply()->click();
     check(session.document()==locally_edited(retarget.document,"second-item","Second  literal\n"),"Switching stable Text resets the draft instead of retargeting old unsaved content");
     // The Host may disappear while the Inspector remains alive.
-    QTemporaryDir directory;QWidget parent;auto host=std::make_unique<Host>(directory.path());host->session=Session(fixture());
+    QTemporaryDir directory;QWidget parent;auto host=std::make_unique<Host>(directory.path());
+    host->session=Session(locally_edited(fixture(),"first-item","Initial local"));
     QPointer<QWidget> controls=make_instance_text_content_controls(*host,"content-instance",&parent);
     auto* editor=controls->findChild<QPlainTextEdit*>("instance-text-content-editor");
-    auto* apply=controls->findChild<QPushButton*>("instance-text-content-apply");editor->setPlainText("Draft");host.reset();apply->click();
+    auto* apply=controls->findChild<QPushButton*>("instance-text-content-apply");
+    auto* reset=controls->findChild<QPushButton*>("instance-text-content-reset");editor->setPlainText("Draft");
+    check(apply->isEnabled()&&reset->isEnabled(),"Surviving Inspector offers both local actions before Host destruction");
+    host.reset();apply->click();
     check(controls&&controls->findChild<QLabel*>("instance-text-content-error")->text().startsWith("SESSION_CONFLICT"),"Destroyed Host cannot be dereferenced by a surviving Inspector callback");
+    controls->findChild<QLabel*>("instance-text-content-error")->clear();reset->click();
+    check(controls&&controls->findChild<QLabel*>("instance-text-content-error")->text().startsWith("SESSION_CONFLICT"),"Destroyed Host is also refused by the surviving Reset callback");
     const QPointer<QPlainTextEdit> retired_editor(editor);delete controls.data();
     check(!controls&&!retired_editor,"Inspector destruction retires its draft editor and context-bound callbacks");
 }
@@ -254,7 +261,12 @@ int main(){
 }
 #else
 int main(int argc,char** argv){
-    qputenv("QT_QPA_PLATFORM","offscreen");QApplication application(argc,argv);
+    if(qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))qputenv("QT_QPA_PLATFORM","offscreen");
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);QApplication application(argc,argv);
+    if(argc==3&&std::string(argv[1])=="--window-smoke"){
+        try{application.setStyle("Fusion");instance_text_window_smoke::run(QString::fromLocal8Bit(argv[2]));return 0;}
+        catch(const std::exception& error){std::cerr<<"FAIL Window smoke: "<<error.what()<<'\n';return 1;}
+    }
     try{fixture_model_path();primary_precision_and_reset();inherited_local_driver_baseline();interruption_and_identity_guards();stable_selection_empty_and_core_refusal();
         std::cout<<"PASS "<<checks<<" Instance Text content Qt checks (physical OS input NOT_RUN)\n";return 0;
     }catch(const std::exception& error){std::cerr<<"FAIL "<<checks<<": "<<error.what()<<'\n';return 1;}

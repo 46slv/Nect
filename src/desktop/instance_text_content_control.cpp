@@ -202,7 +202,7 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
         }catch(const std::exception& error){disable();show_error(safe_status.data(),error);}
     });
     QObject::connect(apply,&QPushButton::clicked,box,[=]{
-        if(!safe_box||!safe_host||!safe_editor)return;
+        if(!safe_box||!safe_editor)return;
         try{
             const auto& current=current_document();const auto target=selected_target();require_target(current,instance,target);
             if(target!=draft->source)throw Error("REVISION_CONFLICT","The Text draft belongs to another source Object");
@@ -215,7 +215,7 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
         }catch(const std::exception& error){show_error(safe_status.data(),error);}
     });
     QObject::connect(reset,&QPushButton::clicked,box,[=]{
-        if(!safe_box||!safe_host)return;
+        if(!safe_box)return;
         try{
             const auto& current=current_document();const auto target=selected_target();require_target(current,instance,target);
             if(!current.objects.at(instance).instance->text_content_overrides.contains(target))return;
