@@ -4,15 +4,19 @@
 namespace nect {
 // Presentation metadata projected from canonical type/public-parameter owners.
 // Contains defaults and constraints, never an instance's current authored value.
+struct SemanticEnumChoice { std::string value,label; };
 struct SemanticParameterDescriptor {
     std::string key, value_type="number", unit, domain;
     double default_value=0;
+    std::optional<bool> boolean_default;
+    std::optional<std::string> enum_default;
+    std::vector<SemanticEnumChoice> choices;
     std::optional<double> minimum, maximum, step;
     std::string widget_hint="numeric", label, help;
     // Signed turns are authored unchanged; only the indicator wraps at 360.
     std::string angle_semantics;
 };
-enum class SemanticWidget { numeric, angle, slider };
+enum class SemanticWidget { numeric, angle, slider, toggle, dropdown };
 struct SemanticControlResolution {
     SemanticWidget widget=SemanticWidget::numeric;
     bool fallback=false;

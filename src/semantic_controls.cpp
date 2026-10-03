@@ -1,6 +1,7 @@
 #include "nect/semantic_controls.hpp"
 #include <algorithm>
 #include <cmath>
+#include <set>
 
 namespace nect {
 namespace {
@@ -11,6 +12,32 @@ void require_descriptor(bool valid,const std::string& message) {
 SemanticControlResolution validate_semantic_descriptor(const SemanticParameterDescriptor& d) {
     require_descriptor(!d.key.empty()&&!d.label.empty()&&!d.unit.empty()&&!d.domain.empty(),
         "Control identity, label, unit and domain are required");
+    if(d.value_type=="enum") {
+        require_descriptor(d.enum_default.has_value()&&!d.choices.empty(),"Enum requires choices and a typed default");
+        require_descriptor(d.unit=="enum"&&!d.boolean_default&&!d.minimum&&!d.maximum&&!d.step&&d.angle_semantics.empty(),
+            "Enum control cannot carry constraints from another type");
+        std::set<std::string> ids;
+        for(const auto& choice:d.choices)
+            require_descriptor(!choice.value.empty()&&!choice.label.empty()&&ids.insert(choice.value).second,"Enum choices require distinct nonempty IDs and labels");
+        require_descriptor(ids.contains(*d.enum_default),"Enum default is not a declared choice");
+        if(d.widget_hint=="dropdown"||d.widget_hint=="enum")return {SemanticWidget::dropdown,false,"SUPPORTED"};
+        for(const auto* hint:{"numeric","angle","slider","range","toggle","color","point","vector","curve"})
+            require_descriptor(d.widget_hint!=hint,"Widget family is incompatible with enum: "+d.widget_hint);
+        require_descriptor(!d.widget_hint.empty(),"Widget hint is required");
+        return {SemanticWidget::dropdown,true,"UNKNOWN_WIDGET_HINT: "+d.widget_hint+"; using dropdown for known enum type"};
+    }
+    require_descriptor(!d.enum_default&&d.choices.empty(),"Non-enum control cannot carry enum metadata");
+    if(d.value_type=="boolean") {
+        require_descriptor(d.boolean_default.has_value(),"Boolean control requires a typed default");
+        require_descriptor(d.unit=="boolean"&&!d.minimum&&!d.maximum&&!d.step&&d.angle_semantics.empty(),
+            "Boolean control cannot carry numeric constraints");
+        if(d.widget_hint=="toggle")return {SemanticWidget::toggle,false,"SUPPORTED"};
+        for(const auto* hint:{"numeric","angle","slider","range","enum","dropdown","color","point","vector","curve"})
+            require_descriptor(d.widget_hint!=hint,"Widget family is incompatible with boolean: "+d.widget_hint);
+        require_descriptor(!d.widget_hint.empty(),"Widget hint is required");
+        return {SemanticWidget::toggle,true,"UNKNOWN_WIDGET_HINT: "+d.widget_hint+"; using toggle for known boolean type"};
+    }
+    require_descriptor(!d.boolean_default,"Number control cannot carry a boolean default");
     // Future known families are not compatible with a number. Unknown hints may
     // fall back only after the actual value type and its constraints are known.
     require_descriptor(d.value_type=="number","This control vertical supports only the known number type");
@@ -40,6 +67,25 @@ SemanticControlResolution validate_semantic_descriptor(const SemanticParameterDe
     return {SemanticWidget::numeric,true,"UNKNOWN_WIDGET_HINT: "+d.widget_hint+"; using numeric for known number type"};
 }
 std::optional<SemanticParameterDescriptor> builtin_semantic_descriptor(const std::string& type,const std::string& parameter) {
+    if(parameter=="fill_rule"&&(type=="nect.paint.fill"||type=="nect.shape.offset")) {
+        const auto* owner=builtin_operation_type(type);
+        if(!owner)return {};
+        SemanticParameterDescriptor d;
+        d.key="fill_rule";d.value_type="enum";d.enum_default=ShapeOperation{}.fill_rule;
+        d.choices={{"nonzero","Nonzero winding"},{"evenodd","Even-odd"}};
+        d.unit="enum";d.domain=owner->input;d.widget_hint="dropdown";d.label="Fill rule";
+        d.help="Choose the winding rule used to determine which regions are filled.";
+        validate_semantic_descriptor(d);return d;
+    }
+    if(parameter=="enabled") {
+        const auto* owner=builtin_operation_type(type);
+        if(!owner)return {};
+        SemanticParameterDescriptor d;
+        d.key="enabled";d.value_type="boolean";d.boolean_default=ShapeOperation{}.enabled;
+        d.unit="boolean";d.domain=owner->input;d.widget_hint="toggle";d.label="Enabled";
+        d.help="Enable or bypass this operation. Linked values are controlled by their source.";
+        validate_semantic_descriptor(d);return d;
+    }
     const bool amount=type=="nect.shape.offset"&&parameter=="amount";
     const bool rotation=type=="nect.shape.repeater"&&parameter=="rotation";
     const bool copies=type=="nect.shape.repeater"&&parameter=="copies";
@@ -62,7 +108,7 @@ std::optional<SemanticParameterDescriptor> property_semantic_descriptor(const Do
     for(const auto& operation:found->second.stack) {
         if(operation.macro)continue;
         const auto prefix="op."+operation.id+".";
-        if(ref.field.starts_with(prefix)&&operation.parameters.contains(ref.field.substr(prefix.size())))
+        if(ref.field.starts_with(prefix)&&(ref.field.substr(prefix.size())=="enabled"||ref.field.substr(prefix.size())=="fill_rule"||operation.parameters.contains(ref.field.substr(prefix.size()))))
             return builtin_semantic_descriptor(operation.type,ref.field.substr(prefix.size()));
     }
     return {};

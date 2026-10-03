@@ -12,6 +12,24 @@ void refuses(const SemanticParameterDescriptor& descriptor){
 }
 }
 int main(){try{
+    const auto dropdown=*builtin_semantic_descriptor("nect.paint.fill","fill_rule");
+    check(dropdown.enum_default=="nonzero"&&dropdown.choices.size()==2,"Fill rule has typed canonical choices");
+    check(validate_semantic_descriptor(dropdown).widget==SemanticWidget::dropdown,"Fill rule resolves to dropdown");
+    auto bad_enum=dropdown;bad_enum.enum_default="unknown";refuses(bad_enum);
+    bad_enum=dropdown;bad_enum.choices.push_back(bad_enum.choices.front());refuses(bad_enum);
+    bad_enum=dropdown;bad_enum.widget_hint="toggle";refuses(bad_enum);
+    bad_enum=dropdown;bad_enum.boolean_default=false;refuses(bad_enum);
+    bad_enum=dropdown;bad_enum.widget_hint="future-enum";
+    check(validate_semantic_descriptor(bad_enum).fallback,"Unknown enum hint has same-type fallback");
+    const auto toggle=*builtin_semantic_descriptor("nect.shape.offset","enabled");
+    check(toggle.value_type=="boolean"&&toggle.boolean_default==true,"Enabled retains typed canonical default");
+    check(validate_semantic_descriptor(toggle).widget==SemanticWidget::toggle,"Enabled resolves to toggle");
+    auto bad_toggle=toggle;bad_toggle.boolean_default.reset();refuses(bad_toggle);
+    bad_toggle=toggle;bad_toggle.minimum=0;refuses(bad_toggle);
+    bad_toggle=toggle;bad_toggle.widget_hint="numeric";refuses(bad_toggle);
+    bad_toggle=toggle;bad_toggle.unit="scalar";refuses(bad_toggle);
+    bad_toggle=toggle;bad_toggle.widget_hint="future-bool";
+    check(validate_semantic_descriptor(bad_toggle).widget==SemanticWidget::toggle&&validate_semantic_descriptor(bad_toggle).fallback,"Unknown boolean hint falls back only within boolean family");
     const auto copies=*builtin_semantic_descriptor("nect.shape.repeater","copies");
     check(copies.widget_hint=="slider"&&copies.minimum==0&&copies.maximum==1000&&copies.step==1,
         "Copies describes one bounded shared numeric slider");

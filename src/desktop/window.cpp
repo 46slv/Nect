@@ -25,6 +25,8 @@
 #include "nect/blend.hpp"
 #include "colors.hpp"
 #include "semantic_control.hpp"
+#include "semantic_toggle_control.hpp"
+#include "semantic_enum_control.hpp"
 #include "artboard_background_control.hpp"
 #include "analysis_contour_control.hpp"
 #include "macro_authoring_control.hpp"
@@ -7215,7 +7217,9 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         const auto enabled_ref=operation_ref(object.id,operation.id,"enabled");
         const auto enabled_state=operation_enabled_state(host.session.document(),enabled_ref);
         const bool enabled_driven=enabled_state.driver.has_value()||enabled_state.expression.has_value();
-        auto* enabled=new QCheckBox("Enabled");enabled->setChecked(enabled_state.literal);enabled->setEnabled(!enabled_driven);
+        const auto enabled_descriptor=builtin_semantic_descriptor(operation.type,"enabled");
+        auto* enabled=enabled_descriptor?semantic_toggle_input(*enabled_descriptor,enabled_state.evaluated):new QCheckBox("Enabled");
+        enabled->setChecked(enabled_state.evaluated);enabled->setEnabled(!enabled_driven);
         enabled->setObjectName("operation-enabled-"+qs(operation.id));
         enabled->setAccessibleName(name+" enabled");row->addWidget(enabled);row->addStretch();
         auto* enabled_driver=new QPushButton(enabled_state.driver?"Driver…":enabled_state.expression?"Expression…":"Link…");
@@ -7446,13 +7450,11 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         } else if(operation.type=="nect.paint.fill") {
             const auto target=operation_ref(object.id,operation.id,"fill_rule");
             const auto state=fill_rule_property(host.session.document(),target);
-            const auto rule_index=state.evaluated=="evenodd"?1:0;
             auto* rule_row=new QWidget(group);auto* rule_layout=new QHBoxLayout(rule_row);rule_layout->setContentsMargins(0,0,0,0);
-            auto* rule=new QComboBox;rule->setObjectName("operation-fill-rule-"+qs(operation.id));
+            auto* rule=semantic_enum_input(*builtin_semantic_descriptor(operation.type,"fill_rule"),state.evaluated);rule->setObjectName("operation-fill-rule-"+qs(operation.id));
             rule->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
             rule->setMinimumContentsLength(10);rule->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
-            rule->addItem("Nonzero winding","nonzero");rule->addItem("Even-odd","evenodd");
-            rule->setCurrentIndex(rule_index);rule->setEnabled(false);
+            rule->setEnabled(false);
             rule->setToolTip("Use the Fill rule editor to stage a literal, link or unlink change.");rule_layout->addWidget(rule);
             auto* driver_button=new QToolButton(rule_row);driver_button->setObjectName("operation-fill-rule-driver-"+qs(operation.id));
             driver_button->setText(state.driver?"Driver…":"Drive…");driver_button->setPopupMode(QToolButton::InstantPopup);
@@ -7482,9 +7484,8 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 if(!source_refs.empty())mode->addItem("Link to another Fill","link");
                 if(state.driver)mode->addItem("Unlink driver","unlink");
                 dialog_layout->addWidget(mode);
-                auto* value=new QComboBox(&dialog);value->setObjectName("fill-rule-value-"+qs(operation_id));
-                value->addItem("Nonzero winding","nonzero");value->addItem("Even-odd","evenodd");
-                value->setCurrentIndex(state.evaluated=="evenodd"?1:0);dialog_layout->addWidget(value);
+                auto* value=semantic_enum_input(*builtin_semantic_descriptor("nect.paint.fill","fill_rule"),state.evaluated,&dialog);value->setObjectName("fill-rule-value-"+qs(operation_id));
+                dialog_layout->addWidget(value);
                 auto* source_search=new QLineEdit(&dialog);
                 source_search->setObjectName("fill-rule-source-search-"+qs(operation_id));
                 source_search->setPlaceholderText("Search object ID, Fill ID or property path");
@@ -7569,11 +7570,10 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             state_label->setObjectName("operation-fill-rule-state-"+qs(operation.id));
             state_label->setWordWrap(true);state_label->setTextFormat(Qt::PlainText);form->addRow("",state_label);
         } else if(operation.type=="nect.shape.offset") {
-            auto* rule=new QComboBox;rule->setObjectName("operation-fill-rule-"+qs(operation.id));
+            auto* rule=semantic_enum_input(*builtin_semantic_descriptor(operation.type,"fill_rule"),operation.fill_rule);rule->setObjectName("operation-fill-rule-"+qs(operation.id));
             rule->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
             rule->setMinimumContentsLength(10);rule->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
-            rule->addItem("Nonzero winding","nonzero");rule->addItem("Even-odd","evenodd");
-            rule->setCurrentIndex(operation.fill_rule=="evenodd"?1:0);form->addRow("Fill rule",rule);
+            form->addRow("Fill rule",rule);
             connect(rule,&QComboBox::currentIndexChanged,this,[this,rule,apply,id=object.id,op=operation.id,before=rule->currentIndex()](int) {
                 bool applied=false;
                 perform([&]{const auto& current=find_operation(host.session.document(),id,op);

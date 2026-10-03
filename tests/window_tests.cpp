@@ -1,6 +1,7 @@
 #include "window.hpp"
 #include "multi_text_content_unlink_window_smoke.hpp"
 #include "semantic_slider_window_smoke.hpp"
+#include "semantic_toggle_window_smoke.hpp"
 #include <QApplication>
 #include <QAction>
 #include <QCheckBox>
@@ -5588,6 +5589,10 @@ void group_path_follow_inspector(Window& window) {
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
     try {
+        if(argc==2&&std::string(argv[1])=="--semantic-toggle") {
+            const auto checks=semantic_toggle_window_smoke::run();
+            std::cout<<"PASS "<<checks<<" production Window enabled toggle checks (Qt/API; physical OS input NOT_RUN; full regression NOT_RUN)\n";return 0;
+        }
         if(argc==2&&std::string(argv[1])=="--semantic-slider") {
             const auto checks=semantic_slider_window_smoke::run();
             std::cout<<"PASS "<<checks<<" production Window Copies slider checks (Qt/API; physical OS input NOT_RUN; full regression NOT_RUN)\n";return 0;

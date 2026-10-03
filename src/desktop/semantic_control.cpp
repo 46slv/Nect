@@ -25,7 +25,7 @@ void annotate_semantic_control(QWidget* control,const SemanticParameterDescripto
     control->setProperty("nect-unit",QString::fromStdString(d.unit));
     control->setProperty("nect-domain",QString::fromStdString(d.domain));
     control->setProperty("nect-widget-hint",QString::fromStdString(d.widget_hint));
-    control->setProperty("nect-widget-kind",resolution.widget==SemanticWidget::angle?"angle":resolution.widget==SemanticWidget::slider?"slider":"numeric");
+    control->setProperty("nect-widget-kind",resolution.widget==SemanticWidget::dropdown?"dropdown":resolution.widget==SemanticWidget::toggle?"toggle":resolution.widget==SemanticWidget::angle?"angle":resolution.widget==SemanticWidget::slider?"slider":"numeric");
     control->setProperty("nect-control-status",QString::fromStdString(resolution.status));
     control->setProperty("nect-control-fallback",resolution.fallback);
     control->setProperty("nect-exact-value",true);
@@ -34,6 +34,7 @@ void annotate_semantic_control(QWidget* control,const SemanticParameterDescripto
 }
 SemanticNumberInput* semantic_number_input(const SemanticParameterDescriptor& d,const QString& text,QWidget* parent) {
     // Validate before allocating or selecting a widget.
+    if(d.value_type!="number")throw Error("INVALID_CONTROL_DESCRIPTOR","Number input requires a numeric descriptor");
     validate_semantic_descriptor(d);
     auto* input=new SemanticNumberInput(text,parent);annotate_semantic_control(input,d);return input;
 }
