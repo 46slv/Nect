@@ -31,12 +31,15 @@ repair from `37dd7dd`. These additions retain native 0.81. Shared Windows builds
 use `Local\NectBuild`; prior task-18 worktrees, launchers and processes are preserved.
 
 Windows Release build and five focused contracts passed: geometry helper (36),
-Host/Window adoption (62), existing region analysis, formal desktop MCP adoption/restart
-(21 including startup observations), and Macro authoring UI (48). Adoption covers
+Host/Window adoption (62), existing region analysis, formal desktop MCP adoption/restart,
+and Macro authoring UI (48). Adoption covers
 real Canvas analysis, nonzero Artboard origin/scale, original artwork/native
 preservation, point edit, Undo/Redo, cold process reopen, stale Session/revision/
 snapshot/contour rejection, gesture refusal and draft cancellation. The background
-repair carries its separate 14-check Windows proof. This is USABLE_UNHARDENED;
+repair was then integrated and the desktop rebuilt. Final integration passed both
+background UI (14) and actual desktop/MCP cold restart (16 semantic checks). A
+shell-wrapper launch failure was isolated to copied Python PATH/Qt resolution;
+the explicit-Qt Python runner passes. This is USABLE_UNHARDENED;
 physical input/visual comfort, broad regression, whole REQ-65 and full Macro graph
 authoring remain open.
 

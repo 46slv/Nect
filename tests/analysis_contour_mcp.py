@@ -30,13 +30,17 @@ class Live:
                 '--recovery-dir', str(directory / self.endpoint)]
         if native:
             args.append(str(native))
+        log_path = directory / (self.endpoint + '.log')
+        self.log = log_path.open('wb')
         self.desktop = subprocess.Popen(args, env=dict(os.environ, QT_QPA_PLATFORM='offscreen'),
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                        stdout=self.log, stderr=subprocess.STDOUT)
         self.mcp = None
         try:
             deadline = time.monotonic() + 20
             while not ready.exists():
-                check(self.desktop.poll() is None and time.monotonic() < deadline, 'desktop load')
+                if self.desktop.poll() is not None or time.monotonic() >= deadline:
+                    raise AssertionError(f'desktop load exit={self.desktop.poll()}: '
+                                         + log_path.read_text(errors='replace'))
                 time.sleep(.05)
             self.mcp = subprocess.Popen([sys.executable, str(ROOT / 'scripts/mcp_server.py'),
                                          '--endpoint', self.endpoint], stdin=subprocess.PIPE,
@@ -81,6 +85,7 @@ class Live:
         if self.desktop.poll() is None:
             self.desktop.kill()
         self.desktop.wait(timeout=5)
+        self.log.close()
 
 
 with tempfile.TemporaryDirectory(prefix='nect-contour-') as name:
@@ -142,4 +147,4 @@ with tempfile.TemporaryDirectory(prefix='nect-contour-') as name:
         check(cold.core('get', ref=ref)['result']['evaluated'] == value+2, 'Cold reopened Path remains editable')
     finally:
         cold.close()
-print(f'PASS {checks} desktop/MCP contour checks (including startup observations)')
+print(f'PASS {checks} desktop/MCP contour checks')
