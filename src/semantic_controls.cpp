@@ -27,8 +27,14 @@ SemanticControlResolution validate_semantic_descriptor(const SemanticParameterDe
         return {SemanticWidget::angle,false,"SUPPORTED"};
     }
     require_descriptor(d.angle_semantics.empty(),"Angle semantics require an angle hint");
+    if(d.widget_hint=="slider") {
+        require_descriptor(d.minimum&&d.maximum&&d.step,"Slider requires bounded minimum, maximum and step");
+        const auto ticks=(*d.maximum-*d.minimum)/ *d.step;
+        require_descriptor(std::isfinite(ticks)&&ticks>=1&&ticks<=1000000,"Slider needs 1..1000000 finite steps");
+        return {SemanticWidget::slider,false,"SUPPORTED"};
+    }
     if(d.widget_hint=="numeric")return {SemanticWidget::numeric,false,"SUPPORTED"};
-    for(const auto* hint:{"slider","range","toggle","enum","dropdown","color","point","vector","curve"})
+    for(const auto* hint:{"range","toggle","enum","dropdown","color","point","vector","curve"})
         require_descriptor(d.widget_hint!=hint,"Widget family is incompatible or outside this vertical: "+d.widget_hint);
     require_descriptor(!d.widget_hint.empty(),"Widget hint is required");
     return {SemanticWidget::numeric,true,"UNKNOWN_WIDGET_HINT: "+d.widget_hint+"; using numeric for known number type"};
@@ -44,7 +50,7 @@ std::optional<SemanticParameterDescriptor> builtin_semantic_descriptor(const std
     SemanticParameterDescriptor d;
     d.key=parameter;d.default_value=owner->parameter_defaults.at(parameter);d.domain=owner->input;
     d.unit=amount?"du":copies?"scalar":"degree";d.minimum=amount?-1e6:copies?0:-1e9;d.maximum=amount?1e6:copies?1000:1e9;d.step=1;
-    d.widget_hint=rotation?"angle":"numeric";d.label=amount?"Amount":copies?"Copies":"Rotation";
+    d.widget_hint=rotation?"angle":copies?"slider":"numeric";d.label=amount?"Amount":copies?"Copies":"Rotation";
     d.help=copies?"Whole-number copies from 0 to 1000. Escape cancels the draft.":amount?"Positive expands; negative contracts. Escape cancels the draft.":
         "Signed degrees per copy. The indicator wraps; the authored value retains all turns. Escape cancels.";
     if(rotation)d.angle_semantics="signed_turns_indicator_modulo_360";

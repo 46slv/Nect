@@ -1,3 +1,4 @@
+#include "semantic_slider.hpp"
 #include "composite_isolation_batch_control.hpp"
 #include "macro_public_interface_control.hpp"
 #include "instance_text_content_control.hpp"
@@ -766,13 +767,6 @@ void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& r
 void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::vector<Ref>& targets,
         const SemanticParameterDescriptor& descriptor,bool macro) {
     validate_semantic_descriptor(descriptor);
-    auto* scrub=new SemanticScrub(layout->parentWidget());layout->addWidget(scrub);
-    annotate_semantic_control(scrub,descriptor);
-    scrub->setObjectName("semantic-scrub-"+qs(targets.front().point.empty()?targets.front().field:targets.front().point));
-    scrub->setAccessibleName(qs(descriptor.label)+" scrub / "+qs(descriptor.unit));
-    scrub->setProperty("nect-targets",refs_json(targets));
-    scrub->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
-    scrub->setToolTip(qs(descriptor.help)+"\nDrag horizontally; Shift is fine, Control is coarse. Left/Right adjusts one step. Escape cancels.");
     const auto identity=host.session_id;const auto revision=host.session.revision();const auto document=host.session.document().id;
     const auto read=[macro](const Document& d,const Ref& r) {
         return macro?macro_parameter_value(d,r.object,r.point,r.field):evaluate(d).at(r);
@@ -783,16 +777,36 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         initial.push_back(read(host.session.document(),target));
         if(!macro) {const auto& scalar=nect::property(host.session.document(),target);driven=driven||scalar.binding||scalar.expression;}
     }
-    scrub->setEnabled(!driven);input->setReadOnly(driven);
+    SemanticScrub* scrub=nullptr;SemanticSlider* slider=nullptr;QWidget* control=nullptr;
+    if(validate_semantic_descriptor(descriptor).widget==SemanticWidget::slider) {
+        double minimum_delta=-1000000,maximum_delta=1000000;
+        for(const auto value:initial) {
+            minimum_delta=std::max(minimum_delta,std::ceil((*descriptor.minimum-value)/ *descriptor.step));
+            maximum_delta=std::min(maximum_delta,std::floor((*descriptor.maximum-value)/ *descriptor.step));
+        }
+        if(!std::isfinite(minimum_delta)||!std::isfinite(maximum_delta)||minimum_delta>0||maximum_delta<0)
+            throw Error("INVALID_CONTROL_DESCRIPTOR","Slider baseline is outside its declared bounds");
+        slider=new SemanticSlider(static_cast<int>(minimum_delta),static_cast<int>(maximum_delta),layout->parentWidget());
+        control=slider;
+    }else {scrub=new SemanticScrub(layout->parentWidget());control=scrub;}
+    layout->addWidget(control);
+    annotate_semantic_control(control,descriptor);
+    control->setObjectName((slider?"semantic-slider-":"semantic-scrub-")+qs(targets.front().point.empty()?targets.front().field:targets.front().point));
+    control->setAccessibleName(qs(descriptor.label)+(slider?" slider / ":" scrub / ")+qs(descriptor.unit));
+    control->setProperty("nect-targets",refs_json(targets));
+    control->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
+    control->setToolTip(qs(descriptor.help)+(slider?"\nDrag or use arrow keys within the allowed range. Escape cancels.":"\nDrag horizontally; Shift is fine, Control is coarse. Left/Right adjusts one step. Escape cancels."));
+    control->setEnabled(!driven&&(!slider||slider->minimum()<slider->maximum()));input->setReadOnly(driven);
     if(driven) {input->setToolTip(input->toolTip()+"\nDriven: use fx or explicitly unlink before direct editing.");
-        scrub->setToolTip("Driven: explicitly unlink before scrubbing.");}
+        control->setToolTip("Driven: explicitly unlink before scrubbing.");}
     const bool mixed=std::any_of(initial.begin(),initial.end(),[&](double value){return value!=initial.front();});
-    scrub->setProperty("nect-mixed",mixed);
-    if(targets.size()>1)scrub->setToolTip(scrub->toolTip()+"\nAdjusts each selected value by the same delta; keeps their differences.");
+    control->setProperty("nect-mixed",mixed);
+    if(targets.size()>1)control->setToolTip(control->toolTip()+"\nAdjusts each selected value by the same delta; keeps their differences.");
     const auto committed_text=mixed?QString{}:QString::number(initial.front(),'g',17);
     struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;QString last_text;};
     auto state=std::make_shared<Interaction>();state->last_text=committed_text;
-    QPointer<SemanticScrub> safe_scrub=scrub;QPointer<QLineEdit> safe_input=input;
+    QPointer<SemanticScrub> safe_scrub=scrub;QPointer<SemanticSlider> safe_slider=slider;QPointer<QLineEdit> safe_input=input;
+    const auto disarm=[safe_scrub,safe_slider] {if(safe_scrub)safe_scrub->disarm();if(safe_slider)safe_slider->disarm();};
     const auto owns=[this,state,identity,revision,document] {
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
             host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation;
@@ -815,11 +829,11 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         const auto* error=dynamic_cast<const Error*>(&exception);
         statusBar()->showMessage((error?qs(error->code)+": ":QString{})+QString::fromUtf8(exception.what()),12000);
     };
-    auto cancel=[this,state,owns,safe_scrub,safe_input,committed_text,targets,read,mixed,identity,document] {
+    auto cancel=[this,state,owns,disarm,safe_input,committed_text,targets,read,mixed,identity,document] {
         const bool local=state->owned,active=owns();
         if(active)host.session.cancel_gesture();state->owned=false;
         if(local) {
-            if(safe_scrub)safe_scrub->disarm();
+            disarm();
             if(safe_input) {
                 auto text=committed_text;
                 try {if(!mixed&&host.session_id==identity&&host.session.document().id==document)
@@ -830,15 +844,15 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         }
         if(active){canvas->refresh();canvas->update();}
     };
-    register_angle_adapter(scrub,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
-    scrub->begin=[this,state,validate,report,safe_input,committed_text] {
+    register_angle_adapter(control,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
+    auto begin_interaction=[this,state,validate,report,safe_input,committed_text] {
         try {
             if(safe_input&&safe_input->isModified())throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before scrubbing");
             validate();host.session.begin_gesture(host.session.revision());
             state->generation=host.session.gesture_generation();state->owned=true;state->last_text=committed_text;return true;
         } catch(const std::exception& exception){report(exception);return false;}
     };
-    scrub->preview_delta=[this,state,owns,validate,cancel,report,safe_input,targets,initial,mixed,macro,step=descriptor.step.value_or(1)](double delta) {
+    auto preview_interaction=[this,state,owns,validate,cancel,report,safe_input,targets,initial,mixed,macro,step=descriptor.step.value_or(1)](double delta) {
         if(!owns()){if(state->owned)cancel();return;}
         try {
             validate();std::vector<Command> commands;
@@ -859,12 +873,18 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
             cancel();report(exception);
         }
     };
-    scrub->commit=[this,state,owns,validate,cancel,report] {
+    auto commit_interaction=[this,state,owns,validate,cancel,report] {
         if(!owns()){if(state->owned)cancel();return;}
         try {validate();host.session.commit_gesture();state->owned=false;host.edited();}
         catch(const std::exception& exception){cancel();report(exception);}
     };
-    scrub->cancel=cancel;
+    if(slider) {
+        slider->begin=begin_interaction;slider->preview_delta=preview_interaction;
+        slider->commit=commit_interaction;slider->cancel=cancel;
+    }else {
+        scrub->begin=begin_interaction;scrub->preview_delta=preview_interaction;
+        scrub->commit=commit_interaction;scrub->cancel=cancel;
+    }
 }
 
 Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library)

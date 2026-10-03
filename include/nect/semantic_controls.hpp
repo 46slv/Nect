@@ -12,7 +12,7 @@ struct SemanticParameterDescriptor {
     // Signed turns are authored unchanged; only the indicator wraps at 360.
     std::string angle_semantics;
 };
-enum class SemanticWidget { numeric, angle };
+enum class SemanticWidget { numeric, angle, slider };
 struct SemanticControlResolution {
     SemanticWidget widget=SemanticWidget::numeric;
     bool fallback=false;
