@@ -47,6 +47,33 @@ void require_target(const Document& document,const Id& instance,const Ref& targe
     if(found==object.stack.end()||!solid_fill(*found))
         throw Error("UNSUPPORTED_OVERRIDE","Color overrides support descendant solid Fill operations only");
 }
+ColorValue occurrence_color(const Document& document,const Id& instance,const Ref& target){
+    // Keep the render snapshot local: another descendant's local override may
+    // feed this Fill through authored links, expressions or scalar dependencies.
+    std::function<bool(const Id&)> contains=[&](const Id& id){
+        if(id==instance)return true;
+        for(const auto& child:document.objects.at(id).children)if(contains(child))return true;
+        return false;
+    };
+    const auto plane=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& composition){
+        return std::any_of(composition.roots.begin(),composition.roots.end(),contains);
+    });
+    if(plane==document.compositions.end())throw Error("MISSING_COMPOSITION",instance);
+    const auto values=evaluate(document);
+    const auto projection=project_definition_instances(document,plane->id,values,evaluate_transforms(document,values));
+    const auto& source=document.objects.at(target.object);
+    const auto fill=std::find_if(source.stack.begin(),source.stack.end(),[&](const auto& entry){
+        return operation_ref(source.id,entry.id,"color")==target;
+    });
+    const auto slot=static_cast<std::size_t>(std::distance(source.stack.begin(),fill));
+    for(const auto& [proxy,owner]:projection.instance_owners){
+        if(owner!=instance||projection.instance_sources.at(proxy)!=target.object)continue;
+        const auto& copy=projection.document->objects.at(proxy);
+        if(slot>=copy.stack.size()||!solid_fill(copy.stack[slot]))break;
+        return color_value(*projection.document,operation_ref(proxy,copy.stack[slot].id,"color"),*projection.values);
+    }
+    throw Error("MISSING_COLOR_TARGET","The selected occurrence Fill is unavailable");
+}
 QString rgba_text(const ColorValue& color){
     const auto& rgba=color.rgba;
     return QString("RGBA %1, %2, %3, %4").arg(rgba[0],0,'g',17).arg(rgba[1],0,'g',17)
@@ -108,7 +135,7 @@ QWidget* make_instance_color_controls(Host& host,const Id& instance,QWidget* par
     auto* reset=new QPushButton("Use Source",box);reset->setObjectName("instance-color-reset");
     reset->setToolTip("Removes only the selected Fill's local color override and follows the current source color.");
     row->addWidget(choose);row->addWidget(reset);layout->addLayout(row);
-    auto* note=new QLabel("Descendant solid Fill only. Stroke and gradient paint are unavailable. OK can freeze the current source color locally.",box);
+    auto* note=new QLabel("Descendant solid Fill only. Stroke and gradient paint are unavailable. OK can freeze the current occurrence color locally.",box);
     note->setTextFormat(Qt::PlainText);note->setWordWrap(true);layout->addWidget(note);
     auto* status=new QLabel(box);status->setObjectName("instance-color-error");
     status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
@@ -155,7 +182,7 @@ QWidget* make_instance_color_controls(Host& host,const Id& instance,QWidget* par
             if(expression)text+=" · Expression";
             safe_source_state->setText(text);
             const auto& overrides=current.objects.at(instance).instance->color_overrides;const auto local=overrides.find(target);
-            const bool overridden=local!=overrides.end();const auto exact=overridden?local->second:evaluated;
+            const bool overridden=local!=overrides.end();const auto exact=occurrence_color(current,instance,target);
             safe_local_state->setText(overridden?"Local: "+rgba_text(exact):"Local: Use Source");
             safe_choose->setAccessibleDescription(rgba_text(exact));const auto& rgba=exact.rgba;
             safe_choose->setStyleSheet("border: 3px solid "+QColor::fromRgbF(rgba[0],rgba[1],rgba[2],rgba[3]).name()+";");
@@ -197,12 +224,14 @@ QWidget* make_instance_color_controls(Host& host,const Id& instance,QWidget* par
         if(!safe_box||!safe_host||*picker_active)return;
         try{
             const auto& current=current_document();const auto target=selected_target();require_target(current,instance,target);
-            const auto& overrides=current.objects.at(instance).instance->color_overrides;const auto local=overrides.find(target);
-            const auto retained=local!=overrides.end()?local->second:color_value(current,target,evaluate(current));
+            const auto retained=occurrence_color(current,instance,target);
             const auto& rgba=retained.rgba;
             auto* dialog=new QColorDialog(QColor::fromRgbF(rgba[0],rgba[1],rgba[2],rgba[3]),safe_box.data());
             dialog->setObjectName("instance-color-dialog");dialog->setWindowTitle("Local Instance Fill color");
             dialog->setOption(QColorDialog::ShowAlphaChannel);
+            // The constructor normalizes alpha while the channel is hidden.
+            // Restore the occurrence baseline after enabling alpha editing.
+            dialog->setCurrentColor(QColor::fromRgbF(rgba[0],rgba[1],rgba[2],rgba[3]));
             // Retain exact doubles when the displayed QColor is unchanged,
             // including a user moving away and then returning to this baseline.
             const auto displayed_initial=dialog->currentColor();const QPointer<QColorDialog> safe_dialog(dialog);
@@ -215,7 +244,7 @@ QWidget* make_instance_color_controls(Host& host,const Id& instance,QWidget* par
             const auto& latest_overrides=latest.objects.at(instance).instance->color_overrides;const auto existing=latest_overrides.find(target);
             if(existing!=latest_overrides.end()&&existing->second==value){update_state();return;}
             // No override + explicit same-color OK intentionally freezes the
-            // exact evaluated source color. It does not unlink the source.
+            // exact evaluated occurrence color. It does not unlink the source.
             safe_host->session.apply({DefinitionCommand{SetInstanceColorOverride{instance,target,value}}},revision);
             safe_host->edited();return; // Refresh may synchronously destroy all widgets.
         }catch(const std::exception& error){

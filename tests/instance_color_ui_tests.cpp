@@ -1,5 +1,6 @@
 #include "nect/io.hpp"
 #include <cmath>
+#include <exception>
 #include <iostream>
 #include <stdexcept>
 #ifndef NECT_INSTANCE_COLOR_MODEL_TESTS
@@ -139,17 +140,20 @@ struct Inspector{
         check(fill_index>=0,"Stable source Fill exists");fills()->setCurrentIndex(fill_index);
     }
     void dialog(bool accept,const QColor* changed=nullptr,const std::function<void(QColorDialog&)>& during={}){
-        bool seen=false;const QPointer<QWidget> owner(controls);
+        bool seen=false;std::exception_ptr failure;const QPointer<QWidget> owner(controls);
         QTimer::singleShot(0,owner.data(),[&]{
             auto* dialog=qobject_cast<QColorDialog*>(QApplication::activeModalWidget());
             if(!dialog){QApplication::closeAllWindows();return;}
             seen=dialog->objectName()=="instance-color-dialog";const QPointer<QColorDialog> safe(dialog);
-            if(changed)dialog->setCurrentColor(*changed);
-            if(during)during(*dialog);
+            try{
+                if(changed)dialog->setCurrentColor(*changed);
+                if(during)during(*dialog);
+            }catch(...){failure=std::current_exception();if(safe)safe->reject();return;}
             if(safe){if(accept)safe->accept();else safe->reject();}
         });
         choose()->click();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         check(seen,"Local color opens the actual Qt picker");
+        if(failure)std::rethrow_exception(failure);
     }
     void undo(){host.session.undo(host.session.revision());host.edited();}
     void redo(){host.session.redo(host.session.revision());host.edited();}
@@ -267,6 +271,26 @@ void interruption_and_identity_guards(){
     check(seen&&controls,"Host lifetime guard survives acceptance without dereferencing a destroyed Host");
 }
 
+void linked_occurrence_picker_baseline(){
+    Inspector i;auto& session=i.host.session;const auto original=session.document();
+    ColorValue local;local.rgba={.91,.82,.73,.64};
+    session.apply({DefinitionCommand{SetInstanceColorOverride{"content-instance",driver_color,local}}},session.revision());
+    i.host.edited();i.select("first-item","first-fill");
+    check(!overrides(session).contains(first_color)&&
+        color_value(session.document(),first_color,evaluate(session.document()))==precise_color(),
+        "Linked Fill has no own override and its authored source still evaluates the original color");
+    check(i.label("instance-color-source-state").contains("0.123456789012345")&&
+        i.choose()->accessibleDescription().contains("0.91"),
+        "Source label stays source-only while the picker swatch describes the visible occurrence");
+    i.dialog(true,nullptr,[&](QColorDialog& dialog){
+        check(displays(dialog.currentColor(),local),"Linked Fill picker starts from another descendant's occurrence-local color");
+    });
+    check(overrides(session).at(first_color)==local&&overrides(session).at(driver_color)==local&&
+        session.document().objects.at("first-item")==original.objects.at("first-item")&&
+        session.document().objects.at("color-driver")==original.objects.at("color-driver"),
+        "Unchanged OK freezes the exact visible occurrence color and preserves both authored source Objects");
+}
+
 void stable_selection_and_empty(){
     Inspector i;i.select("first-item","other-fill");auto document=fixture();
     document.objects.at("first-item").name="Renamed source";auto& stack=document.objects.at("first-item").stack;
@@ -298,7 +322,7 @@ int main(){
 #else
 int main(int argc,char** argv){
     qputenv("QT_QPA_PLATFORM","offscreen");QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);QApplication application(argc,argv);
-    try{fixture_model_path();primary_precision_and_reset();interruption_and_identity_guards();stable_selection_and_empty();
+    try{fixture_model_path();primary_precision_and_reset();linked_occurrence_picker_baseline();interruption_and_identity_guards();stable_selection_and_empty();
         std::cout<<"PASS "<<checks<<" Instance solid Fill color Qt checks (physical OS input NOT_RUN)\n";return 0;
     }catch(const std::exception& error){std::cerr<<"FAIL "<<checks<<": "<<error.what()<<'\n';return 1;}
 }
