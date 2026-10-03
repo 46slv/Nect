@@ -38,3 +38,30 @@ The desktop `analysis_dataset` request and formal `nect_analyze_dataset` MCP too
 The image operator wraps the existing D1–D10 result without changing `analyze_regions` or its snapshot ID. Vector v1 requires a retained Path `object_id` and optionally one `contour_id`; generated primitive paths reject explicitly. It returns source Object/Contour/ordered Point IDs alongside snapshot-derived IDs, evaluated anchors and handles in object-local and Composition coordinates, object bounds in both coordinates, and canonical contour length in Composition units. The structure operator returns ordered root and child IDs, Object kind/name/structural parent/Transform Parent, evaluated visibility and compositing, Artboards and Collection memberships. These records are derived read models, not a second Document or authored state.
 
 Stage A establishes desktop API and MCP behavior only. R07 Node parity and downstream reuse are Stage B obligations; this section does not close whole REQ-64 or REQ-67.
+
+## REQ-65 bounded outer-contour adoption
+
+`adopt_analysis_contour` / formal MCP `nect_adopt_analysis_contour` accepts the original
+Composition, Artboard, scale and threshold together with exact live Session/document,
+expected revision, `analysis_id` and outer `contour_id`. Host re-renders committed artwork
+through `analyze_regions` and checks both snapshot and child identity before mutation.
+Callers cannot supply vertices or retarget a result by array index. A stale revision,
+replaced Session, mismatched snapshot/contour, active gesture or invalid input refuses
+without authored/history changes.
+
+The selected outer cycle becomes a separate root Path in its source Composition through
+one existing `CreatePath` Session command. Every retained pixel corner maps to
+`evaluated Artboard origin + corner / scale`; fresh authored Contour/Point IDs and zero
+handles make ordinary point editing available. Source artwork stays unchanged. The
+existing default Path stroke is used; this is not an appearance bake. Native 0.81 already
+stores this Path; no schema/version change is needed. Undo removes the entire adoption.
+
+Desktop **Add > Outer contour to Path...** opens a read-only analysis chooser for the
+active Artboard. Resolution/threshold changes invalidate its result, explicit Create Path
+commits once and selects the new Path, and Cancel makes no Session command. Drafts are
+bound to the Session/revision at dialog opening; after external changes, reopen the dialog.
+
+Adoption is bounded to one outer cycle and 4..10,000 retained corners. Analysis limits
+remain unchanged. Inner/hole cycles are omitted, with no inferred smoothing, curve fitting,
+cross-revision identity, color tracing or full REQ-65/66 completion claim. A selected cycle
+above the adoption cap refuses explicitly rather than simplifying it.
