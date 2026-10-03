@@ -36,7 +36,7 @@ endforeach()
 
 if(NECT_DESKTOP)
   find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets Network Test)
-  add_library(nect_desktop_client src/desktop/semantic_control.cpp src/desktop/svg_import.cpp src/desktop/host.cpp src/desktop/storage.cpp src/desktop/protection.cpp src/desktop/canvas.cpp src/desktop/window.cpp src/desktop/colors.cpp src/desktop/folder_library.cpp)
+  add_library(nect_desktop_client src/desktop/artboard_background_control.cpp src/desktop/semantic_control.cpp src/desktop/svg_import.cpp src/desktop/host.cpp src/desktop/storage.cpp src/desktop/protection.cpp src/desktop/canvas.cpp src/desktop/window.cpp src/desktop/colors.cpp src/desktop/folder_library.cpp)
   target_include_directories(nect_desktop_client PUBLIC src/desktop)
   target_link_libraries(nect_desktop_client PUBLIC nect_io Qt6::Widgets Qt6::Network)
   add_executable(nect_desktop WIN32 src/desktop/main.cpp)

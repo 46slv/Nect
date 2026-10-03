@@ -2,6 +2,7 @@
 #include "nect/blend.hpp"
 #include "colors.hpp"
 #include "semantic_control.hpp"
+#include "artboard_background_control.hpp"
 #include <QAction>
 #include <QAbstractItemView>
 #include <QApplication>
@@ -2364,6 +2365,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     };
     auto read=[this,composition,id]{return find_artboard(find_composition(host.session.document(),composition),id);};
     auto* title=new QLabel("Artboard frame · "+qs(comp.name));title->setWordWrap(true);layout->addWidget(title);
+    layout->addWidget(make_artboard_background_controls(host,composition,id,inspector_));
     auto* note=new QLabel("Frame X/Y changes the crop only. Artwork stays at its existing composition coordinates. List order does not change placement.");
     note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");layout->addWidget(note);
     auto* group=new QGroupBox("Frame");auto* form=new QFormLayout(group);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(group);

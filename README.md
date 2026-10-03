@@ -549,4 +549,4 @@ Artboards can author an optional literal sRGB background through
 `set_artboard_background {composition,artboard,value}` (`null` means none).
 The Template `background` family supports override, Reset and full detach freeze.
 PNG/SVG place it beneath the completed transparent artwork; region analysis
-continues to analyze artwork only. The native background UI is a pending vertical.
+continues to analyze artwork only. The Artboard inspector exposes Color, None and Reset controls; unchanged color-dialog input preserves the original authored precision.
