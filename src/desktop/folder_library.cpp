@@ -257,7 +257,7 @@ StoredMacroAsset read_stored_macro_asset(const QString& root,const QString& asse
         throw Error("UNSUPPORTED_MACRO_ASSET_VERSION","Macro asset envelope kind or version is unsupported");
     if(QString::fromStdString(envelope.asset_id)!=asset_id)
         throw Error("MACRO_ASSET_ID_MISMATCH","Macro asset envelope AssetID does not match the exact requested file identity");
-    if(envelope.payload_schema!=1)
+    if(envelope.payload_schema!=1&&envelope.payload_schema!=2)
         throw Error("UNSUPPORTED_MACRO_SCHEMA","Macro payload schema is not supported by this build");
     const QByteArray payload(envelope.payload.data(),static_cast<qsizetype>(envelope.payload.size()));
     if(static_cast<std::size_t>(payload.size())>portable_macro_payload_limit)
@@ -265,7 +265,7 @@ StoredMacroAsset read_stored_macro_asset(const QString& root,const QString& asse
     const auto actual_hash=QCryptographicHash::hash(payload,QCryptographicHash::Sha256).toHex();
     if(QString::fromStdString(envelope.sha256)!=QString::fromLatin1(actual_hash))
         throw Error("MACRO_ASSET_HASH_MISMATCH","Macro asset payload SHA-256 does not match its envelope");
-    auto definition=read_canonical_macro_payload(std::string_view(payload.constData(),static_cast<std::size_t>(payload.size())));
+    auto definition=read_canonical_macro_payload(std::string_view(payload.constData(),static_cast<std::size_t>(payload.size())),static_cast<unsigned>(envelope.payload_schema));
     if(QString::fromStdString(definition.label)!=QString::fromStdString(envelope.label))
         throw Error("MACRO_ASSET_ENVELOPE_MISMATCH","Macro asset label does not match its canonical payload");
     if(definition.id==asset_id.toStdString())
@@ -276,12 +276,12 @@ StoredMacroAsset read_stored_macro_asset(const QString& root,const QString& asse
 }
 
 LibraryMacroAssetV1 metadata_for_macro(const MacroDefinition& definition,const QString& asset_id,std::uint64_t revision) {
-    validate_portable_macro_definition(definition);
+    validate_portable_macro_definition(definition,portable_macro_payload_schema(definition));
     if(definition.id==asset_id.toStdString())
         throw Error("MACRO_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from its source MacroDefinitionID");
     const auto payload=QByteArray::fromStdString(canonical_macro_payload(definition));
     const auto hash=QCryptographicHash::hash(payload,QCryptographicHash::Sha256).toHex();
-    return {{asset_id},QString::fromStdString(definition.label),revision,QString::fromLatin1(hash),1,true,{}};
+    return {{asset_id},QString::fromStdString(definition.label),revision,QString::fromLatin1(hash),portable_macro_payload_schema(definition),true,{}};
 }
 
 void write_preset_asset_file(const QString& root,const QString& path,const QByteArray& bytes,
@@ -1057,7 +1057,7 @@ MacroDefinition FolderLibrary::read_macro_asset(const MacroAssetRefV1& ref,Libra
 }
 
 LibraryMacroAssetV1 FolderLibrary::publish_macro_asset(const MacroDefinition& definition) {
-    validate_portable_macro_definition(definition);
+    validate_portable_macro_definition(definition,portable_macro_payload_schema(definition));
     const auto root_path=resolved_macro_payload_root(true);
     auto lock=lock_macro_asset_root(root_path);(void)lock;
     if(workspace_asset_file_count(root_path)>=max_workspace_assets)
@@ -1086,7 +1086,7 @@ LibraryMacroAssetV1 FolderLibrary::publish_macro_asset(const MacroDefinition& de
 
 LibraryMacroAssetV1 FolderLibrary::update_macro_asset(const MacroAssetRefV1& ref,const MacroDefinition& definition,
     std::uint64_t expected_revision,const QString& expected_sha256) {
-    validate_portable_macro_definition(definition);
+    validate_portable_macro_definition(definition,portable_macro_payload_schema(definition));
     const auto root_path=resolved_macro_payload_root(false);
     if(!QFileInfo::exists(root_path))throw Error("MISSING_MACRO_ASSET","The exact Macro Library asset file is missing");
     auto lock=lock_macro_asset_root(root_path);(void)lock;

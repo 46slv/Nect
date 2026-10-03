@@ -4327,9 +4327,17 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
 void validate_macro_definition(const MacroDefinition& definition) {
     validate_macro_definition(definition.id,definition);
 }
-void validate_portable_macro_definition(const MacroDefinition& definition) {
-    validate_macro_definition(definition);
+unsigned portable_macro_payload_schema(const MacroDefinition& definition) {
     for(const auto& [number,revision]:definition.revisions) {
+        (void)number;
+        if(revision.graph_version!=1||revision.interface_version!=1)return 2;
+    }
+    return 1;
+}
+void validate_portable_macro_definition(const MacroDefinition& definition,unsigned payload_schema) {
+    require(payload_schema==1||payload_schema==2,"UNSUPPORTED_MACRO_SCHEMA","Supported portable Macro schemas are 1 and 2");
+    validate_macro_definition(definition);
+    if(payload_schema==1)for(const auto& [number,revision]:definition.revisions) {
         (void)number;
         require(revision.graph_version==1&&revision.interface_version==1,"UNSUPPORTED_PORTABLE_MACRO_GRAPH","Portable Macro v1 only carries graph version 1");
     }
@@ -6812,7 +6820,7 @@ void edit_macro(Document& candidate,const MacroCommand& command) {
                     "INVALID_MACRO_ASSET_REF","Portable Macro import requires an exact AssetID and positive accepted asset revision");
                 identity(mutation.asset_id);
                 const auto& source=*mutation.imported_definition;
-                validate_portable_macro_definition(source);
+                validate_portable_macro_definition(source,portable_macro_payload_schema(source));
                 require(mutation.definition!=source.id&&mutation.definition!=mutation.asset_id&&source.id!=mutation.asset_id,
                     "MACRO_ASSET_ID_MISMATCH","Workspace AssetID, source MacroDefinitionID and fresh Document DefinitionID must remain distinct");
                 require(mutation.instance!=source.id&&mutation.instance!=mutation.asset_id&&mutation.instance!=mutation.definition,
@@ -6821,8 +6829,9 @@ void edit_macro(Document& candidate,const MacroCommand& command) {
                 require(source.revisions.contains(mutation.revision),"MISSING_MACRO_REVISION",source.id);
                 const auto& pinned=source.revisions.at(mutation.revision);
                 for(const auto& [public_id,value]:mutation.overrides) {
-                    require(macro_public_parameter(pinned,public_id),"MISSING_MACRO_PARAMETER",public_id);
-                    finite(value);require(std::abs(value)<=1e6,"OUT_OF_RANGE","Offset amount magnitude limit 1000000");
+                    const auto* parameter=macro_public_parameter(pinned,public_id);
+                    require(parameter,"MISSING_MACRO_PARAMETER",public_id);
+                    macro_value_range(pinned,*parameter,value);
                 }
                 auto imported=source;imported.id=mutation.definition;
                 validate_macro_definition(imported.id,imported);

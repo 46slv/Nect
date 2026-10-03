@@ -312,23 +312,31 @@ void native_and_portable_boundaries() {
         auto older=native;older["version"]=version;
         rejects("NATIVE_VERSION_MISMATCH",[&]{(void)decode(boost::json::serialize(older));});
     }
-    rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)canonical_macro_payload(definition);});
+    rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)canonical_macro_payload(definition,1);});
     const auto portable_json=boost::json::serialize(native.at("macros").as_array().front());
-    rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)read_canonical_macro_payload(portable_json);});
+    rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)read_canonical_macro_payload(portable_json,1);});
+    const auto graph2_payload=canonical_macro_payload(definition);
+    check(graph2_payload==canonical_macro_payload(definition,2)&&read_canonical_macro_payload(graph2_payload)==definition&&
+        read_canonical_macro_payload(graph2_payload,2)==definition,"Auto/schema2 codec retains the bounded graph2 contract");
     rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{validate_portable_macro_definition(definition);});
     Session imported(fixture());
-    atomic(imported,"UNSUPPORTED_PORTABLE_MACRO_GRAPH",{MacroCommand{InstantiateMacro{
+    const auto before_import=encode(imported.document());
+    apply(imported,{MacroCommand{InstantiateMacro{
         "path","imported-definition","imported-instance",1,1,definition,"portable-asset",41,{}}}});
-    const auto before_import=encode(imported.document());const auto before_revision=imported.revision();
-    const auto before_history=imported.history();
+    check(imported.document().macro_definitions.at("imported-definition").revisions==definition.revisions,
+        "Typed import retains graph2 revisions under fresh Document identity");
+    same_shape(evaluated(imported.document()),evaluated(ordinary(definition.revisions.at(1))),"Typed graph2 import preserves geometry");
+    imported.undo(imported.revision());check(encode(imported.document())==before_import,"Typed graph2 import is one exact Undo");
     const auto import_reply=parsed(request(imported,boost::json::serialize(boost::json::object{
         {"op","apply"},{"expected_revision",imported.revision()},{"commands",boost::json::array{
             boost::json::object{{"type","import_apply_macro"},{"definition",native.at("macros").as_array().front()},
                 {"definition_id","api-imported-definition"},{"object","path"},{"instance","api-imported-instance"},
                 {"pinned_revision",1},{"index",1},{"asset_id","portable-asset"},{"accepted_revision",41}}}}})));
-    check(!import_reply.at("ok").as_bool()&&import_reply.at("error").as_object().at("code").as_string()=="UNSUPPORTED_PORTABLE_MACRO_GRAPH"&&
-        encode(imported.document())==before_import&&imported.revision()==before_revision&&imported.history()==before_history,
-        "Portable graph2 import is refused atomically through the shared JSON-lines API");
+    check(import_reply.at("ok").as_bool()&&
+        imported.document().macro_definitions.at("api-imported-definition").revisions==definition.revisions,
+        "Portable graph2 import succeeds through the shared JSON-lines API");
+    same_shape(evaluated(imported.document()),evaluated(ordinary(definition.revisions.at(1))),"JSON-lines graph2 import preserves geometry");
+    imported.undo(imported.revision());check(encode(imported.document())==before_import,"JSON-lines graph2 import is one exact Undo");
 
     auto legacy=chain({"nect.shape.offset","nect.shape.repeater"});legacy.revisions.at(1).graph_version=1;
     Session old(fixture());instantiate(old,legacy);
@@ -342,9 +350,14 @@ void native_and_portable_boundaries() {
         "Portable Macro payload v1 retains its existing graph v1 roundtrip");
     auto mixed=legacy;auto graph2=definition.revisions.at(1);graph2.revision=2;
     mixed.revisions.emplace(2,graph2);mixed.latest_revision=2;
-    atomic(imported,"UNSUPPORTED_PORTABLE_MACRO_GRAPH",{MacroCommand{InstantiateMacro{
+    rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)canonical_macro_payload(mixed,1);});
+    check(portable_macro_payload_schema(mixed)==2&&read_canonical_macro_payload(canonical_macro_payload(mixed),2)==mixed,
+        "Schema selection considers advanced retained revisions even when importing the legacy pin");
+    apply(imported,{MacroCommand{InstantiateMacro{
         "path","retained-definition","retained-instance",1,1,mixed,"portable-asset",41,{}}}});
-    rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)canonical_macro_payload(mixed);});
+    check(imported.document().objects.at("path").stack[1].macro->pinned_revision==1&&
+        imported.document().macro_definitions.at("retained-definition").revisions==mixed.revisions,
+        "Typed schema2 import retains the graph2 closure while explicitly pinning its legacy revision");
 }
 }
 int main(int argc,char** argv) {

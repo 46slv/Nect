@@ -13,9 +13,29 @@ The existing optional published `macro.offset.amount` maps to one identified
 Offset node, never every Offset in the graph. Revision 1 still requires this
 published interface; later explicit migrations may remove it. Instances remain
 pinned, updates are explicit, and detach materializes the ordered full chain.
-Graph v2 is native-local; portable Macro payload v1 deliberately refuses it.
+Portable Macro payload schema 1 deliberately refuses graph v2; schema 2
+retains the supported chain and published interface for cross-document reuse.
 Older native versions reject the new graph-version field. This is a linear
 known-node subset, not full branching/nested Macro graph support.
+
+
+## Published Macro controls and portable payload schema 2
+
+Native 0.86 adds `interface_version: 2` to revisions after the original revision.
+It permits up to 16 uniquely mapped numeric controls with stable `macro.*` IDs:
+Offset Amount (du), Repeater Copies (scalar integer 0–1000), and Repeater Rotation
+(signed degrees). Labels and internal literal defaults are editable. Instances
+remain pinned; migration is explicit and refuses orphaned or incompatible local
+overrides. Older native versions reject the interface marker rather than losing it.
+
+Workspace Macro asset envelopes keep envelope version 1. `payload_schema: 2`
+permits the supported graph/interface versions in all retained revisions. Legacy
+assets keep schema 1 and identical canonical bytes; schema 1 never silently gains
+advanced semantics. Unknown schemas refuse. SHA-256 covers the canonical payload,
+and explicit update retains the accepted revision/hash checks. Import assigns a
+fresh document Definition ID, preserves graph-local and public-control IDs, and
+inserts the selected pinned instance in one undoable operation. Later Library
+updates do not alter previously imported definitions or instances.
 
 
 ## Instance item visibility overrides (native 0.82)

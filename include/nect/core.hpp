@@ -299,7 +299,8 @@ struct MacroDefinition {
 // Validates the exact supported portable Macro dependency closure and every
 // retained revision using the same owner as native Document validation.
 void validate_macro_definition(const MacroDefinition&);
-void validate_portable_macro_definition(const MacroDefinition&);
+void validate_portable_macro_definition(const MacroDefinition&,unsigned payload_schema=1);
+unsigned portable_macro_payload_schema(const MacroDefinition&);
 struct MacroInstance {
     Id definition;
     std::uint64_t pinned_revision=1;

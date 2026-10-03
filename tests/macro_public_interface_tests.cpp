@@ -365,13 +365,22 @@ void native_portable_and_cold_reopen(const std::string& executable) {
     serialized_revision(old_json,0)["interface_version"]=1;
     rejects("NATIVE_VERSION_MISMATCH",[&]{(void)decode(boost::json::serialize(old_json));});
     const auto portable=canonical_macro_payload(legacy);check(read_canonical_macro_payload(portable)==legacy,"Portable Macro v1 retains its legacy Amount contract");
-    const auto pair=definition(true);rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)canonical_macro_payload(pair);});
+    const auto pair=definition(true);rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)canonical_macro_payload(pair,1);});
     rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{validate_portable_macro_definition(pair);});
     Session paired(fixture());instantiate(paired,pair);
     const auto payload=boost::json::serialize(parsed(encode(paired.document())).at("macros").as_array().front());
-    rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)read_canonical_macro_payload(payload);});
-    Session imported(fixture());atomic(imported,"UNSUPPORTED_PORTABLE_MACRO_GRAPH",{MacroCommand{InstantiateMacro{
+    rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)read_canonical_macro_payload(payload,1);});
+    const auto pair_payload=canonical_macro_payload(pair);
+    check(pair_payload==canonical_macro_payload(pair,2)&&read_canonical_macro_payload(pair_payload)==pair&&
+        read_canonical_macro_payload(pair_payload,2)==pair,"Auto/schema2 codec retains the graph1/interface2 mapping contract");
+    Session imported(fixture());const auto before_import=encode(imported.document());
+    apply(imported,{MacroCommand{InstantiateMacro{
         "path","imported-definition","imported-instance",2,1,pair,"portable-asset",41,{}}}});
+    check(imported.document().macro_definitions.at("imported-definition").revisions==pair.revisions&&
+        imported.document().objects.at("path").stack[1].macro->pinned_revision==2,
+        "Typed schema2 import preserves interface2 mappings and explicit pin under a fresh Document identity");
+    same_shape(evaluated(imported.document()),evaluated(ordinary(pair.revisions.at(2),{},true)),"Imported interface2 pair preserves mapped geometry");
+    imported.undo(imported.revision());check(encode(imported.document())==before_import,"Typed interface2 import is one exact Undo");
     // All historical version strings still accept a valid feature-free document.
     for(unsigned minor=1;minor<=85;++minor) {
         boost::json::object historical{{"format","nect-native"},{"version","0."+std::to_string(minor)},{"id","historical-document"},

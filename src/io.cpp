@@ -3058,15 +3058,16 @@ std::string canonical_preset_payload(const PresetDefinition& definition) {
     return payload;
 }
 
-std::string canonical_macro_payload(const MacroDefinition& definition) {
-    validate_portable_macro_definition(definition);
+std::string canonical_macro_payload(const MacroDefinition& definition,unsigned payload_schema) {
+    if(payload_schema==0)payload_schema=portable_macro_payload_schema(definition);
+    validate_portable_macro_definition(definition,payload_schema);
     const auto payload=canonical_json(macro_definition_json(definition));
     if(payload.size()>portable_macro_payload_limit)
         throw Error("MACRO_PAYLOAD_LIMIT","Portable Macro payload exceeds 256 KiB");
     return payload;
 }
 
-MacroDefinition read_canonical_macro_payload(std::string_view input) {
+MacroDefinition read_canonical_macro_payload(std::string_view input,unsigned payload_schema) {
     if(input.size()>portable_macro_payload_limit)
         throw Error("MACRO_PAYLOAD_LIMIT","Portable Macro payload exceeds 256 KiB");
     MacroDefinition definition;
@@ -3079,8 +3080,9 @@ MacroDefinition read_canonical_macro_payload(std::string_view input) {
     } catch(const std::exception& error) {
         throw Error("UNAVAILABLE_MACRO_ASSET",std::string("Portable Macro payload schema is malformed: ")+error.what());
     }
-    validate_portable_macro_definition(definition);
-    if(canonical_macro_payload(definition)!=input)
+    if(payload_schema==0)payload_schema=portable_macro_payload_schema(definition);
+    validate_portable_macro_definition(definition,payload_schema);
+    if(canonical_macro_payload(definition,payload_schema)!=input)
         throw Error("NONCANONICAL_MACRO_PAYLOAD","Portable Macro payload is not in canonical serialized form");
     return definition;
 }

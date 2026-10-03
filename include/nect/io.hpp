@@ -26,8 +26,11 @@ std::string canonical_preset_payload(const PresetDefinition& definition);
 PresetDefinition read_canonical_preset_payload(std::string_view input);
 PortablePresetAssetEnvelope read_portable_preset_asset_envelope(std::string_view input);
 // Canonical MacroDefinition bytes retain every graph revision and stable local ID.
-std::string canonical_macro_payload(const MacroDefinition& definition);
-MacroDefinition read_canonical_macro_payload(std::string_view input);
+// Schema 0 selects the minimum supported payload schema. Envelope readers pass
+// their explicit schema: 1 keeps the original graph/interface, 2 permits the
+// supported linear chains and mapped numeric controls. Future schemas refuse.
+std::string canonical_macro_payload(const MacroDefinition& definition,unsigned payload_schema=0);
+MacroDefinition read_canonical_macro_payload(std::string_view input,unsigned payload_schema=0);
 std::string export_svg(const Document& document, const Id& composition, const Id& artboard);
 // JSON-lines adapter, deliberately not an MCP implementation.
 std::string request(Session& session, std::string_view input);
