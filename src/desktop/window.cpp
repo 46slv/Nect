@@ -8989,6 +8989,8 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
     auto* group=new QGroupBox(QString("Text content · %1 selected objects").arg(selected.size()));
     group->setObjectName("text-content-batch-panel");auto* column=new QVBoxLayout(group);layout->addWidget(group);
     auto* link=new QPushButton("Link to Text content…",group);link->setObjectName("text-content-batch-link");column->addWidget(link);
+    auto* unlink=new QPushButton("Unlink sources (freeze each value)",group);
+    unlink->setObjectName("text-content-batch-unlink");unlink->setEnabled(false);column->addWidget(unlink);
     auto* status=new QLabel(group);status->setObjectName("text-content-batch-status");status->setWordWrap(true);
     status->setTextFormat(Qt::PlainText);column->addWidget(status);
     const bool all_text=!selected.empty()&&std::all_of(selected.begin(),selected.end(),[&](const auto& item) {
@@ -9008,10 +9010,26 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
     link->setEnabled(std::any_of(document.objects.begin(),document.objects.end(),[&](const auto& entry) {
         return entry.second.kind==Kind::text&&entry.second.text&&!target_ids.contains(entry.first);
     }));
+    unlink->setEnabled(driven>0);
     status->setText(QString("%1 Text content targets · %2 with sources. Choose one source; literals remain stored. Existing sources require explicit replacement.")
         .arg(targets.size()).arg(driven));
     const auto frozen_session=host.session_id;const auto frozen_revision=host.session.revision();
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
+    const auto frozen_gesture=host.session.gesture_generation();
+    connect(unlink,&QPushButton::clicked,this,[this,targets,frozen_session,frozen_revision,frozen_gesture] {
+        perform([&]{
+            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text selection belongs to another document");
+            if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text changed; refresh before unlinking");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(host.session.gesture_generation()!=frozen_gesture)throw Error("REVISION_CONFLICT","The edit context changed; refresh before unlinking");
+            std::vector<Command> commands;
+            for(const auto& target:targets)
+                if(text_content_property(host.session.document(),target).driver)
+                    commands.push_back(UnlinkTextContent{target});
+            if(commands.empty())return;
+            host.session.apply(commands,frozen_revision);host.edited();
+        });
+    });
     connect(link,&QPushButton::clicked,this,[this,targets,selected,frozen_session,frozen_revision,composition,artboard] {
         perform([&]{open_text_content_source_picker(targets,selected,frozen_session,frozen_revision,composition,artboard);});
     });

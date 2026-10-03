@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include "multi_text_content_unlink_window_smoke.hpp"
 #include <QApplication>
 #include <QAction>
 #include <QCheckBox>
@@ -5586,6 +5587,10 @@ void group_path_follow_inspector(Window& window) {
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
     try {
+        if(argc==2&&std::string(argv[1])=="--multi-text-content-unlink") {
+            const auto checks=multi_text_content_unlink_window_smoke::run();
+            std::cout<<"PASS "<<checks<<" production Window Text content batch Unlink checks (Qt/API; physical OS input NOT_RUN; full regression NOT_RUN)\n";return 0;
+        }
         if(argc==2&&std::string(argv[1])=="--text-content-preservation") {
             QTemporaryDir scratch;Window text(scratch.path());text.show();QApplication::processEvents();
             text_content_preservation(text);
