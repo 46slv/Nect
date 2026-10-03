@@ -150,7 +150,7 @@ TextSourcePicker make_text_source_picker(QWidget* parent,const Document& documen
     auto* dialog=new QDialog(parent);dialog->setObjectName("text-source-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle(title);dialog->resize(720,480);
     auto* layout=new QVBoxLayout(dialog);
-    auto* target_note=new QLabel("Target: "+qs(target)+" / "+qs(field),dialog);target_note->setWordWrap(true);layout->addWidget(target_note);
+    auto* target_note=new QLabel("Target: "+qs(target)+" / "+qs(field),dialog);target_note->setWordWrap(true);target_note->setObjectName("text-source-picker-target");layout->addWidget(target_note);
     auto* search=new QLineEdit(dialog);search->setObjectName("text-source-picker-search");
     search->setPlaceholderText("Search Text label or stable Ref path…");layout->addWidget(search);
     auto* list=new QListWidget(dialog);list->setObjectName("text-source-picker-list");list->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -6024,41 +6024,15 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* content_menu=new QMenu(content_driver_button);content_driver_button->setMenu(content_menu);content_layout->addWidget(content_driver_button);
     auto* link_content=content_menu->addAction("Link to Text content…");
     auto* unlink_content=content_menu->addAction("Unlink content");unlink_content->setEnabled(content_state.driver.has_value());
-    std::vector<Id> content_source_ids;
-    for(const auto& [source_id,source_object]:host.session.document().objects)if(source_object.kind==Kind::text&&source_object.text&&source_id!=id) {
-        content_source_ids.push_back(source_id);
-    }
-    link_content->setEnabled(!content_source_ids.empty());
-    const bool replace_content_driver=content_state.driver.has_value();
-    connect(link_content,&QAction::triggered,this,[this,id,frozen_session,content_revision,replace_content_driver,content_source_ids]{
-        const auto target=Ref{id,"","text.content"};const auto selection=canvas->selections();
-        const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
-        auto picker=make_text_source_picker(this,host.session.document(),id,target.field,content_source_ids,"Link Text content");
-        auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
-            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
-            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
-        });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
-        });
-        connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,content_revision,replace_content_driver,selection,composition,artboard]{
-                try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
-                    auto* item=list->currentItem();
-                    if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
-                    const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
-                    if(source.field!=target.field||!source.point.empty()||source.object==target.object)
-                        throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=content_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
-                    host.session.apply({LinkTextContent{target,source,replace_content_driver}},content_revision);
-                    canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
-                } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
-                catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
-            });
-        dialog->show();picker.search->setFocus();
+    const auto content_selection=canvas->selections();
+    const auto content_composition=canvas->active_composition(),content_artboard=canvas->active_artboard();
+    const bool has_content_source=std::any_of(host.session.document().objects.begin(),host.session.document().objects.end(),
+        [&](const auto& entry){return entry.first!=id&&entry.second.kind==Kind::text&&entry.second.text;});
+    link_content->setEnabled(has_content_source);
+    connect(link_content,&QAction::triggered,this,[this,content_ref,frozen_session,content_revision,
+            content_selection,content_composition,content_artboard]{
+        perform([&]{open_text_content_source_picker({content_ref},content_selection,frozen_session,content_revision,
+            content_composition,content_artboard);});
     });
     connect(unlink_content,&QAction::triggered,this,[this,id,frozen_session,content_revision]{
         perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
@@ -8745,6 +8719,7 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         }
         layout->addStretch();return;
     }
+    add_multi_text_content(layout,selected);
     add_multi_text_weight(layout,selected);
     add_alignment_controls(layout,selected);
     auto* selection_transform=new QPushButton("Rotate / scale selection…");selection_transform->setObjectName("selection-transform-open");
@@ -8817,6 +8792,92 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     }
     auto* hint=new QLabel("↗ freezes all these targets while you choose a source. Paint rows match the same operation type at the same stack position.");
     hint->setWordWrap(true);layout->addWidget(hint);layout->addStretch();
+}
+
+void Window::open_text_content_source_picker(const std::vector<Ref>& targets,
+        const std::vector<Canvas::Selection>& selected,const QString& frozen_session,std::uint64_t frozen_revision,
+        const Id& composition,const Id& artboard) {
+    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+    if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text changed before the source chooser opened");
+    if(targets.empty()||targets.size()>1000)throw Error("INVALID_SELECTION","Choose 1 to 1000 Text content targets");
+    const auto& document=host.session.document();std::set<Id> target_ids;bool any_driven=false;
+    for(const auto& target:targets) {
+        if(target.field!="text.content"||!target.point.empty()||!target_ids.insert(target.object).second)
+            throw Error("INVALID_SELECTION","Choose distinct Text content targets");
+        const auto state=text_content_property(document,target);any_driven=any_driven||state.driver.has_value();
+    }
+    std::vector<Id> source_ids;
+    for(const auto& [id,object]:document.objects)
+        if(object.kind==Kind::text&&object.text&&!target_ids.contains(id))source_ids.push_back(id);
+    auto picker=make_text_source_picker(this,document,targets.front().object,"text.content",source_ids,"Link Text content");
+    auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
+    dialog->findChild<QLabel*>("text-source-picker-target")->setText(
+        QString("Targets: %1 selected Text objects / text.content").arg(targets.size()));
+    auto* replace=new QCheckBox("Replace current sources",dialog);replace->setObjectName("text-content-replace");
+    replace->setChecked(false);replace->setVisible(any_driven);
+    static_cast<QVBoxLayout*>(dialog->layout())->insertWidget(dialog->layout()->count()-1,replace);
+    connect(list,&QListWidget::currentItemChanged,dialog,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*) {
+        if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+        const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+        if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+    });
+    // Browsing deliberately changes the live selection. Targets and board remain
+    // captured independently of the Inspector widgets rebuilt by that navigation.
+    const auto restore=[this,selected,frozen_session,composition,artboard] {
+        if(host.session_id!=frozen_session)return;
+        perform([&]{canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selected);});
+    };
+    connect(dialog,&QDialog::rejected,dialog,restore);
+    connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
+        [this,dialog,list,status,replace,targets,target_ids,frozen_session,frozen_revision,restore] {
+            try {
+                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                auto* item=list->currentItem();if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
+                const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+                if(!source.point.empty()||source.field!="text.content"||target_ids.contains(source.object))
+                    throw Error("INVALID_REFERENCE","Choose a distinct Text content source for every target");
+                std::vector<Command> commands;commands.reserve(targets.size());
+                for(const auto& target:targets)commands.push_back(LinkTextContent{target,source,replace->isChecked()});
+                canvas->cancel_interaction();host.session.apply(commands,frozen_revision);
+                restore();host.edited();dialog->accept();
+            } catch(const Error& error) {status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+              catch(const std::exception& error) {status->setText(QString::fromUtf8(error.what()));}
+        });
+    dialog->show();picker.search->setFocus();
+}
+
+void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected) {
+    const auto& document=host.session.document();
+    auto* group=new QGroupBox(QString("Text content · %1 selected objects").arg(selected.size()));
+    group->setObjectName("text-content-batch-panel");auto* column=new QVBoxLayout(group);layout->addWidget(group);
+    auto* link=new QPushButton("Link to Text content…",group);link->setObjectName("text-content-batch-link");column->addWidget(link);
+    auto* status=new QLabel(group);status->setObjectName("text-content-batch-status");status->setWordWrap(true);
+    status->setTextFormat(Qt::PlainText);column->addWidget(status);
+    const bool all_text=!selected.empty()&&std::all_of(selected.begin(),selected.end(),[&](const auto& item) {
+        const auto found=document.objects.find(item.object);
+        return item.point.empty()&&found!=document.objects.end()&&found->second.kind==Kind::text&&found->second.text;
+    });
+    if(!all_text||selected.size()>1000) {
+        link->setEnabled(false);status->setText(!all_text?
+            "Unavailable: select only Text objects to link their content. The selection contains other object types.":
+            "Unavailable: choose at most 1000 Text content targets.");return;
+    }
+    std::vector<Ref> targets;std::set<Id> target_ids;std::size_t driven=0;
+    for(const auto& item:selected) {
+        targets.push_back({item.object,"","text.content"});target_ids.insert(item.object);
+        if(text_content_property(document,targets.back()).driver)++driven;
+    }
+    link->setEnabled(std::any_of(document.objects.begin(),document.objects.end(),[&](const auto& entry) {
+        return entry.second.kind==Kind::text&&entry.second.text&&!target_ids.contains(entry.first);
+    }));
+    status->setText(QString("%1 Text content targets · %2 with sources. Choose one source; literals remain stored. Existing sources require explicit replacement.")
+        .arg(targets.size()).arg(driven));
+    const auto frozen_session=host.session_id;const auto frozen_revision=host.session.revision();
+    const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
+    connect(link,&QPushButton::clicked,this,[this,targets,selected,frozen_session,frozen_revision,composition,artboard] {
+        perform([&]{open_text_content_source_picker(targets,selected,frozen_session,frozen_revision,composition,artboard);});
+    });
 }
 
 void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected) {
