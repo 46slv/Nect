@@ -57,6 +57,9 @@ Document fixture(bool mixed=false,bool driven=false,bool text=false){
         if(text&&index==1){
             object.kind=Kind::text;object.source.reset();object.text=default_text("text-source","Text 日本語");
             object.text->family="Arial";object.text->weight=650;object.text->italic=true;
+            // Real font contours need not satisfy Offset's simple-region domain.
+            // Retain its exact source/slot while testing the supported Text Fill.
+            object.stack[0].enabled=false;
         }
         document.objects.emplace(object.id,std::move(object));
     }
