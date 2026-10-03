@@ -31,6 +31,9 @@
 #include "semantic_point_control.hpp"
 #include "viewport_layout.hpp"
 #include "visual_style.hpp"
+#include "shortcut_inventory.hpp"
+#include <QTableWidget>
+#include <QHeaderView>
 #include "artboard_background_control.hpp"
 #include "analysis_contour_control.hpp"
 #include "macro_authoring_control.hpp"
@@ -1454,8 +1457,32 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         auto* dialog=new QDialog(this);dialog->setObjectName("shortcut-help-dialog");dialog->setWindowTitle("Keyboard shortcuts and collisions");
         dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setModal(false);auto* layout=new QVBoxLayout(dialog);
         layout->addWidget(new QLabel("Draw Path · Nect: P and G (same action).\nAfter Effects: P = Position; G = Pen / Mask Feather.\n\nRotate / scale selection · Nect: Ctrl+Shift+T.\nAfter Effects: Ctrl+Shift+T = Effect Controls.\n\nWhen a text field has focus, typed letters edit that field; P/G act on the Canvas.",dialog));
+        auto* table=new QTableWidget(dialog);table->setObjectName("shortcut-help-inventory");
+        table->setAccessibleName("Current keyboard shortcut assignments");
+        table->setColumnCount(3);table->setHorizontalHeaderLabels({"Command","Keys","Scope"});
+        table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        table->setSelectionBehavior(QAbstractItemView::SelectRows);table->verticalHeader()->hide();
+        const auto rows=shortcut_inventory(findChildren<QAction*>());
+        table->setRowCount(static_cast<int>(rows.size()));
+        int row_index=0;
+        for(const auto& row:rows) {
+            QString scope;
+            switch(row.context) {
+            case Qt::WidgetShortcut:scope="Focused widget";break;
+            case Qt::WidgetWithChildrenShortcut:scope="Widget and children";break;
+            case Qt::WindowShortcut:scope="Window";break;
+            case Qt::ApplicationShortcut:scope="Application";break;
+            }
+            table->setItem(row_index,0,new QTableWidgetItem(row.action));
+            table->setItem(row_index,1,new QTableWidgetItem(row.shortcuts.join(" / ")));
+            table->setItem(row_index,2,new QTableWidgetItem(scope));++row_index;
+        }
+        table->horizontalHeader()->setSectionResizeMode(0,QHeaderView::Stretch);
+        table->horizontalHeader()->setSectionResizeMode(1,QHeaderView::ResizeToContents);
+        table->horizontalHeader()->setSectionResizeMode(2,QHeaderView::ResizeToContents);
+        layout->addWidget(table,1);
         auto* close=new QPushButton("Close",dialog);close->setObjectName("shortcut-help-close");connect(close,&QPushButton::clicked,dialog,&QDialog::close);layout->addWidget(close);
-        dialog->resize(430,225);dialog->show();
+        dialog->resize(680,520);dialog->show();
     };
     auto* keys_button=new QToolButton(utility_contents);keys_button->setObjectName("utility-shortcut-help");keys_button->setText("Keys");
     keys_button->setAccessibleName("Keyboard shortcut and collision help");keys_button->setToolTip("Show Nect shortcuts and named After Effects collisions.");style_utility(keys_button);
