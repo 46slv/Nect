@@ -421,16 +421,12 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
             if(definition==d.macro_definitions.end())throw Error("MISSING_MACRO_DEFINITION",op.macro->definition);
             const auto revision=definition->second.revisions.find(op.macro->pinned_revision);
             if(revision==definition->second.revisions.end())throw Error("MISSING_MACRO_REVISION",op.macro->definition);
-            for(const auto* type:{"nect.shape.offset","nect.shape.repeater"}) {
-                const auto node=std::find_if(revision->second.nodes.begin(),revision->second.nodes.end(),[&](const auto& item) {
-                    return item.operation.type==type;
-                });
-                if(node==revision->second.nodes.end())throw Error("INVALID_MACRO_GRAPH","Pinned Macro graph has a missing executable node");
+            for(const auto* node:macro_execution_order(revision->second)) {
                 const auto& macro_operation=node->operation;
                 const auto macro_value=[&](const std::string& name) {
                     if(macro_operation.type=="nect.shape.offset"&&name=="amount"&&
                         std::any_of(revision->second.public_parameters.begin(),revision->second.public_parameters.end(),
-                            [](const auto& parameter){return parameter.id=="macro.offset.amount";}))
+                            [&](const auto& parameter){return parameter.id=="macro.offset.amount"&&parameter.node==macro_operation.id;}))
                         return macro_parameter_value(d,id,op.id,"macro.offset.amount");
                     const auto found=macro_operation.parameters.find(name);
                     if(found==macro_operation.parameters.end())throw Error("INVALID_MACRO_MAPPING",name);

@@ -23,11 +23,23 @@ Supported subset:
 - Affine matrix/translate/scale/rotate/skew transforms and hierarchy/paint order.
 - Positive unitless/px viewport sizes or viewBox-derived size; nonzero viewBox
   origin; preserveAspectRatio none or xMidYMid meet (default).
-- Solid opaque named or #RGB/#RRGGBB sRGB colors, none, inherited fill/stroke,
+- Solid named and #RGB/#RRGGBB sRGB colors, CSS alpha-last #RGBA/#RRGGBBAA,
+  transparent (zero-alpha black), numeric rgb()/rgba(), none, inherited fill/stroke,
   fill/stroke opacity and width, nonzero/evenodd, object/Group opacity. Restricted
   inline style overrides presentation attributes. Stroke linecap butt/round/square,
   linejoin miter/round/bevel and finite unitless miterlimit 1–1000 are supported;
   explicit `inherit` is accepted for those three properties only.
+
+Color functions accept legacy comma-separated RGB channels with matching numeric
+or percentage units and optional alpha, or modern whitespace-separated channels
+with independent numeric/percentage units and optional slash alpha. Alpha accepts
+a number or percentage and multiplies fill/stroke opacity; object/Group opacity
+stays separate. Modern components must be finite and in range: RGB 0..255 or
+0..100%, alpha 0..1 or 0..100%; values outside that subset reject without clamping.
+The existing legacy comma behavior retains CSS clamping within its finite 1e7
+numeric safety bound. Both forms reject missing (`none`) components, expressions,
+relative colors, comments and mixed separators. Color syntax follows the bounded
+subset of [CSS Color 4](https://www.w3.org/TR/css-color-4/#rgb-functions).
 
 Unsupported semantics reject the entire import:
 text/images, gradients/patterns, use/links, masks/clips/filters, CSS stylesheets,

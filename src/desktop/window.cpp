@@ -7,6 +7,7 @@
 #include "flattened_svg_export.hpp"
 #include "compatibility_plan_control.hpp"
 #include "macro_revision_control.hpp"
+#include "macro_chain_control.hpp"
 #include "text_alignment_batch_control.hpp"
 #include "analysis_line_control.hpp"
 #include "window.hpp"
@@ -938,6 +939,11 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     edit_macro->setObjectName("effects-edit-macro-revision");effects_layout->addWidget(edit_macro);
     connect(edit_macro,&QPushButton::clicked,this,[this]{
         auto* dialog=new MacroRevisionDialog(host,{},this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->open();
+    });
+    auto* edit_macro_chain=new QPushButton("Edit Macro chain...",effects_page);
+    edit_macro_chain->setObjectName("effects-edit-macro-chain");effects_layout->addWidget(edit_macro_chain);
+    connect(edit_macro_chain,&QPushButton::clicked,this,[this]{
+        auto* dialog=new MacroChainDialog(host,{},this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->open();
     });
     effects_search_=new QLineEdit(effects_page);effects_search_->setObjectName("effects-search");
     effects_search_->setPlaceholderText("Search effects…");effects_search_->setClearButtonEnabled(true);

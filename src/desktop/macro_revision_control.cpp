@@ -101,11 +101,16 @@ void MacroRevisionDialog::load_definition() {
         const auto found=document.macro_definitions.find(definition_id_);
         if(found==document.macro_definitions.end())throw Error("MISSING_MACRO_DEFINITION",definition_id_);
         // The same canonical validator used by native/Core owns support checks.
-        validate_portable_macro_definition(found->second);
+        validate_macro_definition(found->second);
         if(found->second.latest_revision==std::numeric_limits<std::uint64_t>::max())
             throw Error("MACRO_REVISION_LIMIT","Macro revision space exhausted");
         draft_=found->second.revisions.at(found->second.latest_revision);
         draft_.revision=found->second.latest_revision+1;
+        QStringList chain{"Input"};
+        for(const auto* node:macro_execution_order(draft_))
+            chain.push_back(node->operation.type=="nect.shape.offset"?"Offset@1":"Repeater@1");
+        chain.push_back("Output");
+        findChild<QLabel*>("macro-revision-graph")->setText(chain.join(QString::fromUtf8(" → ")));
         auto* content=new QWidget(scroll_);auto* body=new QVBoxLayout(content);scroll_->setWidget(content);
         auto* source=new QFormLayout;
         metadata(source,"Definition ID",text(definition_id_),"macro-revision-definition-id");

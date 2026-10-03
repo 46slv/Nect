@@ -4193,6 +4193,28 @@ static double macro_default_value(const MacroDefinitionRevision& revision,const 
     if(found==node->operation.parameters.end())throw Error("INVALID_MACRO_MAPPING",parameter.parameter);
     return found->second.literal;
 }
+std::vector<const MacroNode*> macro_execution_order(const MacroDefinitionRevision& revision) {
+    require(!revision.nodes.empty()&&revision.nodes.size()<=16,"INVALID_MACRO_GRAPH","Macro chains require 1..16 nodes");
+    require(revision.edges.size()==revision.nodes.size()+1,"INVALID_MACRO_GRAPH","A Macro chain requires one edge per node plus Output");
+    std::vector<const MacroNode*> ordered;std::set<Id> visited;
+    MacroEndpoint cursor{{},revision.input.id};
+    for(std::size_t i=0;i<revision.nodes.size();++i) {
+        const MacroEdge* edge=nullptr;
+        for(const auto& candidate:revision.edges)if(candidate.from==cursor) {
+            require(!edge,"INVALID_MACRO_GRAPH","Branching Macro outputs are not supported");edge=&candidate;
+        }
+        require(edge,"INVALID_MACRO_GRAPH","Disconnected Macro chain");
+        const auto* node=macro_node(revision,edge->to.node);
+        require(node&&edge->to.port==node->input_port,"INVALID_MACRO_GRAPH","Macro edge must target a declared node input");
+        require(visited.insert(node->operation.id).second,"INVALID_MACRO_GRAPH","Macro chain contains a cycle");
+        ordered.push_back(node);cursor={node->operation.id,node->output_port};
+    }
+    const MacroEndpoint output{{},revision.output.id};
+    const auto endings=std::count_if(revision.edges.begin(),revision.edges.end(),[&](const auto& edge){return edge.from==cursor&&edge.to==output;});
+    require(endings==1&&revision.output_mapping==cursor,"INVALID_MACRO_GRAPH","Macro chain must end at its declared Output mapping");
+    return ordered;
+}
+
 static void validate_macro_definition(const Id& map_id,const MacroDefinition& definition) {
     identity(map_id);require(map_id==definition.id,"ID_MISMATCH",map_id);
     require(!definition.label.empty()&&definition.label.size()<=256,"INVALID_MACRO_LABEL","Macro label must be 1..256 UTF-8 bytes");
@@ -4203,8 +4225,10 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
         require(number==revision.revision&&number>0,"INVALID_MACRO_REVISION","Macro revision key does not match its authored revision");
         require(revision.input.domain=="local_paths_and_paint"&&revision.output.domain=="local_paths_and_paint",
             "INVALID_MACRO_DOMAIN","Macro input and output must be local_paths_and_paint");
-        require(revision.nodes.size()==2,"INVALID_MACRO_GRAPH","Macro v1 graph is exactly Offset@1 then Repeater@1");
-        require(revision.edges.size()==3,"INVALID_MACRO_GRAPH","Macro v1 graph requires Input->Offset->Repeater->Output edges");
+        require(revision.graph_version==1||revision.graph_version==2,"UNSUPPORTED_MACRO_GRAPH_VERSION","Supported Macro graph versions are 1 and 2");
+        require(revision.graph_version==2||(revision.nodes.size()==2&&revision.edges.size()==3),
+            "INVALID_MACRO_GRAPH","Macro v1 graph is exactly Offset@1 then Repeater@1");
+        require(!revision.nodes.empty()&&revision.nodes.size()<=16,"INVALID_MACRO_GRAPH","Macro chains require 1..16 nodes");
         std::set<Id> local_ids;
         auto local=[&](const Id& value){identity(value);require(local_ids.insert(value).second,"DUPLICATE_ID",value);};
         local(revision.input.id);local(revision.output.id);
@@ -4214,12 +4238,13 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
         const auto repeater_it=std::find_if(revision.nodes.begin(),revision.nodes.end(),[](const auto& node) {
             return node.operation.type=="nect.shape.repeater";
         });
-        require(offset_it!=revision.nodes.end()&&repeater_it!=revision.nodes.end(),
+        if(revision.graph_version==1)require(offset_it!=revision.nodes.end()&&repeater_it!=revision.nodes.end(),
             "INVALID_MACRO_ORDER","Macro v1 requires one Offset@1 node and one Repeater@1 node");
-        const auto& offset=*offset_it;const auto& repeater=*repeater_it;
-        for(const auto* node:{&offset,&repeater}) {
+        for(const auto& stored_node:revision.nodes) {
+            const auto* node=&stored_node;
             local(node->operation.id);local(node->input_port);local(node->output_port);
             require(node->operation.version==1,"UNSUPPORTED_MACRO_NODE_VERSION",node->operation.type);
+            require(node->operation.enabled,"INVALID_MACRO_NODE","Macro graph nodes must be enabled; bypass the instance instead");
             require(!node->operation.enabled_driver&&!node->operation.enabled_expression&&
                 !node->operation.fill_rule_driver&&!node->operation.gradient,
                 "INVALID_MACRO_NODE","Macro nodes cannot retain property links, gradients or driver state");
@@ -4236,23 +4261,9 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
                 node->operation.line_join==expected.line_join&&node->operation.line_cap==expected.line_cap,
                 "INVALID_MACRO_NODE","Macro v1 nodes use their supported default operator options");
         }
-        require(offset.operation.type=="nect.shape.offset"&&repeater.operation.type=="nect.shape.repeater",
-            "INVALID_MACRO_ORDER","Macro v1 requires Offset@1 -> Repeater@1");
-        require(offset.operation.enabled&&repeater.operation.enabled,"INVALID_MACRO_NODE","Macro graph nodes must be enabled; bypass the Macro instance instead");
-        const MacroEndpoint input{{},revision.input.id};
-        const MacroEndpoint offset_in{offset.operation.id,offset.input_port};
-        const MacroEndpoint offset_out{offset.operation.id,offset.output_port};
-        const MacroEndpoint repeater_in{repeater.operation.id,repeater.input_port};
-        const MacroEndpoint repeater_out{repeater.operation.id,repeater.output_port};
-        const MacroEndpoint output{{},revision.output.id};
-        const auto has_edge=[&](const MacroEndpoint& from,const MacroEndpoint& to) {
-            return std::count_if(revision.edges.begin(),revision.edges.end(),[&](const auto& edge) {
-                return edge.from==from&&edge.to==to;
-            })==1;
-        };
-        require(has_edge(input,offset_in)&&has_edge(offset_out,repeater_in)&&
-            has_edge(repeater_out,output)&&revision.output_mapping==repeater_out,
-            "INVALID_MACRO_GRAPH","Macro graph must be the acyclic Input->Offset@1->Repeater@1->Output chain");
+        const auto ordered=macro_execution_order(revision);
+        if(revision.graph_version==1)require(ordered[0]->operation.type=="nect.shape.offset"&&ordered[1]->operation.type=="nect.shape.repeater",
+            "INVALID_MACRO_GRAPH","Macro v1 graph must execute Offset@1 then Repeater@1");
         std::set<std::string> public_ids;
         for(const auto& parameter:revision.public_parameters)
             require(public_ids.insert(parameter.id).second,"DUPLICATE_MACRO_PARAMETER",parameter.id);
@@ -4260,7 +4271,8 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
             "INVALID_MACRO_INTERFACE","Macro v1 publishes macro.offset.amount; later revisions may remove a published parameter only for explicit migration");
         if(!revision.public_parameters.empty()) {
             const auto& parameter=revision.public_parameters.front();
-            require(parameter.id=="macro.offset.amount"&&parameter.node==offset.operation.id&&parameter.parameter=="amount"&&
+            const auto* mapped=macro_node(revision,parameter.node);
+            require(parameter.id=="macro.offset.amount"&&mapped&&mapped->operation.type=="nect.shape.offset"&&parameter.parameter=="amount"&&
                 parameter.value_type=="number"&&parameter.unit=="du"&&parameter.domain=="local_paths_and_paint",
                 "INVALID_MACRO_MAPPING","Public macro.offset.amount must map to Offset.amount as a distance");
             require(!parameter.label.empty()&&parameter.label.size()<=128,"INVALID_MACRO_INTERFACE","Published parameter label must be 1..128 bytes");
@@ -4269,8 +4281,15 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
     }
 }
 
-void validate_portable_macro_definition(const MacroDefinition& definition) {
+void validate_macro_definition(const MacroDefinition& definition) {
     validate_macro_definition(definition.id,definition);
+}
+void validate_portable_macro_definition(const MacroDefinition& definition) {
+    validate_macro_definition(definition);
+    for(const auto& [number,revision]:definition.revisions) {
+        (void)number;
+        require(revision.graph_version==1,"UNSUPPORTED_PORTABLE_MACRO_GRAPH","Portable Macro v1 only carries graph version 1");
+    }
 }
 
 static std::map<Ref,double> validate_evaluated(const Document& d,const std::function<void()>& before_evaluation={}) {
@@ -6631,14 +6650,7 @@ void edit_detach_macro_instance(Document& candidate,const DetachMacroInstance& m
             for(const auto& parameter:macro_revision.public_parameters)macro_addresses.insert(parameter.id);
         }
     }
-    std::vector<const MacroNode*> ordered_nodes;
-    for(const auto* type:{"nect.shape.offset","nect.shape.repeater"}) {
-        const auto node=std::find_if(revision.nodes.begin(),revision.nodes.end(),[&](const auto& item) {
-            return item.operation.type==type;
-        });
-        require(node!=revision.nodes.end(),"INVALID_MACRO_GRAPH","Pinned Macro graph has a missing executable node");
-        ordered_nodes.push_back(&*node);
-    }
+    const auto ordered_nodes=macro_execution_order(revision);
     std::vector<ProcessingEntry> detached;detached.reserve(ordered_nodes.size());
     for(std::size_t i=0;i<ordered_nodes.size();++i) {
         auto operation=ordered_nodes[i]->operation;
@@ -6699,7 +6711,7 @@ void edit_macro(Document& candidate,const MacroCommand& command) {
                     "INVALID_MACRO_ASSET_REF","Portable Macro import requires an exact AssetID and positive accepted asset revision");
                 identity(mutation.asset_id);
                 const auto& source=*mutation.imported_definition;
-                validate_macro_definition(source.id,source);
+                validate_portable_macro_definition(source);
                 require(mutation.definition!=source.id&&mutation.definition!=mutation.asset_id&&source.id!=mutation.asset_id,
                     "MACRO_ASSET_ID_MISMATCH","Workspace AssetID, source MacroDefinitionID and fresh Document DefinitionID must remain distinct");
                 require(mutation.instance!=source.id&&mutation.instance!=mutation.asset_id&&mutation.instance!=mutation.definition,

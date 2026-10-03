@@ -40,7 +40,7 @@ if(NECT_DESKTOP)
   add_library(nect_desktop_client src/desktop/artboard_background_control.cpp src/desktop/semantic_control.cpp src/desktop/svg_import.cpp src/desktop/host.cpp src/desktop/storage.cpp src/desktop/protection.cpp src/desktop/canvas.cpp src/desktop/window.cpp src/desktop/colors.cpp src/desktop/folder_library.cpp)
   target_sources(nect_desktop_client PRIVATE
     src/desktop/flattened_svg_export.cpp src/desktop/compatibility_plan_control.cpp
-    src/desktop/macro_revision_control.cpp src/desktop/text_alignment_batch_control.cpp
+    src/desktop/macro_revision_control.cpp src/desktop/macro_chain_control.cpp src/desktop/text_alignment_batch_control.cpp
     src/desktop/analysis_line_control.cpp)
   target_sources(nect_desktop_client PRIVATE
     src/desktop/text_direction_batch_control.cpp
@@ -156,6 +156,11 @@ if(BUILD_TESTING)
   target_compile_definitions(macro_tests PRIVATE BOOST_ALL_NO_LIB)
   target_link_libraries(macro_tests PRIVATE nect_io)
   add_test(NAME macro_contract COMMAND macro_tests)
+  add_executable(macro_linear_v2_tests tests/macro_linear_v2_tests.cpp)
+  target_include_directories(macro_linear_v2_tests PRIVATE ${BOOST_INCLUDE_DIR})
+  target_compile_definitions(macro_linear_v2_tests PRIVATE BOOST_ALL_NO_LIB)
+  target_link_libraries(macro_linear_v2_tests PRIVATE nect_io)
+  add_test(NAME macro_linear_v2_contract COMMAND macro_linear_v2_tests)
   add_executable(preset_tests tests/preset_tests.cpp)
   target_link_libraries(preset_tests PRIVATE nect_io)
   add_test(NAME preset_contract COMMAND preset_tests)
@@ -269,7 +274,7 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME instance_visibility_ui_interaction COMMAND instance_visibility_ui_tests)
     set_tests_properties(instance_visibility_ui_interaction PROPERTIES TIMEOUT 30)
-    foreach(test flattened_svg_export compatibility_plan_ui macro_revision_ui text_alignment_batch_ui
+    foreach(test flattened_svg_export compatibility_plan_ui macro_revision_ui macro_chain_ui text_alignment_batch_ui
         text_direction_batch_ui text_layout_batch_ui text_italic_batch_ui text_family_batch_ui text_locale_batch_ui paint_color_batch_ui)
       add_executable(${test}_tests tests/${test}_tests.cpp)
       target_link_libraries(${test}_tests PRIVATE nect_desktop_client Qt6::Test)

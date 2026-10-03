@@ -1,5 +1,23 @@
 # Native Document Schema v0
 
+## Bounded linear Macro graph v2 (native 0.83)
+
+Revision `graph_version: 2` permits an acyclic single-input/single-output chain of
+1–16 existing literal Offset/Repeater nodes. Edges determine execution order;
+node/edge array order does not. Every node must participate exactly once, and
+Output must name the last node. Branches, merges, cycles, disconnected nodes,
+unknown operators and driven node defaults refuse before commit. Graph v1 keeps
+its original exact Offset→Repeater contract.
+
+The existing optional published `macro.offset.amount` maps to one identified
+Offset node, never every Offset in the graph. Revision 1 still requires this
+published interface; later explicit migrations may remove it. Instances remain
+pinned, updates are explicit, and detach materializes the ordered full chain.
+Graph v2 is native-local; portable Macro payload v1 deliberately refuses it.
+Older native versions reject the new graph-version field. This is a linear
+known-node subset, not full branching/nested Macro graph support.
+
+
 ## Instance item visibility overrides (native 0.82)
 
 A Definition Instance may retain `visibility_overrides`, an optional array of

@@ -282,8 +282,12 @@ struct MacroDefinitionRevision {
     std::vector<MacroEdge> edges;
     MacroEndpoint output_mapping;
     std::vector<MacroPublicParameter> public_parameters;
+    unsigned graph_version=1; // v1 fixed pair; v2 bounded ordered Offset/Repeater chain.
     bool operator==(const MacroDefinitionRevision&) const = default;
 };
+// Executes graph edges, never the storage order of nodes or edges.
+std::vector<const MacroNode*> macro_execution_order(const MacroDefinitionRevision&);
+
 struct MacroDefinition {
     Id id;
     std::string label;
@@ -293,6 +297,7 @@ struct MacroDefinition {
 };
 // Validates the exact supported portable Macro dependency closure and every
 // retained revision using the same owner as native Document validation.
+void validate_macro_definition(const MacroDefinition&);
 void validate_portable_macro_definition(const MacroDefinition&);
 struct MacroInstance {
     Id definition;

@@ -61,6 +61,20 @@ inline void roundtrip(bool alpha_hex=false) {
 inline void run() {
     roundtrip();
     roundtrip(true);
+    {
+        QTemporaryDir temp;require(temp.isValid(),"Allocate modern color scratch");
+        const auto svg=std::string(R"svg(<svg viewBox="0 0 20 20"><path d="M0 0L10 10" fill="TRANSPARENT" stroke="transparent"/><path d="M0 0L10 10" fill="rgb(12.5% 64 75%/50%)" stroke="rgba(32 25% 192 / .25)" fill-opacity=".8" stroke-opacity=".4"/></svg>)svg");
+        const auto path=temp.path()+"/modern.svg";write(path,svg);Host host(temp.path()+"/recovery");
+        const auto before=host.session.document();const auto history_before=host.session.history();const auto revision=host.session.revision();
+        host.import_svg(path,before.compositions.front().id,"modern","Modern",0,0,revision);
+        const auto& clear=host.session.document().objects.at("modern-n1").stack;const auto& paint=host.session.document().objects.at("modern-n2").stack;
+        require(clear.size()==2&&paint.size()==2,"Modern/transparent paint count");color(clear[0],{0,0,0,0});color(clear[1],{0,0,0,0});
+        color(paint[0],{.125,64.0/255,.75,.4});color(paint[1],{32.0/255,.25,192.0/255,.1});
+        require(bytes(path)==QByteArray::fromStdString(svg),"Modern SVG source bytes must remain unchanged");
+        require(host.session.revision()==revision+1&&host.session.history().states.size()==history_before.states.size()+1,"Modern import must be one transaction");
+        host.session.undo(revision+1);require(host.session.document()==before,"One Undo must remove modern/transparent import");
+        std::cout<<"PASS modern RGB/transparent Host numeric oracle, alpha multiplication, source bytes and one Undo\n";
+    }
     struct Case {const char* input;std::array<double,4> expected;};
     const Case cases[]{
         {"rgb(12.5%,25%,75%)",{.125,.25,.75,1}},
@@ -78,6 +92,13 @@ inline void run() {
         {"#12345678",{18.0/255,52.0/255,86.0/255,120.0/255}},
         {"#abc0",{10.0/15,11.0/15,12.0/15,0}},
         {"#12AB34ff",{18.0/255,171.0/255,52.0/255,1}},
+        {"transparent",{0,0,0,0}},
+        {"TRANSPARENT",{0,0,0,0}},
+        {"rgb(12.5% 64 75%/.5)",{.125,64.0/255,.75,.5}},
+        {"rgba(32 25% 192 / 25%)",{32.0/255,.25,192.0/255,.25}},
+        {"rgb(0 128.5 255)",{0,128.5/255,1,1}},
+        {"rgba(0% 100% 0%)",{0,1,0,1}},
+        {"RGB( +1.25e1% 2.5E1% .75e2% / +5e-1)",{.125,.25,.75,.5}},
         {"red",{1,0,0,1}}
     };
     for(const auto& item:cases) {
@@ -95,19 +116,21 @@ inline void run() {
     color(first[0],{.1,.2,.3,.2});color(first[1],{4.0/255,5.0/255,6.0/255,.2});
     color(second[0],{.5,.25,.75,.16});color(second[1],{4.0/255,5.0/255,6.0/255,.1});
     const auto values=evaluate(inherited.document());near(values.at({"alpha","","composite.opacity"}),.25);near(values.at({"alpha-n1","","composite.opacity"}),.6);near(values.at({"alpha-n2","","composite.opacity"}),.7);
-    std::cout<<"PASS 16 numeric/named/HEX cases and inherited/inline color alpha with separate object/Group opacity\n";
+    std::cout<<"PASS 23 numeric/named/HEX/transparent cases and inherited/inline color alpha with separate object/Group opacity\n";
     const char* invalid[]{
         "rgb()","rgb(1,2)","rgb(1,2,3,4,5)","rgb(,2,3)","rgb(1,,3)","rgb(1,2,3,)","rgb(1,2,3)tail",
         "rgb(1,2,3))","rgb(1,2,3","rgb(1. 2,3,4)","rgb(1.,2,3)","rgb(1% ,2,3%)","rgb(1,2%,3)",
-        "rgb(1 2 3)","rgba(1,2,3 / .5)","rgb(1px,2,3)","rgb(1e,2,3)","rgb(NaN,2,3)","rgb(infinity,2,3)",
+        "rgb(1 2)","rgba(1,2,3 / .5)","rgb(1px,2,3)","rgb(1e,2,3)","rgb(NaN,2,3)","rgb(infinity,2,3)",
         "rgb(calc(1),2,3)","rgb(var(--red),2,3)","rgb(from red r g b)","rgb(none,2,3)","hsl(0,100%,50%)",
-        "color(srgb 1 0 0)","url(#paint)","rgb(1,2,3)!important","#12345","#1234567","transparent"
+        "color(srgb 1 0 0)","url(#paint)","rgb(1,2,3)!important","#12345","#1234567","currentColor",
+        "rgb(1 2,3)","rgb(1 2 3 /)","rgb(1 2 3 .5)","rgb(1 2 3 / .5 / .6)","rgb(1/**/ 2 3)"
     };
     for(const auto* input:invalid) {
         bool rejected=false;try{(void)read_svg(artwork(input),"comp","bad","Bad",0,0);}catch(const Error& error){require(error.code=="SVG_UNSUPPORTED","Malformed RGB reject code");rejected=true;}
         require(rejected,"Unsupported RGB must reject");
     }
-    for(const auto* input:{"rgb(1e309,0,0)","rgba(1,2,3,1e309)","rgb(10000001,0,0)","rgb(-10000001%,0%,0%)"}) {
+    for(const auto* input:{"rgb(1e309,0,0)","rgba(1,2,3,1e309)","rgb(10000001,0,0)","rgb(-10000001%,0%,0%)",
+        "rgb(256 0 0)","rgb(-.1 0 0)","rgb(100.1% 0% 0%)","rgba(0 0 0 / 1.01)","rgba(0 0 0 / -1%)","rgb(1e309 0 0)"}) {
         bool rejected=false;try{(void)read_svg(artwork(input),"comp","bad","Bad",0,0);}catch(const Error& error){require(error.code=="SVG_RANGE","RGB range reject code");rejected=true;}
         require(rejected,"Unbounded RGB must reject");
     }
@@ -117,7 +140,7 @@ inline void run() {
     const auto native=temp.path()+"/existing.nect";host.save(native);host.recover();
     const auto recovery=host.persistence().value("recovery_file").toString();
     const auto native_before=bytes(native),recovery_before=bytes(recovery);const auto document_before=host.session.document();const auto history_before=host.session.history();const auto revision=host.session.revision();
-    for(const auto* input:{"rgb(1,2%,3)","rgb(1e309,0,0)","rgb(1,2,3)tail","url(#paint)","rgb(1 2 3)","#12345","#1234567","#12g4","#1234567z"}) {
+    for(const auto* input:{"rgb(1,2%,3)","rgb(1e309,0,0)","rgb(1,2,3)tail","url(#paint)","rgb(1 2,3)","#12345","#1234567","#12g4","#1234567z"}) {
         const auto svg="<svg viewBox=\"0 0 20 20\"><path d=\"M0 0L1 1\" fill=\"rgb(10%,20%,30%)\"/><path d=\"M0 0L2 2\" fill=\""+std::string(input)+"\"/></svg>";
         const auto path=temp.path()+"/reject.svg";write(path,svg);bool rejected=false;
         try{host.import_svg(path,composition,"reject","Reject",0,0,revision);}catch(const Error& error){require(error.code==(std::string(input).find("1e309")!=std::string::npos?"SVG_RANGE":"SVG_UNSUPPORTED"),"Host RGB reject code");rejected=true;}
@@ -126,6 +149,6 @@ inline void run() {
         require(bytes(native)==native_before&&bytes(recovery)==recovery_before&&bytes(path)==QByteArray::fromStdString(svg),"Rejected import must preserve native/recovery/SVG source bytes");
     }
     host.session.undo(revision);require(host.session.document().objects.empty(),"Refusal must preserve the preceding Undo entry");
-    std::cout<<"PASS 30 unsupported, 4 bounded-range refusals and 9 late Host atomic refusals\n";
+    std::cout<<"PASS 35 unsupported, 10 bounded-range refusals and 9 late Host atomic refusals\n";
 }
 }
