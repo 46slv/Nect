@@ -402,6 +402,8 @@ struct DefinitionInstance {
     std::map<Id,bool> visibility_overrides;
     // Descendant solid Fill colors, occurrence-local and source-preserving.
     std::map<Ref,ColorValue> color_overrides;
+    // Exact descendant Text content; other Text fields stay inherited.
+    std::map<Id,std::string> text_content_overrides;
     bool operator==(const DefinitionInstance&) const = default;
 };
 struct Object {
@@ -680,9 +682,11 @@ struct SetInstanceVisibilityOverride { Id instance,source; bool visible=true; };
 struct ResetInstanceVisibilityOverride { Id instance,source; };
 struct SetInstanceColorOverride { Id instance; Ref target; ColorValue value; };
 struct ResetInstanceColorOverride { Id instance; Ref target; };
+struct SetInstanceTextContentOverride { Id instance,source; std::string content; };
+struct ResetInstanceTextContentOverride { Id instance,source; };
 struct DetachInstance { Id instance; Id id_prefix; };
 using DefinitionMutation=std::variant<CreateDefinition,RenameDefinition,DeleteDefinition,CreateInstance,
-    SetInstanceOverride,ResetInstanceOverride,SetInstanceVisibilityOverride,ResetInstanceVisibilityOverride,SetInstanceColorOverride,ResetInstanceColorOverride,DetachInstance>;
+    SetInstanceOverride,ResetInstanceOverride,SetInstanceVisibilityOverride,ResetInstanceVisibilityOverride,SetInstanceColorOverride,ResetInstanceColorOverride,SetInstanceTextContentOverride,ResetInstanceTextContentOverride,DetachInstance>;
 struct DefinitionCommand { DefinitionMutation mutation; };
 struct CreateArtboardTemplate { Id composition; ArtboardTemplate value; };
 struct RenameArtboardTemplate { Id composition,template_id; std::string name; };
@@ -1447,6 +1451,8 @@ struct TextAlignmentProperty {
 };
 TextContentProperty text_content_property(const Document&,const Ref&);
 std::string evaluate_text_content(const Document&,const Id& object);
+// Includes local upstream content overrides within one Definition occurrence.
+std::string evaluate_instance_text_content(const Document&,const Id& instance,const Id& source);
 std::map<Ref,std::string> evaluate_text_contents(const Document&);
 TextFamilyProperty text_family_property(const Document&,const Ref&);
 std::string evaluate_text_family(const Document&,const Id& object);

@@ -128,7 +128,7 @@ std::size_t extra(const ProcessingEntry& v){return total(extra(static_cast<const
 std::size_t extra(const PresetEntry& v){return total(extra(v.kind),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.line_join),extra(v.line_cap),extra(v.macro_definition),extra(v.overrides));}
 std::size_t extra(const PresetDefinition& v){return total(extra(v.id),extra(v.label),extra(v.category),extra(v.tags),extra(v.target_domain),extra(v.entries));}
 std::size_t extra(const Definition& v){return total(extra(v.id),extra(v.name),extra(v.root));}
-std::size_t extra(const DefinitionInstance& v){return total(extra(v.definition),extra(v.overrides),extra(v.visibility_overrides),extra(v.color_overrides));}
+std::size_t extra(const DefinitionInstance& v){return total(extra(v.definition),extra(v.overrides),extra(v.visibility_overrides),extra(v.color_overrides),extra(v.text_content_overrides));}
 std::size_t extra(const GroupPathFollowItem&){return 0;} // Scalars/bool are inline map-node storage.
 std::size_t extra(const GroupPathFollow& v){return total(extra(v.id),extra(v.path),extra(v.contour),
     extra(v.start_mode),extra(v.mode),extra(v.deform_axis),extra(v.items));}

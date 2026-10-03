@@ -135,6 +135,33 @@ void handle(Point& p,bool outgoing,Vec2 control) {
     (outgoing?p.out_length:p.in_length).literal=std::hypot(dx,dy);
     (outgoing?p.out_angle:p.in_angle).literal=std::atan2(dy,dx)*180/std::numbers::pi;
 }
+Affine gradient_inverse(const Affine& matrix,bool bounded_condition=true) {
+    const auto norm=std::max({std::abs(matrix[0]),std::abs(matrix[1]),std::abs(matrix[2]),std::abs(matrix[3])});
+    need(std::isfinite(norm)&&norm>0,"SVG_UNSUPPORTED","Singular linear gradient transform");
+    const auto a=matrix[0]/norm,b=matrix[1]/norm,c=matrix[2]/norm,d=matrix[3]/norm,det=a*d-b*c;
+    need(std::isfinite(det)&&det!=0,"SVG_UNSUPPORTED","Singular linear gradient transform");
+    const auto condition=std::max(std::abs(a)+std::abs(c),std::abs(b)+std::abs(d))*std::max(std::abs(d)+std::abs(c),std::abs(b)+std::abs(a))/std::abs(det);
+    need(!bounded_condition||(std::isfinite(condition)&&condition<=1e10),"SVG_RANGE","Ill-conditioned linear gradient transform");
+    const auto factor=1/norm/det;Affine inverse{d*factor,-b*factor,-c*factor,a*factor,0,0};
+    for(const auto value:inverse)need(std::isfinite(value),"SVG_RANGE","Gradient inverse exceeds supported range");return inverse;
+}
+void linear_projection(Gradient& gradient,const Affine& matrix,bool bounded_condition) {
+    const auto inverse=gradient_inverse(matrix,bounded_condition);
+    const auto dx=gradient.end_x.literal-gradient.start_x.literal,dy=gradient.end_y.literal-gradient.start_y.literal,length=std::hypot(dx,dy);
+    // The inverse transpose transforms the color-plane normal; mapping both
+    // endpoints changes paint under nonuniform scale/shear.
+    const auto nx=dx/length,ny=dy/length,qx=inverse[0]*nx+inverse[1]*ny,qy=inverse[2]*nx+inverse[3]*ny,qnorm=std::hypot(qx,qy),span=length/qnorm;
+    need(std::isfinite(qnorm)&&qnorm>0&&std::isfinite(span)&&span>1e-9,"SVG_RANGE","Linear gradient projection exceeds supported range");
+    need(std::hypot(matrix[0]*qx+matrix[1]*qy-nx,matrix[2]*qx+matrix[3]*qy-ny)<=1e-12,"SVG_RANGE","Gradient inverse loses supported color-plane precision");
+    const auto ex=(qx/qnorm)*span,ey=(qy/qnorm)*span;const auto start=map_point(matrix,{gradient.start_x.literal,gradient.start_y.literal});
+    gradient.start_x.literal=start.x;gradient.start_y.literal=start.y;gradient.end_x.literal=start.x+ex;gradient.end_y.literal=start.y+ey;
+    for(const auto value:{start.x,start.y,gradient.end_x.literal,gradient.end_y.literal})need(std::isfinite(value)&&std::abs(value)<=1e7,"SVG_RANGE","Resolved gradient endpoint exceeds supported range");
+    need(std::hypot(gradient.end_x.literal-start.x,gradient.end_y.literal-start.y)>1e-9&&std::hypot((gradient.end_x.literal-start.x)-ex,(gradient.end_y.literal-start.y)-ey)<=span*1e-12,
+        "SVG_RANGE","Linear gradient projection loses supported endpoint precision");
+    const auto actual_x=gradient.end_x.literal-start.x,actual_y=gradient.end_y.literal-start.y,actual_square=actual_x*actual_x+actual_y*actual_y;
+    const auto px=actual_x*length/actual_square,py=actual_y*length/actual_square;
+    need(std::hypot(matrix[0]*px+matrix[1]*py-nx,matrix[2]*px+matrix[3]*py-ny)<=1e-12,"SVG_RANGE","Baked gradient loses supported color-plane precision");
+}
 // Shared by path arcs and curved basic shapes; each entry is c1,c2,end.
 std::vector<std::array<Vec2,3>> ellipse_segments(Vec2 center,double rx,double ry,double rotation,double start,double sweep) {
     const int spans=std::max(1,static_cast<int>(std::ceil(std::abs(sweep)/(std::numbers::pi/4)-1e-12)));
@@ -293,7 +320,7 @@ Style style(Attributes& a,Style s,double& alpha,Affine& matrix) {
 }
 class Reader {
     QXmlStreamReader xml;Id composition,prefix;std::string name;std::size_t nodes=0,parsed_points=0;double x,y;
-    struct GradientDefinition {Gradient gradient;bool bounding_box=false;};
+    struct GradientDefinition {Gradient gradient;bool bounding_box=false;std::optional<Affine> transform;};
     std::map<QString,GradientDefinition> gradients;std::map<QString,std::size_t> source_ids;
     Document geometry;std::set<Id> arc_paths;
     struct GradientUse {Id object,operation;QString source;};std::vector<GradientUse> gradient_uses;
@@ -340,6 +367,10 @@ class Reader {
         need(units=="userSpaceOnUse"||(!radial&&bounding_box),"SVG_UNSUPPORTED","Only linear objectBoundingBox or explicit userSpaceOnUse gradients supported");
         if(a.contains("spreadMethod")){need(a.at("spreadMethod")=="pad","SVG_UNSUPPORTED","Only pad gradient spread supported");a.erase("spreadMethod");}
         if(a.contains("color-interpolation")){need(a.at("color-interpolation")=="sRGB","SVG_UNSUPPORTED","Only sRGB gradient interpolation supported");a.erase("color-interpolation");}
+        std::optional<Affine> gradient_transform;
+        if(a.contains("gradientTransform")) {
+            need(!radial,"SVG_UNSUPPORTED","Radial gradientTransform unsupported");gradient_transform=transform(a.at("gradientTransform"));a.erase("gradientTransform");(void)gradient_inverse(*gradient_transform);
+        }
         Gradient gradient;
         auto coordinate=[&](const QString& key) {need(a.contains(key),"SVG_UNSUPPORTED","Gradient requires explicit finite local coordinates");const auto value=scalar(a.at(key),true);a.erase(key);return value;};
         if(radial) {
@@ -359,7 +390,7 @@ class Reader {
             gradient.end_x.literal=bounding_box?fraction("x2",1):coordinate("x2");gradient.end_y.literal=bounding_box?fraction("y2",0):coordinate("y2");
             need(std::hypot(gradient.end_x.literal-gradient.start_x.literal,gradient.end_y.literal-gradient.start_y.literal)>(bounding_box?0:1e-9),"SVG_UNSUPPORTED","Degenerate linear gradient unsupported by native paint");
         }
-        need(a.empty(),"SVG_UNSUPPORTED","Gradient focal attributes, transforms, inheritance and other attributes unsupported");
+        need(a.empty(),"SVG_UNSUPPORTED","Gradient focal attributes, inheritance and other attributes unsupported");
         while(true) {
             next();if(xml.isEndElement())break;
             if(xml.isStartElement()) {
@@ -376,7 +407,7 @@ class Reader {
                 gradient.stops.push_back(std::move(stop));empty_gradient_content();
             } else need(xml.isComment()||(xml.isCharacters()&&xml.isWhitespace()),"SVG_UNSUPPORTED","Unexpected gradient content");
         }
-        need(gradient.stops.size()>=2,"SVG_UNSUPPORTED","Native editable gradients require at least two stops");gradients.emplace(source,GradientDefinition{std::move(gradient),bounding_box});
+        need(gradient.stops.size()>=2,"SVG_UNSUPPORTED","Native editable gradients require at least two stops");gradients.emplace(source,GradientDefinition{std::move(gradient),bounding_box,gradient_transform});
     }
     void definitions(unsigned depth) {
         need(depth<=32,"SVG_LIMIT","SVG nesting limit32");svg_namespace();need(xml.attributes().empty(),"SVG_UNSUPPORTED","Defs attributes unsupported");
@@ -391,6 +422,7 @@ class Reader {
         for(const auto& use:gradient_uses) {
             const auto found=gradients.find(use.source);need(found!=gradients.end(),"SVG_UNSUPPORTED","Missing internal gradient definition");
             auto gradient=found->second.gradient;gradient.id=use.operation+"-gradient";
+            auto gradient_matrix=found->second.transform.value_or(identity);
             if(found->second.bounding_box) {
                 need(!arc_paths.contains(use.object),"SVG_UNSUPPORTED","ObjectBoundingBox gradients on approximated SVG arc paths unsupported");
                 if(!boxes.contains(use.object)) {
@@ -399,20 +431,9 @@ class Reader {
                     need(box.has_value()&&box->right>box->left&&box->bottom>box->top,"SVG_UNSUPPORTED","ObjectBoundingBox gradient requires nonempty positive local geometry bounds");boxes.emplace(use.object,*box);
                 }
                 const auto& box=boxes.at(use.object);const auto width=box.right-box.left,height=box.bottom-box.top;
-                const auto dx=gradient.end_x.literal-gradient.start_x.literal,dy=gradient.end_y.literal-gradient.start_y.literal,length=std::hypot(dx,dy);
-                // Preserve the SVG color planes under nonuniform bbox scaling.
-                // Simply scaling both endpoints is wrong for a diagonal vector.
-                const auto qx=(dx/length)/width,qy=(dy/length)/height,qnorm=std::hypot(qx,qy),span=length/qnorm;
-                need(std::isfinite(qnorm)&&qnorm>0&&std::isfinite(span)&&span>1e-9,"SVG_RANGE","ObjectBoundingBox gradient projection exceeds supported range");
-                const auto ex=(qx/qnorm)*span,ey=(qy/qnorm)*span;
-                gradient.start_x.literal=box.left+gradient.start_x.literal*width;gradient.start_y.literal=box.top+gradient.start_y.literal*height;
-                gradient.end_x.literal=gradient.start_x.literal+ex;gradient.end_y.literal=gradient.start_y.literal+ey;
-                for(const auto value:{gradient.start_x.literal,gradient.start_y.literal,gradient.end_x.literal,gradient.end_y.literal})
-                    need(std::isfinite(value)&&std::abs(value)<=1e7,"SVG_RANGE","Resolved gradient endpoint exceeds supported range");
-                need(std::hypot(gradient.end_x.literal-gradient.start_x.literal,gradient.end_y.literal-gradient.start_y.literal)>1e-9&&
-                    std::hypot((gradient.end_x.literal-gradient.start_x.literal)-ex,(gradient.end_y.literal-gradient.start_y.literal)-ey)<=span*1e-12,
-                    "SVG_RANGE","ObjectBoundingBox gradient loses supported endpoint precision");
+                gradient_matrix=compose(Affine{width,0,0,height,box.left,box.top},gradient_matrix);
             }
+            if(found->second.bounding_box||found->second.transform)linear_projection(gradient,gradient_matrix,found->second.transform.has_value());
             for(std::size_t i=0;i<gradient.stops.size();++i)gradient.stops[i].id=gradient.id+"-s"+std::to_string(i);
             append(SetGradient{use.object,use.operation,std::move(gradient)});
         }

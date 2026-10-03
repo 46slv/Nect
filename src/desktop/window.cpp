@@ -1,3 +1,4 @@
+#include "instance_text_content_control.hpp"
 #include "text_string_source_batch_control.hpp"
 #include "instance_color_control.hpp"
 #include "multi_fill_rule_control.hpp"
@@ -2421,6 +2422,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     if(board.template_assignment&&board.template_assignment->content_instance) {
         layout->addWidget(make_instance_visibility_controls(host,*board.template_assignment->content_instance,inspector_));
         layout->addWidget(make_instance_color_controls(host,*board.template_assignment->content_instance,inspector_));
+        layout->addWidget(make_instance_text_content_controls(host,*board.template_assignment->content_instance,inspector_));
     }
     auto* note=new QLabel("Frame X/Y changes the crop only. Artwork stays at its existing composition coordinates. List order does not change placement.");
     note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");layout->addWidget(note);
@@ -4614,6 +4616,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     if(o.instance) {
         layout->addWidget(make_instance_visibility_controls(host,o.id,inspector_));
         layout->addWidget(make_instance_color_controls(host,o.id,inspector_));
+        layout->addWidget(make_instance_text_content_controls(host,o.id,inspector_));
     }
     if(!o.stack.empty()) {
         auto* jump=new QPushButton(QString("Shape stack · %1").arg(o.stack.size()));jump->setObjectName("stack-jump");

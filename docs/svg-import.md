@@ -43,6 +43,10 @@ Supported subset:
   or percentages, including fractions outside [0,1]; px/other units refuse.
   Each paint uses its target's local geometric box, including cubic extrema and
   zero-length subpaths, excluding stroke width and ancestor/object transforms.
+- Linear gradientTransform accepts bounded affine matrix/translate/scale/rotate/
+  skew lists. In userSpaceOnUse the gradient matrix is used directly; bbox units
+  compose bbox * gradientTransform, per SVG's post-multiplication rule. Radial
+  gradientTransform remains unsupported, including identity.
 
 Color functions accept legacy comma-separated RGB channels with matching numeric
 or percentage units and optional alpha, or modern whitespace-separated channels
@@ -94,9 +98,19 @@ Converted endpoints retain the 1e7 bound and 1e-12 relative vector precision.
 See [SVG object bounds](https://www.w3.org/TR/SVG2/coords.html#BoundingBoxes)
 and [bbox units](https://www.w3.org/TR/SVG2/coords.html#ObjectBoundingBox).
 
+Linear gradientTransform is baked into editable native endpoint literals using
+the inverse-transpose projection, preserving color planes under nonuniform scale,
+shear, rotation and reflection. The dynamic SVG transform relation is lost.
+Ancestor/object transforms still apply once after this local conversion. Singular
+matrices refuse; declared and bbox-composed transforms must have finite infinity-
+norm condition number at most 1e10. Existing 1e7 transform/endpoint bounds and
+1e-12 endpoint-vector guard remain; inverse and baked color-plane residuals must
+also stay within 1e-12. Unsupported CSS transform syntax
+and gradient inheritance still refuse.
+
 Unsupported semantics reject the entire import:
 text/images, objectBoundingBox radial gradients, explicit radial focal attributes,
-gradient transforms/inheritance,
+radial gradient transforms and gradient inheritance,
 repeat/reflect spread, alternate interpolation, patterns, external paint URLs,
 use/links, masks/clips/filters, CSS stylesheets,
 classes, variables, dashes, `initial`/`unset`/`revert`, `!important`, miter-clip,

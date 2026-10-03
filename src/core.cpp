@@ -477,6 +477,7 @@ public:
 };
 class TextContentEvaluator {
     const Document& document_;
+    const std::map<Id,std::string>* overrides_=nullptr;
     std::map<Id,std::string> values_;
     std::set<Id> active_;
     std::string visit(const Id& id,unsigned depth) {
@@ -485,7 +486,8 @@ class TextContentEvaluator {
         require(active_.insert(id).second,"DEPENDENCY_CYCLE","Text content dependency cycle");
         const auto& source=text_content_source(document_,{id,"","text.content"});
         auto value=source.content;
-        if(source.content_driver) {
+        if(overrides_&&overrides_->contains(id))value=overrides_->at(id);
+        else if(source.content_driver) {
             (void)text_content_source(document_,source.content_driver->link);
             value=visit(source.content_driver->link.object,depth+1);
         }
@@ -494,7 +496,7 @@ class TextContentEvaluator {
         active_.erase(id);values_.emplace(id,value);return value;
     }
 public:
-    explicit TextContentEvaluator(const Document& document):document_(document){}
+    explicit TextContentEvaluator(const Document& document,const std::map<Id,std::string>* overrides=nullptr):document_(document),overrides_(overrides){}
     std::string value(const Id& id){return visit(id,0);}
     std::map<Ref,std::string> all() {
         std::map<Ref,std::string> result;
@@ -1745,6 +1747,26 @@ TextContentProperty text_content_property(const Document& document,const Ref& re
 }
 std::string evaluate_text_content(const Document& document,const Id& object) {
     return TextContentEvaluator(document).value(object);
+}
+std::string evaluate_instance_text_content(const Document& document,const Id& instance_id,const Id& source_id) {
+    const auto found=document.objects.find(instance_id);
+    require(found!=document.objects.end(),"MISSING_OBJECT",instance_id);
+    require(found->second.kind==Kind::instance&&found->second.instance,"TYPE_MISMATCH","Text occurrence requires a Definition Instance");
+    const auto& instance=*found->second.instance;
+    const auto definition=document.definitions.find(instance.definition);
+    require(definition!=document.definitions.end(),"MISSING_DEFINITION",instance.definition);
+    const auto& root=definition->second.root;
+    require(source_id!=root,"UNSUPPORTED_OVERRIDE","Text occurrence requires a descendant source item");
+    std::vector<Id> pending{root};std::set<Id> members;
+    while(!pending.empty()) {
+        auto id=std::move(pending.back());pending.pop_back();
+        if(!members.insert(id).second)continue;
+        const auto object=document.objects.find(id);require(object!=document.objects.end(),"MISSING_OBJECT",id);
+        pending.insert(pending.end(),object->second.children.begin(),object->second.children.end());
+    }
+    require(members.contains(source_id),"DANGLING_OVERRIDE",source_id);
+    (void)text_content_source(document,{source_id,"","text.content"});
+    return TextContentEvaluator(document,&instance.text_content_overrides).value(source_id);
 }
 std::map<Ref,std::string> evaluate_text_contents(const Document& document) {
     return TextContentEvaluator(document).all();
@@ -4779,7 +4801,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                 "INVALID_INSTANCE","Instance requires a Definition reference and cannot own source content");
             require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Instances do not own operator stacks");
             require(d.definitions.contains(o.instance->definition),"MISSING_DEFINITION",o.instance->definition);
-            require(o.instance->overrides.size()<=4096&&o.instance->visibility_overrides.size()<=4096&&o.instance->color_overrides.size()<=4096,
+            require(o.instance->overrides.size()<=4096&&o.instance->visibility_overrides.size()<=4096&&o.instance->color_overrides.size()<=4096&&o.instance->text_content_overrides.size()<=4096,
                 "LIMIT","Instance override limit 4096 per property family");
         } else if(o.kind==Kind::group) {
             require(o.contours.empty(),"INVALID_OBJECT","Group cannot own path geometry");
@@ -5298,6 +5320,26 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
             require(members.contains(source),"DANGLING_OVERRIDE",source);
             require(source!=definition.root,"UNSUPPORTED_OVERRIDE","Definition root visibility belongs to occurrence placement");
             (void)visible;
+        }
+        for(const auto& [source,content]:instance.text_content_overrides) {
+            identity(source);require(members.contains(source),"DANGLING_OVERRIDE",source);
+            require(source!=definition.root,"UNSUPPORTED_OVERRIDE","Text content override requires a descendant source item");
+            const auto& object=d.objects.at(source);
+            require(object.kind==Kind::text&&object.text,"UNSUPPORTED_OVERRIDE","Text content override requires a descendant Text object");
+            require(content.size()<=32768,"LIMIT","Text content override exceeds 32768 UTF-8 bytes");text_utf8(content);
+        }
+        if(!instance.text_content_overrides.empty()) {
+            // Local content can feed other descendant Texts. Check path consumers
+            // using the same typed evaluator, with only this occurrence's literals.
+            TextContentEvaluator local_content(d,&instance.text_content_overrides);
+            for(const auto& id:members) {
+                const auto& object=d.objects.at(id);
+                if(!object.text||!object.text->path_attachment)continue;
+                const auto content=local_content.value(id);
+                require(content.find_first_of("\r\n\v\f")==std::string::npos&&
+                    content.find("\xe2\x80\xa8")==std::string::npos&&content.find("\xe2\x80\xa9")==std::string::npos,
+                    "TEXT_PATH_MULTILINE_UNSUPPORTED","Occurrence Text-on-Path does not support hard line breaks");
+            }
         }
         for(const auto& [ref,value]:instance.color_overrides) {
             require(ref.point.empty(),"INVALID_OVERRIDE","Color override addresses a whole solid Fill color");
@@ -6201,6 +6243,13 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
             auto& overrides=found->second.instance->color_overrides;
             if constexpr(std::is_same_v<T,SetInstanceColorOverride>)overrides.insert_or_assign(mutation.target,mutation.value);
             else require(overrides.erase(mutation.target)==1,"NO_OVERRIDE","Instance has no color override for this source Fill");
+        } else if constexpr(std::is_same_v<T,SetInstanceTextContentOverride>||std::is_same_v<T,ResetInstanceTextContentOverride>) {
+            const auto found=candidate.objects.find(mutation.instance);
+            require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
+            require(found->second.kind==Kind::instance&&found->second.instance,"TYPE_MISMATCH","Text override target must be a Definition Instance");
+            auto& overrides=found->second.instance->text_content_overrides;
+            if constexpr(std::is_same_v<T,SetInstanceTextContentOverride>)overrides.insert_or_assign(mutation.source,mutation.content);
+            else require(overrides.erase(mutation.source)==1,"NO_OVERRIDE","Instance has no Text content override for this source item");
         } else if constexpr(std::is_same_v<T,DetachInstance>) {
             const auto found=candidate.objects.find(mutation.instance);
             require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
@@ -6237,6 +6286,10 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
                 const auto copy_ref=duplicate_ref(original,plan,source_ref);
                 const auto channels=color_channels(candidate,copy_ref);
                 for(std::size_t i=0;i<4;++i)lookup_property(candidate,channels[i])=Scalar{color.rgba[i],{},{}};
+            }
+            for(const auto& [source,content]:instance.text_content_overrides) {
+                auto& text=*candidate.objects.at(plan.ids.at(source)).text;
+                text.content=content;text.content_driver.reset();
             }
             auto& placed=candidate.objects.at(mutation.instance);
             placed.kind=Kind::group;placed.instance.reset();placed.children={materialized_root};
@@ -8542,6 +8595,10 @@ SceneProjection project_definition_instances(const Document& document,const Id& 
                     const auto copy_ref=duplicate_ref(*projected,plan,source_ref);
                     const auto channels=color_channels(trial,copy_ref);
                     for(std::size_t i=0;i<4;++i)lookup_property(trial,channels[i])=Scalar{color.rgba[i],{},{}};
+                }
+                for(const auto& [source,content]:instance.text_content_overrides) {
+                    auto& text=*trial.objects.at(plan.ids.at(source)).text;
+                    text.content=content;text.content_driver.reset();
                 }
                 auto& placed=trial.objects.at(instance_id);
                 placed.kind=Kind::group;placed.instance.reset();placed.children={copy_root};

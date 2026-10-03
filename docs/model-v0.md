@@ -2234,3 +2234,29 @@ Fill to an unsupported kind while an override remains refuses atomically; reset
 the local override first. Native 0.1–0.83 reads remain supported, but claiming an
 older version while providing `color_overrides` rejects. Duplicate override keys
 reject. The family is bounded to 4096 entries per Instance.
+
+
+### Native 0.85: descendant Text content override
+
+Definition Instances may retain `text_content_overrides` entries keyed by a stable
+descendant Text Object ID, each containing exact UTF-8 `content` (0..32768 bytes).
+Only content changes locally; font, formatting, layout, transforms, and all other
+fields remain inherited. Source-root and non-Text owners refuse. There is no local
+rename or generic string-property coercion. Template content uses the same Instance
+mechanism. The family is bounded to 4096 entries per Instance.
+
+`set_instance_text_content_override` explicitly freezes the supplied literal for
+one occurrence, even when it currently equals the source. Projection and detach
+clear only the copied content driver. `reset_instance_text_content_override`
+resumes the live source for that one item; other local overrides are unchanged.
+A pure override-aware typed evaluator checks Text-on-Path consumers in the same
+occurrence: direct or indirectly inherited hard line breaks refuse atomically,
+and a local single-line override can independently cut the source link. Ordinary
+Text retains its existing multiline support; no text shaping/overflow semantics
+are expanded. Native 0.1–0.84 remains readable, but older version claims carrying
+`text_content_overrides` and duplicate source keys reject.
+
+`instance_text_content {instance,source}` is a read-only API/MCP query returning
+effective occurrence `content`, original `source_content` and an `overridden`
+flag for the selected item. Inherited occurrence content may differ from original
+source content when another local descendant override feeds its content link.

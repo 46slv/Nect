@@ -331,7 +331,7 @@ void cold_read(const std::filesystem::path& path) {
     std::ifstream file(path,std::ios::binary);check(file.good(),"Cold process can read the saved native file");
     const std::string native{std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>()};
     Session reopened(decode(native));
-    check(encode(reopened.document())==native,"Fresh process preserves exact native 0.84 authored bytes");
+    check(encode(reopened.document())==native,"Fresh process preserves exact native 0.85 authored bytes");
     check(reopened.revision()==0&&!reopened.can_undo()&&!reopened.can_redo(),
         "Cold process begins with an independent Session and no warm History");
     auto evaluated=scene(reopened.document());
@@ -369,7 +369,7 @@ void cold_read(const std::filesystem::path& path) {
 }
 void cold_replay(const std::string& executable,const Document& document) {
     const auto path=std::filesystem::temp_directory_path()/
-        ("nect instance-color 0.84 "+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".nect");
+        ("nect instance-color 0.85 "+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".nect");
     {std::ofstream file(path,std::ios::binary);file<<encode(document);check(file.good(),"Native file is saved before cold replay");}
 #ifdef _WIN32
     // Use the CRT spawn API instead of cmd.exe outer-quote parsing. Quote argv
@@ -380,7 +380,7 @@ void cold_replay(const std::string& executable,const Document& document) {
     const auto result=std::system((quoted(executable)+" --cold-read "+quoted(path.string())).c_str());
 #endif
     std::filesystem::remove(path);
-    check(result==0,"A fresh process cold-reopens 0.84 and verifies projected Color, source follow and Reset/Detach");
+    check(result==0,"A fresh process cold-reopens 0.85 and verifies projected Color, source follow and Reset/Detach");
 }
 void fresh_process_live_and_detached(const std::string& executable) {
     Session session(fixture(true));
@@ -424,7 +424,7 @@ std::string color_array(std::string native,const std::string& entries) {
 }
 void native_contract_and_atomic_refusals() {
     Session session(fixture());const auto legacy_document=session.document();
-    check(std::string(native_version)=="0.84","Fill Color overrides advance native writer to 0.84");
+    check(std::string(native_version)=="0.85","Fill Color overrides remain supported by the native 0.85 writer");
     check(encode(legacy_document).find("\"color_overrides\"")==std::string::npos,
         "Empty Color maps omit the optional native field");
     check(decode(versioned(encode(legacy_document),"0.83"))==legacy_document,
@@ -435,7 +435,7 @@ void native_contract_and_atomic_refusals() {
         ",\"value\":{\"space\":\"srgb\",\"profile\":\"srgb\",\"alpha\":\"straight\",\"rgba\":[")!=std::string::npos,
         "Native writer serializes exact source Ref and structured ColorValue");
     const auto reopened=decode(saved);check(reopened==session.document()&&encode(reopened)==saved,
-        "Native 0.84 cold decode restores authored Color maps without drift");
+        "Native 0.85 cold decode restores authored Color maps without drift");
     occurrence_color(scene(reopened),"instance-a","logo",local_color,"Cold reopen renders local Color");
     occurrence_color(scene(reopened),"instance-b","logo",source_color,"Cold reopen retains independent sibling inheritance");
     rejects("NATIVE_VERSION_MISMATCH",[&]{(void)decode(versioned(saved,"0.83"));});
