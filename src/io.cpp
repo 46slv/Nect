@@ -241,6 +241,19 @@ j::object blend_descriptor_json(const BlendModeDescriptor& descriptor) {
             {"reader_requirement",descriptor.svg_reader_requirement},{"cross_reader_pixel_identity",false},
             {"native_source_preserved",true},{"nect_svg_intake_supported",false}}}};
 }
+j::array unsupported_svg_blends(const EvaluatedScene& scene) {
+    j::array result;
+    std::function<void(const EvaluatedSceneNode&)> walk=[&](const auto& node) {
+        if(!node.visible||node.opacity<=0)return;
+        const auto* descriptor=find_blend_mode(node.blend);
+        if(!descriptor||descriptor->svg_representation!="css-mix-blend-mode")
+            result.push_back(j::object{{"object",node.id},{"blend",node.blend},
+                {"reason","No standard native CSS blend or implemented lossless backdrop-aware projection"}});
+        for(const auto& child:node.children)walk(child);
+    };
+    for(const auto& node:scene.roots)walk(node);
+    return result;
+}
 j::array blend_descriptors_json() {
     j::array result;for(const auto& descriptor:blend_modes())result.push_back(blend_descriptor_json(descriptor));return result;
 }
@@ -2632,10 +2645,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,79> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79"};
+        constexpr std::array<std::string_view,80> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.79 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.80 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         // Introduction gate precedes historical-field validation so an Object
         // carrying a new mode cannot claim any older native version, even one
@@ -3061,13 +3074,18 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     for(const auto& id:comp->roots)detect(id);
     if(modern) {
         const auto scene=evaluate_scene(d,comp_id,values,transforms);
+        const auto unsupported_blends=unsupported_svg_blends(scene);
+        if(!unsupported_blends.empty()) {
+            const auto& issue=unsupported_blends.front().as_object();
+            throw Error("UNSUPPORTED_SVG_BLEND","SVG cannot represent blend "+text(issue.at("blend"))+" on Object "+text(issue.at("object")));
+        }
         if(scene.expanded_document) {
             render_document=scene.expanded_document.get();
             render_values=scene.expanded_values.get();
             for(const auto& [id,object]:render_document->objects){svg_ids.insert(id);if(object.compositing.mask)svg_ids.insert(object.compositing.mask->id);}
         }
         std::function<void(const EvaluatedSceneNode&)> render_node=[&](const EvaluatedSceneNode& node) {
-            if(!node.visible)return;
+            if(!node.visible||node.opacity<=0)return;
             const auto& object=render_document->objects.at(node.id);
             if(node.mask) {
                 const auto& mask=*node.mask;const auto& mask_id=object.compositing.mask->id;
@@ -3518,9 +3536,12 @@ std::string request(Session& session,std::string_view input) {
                         {"derivative","svg"},{"reason","SVG export cannot represent enabled Group Posterize without baking"}});
                 for(const auto& child:object.children)walk(child);};
             for(const auto& id:comp->roots)walk(id);
+            const auto blend_values=evaluate(d);
+            const auto blend_scene=evaluate_scene(d,cid,blend_values,evaluate_transforms(d,blend_values));
+            const auto unsupported_blends=unsupported_svg_blends(blend_scene);
             result=j::object{{"format","svg"},{"artboard",artboard_json(board)},{"text",texts},
-                {"svg_export_supported",unsupported_effects.empty()&&unsupported_masks.empty()},
-                {"unsupported_effects",unsupported_effects},{"unsupported_masks",unsupported_masks},
+                {"svg_export_supported",unsupported_effects.empty()&&unsupported_masks.empty()&&unsupported_blends.empty()},
+                {"unsupported_effects",unsupported_effects},{"unsupported_masks",unsupported_masks},{"unsupported_blends",unsupported_blends},
                 {"property_policy","evaluated_values"},{"expressions_preserved",false},
                 {"shape_policy","evaluated vector contours; live operators preserved only in native"},
                 {"path_deform_policy","evaluated derivative geometry; source IDs, contours and relation preserved only in native; gradient fields retain source affine coordinates"},

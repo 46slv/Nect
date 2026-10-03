@@ -12,7 +12,7 @@ import tempfile
 import font_mcp_parity as transport
 
 MODES = ['hue', 'saturation', 'color', 'luminosity']
-IDS = ['normal','multiply','screen','overlay','darken','lighten','color-dodge','color-burn','hard-light','soft-light','difference','exclusion'] + MODES
+IDS = ['normal','multiply','screen','overlay','darken','lighten','color-dodge','color-burn','hard-light','soft-light','difference','exclusion'] + MODES + ['linear-burn','linear-dodge','linear-light','vivid-light','pin-light','hard-mix','subtract','divide','darker-color','lighter-color']
 ORACLE = [(105,80,122,255),(41,104,168,255),(122,71,122,255),(56,107,158,255)]
 CHECKS = 0
 
@@ -196,7 +196,7 @@ def main():
             check(client.snapshot()==retained,'PNG and region analysis preserve native source')
             saved=directory/'all-four.nect'
             result=client.tool('nect_file',dict(client.identity,op='save',path=str(saved),expected_revision=revision))
-            check(result['ok'] and json.loads(saved.read_text())==retained,'MCP saves exact current0.79 native')
+            check(result['ok'] and json.loads(saved.read_text())==retained,'MCP saves exact current0.80 native')
             cold=subprocess.run([str(Path(args.cli).resolve()),'--normalize'],input=saved.read_text(),text=True,capture_output=True)
             check(cold.returncode==0 and json.loads(cold.stdout)==retained,'Separate CLI cold native reopen equality')
             transport.stop(client.proc);client=None;transport.stop(desktop);desktop=None
@@ -205,7 +205,7 @@ def main():
             check(live['revision']==0 and client.identity!=identity and client.snapshot()==retained,'Separate desktop process cold reopen equality')
             stale=client.tool('nect_command',dict(identity,request=dict(op='apply',expected_revision=0,commands=[dict(type='set_compositing',object='hue',blend='normal',isolated=False)])))
             check(not stale['ok'] and stale['error']['code']=='SESSION_CONFLICT' and client.snapshot()==retained,'Old Session identity cannot edit cold reopen')
-            print(json.dumps(dict(status='PASS',checks=CHECKS,transport_checks=transport.CHECKS,native_version='0.79',
+            print(json.dumps(dict(status='PASS',checks=CHECKS,transport_checks=transport.CHECKS,native_version='0.80',
                 modes=MODES,desktop_processes=2,formal_mcp=True,api_parity=True,cold_native=True,
                 old_version_lies='four separate live and cold rejections',png_oracle=True,ae_parity='unverified',
                 gui_acceptance=False,windows_consumer_acceptance=False),sort_keys=True))

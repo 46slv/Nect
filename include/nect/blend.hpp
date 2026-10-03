@@ -98,6 +98,11 @@ struct BlendPixelResult {
 // ideal exact-rational evaluation. No epsilon/ULP tie correction is applied.
 BlendPixelResult composite_nonseparable_srgb8(std::string_view mode,PremultipliedSrgb8 backdrop,
     PremultipliedSrgb8 source,std::string_view profile=nonseparable_blend_profile_id) noexcept;
+// Shared deterministic-color byte adapter. New arithmetic and four HSL modes
+// use the same once-rounded source-over/opacity boundary. Whole-color byte
+// ordering uses exact cross-multiplied original straight-byte totals.
+BlendPixelResult composite_deterministic_srgb8_opacity(std::string_view mode,PremultipliedSrgb8 backdrop,
+    PremultipliedSrgb8 source,double opacity,std::string_view profile=nonseparable_blend_profile_id) noexcept;
 // Consumer opacity bridge: source straight RGB is recovered from the original
 // premultiplied bytes; authored opacity scales effective source alpha in binary64.
 // No rounded straight-RGB or opacity-scaled byte intermediate is introduced.

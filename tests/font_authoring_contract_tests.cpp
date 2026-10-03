@@ -81,8 +81,8 @@ int main() {
     try {
         const auto fixture=authored_text_fixture();
         const auto empty_native=encode(fixture);
-        check(empty_native.find("\"version\":\"0.79\"")!=std::string::npos,
-            "Current writer is native 0.79");
+        check(empty_native.find("\"version\":\"0.80\"")!=std::string::npos,
+            "Current writer is native 0.80");
         check(empty_native.find("\"font_features\"")==std::string::npos&&
             empty_native.find("\"additional_axis_values\"")==std::string::npos,
             "Empty optional Text authoring collections are omitted");
@@ -218,17 +218,17 @@ int main() {
         rejects("TEXT_AXIS_CONFLICT",[&]{validate(invalid_axis_document);});
 
         auto native078=saved;
-        replace_once(native078,"\"version\":\"0.79\"","\"version\":\"0.78\"");
+        replace_once(native078,"\"version\":\"0.80\"","\"version\":\"0.78\"");
         check(decode(native078)==decode(saved)&&encode(decode(native078))==saved,
-            "Native0.78 nonempty features/axes preserve exact intent through current0.79 roundtrip");
+            "Native0.78 nonempty features/axes preserve exact intent through current0.80 roundtrip");
         auto legacy=empty_native;
-        replace_once(legacy,"\"version\":\"0.79\"","\"version\":\"0.77\"");
+        replace_once(legacy,"\"version\":\"0.80\"","\"version\":\"0.77\"");
         const auto migrated=decode(legacy);
         check(migrated.objects.at("font-text").text->font_features.empty()&&
             migrated.objects.at("font-text").text->additional_axis_values.empty(),
             "Native 0.77 Text cold migration supplies empty optional collections");
         auto lie= saved;
-        replace_once(lie,"\"version\":\"0.79\"","\"version\":\"0.77\"");
+        replace_once(lie,"\"version\":\"0.80\"","\"version\":\"0.77\"");
         rejects("NATIVE_VERSION_MISMATCH",[&]{decode(lie);});
         auto empty_lie=empty_native;
         const auto text_at=empty_lie.find("\"text\":{");
@@ -236,7 +236,7 @@ int main() {
         const auto parameters_at=empty_lie.find("\"parameters\":",text_at);
         if(parameters_at==std::string::npos)throw std::runtime_error("Text fixture parameter map is missing");
         empty_lie.insert(parameters_at,"\"font_features\":[],\"additional_axis_values\":{},");
-        replace_once(empty_lie,"\"version\":\"0.79\"","\"version\":\"0.77\"");
+        replace_once(empty_lie,"\"version\":\"0.80\"","\"version\":\"0.77\"");
         rejects("NATIVE_VERSION_MISMATCH",[&]{decode(empty_lie);});
 
         auto duplicate_axis_key=saved;

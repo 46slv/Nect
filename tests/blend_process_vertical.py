@@ -19,7 +19,7 @@ def run(mode,native):
     return subprocess.run([exe,mode],input=json.dumps(native),text=True,capture_output=True,timeout=10)
 
 sample=json.loads(subprocess.check_output([exe,'--demo'],text=True))
-check(sample['version']=='0.79','Current writer0.79')
+check(sample['version']=='0.80','Current writer0.80')
 comp=sample['compositions'][0]['id'];board=sample['compositions'][0]['artboards'][0]['id']
 sample['compositions'][0]['artboards'][0].update(x=0,y=0,width=64,height=64)
 sample['objects']=[rectangle('backdrop',0,0,64,64,(51,102,153,255))]+[
@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory(prefix='nect-blend-process-') as tmp:
         check(result.returncode==2 and 'NATIVE_VERSION_MISMATCH' in result.stderr,'Cold0.78 lie rejects '+mode)
     for mode in IDS[:12]:
         older=copy.deepcopy(sample);older['version']='0.78';older['objects'][0]['compositing']['blend']=mode
-        result=run('--normalize',older);current=copy.deepcopy(older);current['version']='0.79'
+        result=run('--normalize',older);current=copy.deepcopy(older);current['version']='0.80'
         check(result.returncode==0 and json.loads(result.stdout)==current,'Cold0.78 exact old-mode readback '+mode)
     # Preserve enabled-mask SVG refusals under the same new-blend candidate.
     for mode,code in [('alpha','UNSUPPORTED_SVG_ALPHA_MASK'),('luma','UNSUPPORTED_SVG_LUMA_MASK')]:
@@ -61,4 +61,4 @@ with tempfile.TemporaryDirectory(prefix='nect-blend-process-') as tmp:
         target['compositing']['mask']=dict(id='mask',source='saturation',version=1,enabled=True,fill_rule='nonzero',mode=mode,invert=False,mask_color_space='srgb')
         result=run('--svg',masked)
         check(result.returncode==2 and code in result.stderr,'Cold SVG honest '+mode+' refusal')
-print(json.dumps(dict(status='PASS',checks=checks,cold_processes=22,native='0.79',live_desktop_ipc=False,scope='cold native/API/SVG safety'),sort_keys=True))
+print(json.dumps(dict(status='PASS',checks=checks,cold_processes=22,native='0.80',live_desktop_ipc=False,scope='cold native/API/SVG safety'),sort_keys=True))

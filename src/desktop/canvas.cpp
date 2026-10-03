@@ -1029,7 +1029,7 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                     const auto mode=ignore_root_blend?std::string_view("normal"):std::string_view(node.blend);
                     const auto* descriptor=find_blend_mode(mode);
                     if(!descriptor)throw Error("UNSUPPORTED_BLEND",std::string(mode));
-                    if(descriptor->renderer=="w3c-binary64") {
+                    if(descriptor->renderer=="w3c-binary64"||descriptor->renderer=="deterministic-binary64") {
                         if(target.paintingActive()||image.paintingActive())
                             throw Error("RENDER_PAINTER_ACTIVE","Nonseparable scope pixels cannot be accessed while a painter is active");
                         if(target.format()!=QImage::Format_ARGB32_Premultiplied||image.format()!=QImage::Format_ARGB32_Premultiplied)
@@ -1044,7 +1044,7 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
                             const auto* source_row=reinterpret_cast<const QRgb*>(image.constScanLine(y));
                             auto* target_row=reinterpret_cast<QRgb*>(target.scanLine(y+top));
                             for(int x=0;x<region.width();++x) {
-                                const auto result=composite_nonseparable_srgb8_opacity(mode,logical(target_row[x+left]),
+                                const auto result=composite_deterministic_srgb8_opacity(mode,logical(target_row[x+left]),
                                     logical(source_row[x]),node.opacity);
                                 if(result.status!=BlendKernelStatus::ok)
                                     throw Error(std::string(blend_kernel_status_code(result.status)),"Nonseparable scope compositor refused input");

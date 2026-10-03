@@ -1,4 +1,5 @@
 #include "nect/blend.hpp"
+#include "nect/arithmetic_blend.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -12,7 +13,7 @@ constexpr std::array<BlendProfileDescriptor,1> qt_profiles{{{
     nonseparable_blend_profile_id,8,8,"encoded-srgb","premultiplied","qt-raster-integer",
     "qt-raster-implementation-defined"
 }}};
-constexpr std::array<BlendModeDescriptor,16> descriptors{{
+constexpr std::array<BlendModeDescriptor,26> descriptors{{
     {"normal","Normal","normal",1,"qt-raster-normal","source-over","current-compositing-scope","none",qt_profiles,"unverified",11,"qt-raster","css-mix-blend-mode","SVG CSS mix-blend-mode and isolation support"},
     {"multiply","Multiply","separable",1,"qt-raster-multiply","source-over","current-compositing-scope","none",qt_profiles,"unverified",11,"qt-raster","css-mix-blend-mode","SVG CSS mix-blend-mode and isolation support"},
     {"screen","Screen","separable",1,"qt-raster-screen","source-over","current-compositing-scope","none",qt_profiles,"unverified",11,"qt-raster","css-mix-blend-mode","SVG CSS mix-blend-mode and isolation support"},
@@ -28,7 +29,17 @@ constexpr std::array<BlendModeDescriptor,16> descriptors{{
     {"hue","Hue","nonseparable",1,"w3c-nonseparable","source-over","current-compositing-scope","none",profiles,"unverified",79,"w3c-binary64","css-mix-blend-mode","SVG CSS mix-blend-mode and isolation support"},
     {"saturation","Saturation","nonseparable",1,"w3c-nonseparable","source-over","current-compositing-scope","none",profiles,"unverified",79,"w3c-binary64","css-mix-blend-mode","SVG CSS mix-blend-mode and isolation support"},
     {"color","Color","nonseparable",1,"w3c-nonseparable","source-over","current-compositing-scope","none",profiles,"unverified",79,"w3c-binary64","css-mix-blend-mode","SVG CSS mix-blend-mode and isolation support"},
-    {"luminosity","Luminosity","nonseparable",1,"w3c-nonseparable","source-over","current-compositing-scope","none",profiles,"unverified",79,"w3c-binary64","css-mix-blend-mode","SVG CSS mix-blend-mode and isolation support"}
+    {"luminosity","Luminosity","nonseparable",1,"w3c-nonseparable","source-over","current-compositing-scope","none",profiles,"unverified",79,"w3c-binary64","css-mix-blend-mode","SVG CSS mix-blend-mode and isolation support"},
+    {"linear-burn","Linear Burn","arithmetic",1,"nect-linear-burn","source-over","current-compositing-scope","none",profiles,"unverified",80,"deterministic-binary64","unsupported","No standard CSS blend or implemented lossless backdrop-aware projection"},
+    {"linear-dodge","Linear Dodge","arithmetic",1,"nect-linear-dodge","source-over","current-compositing-scope","none",profiles,"unverified",80,"deterministic-binary64","unsupported","No standard CSS blend or implemented lossless backdrop-aware projection"},
+    {"linear-light","Linear Light","arithmetic",1,"nect-linear-light","source-over","current-compositing-scope","none",profiles,"unverified",80,"deterministic-binary64","unsupported","No standard CSS blend or implemented lossless backdrop-aware projection"},
+    {"vivid-light","Vivid Light","arithmetic",1,"nect-vivid-light-w3c-endpoints","source-over","current-compositing-scope","none",profiles,"unverified",80,"deterministic-binary64","unsupported","No standard CSS blend or implemented lossless backdrop-aware projection"},
+    {"pin-light","Pin Light","arithmetic",1,"nect-pin-light","source-over","current-compositing-scope","none",profiles,"unverified",80,"deterministic-binary64","unsupported","No standard CSS blend or implemented lossless backdrop-aware projection"},
+    {"hard-mix","Hard Mix","arithmetic",1,"nect-hard-mix-sum-greater-or-equal","source-over","current-compositing-scope","none",profiles,"unverified",80,"deterministic-binary64","unsupported","No standard CSS blend or implemented lossless backdrop-aware projection"},
+    {"subtract","Subtract","arithmetic",1,"nect-subtract-backdrop-minus-source","source-over","current-compositing-scope","none",profiles,"unverified",80,"deterministic-binary64","unsupported","No standard CSS blend or implemented lossless backdrop-aware projection"},
+    {"divide","Divide","arithmetic",1,"nect-divide-zero-numerator-first","source-over","current-compositing-scope","none",profiles,"unverified",80,"deterministic-binary64","unsupported","No standard CSS blend or implemented lossless backdrop-aware projection"},
+    {"darker-color","Darker Color","whole-color",1,"nect-straight-rgb-total-backdrop-tie","source-over","current-compositing-scope","none",profiles,"unverified",80,"deterministic-binary64","unsupported","No standard CSS blend or implemented lossless backdrop-aware projection"},
+    {"lighter-color","Lighter Color","whole-color",1,"nect-straight-rgb-total-backdrop-tie","source-over","current-compositing-scope","none",profiles,"unverified",80,"deterministic-binary64","unsupported","No standard CSS blend or implemented lossless backdrop-aware projection"}
 }};
 
 // W3C Compositing and Blending Level 1, section 10.2. These coefficients are
@@ -125,7 +136,7 @@ const BlendModeDescriptor* find_blend_mode(std::string_view id) noexcept {
     for(const auto& descriptor:descriptors)if(descriptor.id==id)return &descriptor;
     return nullptr;
 }
-std::span<const BlendModeDescriptor> nonseparable_blend_modes() noexcept {return std::span(descriptors).subspan(12);}
+std::span<const BlendModeDescriptor> nonseparable_blend_modes() noexcept {return std::span(descriptors).subspan(12,4);}
 const BlendModeDescriptor* find_nonseparable_blend_mode(std::string_view id) noexcept {
     const auto* descriptor=find_blend_mode(id);
     return descriptor&&descriptor->family=="nonseparable"?descriptor:nullptr;
@@ -143,6 +154,16 @@ BlendPixelResult composite_nonseparable_srgb8(std::string_view mode,Premultiplie
 BlendPixelResult composite_nonseparable_srgb8_opacity(std::string_view mode,PremultipliedSrgb8 backdrop,
     PremultipliedSrgb8 source,double opacity,std::string_view profile) noexcept {
     if(const auto status=support_status(mode,profile);status!=BlendKernelStatus::ok)return {status,{}};
+    return composite_deterministic_srgb8_opacity(mode,backdrop,source,opacity,profile);
+}
+BlendPixelResult composite_deterministic_srgb8_opacity(std::string_view mode,PremultipliedSrgb8 backdrop,
+    PremultipliedSrgb8 source,double opacity,std::string_view profile) noexcept {
+    const auto* descriptor=find_blend_mode(mode);
+    if(!descriptor||(descriptor->renderer!="w3c-binary64"&&descriptor->renderer!="deterministic-binary64"))
+        return {BlendKernelStatus::unsupported_blend,{}};
+    if(std::none_of(descriptor->profiles.begin(),descriptor->profiles.end(),
+        [&](const auto& candidate){return candidate.id==profile;}))
+        return {BlendKernelStatus::unsupported_profile,{}};
     if(!valid_pixel(backdrop)||!valid_pixel(source))return {BlendKernelStatus::invalid_premultiplied_pixel,{}};
     if(!std::isfinite(opacity)||opacity<0||opacity>1)return {BlendKernelStatus::invalid_opacity,{}};
     if(source.a==0||opacity==0)return {BlendKernelStatus::ok,backdrop};
@@ -156,7 +177,16 @@ BlendPixelResult composite_nonseparable_srgb8_opacity(std::string_view mode,Prem
     const double source_alpha=(source.a/255.)*opacity,backdrop_alpha=backdrop.a/255.;
     const BlendRgb source_rgb{double(source.r)/source.a,double(source.g)/source.a,double(source.b)/source.a};
     const BlendRgb backdrop_rgb{double(backdrop.r)/backdrop.a,double(backdrop.g)/backdrop.a,double(backdrop.b)/backdrop.a};
-    const auto mixed=mix_rgb(mode,backdrop_rgb,source_rgb);
+    BlendRgbResult mixed;
+    if(descriptor->renderer=="w3c-binary64")mixed=mix_rgb(mode,backdrop_rgb,source_rgb);
+    else if(mode=="darker-color"||mode=="lighter-color") {
+        // Compare the exact original straight-byte totals, not rounded
+        // normalized sums, premultiplied totals or weighted luminance.
+        const unsigned backdrop_total=(unsigned(backdrop.r)+backdrop.g+backdrop.b)*source.a;
+        const unsigned source_total=(unsigned(source.r)+source.g+source.b)*backdrop.a;
+        const bool choose_source=mode=="darker-color"?source_total<backdrop_total:source_total>backdrop_total;
+        mixed={BlendKernelStatus::ok,choose_source?source_rgb:backdrop_rgb};
+    } else mixed=blend_arithmetic_rgb(mode,backdrop_rgb,source_rgb);
     if(mixed.status!=BlendKernelStatus::ok)return {mixed.status,{}};
     const auto alpha=quantize_byte(source_alpha+backdrop_alpha*(1-source_alpha));
     std::array<std::uint8_t,3> channels{};

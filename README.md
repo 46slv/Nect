@@ -157,12 +157,15 @@ creates one Group, hides the source artwork and retains its editable geometry.
 Properties → Edit source selects it without making its paint visible; Show mask
 outline controls a faint viewport overlay. Put Inside moves immediately preceding
 siblings into the top selected Group, preserving world placement and order.
-Every object/Group has visibility, ordinary linkable/expression opacity, twelve
+Every object/Group has visibility, ordinary linkable/expression opacity, twenty-six
 blend modes and explicit isolation. Neutral Groups pass through; masks, opacity
 and blend aggregate the children. Geometry masks use final Path/Text contours;
 Alpha masks use isolated RGBA coverage and Luma masks use the declared 8-bit
 sRGB profile; enabled Alpha/Luma masks remain unsupported by SVG without a
-lossless projection. Full AE blend parity remains unsupported. SVG retains vector
+lossless projection. The ten arithmetic/whole-color modes use deterministic encoded-sRGB byte
+compositing; SVG export refuses rendered uses because there is no lossless
+standard CSS projection. Classic modes and full AE blend parity remain
+unsupported. SVG retains vector
 clips, Group opacity and CSS blend/isolation, so the reader must support those
 SVG/CSS features. `examples/colour-cut.nect` demonstrates the retained workflow.
 
@@ -350,7 +353,7 @@ geometry/appearance. See [model contract](docs/model-v0.md#native010-property-ex
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.79.schema.json` — current native JSON shape (0.1–0.78 readers retained)
+- `schemas/native-v0.80.schema.json` — current native JSON shape (0.1–0.79 readers retained)
 
 ## Project rules
 
