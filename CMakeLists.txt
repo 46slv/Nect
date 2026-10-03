@@ -49,6 +49,11 @@ if(NECT_DESKTOP)
     src/desktop/text_family_batch_control.cpp
     src/desktop/text_locale_batch_control.cpp
     src/desktop/paint_color_batch_control.cpp
+    src/desktop/text_content_batch_control.cpp
+    src/desktop/multi_visibility_control.cpp
+    src/desktop/multi_blend_mode_control.cpp
+    src/desktop/operation_enabled_batch_control.cpp
+    src/desktop/multi_fill_rule_control.cpp
   )
   target_include_directories(nect_desktop_client PUBLIC src/desktop)
   target_sources(nect_desktop_client PRIVATE src/desktop/analysis_contour_control.cpp)
@@ -275,7 +280,8 @@ if(BUILD_TESTING)
     add_test(NAME instance_visibility_ui_interaction COMMAND instance_visibility_ui_tests)
     set_tests_properties(instance_visibility_ui_interaction PROPERTIES TIMEOUT 30)
     foreach(test flattened_svg_export compatibility_plan_ui macro_revision_ui macro_chain_ui text_alignment_batch_ui
-        text_direction_batch_ui text_layout_batch_ui text_italic_batch_ui text_family_batch_ui text_locale_batch_ui paint_color_batch_ui)
+        text_direction_batch_ui text_layout_batch_ui text_italic_batch_ui text_family_batch_ui text_locale_batch_ui paint_color_batch_ui
+        text_content_literal_batch_ui multi_visibility_ui multi_blend_mode_ui operation_enabled_batch_ui multi_fill_rule_ui)
       add_executable(${test}_tests tests/${test}_tests.cpp)
       target_link_libraries(${test}_tests PRIVATE nect_desktop_client Qt6::Test)
       if(MSVC)

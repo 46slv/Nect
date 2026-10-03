@@ -1,3 +1,8 @@
+#include "multi_fill_rule_control.hpp"
+#include "operation_enabled_batch_control.hpp"
+#include "text_content_batch_control.hpp"
+#include "multi_visibility_control.hpp"
+#include "multi_blend_mode_control.hpp"
 #include "text_direction_batch_control.hpp"
 #include "text_layout_batch_control.hpp"
 #include "text_italic_batch_control.hpp"
@@ -8770,6 +8775,10 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         }
         layout->addStretch();return;
     }
+    std::vector<Id> whole_object_targets;whole_object_targets.reserve(selected.size());
+    for(const auto& item:selected)whole_object_targets.push_back(item.object);
+    layout->addWidget(make_multi_visibility_controls(host,whole_object_targets,inspector_));
+    layout->addWidget(make_multi_blend_mode_controls(host,whole_object_targets,inspector_));
     add_multi_text_content(layout,selected);
     add_multi_text_weight(layout,selected);
     if(std::any_of(selected.begin(),selected.end(),[&](const auto& item){
@@ -8783,6 +8792,7 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
             const auto& object=host.session.document().objects.at(id);return object.kind==Kind::text&&object.text.has_value();
         });
         if(all_text) {
+            layout->addWidget(make_text_content_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_family_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_layout_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_direction_batch_controls(host,targets,inspector_));
@@ -8862,6 +8872,35 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     std::size_t paint_slots=0;
     for(const auto& item:selected)paint_slots=std::max(paint_slots,d.objects.at(item.object).stack.size());
     for(std::size_t slot=0;slot<paint_slots;++slot) {
+        bool any_builtin=false,all_entries=true;std::vector<OperationEnabledBatchTarget> enabled_targets;
+        for(const auto& item:selected) {
+            const auto& stack=d.objects.at(item.object).stack;
+            if(slot>=stack.size()){all_entries=false;continue;}
+            const auto& entry=stack[slot];any_builtin=any_builtin||!entry.macro.has_value();
+            enabled_targets.push_back({item.object,entry.id});
+        }
+        if(any_builtin) {
+            if(all_entries)layout->addWidget(make_operation_enabled_batch_controls(host,enabled_targets,inspector_));
+            else {
+                auto* form=section(QString("Stack %1 enabled").arg(slot+1));
+                auto* refusal=new QLabel("INCOMPATIBLE_OPERATION: Every selected object must have the same built-in effect at this stack position.");
+                refusal->setTextFormat(Qt::PlainText);refusal->setWordWrap(true);form->addRow(refusal);
+            }
+        }
+        const bool any_fill=std::any_of(enabled_targets.begin(),enabled_targets.end(),[&](const auto& target){
+            return d.objects.at(target.object).stack[slot].type=="nect.paint.fill";
+        });
+        if(any_fill) {
+            if(all_entries) {
+                std::vector<MultiFillRuleTarget> fill_targets;fill_targets.reserve(enabled_targets.size());
+                for(const auto& target:enabled_targets)fill_targets.push_back({target.object,target.operation});
+                layout->addWidget(make_multi_fill_rule_controls(host,fill_targets,inspector_));
+            } else {
+                auto* form=section(QString("Stack %1 Fill rule").arg(slot+1));
+                auto* refusal=new QLabel("INCOMPATIBLE_FILL: Every selected object must have a Fill at this stack position.");
+                refusal->setTextFormat(Qt::PlainText);refusal->setWordWrap(true);form->addRow(refusal);
+            }
+        }
         bool any_paint=false,all_paint=true;std::vector<Ref> targets;targets.reserve(selected.size());
         for(const auto& item:selected) {
             const auto& object=d.objects.at(item.object);
