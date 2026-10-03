@@ -1,3 +1,8 @@
+#include "flattened_svg_export.hpp"
+#include "compatibility_plan_control.hpp"
+#include "macro_revision_control.hpp"
+#include "text_alignment_batch_control.hpp"
+#include "analysis_line_control.hpp"
 #include "window.hpp"
 #include "nect/blend.hpp"
 #include "colors.hpp"
@@ -923,6 +928,11 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         auto* dialog=new MacroAuthoringDialog(host,this);
         dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->open();
     });
+    auto* edit_macro=new QPushButton("Edit Macro revision...",effects_page);
+    edit_macro->setObjectName("effects-edit-macro-revision");effects_layout->addWidget(edit_macro);
+    connect(edit_macro,&QPushButton::clicked,this,[this]{
+        auto* dialog=new MacroRevisionDialog(host,{},this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->open();
+    });
     effects_search_=new QLineEdit(effects_page);effects_search_->setObjectName("effects-search");
     effects_search_->setPlaceholderText("Search effects…");effects_search_->setClearButtonEnabled(true);
     effects_layout->addWidget(effects_search_);
@@ -1174,6 +1184,10 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         auto* a=menu->addAction(label); a->setShortcut(shortcut);
         connect(a,&QAction::triggered,this,[this,fn]{perform(fn);}); return a;
     };
+    action(add,"Thin line to Path...",{},[this]{
+        make_analysis_line_dialog(host,canvas->active_composition(),canvas->active_artboard(),
+            [this](const Id& object){canvas->set_selection(object);refresh();canvas->setFocus();},this)->show();
+    })->setObjectName("analysis-line-to-path");
     action(add,"Outer contour to Path...",{},[this]{
         make_analysis_contour_dialog(host,canvas->active_composition(),canvas->active_artboard(),
             [this](const Id& object){canvas->set_selection(object);refresh();canvas->setFocus();},this)->show();
@@ -1228,6 +1242,12 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     });
     action(file,"Import SVG artwork…",QKeySequence("Ctrl+I"),[this]{import_svg();})->setObjectName("import-svg");
     action(file,"Export PNG…",{},[this]{export_png();})->setObjectName("export-png");
+    action(file,"Compatibility plan...",{},[this]{
+        create_compatibility_plan_dialog(host,canvas->active_composition(),canvas->active_artboard(),this)->show();
+    })->setObjectName("compatibility-plan");
+    action(file,"Export flattened SVG...",{},[this]{
+        show_flattened_svg_export_dialog(host,canvas->active_composition(),canvas->active_artboard(),this);
+    })->setObjectName("export-flattened-svg");
     undo_=action(edit,"Undo",QKeySequence::Undo,[this]{canvas->cancel_interaction();host.session.undo(host.session.revision());host.edited();});
     redo_=action(edit,"Redo",QKeySequence::Redo,[this]{canvas->cancel_interaction();host.session.redo(host.session.revision());host.edited();});
     action(edit,"Delete selection",QKeySequence::Delete,[this]{
@@ -7303,6 +7323,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         });
         }
         if(operation.macro) {
+            form->addRow(make_macro_revision_controls(host,object.id,operation.id,group));
             const auto& definition=host.session.document().macro_definitions.at(operation.macro->definition);
             const auto& macro_revision=definition.revisions.at(operation.macro->pinned_revision);
             for(auto parameter=macro_revision.public_parameters.begin();parameter!=macro_revision.public_parameters.end();++parameter) {
@@ -8739,6 +8760,14 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     }
     add_multi_text_content(layout,selected);
     add_multi_text_weight(layout,selected);
+    if(std::any_of(selected.begin(),selected.end(),[&](const auto& item){
+        const auto found=host.session.document().objects.find(item.object);
+        return found!=host.session.document().objects.end()&&found->second.kind==Kind::text;
+    })) {
+        std::vector<Id> targets;targets.reserve(selected.size());
+        for(const auto& item:selected)targets.push_back(item.object);
+        layout->addWidget(make_text_alignment_batch_controls(host,targets,inspector_));
+    }
     add_alignment_controls(layout,selected);
     auto* selection_transform=new QPushButton("Rotate / scale selection…");selection_transform->setObjectName("selection-transform-open");
     layout->addWidget(selection_transform);connect(selection_transform,&QPushButton::clicked,this,[this]{perform([&]{transform_selection();});});

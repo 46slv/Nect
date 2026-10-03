@@ -14,4 +14,17 @@ struct AnalysisContourFrame {
 Contour adopt_analysis_outer_contour(const std::vector<Vec2>& pixel_corners,
     const AnalysisContourFrame& frame, const Id& contour_id,
     const std::vector<Id>& point_ids);
+
+// Exact R09-D4 pixel-center run, already selected from an authenticated analysis.
+// The helper retains only its endpoints as an open straight Path contour. It
+// neither discovers lines nor guarantees source thickness/appearance.
+struct AnalysisLineCandidate {
+    std::string direction;
+    Vec2 start;
+    Vec2 end;
+    int length_pixels = 0;
+};
+Contour adopt_analysis_thin_line(const AnalysisLineCandidate& line,
+    const AnalysisContourFrame& frame, const Id& contour_id,
+    const std::vector<Id>& point_ids);
 }

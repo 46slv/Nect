@@ -1,3 +1,5 @@
+#include "analysis_line_control.hpp"
+#include "flattened_svg_export.hpp"
 #include "host.hpp"
 #include "nect/analysis_adoption.hpp"
 #include "svg_import.hpp"
@@ -1423,10 +1425,12 @@ QByteArray Host::dispatch(const QByteArray& input) {
         auto outer=QJsonDocument::fromJson(input).object();
         const auto operation=string(outer,"op");
         const QStringList allowed=operation=="hello"?QStringList{"op"}:
+             operation=="adopt_analysis_line"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","analysis_id","line_id","name"}:
              operation=="adopt_analysis_contour"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","analysis_id","contour_id","name"}:
             (operation=="analysis_dataset"?QStringList{"op","session_id","document_id","expected_revision","operator_type_id","operator_version","input_domain","composition_id","parameters"}:
             (operation=="analyze_regions"?QStringList{"op","session_id","document_id","expected_revision","composition","artboard","scale","threshold","include_color_groups","include_color_components","intersect_color_component_index","intersect_color_component_id"}:
-            (operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
+            (operation=="export_flattened_svg"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale"}:
+             operation=="export_png"?QStringList{"op","session_id","document_id","expected_revision","path","composition","artboard","scale","background"}:
              operation=="core"?QStringList{"op","session_id","document_id","request"}:
              operation=="import_svg"?QStringList{"op","session_id","document_id","expected_revision","path","composition","prefix","name","x","y"}:
                 (operation=="import_image"?QStringList{"op","session_id","document_id","expected_revision","path","mode","composition","parent","asset","id","name","x","y"}:
@@ -1468,12 +1472,27 @@ QByteArray Host::dispatch(const QByteArray& input) {
                 const auto expected=outer.value("expected_revision");
                 if(!expected.isDouble() || expected.toDouble()!=static_cast<double>(session.revision()))
                     throw Error("REVISION_CONFLICT","Refresh revision before file/session operations");
-                if(op=="export_png") {
+                if(op=="export_flattened_svg") {
+                    if(!outer.value("scale").isDouble())throw Error("INVALID_REQUEST","Numeric raster scale required");
+                    response={{"ok",true},{"result",nect::desktop::export_flattened_svg(*this,string(outer,"path"),
+                        string(outer,"composition").toStdString(),string(outer,"artboard").toStdString(),
+                        outer.value("scale").toDouble(),session.revision())}};
+                } else if(op=="export_png") {
                     const auto background=string(outer,"background");
                     if(!outer.value("scale").isDouble()||(background!="white"&&background!="transparent"))
                         throw Error("INVALID_REQUEST","Numeric scale and transparent/white background required");
                     response={{"ok",true},{"result",export_png(string(outer,"path"),string(outer,"composition").toStdString(),
                         string(outer,"artboard").toStdString(),outer.value("scale").toDouble(),background=="white",session.revision())}};
+                } else if(op=="adopt_analysis_line") {
+                    if(!outer.value("scale").isDouble()||!outer.value("threshold").isDouble())
+                        throw Error("INVALID_REQUEST","Numeric scale and integer alpha threshold required");
+                    const auto threshold=outer.value("threshold").toDouble();
+                    if(!std::isfinite(threshold)||std::floor(threshold)!=threshold||threshold<1||threshold>255)
+                        throw Error("INVALID_THRESHOLD","Alpha threshold must be an integer from 1 through 255");
+                    response={{"ok",true},{"result",nect::desktop::adopt_analysis_line(*this,
+                        string(outer,"composition").toStdString(),string(outer,"artboard").toStdString(),
+                        outer.value("scale").toDouble(),static_cast<int>(threshold),string(outer,"analysis_id"),
+                        string(outer,"line_id"),string(outer,"name").toStdString(),string(outer,"session_id"),session.revision())}};
                 } else if(op=="adopt_analysis_contour") {
                     if(!outer.value("scale").isDouble()||!outer.value("threshold").isDouble())
                         throw Error("INVALID_REQUEST","Numeric scale and integer alpha threshold required");
