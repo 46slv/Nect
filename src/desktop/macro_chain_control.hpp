@@ -6,6 +6,7 @@
 #include <map>
 #include <vector>
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -38,8 +39,10 @@ private:
     std::uint64_t revision_=0,gesture_=0,saved_revision_=0;
     bool finished_=false,loaded_=false;
     MacroDefinitionRevision draft_;
+    MacroPublicParameter public_template_;
     std::vector<NodeDraft> nodes_;
     std::map<std::string,QLineEdit*> inputs_;
+    QCheckBox* publish_amount_=nullptr;
     QComboBox* definitions_=nullptr;
     QComboBox* mapping_=nullptr;
     QListWidget* chain_=nullptr;

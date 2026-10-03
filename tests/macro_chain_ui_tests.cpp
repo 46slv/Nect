@@ -4,6 +4,7 @@
 #include "host.hpp"
 #include "nect/io.hpp"
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QLabel>
 #include <QLineEdit>
@@ -204,10 +205,90 @@ void remove_mapping_and_bounds(Host& host) {
     const Snapshot unchanged(host.session);click(bounded,"macro-chain-cancel");bounded.accept();
     check(unchanged.unchanged(host.session),"Bounds/draft removal followed by Cancel never authors a revision");
     load(host,false);MacroChainDialog unpublished(host,"definition");unpublished.show();events();
-    check(!named<QComboBox>(unpublished,"macro-chain-public-node")->isEnabled(),"An already unpublished source keeps its interface unavailable");
+    check(!named<QCheckBox>(unpublished,"macro-chain-publish-amount")->isChecked()&&
+        named<QCheckBox>(unpublished,"macro-chain-publish-amount")->isEnabled()&&
+        !named<QComboBox>(unpublished,"macro-chain-public-node")->isEnabled(),
+        "An unpublished source stays off while offering explicit restoration of its historical interface");
     click(unpublished,"macro-chain-add-offset");click(unpublished,"macro-chain-save");
     check(host.session.document().macro_definitions.at("definition").revisions.at(3).public_parameters.empty(),
         "Adding nodes does not silently restore a previously removed public parameter");
+}
+
+void unpublish_remove_and_restore(Host& host) {
+    load(host);
+    const auto original=host.session.document().macro_definitions.at("definition").revisions.at(1);
+    auto published=original;published.revision=2;
+    published.public_parameters.front().label="Latest published Amount";
+    host.session.apply({MacroCommand{UpdateMacroDefinition{"definition",published}},
+        MacroCommand{SetMacroOverride{"path","instance","macro.offset.amount",27}}},host.session.revision());
+    Session canonical(host.session);
+    const Snapshot before(host.session);
+    MacroChainDialog dialog(host,"definition");dialog.show();events();
+    auto* publication=named<QCheckBox>(dialog,"macro-chain-publish-amount");
+    check(publication->isChecked()&&publication->isEnabled(),"A published source starts with its explicit Amount switch on");
+    publication->click();events();
+    check(!publication->isChecked()&&!named<QComboBox>(dialog,"macro-chain-public-node")->isEnabled()&&
+        !named<QLineEdit>(dialog,"macro-chain-public-label")->isEnabled(),
+        "Explicit unpublication disables the draft's mapping and label controls");
+    select(dialog,"offset");click(dialog,"macro-chain-remove");
+    check(named<QListWidget>(dialog,"macro-chain-nodes")->count()==1&&selected(dialog)=="repeater"&&
+        !named<QPushButton>(dialog,"macro-chain-remove")->isEnabled()&&before.unchanged(host.session),
+        "Turning Amount off allows removal of the last Offset while retaining one Repeater as a local draft");
+    click(dialog,"macro-chain-save");
+    check(dialog.result()==QDialog::Accepted&&dialog.saved_revision()==3&&host.session.revision()==before.revision+1,
+        "The unpublished Repeater-only draft saves as one new revision");
+    const auto removed=host.session.document().macro_definitions.at("definition").revisions.at(3);
+    const auto& definition=host.session.document().macro_definitions.at("definition");
+    check(definition.latest_revision==3&&definition.revisions.size()==3&&definition.revisions.at(1)==original&&
+        definition.revisions.at(2)==published&&removed.graph_version==2&&removed.public_parameters.empty()&&
+        order(removed)==std::vector<Id>{"repeater"}&&node(removed,"repeater")==node(published,"repeater")&&
+        removed.input==published.input&&removed.output==published.output,
+        "Unpublication retains historical revisions and exact Repeater/boundary identities in graph2");
+    check(instance(host.session.document())==instance(before.document)&&
+        instance(host.session.document(),"sibling")==instance(before.document,"sibling")&&
+        macro_parameter_value(host.session.document(),"path","instance","macro.offset.amount")==27,
+        "Saving unpublication preserves both old pins and the existing published-Amount override");
+    canonical.apply({MacroCommand{UpdateMacroDefinition{"definition",removed}}},canonical.revision());
+    check(host.session.document()==canonical.document()&&host.session.history()==canonical.history(),
+        "Unpublication Save has exactly the canonical UpdateMacroDefinition state/history");
+    {
+        QWidget owner;auto* controls=make_macro_revision_controls(host,"path","instance",&owner);owner.show();events();
+        const Snapshot pinned(host.session);click(*controls,"macro-instance-revision-update");
+        check(pinned.unchanged(host.session)&&named<QLabel>(*controls,"macro-instance-revision-error")->text().contains(
+            "ORPHAN_MACRO_OVERRIDE"),"Explicit migration to the unpublished revision refuses an existing override atomically");
+    }
+    host.session.apply({MacroCommand{ResetMacroOverride{"path","instance","macro.offset.amount"}}},host.session.revision());
+    {
+        QWidget owner;auto* controls=make_macro_revision_controls(host,"path","instance",&owner);owner.show();events();
+        const Snapshot reset(host.session);click(*controls,"macro-instance-revision-update");
+        check(host.session.revision()==reset.revision+1&&instance(host.session.document()).pinned_revision==3&&
+            instance(host.session.document()).overrides.empty()&&instance(host.session.document(),"sibling").pinned_revision==1,
+            "After an explicit override reset only the requested instance can migrate to the Repeater-only revision");
+    }
+    MacroChainDialog restored(host,"definition");restored.show();events();
+    check(!named<QCheckBox>(restored,"macro-chain-publish-amount")->isChecked(),
+        "The reopened unpublished chain never restores Amount implicitly");
+    click(restored,"macro-chain-add-offset");const auto replacement=selected(restored);
+    named<QCheckBox>(restored,"macro-chain-publish-amount")->click();events();
+    check(named<QCheckBox>(restored,"macro-chain-publish-amount")->isChecked()&&
+        named<QComboBox>(restored,"macro-chain-public-node")->isEnabled()&&
+        named<QComboBox>(restored,"macro-chain-public-node")->currentIndex()==0&&
+        named<QLineEdit>(restored,"macro-chain-public-label")->text()==QString::fromStdString(published.public_parameters.front().label),
+        "Explicit restoration recovers the latest historical label and requires a new mapping after its Offset was removed");
+    const Snapshot unmapped(host.session);click(restored,"macro-chain-save");
+    check(unmapped.unchanged(host.session)&&restored.saved_revision()==0&&
+        named<QLabel>(restored,"macro-chain-error")->text().contains("INVALID_MACRO_MAPPING"),
+        "A newly added Offset is never silently selected for a restored Amount");
+    publish(restored,replacement);click(restored,"macro-chain-save");
+    auto expected_public=published.public_parameters.front();expected_public.node=replacement;
+    const auto& restored_definition=host.session.document().macro_definitions.at("definition");
+    const auto& graph=restored_definition.revisions.at(4);
+    check(restored.saved_revision()==4&&host.session.revision()==unmapped.revision+1&&
+        graph.public_parameters==std::vector<MacroPublicParameter>{expected_public}&&
+        order(graph)==std::vector<Id>{"repeater",replacement}&&restored_definition.revisions.at(3)==removed,
+        "Explicit remapping restores the same canonical PublicParamID, latest label and metadata in one new revision");
+    check(instance(host.session.document()).pinned_revision==3&&instance(host.session.document(),"sibling").pinned_revision==1,
+        "Restoring the interface does not change either existing instance pin");
 }
 
 void invalid_defaults_and_chooser(Host& host) {
@@ -295,7 +376,7 @@ int main(int argc,char** argv) {
     QApplication app(argc,argv);
     try {
         QTemporaryDir directory;check(directory.isValid(),"Temporary storage is available");Host host(directory.path()+"/recovery");
-        lifecycle(host,directory.path());remove_mapping_and_bounds(host);invalid_defaults_and_chooser(host);
+        lifecycle(host,directory.path());remove_mapping_and_bounds(host);unpublish_remove_and_restore(host);invalid_defaults_and_chooser(host);
         stale_cancel_and_lifetime(host);global_hook(host);
         std::cout<<"Macro chain interaction checks: "<<checks<<'\n';return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}

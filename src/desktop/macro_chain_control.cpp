@@ -2,6 +2,7 @@
 #include "host.hpp"
 #include "semantic_control.hpp"
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -65,6 +66,10 @@ MacroChainDialog::MacroChainDialog(Host& host,const Id& definition,QWidget* pare
     down_=button("Move down","macro-chain-down",this,actions);
     remove_=button("Remove","macro-chain-remove",this,actions);layout->addLayout(actions);
     auto* published=new QGroupBox("Published Amount",this);auto* interface=new QFormLayout(published);
+    publish_amount_=new QCheckBox("Expose Amount on instances",published);
+    publish_amount_->setObjectName("macro-chain-publish-amount");
+    publish_amount_->setToolTip("Turning this off removes the control only in the new revision. Existing instances keep their pins; reset old overrides before explicitly updating them.");
+    interface->addRow(publish_amount_);
     public_id_=new QLabel(published);public_id_->setObjectName("macro-chain-public-id");
     public_id_->setTextFormat(Qt::PlainText);interface->addRow("Stable ID",public_id_);
     parameter_label_=new QLineEdit(published);parameter_label_->setObjectName("macro-chain-public-label");
@@ -89,6 +94,11 @@ MacroChainDialog::MacroChainDialog(Host& host,const Id& definition,QWidget* pare
     connect(mapping_,qOverload<int>(&QComboBox::currentIndexChanged),this,[this](int){
         mapped_node_=mapping_->currentData().toString().toStdString();
     });
+    connect(publish_amount_,&QCheckBox::toggled,this,[this](bool){
+        parameter_label_->setEnabled(loaded_&&publish_amount_->isChecked());
+        mapping_->setEnabled(loaded_&&publish_amount_->isChecked());
+        error_->clear();
+    });
     connect(add_offset_,&QPushButton::clicked,this,[this]{add_node("nect.shape.offset");});
     connect(add_repeater_,&QPushButton::clicked,this,[this]{add_node("nect.shape.repeater");});
     connect(up_,&QPushButton::clicked,this,[this]{move_node(-1);});
@@ -112,6 +122,8 @@ void MacroChainDialog::load_definition() {
     if(finished_)return;
     loaded_=false;nodes_.clear();inputs_.clear();selected_node_.clear();mapped_node_.clear();
     source_->clear();parameter_label_->clear();parameter_label_->setEnabled(false);public_id_->clear();
+    {const QSignalBlocker blocker(publish_amount_);publish_amount_->setChecked(false);}
+    public_template_={"macro.offset.amount","Amount",{},"amount","number","du","local_paths_and_paint"};
     try {
         const auto& document=current_document();
         if(definitions_->currentIndex()<0)throw Error("MISSING_MACRO_DEFINITION","Choose an existing Macro Definition");
@@ -129,11 +141,18 @@ void MacroChainDialog::load_definition() {
             for(const auto& [key,scalar]:node->operation.parameters)value.values.emplace(key,QString::number(scalar.literal,'g',17));
             nodes_.push_back(std::move(value));
         }
-        if(!draft_.public_parameters.empty()) {
-            const auto& parameter=draft_.public_parameters.front();mapped_node_=parameter.node;
-            parameter_label_->setText(text(parameter.label));parameter_label_->setEnabled(true);
-            public_id_->setText(text(parameter.id)+" · "+text(parameter.unit));
-        } else public_id_->setText("No published parameter in this revision");
+        auto history=found->second.revisions.upper_bound(found->second.latest_revision);
+        while(history!=found->second.revisions.begin()) {
+            --history;
+            if(!history->second.public_parameters.empty()) {
+                public_template_=history->second.public_parameters.front();break;
+            }
+        }
+        mapped_node_=public_template_.node;
+        parameter_label_->setText(text(public_template_.label));
+        public_id_->setText(text(public_template_.id)+" · "+text(public_template_.unit));
+        {const QSignalBlocker blocker(publish_amount_);publish_amount_->setChecked(!draft_.public_parameters.empty());}
+        parameter_label_->setEnabled(publish_amount_->isChecked());
         loaded_=true;error_->clear();
     } catch(const Error& error) { error_->setText(error_text(error)); }
       catch(const std::exception& error) { error_->setText(QString::fromUtf8(error.what())); }
@@ -180,14 +199,14 @@ void MacroChainDialog::rebuild_chain(const Id& selection) {
         for(std::size_t index=0;index<nodes_.size();++index)if(nodes_[index].node.operation.type=="nect.shape.offset")
             mapping_->addItem(node_label(nodes_[index].node,index),text(nodes_[index].node.operation.id));
         const auto mapped=mapping_->findData(text(mapped_node_));mapping_->setCurrentIndex(mapped>0?mapped:0);
-        mapping_->setEnabled(loaded_&&!draft_.public_parameters.empty());
+        mapping_->setEnabled(loaded_&&publish_amount_->isChecked());
     }
     show_defaults();refresh_actions();
 }
 
 void MacroChainDialog::refresh_actions() {
     const auto row=chain_->currentRow();const bool active=loaded_&&!finished_&&!saved_revision_;
-    save_->setEnabled(active);chain_->setEnabled(active);
+    save_->setEnabled(active);chain_->setEnabled(active);publish_amount_->setEnabled(active);
     add_offset_->setEnabled(active&&nodes_.size()<16);add_repeater_->setEnabled(active&&nodes_.size()<16);
     up_->setEnabled(active&&row>0);down_->setEnabled(active&&row>=0&&static_cast<std::size_t>(row+1)<nodes_.size());
     remove_->setEnabled(active&&row>=0&&nodes_.size()>1);
@@ -210,7 +229,7 @@ void MacroChainDialog::move_node(int delta) {
 void MacroChainDialog::remove_node() {
     const auto row=chain_->currentRow();
     if(!loaded_||finished_||saved_revision_||row<0||nodes_.size()<=1)return;
-    capture_defaults();const bool published=nodes_[row].node.operation.id==mapped_node_&&!draft_.public_parameters.empty();
+    capture_defaults();const bool published=nodes_[row].node.operation.id==mapped_node_&&publish_amount_->isChecked();
     nodes_.erase(nodes_.begin()+row);const auto next=std::min(static_cast<std::size_t>(row),nodes_.size()-1);
     rebuild_chain(nodes_[next].node.operation.id);
     if(published)error_->setText("The published Offset was removed. Choose an Offset node for Amount before Save.");
@@ -231,15 +250,17 @@ MacroDefinitionRevision MacroChainDialog::edited_revision() {
         previous={node.operation.id,node.output_port};
     }
     result.edges.push_back({previous,{"",result.output.id}});result.output_mapping=previous;
-    if(!result.public_parameters.empty()) {
+    result.public_parameters.clear();
+    if(publish_amount_->isChecked()) {
         const auto selected=mapping_->currentData().toString().toStdString();
         const auto mapped=std::find_if(result.nodes.begin(),result.nodes.end(),[&](const auto& node){
             return node.operation.id==selected&&node.operation.type=="nect.shape.offset";
         });
         if(mapped==result.nodes.end())throw Error("INVALID_MACRO_MAPPING","Choose an Offset node for published Amount before Save");
         if(parameter_label_->text().trimmed().isEmpty())throw Error("INVALID_MACRO_INTERFACE","Enter a published parameter label");
-        result.public_parameters.front().node=selected;
-        result.public_parameters.front().label=parameter_label_->text().toStdString();
+        auto parameter=public_template_;parameter.node=selected;
+        parameter.label=parameter_label_->text().toStdString();
+        result.public_parameters.push_back(std::move(parameter));
     }
     return result;
 }
