@@ -4575,17 +4575,13 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
     for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
     const auto scroll=context==inspector_context_?inspector_scroll_->verticalScrollBar()->value():0;
-    const auto selected_text=host.session.document().objects.find(canvas->selected_object);
-    const bool text_form=!artboard_editing_&&canvas->selections().size()<=1&&
-        selected_text!=host.session.document().objects.end()&&selected_text->second.text.has_value();
     inspector_context_=context;
     // Qt may scroll to a disappearing focused field while the new form lays out.
     // Restore the previous viewport only for the same editing context.
-    const auto restore_scroll=[this,context,scroll,text_form]{QTimer::singleShot(0,this,[this,context,scroll,text_form]{
+    const auto restore_scroll=[this,context,scroll]{QTimer::singleShot(0,this,[this,context,scroll]{
         if(inspector_context_!=context)return;
         if(auto* current_layout=inspector_->layout()) {
             current_layout->activate();
-            inspector_->setMinimumHeight(text_form?current_layout->minimumSize().height():0);
             inspector_->updateGeometry();
         }
         inspector_scroll_->verticalScrollBar()->setValue(scroll);
@@ -4596,6 +4592,9 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         delete old;
     }
     auto* layout=new QVBoxLayout(inspector_);
+    // Let the scroll content track every form's minimum, including view-only
+    // expansion. Explicit zero height crushed Instance and Template controls.
+    layout->setSizeConstraint(QLayout::SetMinimumSize);
     if(artboard_editing_) {edit_artboard(layout);restore_scroll();return;}
     const auto& d=host.session.document();
     if(!d.objects.contains(canvas->selected_object)) {layout->addWidget(new QLabel("Add a shape, Curve or Text.\nSelect a point to edit its handles."));layout->addStretch();restore_scroll();return;}

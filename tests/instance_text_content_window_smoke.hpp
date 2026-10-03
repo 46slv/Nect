@@ -139,6 +139,7 @@ inline void run(const QString& directory){
     receipt["visual_layout"]=clipped?"CLIPPED_ROOT_WINDOW_RESIDUAL":"PASS";
     QFile output(QDir(directory).filePath("window-smoke.json"));require(output.open(QIODevice::WriteOnly),"Window receipt is writable");output.write(QJsonDocument(receipt).toJson());
     std::cout<<QJsonDocument(receipt).toJson(QJsonDocument::Compact).toStdString()<<'\n';
+    require(!clipped,"Instance and Template Text panels retain their minimum layout height");
     window.host.changed={};cold.host.changed={};window.hide();cold.hide();
 }
 }
