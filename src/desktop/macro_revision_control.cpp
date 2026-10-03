@@ -132,14 +132,16 @@ void MacroRevisionDialog::load_definition() {
             metadata(form,"Domain",text(parameter.domain),"macro-revision-public-domain");
         }
         body->addWidget(published);
-        // Lookup by type/ID rather than storage order. Copying the graph retains
-        // every node, port, edge, public ID and supported operator option.
-        for(const auto* type:{"nect.shape.offset","nect.shape.repeater"}) {
-            const auto node=std::find_if(draft_.nodes.begin(),draft_.nodes.end(),
-                [&](const auto& candidate){return candidate.operation.type==type;});
+        // Walk the actual graph: graph2 may omit either operator or repeat it.
+        // Keep the first control names compatible and disambiguate later nodes.
+        std::map<std::string,unsigned> type_counts;
+        for(const auto* node:macro_execution_order(draft_)) {
+            const auto& type=node->operation.type;
             const auto* owner=builtin_operation_type(type);NodeDraft fields;fields.node=node->operation.id;
-            auto* group=new QGroupBox(text(owner->label)+" defaults",content);auto* node_form=new QFormLayout(group);
-            const auto short_type=node->operation.type=="nect.shape.offset"?QString("offset"):QString("repeater");
+            auto* group=new QGroupBox(text(owner->label)+" · "+text(fields.node)+" defaults",content);auto* node_form=new QFormLayout(group);
+            auto short_type=type=="nect.shape.offset"?QString("offset"):QString("repeater");
+            const auto occurrence=++type_counts[type];
+            if(occurrence>1)short_type+="-"+QString::number(occurrence);
             for(const auto& [key,value]:node->operation.parameters) {
                 const auto descriptor=builtin_semantic_descriptor(type,key);
                 QLineEdit* input=descriptor?semantic_number_input(*descriptor,QString::number(value.literal,'g',17),group):

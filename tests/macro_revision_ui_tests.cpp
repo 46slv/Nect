@@ -76,6 +76,30 @@ MacroNode& node(MacroDefinitionRevision& graph,const char* type) {
     if(found==graph.nodes.end())throw std::runtime_error("Missing test Macro node");
     return *found;
 }
+MacroNode& node_id(MacroDefinitionRevision& graph,const Id& id) {
+    const auto found=std::find_if(graph.nodes.begin(),graph.nodes.end(),
+        [&](const auto& value){return value.operation.id==id;});
+    if(found==graph.nodes.end())throw std::runtime_error("Missing test Macro node ID: "+id);
+    return *found;
+}
+MacroDefinition repeater_definition(unsigned count) {
+    MacroDefinition definition;definition.id="repeater-definition";definition.label="Repeater chain";
+    MacroDefinitionRevision graph;graph.graph_version=2;
+    graph.input={"repeat-input","local_paths_and_paint"};graph.output={"repeat-output","local_paths_and_paint"};
+    MacroEndpoint from{"",graph.input.id};
+    for(unsigned i=0;i<count;++i) {
+        const Id id=i==0?"repeat-first":"repeat-second";
+        auto operation=default_operation(id,"nect.shape.repeater");
+        operation.parameters.at("copies").literal=i==0?2:3;
+        operation.parameters.at("position_x").literal=i==0?125:-70;
+        graph.nodes.push_back({operation,id+"-input",id+"-output"});
+        graph.edges.push_back({from,{id,id+"-input"}});from={id,id+"-output"};
+    }
+    graph.output_mapping=from;graph.edges.push_back({from,{"",graph.output.id}});
+    // The visible occurrence order must follow edges, not node/edge storage.
+    std::reverse(graph.nodes.begin(),graph.nodes.end());std::reverse(graph.edges.begin(),graph.edges.end());
+    definition.revisions.emplace(1,std::move(graph));return definition;
+}
 void choose(QWidget& controls,std::uint64_t revision) {
     auto* target=named<QComboBox>(controls,"macro-instance-revision-target");
     const auto index=target->findData(QVariant::fromValue(static_cast<qulonglong>(revision)));
@@ -164,6 +188,75 @@ void lifecycle(Host& host,const QString& directory) {
     Host updated_reopen(directory+"/updated-cold-recovery");updated_reopen.open(migrated_path);
     check(updated_reopen.session.document()==migrated.document,
         "Cold reopen after explicit migration preserves the requested pin and stable retained source");
+}
+void repeater_only_revision(Host& host) {
+    load(host);const auto source=repeater_definition(1);const auto& id=source.id;
+    host.session.apply({MacroCommand{CreateMacroDefinition{source}}},host.session.revision());instantiate(host,id);
+    const Snapshot before(host.session);Session canonical(host.session);const auto pinned_paths=evaluate_shape(
+        before.document,"path",evaluate(before.document)).paths.size();int notifications=0;
+    host.changed=[&]{++notifications;};
+    MacroRevisionDialog dialog(host,id);dialog.show();events();
+    check(named<QPushButton>(dialog,"macro-revision-save")->isEnabled()&&
+        named<QLabel>(dialog,"macro-revision-error")->text().isEmpty()&&
+        named<QLabel>(dialog,"macro-revision-graph")->text()==QString::fromUtf8("Input → Repeater@1 → Output"),
+        "A Repeater-only graph2 revision opens with the actual chain and no load error");
+    check(!dialog.findChild<QLineEdit*>("macro-revision-offset-amount")&&
+        !dialog.findChild<QLineEdit*>("macro-revision-public-label")&&
+        named<QLineEdit>(dialog,"macro-revision-repeater-copies")->text()=="2",
+        "An empty interface and missing Offset do not create fictitious revision controls");
+    edit(dialog,"macro-revision-repeater-copies","4");edit(dialog,"macro-revision-repeater-position_y","-25");
+    check(before.unchanged(host.session)&&notifications==0,"Repeater-only edits remain an uncommitted local draft");
+    click(dialog,"macro-revision-save");
+    auto expected=source.revisions.at(1);expected.revision=2;
+    node_id(expected,"repeat-first").operation.parameters.at("copies").literal=4;
+    node_id(expected,"repeat-first").operation.parameters.at("position_y").literal=-25;
+    const auto& saved=host.session.document().macro_definitions.at(id);
+    check(dialog.result()==QDialog::Accepted&&dialog.updated_definition_id()==id&&dialog.saved_revision()==2&&
+        host.session.revision()==before.revision+1&&notifications==1&&saved.latest_revision==2&&
+        saved.revisions.size()==2&&saved.revisions.at(1)==source.revisions.at(1)&&saved.revisions.at(2)==expected,
+        "Saving Repeater-only defaults appends one exact graph2 revision and retains its empty interface and stable graph");
+    check(instance(host.session.document())==instance(before.document)&&
+        instance(host.session.document()).pinned_revision==1&&evaluate_shape(
+            host.session.document(),"path",evaluate(host.session.document())).paths.size()==pinned_paths,
+        "The existing instance retains its old revision pin and evaluates the previous Repeater default");
+    canonical.apply({MacroCommand{UpdateMacroDefinition{id,expected}}},canonical.revision());
+    check(host.session.document()==canonical.document()&&host.session.history()==canonical.history(),
+        "Repeater-only UI save has exactly one canonical UpdateMacroDefinition command's state and history");
+    host.changed={};
+}
+void repeated_repeater_revision(Host& host) {
+    load(host);const auto source=repeater_definition(2);const auto& id=source.id;
+    host.session.apply({MacroCommand{CreateMacroDefinition{source}}},host.session.revision());instantiate(host,id);
+    const Snapshot before(host.session);Session canonical(host.session);int notifications=0;host.changed=[&]{++notifications;};
+    MacroRevisionDialog dialog(host,id);dialog.show();events();
+    check(named<QLabel>(dialog,"macro-revision-graph")->text()==QString::fromUtf8("Input → Repeater@1 → Repeater@1 → Output")&&
+        named<QLineEdit>(dialog,"macro-revision-repeater-copies")->text()=="2"&&
+        named<QLineEdit>(dialog,"macro-revision-repeater-2-copies")->text()=="3"&&
+        named<QLineEdit>(dialog,"macro-revision-repeater-position_x")->text()=="125"&&
+        named<QLineEdit>(dialog,"macro-revision-repeater-2-position_x")->text()=="-70",
+        "Both same-type nodes expose their distinct defaults in execution order despite reversed storage");
+    check(named<QLineEdit>(dialog,"macro-revision-repeater-copies")->property("nect-node-id").toString()=="repeat-first"&&
+        named<QLineEdit>(dialog,"macro-revision-repeater-2-copies")->property("nect-node-id").toString()=="repeat-second",
+        "The legacy first and suffixed second control retain their correct stable node identities");
+    edit(dialog,"macro-revision-repeater-copies","4");edit(dialog,"macro-revision-repeater-rotation","-45");
+    edit(dialog,"macro-revision-repeater-2-copies","5");edit(dialog,"macro-revision-repeater-2-position_y","-35");
+    check(before.unchanged(host.session)&&notifications==0,"Editing both Repeaters does not mutate the source revision");
+    click(dialog,"macro-revision-save");
+    auto expected=source.revisions.at(1);expected.revision=2;
+    node_id(expected,"repeat-first").operation.parameters.at("copies").literal=4;
+    node_id(expected,"repeat-first").operation.parameters.at("rotation").literal=-45;
+    node_id(expected,"repeat-second").operation.parameters.at("copies").literal=5;
+    node_id(expected,"repeat-second").operation.parameters.at("position_y").literal=-35;
+    const auto& saved=host.session.document().macro_definitions.at(id);
+    check(dialog.result()==QDialog::Accepted&&dialog.saved_revision()==2&&notifications==1&&
+        host.session.revision()==before.revision+1&&saved.latest_revision==2&&saved.revisions.size()==2&&
+        saved.revisions.at(1)==source.revisions.at(1)&&saved.revisions.at(2)==expected&&
+        instance(host.session.document())==instance(before.document),
+        "Every edited repeated-type default saves to the intended node without changing stored order, edges, interface or old pin");
+    canonical.apply({MacroCommand{UpdateMacroDefinition{id,expected}}},canonical.revision());
+    check(host.session.document()==canonical.document()&&host.session.history()==canonical.history(),
+        "Editing both same-type nodes is one canonical revision update with no extra history");
+    host.changed={};
 }
 void chooser_cancel_invalid(Host& host) {
     load(host);const auto first=create(host);const auto second=create(host);const Snapshot before(host.session);
@@ -306,6 +399,7 @@ int main(int argc,char** argv) {
         QTemporaryDir directory;check(directory.isValid(),"Temporary storage is available");
         Host host(directory.path()+"/recovery");
         lifecycle(host,directory.path());chooser_cancel_invalid(host);
+        repeater_only_revision(host);repeated_repeater_revision(host);
         migration_refusal_and_overrides(host);stale_and_lifetime(host);synchronous_refresh(host);
         std::cout<<"Macro revision interaction checks: "<<checks<<'\n';return 0;
     } catch(const std::exception& error) { std::cerr<<error.what()<<'\n';return 1; }
