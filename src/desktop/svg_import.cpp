@@ -37,6 +37,34 @@ double opacity(QString text) {
     text=text.trimmed();const bool percent=text.endsWith('%');if(percent)text.chop(1);
     return std::clamp(scalar(text)/(percent?100:1),0.0,1.0);
 }
+std::array<double,4> paint_color(const QString& text) {
+    if(text.contains('(')) {
+        const auto open=text.indexOf('(');const auto name=text.left(open);
+        need((name.compare("rgb",Qt::CaseInsensitive)==0||name.compare("rgba",Qt::CaseInsensitive)==0)&&text.endsWith(')'),
+            "SVG_UNSUPPORTED","Only numeric comma-separated rgb/rgba colors supported");
+        const auto body=text.mid(open+1,text.size()-open-2);const auto commas=body.count(',');
+        need(commas==2||commas==3,"SVG_UNSUPPORTED","RGB colors require three channels and optional alpha");
+        const auto parts=body.split(',');std::array<double,4> result{0,0,0,1};bool rgb_percent=false;
+        // CSS number tokens differ from compact SVG path numbers: no adjacent
+        // signs, trailing decimal point, units, expressions or missing channels.
+        // This deliberately supports legacy RGB syntax only (CSS Color 4 5.1).
+        static const QRegularExpression token(R"(\A[ \t\n\r\f]*([+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(%?)[ \t\n\r\f]*\z)");
+        for(qsizetype i=0;i<parts.size();++i) {
+            const auto match=token.match(parts[i]);need(match.hasMatch(),"SVG_UNSUPPORTED","Expected a numeric RGB color component");
+            bool ok=false;const auto value=match.captured(1).toDouble(&ok);
+            need(ok&&std::isfinite(value)&&std::abs(value)<=1e7,"SVG_RANGE","RGB color component exceeds supported finite range");
+            const bool percent=!match.captured(2).isEmpty();
+            if(i==0)rgb_percent=percent;
+            if(i<3)need(percent==rgb_percent,"SVG_UNSUPPORTED","Comma-separated RGB channels must use matching units");
+            result[i]=std::clamp(value/(percent?100.0:i<3?255.0:1.0),0.0,1.0);
+        }
+        return result;
+    }
+    need(!text.contains('!')&&(!text.startsWith('#')||text.size()==4||text.size()==7),
+        "SVG_UNSUPPORTED","Unsupported SVG color: "+text.toStdString());
+    const QColor value(text);need(value.isValid()&&value.alpha()==255,"SVG_UNSUPPORTED","Only opaque named/HEX or numeric RGB sRGB colors supported");
+    return {value.redF(),value.greenF(),value.blueF(),1};
+}
 Affine transform(QString text) {
     Numbers n(text);Affine result=identity;
     while(!n.end()) {
@@ -231,11 +259,10 @@ class Reader {
         append(RemoveOperation{id,id+"-stroke"});std::size_t index=0;
         for(const bool stroke:{false,true}) {
             const auto color=(stroke?s.stroke:s.fill).trimmed();if(color=="none"||(stroke&&s.width==0))continue;
-            need(!color.contains('(')&&!color.contains('!')&&( !color.startsWith('#')||color.size()==4||color.size()==7),"SVG_UNSUPPORTED","Unsupported SVG color: "+color.toStdString());
-            const QColor value(color);need(value.isValid()&&value.alpha()==255,"SVG_UNSUPPORTED","Only opaque named/HEX sRGB colors supported; use opacity attributes");
+            const auto value=paint_color(color);
             const auto operation_id=id+(stroke?"-paint-stroke":"-paint-fill");
             auto op=default_operation(operation_id,stroke?"nect.paint.stroke":"nect.paint.fill");op.fill_rule=s.rule.toStdString();
-            op.parameters["r"].literal=value.redF();op.parameters["g"].literal=value.greenF();op.parameters["b"].literal=value.blueF();op.parameters["a"].literal=stroke?s.stroke_alpha:s.fill_alpha;
+            op.parameters["r"].literal=value[0];op.parameters["g"].literal=value[1];op.parameters["b"].literal=value[2];op.parameters["a"].literal=value[3]*(stroke?s.stroke_alpha:s.fill_alpha);
             if(stroke)op.parameters["width"].literal=s.width;
             append(AddOperation{id,std::move(op),index++});
             if(stroke&&(s.line_cap!="butt"||s.line_join!="miter"||std::abs(s.miter_limit-4)>1e-12))
