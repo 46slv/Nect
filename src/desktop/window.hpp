@@ -143,6 +143,10 @@ private:
     void sync_tree_selection();
     void add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected);
     void add_multi_properties(QVBoxLayout* layout);
+    void add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected);
+    void open_text_content_source_picker(const std::vector<Ref>& targets,
+        const std::vector<Canvas::Selection>& selected,const QString& session,std::uint64_t revision,
+        const Id& composition,const Id& artboard);
     void add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected);
     void transform_selection();
     void distribute_selection(const std::string& axis,const std::string& reference="selection",std::optional<double> spacing={});
