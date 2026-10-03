@@ -390,11 +390,18 @@ struct Definition {
     Id id,name,root;
     bool operator==(const Definition&) const = default;
 };
+struct ColorValue {
+    std::string space="srgb",profile="srgb",alpha="straight";
+    std::array<double,4> rgba{0,0,0,1};
+    bool operator==(const ColorValue&) const = default;
+};
 struct DefinitionInstance {
     Id definition;
     std::map<Ref,double> overrides;
     // Occurrence-local descendant visibility; source objects remain untouched.
     std::map<Id,bool> visibility_overrides;
+    // Descendant solid Fill colors, occurrence-local and source-preserving.
+    std::map<Ref,ColorValue> color_overrides;
     bool operator==(const DefinitionInstance&) const = default;
 };
 struct Object {
@@ -495,11 +502,7 @@ struct ArtboardLayout {
     std::optional<Grid> grid;
     bool operator==(const ArtboardLayout&) const = default;
 };
-struct ColorValue {
-    std::string space="srgb",profile="srgb",alpha="straight";
-    std::array<double,4> rgba{0,0,0,1};
-    bool operator==(const ColorValue&) const = default;
-};
+
 struct ArtboardTemplate {
     Id id,name,source_artboard;
     std::optional<Id> definition;
@@ -675,9 +678,11 @@ struct SetInstanceOverride { Id instance; Ref target; double value=0; };
 struct ResetInstanceOverride { Id instance; Ref target; };
 struct SetInstanceVisibilityOverride { Id instance,source; bool visible=true; };
 struct ResetInstanceVisibilityOverride { Id instance,source; };
+struct SetInstanceColorOverride { Id instance; Ref target; ColorValue value; };
+struct ResetInstanceColorOverride { Id instance; Ref target; };
 struct DetachInstance { Id instance; Id id_prefix; };
 using DefinitionMutation=std::variant<CreateDefinition,RenameDefinition,DeleteDefinition,CreateInstance,
-    SetInstanceOverride,ResetInstanceOverride,SetInstanceVisibilityOverride,ResetInstanceVisibilityOverride,DetachInstance>;
+    SetInstanceOverride,ResetInstanceOverride,SetInstanceVisibilityOverride,ResetInstanceVisibilityOverride,SetInstanceColorOverride,ResetInstanceColorOverride,DetachInstance>;
 struct DefinitionCommand { DefinitionMutation mutation; };
 struct CreateArtboardTemplate { Id composition; ArtboardTemplate value; };
 struct RenameArtboardTemplate { Id composition,template_id; std::string name; };

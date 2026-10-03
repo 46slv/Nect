@@ -2213,3 +2213,24 @@ connect new feature or axis intent to DirectWrite, change Text defaults or
 weight/italic ownership, or supply a resolved-face/run receipt. Linux continues
 to report `TEXT_PLATFORM_UNSUPPORTED` for projection, and ordinary `CreateText`
 continues to initialize Anchor through geometry projection rather than a stub.
+
+
+### Native 0.84: descendant solid Fill color override
+
+Definition Instances retain optional `color_overrides` entries keyed by the exact
+descendant source Object/operation color Ref (`op.ID.color`). Each value uses the
+existing structured sRGB/profile sRGB/straight-alpha `ColorValue`, four finite
+0..1 channels. Only descendant solid Fill operations are supported; source-root,
+Stroke, gradient fallback/stop and channel-only refs refuse. This extends ordinary
+Definition Instances, including Template-owned content, without another override
+system or changing Template assignment ownership.
+
+`set_instance_color_override` changes one occurrence; `reset_instance_color_override`
+restores that exact source color. Source RGBA literals/links/expressions remain
+untouched. Projection and detach replace only the copied Fill channels with local
+literals; scalar and visibility overrides stay independent. Duplicate Instances
+retain their original source refs and local values. Removing/changing a referenced
+Fill to an unsupported kind while an override remains refuses atomically; reset
+the local override first. Native 0.1–0.83 reads remain supported, but claiming an
+older version while providing `color_overrides` rejects. Duplicate override keys
+reject. The family is bounded to 4096 entries per Instance.

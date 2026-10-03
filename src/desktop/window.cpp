@@ -1,3 +1,5 @@
+#include "text_string_source_batch_control.hpp"
+#include "instance_color_control.hpp"
 #include "multi_fill_rule_control.hpp"
 #include "operation_enabled_batch_control.hpp"
 #include "text_content_batch_control.hpp"
@@ -2416,8 +2418,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto read=[this,composition,id]{return find_artboard(find_composition(host.session.document(),composition),id);};
     auto* title=new QLabel("Artboard frame · "+qs(comp.name));title->setWordWrap(true);layout->addWidget(title);
     layout->addWidget(make_artboard_background_controls(host,composition,id,inspector_));
-    if(board.template_assignment&&board.template_assignment->content_instance)
+    if(board.template_assignment&&board.template_assignment->content_instance) {
         layout->addWidget(make_instance_visibility_controls(host,*board.template_assignment->content_instance,inspector_));
+        layout->addWidget(make_instance_color_controls(host,*board.template_assignment->content_instance,inspector_));
+    }
     auto* note=new QLabel("Frame X/Y changes the crop only. Artwork stays at its existing composition coordinates. List order does not change placement.");
     note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");layout->addWidget(note);
     auto* group=new QGroupBox("Frame");auto* form=new QFormLayout(group);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(group);
@@ -4607,7 +4611,10 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         name->setModified(false);
         perform([&]{host.session.apply({Rename{id,name->text().toStdString()}},host.session.revision());host.edited();});
     });
-    if(o.instance)layout->addWidget(make_instance_visibility_controls(host,o.id,inspector_));
+    if(o.instance) {
+        layout->addWidget(make_instance_visibility_controls(host,o.id,inspector_));
+        layout->addWidget(make_instance_color_controls(host,o.id,inspector_));
+    }
     if(!o.stack.empty()) {
         auto* jump=new QPushButton(QString("Shape stack · %1").arg(o.stack.size()));jump->setObjectName("stack-jump");
         jump->setToolTip("Go directly to an existing paint or path operation");auto* menu=new QMenu(jump);
@@ -8793,6 +8800,7 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
         });
         if(all_text) {
             layout->addWidget(make_text_content_batch_controls(host,targets,inspector_));
+            layout->addWidget(make_text_string_source_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_family_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_layout_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_direction_batch_controls(host,targets,inspector_));

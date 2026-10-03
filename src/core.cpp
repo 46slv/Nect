@@ -4779,7 +4779,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                 "INVALID_INSTANCE","Instance requires a Definition reference and cannot own source content");
             require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Instances do not own operator stacks");
             require(d.definitions.contains(o.instance->definition),"MISSING_DEFINITION",o.instance->definition);
-            require(o.instance->overrides.size()<=4096&&o.instance->visibility_overrides.size()<=4096,
+            require(o.instance->overrides.size()<=4096&&o.instance->visibility_overrides.size()<=4096&&o.instance->color_overrides.size()<=4096,
                 "LIMIT","Instance override limit 4096 per property family");
         } else if(o.kind==Kind::group) {
             require(o.contours.empty(),"INVALID_OBJECT","Group cannot own path geometry");
@@ -5298,6 +5298,21 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
             require(members.contains(source),"DANGLING_OVERRIDE",source);
             require(source!=definition.root,"UNSUPPORTED_OVERRIDE","Definition root visibility belongs to occurrence placement");
             (void)visible;
+        }
+        for(const auto& [ref,value]:instance.color_overrides) {
+            require(ref.point.empty(),"INVALID_OVERRIDE","Color override addresses a whole solid Fill color");
+            require(members.contains(ref.object),"DANGLING_OVERRIDE",ref.object);
+            require(ref.object!=definition.root,"UNSUPPORTED_OVERRIDE","Color override requires a descendant source item");
+            const auto& source=d.objects.at(ref.object);
+            const auto fill=std::find_if(source.stack.begin(),source.stack.end(),[&](const auto& entry){
+                return ref.field=="op."+entry.id+".color";
+            });
+            require(fill!=source.stack.end()&&fill->type=="nect.paint.fill"&&!fill->macro&&!fill->gradient,
+                "UNSUPPORTED_OVERRIDE","Color overrides support descendant solid Fill operations only");
+            require(value.space=="srgb"&&value.profile=="srgb"&&value.alpha=="straight",
+                "UNSUPPORTED_COLOR","Color override requires sRGB with straight alpha");
+            const auto channels=color_channels(d,ref);
+            for(std::size_t i=0;i<4;++i){finite(value.rgba[i]);value_range(channels[i],value.rgba[i]);}
         }
         for(const auto& [ref,value]:instance.overrides) {
             require(ref.point.empty(),"INVALID_OVERRIDE","Definition overrides address whole-object Scalar properties only");
@@ -6179,6 +6194,13 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
             auto& overrides=found->second.instance->visibility_overrides;
             if constexpr(std::is_same_v<T,SetInstanceVisibilityOverride>)overrides.insert_or_assign(mutation.source,mutation.visible);
             else require(overrides.erase(mutation.source)==1,"NO_OVERRIDE","Instance has no visibility override for this source item");
+        } else if constexpr(std::is_same_v<T,SetInstanceColorOverride>||std::is_same_v<T,ResetInstanceColorOverride>) {
+            const auto found=candidate.objects.find(mutation.instance);
+            require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
+            require(found->second.kind==Kind::instance&&found->second.instance,"TYPE_MISMATCH","Color override target must be a Definition Instance");
+            auto& overrides=found->second.instance->color_overrides;
+            if constexpr(std::is_same_v<T,SetInstanceColorOverride>)overrides.insert_or_assign(mutation.target,mutation.value);
+            else require(overrides.erase(mutation.target)==1,"NO_OVERRIDE","Instance has no color override for this source Fill");
         } else if constexpr(std::is_same_v<T,DetachInstance>) {
             const auto found=candidate.objects.find(mutation.instance);
             require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
@@ -6210,6 +6232,11 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
             for(const auto& [source,visible]:instance.visibility_overrides) {
                 auto& copy=candidate.objects.at(plan.ids.at(source));
                 copy.visible=visible;copy.visibility_driver.reset();copy.visibility_expression.reset();
+            }
+            for(const auto& [source_ref,color]:instance.color_overrides) {
+                const auto copy_ref=duplicate_ref(original,plan,source_ref);
+                const auto channels=color_channels(candidate,copy_ref);
+                for(std::size_t i=0;i<4;++i)lookup_property(candidate,channels[i])=Scalar{color.rgba[i],{},{}};
             }
             auto& placed=candidate.objects.at(mutation.instance);
             placed.kind=Kind::group;placed.instance.reset();placed.children={materialized_root};
@@ -8510,6 +8537,11 @@ SceneProjection project_definition_instances(const Document& document,const Id& 
                 for(const auto& [source,visible]:instance.visibility_overrides) {
                     auto& copy=trial.objects.at(plan.ids.at(source));
                     copy.visible=visible;copy.visibility_driver.reset();copy.visibility_expression.reset();
+                }
+                for(const auto& [source_ref,color]:instance.color_overrides) {
+                    const auto copy_ref=duplicate_ref(*projected,plan,source_ref);
+                    const auto channels=color_channels(trial,copy_ref);
+                    for(std::size_t i=0;i<4;++i)lookup_property(trial,channels[i])=Scalar{color.rgba[i],{},{}};
                 }
                 auto& placed=trial.objects.at(instance_id);
                 placed.kind=Kind::group;placed.instance.reset();placed.children={copy_root};

@@ -1309,7 +1309,7 @@ j::value definition_json(const Definition& definition) {
     return j::object{{"id",definition.id},{"name",definition.name},{"root",definition.root}};
 }
 DefinitionInstance read_instance(const j::value& value) {
-    const auto& o=value.as_object();keys(o,{"definition","overrides","visibility_overrides"});
+    const auto& o=value.as_object();keys(o,{"definition","overrides","visibility_overrides","color_overrides"});
     DefinitionInstance instance;instance.definition=text(o.at("definition"));
     for(const auto& item:o.at("overrides").as_array()) {
         const auto& entry=item.as_object();keys(entry,{"target","value"});
@@ -1324,6 +1324,13 @@ DefinitionInstance read_instance(const j::value& value) {
                 throw Error("DUPLICATE_OVERRIDE_KEY","Instance contains the same visibility source more than once");
         }
     }
+    if(const auto* colors=o.if_contains("color_overrides")) {
+        for(const auto& item:colors->as_array()) {
+            const auto& entry=item.as_object();keys(entry,{"target","value"});
+            if(!instance.color_overrides.emplace(read_ref(entry.at("target")),read_color(entry.at("value"))).second)
+                throw Error("DUPLICATE_OVERRIDE_KEY","Instance contains the same color target more than once");
+        }
+    }
     return instance;
 }
 j::value instance_json(const DefinitionInstance& instance) {
@@ -1336,6 +1343,12 @@ j::value instance_json(const DefinitionInstance& instance) {
         for(const auto& [source,visible]:instance.visibility_overrides)
             visibility.push_back(j::object{{"source",source},{"visible",visible}});
         result["visibility_overrides"]=std::move(visibility);
+    }
+    if(!instance.color_overrides.empty()) {
+        j::array colors;
+        for(const auto& [target,value]:instance.color_overrides)
+            colors.push_back(j::object{{"target",ref_json(target)},{"value",color_json(value)}});
+        result["color_overrides"]=std::move(colors);
     }
     return result;
 }
@@ -1835,6 +1848,14 @@ DefinitionCommand read_definition_command(const j::value& v) {
         keys(o,{"type","instance","source"});
         return DefinitionCommand{ResetInstanceVisibilityOverride{text(o.at("instance")),text(o.at("source"))}};
     }
+    if(type=="set_instance_color_override") {
+        keys(o,{"type","instance","target","value"});
+        return DefinitionCommand{SetInstanceColorOverride{text(o.at("instance")),read_ref(o.at("target")),read_color(o.at("value"))}};
+    }
+    if(type=="reset_instance_color_override") {
+        keys(o,{"type","instance","target"});
+        return DefinitionCommand{ResetInstanceColorOverride{text(o.at("instance")),read_ref(o.at("target"))}};
+    }
     if(type=="detach_instance") {
         keys(o,{"type","instance","id_prefix"});
         return DefinitionCommand{DetachInstance{text(o.at("instance")),text(o.at("id_prefix"))}};
@@ -2043,7 +2064,8 @@ Command read_command(const j::value& v) {
         type=="import_apply_macro")return StructuralCommand{read_macro_command(v)};
     if(type.ends_with("_definition")||type=="create_instance"||type=="set_instance_override"||
         type=="reset_instance_override"||type=="set_instance_visibility_override"||
-        type=="reset_instance_visibility_override"||type=="detach_instance")return read_definition_command(v);
+        type=="reset_instance_visibility_override"||type=="set_instance_color_override"||
+        type=="reset_instance_color_override"||type=="detach_instance")return read_definition_command(v);
     if(type=="create_collection"||type=="rename_collection"||type=="set_collection_members"||
         type=="delete_collection")return read_collection_command(v);
     if(type=="add_raster_asset"||type=="replace_raster_asset") {
@@ -2700,11 +2722,15 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,83> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80","0.81","0.82","0.83"};
+        constexpr std::array<std::string_view,84> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80","0.81","0.82","0.83","0.84"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.83 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.84 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
+        if(minor<84)for(const auto& object:root.at("objects").as_array()) {
+            if(const auto* instance=object.as_object().if_contains("instance");instance&&instance->as_object().contains("color_overrides"))
+                throw Error("NATIVE_VERSION_MISMATCH","Instance color overrides require native 0.84");
+        }
         if(minor<83)if(const auto* macros=root.if_contains("macros"))
             for(const auto& definition:macros->as_array())for(const auto& revision:definition.as_object().at("revisions").as_array())
                 if(revision.as_object().contains("graph_version"))throw Error("NATIVE_VERSION_MISMATCH","Macro graph versions require native 0.83");
