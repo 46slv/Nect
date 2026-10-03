@@ -70,18 +70,32 @@ std::vector<Command> locale_commands(const Document& document,const std::string&
     }
     return commands;
 }
+// Native DirectWrite rejects some strings admitted by the portable locale
+// authoring rules. Keep successful exact-case coverage and backend refusals distinct.
+#ifdef _WIN32
+const std::string primary_locale="EN-us";
+#else
+const std::string primary_locale=" EN_us ";
+#endif
 void core_smoke(){
     Session session(fixture());const Snapshot before(session);
-    session.apply(locale_commands(session.document()," EN_us "),session.revision());
-    const auto expected=localized(before.document," EN_us ");
+    session.apply(locale_commands(session.document(),primary_locale),session.revision());
+    const auto expected=localized(before.document,primary_locale);
     check(session.document()==expected&&session.revision()==before.revision+1&&
         session.history().states.size()==before.history.states.size()+1,
-        "Core commits a locale-only batch once, preserving exact case, whitespace and all rich Text sources");
+        "Core commits a locale-only batch once, preserving exact locale bytes and all rich Text sources");
     check(decode(encode(session.document()))==expected,"Core native readback preserves the exact full locale batch");
     const auto committed=encode(session.document());session.undo(session.revision());
     check(session.document()==before.document&&encode(session.document())==before.native&&!session.can_undo(),
         "One core Undo restores both complete Text sources and all unrelated state");
     session.redo(session.revision());check(encode(session.document())==committed,"One core Redo restores the exact locale batch");
+#ifdef _WIN32
+    const Snapshot whitespace(session);bool backend_rejected=false;
+    try{session.apply(locale_commands(session.document()," EN_us "),session.revision());}
+    catch(const Error& error){backend_rejected=error.code=="TEXT_LAYOUT_FAILED";}
+    check(backend_rejected&&whitespace.unchanged(session),
+        "DirectWrite whitespace-locale refusal preserves exact authored/native/history state");
+#endif
     for(const auto& value:std::vector<std::string>{"",std::string(129,'a'),std::string(1,'\x01'),std::string("\xc0\x80",2)}){
         const Snapshot invalid(session);bool rejected=false;
         try{session.apply(locale_commands(session.document(),value),session.revision());}
@@ -94,9 +108,17 @@ void core_smoke(){
     catch(const Error& error){rejected=error.code=="LIMIT";}
     check(rejected&&too_long.unchanged(session),"Core locale limit counts UTF-8 bytes, not characters");
     const auto boundary=std::string(126,'a')+"é";
+#ifdef _WIN32
+    const Snapshot boundary_before(session);rejected=false;
+    try{session.apply(locale_commands(session.document(),boundary),session.revision());}
+    catch(const Error& error){rejected=error.code=="TEXT_LAYOUT_FAILED";}
+    check(boundary.size()==128&&rejected&&boundary_before.unchanged(session),
+        "DirectWrite refuses the exact 128-byte locale atomically after portable byte admission");
+#else
     session.apply(locale_commands(session.document(),boundary),session.revision());
     check(session.document().objects.at("first").text->locale==boundary&&boundary.size()==128,
         "Core accepts and preserves an exact 128-byte locale without adding a tag grammar");
+#endif
     session=Session(fixture(false,true));const Snapshot linked(session);rejected=false;
     try{session.apply(locale_commands(session.document(),"fr-FR"),session.revision());}
     catch(const Error& error){rejected=error.code=="DRIVEN_PROPERTY";}
@@ -139,17 +161,17 @@ void primary_and_mixed(){
         !inspector.apply()->isEnabled()&&!inspector.cancel()->isEnabled(),"Cancel discards the draft without authored, native, revision or History changes");
     inspector.choose("en-US");inspector.choose("ja-JP");
     check(!inspector.apply()->isEnabled()&&before.unchanged(session),"Returning to the shared value is a no-op");
-    inspector.choose(" EN_us ");QPointer<QWidget> retired=inspector.controls;QPointer<QPushButton> retired_apply=inspector.apply();
-    inspector.apply()->click();const auto expected=localized(before.document," EN_us ");
+    inspector.choose(primary_locale);QPointer<QWidget> retired=inspector.controls;QPointer<QPushButton> retired_apply=inspector.apply();
+    inspector.apply()->click();const auto expected=localized(before.document,primary_locale);
     check(!retired&&!retired_apply&&session.document()==expected&&session.revision()==before.revision+1&&
         session.history().states.size()==before.history.states.size()+1,
         "Apply uses one canonical batch and survives synchronous Inspector destruction");
     check(decode(encode(session.document()))==expected,
         "Only locale changes; other Text literals, links, expressions, features, axes, paths and unrelated objects survive");
-    check(inspector.state()=="Shared:  EN_us "&&!inspector.apply()->isEnabled(),"No case folding, trimming or invented tag grammar alters the authored locale");
+    check(inspector.state()==QString("Shared: ")+QString::fromStdString(primary_locale)&&!inspector.apply()->isEnabled(),"No case folding, trimming or invented tag grammar alters the authored locale");
     const auto committed=encode(session.document());inspector.undo();
     check(session.document()==before.document&&encode(session.document())==before.native&&!session.can_undo(),"One Undo restores both full Text sources and exact native state");
-    inspector.redo();check(encode(session.document())==committed&&inspector.state()=="Shared:  EN_us ","One Redo restores the locale batch");
+    inspector.redo();check(encode(session.document())==committed&&inspector.state()==QString("Shared: ")+QString::fromStdString(primary_locale),"One Redo restores the locale batch");
     const Snapshot noop(session);inspector.apply()->setEnabled(true);inspector.apply()->click();
     check(noop.unchanged(session),"Even a forced no-op Apply creates no revision or History entry");
 
@@ -179,8 +201,25 @@ void invalid_drafts(){
         inspector.cancel()->click();check(before.unchanged(session)&&inspector.editor()->text()=="ja-JP"&&inspector.status().isEmpty(),
             "Cancel after an invalid Apply restores the draft without retaining an error or changing history");
     }
-    const auto boundary=std::string(126,'a')+"é";inspector.choose(boundary);inspector.apply()->click();
+    const auto boundary=std::string(126,'a')+"é";
+#ifdef _WIN32
+    check(boundary.size()==128,"Backend boundary draft is exactly 128 UTF-8 bytes");
+    for(const auto& value:std::vector<std::string>{" EN_us ",boundary}){
+        inspector.choose(value);
+        check(inspector.editor()->text().toStdString()==value&&inspector.apply()->isEnabled()&&before.unchanged(session),
+            "Backend-limited locale draft remains exact before Apply, without trimming or partial edits");
+        inspector.apply()->click();
+        check(before.unchanged(session)&&inspector.status().startsWith("TEXT_LAYOUT_FAILED:")&&
+            inspector.editor()->text().toStdString()==value&&inspector.cancel()->isEnabled(),
+            "DirectWrite refuses whitespace and 128-byte drafts explicitly; draft/native/history remain exact");
+        inspector.cancel()->click();
+        check(before.unchanged(session)&&inspector.editor()->text()=="ja-JP"&&inspector.status().isEmpty(),
+            "Cancel after backend refusal restores the shared locale without mutation");
+    }
+#else
+    inspector.choose(boundary);inspector.apply()->click();
     check(session.document()==localized(before.document,boundary),"A 128-byte UTF-8 value is committed exactly through core rules");
+#endif
 }
 
 void refusals_and_retained_targets(){
