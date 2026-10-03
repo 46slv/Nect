@@ -94,6 +94,14 @@ j::object compatibility_plan(const Document& document,std::uint64_t revision,con
         item_indices[occurrence].push_back(items.size());items.push_back(record);
     };
     ir.push_back(j::object{{"kind","frame"},{"source_id",artboard},{"source_ref",ref(artboard,"","artboard")},{"frame",svg_evidence.at("artboard")}});
+    const auto composition_it=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==composition;});
+    const auto background=artboard_background_state(*composition_it,artboard);
+    if(background.value){j::array rgba;for(double channel:background.value->rgba)rgba.push_back(channel);
+        ir.push_back(j::object{{"kind","output_background_underlay"},{"source_id",artboard},{"source_ref",ref(artboard,"","artboard.background")},
+            {"source_artboard",background.source_artboard},{"inherited",background.inherited},{"space","srgb"},{"alpha","straight"},{"rgba",rgba},
+            {"classification","editable_native"},{"compositing","destination_over_completed_artwork"},{"included_in_artwork_bakes",false}});
+    }
+
     std::function<void(const EvaluatedSceneNode&)> describe=[&](const auto& node){
         if(!node.visible||node.opacity<=0)return;
         rendered.insert(node.id);const auto& object=d.objects.at(node.id);

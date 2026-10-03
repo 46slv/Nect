@@ -488,6 +488,11 @@ struct ArtboardLayout {
     std::optional<Grid> grid;
     bool operator==(const ArtboardLayout&) const = default;
 };
+struct ColorValue {
+    std::string space="srgb",profile="srgb",alpha="straight";
+    std::array<double,4> rgba{0,0,0,1};
+    bool operator==(const ColorValue&) const = default;
+};
 struct ArtboardTemplate {
     Id id,name,source_artboard;
     std::optional<Id> definition;
@@ -501,6 +506,7 @@ struct ArtboardTemplateAssignment {
     std::optional<double> width_override,height_override;
     bool margin_overridden=false;
     bool grid_overridden=false;
+    bool background_overridden=false;
     // IDs are document-unique, so each override or suppression names one stable source Guide.
     std::map<Id,double> guide_position_overrides;
     std::map<Id,bool> guide_enabled_overrides;
@@ -524,6 +530,7 @@ struct Artboard {
     std::optional<SizeDriver> height_driver;
     std::optional<ArtboardTemplateAssignment> template_assignment;
     std::vector<ArtboardGuide> local_guides;
+    std::optional<ColorValue> background;
     bool operator==(const Artboard&) const = default;
 };
 
@@ -539,6 +546,12 @@ struct Composition {
 
 // Resolves only dimensions; frame position, ownership and artwork do not move.
 Artboard evaluate_artboard(const Composition& composition,const Id& artboard);
+struct ArtboardBackgroundState {
+    std::optional<ColorValue> value;
+    Id source_artboard,immediate_source_artboard;
+    bool inherited=false,overridden=false;
+};
+ArtboardBackgroundState artboard_background_state(const Composition&,const Id&);
 
 struct Collection {
     Id id;
@@ -547,11 +560,6 @@ struct Collection {
     bool operator==(const Collection&) const = default;
 };
 
-struct ColorValue {
-    std::string space="srgb",profile="srgb",alpha="straight";
-    std::array<double,4> rgba{0,0,0,1};
-    bool operator==(const ColorValue&) const = default;
-};
 struct NamedColor {
     Id id;
     std::string name;
@@ -666,10 +674,11 @@ struct CreateArtboardTemplate { Id composition; ArtboardTemplate value; };
 struct RenameArtboardTemplate { Id composition,template_id; std::string name; };
 struct DeleteArtboardTemplate { Id composition,template_id; };
 struct AssignArtboardTemplate { Id composition,artboard_id,template_id; std::optional<Id> content_instance; };
+struct SetArtboardBackground { Id composition,artboard_id; std::optional<ColorValue> value; };
 struct SetArtboardTemplateOverride {
     Id composition,artboard_id;
     std::string field;
-    std::variant<double,std::optional<Margin>,std::optional<Grid>> value;
+    std::variant<double,std::optional<Margin>,std::optional<Grid>,std::optional<ColorValue>> value;
 };
 struct ResetArtboardTemplateOverride { Id composition,artboard_id; std::string field; };
 struct DetachArtboardTemplate { Id composition,artboard_id,id_prefix; };
@@ -678,7 +687,7 @@ struct DuplicateTemplateArtboard {
     double x=0,y=0;
     std::size_t index=0;
 };
-using ArtboardTemplateMutation=std::variant<CreateArtboardTemplate,RenameArtboardTemplate,
+using ArtboardTemplateMutation=std::variant<SetArtboardBackground,CreateArtboardTemplate,RenameArtboardTemplate,
     DeleteArtboardTemplate,AssignArtboardTemplate,SetArtboardTemplateOverride,
     ResetArtboardTemplateOverride,DetachArtboardTemplate,DuplicateTemplateArtboard>;
 struct ArtboardTemplateCommand { ArtboardTemplateMutation mutation; };

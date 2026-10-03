@@ -1,35 +1,28 @@
-# Nect — Dot-first Mission / Completion Route
+# Nect — Fast Build / Bug Harvest
 
-## Mission Brief
+## Mission
+Advance the accepted Nect Completion Route toward a useful integrated graphics authoring app. Preserve confirmed product semantics and final L1/L2/L3 acceptance boundaries. Dot remains an active critical-path implementer with independently owned parallel Sol implementation scopes.
 
-**Final Goal:** Advance the accepted Nect Completion Route without dropping Confirmed Requirements or claiming L1/L2/L3 completion without their acceptance.
+## Execution cadence
+Build a coherent usable vertical, run minimum useful smoke and changed high-risk checks, use the candidate, then fix demonstrated failures in parallel and batch-integrate. Full regression, every-platform matrices and exhaustive review belong at meaningful milestones, not every small edit. `USABLE_UNHARDENED` does not mean release-ready or fully verified.
 
-**Authority:** The user's 2026-10-01 Dot-first instruction and Notion Parallel Control D0 supersede the older Codex/Sol launch and rollover wording. Dot is the sole cloud implementation driver. Prefer its own cloud computer. The user explicitly authorized the Windows exception on 2026-10-01: Dot/Astra delegates checkout/build/test/bounded repair to Luna Max, receives results plus SHA, reviews/integrates and continues. An isolated shiro-WS Windows lane is authorized; the user additionally authorized purposeful Codex work through 2026-10-03 02:00 JST (2026-10-02 17:00 UTC), and a Codex-entry OpenCode trial using existing access; do not launch unrelated Codex/Work tasks or transfer Mission ownership. Technical reversible work, bounded implementation/repair/tests/checkpoints and non-force branch synchronization/PRs are authorized. The user explicitly renewed authorization for all Nect Git operations on2026-10-02, including the previously blocked public PR-description update, which succeeded. Applicable verification gates and mandatory action-specific safety confirmations remain. No release or product-intent choice is inferred solely from a Git operation. Credentials/billing and irreversible deletion still require their applicable confirmation. Notion owns product intent; Git owns implementation truth. Preserve source identities, user state and one-writer ownership.
+Keep Save/Save As, native migration, stable identity, Undo/History and trust boundaries protected from the start. One source scope has one writer. Development-branch publication does not authorize primary-branch merge or release.
 
-**Completion conditions:** Exact bounded packets, positive/negative tests, independent review where needed, repairs and coherent remote checkpoints. Passing tests, commits and PRs are not Mission stop points. Continue eligible work; host/human acceptance stays local to the affected row.
+## Current integrated candidate
+Native 0.81 development candidate combines:
+- Existing native 0.80 typography, source-preserving Text Apply, arithmetic compositing and save/Undo work.
+- Read-only SVG compatibility planning with source provenance and bounded local derivative closures. AI/PDF policies and encoders remain explicitly unqualified; planned bakes are not executed.
+- Metadata-driven numeric Offset, angle Repeater and Macro Amount controls.
+- An OFF-by-default developer-only Windows extension-loader fixture. No normal product autoload or production extension capability is claimed.
+- Atomic Text-content fan-out core safeguards; retained multi-target UI is the next independent UI task.
+- Optional Artboard background values with Template inheritance, local override, Reset and full detach freeze. Background is an output underlay after transparent artwork, not an object-blend backdrop. PNG/viewport/SVG include it; region analysis does not.
 
-**Coarse checkpoint map:** P01 qualification/remote closure (done) → P02 daily UI first slices (implemented with residuals) → R11-Q feasibility (qualified; R11-I format DESIGN_GATE) → R02 typed Text and P03 Save As source-preservation slices (implemented with residuals) → R03/R04 limited eligible slices and R05-C first editable Text-on-Path consumer (implemented with residuals) → R06-A/B real Object-local/Group operators and R06-C1 built-in descriptor entry (implemented with residuals) → R09 structured analysis/mask slices → R02 typed-property source-selection/dependency slices → R07 Preset/Macro and R04 Definition/Instance/Collection first verticals → R10 Asset/Folder, built-in Effect Favorites and portable built-in Preset Library (implemented with residuals) → R10 Macro Library (implemented with residuals) → R10 Template first vertical (automated qualified; hands-on LOCAL_WAIT) → Template Guide first vertical (automated qualified; hands-on LOCAL_WAIT) → Template background entry qualification → later eligible Route steps. The order may change with fresh evidence. Keep only one active checkpoint detailed.
+## Current evidence and remaining work
+The background model, native migration, Undo, API and SVG primary path passed 18 focused smoke checks. The compatibility planner passed focused Linux checks and Windows API/formal-MCP readback. The two worker candidates passed their focused Windows checks before integration.
 
-## ACTIVE CHECKPOINT — ISOLATED FONT AUTHORING
+The combined 0.81 desktop build and real-use smoke remain pending. Linux desktop compilation encountered a compiler process kill; this is not a successful desktop build. Prior Windows/native 0.80 binaries are preserved separately. Background UI, retained Text-content fan-out UI, additional widget families, physical input acceptance, final interoperability and full milestone hardening remain explicit residuals.
 
-**Goal:** Complete the accepted R05 whole-Text feature/additional-axis vertical through canonical commands, truthful Windows receipts and Advanced Typography controls. This branch is UNINTEGRATED, native0.78 only here.
+## Next
+Build and smoke this integrated candidate on the supported host, fix demonstrated blockers, and advance as `USABLE_UNHARDENED` once the primary path works without immediate corruption. Continue adjacent accepted implementation; do not stop at a routine test, commit or packet boundary.
 
-**Current phase:** REVIEWED UI / REAL LINUX GUI QUALIFIED; COMBINED WINDOWS AND LIVE MCP PENDING. Portable commands/model/codec/History and reviewed DirectWrite actual-run receipts are implemented. Advanced Typography uses the same five typed commands, exact tags/uint32/doubles, staged stale-safe drafts, explicit unsupported states and authored/request/actual separation. Text-only authored selection fallback after projection failure fabricates no geometry. See docs/r05-font-typography-ui-receipt.md.
-
-**Proven:** Portable52/core50/text3/budget34 pass on Linux. Independent review repaired schema/tag/History/fixture gaps. Reviewed UI normal277/2x278 pass, independently repeated by root; source-only review approved exact hashes. Earlier Windows C1061 and C2397 compile defects resolved. Exactc65 Windows built all7 targets and executed8 contracts7pass/1fail. Shaping passed154 assertions (static face, feature effect/removal, fallback, emptyText, TextOnPath, combinedaxes) before a test incorrectly equated submitted float with actualFace5. Production already preserves allthree and resolved_different. Independent exact actual-run DirectWrite oracle is reviewed and remotee060; Windows replay is active. No epsilon or production semantics changed.
-
-**Next task:** Preserve the reviewed UI checkpoint, reconcile latest main caption repair into this isolated branch without merging font into main, rerun affected tests, then qualify exact Windows backend/live MCP/UI and actual own-cloud GUI. Repair ordinary failures and continue eligible Route work; checkpoints are not stop points.
-
-**Approach:** Dot integrates released single-writer scopes. Windows task16 validates exacte060 before switching; new main Windows task17 independently validates630. No shared builds/checkouts, font downloads, credentials, registry/security changes or product-intent expansion. Backend fixture SourceSans3 remains absent; other installed faces do not silently substitute its qualification row.
-
-**Done for next:** Exact remote/readback and bounded qualification with pass/fail/skip/NotRun separated. Main integration requires reconciled backend, formal MCP and GUI evidence. G11 broader fixture/human acceptance remains separate.
-
-**State:** dot/font-authoring-01 based on e0602dd125740d06211f6d140355b083a04e2f00/tree8442235fcbb2f3e15c267fa31ddf6d194dd1e31e. Main dot/d0-cloud-canary is630ba88561b9eacb8fa5a84aaa9bb47a87eb25f5/tree97aad84faf7d43f56e5cba89a52db91b7c2073d9, native0.77. Primary unchanged01a909097ba222db0340e1c15cdeba6018f445ff. This checkpoint/readback establishes the next pointer; no PR/main merge or release.
-
-**Local waits:** Latest Windows actual-axis oracle and formalMCP remain pending; Linux liveSession IPC is denied and semantic MCP assertions are NOT_RUN. Latest UI is offscreen only. Linux projection remains explicitly unsupported; fixtures prove authored state without faking shaping. Main offscreen caption font defect is independently diagnosed/repaired with nativeWindows replay pending, and RepeaterDPR2 capture remains separate. Optional Windows process JSON Schema package is absent; inline checks pass. StorageQ1 repeat launch, Template-background meaning, arbitrary font/monitor and human visual/motion gates remain scoped. Extra Codex window ends2026-10-02 17:00UTC, lastquota43% at13:04UTC.
-
-**Handoff:** CONTINUE_CURRENT_TASK.
-
-Reconciliation: merge current main630 into this isolated font branch; only CURRENT_GOAL conflicted and retained this font checkpoint. Window merged automatically across independent typography and caption scopes. Main's caption bounds/test receipts are retained, not treated as font acceptance. Rebuild/retest the combined tree before qualification.
-
-Combined local7d1b40d/tree3f71d59 built all targets successfully with j1 after a killed j2 compiler. Full97=68pass/2skip/27fail, main26baseline plusfontMCPIPC, and fresh-process smokePASS. Actualown-LinuxGUI sixedits/nativeUndo/reopen/narrow125%PASS on immutablea7414930; bothsessionsclosed, rootsnapshotbyte/hashproof. Pre-UIe060Windows now357shapingPASS anddiscovery36PASS; suite0missing doesnotclearseparateSourceSans3G11. LiveMCP0semanticassertionsblockedbeforestartup, nowbeingdiagnosed. NewremotecheckpointmustqualifycombinedWindowsUI/MCP; no mainintegration.
+Source policy: [Fast Build / Bug Harvest Directive](https://app.notion.com/p/3eefd279a6f381e8a206ef658c90714a).

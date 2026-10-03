@@ -831,7 +831,7 @@ Canvas::Hit Canvas::hit_control(QPointF screen) const {
     return {};
 }
 
-QImage Canvas::render_artboard(const Document& document,const Id& composition,const Id& artboard,double scale,bool white_background) {
+QImage Canvas::render_artboard(const Document& document,const Id& composition,const Id& artboard,double scale,bool white_background,bool include_authored_background) {
     if(!std::isfinite(scale)||scale<=0||scale>16)throw Error("EXPORT_SCALE","PNG scale must be greater than zero and at most 16");
     const auto comp=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==composition;});
     if(comp==document.compositions.end())throw Error("MISSING_COMPOSITION",composition);
@@ -855,6 +855,11 @@ QImage Canvas::render_artboard(const Document& document,const Id& composition,co
         const QTransform transform(scale,0,0,scale,-board.x*scale,-board.y*scale);
         painter.setClipRect(QRectF(0,0,board.width*scale,board.height*scale));
         projection.paint_artwork(painter,transform,image.size(),1);
+    }
+    if(include_authored_background&&board.background){
+        const auto& rgba=board.background->rgba;QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);painter.setCompositionMode(QPainter::CompositionMode_DestinationOver);
+        painter.fillRect(QRectF(0,0,board.width*scale,board.height*scale),QColor::fromRgbF(rgba[0],rgba[1],rgba[2],rgba[3]));
     }
     if(white_background) {
         QPainter painter(&image);painter.setCompositionMode(QPainter::CompositionMode_DestinationOver);painter.fillRect(image.rect(),Qt::white);
@@ -1079,6 +1084,9 @@ void Canvas::paintEvent(QPaintEvent*) {
                 const QRectF area(artboard.x, artboard.y, artboard.width, artboard.height);
                 painter.fillRect(area.translated(3 / zoom_, 3 / zoom_), QColor(20, 22, 26));
                 painter.fillRect(area, QColor(250, 250, 250));
+                if(artboard.background){const auto& rgba=artboard.background->rgba;
+                    painter.fillRect(area,QColor::fromRgbF(rgba[0],rgba[1],rgba[2],rgba[3]));
+                }
             }
         }
         try {

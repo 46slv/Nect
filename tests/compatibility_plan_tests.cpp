@@ -428,11 +428,11 @@ void windows_text_dependency_and_provenance_regressions() {
     std::size_t projected_texts=0;
     for(const auto& value:plan.at("ir_nodes").as_array()) {
         const auto& node=value.as_object();
-        if(node.at("kind")!="text"||node.at("source_id")!=authored.id)continue;
+        if(node.at("kind")!="text"||string(node.at("source_id"))!=authored.id)continue;
         ++projected_texts;
-        check(string(node.at("occurrence_id"))!=authored.id&&node.at("text_source_id")==authored.text->id,
+        check(string(node.at("occurrence_id"))!=authored.id&&string(node.at("text_source_id"))==authored.text->id,
             "Definition Instance Text maps transient occurrence to the original native TextSource ID");
-        check(node.at("source_ref").as_object().at("object")==authored.id&&node.at("text_strategy")=="outlines",
+        check(string(node.at("source_ref").as_object().at("object"))==authored.id&&node.at("text_strategy")=="outlines",
             "Projected Text keeps native source provenance and an explicit target strategy");
     }
     check(projected_texts==1,"One visible Instance contributes exactly one Text provenance record");

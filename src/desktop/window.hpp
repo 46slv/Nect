@@ -2,6 +2,7 @@
 #include "folder_library.hpp"
 #include "host.hpp"
 #include "canvas.hpp"
+#include "nect/semantic_controls.hpp"
 #include <QMainWindow>
 #include <QTreeWidget>
 #include <QFormLayout>
@@ -24,6 +25,7 @@ class QToolButton;
 class QTabWidget;
 
 namespace nect::desktop {
+class SemanticScrub;
 // Pure presentation of an existing derived receipt; does not shape or infer runs.
 QString format_text_font_receipt(const TextLayout& result);
 class ColorTools;
@@ -154,6 +156,10 @@ private:
     void cancel_angle_adapters(bool dispose);
     void bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& ref,double initial,
         std::function<void()> validate_target,bool keep_last_valid_on_range,bool refuse_numeric_draft);
+    void add_semantic_scrub(QHBoxLayout*,QLineEdit*,const std::vector<Ref>&,
+        const SemanticParameterDescriptor&,bool macro=false);
+    void add_semantic_operation_control(QFormLayout*,const Object&,const ShapeOperation&,const Ref&,
+        const SemanticParameterDescriptor&);
     void add_primitive_angle(QFormLayout* form,const Ref& ref,const Primitive& source);
     void add_point_angle(QFormLayout* form,const Ref& ref,const Object& object);
     void add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targets,const QString& label,

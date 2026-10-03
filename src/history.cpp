@@ -70,6 +70,7 @@ std::size_t extra(const PresetEntry&);
 std::size_t extra(const PresetDefinition&);
 std::size_t extra(const Definition&);
 std::size_t extra(const DefinitionInstance&);
+std::size_t extra(const ColorValue&);
 std::size_t extra(const ArtboardTemplate&);
 std::size_t extra(const ArtboardTemplateAssignment&);
 std::size_t extra(const GroupPathFollowItem&);
@@ -145,11 +146,12 @@ std::size_t extra(const Margin& v){return total(extra(v.left_driver),extra(v.lef
     extra(v.bottom_driver),extra(v.bottom_expression));}
 std::size_t extra(const Grid& v){return total(extra(v.id),extra(v.bounds),extra(v.columns_driver),extra(v.columns_expression),extra(v.rows_driver),extra(v.rows_expression),extra(v.column_gutter_driver),extra(v.column_gutter_expression),extra(v.row_gutter_driver),extra(v.row_gutter_expression),extra(v.bounds_x_driver),extra(v.bounds_x_expression),extra(v.bounds_y_driver),extra(v.bounds_y_expression),extra(v.bounds_width_driver),extra(v.bounds_width_expression),extra(v.bounds_height_driver),extra(v.bounds_height_expression));}
 std::size_t extra(const ArtboardLayout& v){return total(extra(v.margin),extra(v.grid));}
+std::size_t extra(const ColorValue& v){return total(extra(v.space),extra(v.profile),extra(v.alpha));}
 std::size_t extra(const ArtboardTemplate& v){return total(extra(v.id),extra(v.name),extra(v.source_artboard),extra(v.definition));}
 std::size_t extra(const ArtboardTemplateAssignment& v){return total(extra(v.template_id),extra(v.grid_id),extra(v.content_instance),
     extra(v.width_override),extra(v.height_override),extra(v.guide_position_overrides),extra(v.guide_enabled_overrides),extra(v.detached_guides));}
 std::size_t extra(const Artboard::SizeDriver& v){return std::visit([](const auto& value){return extra(value);},v.value);}
-std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size),extra(v.layout),extra(v.width_driver),extra(v.height_driver),extra(v.template_assignment),extra(v.local_guides));}
+std::size_t extra(const Artboard& v){return total(extra(v.id),extra(v.name),extra(v.parent_size),extra(v.layout),extra(v.width_driver),extra(v.height_driver),extra(v.template_assignment),extra(v.local_guides),extra(v.background));}
 std::size_t extra(const Composition& v){return total(extra(v.id),extra(v.name),extra(v.roots),extra(v.artboards),extra(v.guides),extra(v.templates));}
 std::size_t extra(const Collection& v){return total(extra(v.id),extra(v.name),extra(v.members));}
 std::size_t extra(const NamedColor& v){return total(extra(v.id),extra(v.name),extra(v.rgba));}
@@ -188,6 +190,12 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         if(owner.empty())owner=name(ref.object);
         return owner+(ref.point.empty()?"":" / "+ref.point)+" / "+ref.field;
     };
+    if(const auto* command=std::get_if<LinkTextContent>(&commands.front());
+        command&&commands.size()>1&&std::all_of(commands.begin(),commands.end(),[&](const auto& item) {
+            const auto* link=std::get_if<LinkTextContent>(&item);
+            return link&&link->source==command->source;
+        }))
+        return "Link Text content batch ("+std::to_string(commands.size())+")";
     if(const auto* command=std::get_if<LinkTextWeight>(&commands.front());command&&command->batch) {
         const auto action=command->batch->mode==TextWeightBatchMode::edit?"Edit":
             command->batch->mode==TextWeightBatchMode::link?"Link":"Unlink";
@@ -233,7 +241,8 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
         if(const auto* command=std::get_if<ArtboardTemplateCommand>(structural))
             return std::visit([&](const auto& mutation)->std::string {
                 using T=std::decay_t<decltype(mutation)>;
-                if constexpr(std::is_same_v<T,CreateArtboardTemplate>)return "Create Template: "+mutation.value.name;
+                if constexpr(std::is_same_v<T,SetArtboardBackground>)return "Set Artboard background: "+mutation.artboard_id;
+                else if constexpr(std::is_same_v<T,CreateArtboardTemplate>)return "Create Template: "+mutation.value.name;
                 else if constexpr(std::is_same_v<T,RenameArtboardTemplate>)return "Rename Template: "+mutation.name;
                 else if constexpr(std::is_same_v<T,DeleteArtboardTemplate>)return "Delete Template: "+mutation.template_id;
                 else if constexpr(std::is_same_v<T,AssignArtboardTemplate>)return "Assign Template: "+mutation.artboard_id;

@@ -1,0 +1,48 @@
+# Root-owned CMake can include this file inside an OFF-by-default developer gate:
+# option(NECT_EXTENSION_C2A_DEV "Build owned C2A developer qualification only" OFF)
+# if(NECT_EXTENSION_C2A_DEV)
+#   set(NECT_EXTENSION_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+#   enable_language(C)
+#   include(tests/extension_harness/integration.cmake)
+# endif()
+# No product target links this library or discovers/loads packages.
+if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR NOT MSVC)
+  message(FATAL_ERROR "C2A focused qualification requires MSVC Windows x86_64")
+endif()
+find_path(BOOST_INCLUDE_DIR boost/json/src.hpp REQUIRED)
+set(ext_root "${NECT_EXTENSION_SOURCE_ROOT}")
+add_library(nect_extension_c2a STATIC "${ext_root}/src/extension_registry.cpp" "${ext_root}/src/boost_json.cpp")
+target_include_directories(nect_extension_c2a PUBLIC "${ext_root}/include" PRIVATE "${BOOST_INCLUDE_DIR}")
+target_compile_definitions(nect_extension_c2a PRIVATE BOOST_ALL_NO_LIB)
+target_compile_options(nect_extension_c2a PRIVATE /W4 /permissive- /utf-8)
+target_link_libraries(nect_extension_c2a PRIVATE bcrypt)
+add_executable(extension_harness "${ext_root}/tests/extension_harness/extension_harness.cpp")
+target_link_libraries(extension_harness PRIVATE nect_extension_c2a)
+target_compile_options(extension_harness PRIVATE /W4 /permissive- /utf-8)
+add_executable(extension_tests "${ext_root}/tests/extension_tests.cpp")
+target_include_directories(extension_tests PRIVATE "${BOOST_INCLUDE_DIR}")
+target_compile_definitions(extension_tests PRIVATE BOOST_ALL_NO_LIB)
+target_compile_options(extension_tests PRIVATE /W4 /permissive- /utf-8)
+target_link_libraries(extension_tests PRIVATE nect_extension_c2a)
+foreach(mode RANGE 0 20)
+  if(mode EQUAL 13 OR mode EQUAL 19)
+    set(fixture_source "${ext_root}/tests/extension_test_package/exception.cpp")
+  else()
+    set(fixture_source "${ext_root}/tests/extension_test_package/multiply.c")
+  endif()
+  add_library(nect_testop_${mode} SHARED "${fixture_source}")
+  target_include_directories(nect_testop_${mode} PRIVATE "${ext_root}/include")
+  target_compile_definitions(nect_testop_${mode} PRIVATE NECT_FIXTURE_MODE=${mode})
+  target_compile_options(nect_testop_${mode} PRIVATE /W4 /utf-8)
+  add_dependencies(extension_tests nect_testop_${mode})
+endforeach()
+add_custom_command(TARGET nect_testop_0 POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" "-DBINARY=$<TARGET_FILE:nect_testop_0>"
+    "-DPACKAGE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/owned-package"
+    "-DTEMPLATE=${ext_root}/tests/extension_test_package/extension.json.in"
+    -P "${ext_root}/tests/extension_harness/package_fixture.cmake")
+include(CTest)
+add_test(NAME extension_c2a_contract COMMAND extension_tests
+  "${ext_root}/tests/extension_test_package/extension.json.in"
+  "$<TARGET_FILE_DIR:nect_testop_0>" "${CMAKE_CURRENT_BINARY_DIR}/qualification")
+set_tests_properties(extension_c2a_contract PROPERTIES TIMEOUT 60)

@@ -1,6 +1,7 @@
 #include "window.hpp"
 #include "nect/blend.hpp"
 #include "colors.hpp"
+#include "semantic_control.hpp"
 #include <QAction>
 #include <QAbstractItemView>
 #include <QApplication>
@@ -734,6 +735,110 @@ void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& r
         catch(const std::exception& exception){cancel();report(exception);}
     };
     knob->cancel_drag=cancel;
+}
+
+void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::vector<Ref>& targets,
+        const SemanticParameterDescriptor& descriptor,bool macro) {
+    validate_semantic_descriptor(descriptor);
+    auto* scrub=new SemanticScrub(layout->parentWidget());layout->addWidget(scrub);
+    annotate_semantic_control(scrub,descriptor);
+    scrub->setObjectName("semantic-scrub-"+qs(targets.front().point.empty()?targets.front().field:targets.front().point));
+    scrub->setAccessibleName(qs(descriptor.label)+" scrub / "+qs(descriptor.unit));
+    scrub->setProperty("nect-targets",refs_json(targets));
+    scrub->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
+    scrub->setToolTip(qs(descriptor.help)+"\nDrag horizontally; Shift is fine, Control is coarse. Left/Right adjusts one step. Escape cancels.");
+    const auto identity=host.session_id;const auto revision=host.session.revision();const auto document=host.session.document().id;
+    const auto read=[macro](const Document& d,const Ref& r) {
+        return macro?macro_parameter_value(d,r.object,r.point,r.field):evaluate(d).at(r);
+    };
+    std::vector<double> initial;
+    bool driven=false;
+    for(const auto& target:targets) {
+        initial.push_back(read(host.session.document(),target));
+        if(!macro) {const auto& scalar=nect::property(host.session.document(),target);driven=driven||scalar.binding||scalar.expression;}
+    }
+    scrub->setEnabled(!driven);input->setReadOnly(driven);
+    if(driven) {input->setToolTip(input->toolTip()+"\nDriven: use fx or explicitly unlink before direct editing.");
+        scrub->setToolTip("Driven: explicitly unlink before scrubbing.");}
+    const bool mixed=std::any_of(initial.begin(),initial.end(),[&](double value){return value!=initial.front();});
+    scrub->setProperty("nect-mixed",mixed);
+    if(targets.size()>1)scrub->setToolTip(scrub->toolTip()+"\nAdjusts each selected value by the same delta; keeps their differences.");
+    const auto committed_text=mixed?QString{}:QString::number(initial.front(),'g',17);
+    struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;QString last_text;};
+    auto state=std::make_shared<Interaction>();state->last_text=committed_text;
+    QPointer<SemanticScrub> safe_scrub=scrub;QPointer<QLineEdit> safe_input=input;
+    const auto owns=[this,state,identity,revision,document] {
+        return state->owned&&host.session_id==identity&&host.session.document().id==document&&
+            host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation;
+    };
+    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro] {
+        if(!state->live||host.session_id!=identity||host.session.document().id!=document)
+            throw Error("SESSION_CONFLICT","Semantic control belongs to another document");
+        if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Control changed; reopen the Inspector");
+        for(const auto& target:targets) {
+            auto current=macro?std::optional<SemanticParameterDescriptor>{macro_semantic_descriptor(host.session.document(),target)}:
+                property_semantic_descriptor(host.session.document(),target);
+            if(!current||current->key!=descriptor.key||current->value_type!=descriptor.value_type||
+               current->unit!=descriptor.unit||current->widget_hint!=descriptor.widget_hint)
+                throw Error("MISSING_PROPERTY","Semantic control target changed");
+            if(!macro) {const auto& scalar=nect::property(host.session.document(),target);
+                if(scalar.binding||scalar.expression)throw Error("DRIVEN_PROPERTY","Explicitly unlink before scrubbing");}
+        }
+    };
+    const auto report=[this](const std::exception& exception) {
+        const auto* error=dynamic_cast<const Error*>(&exception);
+        statusBar()->showMessage((error?qs(error->code)+": ":QString{})+QString::fromUtf8(exception.what()),12000);
+    };
+    auto cancel=[this,state,owns,safe_scrub,safe_input,committed_text,targets,read,mixed,identity,document] {
+        const bool local=state->owned,active=owns();
+        if(active)host.session.cancel_gesture();state->owned=false;
+        if(local) {
+            if(safe_scrub)safe_scrub->disarm();
+            if(safe_input) {
+                auto text=committed_text;
+                try {if(!mixed&&host.session_id==identity&&host.session.document().id==document)
+                    text=QString::number(read(host.session.gesture_active()?host.session.preview_document():host.session.document(),targets.front()),'g',17);}
+                catch(...) {}
+                safe_input->setText(text);safe_input->setModified(false);
+            }
+        }
+        if(active){canvas->refresh();canvas->update();}
+    };
+    register_angle_adapter(scrub,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
+    scrub->begin=[this,state,validate,report,safe_input,committed_text] {
+        try {
+            if(safe_input&&safe_input->isModified())throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before scrubbing");
+            validate();host.session.begin_gesture(host.session.revision());
+            state->generation=host.session.gesture_generation();state->owned=true;state->last_text=committed_text;return true;
+        } catch(const std::exception& exception){report(exception);return false;}
+    };
+    scrub->preview_delta=[this,state,owns,validate,cancel,report,safe_input,targets,initial,mixed,macro,step=descriptor.step.value_or(1)](double delta) {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {
+            validate();std::vector<Command> commands;
+            for(std::size_t i=0;i<targets.size();++i) {
+                const auto value=initial[i]+delta*step;
+                if(value==initial[i])continue;
+                const auto& target=targets[i];
+                if(macro)commands.push_back(MacroCommand{SetMacroOverride{target.object,target.point,target.field,value}});
+                else commands.push_back(EditProperties{{target},value,false});
+            }
+            host.session.update_gesture(commands);canvas->refresh();canvas->update();
+            state->last_text=mixed?QString{}:QString::number(initial.front()+delta*step,'g',17);
+            if(safe_input){safe_input->setText(state->last_text);safe_input->setModified(false);}
+        } catch(const std::exception& exception) {
+            if(const auto* error=dynamic_cast<const Error*>(&exception);error&&error->code=="OUT_OF_RANGE") {
+                if(safe_input){safe_input->setText(state->last_text);safe_input->setModified(false);}report(exception);return;
+            }
+            cancel();report(exception);
+        }
+    };
+    scrub->commit=[this,state,owns,validate,cancel,report] {
+        if(!owns()){if(state->owned)cancel();return;}
+        try {validate();host.session.commit_gesture();state->owned=false;host.edited();}
+        catch(const std::exception& exception){cancel();report(exception);}
+    };
+    scrub->cancel=cancel;
 }
 
 Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library)
@@ -7208,19 +7313,18 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         if(operation.macro) {
             const auto& definition=host.session.document().macro_definitions.at(operation.macro->definition);
             const auto& macro_revision=definition.revisions.at(operation.macro->pinned_revision);
-            const auto parameter=std::find_if(macro_revision.public_parameters.begin(),macro_revision.public_parameters.end(),
-                [](const auto& item){return item.id=="macro.offset.amount";});
-            if(parameter!=macro_revision.public_parameters.end()) {
+            for(auto parameter=macro_revision.public_parameters.begin();parameter!=macro_revision.public_parameters.end();++parameter) {
                 const auto parameter_id=parameter->id;
                 const auto amount_ref=macro_parameter_ref(object.id,operation.id,parameter_id);
+                const auto metadata=macro_semantic_descriptor(host.session.document(),amount_ref);
                 const auto initial=macro_parameter_value(host.session.document(),object.id,operation.id,parameter_id);
                 const auto frozen_macro_session=host.session_id;
                 const auto frozen_macro_revision=host.session.revision();
                 // Macro amounts retain full double precision; fixed decimals can author a rounded no-op.
-                auto* editor=new QLineEdit(QString::number(initial,'g',17),group);
+                auto* editor=semantic_number_input(metadata,QString::number(initial,'g',17),group);
                 editor->setObjectName("macro-amount-"+qs(operation.id));
                 editor->setAccessibleName(name+" / "+qs(parameter->label)+" / "+qs(parameter->unit));
-                editor->setToolTip("Enter a finite amount in "+qs(parameter->unit)+" from -1000000 to 1000000. Escape cancels the edit.");
+                editor->setToolTip(qs(metadata.help)+"\nEnter a finite value in "+qs(metadata.unit)+". Escape cancels the edit.");
                 editor->setProperty("nect-reference",QJsonDocument(ref_json(amount_ref)).toJson(QJsonDocument::Compact));
                 auto* reset=operation.macro->overrides.contains(parameter_id)?new QPushButton("Reset",group):nullptr;
                 if(reset)reset->setObjectName("macro-reset-amount-"+qs(operation.id));
@@ -7252,6 +7356,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 });
                 auto* amount_row=new QWidget(group);auto* amount_layout=new QHBoxLayout(amount_row);
                 amount_layout->setContentsMargins(0,0,0,0);amount_layout->addWidget(editor);
+                add_semantic_scrub(amount_layout,editor,{amount_ref},metadata,true);
                 if(reset) {
                     reset->setToolTip("Restore the value published by the pinned Macro revision.");amount_layout->addWidget(reset);
                     connect(reset,&QPushButton::clicked,this,[this,editor,id=object.id,instance=operation.id,parameter_id,
@@ -7266,7 +7371,8 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     });
                 }
                 form->addRow(qs(parameter->label)+" · "+qs(parameter->unit),amount_row);
-            } else {
+            }
+            if(macro_revision.public_parameters.empty()) {
                 auto* no_parameters=new QLabel("This pinned Macro revision has no published controls.",group);
                 no_parameters->setObjectName("macro-no-public-parameters-"+qs(operation.id));
                 no_parameters->setWordWrap(true);form->addRow(no_parameters);
@@ -7499,8 +7605,12 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 }
             }
         } else if(operation.type=="nect.shape.offset") {
-            for(const auto* parameter:{"amount","miter_limit"})
-                add_property(form,operation_ref(object.id,operation.id,parameter),parameter_label(parameter));
+            for(const auto* parameter:{"amount","miter_limit"}) {
+                const auto ref=operation_ref(object.id,operation.id,parameter);
+                if(const auto metadata=builtin_semantic_descriptor(operation.type,parameter))
+                    add_semantic_operation_control(form,object,operation,ref,*metadata);
+                else add_property(form,ref,parameter_label(parameter));
+            }
             auto* join=new QComboBox;join->setObjectName("operation-line-join-"+qs(operation.id));
             join->addItem("Miter","miter");join->addItem("Round","round");join->addItem("Bevel","bevel");
             join->setCurrentIndex(join->findData(qs(operation.line_join)));form->addRow("Line join",join);
@@ -7521,44 +7631,9 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 if(operation.parameters.contains(parameter)&&std::string(parameter)!="rotation")
                     add_property(form,operation_ref(object.id,operation.id,parameter),parameter_label(parameter));
             if(operation.parameters.contains("rotation")) {
-                const auto rotation_ref=operation_ref(object.id,operation.id,"rotation");
-                add_property(form,rotation_ref,QStringLiteral("Rotation · degrees"));
-                const auto reference=QJsonDocument(ref_json(rotation_ref)).toJson(QJsonDocument::Compact);
-                QLineEdit* numeric=nullptr;
-                for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
-                    if(input->property("nect-reference").toByteArray()==reference){numeric=input;break;}
-                auto* dial_row=new QWidget;auto* dial_layout=new QHBoxLayout(dial_row);dial_layout->setContentsMargins(0,0,0,0);dial_layout->setSpacing(8);
-                auto* knob=new RotationKnob(dial_row);knob->setObjectName("repeater-angle-knob-"+qs(operation.id));
-                const auto dial_name=QString("%1 Repeater rotation angle").arg(qs(object.name));
-                knob->setAccessibleName(dial_name);
-                knob->setProperty("nect-reference",reference);
-                const auto initial_rotation=inspector_values_.at(rotation_ref);knob->set_value(initial_rotation);
-                if(numeric){numeric->setProperty("nect-exact-value",true);numeric->setText(QString::number(initial_rotation,'g',17));numeric->setModified(false);}
-                const auto& scalar=nect::property(host.session.document(),rotation_ref);
-                const bool driven=scalar.binding.has_value()||scalar.expression.has_value();
-                knob->setEnabled(!driven);
-                if(driven)knob->setToolTip(dial_name+" is driven by a binding or expression. Unlink it in the numeric editor before using the dial.");
-                else knob->setToolTip(dial_name+"; drag continuously to add signed degrees. The dial is modulo 360; the adjacent value remains exact. Escape cancels.");
-                auto* dial_note=new QLabel("Dial · modulo 360",dial_row);dial_note->setAccessibleName("Dial shows rotation modulo 360; numeric value is exact");
-                dial_layout->addWidget(knob);dial_layout->addWidget(dial_note);dial_layout->addStretch();form->addRow("Angle dial",dial_row);
-                const auto frozen_kind=host.session.document().objects.at(object.id).kind;
-                const auto frozen_source=host.session.document().objects.at(object.id).source;
-                const auto frozen_operation_version=operation.version;
-                auto validate_target=[this,rotation_ref,object_id=object.id,operation_id=operation.id,frozen_kind,frozen_source,frozen_operation_version] {
-                    const auto found=host.session.document().objects.find(object_id);
-                    if(found==host.session.document().objects.end()||found->second.kind!=frozen_kind||
-                       found->second.source.has_value()!=frozen_source.has_value()||
-                       (frozen_source&&(found->second.source->id!=frozen_source->id||found->second.source->type!=frozen_source->type||
-                           found->second.source->version!=frozen_source->version)))
-                        throw Error("MISSING_PROPERTY","Repeater source identity changed");
-                    const auto& current=find_operation(host.session.document(),object_id,operation_id);
-                    if(current.type!="nect.shape.repeater"||current.version!=frozen_operation_version||!current.parameters.contains("rotation"))
-                        throw Error("MISSING_PROPERTY","Repeater rotation Ref is no longer available");
-                    const auto& current_scalar=nect::property(host.session.document(),rotation_ref);
-                    if(current_scalar.binding||current_scalar.expression)
-                        throw Error("DRIVEN_PROPERTY","Unlink the Repeater rotation before using the dial");
-                };
-                bind_angle_adapter(knob,numeric,rotation_ref,initial_rotation,std::move(validate_target),true,true);
+                const auto metadata=builtin_semantic_descriptor(operation.type,"rotation");
+                if(!metadata)throw Error("INVALID_CONTROL_DESCRIPTOR","Rotation descriptor is unavailable");
+                add_semantic_operation_control(form,object,operation,operation_ref(object.id,operation.id,"rotation"),*metadata);
             }
             auto* note=new QLabel("Rotation is a fixed step per copy; changing Copies does not divide 360°. Scale 1 is unchanged. Copies remain virtual and share source points.");
             note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");form->addRow(note);
@@ -8394,6 +8469,51 @@ void Window::add_multi_repeater_angle(QFormLayout* form,const std::vector<Ref>& 
         validate_target,true);
 }
 
+void Window::add_semantic_operation_control(QFormLayout* form,const Object& object,const ShapeOperation& operation,
+        const Ref& rotation_ref,const SemanticParameterDescriptor& metadata) {
+    const auto resolution=validate_semantic_descriptor(metadata);
+    add_property(form,rotation_ref,qs(metadata.label)+" · "+qs(metadata.unit));
+    if(resolution.widget==SemanticWidget::numeric)return;
+    const auto reference=QJsonDocument(ref_json(rotation_ref)).toJson(QJsonDocument::Compact);
+    QLineEdit* numeric=nullptr;
+    for(auto* input:form->parentWidget()->findChildren<QLineEdit*>())
+        if(input->property("nect-reference").toByteArray()==reference){numeric=input;break;}
+    auto* dial_row=new QWidget;auto* dial_layout=new QHBoxLayout(dial_row);dial_layout->setContentsMargins(0,0,0,0);dial_layout->setSpacing(8);
+    auto* knob=new RotationKnob(dial_row);knob->setObjectName("repeater-angle-knob-"+qs(operation.id));
+    const auto dial_name=QString("%1 %2 angle").arg(qs(object.name),qs(metadata.label));
+    knob->setAccessibleName(dial_name);
+    knob->setProperty("nect-reference",reference);
+    annotate_semantic_control(knob,metadata);
+    const auto initial_rotation=inspector_values_.at(rotation_ref);knob->set_value(initial_rotation);
+    if(numeric){numeric->setProperty("nect-exact-value",true);numeric->setText(QString::number(initial_rotation,'g',17));numeric->setModified(false);}
+    const auto& scalar=nect::property(host.session.document(),rotation_ref);
+    const bool driven=scalar.binding.has_value()||scalar.expression.has_value();
+    knob->setEnabled(!driven);
+    if(driven)knob->setToolTip(dial_name+" is driven by a binding or expression. Unlink it in the numeric editor before using the dial.");
+    else knob->setToolTip(dial_name+"; drag continuously to add signed degrees. The dial is modulo 360; the adjacent value remains exact. Escape cancels.");
+    auto* dial_note=new QLabel("Dial · modulo 360",dial_row);dial_note->setAccessibleName("Dial shows rotation modulo 360; numeric value is exact");
+    dial_layout->addWidget(knob);dial_layout->addWidget(dial_note);dial_layout->addStretch();form->addRow("Angle dial",dial_row);
+    const auto frozen_kind=host.session.document().objects.at(object.id).kind;
+    const auto frozen_source=host.session.document().objects.at(object.id).source;
+    const auto frozen_operation_version=operation.version;
+    auto validate_target=[this,rotation_ref,object_id=object.id,operation_id=operation.id,frozen_kind,frozen_source,frozen_operation_version,
+        expected_type=operation.type,parameter=metadata.key] {
+        const auto found=host.session.document().objects.find(object_id);
+        if(found==host.session.document().objects.end()||found->second.kind!=frozen_kind||
+           found->second.source.has_value()!=frozen_source.has_value()||
+           (frozen_source&&(found->second.source->id!=frozen_source->id||found->second.source->type!=frozen_source->type||
+               found->second.source->version!=frozen_source->version)))
+            throw Error("MISSING_PROPERTY","Repeater source identity changed");
+        const auto& current=find_operation(host.session.document(),object_id,operation_id);
+        if(current.type!=expected_type||current.version!=frozen_operation_version||!current.parameters.contains(parameter))
+            throw Error("MISSING_PROPERTY","Semantic angle Ref is no longer available");
+        const auto& current_scalar=nect::property(host.session.document(),rotation_ref);
+        if(current_scalar.binding||current_scalar.expression)
+            throw Error("DRIVEN_PROPERTY","Unlink the Repeater rotation before using the dial");
+    };
+    bind_angle_adapter(knob,numeric,rotation_ref,initial_rotation,std::move(validate_target),true,true);
+}
+
 void Window::add_property(QFormLayout* layout,const Ref& ref,const QString& label) {
     add_properties(layout,{ref},label);
 }
@@ -8888,9 +9008,17 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const bool mixed=std::any_of(targets.begin(),targets.end(),[&](const auto& target){return inspector_values_.at(target)!=evaluated;});
     const bool driven=std::any_of(targets.begin(),targets.end(),[&](const auto& target){if(property_origin(d,target)=="generated")return false;const auto& s=nect::property(d,target);return s.binding.has_value()||s.expression.has_value();});
     const auto formula=origin=="generated"?std::optional<Expression>{}:nect::property(d,ref).expression;
+    auto semantic=property_semantic_descriptor(d,ref);
+    if(semantic)for(const auto& target:targets) {
+        const auto own=property_semantic_descriptor(d,target);
+        if(!own||own->key!=semantic->key||own->unit!=semantic->unit||own->widget_hint!=semantic->widget_hint)
+            throw Error("INVALID_CONTROL_DESCRIPTOR","Mixed selection has incompatible semantic controls");
+    }
     auto* row=new QWidget;auto* column=new QVBoxLayout(row);column->setContentsMargins(0,0,0,0);column->setSpacing(0);
     auto* box=new QHBoxLayout;column->addLayout(box);box->setContentsMargins(0,0,0,0);box->setSpacing(4);
-    auto* input=new PropertyInput(mixed?QString{}:display_value(evaluated));input->setAccessibleName(label);
+    auto* generated=semantic?semantic_number_input(*semantic,mixed?QString{}:QString::number(evaluated,'g',17)):nullptr;
+    auto* ordinary=semantic?nullptr:new PropertyInput(mixed?QString{}:display_value(evaluated));
+    QLineEdit* input=generated?static_cast<QLineEdit*>(generated):ordinary;input->setAccessibleName(label);
     input->setPlaceholderText(mixed?"Mixed":QString{});input->setProperty("nect-mixed",mixed);
     const auto reference=QJsonDocument(ref_json(ref)).toJson(QJsonDocument::Compact);
     input->setProperty("nect-reference",reference);
@@ -8913,6 +9041,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(formula)input->setToolTip(input->toolTip()+"\nExpression: "+qs(formula->source)+"\nDisplayed number is the evaluated result.");
     input->setToolTip(input->toolTip()+"\nEnter =expression or use fx. += / -= makes a one-time relative edit.");
     box->addWidget(input);
+    if(semantic)add_semantic_scrub(box,input,targets,*semantic);
     auto* fx=new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
     fx->setObjectName("property-expression");
     fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
@@ -8935,7 +9064,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     };
     const auto initial_expression=formula?qs(formula->source):(mixed?QString{}:QString::number(evaluated,'g',17));
     connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
-    input->multiline=expand;
+    if(generated)generated->multiline=expand;else ordinary->multiline=expand;
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand] {
         if(!input->isModified()) return;
@@ -8953,6 +9082,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             }
             auto value=(relative?text.mid(2):text).toDouble(&valid);if(relative&&text.startsWith("-="))value=-value;
             if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number, += / -= adjustment, or =expression");
+            if(input->property("nect-semantic-key").isValid()&&!relative&&
+               std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return inspector_values_.at(target)==value;}))return;
             canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},field_revision);host.edited();
             if(keep_focus)QTimer::singleShot(0,this,[this,target_data,scroll,frozen_session]{
                 if(host.session_id!=frozen_session)return;

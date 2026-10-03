@@ -348,7 +348,13 @@ QJsonObject Host::export_png(const QString& path,const Id& composition,const Id&
     encoded.insert(33,QByteArray::fromHex("000000017352474200aece1ce9"));
     if(output.write(encoded)!=encoded.size())throw Error("IO_ERROR",output.errorString().toStdString());
     if(!output.commit())throw Error("IO_ERROR",output.errorString().toStdString());
-    return {{"path",path},{"width",image.width()},{"height",image.height()},{"scale",scale},
+    const auto comp=std::find_if(session.document().compositions.begin(),session.document().compositions.end(),[&](const auto& c){return c.id==composition;});
+    const auto authored_background=evaluate_artboard(*comp,artboard).background;
+    QJsonValue underlay=QJsonValue::Null;
+    if(authored_background){QJsonArray rgba;for(double channel:authored_background->rgba)rgba.append(channel);
+        underlay=QJsonObject{{"space","srgb"},{"profile","srgb"},{"alpha","straight"},{"rgba",rgba}};
+    }
+    return {{"path",path},{"width",image.width()},{"height",image.height()},{"scale",scale},{"authored_background",underlay},
         {"background",white_background?"white":"transparent"},{"color_space","sRGB"},{"revision",static_cast<qint64>(expected)}};
 }
 
@@ -1359,7 +1365,7 @@ QJsonObject Host::analyze_regions(const Id& composition,const Id& artboard,doubl
         throw Error("EXPORT_LIMIT","PNG output is limited to 8192 pixels per axis and 16,777,216 pixels");
     if(pixel_width*pixel_height>4'000'000)
         throw Error("ANALYSIS_LIMIT","Region analysis is limited to 4,000,000 output pixels");
-    const auto image=Canvas::render_artboard(session.document(),composition,artboard,scale,false);
+    const auto image=Canvas::render_artboard(session.document(),composition,artboard,scale,false,false);
     return analyze_region_pixels(image,threshold,scale,expected,include_color_groups,include_color_components,
         intersect_color_component_index,intersect_color_component_id,session.document().id,composition,artboard);
 }

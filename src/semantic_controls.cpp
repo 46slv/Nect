@@ -1,0 +1,83 @@
+#include "nect/semantic_controls.hpp"
+#include <algorithm>
+#include <cmath>
+
+namespace nect {
+namespace {
+void require_descriptor(bool valid,const std::string& message) {
+    if(!valid)throw Error("INVALID_CONTROL_DESCRIPTOR",message);
+}
+}
+SemanticControlResolution validate_semantic_descriptor(const SemanticParameterDescriptor& d) {
+    require_descriptor(!d.key.empty()&&!d.label.empty()&&!d.unit.empty()&&!d.domain.empty(),
+        "Control identity, label, unit and domain are required");
+    // Future known families are not compatible with a number. Unknown hints may
+    // fall back only after the actual value type and its constraints are known.
+    require_descriptor(d.value_type=="number","This control vertical supports only the known number type");
+    require_descriptor(std::isfinite(d.default_value),"Control default must be finite");
+    require_descriptor(!d.minimum||std::isfinite(*d.minimum),"Minimum must be finite");
+    require_descriptor(!d.maximum||std::isfinite(*d.maximum),"Maximum must be finite");
+    require_descriptor(!d.minimum||!d.maximum||*d.minimum<=*d.maximum,"Minimum exceeds maximum");
+    require_descriptor((!d.minimum||d.default_value>=*d.minimum)&&(!d.maximum||d.default_value<=*d.maximum),
+        "Default lies outside the declared range");
+    require_descriptor(!d.step||(std::isfinite(*d.step)&&*d.step>0),"Scrub step must be finite and positive");
+    if(d.widget_hint=="angle") {
+        require_descriptor(d.unit=="degree"&&d.angle_semantics=="signed_turns_indicator_modulo_360",
+            "Angle controls require degrees and explicit signed-turn semantics");
+        return {SemanticWidget::angle,false,"SUPPORTED"};
+    }
+    require_descriptor(d.angle_semantics.empty(),"Angle semantics require an angle hint");
+    if(d.widget_hint=="numeric")return {SemanticWidget::numeric,false,"SUPPORTED"};
+    for(const auto* hint:{"slider","range","toggle","enum","dropdown","color","point","vector","curve"})
+        require_descriptor(d.widget_hint!=hint,"Widget family is incompatible or outside this vertical: "+d.widget_hint);
+    require_descriptor(!d.widget_hint.empty(),"Widget hint is required");
+    return {SemanticWidget::numeric,true,"UNKNOWN_WIDGET_HINT: "+d.widget_hint+"; using numeric for known number type"};
+}
+std::optional<SemanticParameterDescriptor> builtin_semantic_descriptor(const std::string& type,const std::string& parameter) {
+    const bool amount=type=="nect.shape.offset"&&parameter=="amount";
+    const bool rotation=type=="nect.shape.repeater"&&parameter=="rotation";
+    if(!amount&&!rotation)return {};
+    const auto* owner=builtin_operation_type(type);
+    if(!owner||!owner->parameter_defaults.contains(parameter))
+        throw Error("INVALID_CONTROL_DESCRIPTOR","Built-in descriptor has no canonical parameter default");
+    SemanticParameterDescriptor d;
+    d.key=parameter;d.default_value=owner->parameter_defaults.at(parameter);d.domain=owner->input;
+    d.unit=amount?"du":"degree";d.minimum=amount?-1e6:-1e9;d.maximum=amount?1e6:1e9;d.step=1;
+    d.widget_hint=amount?"numeric":"angle";d.label=amount?"Amount":"Rotation";
+    d.help=amount?"Positive expands; negative contracts. Escape cancels the draft.":
+        "Signed degrees per copy. The indicator wraps; the authored value retains all turns. Escape cancels.";
+    if(rotation)d.angle_semantics="signed_turns_indicator_modulo_360";
+    validate_semantic_descriptor(d);return d;
+}
+std::optional<SemanticParameterDescriptor> property_semantic_descriptor(const Document& document,const Ref& ref) {
+    if(!ref.point.empty()||!ref.field.starts_with("op."))return {};
+    const auto found=document.objects.find(ref.object);if(found==document.objects.end())return {};
+    for(const auto& operation:found->second.stack) {
+        if(operation.macro)continue;
+        const auto prefix="op."+operation.id+".";
+        if(ref.field.starts_with(prefix)&&operation.parameters.contains(ref.field.substr(prefix.size())))
+            return builtin_semantic_descriptor(operation.type,ref.field.substr(prefix.size()));
+    }
+    return {};
+}
+SemanticParameterDescriptor macro_semantic_descriptor(const Document& document,const Ref& ref) {
+    const auto object=document.objects.find(ref.object);
+    if(object==document.objects.end())throw Error("MISSING_OBJECT",ref.object);
+    const auto instance=std::find_if(object->second.stack.begin(),object->second.stack.end(),
+        [&](const auto& entry){return entry.id==ref.point&&entry.macro.has_value();});
+    if(instance==object->second.stack.end())throw Error("MISSING_MACRO_INSTANCE",ref.point);
+    const auto& revision=document.macro_definitions.at(instance->macro->definition).revisions.at(instance->macro->pinned_revision);
+    const auto parameter=std::find_if(revision.public_parameters.begin(),revision.public_parameters.end(),
+        [&](const auto& p){return p.id==ref.field;});
+    if(parameter==revision.public_parameters.end())throw Error("MISSING_MACRO_PARAMETER",ref.field);
+    const auto node=std::find_if(revision.nodes.begin(),revision.nodes.end(),[&](const auto& n){return n.operation.id==parameter->node;});
+    require_descriptor(node!=revision.nodes.end(),"Public parameter target node is missing");
+    auto descriptor=builtin_semantic_descriptor(node->operation.type,parameter->parameter);
+    require_descriptor(descriptor.has_value(),"Public parameter target has no supported semantic descriptor");
+    require_descriptor(parameter->value_type==descriptor->value_type&&parameter->unit==descriptor->unit&&parameter->domain==descriptor->domain,
+        "Public parameter type/unit/domain differs from its canonical target");
+    descriptor->key=parameter->id;descriptor->label=parameter->label;
+    descriptor->default_value=node->operation.parameters.at(parameter->parameter).literal;
+    validate_semantic_descriptor(*descriptor);return *descriptor;
+}
+}

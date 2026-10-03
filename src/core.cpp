@@ -1462,6 +1462,7 @@ std::vector<Ref> properties(const Document& document) {
         }
     }
     for(const auto& composition:document.compositions)for(const auto& board:composition.artboards) {
+        refs.push_back({board.id,"","artboard.background"});
         refs.push_back({board.id,"","artboard.width"});
         refs.push_back({board.id,"","artboard.height"});
         for(const auto& occurrence:effective_artboard_guides(document,composition.id,board.id)) {
@@ -3799,6 +3800,25 @@ private:
 };
 }
 
+ArtboardBackgroundState artboard_background_state(const Composition& composition,const Id& artboard) {
+    auto current=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& b){return b.id==artboard;});
+    require(current!=composition.artboards.end(),"MISSING_ARTBOARD",artboard);
+    ArtboardBackgroundState state;state.overridden=current->template_assignment&&current->template_assignment->background_overridden;
+    std::set<Id> visited;
+    for(unsigned depth=0;depth<256;++depth){
+        require(visited.insert(current->id).second,"TEMPLATE_CYCLE","Artboard background Template cycle");
+        if(!current->template_assignment||current->template_assignment->background_overridden){
+            state.value=current->background;state.source_artboard=current->id;state.inherited=current->id!=artboard;return state;
+        }
+        const auto definition=std::find_if(composition.templates.begin(),composition.templates.end(),[&](const auto& d){return d.id==current->template_assignment->template_id;});
+        require(definition!=composition.templates.end(),"MISSING_ARTBOARD_TEMPLATE",current->template_assignment->template_id);
+        if(state.immediate_source_artboard.empty())state.immediate_source_artboard=definition->source_artboard;
+        current=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& b){return b.id==definition->source_artboard;});
+        require(current!=composition.artboards.end(),"MISSING_ARTBOARD",definition->source_artboard);
+    }
+    throw Error("ARTBOARD_DEPTH","Artboard background Template depth limit 256");
+}
+
 Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
     const auto found=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const Artboard& item) {
         return item.id==artboard;
@@ -3806,6 +3826,7 @@ Artboard evaluate_artboard(const Composition& composition,const Id& artboard) {
     require(found!=composition.artboards.end(),"MISSING_ARTBOARD",artboard);
     ArtboardPropertyEvaluator evaluator(composition);
     auto result=*found;
+    result.background=artboard_background_state(composition,artboard).value;
     result.width=evaluator.value(artboard_size_ref(artboard,true));
     result.height=evaluator.value(artboard_size_ref(artboard,false));
     const auto* margin_owner=template_layout_owner(composition,*found,true);
@@ -4359,6 +4380,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                 require(std::isfinite(guide.position)&&std::abs(guide.position)<=1e9,"INVALID_ARTBOARD_GUIDE",
                     "Artboard Guide position must be finite and within [-1e9,1e9] du");
             }
+            if(a.background){const auto& color=*a.background;
+                require(color.space=="srgb"&&color.profile=="srgb"&&color.alpha=="straight","UNSUPPORTED_COLOR","Artboard background requires sRGB straight-alpha ColorValue");
+                for(double channel:color.rgba)require(std::isfinite(channel)&&channel>=0&&channel<=1,"INVALID_COLOR","Background RGBA must be finite and within [0,1]");
+            }
             finite(a.x); finite(a.y); finite(a.width); finite(a.height);
             require(a.width>0&&a.height>0&&a.width<=1e7&&a.height<=1e7,"INVALID_ARTBOARD",a.id);
             require(std::abs(a.x)<=1e9&&std::abs(a.y)<=1e9,"INVALID_ARTBOARD","Frame position exceeds 1e9");
@@ -4381,6 +4406,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                     *assignment.width_override<=1e7,"ARTBOARD_SIZE_RANGE","Template width override must be in (0,10000000]");
                 if(assignment.height_override)require(std::isfinite(*assignment.height_override)&&*assignment.height_override>0&&
                     *assignment.height_override<=1e7,"ARTBOARD_SIZE_RANGE","Template height override must be in (0,10000000]");
+                require(assignment.background_overridden||!a.background,"INVALID_ARTBOARD_TEMPLATE","A Template-local background requires its family override state");
                 require(assignment.margin_overridden||!a.layout||!a.layout->margin,"INVALID_ARTBOARD_TEMPLATE",
                     "A Template-local Margin requires its family override state");
                 require(assignment.grid_overridden||!a.layout||!a.layout->grid,"INVALID_ARTBOARD_TEMPLATE",
@@ -6334,7 +6360,11 @@ void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& c
         });
         require(comp_it!=candidate.compositions.end(),"MISSING_COMPOSITION",mutation.composition);
         auto& composition=*comp_it;
-        if constexpr(std::is_same_v<T,CreateArtboardTemplate>) {
+        if constexpr(std::is_same_v<T,SetArtboardBackground>) {
+            auto board=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& b){return b.id==mutation.artboard_id;});
+            require(board!=composition.artboards.end(),"MISSING_ARTBOARD",mutation.artboard_id);
+            board->background=mutation.value;if(board->template_assignment)board->template_assignment->background_overridden=true;
+        } else if constexpr(std::is_same_v<T,CreateArtboardTemplate>) {
             const auto& value=mutation.value;
             identity(value.id);
             require(std::none_of(composition.templates.begin(),composition.templates.end(),[&](const auto& item){return item.id==value.id;}),
@@ -6406,6 +6436,7 @@ void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& c
             });
             require(definition!=composition.templates.end(),"MISSING_ARTBOARD_TEMPLATE",mutation.template_id);
             ArtboardTemplateAssignment assignment;assignment.template_id=definition->id;
+            assignment.background_overridden=board->background.has_value();
             assignment.margin_overridden=board->layout&&board->layout->margin.has_value();
             assignment.grid_overridden=board->layout&&board->layout->grid.has_value();
             if(board->layout&&board->layout->grid)assignment.grid_id=board->layout->grid->id;
@@ -6476,6 +6507,9 @@ void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& c
                 }
                 if(!board->layout)board->layout=ArtboardLayout{};
                 board->layout->grid=std::move(incoming);assignment.grid_overridden=true;
+            } else if(mutation.field=="background") {
+                require(std::holds_alternative<std::optional<ColorValue>>(mutation.value),"TYPE_MISMATCH","Background override requires ColorValue or null");
+                board->background=std::get<std::optional<ColorValue>>(mutation.value);assignment.background_overridden=true;
             } else throw Error("UNSUPPORTED_TEMPLATE_OVERRIDE",mutation.field);
         } else if constexpr(std::is_same_v<T,ResetArtboardTemplateOverride>) {
             auto board=std::find_if(composition.artboards.begin(),composition.artboards.end(),[&](const auto& item) {
@@ -6494,7 +6528,8 @@ void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& c
                 assignment.margin_overridden=false;if(board->layout)board->layout->margin.reset();
             } else if(mutation.field=="layout.grid") {
                 assignment.grid_overridden=false;if(board->layout)board->layout->grid.reset();
-            } else throw Error("UNSUPPORTED_TEMPLATE_OVERRIDE",mutation.field);
+            } else if(mutation.field=="background") {assignment.background_overridden=false;board->background.reset();}
+            else throw Error("UNSUPPORTED_TEMPLATE_OVERRIDE",mutation.field);
             if(board->parent_size&&!board->parent_size->width&&!board->parent_size->height)board->parent_size.reset();
             if(board->layout&&!board->layout->margin&&!board->layout->grid)board->layout.reset();
         } else if constexpr(std::is_same_v<T,DetachArtboardTemplate>) {
@@ -6532,6 +6567,7 @@ void edit_artboard_template(Document& candidate,const ArtboardTemplateCommand& c
                 return item.id==mutation.artboard_id;
             });
             board->local_guides.insert(board->local_guides.end(),materialized_guides.begin(),materialized_guides.end());
+            board->background=resolved.background;
             board->template_assignment.reset();
             if(board->layout&&!board->layout->margin&&!board->layout->grid)board->layout.reset();
         }
@@ -7163,6 +7199,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
     std::set<Ref> geometry_mask_enabled_targets;
     std::set<Ref> point_edit_enabled_targets;
     std::set<Ref> composite_isolation_targets;
+    std::set<Ref> text_content_targets;
     std::set<Ref> artboard_size_targets;
     std::set<Ref> margin_left_targets;
     std::set<Ref> margin_top_targets;
@@ -7194,6 +7231,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(point_edit_enabled_targets.insert(value.target).second,"DUPLICATE_TARGET","A Point Edit enabled target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkCompositeIsolated>||std::is_same_v<T,UnlinkCompositeIsolated>)
             require(composite_isolation_targets.insert(value.target).second,"DUPLICATE_TARGET","A Composite isolation target may be linked or unlinked only once per batch");
+        else if constexpr(std::is_same_v<T,LinkTextContent>||std::is_same_v<T,UnlinkTextContent>)
+            require(text_content_targets.insert(value.target).second,"DUPLICATE_TARGET","A Text content target may be linked or unlinked only once per batch");
         else if constexpr(std::is_same_v<T,LinkArtboardSize>||std::is_same_v<T,SetArtboardSizeExpression>||std::is_same_v<T,UnlinkArtboardSize>)
             require(artboard_size_targets.insert(value.target).second,"DUPLICATE_TARGET","An Artboard size target may be changed only once per batch");
         else if constexpr(std::is_same_v<T,LayoutDependencyCommand>)
@@ -7576,6 +7615,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
         } else if constexpr(std::is_same_v<T,LinkTextContent>) {
             const auto& current=text_content_source(candidate,c.target);
             (void)text_content_source(candidate,c.source);
+            require(c.target!=c.source,"DEPENDENCY_CYCLE","Text content cannot link to itself");
             require(!current.content_driver||c.replace_driver,"DRIVEN_PROPERTY","Replacing a Text content driver requires replace_driver=true");
             candidate.objects.at(c.target.object).text->content_driver=TextContentDriver{c.source};
         } else if constexpr(std::is_same_v<T,UnlinkTextContent>) {
@@ -7769,6 +7809,7 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             require(comp!=candidate.compositions.end(),"MISSING_COMPOSITION",c.composition);
             auto& boards=comp->artboards;
             if constexpr(std::is_same_v<T,AddArtboard>) {
+                require(!c.artboard.background,"USE_TYPED_COMMAND","Set backgrounds with set_artboard_background");
                 require(c.artboard.local_guides.empty(),"USE_TYPED_COMMAND",
                     "Add Artboard Guides with add_artboard_guide commands");
                 require(!c.artboard.width_driver&&!c.artboard.height_driver,"ARTBOARD_DRIVER_SMUGGLING",
@@ -7836,7 +7877,8 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
                 if constexpr(std::is_same_v<T,UpdateArtboard>) {
                     require(c.artboard.local_guides.empty()||c.artboard.local_guides==board->local_guides,
                         "USE_TYPED_COMMAND","Update Artboard Guides with add/update/delete_artboard_guide commands");
-                    auto updated=c.artboard;
+                    require(!c.artboard.background||c.artboard.background==board->background,"USE_TYPED_COMMAND","Set backgrounds with set_artboard_background");
+                    auto updated=c.artboard;updated.background=board->background;
                     // Legacy Artboard updates carry only frame fields. A missing
                     // layout payload must not erase authored P02 definitions.
                     if(!updated.layout)updated.layout=board->layout;

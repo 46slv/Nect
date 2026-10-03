@@ -557,6 +557,18 @@ NamedColor read_named_color(const j::value& value,bool allow_expression=true) {
     if(rgba.size()!=4)throw Error("INVALID_COLOR","Four RGBA channels required");
     for(std::size_t i=0;i<4;++i)color.rgba[i]=read_scalar(rgba[i],allow_expression);return color;
 }
+j::object background_property_json(const Document& d,const Ref& r) {
+    if(!r.point.empty()||r.field!="artboard.background")throw Error("INVALID_ARTBOARD_REF","Background requires exact Artboard Ref");
+    for(const auto& comp:d.compositions)for(const auto& board:comp.artboards)if(board.id==r.object){
+        const auto state=artboard_background_state(comp,board.id);
+        return {{"ref",ref_json(r)},{"type","optional_color"},{"link",false},{"expression",false},
+            {"authored",j::object{{"value",board.background?color_json(*board.background):j::value(nullptr)},{"overridden",state.overridden}}},
+            {"evaluated",state.value?color_json(*state.value):j::value(nullptr)},
+            {"inherited",state.inherited},{"source_artboard",state.source_artboard},{"immediate_source_artboard",state.immediate_source_artboard},
+            {"mutation","set_artboard_background"},{"render_policy","output_underlay_after_transparent_artwork"}};
+    }
+    throw Error("MISSING_ARTBOARD",r.object);
+}
 j::object named_color_json(const NamedColor& color) {
     j::array rgba;for(const auto& scalar:color.rgba)rgba.push_back(scalar_json(scalar));
     return {{"id",color.id},{"name",color.name},{"space","srgb"},{"profile","srgb"},{"alpha","straight"},{"rgba",rgba}};
@@ -1616,7 +1628,7 @@ j::object artboard_guide_json(const ArtboardGuide& value) {
     return {{"id",value.id},{"name",value.name},{"axis",value.axis},
         {"position",value.position},{"enabled",value.enabled}};
 }
-ArtboardTemplateAssignment read_template_assignment(const j::value& value,bool allow_guide_state=false) {
+ArtboardTemplateAssignment read_template_assignment(const j::value& value,bool allow_guide_state=false,bool allow_background=false) {
     const auto& object=value.as_object();
     std::vector<std::string_view> allowed{"template_id","grid_id","content_instance","width_override","height_override",
         "margin_overridden","grid_overridden"};
@@ -1624,6 +1636,7 @@ ArtboardTemplateAssignment read_template_assignment(const j::value& value,bool a
         allowed.push_back("guide_position_overrides");allowed.push_back("guide_enabled_overrides");
         allowed.push_back("detached_guides");
     }
+    if(allow_background)allowed.push_back("background_overridden");
     keys(object,allowed);
     ArtboardTemplateAssignment result;
     result.template_id=text(object.at("template_id"));result.grid_id=text(object.at("grid_id"));
@@ -1632,6 +1645,7 @@ ArtboardTemplateAssignment read_template_assignment(const j::value& value,bool a
     if(const auto* height=object.if_contains("height_override");height&&!height->is_null())result.height_override=number(*height);
     result.margin_overridden=object.at("margin_overridden").as_bool();
     result.grid_overridden=object.at("grid_overridden").as_bool();
+    if(allow_background)if(const auto* flag=object.if_contains("background_overridden"))result.background_overridden=flag->as_bool();
     if(allow_guide_state) {
         if(const auto* entries=object.if_contains("guide_position_overrides"))for(const auto& entry:entries->as_array()) {
             const auto& fields=entry.as_object();keys(fields,{"guide_id","position"});
@@ -1655,6 +1669,7 @@ j::object template_assignment_json(const ArtboardTemplateAssignment& value) {
         {"width_override",value.width_override?j::value(*value.width_override):j::value(nullptr)},
         {"height_override",value.height_override?j::value(*value.height_override):j::value(nullptr)},
         {"margin_overridden",value.margin_overridden},{"grid_overridden",value.grid_overridden}};
+    if(value.background_overridden)result["background_overridden"]=true;
     if(!value.guide_position_overrides.empty()) {
         j::array entries;for(const auto& [guide_id,position]:value.guide_position_overrides)
             entries.push_back(j::object{{"guide_id",guide_id},{"position",position}});
@@ -1678,7 +1693,7 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
     bool allow_grid_row_gutter_driver=false,bool allow_grid_row_gutter_expression=false,
     bool allow_grid_column_gutter_expression=false,bool allow_grid_columns_driver=false,bool allow_grid_rows_driver=false,
     bool allow_grid_columns_expression=false,bool allow_grid_rows_expression=false,bool allow_template=false,
-    bool allow_local_guides=false) {
+    bool allow_local_guides=false,bool allow_background=false) {
     const auto& a=v.as_object();
     std::vector<std::string_view> allowed{"id","name","x","y","width","height"};
     if(allow_parent)allowed.push_back("parent_size");
@@ -1686,6 +1701,7 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
     if(allow_size_driver){allowed.push_back("width_driver");allowed.push_back("height_driver");}
     if(allow_template)allowed.push_back("template_assignment");
     if(allow_local_guides)allowed.push_back("local_guides");
+    if(allow_background)allowed.push_back("background");
     keys(a,allowed);
     Artboard result{text(a.at("id")),text(a.at("name")),number(a.at("x")),number(a.at("y")),number(a.at("width")),number(a.at("height"))};
     if(const auto* p=a.if_contains("parent_size")) {
@@ -1707,13 +1723,15 @@ Artboard read_artboard(const j::value& v,bool allow_parent=true,bool allow_layou
         if(const auto* driver=a.if_contains("height_driver"))result.height_driver=read_artboard_size_driver(*driver);
     }
     if(allow_template)if(const auto* assignment=a.if_contains("template_assignment"))
-        result.template_assignment=read_template_assignment(*assignment,allow_local_guides);
+        result.template_assignment=read_template_assignment(*assignment,allow_local_guides,allow_background);
+    if(allow_background)if(const auto* background=a.if_contains("background"))result.background=read_color(*background);
     if(allow_local_guides)if(const auto* guides=a.if_contains("local_guides"))
         for(const auto& value:guides->as_array())result.local_guides.push_back(read_artboard_guide(value));
     return result;
 }
 j::object artboard_json(const Artboard& a) {
     j::object result{{"id",a.id},{"name",a.name},{"x",a.x},{"y",a.y},{"width",a.width},{"height",a.height}};
+    if(a.background)result["background"]=color_json(*a.background);
     if(a.parent_size)result["parent_size"]=j::object{{"artboard",a.parent_size->artboard},{"width",a.parent_size->width},{"height",a.parent_size->height}};
     if(a.layout)result["layout"]=layout_json(*a.layout);
     if(a.width_driver)result["width_driver"]=artboard_size_driver_json(*a.width_driver);
@@ -1797,6 +1815,11 @@ DefinitionCommand read_definition_command(const j::value& v) {
 
 ArtboardTemplateCommand read_artboard_template_command(const j::value& value) {
     const auto& object=value.as_object();const auto type=text(object.at("type"));
+    if(type=="set_artboard_background") {
+        keys(object,{"type","composition","artboard","value"});
+        return ArtboardTemplateCommand{SetArtboardBackground{text(object.at("composition")),text(object.at("artboard")),
+            object.at("value").is_null()?std::optional<ColorValue>{}:std::optional<ColorValue>{read_color(object.at("value"))}}};
+    }
     if(type=="create_artboard_template") {
         keys(object,{"type","composition","id","name","source_artboard","definition"});
         std::optional<Id> definition;
@@ -1822,7 +1845,7 @@ ArtboardTemplateCommand read_artboard_template_command(const j::value& value) {
     if(type=="set_artboard_template_override") {
         keys(object,{"type","composition","artboard","field","value"});
         const auto field=text(object.at("field"));
-        std::variant<double,std::optional<Margin>,std::optional<Grid>> value_payload;
+        std::variant<double,std::optional<Margin>,std::optional<Grid>,std::optional<ColorValue>> value_payload;
         if(field=="frame.width"||field=="frame.height")value_payload=number(object.at("value"));
         else if(field=="layout.margin") {
             if(object.at("value").is_null())value_payload=std::optional<Margin>{};
@@ -1830,7 +1853,8 @@ ArtboardTemplateCommand read_artboard_template_command(const j::value& value) {
         } else if(field=="layout.grid") {
             if(object.at("value").is_null())value_payload=std::optional<Grid>{};
             else {const auto layout=read_layout(j::object{{"grid",object.at("value")}});value_payload=layout.grid;}
-        } else throw Error("UNSUPPORTED_TEMPLATE_OVERRIDE",field);
+        } else if(field=="background")value_payload=object.at("value").is_null()?std::optional<ColorValue>{}:std::optional<ColorValue>{read_color(object.at("value"))};
+        else throw Error("UNSUPPORTED_TEMPLATE_OVERRIDE",field);
         return ArtboardTemplateCommand{SetArtboardTemplateOverride{text(object.at("composition")),
             text(object.at("artboard")),field,std::move(value_payload)}};
     }
@@ -1980,7 +2004,7 @@ Command read_command(const j::value& v) {
     auto& o=v.as_object();
     auto type=text(o.at("type"));
     if(type=="create_artboard_template"||type=="rename_artboard_template"||type=="delete_artboard_template"||
-        type=="assign_artboard_template"||type=="set_artboard_template_override"||
+        type=="assign_artboard_template"||type=="set_artboard_background"||type=="set_artboard_template_override"||
         type=="reset_artboard_template_override"||type=="detach_artboard_template"||type=="duplicate_template_artboard")
         return StructuralCommand{read_artboard_template_command(v)};
     if(type=="add_artboard_guide"||type=="update_artboard_guide"||type=="delete_artboard_guide"||
@@ -2646,11 +2670,16 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,80> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80"};
+        constexpr std::array<std::string_view,81> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80","0.81"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.80 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.81 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
+        if(minor<81)for(const auto& composition:root.at("compositions").as_array())for(const auto& board:composition.as_object().at("artboards").as_array()){
+            const auto& fields=board.as_object();const auto* assignment=fields.if_contains("template_assignment");
+            if(fields.contains("background")||(assignment&&assignment->as_object().contains("background_overridden")))
+                throw Error("NATIVE_VERSION_MISMATCH","Artboard background requires native 0.81");
+        }
         // Introduction gate precedes historical-field validation so an Object
         // carrying a new mode cannot claim any older native version, even one
         // that predates the compositing field. Definition sources live here too.
@@ -2704,7 +2733,7 @@ Document decode(std::string_view input) {
             c.name=text(co.at("name"));
             c.roots=ids(co.at("roots"));
 
-            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35,minor>=36,minor>=37,minor>=38,minor>=39,minor>=40,minor>=41,minor>=42,minor>=43,minor>=44,minor>=45,minor>=46,minor>=47,minor>=48,minor>=49,minor>=50,minor>=51,minor>=52,minor>=53,minor>=54,minor>=56,minor>=57,minor>=58,minor>=59,minor>=76,minor>=77));
+            for(const auto& av:co.at("artboards").as_array())c.artboards.push_back(read_artboard(av,minor>=5,minor>=14,minor>=33,minor>=35,minor>=36,minor>=37,minor>=38,minor>=39,minor>=40,minor>=41,minor>=42,minor>=43,minor>=44,minor>=45,minor>=46,minor>=47,minor>=48,minor>=49,minor>=50,minor>=51,minor>=52,minor>=53,minor>=54,minor>=56,minor>=57,minor>=58,minor>=59,minor>=76,minor>=77,minor>=81));
             if(minor>=14)for(const auto& gv:co.at("guides").as_array())c.guides.push_back(read_guide(gv,minor>=23,minor>=34));
             if(minor>=76)for(const auto& tv:co.at("templates").as_array())c.templates.push_back(read_artboard_template(tv));
             d.compositions.push_back(std::move(c));
@@ -3007,6 +3036,11 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
        <<"px\" height=\""<<art->height<<"px\" viewBox=\""<<art->x<<" "<<art->y
        <<" "<<art->width<<" "<<art->height<<"\">\n";
 
+    if(art->background){const auto& rgba=art->background->rgba;
+        out<<"<rect x=\""<<art->x<<"\" y=\""<<art->y<<"\" width=\""<<art->width<<"\" height=\""<<art->height
+            <<"\" fill=\"rgb("<<rgba[0]*100<<"%,"<<rgba[1]*100<<"%,"<<rgba[2]*100<<"%)\" fill-opacity=\""<<rgba[3]<<"\"/>\n";
+        out<<"<g style=\"isolation:isolate\" color-interpolation=\"sRGB\">\n";
+    }
     std::set<Id> svg_ids;for(const auto& [id,object]:d.objects){svg_ids.insert(id);if(object.compositing.mask)svg_ids.insert(object.compositing.mask->id);}
     const Document* render_document=&d;
     const std::map<Ref,double>* render_values=&values;
@@ -3114,7 +3148,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
             }
             out<<"</g>\n";
         };
-        for(const auto& node:scene.roots)render_node(node);out<<"</svg>\n";return out.str();
+        for(const auto& node:scene.roots)render_node(node);if(art->background)out<<"</g>\n";out<<"</svg>\n";return out.str();
     }
 
     std::function<void(const Id&)> render=[&](const Id& id) {
@@ -3140,6 +3174,7 @@ std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     };
 
     for(const auto& id:comp->roots) render(id);
+    if(art->background)out<<"</g>\n";
     out<<"</svg>\n";
     return out.str();
 }
@@ -3179,7 +3214,8 @@ std::string request(Session& session,std::string_view input) {
                 if(!object->second.text->parameters.contains(r.field.substr(5)))
                     throw Error("UNKNOWN_TEXT_PROPERTY","Unsupported Text source property: "+r.field);
             }
-            if(r.field.starts_with("margin.")||r.field.starts_with("grid."))
+            if(r.field=="artboard.background")result=background_property_json(session.document(),r);
+            else if(r.field.starts_with("margin.")||r.field.starts_with("grid."))
                 result=artboard_layout_property_json(session.document(),r,artboard_layout_property(session.document(),r));
             else if(r.field=="guide.position")result=guide_position_property_json(
                 guide_property_name(session.document(),r),r,guide_position_property(session.document(),r));
@@ -3321,6 +3357,7 @@ std::string request(Session& session,std::string_view input) {
                         artboard_names.at(ref.object)+" / "+occurrence.name));
                     continue;
                 }
+                if(ref.field=="artboard.background"){list.push_back(background_property_json(session.document(),ref));continue;}
                 if(ref.field.starts_with("artboard.")) {
                     list.push_back(artboard_size_property_json(session.document(),ref,artboard_size_property(session.document(),ref)));
                     continue;
@@ -3505,6 +3542,7 @@ std::string request(Session& session,std::string_view input) {
                     {"enabled",guide.enabled},{"inherited",guide.inherited},
                     {"position_overridden",guide.position_overridden},{"enabled_overridden",guide.enabled_overridden}});
                 frames.push_back(j::object{{"authored",artboard_json(a)},{"evaluated",artboard_json(evaluated)},
+                    {"background_state",background_property_json(session.document(),{a.id,"","artboard.background"})},
                     {"effective_guides",std::move(guides)}});
             }
             result=std::move(frames);

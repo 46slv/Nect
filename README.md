@@ -366,7 +366,7 @@ geometry/appearance. See [model contract](docs/model-v0.md#native010-property-ex
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.80.schema.json` — current native JSON shape (0.1–0.79 readers retained)
+- `schemas/native-v0.81.schema.json` — current native JSON shape (0.1–0.80 readers retained)
 
 ## Project rules
 
@@ -543,3 +543,10 @@ references to the removed Group and unpreservable child dependencies are refused
 with an explanation. This is especially useful for static imported SVG nesting.
 The same `ungroup {composition,parent,group}` command works through API/MCP;
 [the precise preservation contract](docs/model-v0.md) applies to all callers.
+
+
+Artboards can author an optional literal sRGB background through
+`set_artboard_background {composition,artboard,value}` (`null` means none).
+The Template `background` family supports override, Reset and full detach freeze.
+PNG/SVG place it beneath the completed transparent artwork; region analysis
+continues to analyze artwork only. The native background UI is a pending vertical.

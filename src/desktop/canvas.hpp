@@ -45,7 +45,7 @@ public:
 
     void refresh();
     bool projection_succeeded() const {return !projection_error_;}
-    static QImage render_artboard(const Document&,const Id& composition,const Id& artboard,double scale,bool white_background);
+    static QImage render_artboard(const Document&,const Id& composition,const Id& artboard,double scale,bool white_background,bool include_authored_background=true);
     const std::map<Ref,double>& evaluated_values() const {return values_;}
     const std::map<Id,EvaluatedTransform>& evaluated_transforms() const {return transforms_;}
     void fit_selection();
