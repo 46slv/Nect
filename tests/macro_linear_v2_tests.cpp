@@ -199,8 +199,8 @@ void primary_flow_and_cold_reopen(const std::string& executable) {
         "Shared API reads the stable public parameter from its mapped node");
     session.undo(session.revision());check(encode(session.document())==before_override,"One Undo removes only the public override");
     session.redo(session.revision());check(encode(session.document())==overridden,"Redo restores exact override bytes");
-    check(parsed(overridden).at("version").as_string()=="0.83"&&decode(overridden)==session.document(),
-        "Native 0.83 roundtrips the complete graph, authored order and instance");
+    check(parsed(overridden).at("version").as_string()==native_version&&decode(overridden)==session.document(),
+        "Current native format roundtrips the complete graph, authored order and instance");
     const auto path=std::filesystem::temp_directory_path()/
         ("nect-macro-linear-v2-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".nect");
     {std::ofstream file(path,std::ios::binary);file<<overridden;check(file.good(),"Native file is saved before cold replay");}
@@ -213,7 +213,7 @@ void primary_flow_and_cold_reopen(const std::string& executable) {
     const auto result=std::system((quoted(executable)+" --cold-read "+quoted(path.string())).c_str());
 #endif
     std::filesystem::remove(path);
-    check(result==0,"A fresh process cold-reopens native 0.83 and verifies the full geometry oracle");
+    check(result==0,"A fresh process cold-reopens the current native format and verifies the full geometry oracle");
 }
 void noncommuting_repeater_edge_order() {
     auto definition=chain({"nect.shape.offset","nect.shape.repeater","nect.shape.repeater"});
