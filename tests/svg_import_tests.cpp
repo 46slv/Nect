@@ -1,4 +1,6 @@
 #include "svg_import.hpp"
+#include "svg_rgb_import_tests.hpp"
+#include "svg_linear_gradient_import_tests.hpp"
 #include "window.hpp"
 #include <QApplication>
 #include <QTemporaryDir>
@@ -128,7 +130,11 @@ std::string budget_body(const QString& matrix,const QString& last={}) {
 }
 int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try {
     const bool parser_session_only=argc==2&&QString::fromLocal8Bit(argv[1])=="--parser-session-only";
-    check(argc==1||parser_session_only,"Usage: svg_import_tests [--parser-session-only]");
+    const bool rgb_interop_only=argc==2&&QString::fromLocal8Bit(argv[1])=="--rgb-interop-only";
+    const bool gradient_only=argc==2&&QString::fromLocal8Bit(argv[1])=="--linear-gradient-only";
+    check(argc==1||parser_session_only||rgb_interop_only||gradient_only,"Usage: svg_import_tests [--parser-session-only|--rgb-interop-only|--linear-gradient-only]");
+    if(!parser_session_only&&!gradient_only)svg_rgb_tests::run();if(rgb_interop_only)return 0;
+    if(!parser_session_only)svg_linear_gradient_tests::run();if(gradient_only)return 0;
     const std::string svg=R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="10 20 100 100"><title>Original fixture</title><g id="mark" fill="#e04020" transform="translate(10,5)"><path id="outline" d="M10 20h30v20h-30z"/><path d="M0 0q3 6 9 0t9 0" style="fill:none;stroke:#123;stroke-width:2"/></g></svg>)svg";
     auto plan=read_svg(svg,"comp","asset","Artwork",20,30);Session s(empty_document("doc","comp","art"));const auto before=s.document();s.apply(plan.commands,0);
     check(plan.paths==2&&plan.root=="asset"&&s.document().objects.at("asset").kind==Kind::group,"SVG becomes editable Group");

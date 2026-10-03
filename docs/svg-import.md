@@ -23,17 +23,99 @@ Supported subset:
 - Affine matrix/translate/scale/rotate/skew transforms and hierarchy/paint order.
 - Positive unitless/px viewport sizes or viewBox-derived size; nonzero viewBox
   origin; preserveAspectRatio none or xMidYMid meet (default).
-- Solid opaque named or #RGB/#RRGGBB sRGB colors, none, inherited fill/stroke,
+- Solid named and #RGB/#RRGGBB sRGB colors, CSS alpha-last #RGBA/#RRGGBBAA,
+  transparent (zero-alpha black), numeric rgb()/rgba(), none, inherited fill/stroke,
   fill/stroke opacity and width, nonzero/evenodd, object/Group opacity. Restricted
   inline style overrides presentation attributes. Stroke linecap butt/round/square,
   linejoin miter/round/bevel and finite unitless miterlimit 1–1000 are supported;
-  explicit `inherit` is accepted for those three properties only.
+  explicit `inherit` is accepted for those three stroke properties.
+- Inherited `color` on svg/groups/shapes, defaulting to opaque black; fill/stroke
+  `currentColor` resolves against the same element's final color, including inline
+  style overrides. `color:currentColor` and `color:inherit` retain the inherited
+  color. Color uses the qualified solid sRGB subset below, including alpha.
+- Internal `url(#id)` linear/centered radial gradients in `defs`, with explicit
+  `gradientUnits="userSpaceOnUse"`, finite unitless/px x1/y1/x2/y2 (linear) or
+  cx/cy/r (radial), pad spread and sRGB interpolation. This covers the native
+  gradient exporter subset and forward references. Radial focal attributes
+  fx/fy/fr must be omitted, retaining the centered, zero focal-radius defaults.
+- Linear `objectBoundingBox` gradients, including omitted gradientUnits and the
+  SVG default vector (0,0) to (1,0). Coordinates accept finite unitless fractions
+  or percentages, including fractions outside [0,1]; px/other units refuse.
+  Each paint uses its target's local geometric box, including cubic extrema and
+  zero-length subpaths, excluding stroke width and ancestor/object transforms.
+- Linear gradientTransform accepts bounded affine matrix/translate/scale/rotate/
+  skew lists. In userSpaceOnUse the gradient matrix is used directly; bbox units
+  compose bbox * gradientTransform, per SVG's post-multiplication rule. Radial
+  gradientTransform remains unsupported, including identity.
+
+Color functions accept legacy comma-separated RGB channels with matching numeric
+or percentage units and optional alpha, or modern whitespace-separated channels
+with independent numeric/percentage units and optional slash alpha. Alpha accepts
+a number or percentage and multiplies fill/stroke opacity; object/Group opacity
+stays separate. Modern components must be finite and in range: RGB 0..255 or
+0..100%, alpha 0..1 or 0..100%; values outside that subset reject without clamping.
+The existing legacy comma behavior retains CSS clamping within its finite 1e7
+numeric safety bound. Both forms reject missing (`none`) components, expressions,
+relative colors, comments and mixed separators. Color syntax follows the bounded
+subset of [CSS Color 4](https://www.w3.org/TR/css-color-4/#rgb-functions).
+
+Static `currentColor` becomes editable literal RGBA; its live linkage to `color`
+is lost. Inherited fill/stroke keywords resolve using each descendant's color,
+not the ancestor's color. Color alpha multiplies fill/stroke opacity once;
+object/Group opacity stays separate. Same-element declaration order does not
+change resolution. Unsupported color declarations refuse, including overwritten
+inline declarations, rather than applying CSS invalid-value fallback. Gradient
+stop `currentColor` and color declarations on defs/gradients/stops remain
+unsupported: their paint-server inheritance is outside this slice.
+See [CSS currentcolor resolution](https://www.w3.org/TR/css-color-4/#resolving-other-colors)
+and [SVG color](https://www.w3.org/TR/SVG2/painting.html#ColorProperty).
+
+Gradient stops use the qualified solid colors above and independent stop opacity;
+color alpha multiplies stop opacity, then native paint alpha applies fill/stroke
+opacity once. Object/Group opacity remains separate. Definitions are limited to
+128; each editable native gradient requires 2..64 strictly increasing offsets in
+[0,1] (number or percentage) and an endpoint distance greater than 1e-9. The pinned
+native model cannot preserve 65..256 stops or coincident hard edges, so those cases
+explicitly refuse. Coordinates, stop offsets and RGBA remain editable native
+Scalars. Each paint receives its own gradient and stop IDs: shared SVG definitions
+are cloned, so linked-edit sharing is lost. Gradients are not flattened or sampled.
+Radial start is (cx,cy), with a canonical native end of (cx+r,cy); the exporter
+does not retain the original native endpoint direction. Radius must exceed 1e-9;
+the canonical endpoint must remain within the 1e7 coordinate bound and preserve
+radius to relative error at most 1e-12, otherwise intake refuses.
+See [SVG paint servers](https://www.w3.org/TR/SVG2/pservers.html).
+
+Bbox linear gradients become editable local native endpoint literals; changes to
+the geometry box no longer automatically remap them. On a non-square box, the
+conversion preserves gradient color planes using the inverse scale of the vector
+normal, rather than simply scaling both endpoints. The native end can therefore
+differ from the mapped SVG end while preserving the same linear paint function.
+Shared definitions still clone per paint, with each target resolved separately.
+Bounds use the existing cubic-extrema geometry API. Empty/zero-width/zero-height
+boxes, bbox radial gradients and bbox use on SVG arc paths explicitly refuse;
+arc lowering is approximate and cannot supply the exact source arc box here.
+Converted endpoints retain the 1e7 bound and 1e-12 relative vector precision.
+See [SVG object bounds](https://www.w3.org/TR/SVG2/coords.html#BoundingBoxes)
+and [bbox units](https://www.w3.org/TR/SVG2/coords.html#ObjectBoundingBox).
+
+Linear gradientTransform is baked into editable native endpoint literals using
+the inverse-transpose projection, preserving color planes under nonuniform scale,
+shear, rotation and reflection. The dynamic SVG transform relation is lost.
+Ancestor/object transforms still apply once after this local conversion. Singular
+matrices refuse; declared and bbox-composed transforms must have finite infinity-
+norm condition number at most 1e10. Existing 1e7 transform/endpoint bounds and
+1e-12 endpoint-vector guard remain; inverse and baked color-plane residuals must
+also stay within 1e-12. Unsupported CSS transform syntax
+and gradient inheritance still refuse.
 
 Unsupported semantics reject the entire import:
-text/images, gradients/patterns, use/links, masks/clips/filters, CSS stylesheets,
+text/images, objectBoundingBox radial gradients, explicit radial focal attributes,
+radial gradient transforms and gradient inheritance,
+repeat/reflect spread, alternate interpolation, patterns, external paint URLs,
+use/links, masks/clips/filters, CSS stylesheets,
 classes, variables, dashes, `initial`/`unset`/`revert`, `!important`, miter-clip,
 unknown attributes/elements,
-physical/percentage lengths, other aspect policies and foreign namespaces.
+physical/percentage geometry or userSpaceOnUse lengths, other aspect policies and foreign namespaces.
 DTD, entity references, processing instructions, scripts and external resources
 never execute or fetch. XML declaration/comments and predefined XML escapes are
 ordinary parsing, not an extension mechanism.
