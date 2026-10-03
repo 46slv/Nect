@@ -41,8 +41,10 @@ Document fixture(bool mixed=false,bool driven=false){
     if(driven)second.text->alignment_driver=TextAlignmentDriver{{"source","","text.alignment"}};
     Object path;path.id="shape";path.name="Path";path.kind=Kind::path;
     Contour contour;contour.id="contour";Point begin;begin.id="begin";begin.x.literal=10;begin.y.literal=100;
-    Point end;end.id="end";end.x.literal=400;end.y.literal=100;contour.points={begin,end};path.contours={contour};
-    second.text->path_attachment=TextPathAttachment{"shape","contour","distance",0,0,false};
+    Point end;end.id="end";end.x.literal=2010;end.y.literal=100;contour.points={begin,end};path.contours={contour};
+    // Center/End place glyphs before the attachment anchor. Leave room on both
+    // sides so every enum is valid without altering the retained attachment.
+    second.text->path_attachment=TextPathAttachment{"shape","contour","distance",1000,0,false};
     document.objects.emplace(source.id,source);document.objects.emplace(first.id,first);
     document.objects.emplace(second.id,second);document.objects.emplace(path.id,path);
     document.compositions.front().roots={"source","first","second","shape"};return document;
@@ -81,6 +83,11 @@ Document aligned(Document document,const std::string& value){
 }
 
 void primary_and_mixed(){
+    for(const auto* value:{"start","center","end"}){
+        const auto expected=aligned(fixture(),value);
+        check(decode(encode(expected))==expected,
+            "Rich open-path fixture admits each alignment with exact native readback");
+    }
     Inspector inspector;auto& session=inspector.host.session;const Snapshot before(session);
     check(inspector.state()=="Shared: Start"&&inspector.editor()->currentData().toString()=="start",
         "Equal retained Text alignment is displayed as the shared enum");
