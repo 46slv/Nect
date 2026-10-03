@@ -1,0 +1,14 @@
+{
+  "schema": "nect.extension-package/1",
+  "package_id": "org.example.nect.testop",
+  "package_version": "1.0.0",
+  "extension_api": {"major": 1, "min_minor": 0, "max_minor": 0},
+  "binaries": [{"os": "windows", "arch": "x86_64", "path": "bin/nect_testop.dll", "sha256": "@BINARY_SHA256@"}],
+  "types": [{
+    "type_id": "org.example.nect.testop.multiply", "behavior_version": 1,
+    "kind": "test_internal", "label": "Test Multiply 倍", "target_scope": "object",
+    "input_domain": "scalar_test", "output_domain": "scalar_test",
+    "parameters": [{"key": "factor", "type": "number", "unit": "unitless", "default": 1, "min": 0, "max": 4}],
+    "exports": {"native": true, "svg": "unsupported"}
+  }]
+}
