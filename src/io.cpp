@@ -1,5 +1,6 @@
 #include "nect/io.hpp"
 #include "nect/blend.hpp"
+#include "compatibility.hpp"
 #include <boost/json.hpp>
 #include <boost/json/basic_parser_impl.hpp>
 #include <set>
@@ -3513,11 +3514,23 @@ std::string request(Session& session,std::string_view input) {
             keys(o,{"op"});result=ids_json(text_fonts());
         } else if(op=="text_layout") {
             keys(o,{"op","object"});result=text_layout_json(session.document(),text(o.at("object")));
-        } else if(op=="export_plan") {
-            keys(o,{"op","composition","artboard"});const auto cid=text(o.at("composition"));
+        } else if(op=="export_plan"||op=="compatibility_plan") {
+            if(op=="export_plan")keys(o,{"op","composition","artboard"});
+            else keys(o,{"op","composition","artboard","target_profile","options"});
+            const auto cid=text(o.at("composition"));
             const auto& d=session.document();const auto comp=std::find_if(d.compositions.begin(),d.compositions.end(),[&](const auto& c){return c.id==cid;});
             if(comp==d.compositions.end())throw Error("MISSING_COMPOSITION",cid);
-            const auto board=evaluate_artboard(*comp,text(o.at("artboard")));j::array texts,unsupported_effects,unsupported_masks;
+            Id selected_board;
+            if(o.contains("artboard"))selected_board=text(o.at("artboard"));
+            else if(op=="compatibility_plan"&&comp->artboards.size()==1)selected_board=comp->artboards.front().id;
+            else throw Error("ARTBOARD_REQUIRED","Select an Artboard explicitly for a multi-Artboard compatibility plan");
+            const auto board=evaluate_artboard(*comp,selected_board);
+            if(op=="compatibility_plan"&&text(o.at("target_profile"))!="svg/1.1+css-compositing"){
+                if(o.contains("options")&&!o.at("options").is_object())throw Error("INVALID_COMPATIBILITY_OPTIONS","options must be an object");
+                result=compatibility_plan(d,session.revision(),cid,selected_board,text(o.at("target_profile")),
+                    o.contains("options")?o.at("options").as_object():j::object{},{});
+            }else{
+            j::array texts,unsupported_effects,unsupported_masks;
             const auto operation_enabled=evaluate_operation_enableds(d);
             const auto mask_enabled=evaluate_geometry_mask_enableds(d);
             std::function<void(const Id&)> walk=[&](const Id& id){const auto& object=d.objects.at(id);
@@ -3550,6 +3563,13 @@ std::string request(Session& session,std::string_view input) {
                 {"compositing_policy","vector_geometry_clips_group_opacity_css_blend_and_isolation"},{"blend_reader_requirement","SVG CSS mix-blend-mode and isolation support"},
                 {"blend_capabilities",blend_descriptors_json()},{"cross_reader_pixel_identity",false},{"nect_svg_blend_intake_supported",false},
                 {"text_policy","outlines"},{"native_source_preserved",true},{"fonts_embedded",false}};
+            if(op=="compatibility_plan"){
+                const auto profile=text(o.at("target_profile"));
+                if(o.contains("options")&&!o.at("options").is_object())throw Error("INVALID_COMPATIBILITY_OPTIONS","options must be an object");
+                const j::object options=o.contains("options")?o.at("options").as_object():j::object{};
+                result=compatibility_plan(d,session.revision(),cid,selected_board,profile,options,result.as_object());
+            }
+            }
         } else if(op=="compositing_types") {
             keys(o,{"op"});j::array blends;for(const auto& descriptor:blend_modes())blends.push_back(j::value(descriptor.id));
             result=j::object{{"version",1},{"space","srgb"},{"alpha","source-over premultiplied compositing"},

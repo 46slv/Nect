@@ -303,6 +303,19 @@ the three-frame `examples/artboard-studies.nect` fixture and numbered SVG crops.
 
 `scripts/session_client.py` calls that same desktop API directly. The original
 `nect --serve` remains a separate headless JSON-lines lane, **not MCP**.
+
+`compatibility_plan` is a read-only, profile-indexed export analysis operation.
+For `svg/1.1+css-compositing`, it returns stable source references, preserved or
+expanded primitives, planned local raster closures, editability losses and the
+unchanged legacy `export_plan` evidence. It does not generate a derivative or
+change native state. Qualified local closures keep borrowed mask/transform inputs
+separate from the items replaced by a derivative. Unresolved backdrop, driven
+geometry or stroke-bound cases refuse a closure rather than flattening the whole
+Artboard. Options currently accept `raster_scale` in `(0,16]`; multi-Artboard
+compositions require an explicit `artboard`. AI 30.8 and PDF/X-4:2008 report
+`policy_qualification_required` and missing encoder capability without guessing
+per-item target support. No Illustrator or PDF conformance is implied.
+
 `tests/mcp_desktop_tests.py` demonstrates seeded creation, edits, linking,
 reordering, failure readback, Undo, native save/restart and crash recovery.
 
