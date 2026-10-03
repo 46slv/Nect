@@ -29,10 +29,11 @@ Supported subset:
   inline style overrides presentation attributes. Stroke linecap butt/round/square,
   linejoin miter/round/bevel and finite unitless miterlimit 1–1000 are supported;
   explicit `inherit` is accepted for those three properties only.
-- Internal `url(#id)` linear gradients in `defs`, with explicit
-  `gradientUnits="userSpaceOnUse"` and finite unitless/px x1/y1/x2/y2 coordinates,
-  pad spread and sRGB interpolation. This covers the native linear-gradient
-  exporter subset and forward references.
+- Internal `url(#id)` linear/centered radial gradients in `defs`, with explicit
+  `gradientUnits="userSpaceOnUse"`, finite unitless/px x1/y1/x2/y2 (linear) or
+  cx/cy/r (radial), pad spread and sRGB interpolation. This covers the native
+  gradient exporter subset and forward references. Radial focal attributes
+  fx/fy/fr must be omitted, retaining the centered, zero focal-radius defaults.
 
 Color functions accept legacy comma-separated RGB channels with matching numeric
 or percentage units and optional alpha, or modern whitespace-separated channels
@@ -54,10 +55,15 @@ native model cannot preserve 65..256 stops or coincident hard edges, so those ca
 explicitly refuse. Coordinates, stop offsets and RGBA remain editable native
 Scalars. Each paint receives its own gradient and stop IDs: shared SVG definitions
 are cloned, so linked-edit sharing is lost. Gradients are not flattened or sampled.
+Radial start is (cx,cy), with a canonical native end of (cx+r,cy); the exporter
+does not retain the original native endpoint direction. Radius must exceed 1e-9;
+the canonical endpoint must remain within the 1e7 coordinate bound and preserve
+radius to relative error at most 1e-12, otherwise intake refuses.
 See [SVG paint servers](https://www.w3.org/TR/SVG2/pservers.html).
 
 Unsupported semantics reject the entire import:
-text/images, radial/objectBoundingBox gradients, gradient transforms/inheritance,
+text/images, objectBoundingBox gradients, explicit radial focal attributes,
+gradient transforms/inheritance,
 repeat/reflect spread, alternate interpolation, patterns, external paint URLs,
 use/links, masks/clips/filters, CSS stylesheets,
 classes, variables, dashes, `initial`/`unset`/`revert`, `!important`, miter-clip,

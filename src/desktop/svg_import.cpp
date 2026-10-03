@@ -316,24 +316,35 @@ class Reader {
     void empty_gradient_content() {
         while(true) {next();if(xml.isEndElement())break;need(xml.isComment()||(xml.isCharacters()&&xml.isWhitespace()),"SVG_UNSUPPORTED","Gradient stop child content unsupported");}
     }
-    void linear_gradient(unsigned depth) {
+    void gradient_definition(unsigned depth) {
         need(depth<=32,"SVG_LIMIT","SVG nesting limit32");svg_namespace();
-        need(xml.name()==u"linearGradient","SVG_UNSUPPORTED","Only local linear gradients supported in defs");auto a=attributes(xml);
-        need(a.contains("id")&&QRegularExpression(R"(\A[A-Za-z0-9_.:-]{1,128}\z)").match(a.at("id")).hasMatch(),"SVG_UNSUPPORTED","Linear gradient requires a bounded internal ID");
+        const bool radial=xml.name()==u"radialGradient";
+        need(radial||xml.name()==u"linearGradient","SVG_UNSUPPORTED","Only local linear/centered radial gradients supported in defs");auto a=attributes(xml);
+        need(a.contains("id")&&QRegularExpression(R"(\A[A-Za-z0-9_.:-]{1,128}\z)").match(a.at("id")).hasMatch(),"SVG_UNSUPPORTED","Gradient requires a bounded internal ID");
         const auto source=a.at("id");++source_ids[source];a.erase("id");
-        need(!gradients.contains(source)&&gradients.size()<128,"SVG_UNSUPPORTED","Duplicate or excessive linear gradient definitions");
+        need(!gradients.contains(source)&&gradients.size()<128,"SVG_UNSUPPORTED","Duplicate or excessive gradient definitions");
         need(a.contains("gradientUnits")&&a.at("gradientUnits")=="userSpaceOnUse","SVG_UNSUPPORTED","Only explicit userSpaceOnUse gradients supported");a.erase("gradientUnits");
         if(a.contains("spreadMethod")){need(a.at("spreadMethod")=="pad","SVG_UNSUPPORTED","Only pad gradient spread supported");a.erase("spreadMethod");}
         if(a.contains("color-interpolation")){need(a.at("color-interpolation")=="sRGB","SVG_UNSUPPORTED","Only sRGB gradient interpolation supported");a.erase("color-interpolation");}
         Gradient gradient;
-        auto coordinate=[&](const QString& key) {need(a.contains(key),"SVG_UNSUPPORTED","Linear gradient requires explicit finite local coordinates");const auto value=scalar(a.at(key),true);a.erase(key);return value;};
-        gradient.start_x.literal=coordinate("x1");gradient.start_y.literal=coordinate("y1");gradient.end_x.literal=coordinate("x2");gradient.end_y.literal=coordinate("y2");
-        need(std::hypot(gradient.end_x.literal-gradient.start_x.literal,gradient.end_y.literal-gradient.start_y.literal)>1e-9,"SVG_UNSUPPORTED","Degenerate linear gradient unsupported by native paint");
-        need(a.empty(),"SVG_UNSUPPORTED","Gradient transforms, inheritance and other attributes unsupported");
+        auto coordinate=[&](const QString& key) {need(a.contains(key),"SVG_UNSUPPORTED","Gradient requires explicit finite local coordinates");const auto value=scalar(a.at(key),true);a.erase(key);return value;};
+        if(radial) {
+            gradient.type="radial";gradient.start_x.literal=coordinate("cx");gradient.start_y.literal=coordinate("cy");const auto radius=coordinate("r");
+            need(radius>1e-9,"SVG_RANGE","Radial radius must exceed native minimum 1e-9");
+            // SVG retains center/radius, not the native radius endpoint direction.
+            gradient.end_x.literal=gradient.start_x.literal+radius;gradient.end_y.literal=gradient.start_y.literal;
+            const auto retained_radius=gradient.end_x.literal-gradient.start_x.literal;
+            need(std::abs(gradient.end_x.literal)<=1e7&&retained_radius>1e-9&&std::abs(retained_radius-radius)<=radius*1e-12,
+                "SVG_RANGE","Radial radius endpoint exceeds range or loses supported precision");
+        } else {
+            gradient.start_x.literal=coordinate("x1");gradient.start_y.literal=coordinate("y1");gradient.end_x.literal=coordinate("x2");gradient.end_y.literal=coordinate("y2");
+            need(std::hypot(gradient.end_x.literal-gradient.start_x.literal,gradient.end_y.literal-gradient.start_y.literal)>1e-9,"SVG_UNSUPPORTED","Degenerate linear gradient unsupported by native paint");
+        }
+        need(a.empty(),"SVG_UNSUPPORTED","Gradient focal attributes, transforms, inheritance and other attributes unsupported");
         while(true) {
             next();if(xml.isEndElement())break;
             if(xml.isStartElement()) {
-                svg_namespace();need(depth+1<=32&&xml.name()==u"stop","SVG_UNSUPPORTED","Only stop children supported in linear gradients");
+                svg_namespace();need(depth+1<=32&&xml.name()==u"stop","SVG_UNSUPPORTED","Only stop children supported in gradients");
                 need(gradient.stops.size()<64,"SVG_UNSUPPORTED","Native editable gradients support at most 64 stops");auto stop_attributes=attributes(xml);
                 need(stop_attributes.contains("offset"),"SVG_UNSUPPORTED","Gradient stop requires offset");auto text=stop_attributes.at("offset").trimmed();const bool percent=text.endsWith('%');if(percent)text.chop(1);
                 const auto offset=scalar(text)/(percent?100.0:1.0);stop_attributes.erase("offset");
@@ -351,14 +362,14 @@ class Reader {
     void definitions(unsigned depth) {
         need(depth<=32,"SVG_LIMIT","SVG nesting limit32");svg_namespace();need(xml.attributes().empty(),"SVG_UNSUPPORTED","Defs attributes unsupported");
         while(true) {next();if(xml.isEndElement())break;
-            if(xml.isStartElement())linear_gradient(depth+1);
+            if(xml.isStartElement())gradient_definition(depth+1);
             else need(xml.isComment()||(xml.isCharacters()&&xml.isWhitespace()),"SVG_UNSUPPORTED","Unexpected defs content");
         }
     }
     void resolve_gradients() {
         for(const auto& [source,gradient]:gradients) {(void)gradient;need(source_ids.at(source)==1,"SVG_UNSUPPORTED","Ambiguous duplicate gradient source ID");}
         for(const auto& use:gradient_uses) {
-            const auto found=gradients.find(use.source);need(found!=gradients.end(),"SVG_UNSUPPORTED","Missing internal linear gradient definition");
+            const auto found=gradients.find(use.source);need(found!=gradients.end(),"SVG_UNSUPPORTED","Missing internal gradient definition");
             auto gradient=found->second;gradient.id=use.operation+"-gradient";
             for(std::size_t i=0;i<gradient.stops.size();++i)gradient.stops[i].id=gradient.id+"-s"+std::to_string(i);
             append(SetGradient{use.object,use.operation,std::move(gradient)});
