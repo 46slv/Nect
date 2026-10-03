@@ -57,7 +57,7 @@ inline void run() {
     std::vector<std::string> invalid{
         fixture(rectangle,definition("gradientUnits=\"objectBoundingBox\" x2=\"1px\"")),
         fixture(rectangle,definition("gradientUnits=\"userSpaceOnUse\" x1=\"0\" y1=\"0\" x2=\"100%\" y2=\"0\"")),
-        fixture(rectangle,definition("gradientTransform=\"matrix(1 0 0 1 0 0)\"")),
+        fixture(rectangle,definition("gradientTransform=\"scale(0)\"")),
         fixture(rectangle,"<radialGradient id=\"paint\" gradientUnits=\"objectBoundingBox\" cx=\".5\" cy=\".5\" r=\".5\">"+svg_linear_gradient_tests::stops()+"</radialGradient>"),
         fixture(R"svg(<path d="M0 0L20 0" fill="none" stroke="url(#paint)" stroke-width="20"/>)svg"),
         fixture(R"svg(<path d="M0 0" fill="url(#paint)"/>)svg"),
