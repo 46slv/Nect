@@ -423,6 +423,11 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
             if(revision==definition->second.revisions.end())throw Error("MISSING_MACRO_REVISION",op.macro->definition);
             for(const auto* node:macro_execution_order(revision->second)) {
                 const auto& macro_operation=node->operation;
+                bool enabled=macro_operation.enabled;
+                const auto enabled_parameter=std::find_if(revision->second.public_parameters.begin(),revision->second.public_parameters.end(),
+                    [&](const auto& parameter){return parameter.node==macro_operation.id&&parameter.parameter=="enabled"&&parameter.value_type=="boolean";});
+                if(enabled_parameter!=revision->second.public_parameters.end())enabled=macro_parameter_boolean_value(d,id,op.id,enabled_parameter->id);
+                if(!enabled)continue;
                 const auto macro_value=[&](const std::string& name) {
                     const auto published=std::find_if(revision->second.public_parameters.begin(),revision->second.public_parameters.end(),
                         [&](const auto& parameter){return parameter.node==macro_operation.id&&parameter.parameter==name;});

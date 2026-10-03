@@ -231,12 +231,12 @@ void MacroChainDialog::remove_node() {
     const auto row=chain_->currentRow();
     if(!loaded_||finished_||saved_revision_||row<0||nodes_.size()<=1)return;
     capture_defaults();const auto removed=nodes_[row].node.operation.id;
-    const bool published=draft_.interface_version==2?
+    const bool published=draft_.interface_version>=2?
         std::any_of(draft_.public_parameters.begin(),draft_.public_parameters.end(),[&](const auto& p){return p.node==removed;}):
         removed==mapped_node_&&publish_amount_->isChecked();
     nodes_.erase(nodes_.begin()+row);const auto next=std::min(static_cast<std::size_t>(row),nodes_.size()-1);
     rebuild_chain(nodes_[next].node.operation.id);
-    if(published)error_->setText(draft_.interface_version==2?
+    if(published)error_->setText(draft_.interface_version>=2?
         "This node has published controls. Cancel and remove or remap them in Publish Macro controls before changing the chain.":
         "The published Offset was removed. Choose an Offset node for Amount before Save.");
 }
@@ -245,6 +245,8 @@ MacroDefinitionRevision MacroChainDialog::edited_revision() {
     if(!loaded_)throw Error("MISSING_MACRO_DEFINITION","Choose an existing Macro Definition");
     capture_defaults();auto result=draft_;result.graph_version=2;result.nodes.clear();result.edges.clear();
     for(const auto& value:nodes_) {
+        // Retain all authored node fields, including interface3 Enabled
+        // defaults; only the numeric literals edited here are replaced.
         auto node=value.node;
         for(const auto& [key,raw]:value.values)node.operation.parameters.at(key).literal=literal(raw,key);
         result.nodes.push_back(std::move(node));
@@ -258,7 +260,7 @@ MacroDefinitionRevision MacroChainDialog::edited_revision() {
     result.edges.push_back({previous,{"",result.output.id}});result.output_mapping=previous;
     // Versioned multi-control interfaces are retained verbatim; their dedicated
     // editor owns publication/remapping. Core refuses removed mapped nodes.
-    if(result.interface_version==2)return result;
+    if(result.interface_version>=2)return result;
     result.public_parameters.clear();
     if(publish_amount_->isChecked()) {
         const auto selected=mapping_->currentData().toString().toStdString();

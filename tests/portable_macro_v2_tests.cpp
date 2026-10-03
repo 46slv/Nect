@@ -206,7 +206,7 @@ void codec_schema_contract() {
         rejects("UNSUPPORTED_PORTABLE_MACRO_GRAPH",[&]{(void)canonical_macro_payload(retained,1);});
     }
     const auto source=advanced_definition();const auto bytes=canonical_macro_payload(source);
-    for(const unsigned future:{3U,std::numeric_limits<unsigned>::max()}) {
+    for(const unsigned future:{4U,std::numeric_limits<unsigned>::max()}) {
         rejects("UNSUPPORTED_MACRO_SCHEMA",[&]{validate_portable_macro_definition(source,future);});
         rejects("UNSUPPORTED_MACRO_SCHEMA",[&]{(void)canonical_macro_payload(source,future);});
         rejects("UNSUPPORTED_MACRO_SCHEMA",[&]{(void)read_canonical_macro_payload(bytes,future);});
@@ -237,7 +237,7 @@ void malformed_and_atomic_contract() {
         unchanged(session,code,[&]{apply(session,{import(invalid)});});
     };
     auto invalid=source;invalid.revisions.at(2).graph_version=3;refuse(invalid,"UNSUPPORTED_MACRO_GRAPH_VERSION");
-    invalid=source;invalid.revisions.at(3).interface_version=3;refuse(invalid,"UNSUPPORTED_MACRO_INTERFACE_VERSION");
+    invalid=source;invalid.revisions.at(3).interface_version=4;refuse(invalid,"UNSUPPORTED_MACRO_INTERFACE_VERSION");
     invalid=source;node(invalid.revisions.at(3),"offset-first").operation.type="nect.shape.future";refuse(invalid,"UNSUPPORTED_MACRO_NODE");
     invalid=source;node(invalid.revisions.at(3),"offset-first").operation.version=2;refuse(invalid,"UNSUPPORTED_MACRO_NODE_VERSION");
     invalid=source;node(invalid.revisions.at(2),"offset-first").operation.parameters.at("amount").expression=Expression{"2",1};
@@ -251,7 +251,7 @@ void malformed_and_atomic_contract() {
     // A malformed retained revision is refused even when a valid older revision is pinned.
     invalid=source;invalid.revisions.at(3).public_parameters[1].node="missing-node";
     unchanged(session,"INVALID_MACRO_MAPPING",[&]{apply(session,{import(invalid,1)});});
-    auto payload=parsed(bytes);payload.at("revisions").as_array()[2].as_object()["interface_version"]=3;
+    auto payload=parsed(bytes);payload.at("revisions").as_array()[2].as_object()["interface_version"]=4;
     unchanged(session,"UNAVAILABLE_MACRO_ASSET",[&]{(void)read_canonical_macro_payload(boost::json::serialize(payload),2);});
     payload=parsed(bytes);payload.at("revisions").as_array()[1].as_object()["graph_version"]=3;
     unchanged(session,"UNAVAILABLE_MACRO_ASSET",[&]{(void)read_canonical_macro_payload(boost::json::serialize(payload),2);});
@@ -324,7 +324,7 @@ void json_lines_import_contract() {
         "JSON-lines import shares the mapped typed geometry semantics");
     session.undo(session.revision());check(encode(session.document())==before,"JSON-lines mapped import is one exact Undo");
     const auto state=session.document();const auto revision=session.revision();const auto history=session.history();
-    command.at("definition").as_object().at("revisions").as_array()[2].as_object()["interface_version"]=3;
+    command.at("definition").as_object().at("revisions").as_array()[2].as_object()["interface_version"]=4;
     reply=parsed(request(session,boost::json::serialize(boost::json::object{{"op","apply"},
         {"expected_revision",session.revision()},{"commands",boost::json::array{command}}})));
     check(!reply.at("ok").as_bool()&&session.document()==state&&session.revision()==revision&&
@@ -352,7 +352,7 @@ void typed_import_undo_and_cold_reopen(const std::string& executable) {
         "One Undo removes imported definition, instance and overrides and restores the complete colliding target");
     session.redo(session.revision());check(encode(session.document())==imported_bytes,"One Redo restores exact imported native bytes");
     check_imported(session);
-    check(native_version==std::string("0.86")&&parsed(imported_bytes).at("version").as_string()=="0.86"&&
+    check(parsed(imported_bytes).at("version").as_string()==native_version&&
         decode(imported_bytes)==session.document(),"Portable schema2 import keeps native086 semantics and authored roundtrip");
     const auto path=std::filesystem::temp_directory_path()/("nect-portable-macro-v2-"+
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".nect");

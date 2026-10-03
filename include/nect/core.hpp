@@ -283,7 +283,7 @@ struct MacroDefinitionRevision {
     MacroEndpoint output_mapping;
     std::vector<MacroPublicParameter> public_parameters;
     unsigned graph_version=1; // v1 fixed pair; v2 bounded ordered Offset/Repeater chain.
-    unsigned interface_version=1; // v2 exposes bounded mapped numeric controls.
+    unsigned interface_version=1; // v2 numeric controls; v3 also exposes literal node enabled toggles.
     bool operator==(const MacroDefinitionRevision&) const = default;
 };
 // Executes graph edges, never the storage order of nodes or edges.
@@ -305,11 +305,13 @@ struct MacroInstance {
     Id definition;
     std::uint64_t pinned_revision=1;
     std::map<std::string,double> overrides;
+    std::map<std::string,bool> boolean_overrides;
     bool operator==(const MacroInstance&) const = default;
 };
 struct Document;
 Ref macro_parameter_ref(const Id& object,const Id& instance,const std::string& public_parameter);
 double macro_parameter_value(const Document&,const Id& object,const Id& instance,const std::string& public_parameter);
+bool macro_parameter_boolean_value(const Document&,const Id& object,const Id& instance,const std::string& public_parameter);
 // One ordered local-processing entry is either an ordinary ShapeOperation
 // (the inherited payload) or a Macro instance (the optional tagged payload).
 // For Macro entries, only id, enabled and type are read from ShapeOperation.
@@ -336,6 +338,7 @@ struct PresetEntry {
     Id macro_definition;
     std::uint64_t pinned_revision=1;
     std::map<std::string,double> overrides;
+    std::map<std::string,bool> boolean_overrides;
     bool operator==(const PresetEntry&) const = default;
 };
 struct PresetDefinition {
@@ -744,13 +747,15 @@ struct InstantiateMacro {
     Id asset_id;
     std::uint64_t accepted_asset_revision=0;
     std::map<std::string,double> overrides;
+    std::map<std::string,bool> boolean_overrides;
 };
 struct SetMacroOverride { Id object,instance; std::string public_parameter; double value=0; };
+struct SetMacroBooleanOverride { Id object,instance; std::string public_parameter; bool value=false; };
 struct ResetMacroOverride { Id object,instance; std::string public_parameter; };
 struct UpdateMacroInstance { Id object,instance; std::uint64_t revision=1; };
 struct DetachMacroInstance { Id object,instance,operation_id_prefix; };
 using MacroMutation=std::variant<CreateMacroDefinition,RenameMacroDefinition,UpdateMacroDefinition,
-    DeleteMacroDefinition,InstantiateMacro,SetMacroOverride,ResetMacroOverride,UpdateMacroInstance,DetachMacroInstance>;
+    DeleteMacroDefinition,InstantiateMacro,SetMacroOverride,SetMacroBooleanOverride,ResetMacroOverride,UpdateMacroInstance,DetachMacroInstance>;
 struct MacroCommand {
     std::shared_ptr<const MacroMutation> mutation;
     MacroCommand()=delete;

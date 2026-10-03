@@ -1,7 +1,9 @@
 #include "macro_public_interface_control.hpp"
+#include "macro_chain_control.hpp"
 #include "host.hpp"
 #include "nect/io.hpp"
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QLabel>
 #include <QLineEdit>
@@ -292,13 +294,148 @@ void chooser_cancel_and_guards(Host& host) {
     check(!transient&&host.session.document().macro_definitions.at("definition").latest_revision==3&&notifications==1,
         "Synchronous accepted destruction safely finishes one Save and one Host notification");host.changed={};
 }
+void boolean_publication(Host& host,const QString& directory) {
+    load(host);const Snapshot before(host.session);const auto original=definition();int notifications=0;
+    host.changed=[&]{++notifications;};
+    MacroPublicInterfaceDialog dialog(host,"definition");dialog.show();events();
+    click(dialog,"macro-public-interface-add");const auto copies_id=selected_id(dialog);
+    map(dialog,"repeat-first","copies");edit(dialog,"macro-public-interface-label","Count");
+    edit(dialog,"macro-public-interface-default","4");
+    click(dialog,"macro-public-interface-add");const auto enabled_id=selected_id(dialog);
+    map(dialog,"repeat-first","enabled");edit(dialog,"macro-public-interface-label","Repeat enabled");
+    auto* toggle=named<QCheckBox>(dialog,"macro-public-interface-default-enabled");
+    check(toggle->isChecked()&&!toggle->isTristate()&&toggle->property("nect-unit").toString()=="boolean"&&
+        toggle->property("nect-widget-hint").toString()=="toggle"&&
+        !dialog.findChild<QLineEdit*>("macro-public-interface-default"),
+        "Enabled uses a semantic native two-state toggle with boolean metadata, never a numeric editor");
+    toggle->click();events();
+    check(!toggle->isChecked()&&named<QLabel>(dialog,"macro-public-interface-revisions")->text().contains("interface v3"),
+        "A false literal Enabled draft selects interface v3");
+    choose(dialog,"macro-public-interface-node","repeat-second");
+    check(selected_id(dialog)==enabled_id&&named<QCheckBox>(dialog,"macro-public-interface-default-enabled")->isChecked(),
+        "Enabled remapping preserves identity and reads the actual target's own default");
+    choose(dialog,"macro-public-interface-node","repeat-first");
+    check(!named<QCheckBox>(dialog,"macro-public-interface-default-enabled")->isChecked(),
+        "Returning to a boolean target retains its false draft");
+    select(dialog,copies_id);check(named<QLineEdit>(dialog,"macro-public-interface-default")->text()=="4",
+        "Mixed numeric and boolean rows preserve their separate draft defaults");
+    select(dialog,enabled_id);check(selected_id(dialog)==enabled_id&&
+        named<QLineEdit>(dialog,"macro-public-interface-label")->text()=="Repeat enabled"&&
+        before.unchanged(host.session)&&notifications==0,"Mixed interface editing is local and keeps stable IDs and labels");
+    click(dialog,"macro-public-interface-save");
+    auto expected=original.revisions.at(2);expected.revision=3;expected.interface_version=3;
+    expected.public_parameters.push_back({copies_id,"Count","repeat-first","copies","number","scalar","local_paths_and_paint"});
+    expected.public_parameters.push_back({enabled_id,"Repeat enabled","repeat-first","enabled","boolean","boolean","local_paths_and_paint"});
+    node(expected,"repeat-first").operation.enabled=false;
+    node(expected,"repeat-first").operation.parameters.at("copies").literal=4;
+    const auto& saved=host.session.document().macro_definitions.at("definition");
+    check(dialog.saved_revision()==3&&notifications==1&&saved.revisions.at(3)==expected&&
+        saved.revisions.at(1)==original.revisions.at(1)&&saved.revisions.at(2)==original.revisions.at(2)&&
+        !node(expected,"repeat-first").operation.parameters.contains("enabled"),
+        "Mixed publication appends exact interface3 defaults and fields; Enabled remains outside numeric parameters");
+    check(instance(host.session.document())==instance(before.document)&&host.session.revision()==before.revision+1,
+        "Boolean publication keeps existing instance pins and overrides and commits only once");
+    const Snapshot committed(host.session);dialog.accept();events();check(committed.unchanged(host.session)&&notifications==1,
+        "Repeated boolean-interface Save is terminal");
+    host.session.undo(host.session.revision());check(host.session.document()==before.document,"Undo removes the entire mixed interface revision");
+    host.session.redo(host.session.revision());check(host.session.document()==committed.document,"Redo restores exact boolean and numeric defaults");
+    host.changed={};const auto path=directory+"/published-enabled.nect";host.save(path);host.flush();
+    Host reopened(directory+"/boolean-cold");reopened.open(path);check(reopened.session.document()==committed.document,
+        "Cold native reopen retains interface3 and false Enabled defaults");
+    MacroPublicInterfaceDialog again(reopened,"definition");again.show();events();select(again,enabled_id);
+    check(selected_id(again)==enabled_id&&named<QLineEdit>(again,"macro-public-interface-label")->text()=="Repeat enabled"&&
+        !named<QCheckBox>(again,"macro-public-interface-default-enabled")->isChecked(),
+        "Revisiting publication retains the exact boolean identity, label and false default");
+    click(again,"macro-public-interface-remove");click(again,"macro-public-interface-save");
+    auto removed=expected;removed.revision=4;
+    removed.public_parameters.erase(removed.public_parameters.begin()+2);
+    check(again.saved_revision()==4&&reopened.session.document().macro_definitions.at("definition").revisions.at(4)==removed,
+        "Removing an Enabled publication retains interface3 and the unpublished false node default");
+    MacroPublicInterfaceDialog no_boolean(reopened,"definition");no_boolean.show();events();click(no_boolean,"macro-public-interface-save");
+    check(no_boolean.saved_revision()==5&&reopened.session.document().macro_definitions.at("definition").revisions.at(5).interface_version==3,
+        "Revisiting numeric-only controls never downgrades an existing interface3");
+}
+void boolean_chain_preservation(Host& host) {
+    auto source=definition();auto latest=source.revisions.at(2);latest.revision=3;latest.interface_version=3;
+    latest.public_parameters.push_back({"macro.repeat.enabled","Repeat enabled","repeat-first","enabled","boolean","boolean","local_paths_and_paint"});
+    latest.public_parameters.push_back({"macro.repeat.rotation","Turn","repeat-second","rotation","number","degree","local_paths_and_paint"});
+    node(latest,"repeat-first").operation.enabled=false;source.revisions.emplace(3,latest);source.latest_revision=3;
+    load(host,source);const Snapshot before(host.session);
+    MacroChainDialog chain(host,"definition");chain.show();events();
+    check(named<QCheckBox>(chain,"macro-chain-publish-amount")->parentWidget()->isHidden(),
+        "Interface3 chain editing hides the legacy single-Amount publication workflow");
+    auto* list=named<QListWidget>(chain,"macro-chain-nodes");
+    for(int row=0;row<list->count();++row)if(list->item(row)->data(Qt::UserRole).toString()=="repeat-first")list->setCurrentRow(row);
+    events();edit(chain,"macro-chain-default-copies","5");click(chain,"macro-chain-down");
+    click(chain,"macro-chain-save");const auto saved=host.session.document().macro_definitions.at("definition").revisions.at(4);
+    check(chain.saved_revision()==4&&saved.interface_version==3&&saved.public_parameters==latest.public_parameters,
+        "Chain reorder preserves interface3 and every numeric and boolean published field");
+    auto retained=node(latest,"repeat-first");retained.operation.parameters.at("copies").literal=5;
+    const auto found=std::find_if(saved.nodes.begin(),saved.nodes.end(),[](const auto& value){return value.operation.id=="repeat-first";});
+    check(found!=saved.nodes.end()&&*found==retained&&!found->operation.enabled&&
+        instance(host.session.document())==instance(before.document)&&
+        host.session.document().macro_definitions.at("definition").revisions.at(3)==latest,
+        "Chain numeric editing retains false Enabled defaults, node/port identity, old revisions and instance pins");
+    MacroChainDialog again(host,"definition");again.show();events();click(again,"macro-chain-save");
+    const auto& revisited=host.session.document().macro_definitions.at("definition").revisions.at(5);
+    check(again.saved_revision()==5&&revisited.interface_version==3&&revisited.public_parameters==latest.public_parameters&&
+        macro_execution_order(revisited)[2]->operation.id=="repeat-first"&&!macro_execution_order(revisited)[2]->operation.enabled,
+        "A repeated chain visit preserves boolean defaults and all numeric and boolean publications");
+    const Snapshot current(host.session);MacroChainDialog removal(host,"definition");removal.show();events();
+    list=named<QListWidget>(removal,"macro-chain-nodes");
+    for(int row=0;row<list->count();++row)if(list->item(row)->data(Qt::UserRole).toString()=="repeat-first")list->setCurrentRow(row);
+    events();click(removal,"macro-chain-remove");
+    check(named<QLabel>(removal,"macro-chain-error")->text().contains("published controls"),
+        "Removing a boolean-mapped node calls for explicit publication remapping");
+    click(removal,"macro-chain-save");check(current.unchanged(host.session)&&removal.saved_revision()==0&&
+        named<QLabel>(removal,"macro-chain-error")->text().contains("INVALID_MACRO_MAPPING"),
+        "An unresolved removed boolean mapping refuses atomically and never falls back to legacy Amount");
+    removal.reject();
+}
+void boolean_graph1_and_bounds(Host& host) {
+    load(host,definition(false));const Snapshot before(host.session);
+    MacroPublicInterfaceDialog graph1(host,"definition");graph1.show();events();
+    click(graph1,"macro-public-interface-add");const auto id=selected_id(graph1);
+    map(graph1,"offset-first","enabled");edit(graph1,"macro-public-interface-label","Offset enabled");
+    check(named<QCheckBox>(graph1,"macro-public-interface-default-enabled")->isChecked()&&
+        named<QLabel>(graph1,"macro-public-interface-revisions")->text().contains("interface v3"),
+        "Publishing an Enabled control requires interface3 even with a true default and legacy graph1");
+    click(graph1,"macro-public-interface-add");const auto duplicate_id=selected_id(graph1);
+    map(graph1,"offset-first","enabled");click(graph1,"macro-public-interface-save");
+    check(before.unchanged(host.session)&&named<QLabel>(graph1,"macro-public-interface-error")->text().contains("INVALID_MACRO_MAPPING"),
+        "Duplicate Enabled mappings refuse atomically under the same one-target-per-control rule");
+    click(graph1,"macro-public-interface-remove");select(graph1,id);click(graph1,"macro-public-interface-save");
+    const auto& saved=host.session.document().macro_definitions.at("definition").revisions.at(2);
+    check(graph1.saved_revision()==2&&saved.graph_version==1&&saved.interface_version==3&&
+        public_control(saved,id)==MacroPublicParameter{id,"Offset enabled","offset-first","enabled","boolean","boolean","local_paths_and_paint"}&&
+        std::none_of(saved.public_parameters.begin(),saved.public_parameters.end(),[&](const auto& value){return value.id==duplicate_id;}),
+        "Graph1 retains its structure and every publication field while a later revision adds the boolean interface");
+    auto source=definition();std::vector<std::pair<Id,std::string>> specification;
+    for(unsigned i=0;i<6;++i)specification.emplace_back("bounded-repeat-"+std::to_string(i),"nect.shape.repeater");
+    source.revisions.at(2)=graph(specification,2);source.revisions.at(2).interface_version=2;
+    load(host,source);MacroPublicInterfaceDialog bounded(host,"definition");bounded.show();events();
+    for(unsigned i=0;i<16;++i)click(bounded,"macro-public-interface-add");
+    check(named<QListWidget>(bounded,"macro-public-interface-controls")->count()==16&&
+        !named<QPushButton>(bounded,"macro-public-interface-add")->isEnabled(),
+        "The 16-control limit applies to mixed numeric and boolean publication");
+    click(bounded,"macro-public-interface-save");const auto& mixed=host.session.document().macro_definitions.at("definition").revisions.at(3);
+    std::set<Id> ids;std::set<std::pair<Id,std::string>> mappings;unsigned booleans=0;
+    for(const auto& control:mixed.public_parameters) {
+        ids.insert(control.id);mappings.emplace(control.node,control.parameter);
+        if(control.value_type=="boolean")++booleans;
+    }
+    check(bounded.saved_revision()==3&&mixed.interface_version==3&&ids.size()==16&&mappings.size()==16&&booleans==4,
+        "Mixed bounded publication uses unique stable IDs and mappings and preserves numeric-first Add compatibility");
+}
 }
 int main(int argc,char** argv) {
     if(qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))qputenv("QT_QPA_PLATFORM","offscreen");
     QApplication app(argc,argv);
     try {
         QTemporaryDir directory;check(directory.isValid(),"Temporary storage is available");Host host(directory.path()+"/recovery");
-        lifecycle(host,directory.path());removal_and_invalid(host);bounds_and_remap(host);chooser_cancel_and_guards(host);
+        const bool boolean_only=argc>1&&QString::fromUtf8(argv[1])=="--boolean-only";
+        if(!boolean_only) { lifecycle(host,directory.path());removal_and_invalid(host);bounds_and_remap(host);chooser_cancel_and_guards(host); }
+        boolean_publication(host,directory.path());boolean_chain_preservation(host);boolean_graph1_and_bounds(host);
         std::cout<<"Macro published-interface interaction checks: "<<checks<<'\n';return 0;
     } catch(const std::exception& error) { std::cerr<<error.what()<<'\n';return 1; }
 }

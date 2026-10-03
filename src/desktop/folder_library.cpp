@@ -257,7 +257,7 @@ StoredMacroAsset read_stored_macro_asset(const QString& root,const QString& asse
         throw Error("UNSUPPORTED_MACRO_ASSET_VERSION","Macro asset envelope kind or version is unsupported");
     if(QString::fromStdString(envelope.asset_id)!=asset_id)
         throw Error("MACRO_ASSET_ID_MISMATCH","Macro asset envelope AssetID does not match the exact requested file identity");
-    if(envelope.payload_schema!=1&&envelope.payload_schema!=2)
+    if(envelope.payload_schema!=1&&envelope.payload_schema!=2&&envelope.payload_schema!=3)
         throw Error("UNSUPPORTED_MACRO_SCHEMA","Macro payload schema is not supported by this build");
     const QByteArray payload(envelope.payload.data(),static_cast<qsizetype>(envelope.payload.size()));
     if(static_cast<std::size_t>(payload.size())>portable_macro_payload_limit)

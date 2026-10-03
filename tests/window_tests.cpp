@@ -4,6 +4,7 @@
 #include "semantic_toggle_window_smoke.hpp"
 #include "semantic_color_window_smoke.hpp"
 #include "semantic_point_window_smoke.hpp"
+#include "macro_boolean_window_smoke.hpp"
 #include <QApplication>
 #include <QAction>
 #include <QCheckBox>
@@ -5591,6 +5592,10 @@ void group_path_follow_inspector(Window& window) {
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
     try {
+        if(argc==2&&std::string(argv[1])=="--macro-boolean") {
+            const auto checks=macro_boolean_window_smoke::run();
+            std::cout<<"PASS "<<checks<<" production Window Macro boolean checks (Qt/API; physical OS input NOT_RUN; full regression NOT_RUN)\n";return 0;
+        }
         if(argc==2&&std::string(argv[1])=="--semantic-point") {
             const auto checks=semantic_point_window_smoke::run();
             std::cout<<"PASS "<<checks<<" production Window gradient endpoint pair checks (Qt/API; physical OS input NOT_RUN; full regression NOT_RUN)\n";return 0;

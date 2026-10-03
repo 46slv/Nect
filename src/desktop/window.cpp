@@ -7389,6 +7389,44 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 const auto parameter_id=parameter->id;
                 const auto amount_ref=macro_parameter_ref(object.id,operation.id,parameter_id);
                 const auto metadata=macro_semantic_descriptor(host.session.document(),amount_ref);
+                if(parameter->value_type=="boolean") {
+                    const auto initial=macro_parameter_boolean_value(host.session.document(),object.id,operation.id,parameter_id);
+                    const auto session=host.session_id;const auto revision=host.session.revision();
+                    auto* row=new QWidget(group);auto* buttons=new QHBoxLayout(row);buttons->setContentsMargins(0,0,0,0);
+                    auto* toggle=semantic_toggle_input(metadata,initial,row);
+                    toggle->setObjectName("macro-boolean-"+qs(operation.id)+"-"+qs(parameter_id));
+                    toggle->setProperty("nect-reference",QJsonDocument(ref_json(amount_ref)).toJson(QJsonDocument::Compact));
+                    toggle->setAccessibleName(name+" / "+qs(parameter->label));buttons->addWidget(toggle);
+                    const QPointer<QCheckBox> safe_toggle(toggle);
+                    connect(toggle,&QCheckBox::clicked,this,[this,safe_toggle,initial,session,revision,id=object.id,instance=operation.id,parameter_id](bool checked) {
+                        if(checked==initial)return;
+                        QTimer::singleShot(0,this,[this,safe_toggle,initial,session,revision,id,instance,parameter_id,checked] {
+                            if(!safe_toggle)return;bool applied=false;
+                            perform([&]{
+                                if(host.session_id!=session)throw Error("SESSION_CONFLICT","Macro control belongs to another document");
+                                if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Macro changed; reopen the Inspector");
+                                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the current gesture before editing Macro controls");
+                                host.session.apply({MacroCommand{SetMacroBooleanOverride{id,instance,parameter_id,checked}}},revision);host.edited();applied=true;
+                            });
+                            if(!applied&&safe_toggle){const QSignalBlocker blocker(safe_toggle);safe_toggle->setChecked(initial);}
+                        });
+                    });
+                    if(operation.macro->boolean_overrides.contains(parameter_id)) {
+                        auto* reset=new QPushButton("Reset",row);reset->setObjectName("macro-reset-boolean-"+qs(operation.id)+"-"+qs(parameter_id));buttons->addWidget(reset);
+                        connect(reset,&QPushButton::clicked,this,[this,safe_toggle,session,revision,id=object.id,instance=operation.id,parameter_id] {
+                            QTimer::singleShot(0,this,[this,safe_toggle,session,revision,id,instance,parameter_id] {
+                                if(!safe_toggle)return;
+                                perform([&]{
+                                    if(host.session_id!=session)throw Error("SESSION_CONFLICT","Macro control belongs to another document");
+                                    if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Macro changed; reopen the Inspector");
+                                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the current gesture before resetting Macro controls");
+                                    host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},revision);host.edited();
+                                });
+                            });
+                        });
+                    }
+                    buttons->addStretch();form->addRow(row);continue;
+                }
                 const auto initial=macro_parameter_value(host.session.document(),object.id,operation.id,parameter_id);
                 const auto frozen_macro_session=host.session_id;
                 const auto frozen_macro_revision=host.session.revision();

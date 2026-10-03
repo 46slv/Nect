@@ -6,6 +6,7 @@
 #include <map>
 #include <vector>
 
+class QCheckBox;
 class QComboBox;
 class QGroupBox;
 class QLabel;
@@ -16,7 +17,7 @@ class QPushButton;
 namespace nect::desktop {
 class Host;
 
-// A transient interface-v2 draft of an existing Definition's latest graph.
+// A transient mapped-interface draft of an existing Definition's latest graph.
 // IDs belong to controls, not labels or mappings. Save appends one revision;
 // retained revisions and all existing instance pins/overrides stay unchanged.
 class MacroPublicInterfaceDialog final : public QDialog {
@@ -37,10 +38,12 @@ private:
     MacroDefinitionRevision draft_;
     std::vector<MacroPublicParameter> controls_;
     std::map<Mapping,QString> defaults_;
+    std::map<Mapping,bool> enabled_defaults_;
     QComboBox *definitions_=nullptr,*nodes_=nullptr,*parameters_=nullptr;
     QListWidget* list_=nullptr;
     QGroupBox* fields_=nullptr;
     QLineEdit *stable_id_=nullptr,*label_=nullptr,*default_=nullptr;
+    QCheckBox* enabled_default_=nullptr;
     QWidget* default_container_=nullptr;
     QLabel *source_=nullptr,*metadata_=nullptr,*error_=nullptr;
     QPushButton *add_=nullptr,*remove_=nullptr,*save_=nullptr;

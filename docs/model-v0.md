@@ -1,5 +1,19 @@
 # Native Document Schema v0
 
+Native 0.87 adds Macro interface version 3 on revisions after the original revision.
+It publishes literal internal Offset/Repeater `enabled` controls as booleans, alongside
+existing numeric controls. The default remains the internal node's authored enabled
+flag. Instance and captured Preset overrides use stable PublicParamIDs and native
+JSON booleans; numeric overrides keep their existing representation. A boolean and
+a number cannot occupy the same public ID. Reset restores the pinned revision default.
+Pinned migration rejects orphaned overrides and changed type/unit/domain; detach
+resolves internal enabled before applying outer instance bypass. Legacy interface 1/2
+nodes remain enabled-only. Portable Macro schema 3 carries interface 3; schemas 1/2
+retain their prior canonical bytes and reject newer interfaces. Native versions below
+0.87 reject interface 3 or boolean Macro/Preset overrides. Internal enabled drivers
+and expressions, arbitrary graphs and nonnumeric types beyond boolean remain unsupported.
+
+
 ## Bounded linear Macro graph v2 (native 0.83)
 
 Revision `graph_version: 2` permits an acyclic single-input/single-output chain of

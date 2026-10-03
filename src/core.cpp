@@ -4046,6 +4046,7 @@ std::map<Id,double> evaluate_guide_positions(const Document& document,const Id& 
 
 static const MacroPublicParameter* macro_public_parameter(const MacroDefinitionRevision& revision,const std::string& id);
 static void macro_value_range(const MacroDefinitionRevision&,const MacroPublicParameter&,double);
+static void macro_boolean_mapping(const MacroDefinitionRevision&,const MacroPublicParameter&);
 
 static void validate_preset_builtin_entry(const PresetEntry& entry,const std::string& target_domain,bool v1) {
     const auto* descriptor=builtin_operation_type(entry.type);
@@ -4109,7 +4110,7 @@ static void validate_preset_definition(const Id& map_id,const PresetDefinition& 
         "INVALID_PRESET_ORDER","Preset v2 requires 1..128 ordered processing entries");
     for(const auto& entry:preset.entries) {
         if(entry.kind=="builtin") {
-            require(entry.macro_definition.empty()&&entry.pinned_revision==1&&entry.overrides.empty(),
+            require(entry.macro_definition.empty()&&entry.pinned_revision==1&&entry.overrides.empty()&&entry.boolean_overrides.empty(),
                 "INVALID_PRESET_ENTRY","Built-in Preset entries cannot carry Macro reference fields");
             validate_preset_builtin_entry(entry,preset.target_domain,preset.schema_version==1);
         } else if(preset.schema_version==2&&entry.kind=="macro") {
@@ -4121,6 +4122,10 @@ static void validate_preset_definition(const Id& map_id,const PresetDefinition& 
             for(const auto& [parameter,value]:entry.overrides) {
                 require(!parameter.empty()&&parameter.size()<=96,"INVALID_MACRO_PARAMETER",parameter);
                 text_utf8(parameter);value_range({preset.id,entry.macro_definition,parameter},value);
+            }
+            for(const auto& [parameter,value]:entry.boolean_overrides) {
+                (void)value;require(!parameter.empty()&&parameter.size()<=96,"INVALID_MACRO_PARAMETER",parameter);text_utf8(parameter);
+                require(!entry.overrides.contains(parameter),"INVALID_MACRO_OVERRIDE","One typed override per public parameter");
             }
             // Preserve unavailable or incompatible pinned references read from a
             // native file. Applying or explicitly editing the Preset performs
@@ -4170,6 +4175,11 @@ static void preflight_preset_macro_entries(const Document& document,const Preset
                 "INCOMPATIBLE_MACRO_PUBLIC_PARAMETER","Preset PublicParamID has an incompatible type or domain: "+parameter_id);
             macro_value_range(revision,*parameter,value);
         }
+        for(const auto& [parameter_id,value]:entry.boolean_overrides) {
+            (void)value;require(!entry.overrides.contains(parameter_id),"INVALID_MACRO_OVERRIDE","One typed override per public parameter");
+            const auto* parameter=macro_public_parameter(revision,parameter_id);require(parameter,"MISSING_MACRO_PARAMETER",parameter_id);
+            macro_boolean_mapping(revision,*parameter);
+        }
     }
 }
 static bool same_public_parameter_contract(const MacroPublicParameter& a,const MacroPublicParameter& b) {
@@ -4191,6 +4201,13 @@ static void preflight_preset_revision_edit(const Document& document,const Preset
                 if(before.pinned_revision==after.pinned_revision)continue;
                 const auto& old_revision=preset_macro_revision(document,before);
                 const auto& new_revision=preset_macro_revision(document,after);
+                for(const auto& [parameter_id,value]:before.boolean_overrides) {
+                    (void)value;
+                    const auto* old_parameter=macro_public_parameter(old_revision,parameter_id);
+                    const auto* new_parameter=macro_public_parameter(new_revision,parameter_id);
+                    require(old_parameter&&new_parameter&&same_public_parameter_contract(*old_parameter,*new_parameter),
+                        "INCOMPATIBLE_MACRO_PUBLIC_PARAMETER","Re-pinning must retain boolean public parameter "+parameter_id);
+                }
                 for(const auto& [parameter_id,value]:before.overrides) {
                     (void)value;
                     const auto* old_parameter=macro_public_parameter(old_revision,parameter_id);
@@ -4210,6 +4227,7 @@ static const MacroNode* macro_node(const MacroDefinitionRevision& revision,const
     return found==revision.nodes.end()?nullptr:&*found;
 }
 static double macro_default_value(const MacroDefinitionRevision& revision,const MacroPublicParameter& parameter) {
+    require(parameter.value_type=="number","INVALID_MACRO_OVERRIDE","Numeric getter requires a numeric public parameter");
     const auto* node=macro_node(revision,parameter.node);
     if(!node)throw Error("INVALID_MACRO_MAPPING",parameter.node);
     const auto found=node->operation.parameters.find(parameter.parameter);
@@ -4217,9 +4235,16 @@ static double macro_default_value(const MacroDefinitionRevision& revision,const 
     return found->second.literal;
 }
 static void macro_value_range(const MacroDefinitionRevision& revision,const MacroPublicParameter& parameter,double value) {
+    require(parameter.value_type=="number","INVALID_MACRO_OVERRIDE","Numeric override requires a numeric public parameter");
     const auto* node=macro_node(revision,parameter.node);
     require(node&&node->operation.parameters.contains(parameter.parameter),"INVALID_MACRO_MAPPING",parameter.id);
     value_range(operation_ref("macro",parameter.node,parameter.parameter),value);
+}
+static void macro_boolean_mapping(const MacroDefinitionRevision& revision,const MacroPublicParameter& parameter) {
+    const auto* node=macro_node(revision,parameter.node);
+    require(revision.interface_version==3&&parameter.value_type=="boolean"&&parameter.unit=="boolean"&&
+        parameter.domain=="local_paths_and_paint"&&parameter.parameter=="enabled"&&node,
+        "INVALID_MACRO_OVERRIDE","Boolean override requires an enabled public parameter");
 }
 std::vector<const MacroNode*> macro_execution_order(const MacroDefinitionRevision& revision) {
     require(!revision.nodes.empty()&&revision.nodes.size()<=16,"INVALID_MACRO_GRAPH","Macro chains require 1..16 nodes");
@@ -4272,7 +4297,7 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
             const auto* node=&stored_node;
             local(node->operation.id);local(node->input_port);local(node->output_port);
             require(node->operation.version==1,"UNSUPPORTED_MACRO_NODE_VERSION",node->operation.type);
-            require(node->operation.enabled,"INVALID_MACRO_NODE","Macro graph nodes must be enabled; bypass the instance instead");
+            require(revision.interface_version==3||node->operation.enabled,"INVALID_MACRO_NODE","Macro graph nodes must be enabled; bypass the instance instead");
             require(!node->operation.enabled_driver&&!node->operation.enabled_expression&&
                 !node->operation.fill_rule_driver&&!node->operation.gradient,
                 "INVALID_MACRO_NODE","Macro nodes cannot retain property links, gradients or driver state");
@@ -4295,7 +4320,7 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
         std::set<std::string> public_ids;
         for(const auto& parameter:revision.public_parameters)
             require(public_ids.insert(parameter.id).second,"DUPLICATE_MACRO_PARAMETER",parameter.id);
-        require(revision.interface_version==1||revision.interface_version==2,"UNSUPPORTED_MACRO_INTERFACE_VERSION","Supported Macro interface versions are 1 and 2");
+        require(revision.interface_version>=1&&revision.interface_version<=3,"UNSUPPORTED_MACRO_INTERFACE_VERSION","Supported Macro interface versions are 1 through 3");
         require(number!=1||revision.interface_version==1,"INVALID_MACRO_INTERFACE","Revision 1 retains the original Amount interface");
         if(revision.interface_version==1)
             require(revision.public_parameters.size()<=1&&(number!=1||revision.public_parameters.size()==1),
@@ -4308,15 +4333,16 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
             const bool amount=mapped->operation.type=="nect.shape.offset"&&parameter.parameter=="amount";
             const bool copies=mapped->operation.type=="nect.shape.repeater"&&parameter.parameter=="copies";
             const bool rotation=mapped->operation.type=="nect.shape.repeater"&&parameter.parameter=="rotation";
+            const bool enabled=revision.interface_version==3&&parameter.parameter=="enabled";
             if(revision.interface_version==1)
                 require(parameter.id=="macro.offset.amount"&&amount,"INVALID_MACRO_MAPPING","Legacy Amount must map to Offset.amount");
-            require(amount||copies||rotation,"INVALID_MACRO_MAPPING","Supported controls are Offset Amount and Repeater Copies/Rotation");
+            require(amount||copies||rotation||enabled,"INVALID_MACRO_MAPPING","Supported controls are Offset Amount, Repeater Copies/Rotation and enabled");
             require(parameter.id.starts_with("macro.")&&parameter.id.size()>6&&parameter.id.size()<=96,"INVALID_MACRO_INTERFACE","Public ID requires macro. prefix and at most 96 characters");
             for(const unsigned char c:parameter.id)
                 require((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'||c=='.',"INVALID_MACRO_INTERFACE",parameter.id);
             require(parameter.id!="macro.offset.amount"||amount,"INVALID_MACRO_MAPPING","Reserved Amount ID must retain Offset.amount mapping");
             require(mappings.emplace(parameter.node,parameter.parameter).second,"INVALID_MACRO_MAPPING","One public control per node parameter");
-            require(parameter.value_type=="number"&&parameter.unit==(amount?"du":copies?"scalar":"degree")&&parameter.domain=="local_paths_and_paint",
+            require(parameter.value_type==(enabled?"boolean":"number")&&parameter.unit==(enabled?"boolean":amount?"du":copies?"scalar":"degree")&&parameter.domain=="local_paths_and_paint",
                 "INVALID_MACRO_MAPPING","Published type/unit/domain must match its mapped numeric control");
             require(!parameter.label.empty()&&parameter.label.size()<=128,"INVALID_MACRO_INTERFACE","Published parameter label must be 1..128 bytes");
             text_utf8(parameter.label);
@@ -4328,19 +4354,18 @@ void validate_macro_definition(const MacroDefinition& definition) {
     validate_macro_definition(definition.id,definition);
 }
 unsigned portable_macro_payload_schema(const MacroDefinition& definition) {
+    unsigned schema=1;
     for(const auto& [number,revision]:definition.revisions) {
         (void)number;
-        if(revision.graph_version!=1||revision.interface_version!=1)return 2;
+        if(revision.interface_version==3)schema=3;
+        else if(revision.graph_version!=1||revision.interface_version!=1)schema=std::max(schema,2u);
     }
-    return 1;
+    return schema;
 }
 void validate_portable_macro_definition(const MacroDefinition& definition,unsigned payload_schema) {
-    require(payload_schema==1||payload_schema==2,"UNSUPPORTED_MACRO_SCHEMA","Supported portable Macro schemas are 1 and 2");
+    require(payload_schema>=1&&payload_schema<=3,"UNSUPPORTED_MACRO_SCHEMA","Supported portable Macro schemas are 1 through 3");
     validate_macro_definition(definition);
-    if(payload_schema==1)for(const auto& [number,revision]:definition.revisions) {
-        (void)number;
-        require(revision.graph_version==1&&revision.interface_version==1,"UNSUPPORTED_PORTABLE_MACRO_GRAPH","Portable Macro v1 only carries graph version 1");
-    }
+    require(portable_macro_payload_schema(definition)<=payload_schema,"UNSUPPORTED_PORTABLE_MACRO_GRAPH","Portable schema cannot carry this Macro interface");
 }
 
 static std::map<Ref,double> validate_evaluated(const Document& d,const std::function<void()>& before_evaluation={}) {
@@ -4923,6 +4948,12 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                         require(published,"ORPHAN_MACRO_OVERRIDE",parameter);
             macro_value_range(revision->second,*published,value);
                     }
+                    for(const auto& [parameter,value]:op.macro->boolean_overrides) {
+                        (void)value;
+                        require(!op.macro->overrides.contains(parameter),"INVALID_MACRO_OVERRIDE","One typed override per public parameter");
+                        const auto* published=macro_public_parameter(revision->second,parameter);
+                        require(published,"ORPHAN_MACRO_OVERRIDE",parameter);macro_boolean_mapping(revision->second,*published);
+                    }
                     continue;
                 }
                 require(op.type!=macro_entry_type,"INVALID_MACRO_INSTANCE","Macro tag has no typed Macro instance payload");
@@ -5433,8 +5464,20 @@ double macro_parameter_value(const Document& document,const Id& object,const Id&
     if(revision==definition->second.revisions.end())throw Error("MISSING_MACRO_REVISION",entry->macro->definition);
     const auto* parameter=macro_public_parameter(revision->second,public_parameter);
     if(!parameter)throw Error("MISSING_MACRO_PARAMETER",public_parameter);
+    require(parameter->value_type=="number","INVALID_MACRO_OVERRIDE","Numeric getter requires numeric public parameter");
     if(const auto value=entry->macro->overrides.find(public_parameter);value!=entry->macro->overrides.end())return value->second;
     return macro_default_value(revision->second,*parameter);
+}
+
+bool macro_parameter_boolean_value(const Document& document,const Id& object,const Id& instance,const std::string& public_parameter) {
+    const auto found=document.objects.find(object);require(found!=document.objects.end(),"MISSING_OBJECT",object);
+    const auto entry=std::find_if(found->second.stack.begin(),found->second.stack.end(),[&](const auto& item){return item.id==instance&&item.macro.has_value();});
+    require(entry!=found->second.stack.end(),"MISSING_MACRO_INSTANCE",instance);
+    const auto& revision=document.macro_definitions.at(entry->macro->definition).revisions.at(entry->macro->pinned_revision);
+    const auto* parameter=macro_public_parameter(revision,public_parameter);require(parameter,"MISSING_MACRO_PARAMETER",public_parameter);
+    macro_boolean_mapping(revision,*parameter);
+    if(const auto value=entry->macro->boolean_overrides.find(public_parameter);value!=entry->macro->boolean_overrides.end())return value->second;
+    return macro_node(revision,parameter->node)->operation.enabled;
 }
 
 Session::Session(Document d,HistoryLimits limits):document_(std::move(d)),history_limits_(limits) {
@@ -6766,13 +6809,18 @@ void edit_detach_macro_instance(Document& candidate,const DetachMacroInstance& m
         operation.id=mutation.operation_id_prefix+"-detached-"+std::to_string(i+1);
         identity(operation.id);
         require(!macro_addresses.contains(operation.id),"DUPLICATE_ID",operation.id);
-        operation.enabled=operation.enabled&&instance_enabled;
         for(const auto& [public_id,value]:instance.overrides) {
             const auto* parameter=macro_public_parameter(revision,public_id);
             require(parameter,"ORPHAN_MACRO_OVERRIDE",public_id);
             if(parameter->node==ordered_nodes[i]->operation.id)
                 operation.parameters.at(parameter->parameter).literal=value;
         }
+        for(const auto& [public_id,value]:instance.boolean_overrides) {
+            const auto* parameter=macro_public_parameter(revision,public_id);require(parameter,"ORPHAN_MACRO_OVERRIDE",public_id);
+            macro_boolean_mapping(revision,*parameter);
+            if(parameter->node==ordered_nodes[i]->operation.id)operation.enabled=value;
+        }
+        operation.enabled=operation.enabled&&instance_enabled;
         detached.emplace_back(std::move(operation));
     }
     object.stack.erase(object.stack.begin()+static_cast<std::ptrdiff_t>(index));
@@ -6833,12 +6881,17 @@ void edit_macro(Document& candidate,const MacroCommand& command) {
                     require(parameter,"MISSING_MACRO_PARAMETER",public_id);
                     macro_value_range(pinned,*parameter,value);
                 }
+                for(const auto& [public_id,value]:mutation.boolean_overrides) {
+                    (void)value;require(!mutation.overrides.contains(public_id),"INVALID_MACRO_OVERRIDE","One typed override per public parameter");
+                    const auto* parameter=macro_public_parameter(pinned,public_id);require(parameter,"MISSING_MACRO_PARAMETER",public_id);
+                    macro_boolean_mapping(pinned,*parameter);
+                }
                 auto imported=source;imported.id=mutation.definition;
                 validate_macro_definition(imported.id,imported);
                 candidate.macro_definitions.emplace(imported.id,std::move(imported));
                 definition=candidate.macro_definitions.find(mutation.definition);
             } else {
-                require(mutation.asset_id.empty()&&mutation.accepted_asset_revision==0&&mutation.overrides.empty(),
+                require(mutation.asset_id.empty()&&mutation.accepted_asset_revision==0&&mutation.overrides.empty()&&mutation.boolean_overrides.empty(),
                     "INVALID_MACRO_IMPORT","Workspace Macro receipt fields require an imported canonical definition");
                 require(definition!=candidate.macro_definitions.end(),"MISSING_MACRO_DEFINITION",mutation.definition);
             }
@@ -6847,9 +6900,10 @@ void edit_macro(Document& candidate,const MacroCommand& command) {
             require(mutation.index<=object.stack.size(),"INVALID_ORDER","Macro insertion index out of range");
             ProcessingEntry entry;entry.id=mutation.instance;entry.type=macro_entry_type;
             entry.macro=MacroInstance{mutation.definition,mutation.revision,
-                mutation.imported_definition?mutation.overrides:std::map<std::string,double>{}};
+                mutation.imported_definition?mutation.overrides:std::map<std::string,double>{},
+                mutation.imported_definition?mutation.boolean_overrides:std::map<std::string,bool>{}};
             object.stack.insert(object.stack.begin()+static_cast<std::ptrdiff_t>(mutation.index),std::move(entry));
-        } else if constexpr(std::is_same_v<T,SetMacroOverride>||std::is_same_v<T,ResetMacroOverride>||
+        } else if constexpr(std::is_same_v<T,SetMacroOverride>||std::is_same_v<T,SetMacroBooleanOverride>||std::is_same_v<T,ResetMacroOverride>||
             std::is_same_v<T,UpdateMacroInstance>) {
             require(candidate.objects.contains(mutation.object),"MISSING_OBJECT",mutation.object);
             auto& object=candidate.objects.at(mutation.object);
@@ -6865,9 +6919,16 @@ void edit_macro(Document& candidate,const MacroCommand& command) {
                 require(parameter,"MISSING_MACRO_PARAMETER",mutation.public_parameter);
                 macro_value_range(current->second,*parameter,mutation.value);
                 instance.overrides.insert_or_assign(mutation.public_parameter,mutation.value);
+            } else if constexpr(std::is_same_v<T,SetMacroBooleanOverride>) {
+                const auto* parameter=macro_public_parameter(current->second,mutation.public_parameter);
+                require(parameter,"MISSING_MACRO_PARAMETER",mutation.public_parameter);macro_boolean_mapping(current->second,*parameter);
+                require(!instance.overrides.contains(mutation.public_parameter),"INVALID_MACRO_OVERRIDE","Public parameter already has numeric override");
+                instance.boolean_overrides.insert_or_assign(mutation.public_parameter,mutation.value);
             } else if constexpr(std::is_same_v<T,ResetMacroOverride>) {
-                require(macro_public_parameter(current->second,mutation.public_parameter),"MISSING_MACRO_PARAMETER",mutation.public_parameter);
-                require(instance.overrides.erase(mutation.public_parameter)==1,"NO_MACRO_OVERRIDE","Macro instance has no local override for this public parameter");
+                const auto* parameter=macro_public_parameter(current->second,mutation.public_parameter);
+                require(parameter,"MISSING_MACRO_PARAMETER",mutation.public_parameter);
+                const auto erased=parameter->value_type=="boolean"?instance.boolean_overrides.erase(mutation.public_parameter):instance.overrides.erase(mutation.public_parameter);
+                require(erased==1,"NO_MACRO_OVERRIDE","Macro instance has no local override for this public parameter");
             } else {
                 const auto target=definition->second.revisions.find(mutation.revision);
                 require(target!=definition->second.revisions.end(),"MISSING_MACRO_REVISION",instance.definition);
@@ -6879,6 +6940,13 @@ void edit_macro(Document& candidate,const MacroCommand& command) {
                     require(before->value_type==after->value_type&&before->unit==after->unit&&before->domain==after->domain,
                         "INCOMPATIBLE_MACRO_MIGRATION","Pinned revision migration changes the type, unit or domain of "+public_id);
                     (void)macro_default_value(target->second,*after);
+                }
+                for(const auto& [public_id,value]:instance.boolean_overrides) {
+                    (void)value;
+                    const auto* before=macro_public_parameter(current->second,public_id);const auto* after=macro_public_parameter(target->second,public_id);
+                    require(before&&after,"ORPHAN_MACRO_OVERRIDE","Migration would orphan "+public_id);
+                    require(same_public_parameter_contract(*before,*after),"INCOMPATIBLE_MACRO_MIGRATION","Migration changes type, unit or domain of "+public_id);
+                    macro_boolean_mapping(target->second,*after);
                 }
                 instance.pinned_revision=mutation.revision;
             }
@@ -7236,7 +7304,7 @@ PresetDefinition capture_preset_from_stack(const Document& document,const Create
             if(operation.macro) {
                 PresetEntry entry;entry.kind="macro";entry.type=macro_entry_type;entry.enabled=operation.enabled;
                 entry.macro_definition=operation.macro->definition;entry.pinned_revision=operation.macro->pinned_revision;
-                entry.overrides=operation.macro->overrides;result.entries.push_back(std::move(entry));
+                entry.overrides=operation.macro->overrides;entry.boolean_overrides=operation.macro->boolean_overrides;result.entries.push_back(std::move(entry));
             } else capture_builtin(operation);
         }
     } else throw Error("UNSUPPORTED_PRESET_SCHEMA","Create-from-stack requires Preset schema version 1 or 2");
@@ -7254,7 +7322,7 @@ PresetDefinition capture_preset_from_stack(const Document& document,const Create
 ProcessingEntry processing_entry_from_preset(const PresetEntry& entry,const Id& id) {
     if(entry.kind=="macro") {
         ProcessingEntry result;result.id=id;result.type=macro_entry_type;result.enabled=entry.enabled;
-        result.macro=MacroInstance{entry.macro_definition,entry.pinned_revision,entry.overrides};
+        result.macro=MacroInstance{entry.macro_definition,entry.pinned_revision,entry.overrides,entry.boolean_overrides};
         return result;
     }
     auto operation=default_operation(id,entry.type);operation.version=entry.version;operation.enabled=entry.enabled;

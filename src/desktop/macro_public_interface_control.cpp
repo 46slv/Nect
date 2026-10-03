@@ -1,6 +1,8 @@
 #include "macro_public_interface_control.hpp"
 #include "host.hpp"
 #include "semantic_control.hpp"
+#include "semantic_toggle_control.hpp"
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -36,6 +38,8 @@ std::vector<std::string> supported_parameters(const MacroNode& node) {
         (void)value;
         if(builtin_semantic_descriptor(node.operation.type,key))result.push_back(key);
     }
+    if(node.operation.type=="nect.shape.offset"||node.operation.type=="nect.shape.repeater")
+        result.push_back("enabled");
     return result;
 }
 QString control_label(const MacroPublicParameter& control) {
@@ -59,9 +63,10 @@ MacroPublicInterfaceDialog::MacroPublicInterfaceDialog(Host& host,const Id& defi
     identity->addRow("Definition",definitions_);
     source_=new QLabel(this);source_->setObjectName("macro-public-interface-revisions");source_->setTextFormat(Qt::PlainText);
     identity->addRow("Revision",source_);body->addLayout(identity);
-    auto* notice=new QLabel("Publish up to 16 controls: Offset Amount, Repeater Copies or Rotation. "
+    auto* notice=new QLabel("Publish up to 16 controls: Offset Amount, Repeater Copies or Rotation, and each node's Enabled toggle. "
         "Each internal parameter can be published once. Stable IDs stay fixed when labels or mappings change. "
-        "Save creates an interface-v2 revision; portable Macro v1 export cannot carry it. "
+        "Numeric controls use interface v2; Enabled controls or disabled node defaults require interface v3. "
+        "Portable Macro v1 export cannot carry these interfaces. "
         "Existing instances keep their pins and overrides until explicitly updated. "
         "Removed or incompatible controls may prevent an instance update; no override is silently removed. "
         "Choosing another Definition discards this draft.",this);
@@ -141,7 +146,7 @@ const Document& MacroPublicInterfaceDialog::current_document() const {
 
 void MacroPublicInterfaceDialog::load_definition() {
     if(finished_)return;
-    loaded_=false;controls_.clear();defaults_.clear();source_->clear();
+    loaded_=false;controls_.clear();defaults_.clear();enabled_defaults_.clear();source_->clear();
     try {
         const auto& document=current_document();
         if(definitions_->currentIndex()<0)throw Error("MISSING_MACRO_DEFINITION","Choose an existing Macro Definition");
@@ -152,11 +157,12 @@ void MacroPublicInterfaceDialog::load_definition() {
         if(found->second.latest_revision==std::numeric_limits<std::uint64_t>::max())
             throw Error("MACRO_REVISION_LIMIT","Macro revision space exhausted");
         draft_=found->second.revisions.at(found->second.latest_revision);
-        draft_.revision=found->second.latest_revision+1;draft_.interface_version=2;
+        draft_.revision=found->second.latest_revision+1;draft_.interface_version=std::max(2u,draft_.interface_version);
         controls_=draft_.public_parameters;
-        for(const auto* node:macro_execution_order(draft_))for(const auto& key:supported_parameters(*node))
-            defaults_.emplace(Mapping{node->operation.id,key},QString::number(node->operation.parameters.at(key).literal,'g',17));
-        source_->setText("Source "+number(found->second.latest_revision)+" → New "+number(draft_.revision)+" · interface v2");
+        for(const auto* node:macro_execution_order(draft_))for(const auto& key:supported_parameters(*node)) {
+            if(key=="enabled")enabled_defaults_.emplace(Mapping{node->operation.id,key},node->operation.enabled);
+            else defaults_.emplace(Mapping{node->operation.id,key},QString::number(node->operation.parameters.at(key).literal,'g',17));
+        }
         loaded_=true;error_->clear();
     } catch(const Error& error) { error_->setText(error_text(error)); }
       catch(const std::exception& error) { error_->setText(QString::fromUtf8(error.what())); }
@@ -175,6 +181,7 @@ void MacroPublicInterfaceDialog::rebuild_list(int selection) {
 void MacroPublicInterfaceDialog::show_row() {
     presenting_=true;stable_id_->clear();label_->clear();nodes_->clear();parameters_->clear();metadata_->clear();
     delete default_;default_=nullptr;
+    delete enabled_default_;enabled_default_=nullptr;
     if(loaded_&&selected_row_>=0&&static_cast<std::size_t>(selected_row_)<controls_.size()) {
         const auto& control=controls_.at(selected_row_);stable_id_->setText(text(control.id));label_->setText(text(control.label));
         const bool reserved=control.id=="macro.offset.amount";
@@ -196,15 +203,29 @@ void MacroPublicInterfaceDialog::show_row() {
             if(const auto descriptor=builtin_semantic_descriptor(node->operation.type,control.parameter)) {
                 metadata_->setText(text(descriptor->value_type)+" / "+text(descriptor->unit)+" / "+text(descriptor->domain));
                 const Mapping mapping{control.node,control.parameter};
-                default_=semantic_number_input(*descriptor,defaults_.at(mapping),default_container_);
-                default_->setObjectName("macro-public-interface-default");
-                default_->setAccessibleName("Mapped literal default: "+text(descriptor->label));
-                default_->setProperty("nect-node-id",text(control.node));default_->setProperty("nect-parameter",text(control.parameter));
-                default_->setToolTip(default_->toolTip()+"\nInternal node literal default. This is not a new public value or an instance override.");
-                default_container_->layout()->addWidget(default_);
-                connect(default_,&QLineEdit::textChanged,this,[this,mapping](const QString& value){
-                    if(!presenting_&&!finished_){defaults_.at(mapping)=value;error_->clear();}
-                });
+                if(control.parameter=="enabled") {
+                    enabled_default_=semantic_toggle_input(*descriptor,enabled_defaults_.at(mapping),default_container_);
+                    enabled_default_->setObjectName("macro-public-interface-default-enabled");
+                    enabled_default_->setAccessibleName("Mapped literal default: "+text(descriptor->label));
+                    enabled_default_->setProperty("nect-node-id",text(control.node));
+                    enabled_default_->setProperty("nect-parameter",text(control.parameter));
+                    enabled_default_->setToolTip("Internal node literal Enabled default. Save creates a new revision; existing instance pins and overrides are unchanged.");
+                    enabled_default_->setAccessibleDescription(enabled_default_->toolTip());
+                    default_container_->layout()->addWidget(enabled_default_);
+                    connect(enabled_default_,&QCheckBox::toggled,this,[this,mapping](bool value){
+                        if(!presenting_&&!finished_){enabled_defaults_.at(mapping)=value;refresh_actions();error_->clear();}
+                    });
+                } else {
+                    default_=semantic_number_input(*descriptor,defaults_.at(mapping),default_container_);
+                    default_->setObjectName("macro-public-interface-default");
+                    default_->setAccessibleName("Mapped literal default: "+text(descriptor->label));
+                    default_->setProperty("nect-node-id",text(control.node));default_->setProperty("nect-parameter",text(control.parameter));
+                    default_->setToolTip(default_->toolTip()+"\nInternal node literal default. This is not a new public value or an instance override.");
+                    default_container_->layout()->addWidget(default_);
+                    connect(default_,&QLineEdit::textChanged,this,[this,mapping](const QString& value){
+                        if(!presenting_&&!finished_){defaults_.at(mapping)=value;error_->clear();}
+                    });
+                }
             }
         }
         nodes_->setToolTip(reserved?"Reserved macro.offset.amount can only map to Offset Amount.":
@@ -216,12 +237,20 @@ void MacroPublicInterfaceDialog::show_row() {
 void MacroPublicInterfaceDialog::refresh_actions() {
     const bool active=loaded_&&!finished_&&!saved_revision_;
     save_->setEnabled(active);list_->setEnabled(active);definitions_->setEnabled(!finished_);
-    bool available=false;
-    if(active)for(const auto& [mapping,value]:defaults_) {
-        (void)value;
-        if(std::none_of(controls_.begin(),controls_.end(),[&](const auto& control){
-            return control.node==mapping.first&&control.parameter==mapping.second;
-        })) { available=true;break; }
+    const auto unpublished=[this](const auto& defaults) {
+        return std::any_of(defaults.begin(),defaults.end(),[this](const auto& entry){
+            const auto& mapping=entry.first;
+            return std::none_of(controls_.begin(),controls_.end(),[&](const auto& control){
+                return control.node==mapping.first&&control.parameter==mapping.second;
+            });
+        });
+    };
+    const bool available=active&&(unpublished(defaults_)||unpublished(enabled_defaults_));
+    if(loaded_) {
+        const bool boolean_interface=std::any_of(controls_.begin(),controls_.end(),[](const auto& control){return control.parameter=="enabled";})||
+            std::any_of(enabled_defaults_.begin(),enabled_defaults_.end(),[](const auto& entry){return !entry.second;});
+        const auto version=boolean_interface?std::max(3u,draft_.interface_version):draft_.interface_version;
+        source_->setText("Source "+number(draft_.revision-1)+" → New "+number(draft_.revision)+" · interface v"+number(version));
     }
     add_->setEnabled(active&&controls_.size()<16&&available);remove_->setEnabled(active&&selected_row_>=0);
 }
@@ -230,7 +259,10 @@ void MacroPublicInterfaceDialog::add_control() {
     if(!loaded_||finished_||saved_revision_||controls_.size()>=16)return;
     try {
         const auto& definition=current_document().macro_definitions.at(definition_id_);
-        for(const auto* node:macro_execution_order(draft_))for(const auto& key:supported_parameters(*node)) {
+        // Keep the existing numeric-first Add workflow; all nodes' Enabled
+        // mappings are available in the chooser and after numeric candidates.
+        for(const bool enabled:{false,true})for(const auto* node:macro_execution_order(draft_))for(const auto& key:supported_parameters(*node)) {
+            if((key=="enabled")!=enabled)continue;
             if(std::any_of(controls_.begin(),controls_.end(),[&](const auto& control){
                 return control.node==node->operation.id&&control.parameter==key;
             }))continue;
@@ -268,16 +300,24 @@ MacroDefinitionRevision MacroPublicInterfaceDialog::edited_revision() const {
         const auto* node=mapped_node(result,control.node);
         if(!node)throw Error("INVALID_MACRO_MAPPING","Choose an existing internal node");
         const auto descriptor=builtin_semantic_descriptor(node->operation.type,control.parameter);
-        if(!descriptor)throw Error("INVALID_MACRO_MAPPING","Choose Offset Amount or Repeater Copies/Rotation");
+        const auto supported=supported_parameters(*node);
+        if(!descriptor||std::find(supported.begin(),supported.end(),control.parameter)==supported.end())
+            throw Error("INVALID_MACRO_MAPPING","Choose Offset Amount, Repeater Copies/Rotation or node Enabled");
         if(!mappings.emplace(control.node,control.parameter).second)
             throw Error("INVALID_MACRO_MAPPING","An internal node parameter can be published only once: "+control.node+" / "+control.parameter);
         control.value_type=descriptor->value_type;control.unit=descriptor->unit;control.domain=descriptor->domain;
+        if(control.parameter=="enabled")result.interface_version=std::max(3u,result.interface_version);
     }
     for(const auto& [mapping,raw]:defaults_) {
         bool valid=false;const auto value=raw.trimmed().toDouble(&valid);
         if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE",mapping.first+" / "+mapping.second+": enter a finite literal number");
         auto node=std::find_if(result.nodes.begin(),result.nodes.end(),[&](const auto& candidate){return candidate.operation.id==mapping.first;});
         node->operation.parameters.at(mapping.second).literal=value;
+    }
+    for(const auto& [mapping,value]:enabled_defaults_) {
+        auto node=std::find_if(result.nodes.begin(),result.nodes.end(),[&](const auto& candidate){return candidate.operation.id==mapping.first;});
+        node->operation.enabled=value;
+        if(!value)result.interface_version=std::max(3u,result.interface_version);
     }
     return result;
 }

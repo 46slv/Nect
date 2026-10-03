@@ -176,7 +176,8 @@ SemanticParameterDescriptor macro_semantic_descriptor(const Document& document,c
     require_descriptor(parameter->value_type==descriptor->value_type&&parameter->unit==descriptor->unit&&parameter->domain==descriptor->domain,
         "Public parameter type/unit/domain differs from its canonical target");
     descriptor->key=parameter->id;descriptor->label=parameter->label;
-    descriptor->default_value=node->operation.parameters.at(parameter->parameter).literal;
+    if(parameter->value_type=="boolean")descriptor->boolean_default=node->operation.enabled;
+    else descriptor->default_value=node->operation.parameters.at(parameter->parameter).literal;
     validate_semantic_descriptor(*descriptor);return *descriptor;
 }
 }

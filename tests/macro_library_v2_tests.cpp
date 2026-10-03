@@ -307,7 +307,7 @@ void tampering_remains_atomic(const QString& scratch) {
     replace_payload(altered,payload_bytes(same_identity));refuse("MACRO_ASSET_ID_MISMATCH",altered);
     altered=original_envelope;replace_payload(altered,payload_bytes(source)+"\n");
     refuse("NONCANONICAL_MACRO_PAYLOAD",altered);
-    altered=original_envelope;altered.insert("payload_schema",3);
+    altered=original_envelope;altered.insert("payload_schema",4);
     refuse("UNSUPPORTED_MACRO_SCHEMA",altered);
     altered=original_envelope;altered.insert("version",2);
     refuse("UNSUPPORTED_MACRO_ASSET_VERSION",altered);

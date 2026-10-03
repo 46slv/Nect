@@ -1145,7 +1145,7 @@ MacroDefinitionRevision read_macro_revision(const j::value& value) {
     }
     if(const auto* version=object.if_contains("interface_version")) {
         const auto value=number(*version);
-        if(value!=1&&value!=2)throw Error("UNSUPPORTED_MACRO_INTERFACE_VERSION","Supported Macro interface versions are 1 and 2");
+        if(value!=1&&value!=2&&value!=3)throw Error("UNSUPPORTED_MACRO_INTERFACE_VERSION","Supported Macro interface versions are 1 through 3");
         revision.interface_version=static_cast<unsigned>(value);
     }
     revision.input=read_macro_port(object.at("input"));revision.output=read_macro_port(object.at("output"));
@@ -1196,9 +1196,34 @@ j::value macro_definition_json(const MacroDefinition& definition) {
     j::array revisions;for(const auto& [number,revision]:definition.revisions){(void)number;revisions.push_back(macro_revision_json(revision));}
     return j::object{{"id",definition.id},{"label",definition.label},{"latest_revision",definition.latest_revision},{"revisions",revisions}};
 }
+void read_macro_overrides(const j::value& value,std::map<std::string,double>& numbers,std::map<std::string,bool>& booleans) {
+    for(const auto& [key,entry]:value.as_object()) {
+        const auto id=std::string(key);
+        if(entry.is_bool())booleans.emplace(id,entry.as_bool());
+        else numbers.emplace(id,number(entry));
+    }
+}
+j::object macro_overrides_json(const std::map<std::string,double>& numbers,const std::map<std::string,bool>& booleans) {
+    j::object result;for(const auto& [key,value]:numbers)result[key]=value;
+    for(const auto& [key,value]:booleans) {
+        if(result.contains(key))throw Error("INVALID_MACRO_OVERRIDE","Duplicate typed override: "+key);
+        result[key]=value;
+    }
+    return result;
+}
+j::value macro_parameter_json_value(const Document& document,const Ref& ref) {
+    const auto& object=document.objects.at(ref.object);
+    const auto entry=std::find_if(object.stack.begin(),object.stack.end(),[&](const auto& value){return value.id==ref.point&&value.macro.has_value();});
+    if(entry==object.stack.end())throw Error("MISSING_MACRO_INSTANCE",ref.point);
+    const auto& revision=document.macro_definitions.at(entry->macro->definition).revisions.at(entry->macro->pinned_revision);
+    const auto parameter=std::find_if(revision.public_parameters.begin(),revision.public_parameters.end(),[&](const auto& value){return value.id==ref.field;});
+    if(parameter==revision.public_parameters.end())throw Error("MISSING_MACRO_PARAMETER",ref.field);
+    if(parameter->value_type=="boolean")return macro_parameter_boolean_value(document,ref.object,ref.point,ref.field);
+    return macro_parameter_value(document,ref.object,ref.point,ref.field);
+}
 j::value processing_entry_json(const ProcessingEntry& entry) {
     if(!entry.macro)return j::object{{"kind","operation"},{"operation",operation_json(entry)}};
-    j::object overrides;for(const auto& [parameter,value]:entry.macro->overrides)overrides[parameter]=value;
+    const auto overrides=macro_overrides_json(entry.macro->overrides,entry.macro->boolean_overrides);
     return j::object{{"kind","macro"},{"id",entry.id},{"enabled",entry.enabled},
         {"definition",entry.macro->definition},{"revision",entry.macro->pinned_revision},{"overrides",overrides}};
 }
@@ -1213,7 +1238,7 @@ ProcessingEntry read_processing_entry(const j::value& value,bool allow_enabled_e
         keys(object,{"kind","id","enabled","definition","revision","overrides"});
         ProcessingEntry entry;entry.id=text(object.at("id"));entry.type=macro_entry_type;entry.enabled=object.at("enabled").as_bool();
         MacroInstance instance;instance.definition=text(object.at("definition"));instance.pinned_revision=j::value_to<std::uint64_t>(object.at("revision"));
-        for(const auto& [parameter,value]:object.at("overrides").as_object())instance.overrides.emplace(std::string(parameter),number(value));
+        read_macro_overrides(object.at("overrides"),instance.overrides,instance.boolean_overrides);
         entry.macro=std::move(instance);return entry;
     }
     throw Error("UNSUPPORTED_STACK_ENTRY",kind);
@@ -1241,8 +1266,7 @@ PresetEntry read_preset_entry(const j::value& value,unsigned schema_version) {
         keys(o,{"kind","definition","revision","enabled","overrides"});
         PresetEntry entry;entry.kind="macro";entry.type=macro_entry_type;entry.macro_definition=text(o.at("definition"));
         entry.pinned_revision=preset_unsigned(o.at("revision"),std::numeric_limits<std::uint64_t>::max(),"Preset Macro revision");entry.enabled=o.at("enabled").as_bool();
-        for(const auto& [parameter,value]:o.at("overrides").as_object())
-            entry.overrides.emplace(std::string(parameter),number(value));
+        read_macro_overrides(o.at("overrides"),entry.overrides,entry.boolean_overrides);
         return entry;
     }
     throw Error("INVALID_PRESET_ENTRY",kind);
@@ -1270,7 +1294,7 @@ j::value preset_json(const PresetDefinition& definition) {
             entries.push_back(definition.schema_version==1?j::value(std::move(builtin)):
                 j::value(j::object{{"kind","builtin"},{"operation",std::move(builtin)}}));
         } else {
-            j::object overrides;for(const auto& [name,value]:entry.overrides)overrides[name]=value;
+            const auto overrides=macro_overrides_json(entry.overrides,entry.boolean_overrides);
             entries.push_back(j::object{{"kind","macro"},{"definition",entry.macro_definition},
                 {"revision",entry.pinned_revision},{"enabled",entry.enabled},{"overrides",overrides}});
         }
@@ -2031,11 +2055,10 @@ MacroCommand read_macro_command(const j::value& value) {
     if(type=="import_apply_macro") {
         keys(object,{"type","definition","definition_id","object","instance","pinned_revision","index",
             "overrides","asset_id","accepted_revision"});
-        std::map<std::string,double> overrides;
+        std::map<std::string,double> overrides;std::map<std::string,bool> boolean_overrides;
         if(const auto* supplied=object.if_contains("overrides")) {
             if(!supplied->is_object())throw Error("INVALID_MACRO_OVERRIDES","Macro import overrides must be an object of stable PublicParamID numeric values");
-            for(const auto& [public_id,value]:supplied->as_object())
-                overrides.emplace(std::string(public_id),number(value));
+            read_macro_overrides(*supplied,overrides,boolean_overrides);
         }
         const auto accepted_revision=macro_unsigned(object.at("accepted_revision"),
             9007199254740991ULL,"Macro asset accepted revision");
@@ -2045,15 +2068,17 @@ MacroCommand read_macro_command(const j::value& value) {
             static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()),"Macro insertion index",true);
         return MacroCommand{InstantiateMacro{text(object.at("object")),text(object.at("definition_id")),
             text(object.at("instance")),pinned_revision,static_cast<std::size_t>(insertion_index),read_macro_definition(object.at("definition")),
-            text(object.at("asset_id")),accepted_revision,std::move(overrides)}};
+            text(object.at("asset_id")),accepted_revision,std::move(overrides),std::move(boolean_overrides)}};
     }
     if(type=="instantiate_macro"||type=="apply_macro") {
         keys(object,{"type","object","definition","instance","revision","index"});
         return MacroCommand{InstantiateMacro{text(object.at("object")),text(object.at("definition")),text(object.at("instance")),
             j::value_to<std::uint64_t>(object.at("revision")),j::value_to<std::size_t>(object.at("index"))}};
     }
-    if(type=="set_macro_override") {
+    if(type=="set_macro_override"||type=="set_macro_boolean_override") {
         keys(object,{"type","object","instance","public_parameter","value"});
+        if(object.at("value").is_bool())return MacroCommand{SetMacroBooleanOverride{text(object.at("object")),text(object.at("instance")),text(object.at("public_parameter")),object.at("value").as_bool()}};
+        if(type=="set_macro_boolean_override")throw Error("INVALID_MACRO_OVERRIDE","Boolean command requires JSON boolean");
         return MacroCommand{SetMacroOverride{text(object.at("object")),text(object.at("instance")),text(object.at("public_parameter")),number(object.at("value"))}};
     }
     if(type=="reset_macro_override") {
@@ -2750,10 +2775,10 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,86> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80","0.81","0.82","0.83","0.84","0.85","0.86"};
+        constexpr std::array<std::string_view,87> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80","0.81","0.82","0.83","0.84","0.85","0.86","0.87"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.86 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.87 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
         if(minor<86)if(const auto* definitions=root.if_contains("macros"))
             for(const auto& definition:definitions->as_array())for(const auto& revision:definition.at("revisions").as_array())
@@ -2969,6 +2994,14 @@ Document decode(std::string_view input) {
         }
         for(const auto& [id,paint]:legacy_paints) {
             add_default_stroke(d,id);d.objects.at(id).stack.front().parameters=paint.parameters;
+        }
+        if(minor<87) {
+            for(const auto& [id,definition]:d.macro_definitions)for(const auto& [number,revision]:definition.revisions)
+                if(revision.interface_version==3)throw Error("NATIVE_VERSION_MISMATCH","Boolean Macro interfaces require native 0.87");
+            for(const auto& [id,object]:d.objects)for(const auto& entry:object.stack)
+                if(entry.macro&&!entry.macro->boolean_overrides.empty())throw Error("NATIVE_VERSION_MISMATCH","Boolean Macro overrides require native 0.87");
+            for(const auto& [id,preset]:d.preset_definitions)for(const auto& entry:preset.entries)
+                if(!entry.boolean_overrides.empty())throw Error("NATIVE_VERSION_MISMATCH","Boolean Macro Preset overrides require native 0.87");
         }
         validate(d);
         return d;
@@ -3341,7 +3374,7 @@ std::string request(Session& session,std::string_view input) {
                 session.document(),r,operation_enabled_state(session.document(),r));
             else if(r.field.starts_with("op.")&&r.field.ends_with(".fill_rule"))result=fill_rule_property_json(session.document(),r,fill_rule_property(session.document(),r));
             else if(r.field.starts_with("macro.")&&!r.point.empty()) {
-                const auto value=macro_parameter_value(session.document(),r.object,r.point,r.field);
+                const auto value=macro_parameter_json_value(session.document(),r);
                 result=j::object{{"ref",ref_json(r)},{"origin","macro_public_parameter"},
                     {"authored",value},{"evaluated",value}};
             }
@@ -3539,10 +3572,10 @@ std::string request(Session& session,std::string_view input) {
                         return item.id==ref.field;
                     });
                     if(parameter==revision.public_parameters.end())throw Error("MISSING_MACRO_PARAMETER",ref.field);
-                    const auto effective=macro_parameter_value(session.document(),ref.object,entry->id,ref.field);
+                    const auto effective=macro_parameter_json_value(session.document(),ref);
                     list.push_back({{"ref",ref_json(ref)},{"name",definition.label+" / "+parameter->label},
                         {"type",parameter->value_type},{"unit",parameter->unit},{"space","local"},
-                        {"origin",entry->macro->overrides.contains(ref.field)?"macro_override":"macro_default"},
+                        {"origin",(entry->macro->overrides.contains(ref.field)||entry->macro->boolean_overrides.contains(ref.field))?"macro_override":"macro_default"},
                         {"authored",effective},{"evaluated",effective}});
                     continue;
                 }

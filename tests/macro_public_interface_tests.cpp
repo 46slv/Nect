@@ -218,7 +218,7 @@ void interface_validation_boundaries() {
         Session session(fixture());atomic(session,code,{MacroCommand{CreateMacroDefinition{std::move(source)}}});
     };
     auto altered=definition();altered.revisions.at(1).interface_version=2;refuse(altered,"INVALID_MACRO_INTERFACE");
-    altered=definition();altered.revisions.at(2).interface_version=3;refuse(altered,"UNSUPPORTED_MACRO_INTERFACE_VERSION");
+    altered=definition();altered.revisions.at(2).interface_version=4;refuse(altered,"UNSUPPORTED_MACRO_INTERFACE_VERSION");
     altered=definition();altered.revisions.at(2).interface_version=1;refuse(altered,"INVALID_MACRO_INTERFACE");
     altered=definition();altered.revisions.at(2).public_parameters[1].id=amount_id;refuse(altered,"DUPLICATE_MACRO_PARAMETER");
     altered=definition();altered.revisions.at(2).public_parameters.push_back({"macro.alias","Alias","repeater-a","copies","number","scalar","local_paths_and_paint"});
@@ -344,7 +344,7 @@ void native_portable_and_cold_reopen(const std::string& executable) {
     Session session(fixture());instantiate(session);apply(session,{MacroCommand{SetMacroOverride{"path","instance",amount_id,12}},
         MacroCommand{SetMacroOverride{"path","instance",copies_id,3}},MacroCommand{SetMacroOverride{"path","instance",rotation_id,-450.25}}});
     const auto bytes=encode(session.document());auto native=parsed(bytes);
-    check(native.at("version").as_string()=="0.86"&&boost::json::value_to<unsigned>(serialized_revision(native,1).at("interface_version"))==2&&
+    check(native.at("version").as_string()==native_version&&boost::json::value_to<unsigned>(serialized_revision(native,1).at("interface_version"))==2&&
         !serialized_revision(native,0).contains("interface_version"),"Native86 writes the required v2 marker and omits the legacy default marker");
     check(decode(bytes)==session.document(),"Native86 roundtrip preserves every retained definition revision and public mapping");
     for(const auto* version:{"0.85","0.83","0.82","0.65","0.1"}) {
@@ -353,7 +353,7 @@ void native_portable_and_cold_reopen(const std::string& executable) {
     }
     auto missing=native;serialized_revision(missing,1).erase("interface_version");
     rejects("INVALID_MACRO_INTERFACE",[&]{(void)decode(boost::json::serialize(missing));});
-    auto future=native;serialized_revision(future,1)["interface_version"]=3;
+    auto future=native;serialized_revision(future,1)["interface_version"]=4;
     rejects("UNSUPPORTED_MACRO_INTERFACE_VERSION",[&]{(void)decode(boost::json::serialize(future));});
     auto legacy=definition(true);legacy.revisions.erase(2);legacy.latest_revision=1;Session old(fixture());instantiate(old,legacy,1);
     auto old_json=parsed(encode(old.document()));

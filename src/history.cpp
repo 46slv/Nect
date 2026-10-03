@@ -123,9 +123,9 @@ std::size_t extra(const MacroNode& v){return total(extra(v.operation),extra(v.in
 std::size_t extra(const MacroPublicParameter& v){return total(extra(v.id),extra(v.label),extra(v.node),extra(v.parameter),extra(v.value_type),extra(v.unit),extra(v.domain));}
 std::size_t extra(const MacroDefinitionRevision& v){return total(extra(v.input),extra(v.output),extra(v.nodes),extra(v.edges),extra(v.output_mapping),extra(v.public_parameters));}
 std::size_t extra(const MacroDefinition& v){return total(extra(v.id),extra(v.label),extra(v.revisions));}
-std::size_t extra(const MacroInstance& v){return total(extra(v.definition),extra(v.overrides));}
+std::size_t extra(const MacroInstance& v){return total(extra(v.definition),extra(v.overrides),extra(v.boolean_overrides));}
 std::size_t extra(const ProcessingEntry& v){return total(extra(static_cast<const ShapeOperation&>(v)),extra(v.macro));}
-std::size_t extra(const PresetEntry& v){return total(extra(v.kind),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.line_join),extra(v.line_cap),extra(v.macro_definition),extra(v.overrides));}
+std::size_t extra(const PresetEntry& v){return total(extra(v.kind),extra(v.type),extra(v.parameters),extra(v.composite),extra(v.fill_rule),extra(v.line_join),extra(v.line_cap),extra(v.macro_definition),extra(v.overrides),extra(v.boolean_overrides));}
 std::size_t extra(const PresetDefinition& v){return total(extra(v.id),extra(v.label),extra(v.category),extra(v.tags),extra(v.target_domain),extra(v.entries));}
 std::size_t extra(const Definition& v){return total(extra(v.id),extra(v.name),extra(v.root));}
 std::size_t extra(const DefinitionInstance& v){return total(extra(v.definition),extra(v.overrides),extra(v.visibility_overrides),extra(v.color_overrides),extra(v.text_content_overrides));}
@@ -238,7 +238,7 @@ std::string Session::history_label(const std::vector<Command>& commands,const Do
             else if constexpr(std::is_same_v<T,UpdateMacroDefinition>)return "Update Macro revision: "+mutation.definition;
             else if constexpr(std::is_same_v<T,DeleteMacroDefinition>)return "Delete Macro: "+mutation.definition;
             else if constexpr(std::is_same_v<T,InstantiateMacro>)return "Apply Macro: "+mutation.definition;
-            else if constexpr(std::is_same_v<T,SetMacroOverride>)return "Set Macro parameter: "+mutation.public_parameter;
+            else if constexpr((std::is_same_v<T,SetMacroOverride>||std::is_same_v<T,SetMacroBooleanOverride>))return "Set Macro parameter: "+mutation.public_parameter;
             else if constexpr(std::is_same_v<T,ResetMacroOverride>)return "Reset Macro parameter: "+mutation.public_parameter;
             else if constexpr(std::is_same_v<T,UpdateMacroInstance>)return "Update Macro instance revision: "+mutation.instance;
             else return "Detach Macro instance: "+mutation.instance;
