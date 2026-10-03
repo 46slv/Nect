@@ -36,15 +36,16 @@ SemanticControlResolution validate_semantic_descriptor(const SemanticParameterDe
 std::optional<SemanticParameterDescriptor> builtin_semantic_descriptor(const std::string& type,const std::string& parameter) {
     const bool amount=type=="nect.shape.offset"&&parameter=="amount";
     const bool rotation=type=="nect.shape.repeater"&&parameter=="rotation";
-    if(!amount&&!rotation)return {};
+    const bool copies=type=="nect.shape.repeater"&&parameter=="copies";
+    if(!amount&&!rotation&&!copies)return {};
     const auto* owner=builtin_operation_type(type);
     if(!owner||!owner->parameter_defaults.contains(parameter))
         throw Error("INVALID_CONTROL_DESCRIPTOR","Built-in descriptor has no canonical parameter default");
     SemanticParameterDescriptor d;
     d.key=parameter;d.default_value=owner->parameter_defaults.at(parameter);d.domain=owner->input;
-    d.unit=amount?"du":"degree";d.minimum=amount?-1e6:-1e9;d.maximum=amount?1e6:1e9;d.step=1;
-    d.widget_hint=amount?"numeric":"angle";d.label=amount?"Amount":"Rotation";
-    d.help=amount?"Positive expands; negative contracts. Escape cancels the draft.":
+    d.unit=amount?"du":copies?"scalar":"degree";d.minimum=amount?-1e6:copies?0:-1e9;d.maximum=amount?1e6:copies?1000:1e9;d.step=1;
+    d.widget_hint=rotation?"angle":"numeric";d.label=amount?"Amount":copies?"Copies":"Rotation";
+    d.help=copies?"Whole-number copies from 0 to 1000. Escape cancels the draft.":amount?"Positive expands; negative contracts. Escape cancels the draft.":
         "Signed degrees per copy. The indicator wraps; the authored value retains all turns. Escape cancels.";
     if(rotation)d.angle_semantics="signed_turns_indicator_modulo_360";
     validate_semantic_descriptor(d);return d;

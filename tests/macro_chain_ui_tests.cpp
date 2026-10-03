@@ -369,6 +369,20 @@ void global_hook(Host& host) {
         named<QLabel>(*controls,"macro-chain-controls-error")->text().contains("REVISION_CONFLICT"),
         "A stale global hook reports its refresh requirement without opening a stale draft");
 }
+void preserve_multiple_controls(Host& host) {
+    load(host);auto next=initial_definition().revisions.at(1);next.revision=2;next.interface_version=2;
+    next.public_parameters.push_back({"macro.repeat.copies","Copies","repeater","copies","number","scalar","local_paths_and_paint"});
+    next.public_parameters.push_back({"macro.repeat.rotation","Rotation","repeater","rotation","number","degree","local_paths_and_paint"});
+    host.session.apply({MacroCommand{UpdateMacroDefinition{"definition",next}}},host.session.revision());
+    MacroChainDialog dialog(host,"definition");dialog.show();events();
+    check(!named<QCheckBox>(dialog,"macro-chain-publish-amount")->isVisible(),"Amount-only editor is hidden for a multi-control interface");
+    click(dialog,"macro-chain-save");
+    const auto& saved=host.session.document().macro_definitions.at("definition").revisions.at(3);
+    check(dialog.result()==QDialog::Accepted&&saved.interface_version==2&&saved.public_parameters==next.public_parameters,
+        "Editing the chain preserves every versioned public ID and mapping");
+    check(instance(host.session.document()).pinned_revision==1,"Chain edit leaves the old instance pinned");
+}
+
 }
 
 int main(int argc,char** argv) {
@@ -377,7 +391,7 @@ int main(int argc,char** argv) {
     try {
         QTemporaryDir directory;check(directory.isValid(),"Temporary storage is available");Host host(directory.path()+"/recovery");
         lifecycle(host,directory.path());remove_mapping_and_bounds(host);unpublish_remove_and_restore(host);invalid_defaults_and_chooser(host);
-        stale_cancel_and_lifetime(host);global_hook(host);
+        stale_cancel_and_lifetime(host);global_hook(host);preserve_multiple_controls(host);
         std::cout<<"Macro chain interaction checks: "<<checks<<'\n';return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

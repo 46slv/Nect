@@ -1136,12 +1136,17 @@ MacroEndpoint read_macro_endpoint(const j::value& value) {
 }
 j::value macro_endpoint_json(const MacroEndpoint& endpoint) {return j::object{{"node",endpoint.node},{"port",endpoint.port}};}
 MacroDefinitionRevision read_macro_revision(const j::value& value) {
-    const auto& object=value.as_object();keys(object,{"revision","input","output","nodes","edges","output_mapping","public_parameters","graph_version"});
+    const auto& object=value.as_object();keys(object,{"revision","input","output","nodes","edges","output_mapping","public_parameters","graph_version","interface_version"});
     MacroDefinitionRevision revision;revision.revision=j::value_to<std::uint64_t>(object.at("revision"));
     if(const auto* version=object.if_contains("graph_version")) {
         const auto value=number(*version);
         if(value!=1&&value!=2)throw Error("UNSUPPORTED_MACRO_GRAPH_VERSION","Supported Macro graph versions are 1 and 2");
         revision.graph_version=static_cast<unsigned>(value);
+    }
+    if(const auto* version=object.if_contains("interface_version")) {
+        const auto value=number(*version);
+        if(value!=1&&value!=2)throw Error("UNSUPPORTED_MACRO_INTERFACE_VERSION","Supported Macro interface versions are 1 and 2");
+        revision.interface_version=static_cast<unsigned>(value);
     }
     revision.input=read_macro_port(object.at("input"));revision.output=read_macro_port(object.at("output"));
     for(const auto& value:object.at("nodes").as_array()) {
@@ -1174,6 +1179,7 @@ j::value macro_revision_json(const MacroDefinitionRevision& revision) {
         {"output",macro_port_json(revision.output)},{"nodes",nodes},{"edges",edges},
         {"output_mapping",macro_endpoint_json(revision.output_mapping)},{"public_parameters",parameters}};
     if(revision.graph_version!=1)result["graph_version"]=revision.graph_version;
+    if(revision.interface_version!=1)result["interface_version"]=revision.interface_version;
     return result;
 }
 MacroDefinition read_macro_definition(const j::value& value) {
@@ -2744,11 +2750,14 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,85> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80","0.81","0.82","0.83","0.84","0.85"};
+        constexpr std::array<std::string_view,86> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80","0.81","0.82","0.83","0.84","0.85","0.86"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.85 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.86 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
+        if(minor<86)if(const auto* definitions=root.if_contains("macros"))
+            for(const auto& definition:definitions->as_array())for(const auto& revision:definition.at("revisions").as_array())
+                if(revision.as_object().contains("interface_version"))throw Error("NATIVE_VERSION_MISMATCH","Macro interface versions require native 0.86");
         if(minor<85)for(const auto& object:root.at("objects").as_array()) {
             if(const auto* instance=object.as_object().if_contains("instance");instance&&instance->as_object().contains("text_content_overrides"))
                 throw Error("NATIVE_VERSION_MISMATCH","Instance Text content overrides require native 0.85");

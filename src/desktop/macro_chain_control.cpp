@@ -134,6 +134,7 @@ void MacroChainDialog::load_definition() {
         if(found->second.latest_revision==std::numeric_limits<std::uint64_t>::max())
             throw Error("MACRO_REVISION_LIMIT","Macro revision space exhausted");
         draft_=found->second.revisions.at(found->second.latest_revision);
+        publish_amount_->parentWidget()->setVisible(draft_.interface_version==1);
         draft_.revision=found->second.latest_revision+1;
         source_->setText("Source "+number(found->second.latest_revision)+" → New "+number(draft_.revision));
         for(const auto* node:macro_execution_order(draft_)) {
@@ -229,10 +230,15 @@ void MacroChainDialog::move_node(int delta) {
 void MacroChainDialog::remove_node() {
     const auto row=chain_->currentRow();
     if(!loaded_||finished_||saved_revision_||row<0||nodes_.size()<=1)return;
-    capture_defaults();const bool published=nodes_[row].node.operation.id==mapped_node_&&publish_amount_->isChecked();
+    capture_defaults();const auto removed=nodes_[row].node.operation.id;
+    const bool published=draft_.interface_version==2?
+        std::any_of(draft_.public_parameters.begin(),draft_.public_parameters.end(),[&](const auto& p){return p.node==removed;}):
+        removed==mapped_node_&&publish_amount_->isChecked();
     nodes_.erase(nodes_.begin()+row);const auto next=std::min(static_cast<std::size_t>(row),nodes_.size()-1);
     rebuild_chain(nodes_[next].node.operation.id);
-    if(published)error_->setText("The published Offset was removed. Choose an Offset node for Amount before Save.");
+    if(published)error_->setText(draft_.interface_version==2?
+        "This node has published controls. Cancel and remove or remap them in Publish Macro controls before changing the chain.":
+        "The published Offset was removed. Choose an Offset node for Amount before Save.");
 }
 
 MacroDefinitionRevision MacroChainDialog::edited_revision() {
@@ -250,6 +256,9 @@ MacroDefinitionRevision MacroChainDialog::edited_revision() {
         previous={node.operation.id,node.output_port};
     }
     result.edges.push_back({previous,{"",result.output.id}});result.output_mapping=previous;
+    // Versioned multi-control interfaces are retained verbatim; their dedicated
+    // editor owns publication/remapping. Core refuses removed mapped nodes.
+    if(result.interface_version==2)return result;
     result.public_parameters.clear();
     if(publish_amount_->isChecked()) {
         const auto selected=mapping_->currentData().toString().toStdString();

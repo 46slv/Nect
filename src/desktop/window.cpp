@@ -1,3 +1,5 @@
+#include "composite_isolation_batch_control.hpp"
+#include "macro_public_interface_control.hpp"
 #include "instance_text_content_control.hpp"
 #include "text_string_source_batch_control.hpp"
 #include "instance_color_control.hpp"
@@ -952,6 +954,11 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     edit_macro_chain->setObjectName("effects-edit-macro-chain");effects_layout->addWidget(edit_macro_chain);
     connect(edit_macro_chain,&QPushButton::clicked,this,[this]{
         auto* dialog=new MacroChainDialog(host,{},this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->open();
+    });
+    auto* edit_macro_interface=new QPushButton("Publish Macro controls...",effects_page);
+    edit_macro_interface->setObjectName("effects-edit-macro-interface");effects_layout->addWidget(edit_macro_interface);
+    connect(edit_macro_interface,&QPushButton::clicked,this,[this]{
+        auto* dialog=new MacroPublicInterfaceDialog(host,{},this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->open();
     });
     effects_search_=new QLineEdit(effects_page);effects_search_->setObjectName("effects-search");
     effects_search_->setPlaceholderText("Search effects…");effects_search_->setClearButtonEnabled(true);
@@ -8788,6 +8795,7 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     for(const auto& item:selected)whole_object_targets.push_back(item.object);
     layout->addWidget(make_multi_visibility_controls(host,whole_object_targets,inspector_));
     layout->addWidget(make_multi_blend_mode_controls(host,whole_object_targets,inspector_));
+        layout->addWidget(make_composite_isolation_batch_controls(host,whole_object_targets,inspector_));
     add_multi_text_content(layout,selected);
     add_multi_text_weight(layout,selected);
     if(std::any_of(selected.begin(),selected.end(),[&](const auto& item){

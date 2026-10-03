@@ -424,10 +424,10 @@ EvaluatedShape evaluate_shape(const Document& d,const Id& id,const std::map<Ref,
             for(const auto* node:macro_execution_order(revision->second)) {
                 const auto& macro_operation=node->operation;
                 const auto macro_value=[&](const std::string& name) {
-                    if(macro_operation.type=="nect.shape.offset"&&name=="amount"&&
-                        std::any_of(revision->second.public_parameters.begin(),revision->second.public_parameters.end(),
-                            [&](const auto& parameter){return parameter.id=="macro.offset.amount"&&parameter.node==macro_operation.id;}))
-                        return macro_parameter_value(d,id,op.id,"macro.offset.amount");
+                    const auto published=std::find_if(revision->second.public_parameters.begin(),revision->second.public_parameters.end(),
+                        [&](const auto& parameter){return parameter.node==macro_operation.id&&parameter.parameter==name;});
+                    if(published!=revision->second.public_parameters.end())
+                        return macro_parameter_value(d,id,op.id,published->id);
                     const auto found=macro_operation.parameters.find(name);
                     if(found==macro_operation.parameters.end())throw Error("INVALID_MACRO_MAPPING",name);
                     return found->second.literal;

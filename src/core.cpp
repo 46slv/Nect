@@ -4045,6 +4045,7 @@ std::map<Id,double> evaluate_guide_positions(const Document& document,const Id& 
 }
 
 static const MacroPublicParameter* macro_public_parameter(const MacroDefinitionRevision& revision,const std::string& id);
+static void macro_value_range(const MacroDefinitionRevision&,const MacroPublicParameter&,double);
 
 static void validate_preset_builtin_entry(const PresetEntry& entry,const std::string& target_domain,bool v1) {
     const auto* descriptor=builtin_operation_type(entry.type);
@@ -4167,7 +4168,7 @@ static void preflight_preset_macro_entries(const Document& document,const Preset
                 "Preset PublicParamID is unavailable in the pinned Macro revision: "+parameter_id);
             require(parameter->value_type=="number"&&parameter->domain==preset.target_domain,
                 "INCOMPATIBLE_MACRO_PUBLIC_PARAMETER","Preset PublicParamID has an incompatible type or domain: "+parameter_id);
-            value_range({preset.id,entry.macro_definition,parameter_id},value);
+            macro_value_range(revision,*parameter,value);
         }
     }
 }
@@ -4214,6 +4215,11 @@ static double macro_default_value(const MacroDefinitionRevision& revision,const 
     const auto found=node->operation.parameters.find(parameter.parameter);
     if(found==node->operation.parameters.end())throw Error("INVALID_MACRO_MAPPING",parameter.parameter);
     return found->second.literal;
+}
+static void macro_value_range(const MacroDefinitionRevision& revision,const MacroPublicParameter& parameter,double value) {
+    const auto* node=macro_node(revision,parameter.node);
+    require(node&&node->operation.parameters.contains(parameter.parameter),"INVALID_MACRO_MAPPING",parameter.id);
+    value_range(operation_ref("macro",parameter.node,parameter.parameter),value);
 }
 std::vector<const MacroNode*> macro_execution_order(const MacroDefinitionRevision& revision) {
     require(!revision.nodes.empty()&&revision.nodes.size()<=16,"INVALID_MACRO_GRAPH","Macro chains require 1..16 nodes");
@@ -4289,14 +4295,29 @@ static void validate_macro_definition(const Id& map_id,const MacroDefinition& de
         std::set<std::string> public_ids;
         for(const auto& parameter:revision.public_parameters)
             require(public_ids.insert(parameter.id).second,"DUPLICATE_MACRO_PARAMETER",parameter.id);
-        require(revision.public_parameters.size()<=1&&(number!=1||revision.public_parameters.size()==1),
-            "INVALID_MACRO_INTERFACE","Macro v1 publishes macro.offset.amount; later revisions may remove a published parameter only for explicit migration");
-        if(!revision.public_parameters.empty()) {
-            const auto& parameter=revision.public_parameters.front();
+        require(revision.interface_version==1||revision.interface_version==2,"UNSUPPORTED_MACRO_INTERFACE_VERSION","Supported Macro interface versions are 1 and 2");
+        require(number!=1||revision.interface_version==1,"INVALID_MACRO_INTERFACE","Revision 1 retains the original Amount interface");
+        if(revision.interface_version==1)
+            require(revision.public_parameters.size()<=1&&(number!=1||revision.public_parameters.size()==1),
+                "INVALID_MACRO_INTERFACE","Legacy Macro interface publishes Amount only");
+        else require(revision.public_parameters.size()<=16,"INVALID_MACRO_INTERFACE","At most 16 published controls");
+        std::set<std::pair<Id,std::string>> mappings;
+        for(const auto& parameter:revision.public_parameters) {
             const auto* mapped=macro_node(revision,parameter.node);
-            require(parameter.id=="macro.offset.amount"&&mapped&&mapped->operation.type=="nect.shape.offset"&&parameter.parameter=="amount"&&
-                parameter.value_type=="number"&&parameter.unit=="du"&&parameter.domain=="local_paths_and_paint",
-                "INVALID_MACRO_MAPPING","Public macro.offset.amount must map to Offset.amount as a distance");
+            require(mapped,"INVALID_MACRO_MAPPING",parameter.node);
+            const bool amount=mapped->operation.type=="nect.shape.offset"&&parameter.parameter=="amount";
+            const bool copies=mapped->operation.type=="nect.shape.repeater"&&parameter.parameter=="copies";
+            const bool rotation=mapped->operation.type=="nect.shape.repeater"&&parameter.parameter=="rotation";
+            if(revision.interface_version==1)
+                require(parameter.id=="macro.offset.amount"&&amount,"INVALID_MACRO_MAPPING","Legacy Amount must map to Offset.amount");
+            require(amount||copies||rotation,"INVALID_MACRO_MAPPING","Supported controls are Offset Amount and Repeater Copies/Rotation");
+            require(parameter.id.starts_with("macro.")&&parameter.id.size()>6&&parameter.id.size()<=96,"INVALID_MACRO_INTERFACE","Public ID requires macro. prefix and at most 96 characters");
+            for(const unsigned char c:parameter.id)
+                require((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'||c=='.',"INVALID_MACRO_INTERFACE",parameter.id);
+            require(parameter.id!="macro.offset.amount"||amount,"INVALID_MACRO_MAPPING","Reserved Amount ID must retain Offset.amount mapping");
+            require(mappings.emplace(parameter.node,parameter.parameter).second,"INVALID_MACRO_MAPPING","One public control per node parameter");
+            require(parameter.value_type=="number"&&parameter.unit==(amount?"du":copies?"scalar":"degree")&&parameter.domain=="local_paths_and_paint",
+                "INVALID_MACRO_MAPPING","Published type/unit/domain must match its mapped numeric control");
             require(!parameter.label.empty()&&parameter.label.size()<=128,"INVALID_MACRO_INTERFACE","Published parameter label must be 1..128 bytes");
             text_utf8(parameter.label);
         }
@@ -4310,7 +4331,7 @@ void validate_portable_macro_definition(const MacroDefinition& definition) {
     validate_macro_definition(definition);
     for(const auto& [number,revision]:definition.revisions) {
         (void)number;
-        require(revision.graph_version==1,"UNSUPPORTED_PORTABLE_MACRO_GRAPH","Portable Macro v1 only carries graph version 1");
+        require(revision.graph_version==1&&revision.interface_version==1,"UNSUPPORTED_PORTABLE_MACRO_GRAPH","Portable Macro v1 only carries graph version 1");
     }
 }
 
@@ -4892,7 +4913,7 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                     for(const auto& [parameter,value]:op.macro->overrides) {
                         const auto* published=macro_public_parameter(revision->second,parameter);
                         require(published,"ORPHAN_MACRO_OVERRIDE",parameter);
-            value_range({id,op.id,parameter},value);
+            macro_value_range(revision->second,*published,value);
                     }
                     continue;
                 }
@@ -6833,7 +6854,7 @@ void edit_macro(Document& candidate,const MacroCommand& command) {
             if constexpr(std::is_same_v<T,SetMacroOverride>) {
                 const auto* parameter=macro_public_parameter(current->second,mutation.public_parameter);
                 require(parameter,"MISSING_MACRO_PARAMETER",mutation.public_parameter);
-                finite(mutation.value);require(std::abs(mutation.value)<=1e6,"OUT_OF_RANGE","Offset amount magnitude limit 1000000");
+                macro_value_range(current->second,*parameter,mutation.value);
                 instance.overrides.insert_or_assign(mutation.public_parameter,mutation.value);
             } else if constexpr(std::is_same_v<T,ResetMacroOverride>) {
                 require(macro_public_parameter(current->second,mutation.public_parameter),"MISSING_MACRO_PARAMETER",mutation.public_parameter);

@@ -283,6 +283,7 @@ struct MacroDefinitionRevision {
     MacroEndpoint output_mapping;
     std::vector<MacroPublicParameter> public_parameters;
     unsigned graph_version=1; // v1 fixed pair; v2 bounded ordered Offset/Repeater chain.
+    unsigned interface_version=1; // v2 exposes bounded mapped numeric controls.
     bool operator==(const MacroDefinitionRevision&) const = default;
 };
 // Executes graph edges, never the storage order of nodes or edges.
