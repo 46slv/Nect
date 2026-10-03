@@ -1302,7 +1302,7 @@ j::value definition_json(const Definition& definition) {
     return j::object{{"id",definition.id},{"name",definition.name},{"root",definition.root}};
 }
 DefinitionInstance read_instance(const j::value& value) {
-    const auto& o=value.as_object();keys(o,{"definition","overrides"});
+    const auto& o=value.as_object();keys(o,{"definition","overrides","visibility_overrides"});
     DefinitionInstance instance;instance.definition=text(o.at("definition"));
     for(const auto& item:o.at("overrides").as_array()) {
         const auto& entry=item.as_object();keys(entry,{"target","value"});
@@ -1310,13 +1310,27 @@ DefinitionInstance read_instance(const j::value& value) {
         if(!instance.overrides.emplace(std::move(target),number(entry.at("value"))).second)
             throw Error("DUPLICATE_OVERRIDE_KEY","Instance contains the same OverrideKey more than once");
     }
+    if(const auto* visibility=o.if_contains("visibility_overrides")) {
+        for(const auto& item:visibility->as_array()) {
+            const auto& entry=item.as_object();keys(entry,{"source","visible"});
+            if(!instance.visibility_overrides.emplace(text(entry.at("source")),entry.at("visible").as_bool()).second)
+                throw Error("DUPLICATE_OVERRIDE_KEY","Instance contains the same visibility source more than once");
+        }
+    }
     return instance;
 }
 j::value instance_json(const DefinitionInstance& instance) {
     j::array overrides;
     for(const auto& [target,value]:instance.overrides)
         overrides.push_back(j::object{{"target",ref_json(target)},{"value",value}});
-    return j::object{{"definition",instance.definition},{"overrides",overrides}};
+    j::object result{{"definition",instance.definition},{"overrides",overrides}};
+    if(!instance.visibility_overrides.empty()) {
+        j::array visibility;
+        for(const auto& [source,visible]:instance.visibility_overrides)
+            visibility.push_back(j::object{{"source",source},{"visible",visible}});
+        result["visibility_overrides"]=std::move(visibility);
+    }
+    return result;
 }
 
 double layout_number(const j::value& value) {
@@ -1806,6 +1820,14 @@ DefinitionCommand read_definition_command(const j::value& v) {
         keys(o,{"type","instance","target"});
         return DefinitionCommand{ResetInstanceOverride{text(o.at("instance")),read_ref(o.at("target"))}};
     }
+    if(type=="set_instance_visibility_override") {
+        keys(o,{"type","instance","source","visible"});
+        return DefinitionCommand{SetInstanceVisibilityOverride{text(o.at("instance")),text(o.at("source")),o.at("visible").as_bool()}};
+    }
+    if(type=="reset_instance_visibility_override") {
+        keys(o,{"type","instance","source"});
+        return DefinitionCommand{ResetInstanceVisibilityOverride{text(o.at("instance")),text(o.at("source"))}};
+    }
     if(type=="detach_instance") {
         keys(o,{"type","instance","id_prefix"});
         return DefinitionCommand{DetachInstance{text(o.at("instance")),text(o.at("id_prefix"))}};
@@ -2013,7 +2035,8 @@ Command read_command(const j::value& v) {
     if(type.find("_macro_")!=std::string::npos||type=="instantiate_macro"||type=="apply_macro"||
         type=="import_apply_macro")return StructuralCommand{read_macro_command(v)};
     if(type.ends_with("_definition")||type=="create_instance"||type=="set_instance_override"||
-        type=="reset_instance_override"||type=="detach_instance")return read_definition_command(v);
+        type=="reset_instance_override"||type=="set_instance_visibility_override"||
+        type=="reset_instance_visibility_override"||type=="detach_instance")return read_definition_command(v);
     if(type=="create_collection"||type=="rename_collection"||type=="set_collection_members"||
         type=="delete_collection")return read_collection_command(v);
     if(type=="add_raster_asset"||type=="replace_raster_asset") {
@@ -2670,11 +2693,15 @@ Document decode(std::string_view input) {
         auto parsed=parse(input);
         const auto& root=parsed.as_object();
         const auto version=text(root.at("version"));
-        constexpr std::array<std::string_view,81> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80","0.81"};
+        constexpr std::array<std::string_view,82> supported{"0.1","0.2","0.3","0.4","0.5","0.6","0.7","0.8","0.9","0.10","0.11","0.12","0.13","0.14","0.15","0.16","0.17","0.18","0.19","0.20","0.21","0.22","0.23","0.24","0.25","0.26","0.27","0.28","0.29","0.30","0.31","0.32","0.33","0.34","0.35","0.36","0.37","0.38","0.39","0.40","0.41","0.42","0.43","0.44","0.45","0.46","0.47","0.48","0.49","0.50","0.51","0.52","0.53","0.54","0.55","0.56","0.57","0.58","0.59","0.60","0.61","0.62","0.63","0.64","0.65","0.66","0.67","0.68","0.69","0.70","0.71","0.72","0.73","0.74","0.75","0.76","0.77","0.78","0.79","0.80","0.81","0.82"};
         const auto accepted=std::find(supported.begin(),supported.end(),version);
         if(text(root.at("format"))!="nect-native"||accepted==supported.end())
-            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.81 are supported");
+            throw Error("UNSUPPORTED_FORMAT","Only nect-native 0.1 through 0.82 are supported");
         const auto minor=std::distance(supported.begin(),accepted)+1;
+        if(minor<82)for(const auto& object:root.at("objects").as_array()) {
+            if(const auto* instance=object.as_object().if_contains("instance");instance&&instance->as_object().contains("visibility_overrides"))
+                throw Error("NATIVE_VERSION_MISMATCH","Instance visibility overrides require native 0.82");
+        }
         if(minor<81)for(const auto& composition:root.at("compositions").as_array())for(const auto& board:composition.as_object().at("artboards").as_array()){
             const auto& fields=board.as_object();const auto* assignment=fields.if_contains("template_assignment");
             if(fields.contains("background")||(assignment&&assignment->as_object().contains("background_overridden")))

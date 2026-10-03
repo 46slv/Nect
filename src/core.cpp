@@ -4760,7 +4760,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                 "INVALID_INSTANCE","Instance requires a Definition reference and cannot own source content");
             require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Instances do not own operator stacks");
             require(d.definitions.contains(o.instance->definition),"MISSING_DEFINITION",o.instance->definition);
-            require(o.instance->overrides.size()<=4096,"LIMIT","Instance override limit 4096");
+            require(o.instance->overrides.size()<=4096&&o.instance->visibility_overrides.size()<=4096,
+                "LIMIT","Instance override limit 4096 per property family");
         } else if(o.kind==Kind::group) {
             require(o.contours.empty(),"INVALID_OBJECT","Group cannot own path geometry");
             require(!o.source&&!o.point_edit&&!o.text,"INVALID_OBJECT","Group cannot own a geometry source");
@@ -5261,6 +5262,12 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
             members.insert(id);for(const auto& child:d.objects.at(id).children)visit(child);
         };
         visit(definition.root);
+        for(const auto& [source,visible]:instance.visibility_overrides) {
+            identity(source);
+            require(members.contains(source),"DANGLING_OVERRIDE",source);
+            require(source!=definition.root,"UNSUPPORTED_OVERRIDE","Definition root visibility belongs to occurrence placement");
+            (void)visible;
+        }
         for(const auto& [ref,value]:instance.overrides) {
             require(ref.point.empty(),"INVALID_OVERRIDE","Definition overrides address whole-object Scalar properties only");
             require(members.contains(ref.object),"DANGLING_OVERRIDE",ref.object);
@@ -6134,6 +6141,13 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
             require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
             require(found->second.kind==Kind::instance&&found->second.instance.has_value(),"TYPE_MISMATCH","Override target must be a Definition Instance");
             require(found->second.instance->overrides.erase(mutation.target)==1,"NO_OVERRIDE","Instance has no local override for the requested property");
+        } else if constexpr(std::is_same_v<T,SetInstanceVisibilityOverride>||std::is_same_v<T,ResetInstanceVisibilityOverride>) {
+            const auto found=candidate.objects.find(mutation.instance);
+            require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
+            require(found->second.kind==Kind::instance&&found->second.instance.has_value(),"TYPE_MISMATCH","Visibility override target must be a Definition Instance");
+            auto& overrides=found->second.instance->visibility_overrides;
+            if constexpr(std::is_same_v<T,SetInstanceVisibilityOverride>)overrides.insert_or_assign(mutation.source,mutation.visible);
+            else require(overrides.erase(mutation.source)==1,"NO_OVERRIDE","Instance has no visibility override for this source item");
         } else if constexpr(std::is_same_v<T,DetachInstance>) {
             const auto found=candidate.objects.find(mutation.instance);
             require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
@@ -6161,6 +6175,10 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
             for(const auto& [source_ref,value]:instance.overrides) {
                 auto copy_ref=duplicate_ref(original,plan,source_ref);
                 auto& scalar=lookup_property(candidate,copy_ref);scalar=Scalar{value,{},{}};
+            }
+            for(const auto& [source,visible]:instance.visibility_overrides) {
+                auto& copy=candidate.objects.at(plan.ids.at(source));
+                copy.visible=visible;copy.visibility_driver.reset();copy.visibility_expression.reset();
             }
             auto& placed=candidate.objects.at(mutation.instance);
             placed.kind=Kind::group;placed.instance.reset();placed.children={materialized_root};
@@ -8464,6 +8482,10 @@ SceneProjection project_definition_instances(const Document& document,const Id& 
                 for(const auto& [source_ref,value]:instance.overrides) {
                     const auto copy_ref=duplicate_ref(*projected,plan,source_ref);
                     auto& scalar=lookup_property(trial,copy_ref);scalar=Scalar{value,{},{}};
+                }
+                for(const auto& [source,visible]:instance.visibility_overrides) {
+                    auto& copy=trial.objects.at(plan.ids.at(source));
+                    copy.visible=visible;copy.visibility_driver.reset();copy.visibility_expression.reset();
                 }
                 auto& placed=trial.objects.at(instance_id);
                 placed.kind=Kind::group;placed.instance.reset();placed.children={copy_root};

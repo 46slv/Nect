@@ -388,6 +388,8 @@ struct Definition {
 struct DefinitionInstance {
     Id definition;
     std::map<Ref,double> overrides;
+    // Occurrence-local descendant visibility; source objects remain untouched.
+    std::map<Id,bool> visibility_overrides;
     bool operator==(const DefinitionInstance&) const = default;
 };
 struct Object {
@@ -666,9 +668,11 @@ struct DeleteDefinition { Id definition; };
 struct CreateInstance { Id composition,parent,id,definition; std::string name; };
 struct SetInstanceOverride { Id instance; Ref target; double value=0; };
 struct ResetInstanceOverride { Id instance; Ref target; };
+struct SetInstanceVisibilityOverride { Id instance,source; bool visible=true; };
+struct ResetInstanceVisibilityOverride { Id instance,source; };
 struct DetachInstance { Id instance; Id id_prefix; };
 using DefinitionMutation=std::variant<CreateDefinition,RenameDefinition,DeleteDefinition,CreateInstance,
-    SetInstanceOverride,ResetInstanceOverride,DetachInstance>;
+    SetInstanceOverride,ResetInstanceOverride,SetInstanceVisibilityOverride,ResetInstanceVisibilityOverride,DetachInstance>;
 struct DefinitionCommand { DefinitionMutation mutation; };
 struct CreateArtboardTemplate { Id composition; ArtboardTemplate value; };
 struct RenameArtboardTemplate { Id composition,template_id; std::string name; };
