@@ -5,6 +5,7 @@
 #include "artboard_background_control.hpp"
 #include "analysis_contour_control.hpp"
 #include "macro_authoring_control.hpp"
+#include "instance_visibility_control.hpp"
 #include <QAction>
 #include <QAbstractItemView>
 #include <QApplication>
@@ -2378,6 +2379,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto read=[this,composition,id]{return find_artboard(find_composition(host.session.document(),composition),id);};
     auto* title=new QLabel("Artboard frame · "+qs(comp.name));title->setWordWrap(true);layout->addWidget(title);
     layout->addWidget(make_artboard_background_controls(host,composition,id,inspector_));
+    if(board.template_assignment&&board.template_assignment->content_instance)
+        layout->addWidget(make_instance_visibility_controls(host,*board.template_assignment->content_instance,inspector_));
     auto* note=new QLabel("Frame X/Y changes the crop only. Artwork stays at its existing composition coordinates. List order does not change placement.");
     note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");layout->addWidget(note);
     auto* group=new QGroupBox("Frame");auto* form=new QFormLayout(group);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(group);
@@ -4567,6 +4570,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         name->setModified(false);
         perform([&]{host.session.apply({Rename{id,name->text().toStdString()}},host.session.revision());host.edited();});
     });
+    if(o.instance)layout->addWidget(make_instance_visibility_controls(host,o.id,inspector_));
     if(!o.stack.empty()) {
         auto* jump=new QPushButton(QString("Shape stack · %1").arg(o.stack.size()));jump->setObjectName("stack-jump");
         jump->setToolTip("Go directly to an existing paint or path operation");auto* menu=new QMenu(jump);

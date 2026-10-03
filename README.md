@@ -366,7 +366,7 @@ geometry/appearance. See [model contract](docs/model-v0.md#native010-property-ex
 - `docs/model-v0.md` — native model semantics
 - `docs/quality.md` — anti-slop engineering contract
 - `docs/first-usable.md` — M1 acceptance flow
-- `schemas/native-v0.81.schema.json` — current native JSON shape (0.1–0.80 readers retained)
+- `schemas/native-v0.82.schema.json` — current native JSON shape (0.1–0.81 readers retained)
 
 ## Project rules
 

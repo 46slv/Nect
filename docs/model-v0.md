@@ -1,5 +1,23 @@
 # Native Document Schema v0
 
+## Instance item visibility overrides (native 0.82)
+
+A Definition Instance may retain `visibility_overrides`, an optional array of
+`{source: SourceItemID, visible: boolean}` records. Each key identifies a stable
+existing descendant of the same Definition; the Definition root is excluded.
+Absence follows the source visibility. A local value replaces only that
+occurrence's visibility source, leaving original literals, links, expressions,
+siblings and scalar overrides unchanged. Ancestor visibility still applies.
+`set_instance_visibility_override` and `reset_instance_visibility_override`
+use the canonical Definition command path and one Session history transaction.
+Reset resumes inheritance for only the selected item. Whole Instance detach
+freezes each local visibility value in its fresh materialized descendant.
+Native 0.1–0.81 remain readable; carrying the new field under an older version
+is refused even if the array is empty. This supplies local Template item
+visibility through its existing content Instance; item removal and item-only
+detach are not added. The closed wire shape is `schemas/native-v0.82.schema.json`.
+
+
 ## M0 vocabulary
 
 Implemented: Document, Composition, Artboard, Group, Path, Text, Contour, Point,

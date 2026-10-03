@@ -4760,7 +4760,8 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                 "INVALID_INSTANCE","Instance requires a Definition reference and cannot own source content");
             require(o.stack.empty()&&o.legacy_stroke.empty(),"INVALID_DOMAIN","Instances do not own operator stacks");
             require(d.definitions.contains(o.instance->definition),"MISSING_DEFINITION",o.instance->definition);
-            require(o.instance->overrides.size()<=4096,"LIMIT","Instance override limit 4096");
+            require(o.instance->overrides.size()<=4096&&o.instance->visibility_overrides.size()<=4096,
+                "LIMIT","Instance override limit 4096 per property family");
         } else if(o.kind==Kind::group) {
             require(o.contours.empty(),"INVALID_OBJECT","Group cannot own path geometry");
             require(!o.source&&!o.point_edit&&!o.text,"INVALID_OBJECT","Group cannot own a geometry source");
@@ -5197,10 +5198,16 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
             if(!source_root&&object.transform_parent)require_member({*object.transform_parent,"","transform.a"});
             if(!source_root) {
                 if(object.visibility_driver)require_member(*object.visibility_driver);
-                if(object.visibility_expression)require_expression_members(*object.visibility_expression);
+                if(object.visibility_expression) {
+                    const auto parsed=parse_object_visibility_expression(*object.visibility_expression);
+                    if(!parsed.is_literal)require_member(parsed.source);
+                }
             }
             if(object.compositing.isolated_driver)require_member(*object.compositing.isolated_driver);
-            if(object.compositing.isolated_expression)require_expression_members(*object.compositing.isolated_expression);
+            if(object.compositing.isolated_expression) {
+                const auto parsed=parse_composite_isolation_expression(*object.compositing.isolated_expression);
+                if(!parsed.is_literal)require_member(parsed.source);
+            }
             if(object.compositing.mask) {
                 require_member({object.compositing.mask->source,"","composite.opacity"});
                 if(object.compositing.mask->enabled_driver)require_member(*object.compositing.mask->enabled_driver);
@@ -5223,7 +5230,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
                 if(text.weight_expression)require_expression_members(*text.weight_expression);
                 if(text.italic_driver) {
                     if(const auto* link=std::get_if<Ref>(&*text.italic_driver))require_member(*link);
-                    else require_expression_members(std::get<Expression>(*text.italic_driver));
+                    else {
+                        const auto parsed=parse_text_italic_expression(std::get<Expression>(*text.italic_driver));
+                        if(!parsed.is_literal)require_member(parsed.source);
+                    }
                 }
             }
             if(object.point_edit) {
@@ -5235,7 +5245,10 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
             }
             for(const auto& operation:object.stack) {
                 if(operation.enabled_driver)require_member(*operation.enabled_driver);
-                if(operation.enabled_expression)require_expression_members(*operation.enabled_expression);
+                if(operation.enabled_expression) {
+                    const auto parsed=parse_operation_enabled_expression(*operation.enabled_expression);
+                    if(!parsed.is_literal)require_member(parsed.source);
+                }
                 if(operation.fill_rule_driver)require_member(operation.fill_rule_driver->link);
                 if(operation.gradient) {
                     if(operation.gradient->enabled_driver)require_member(*operation.gradient->enabled_driver);
@@ -5261,6 +5274,12 @@ static std::map<Ref,double> validate_evaluated(const Document& d,const std::func
             members.insert(id);for(const auto& child:d.objects.at(id).children)visit(child);
         };
         visit(definition.root);
+        for(const auto& [source,visible]:instance.visibility_overrides) {
+            identity(source);
+            require(members.contains(source),"DANGLING_OVERRIDE",source);
+            require(source!=definition.root,"UNSUPPORTED_OVERRIDE","Definition root visibility belongs to occurrence placement");
+            (void)visible;
+        }
         for(const auto& [ref,value]:instance.overrides) {
             require(ref.point.empty(),"INVALID_OVERRIDE","Definition overrides address whole-object Scalar properties only");
             require(members.contains(ref.object),"DANGLING_OVERRIDE",ref.object);
@@ -6134,6 +6153,13 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
             require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
             require(found->second.kind==Kind::instance&&found->second.instance.has_value(),"TYPE_MISMATCH","Override target must be a Definition Instance");
             require(found->second.instance->overrides.erase(mutation.target)==1,"NO_OVERRIDE","Instance has no local override for the requested property");
+        } else if constexpr(std::is_same_v<T,SetInstanceVisibilityOverride>||std::is_same_v<T,ResetInstanceVisibilityOverride>) {
+            const auto found=candidate.objects.find(mutation.instance);
+            require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
+            require(found->second.kind==Kind::instance&&found->second.instance.has_value(),"TYPE_MISMATCH","Visibility override target must be a Definition Instance");
+            auto& overrides=found->second.instance->visibility_overrides;
+            if constexpr(std::is_same_v<T,SetInstanceVisibilityOverride>)overrides.insert_or_assign(mutation.source,mutation.visible);
+            else require(overrides.erase(mutation.source)==1,"NO_OVERRIDE","Instance has no visibility override for this source item");
         } else if constexpr(std::is_same_v<T,DetachInstance>) {
             const auto found=candidate.objects.find(mutation.instance);
             require(found!=candidate.objects.end(),"MISSING_OBJECT",mutation.instance);
@@ -6161,6 +6187,10 @@ void edit_definition(Document& candidate,const DefinitionCommand& command) {
             for(const auto& [source_ref,value]:instance.overrides) {
                 auto copy_ref=duplicate_ref(original,plan,source_ref);
                 auto& scalar=lookup_property(candidate,copy_ref);scalar=Scalar{value,{},{}};
+            }
+            for(const auto& [source,visible]:instance.visibility_overrides) {
+                auto& copy=candidate.objects.at(plan.ids.at(source));
+                copy.visible=visible;copy.visibility_driver.reset();copy.visibility_expression.reset();
             }
             auto& placed=candidate.objects.at(mutation.instance);
             placed.kind=Kind::group;placed.instance.reset();placed.children={materialized_root};
@@ -8464,6 +8494,10 @@ SceneProjection project_definition_instances(const Document& document,const Id& 
                 for(const auto& [source_ref,value]:instance.overrides) {
                     const auto copy_ref=duplicate_ref(*projected,plan,source_ref);
                     auto& scalar=lookup_property(trial,copy_ref);scalar=Scalar{value,{},{}};
+                }
+                for(const auto& [source,visible]:instance.visibility_overrides) {
+                    auto& copy=trial.objects.at(plan.ids.at(source));
+                    copy.visible=visible;copy.visibility_driver.reset();copy.visibility_expression.reset();
                 }
                 auto& placed=trial.objects.at(instance_id);
                 placed.kind=Kind::group;placed.instance.reset();placed.children={copy_root};
