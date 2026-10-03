@@ -7599,7 +7599,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             hex->setAccessibleName(name+" HEX RGBA");
             bool color_driven=false;
             for(const auto& channel:color_channels(host.session.document(),paint_ref)) {
-                const auto scalar=property(host.session.document(),channel);
+                const auto scalar=nect::property(host.session.document(),channel);
                 color_driven=color_driven||scalar.binding.has_value()||scalar.expression.has_value();
             }
             color_input->setEnabled(!color_driven);
@@ -7883,7 +7883,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         const auto yref=gradient_ref(id,op,gradient_id,std::string(endpoint)+"_y");
         auto* edit_pair=new QPushButton("Edit "+qs(metadata.label)+" XY…");
         edit_pair->setObjectName("gradient-point-edit-"+qs(op)+"-"+endpoint);
-        const auto xs=property(host.session.document(),xref),ys=property(host.session.document(),yref);
+        const auto xs=nect::property(host.session.document(),xref),ys=nect::property(host.session.document(),yref);
         edit_pair->setEnabled(!xs.binding&&!xs.expression&&!ys.binding&&!ys.expression);
         edit_pair->setToolTip("Edit both coordinates atomically. Use individual fields below for links and expressions.");
         form->addRow(edit_pair);
@@ -7903,7 +7903,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                     if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Gradient point belongs to another document");
                     if(host.session.revision()!=point_revision)throw Error("REVISION_CONFLICT","Gradient point changed; reopen its editor");
                     if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before editing a point");
-                    const auto xs=property(host.session.document(),xref),ys=property(host.session.document(),yref);
+                    const auto xs=nect::property(host.session.document(),xref),ys=nect::property(host.session.document(),yref);
                     if(xs.binding||xs.expression||ys.binding||ys.expression)throw Error("DRIVEN_PROPERTY","Unlink both coordinates before editing the point");
                     if(value!=initial){host.session.apply({Set{xref,value[0]},Set{yref,value[1]}},point_revision);host.edited();}
                     applied=true;
