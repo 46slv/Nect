@@ -10,6 +10,9 @@
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
+#ifdef _WIN32
+#include <process.h>
+#endif
 
 using namespace nect;
 namespace {
@@ -201,7 +204,14 @@ void primary_flow_and_cold_reopen(const std::string& executable) {
     const auto path=std::filesystem::temp_directory_path()/
         ("nect-macro-linear-v2-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".nect");
     {std::ofstream file(path,std::ios::binary);file<<overridden;check(file.good(),"Native file is saved before cold replay");}
+#ifdef _WIN32
+    // Bypass cmd.exe's outer-quote parsing. The CRT spawn API still builds a
+    // child command line, so quote argv values to retain paths containing spaces.
+    const auto result=_spawnl(_P_WAIT,executable.c_str(),quoted(executable).c_str(),
+        "--cold-read",quoted(path.string()).c_str(),static_cast<const char*>(nullptr));
+#else
     const auto result=std::system((quoted(executable)+" --cold-read "+quoted(path.string())).c_str());
+#endif
     std::filesystem::remove(path);
     check(result==0,"A fresh process cold-reopens native 0.83 and verifies the full geometry oracle");
 }
