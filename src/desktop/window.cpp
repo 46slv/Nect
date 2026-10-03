@@ -38,6 +38,7 @@
 #include <QMimeData>
 #include <QPushButton>
 #include <QPlainTextEdit>
+#include <QTextDocument>
 #include <QSpinBox>
 #include <QSaveFile>
 #include <QScrollArea>
@@ -6932,6 +6933,7 @@ void Window::edit_text_content(const Id& id) {
     const auto displayed=evaluate_text_content(host.session.document(),id);
     QDialog dialog(this);dialog.setObjectName("text-editor-dialog");dialog.setWindowTitle("Edit text");dialog.resize(560,340);
     auto* layout=new QVBoxLayout(&dialog);auto* editor=new QPlainTextEdit(qs(displayed));editor->setObjectName("text-content-editor");
+    const auto initial_editor_content=editor->document()->toRawText();
     editor->setAccessibleName("Text content");layout->addWidget(editor);
     auto* message=new QLabel("Apply commits one undo step. Cancel discards only this draft.");message->setWordWrap(true);message->setTextFormat(Qt::PlainText);
     message->setObjectName("text-editor-status");layout->addWidget(message);
@@ -6962,7 +6964,12 @@ void Window::edit_text_content(const Id& id) {
             auto next=*found->second.text;
             if(next.id!=source.id||next.content!=source.content||next.content_driver!=source.content_driver)
                 throw Error("TEXT_EDIT_CONFLICT","Text changed elsewhere. Copy this draft, cancel, and reopen the latest text.");
-            const auto content=editor->toPlainText().toStdString();
+            // An untouched/reverted draft must retain the exact authored bytes.
+            // For edits, keep NBSP and soft breaks; only Qt paragraph markers
+            // become ordinary newlines. toPlainText() also rewrites those spaces.
+            auto editor_content=editor->document()->toRawText();
+            const auto content=editor_content==initial_editor_content?displayed:
+                editor_content.replace(QChar(0x2029),QChar('\n')).toStdString();
             if(next.content_driver&&!unlink_requested&&content!=displayed)
                 throw Error("DRIVEN_PROPERTY","Unlink the Text content driver before changing its authored literal.");
             if(next.content_driver&&unlink_requested) {

@@ -4456,6 +4456,74 @@ void layout_setup_previews_commit_and_recovers(Window& window) {
         "Opening the owned recovery restores authored layout without overwriting its source");
 }
 
+void text_content_preservation(Window& window) {
+    auto& session=window.host.session;
+    named_action(window,"add-text")->trigger();QApplication::processEvents();
+    const auto id=window.canvas->selected_object;
+    const auto edit=[&](const std::function<void(QDialog*,QPlainTextEdit*)>& change) {
+        bool applied=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-editor-dialog");
+            if(!dialog)return;
+            auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");
+            if(!editor){dialog->reject();return;}
+            change(dialog,editor);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+            applied=!dialog->isVisible();
+            if(!applied)dialog->reject();
+        });
+        visible_child<QPushButton>(window,"edit-text-content")->click();QApplication::processEvents();
+        return applied;
+    };
+    const std::vector<std::string> originals={"A\xc2\xa0" "B","A\r\nB","\r\nA\r\n\r\n",
+        "A\xe2\x80\xa8" "B","A\xe2\x80\xa9" "B",""};
+    for(const auto& original:originals) {
+        auto source=*session.document().objects.at(id).text;source.content=original;
+        session.apply({UpdateText{id,source}},session.revision());window.host.edited();QApplication::processEvents();
+        const auto before=session.document();const auto revision=session.revision();const auto history=session.history();
+        check(edit([](QDialog*,QPlainTextEdit*){}),"Untouched text Apply closes successfully");
+        check(session.document()==before&&session.revision()==revision&&session.history()==history,
+            "Untouched content Apply preserves exact NBSP/separator/empty source and History");
+        check(edit([](QDialog*,QPlainTextEdit* editor){
+            editor->moveCursor(QTextCursor::End);editor->insertPlainText("temporary");editor->undo();
+        }),"Reverted editor draft Apply closes successfully");
+        check(session.document()==before&&session.revision()==revision&&session.history()==history,
+            "Local editor Undo back to initial content preserves exact authored bytes");
+    }
+    auto source=*session.document().objects.at(id).text;
+    source.content="\nA\xc2\xa0" "B\xe2\x80\xa8" "C\n";
+    session.apply({UpdateText{id,source}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto before=session.document();const auto revision=session.revision();
+    check(edit([](QDialog*,QPlainTextEdit* editor){editor->moveCursor(QTextCursor::End);editor->insertPlainText("!");}),
+        "Text content edit applies successfully");
+    check(session.document().objects.at(id).text->content==source.content+"!"&&session.revision()==revision+1,
+        "Real edit retains NBSP, soft line separator and leading/trailing paragraphs in one revision");
+    const auto after=session.document();session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==before,"Text content Undo restores exact source");
+    session.redo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==after,"Text content Redo restores exact edited source");
+    QTemporaryDir saved;const auto path=saved.filePath("exact-content.nect");
+    window.host.save(path);window.host.open(path);QApplication::processEvents();
+    check(session.document()==after,"Native save/reopen retains all nonbreaking and separator characters");
+    const auto comp=session.document().compositions.front().id;
+    auto driver=default_text("exact-content-source","Linked\xc2\xa0" "text\r\n\xe2\x80\xa8");
+    session.apply({CreateText{comp,"","content-driver","Content source",driver},
+        LinkTextContent{{id,"","text.content"},{"content-driver","","text.content"}}},session.revision());
+    window.canvas->set_selection(id);window.host.edited();QApplication::processEvents();
+    const auto linked=session.document();const auto linked_revision=session.revision();const auto linked_history=session.history();
+    check(edit([](QDialog*,QPlainTextEdit*){}),"Untouched linked text Apply must not falsely report DRIVEN_PROPERTY");
+    check(session.document()==linked&&session.revision()==linked_revision&&session.history()==linked_history,
+        "Untouched linked text keeps its literal, driver and History exactly");
+    check(edit([](QDialog* dialog,QPlainTextEdit*){
+        dialog->findChild<QPushButton*>("unlink-text-content-driver")->click();
+    }),"Staged content unlink applies successfully");
+    check(!session.document().objects.at(id).text->content_driver&&
+        session.document().objects.at(id).text->content==driver.content&&session.revision()==linked_revision+1,
+        "Unlink freezes exact evaluated NBSP/separators without a normalized replacement edit");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==linked,"One Undo restores the exact linked content source");
+}
+
 void text_authoring(Window& window) {
     auto& session=window.host.session;named_action(window,"add-text")->trigger();QApplication::processEvents();
     const auto id=window.canvas->selected_object;
@@ -5518,6 +5586,11 @@ void group_path_follow_inspector(Window& window) {
 int main(int argc,char** argv) {
     qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
     try {
+        if(argc==2&&std::string(argv[1])=="--text-content-preservation") {
+            QTemporaryDir scratch;Window text(scratch.path());text.show();QApplication::processEvents();
+            text_content_preservation(text);
+            std::cout<<"PASS exact Text content preservation, linked drafts, Undo/Redo and native reopen (Qt contract, not OS input)\n";return 0;
+        }
         QTemporaryDir temp;Window w(temp.path());w.show();QApplication::processEvents();
         auto& s=w.host.session;const auto comp=s.document().compositions.front().id;
         Point a,b;a.id="a1";a.x.literal=100;a.y.literal=180;b.id="b1";b.x.literal=200;b.y.literal=250;
@@ -5581,6 +5654,8 @@ int main(int argc,char** argv) {
         boards.hide();
         Window text_sources(temp.path()+"/text-string-sources");text_sources.show();QApplication::processEvents();
         text_string_source_picker_contract(text_sources);text_remaining_source_picker_contract(text_sources);text_sources.hide();
+        Window exact_text(temp.path()+"/exact-text");exact_text.show();QApplication::processEvents();
+        text_content_preservation(exact_text);exact_text.hide();
         Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);
         texts.hide();Window text_weight_batch(temp.path()+"/text-weight-batch");text_weight_batch.show();QApplication::processEvents();
         text_weight_batch_inspector(text_weight_batch);text_weight_batch.hide();

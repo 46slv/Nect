@@ -7,14 +7,78 @@ import argparse
 import copy
 import json
 from pathlib import Path
+import struct
 import subprocess
 import tempfile
+import zlib
 import font_mcp_parity as transport
 
 MODES = ['hue', 'saturation', 'color', 'luminosity']
 IDS = ['normal','multiply','screen','overlay','darken','lighten','color-dodge','color-burn','hard-light','soft-light','difference','exclusion'] + MODES + ['linear-burn','linear-dodge','linear-light','vivid-light','pin-light','hard-mix','subtract','divide','darker-color','lighter-color']
 ORACLE = [(105,80,122,255),(41,104,168,255),(122,71,122,255),(56,107,158,255)]
 CHECKS = 0
+
+def png_rgba(path):
+    """Decode the Qt fixture using stdlib, independently of the blend renderer.
+
+    Only noninterlaced 8-bit RGB/RGBA is needed. Check chunk CRCs and reverse
+    all five PNG scanline filters; unexpected formats fail explicitly.
+    """
+    data = path.read_bytes()
+    assert data[:8] == b'\x89PNG\r\n\x1a\n', 'PNG signature'
+    offset, header, compressed, ended = 8, None, bytearray(), False
+    while offset < len(data):
+        assert offset + 12 <= len(data), 'Truncated PNG chunk'
+        length, kind = struct.unpack_from('>I4s', data, offset)
+        end = offset + 12 + length
+        assert end <= len(data), 'Truncated PNG payload'
+        payload = data[offset+8:end-4]
+        crc, = struct.unpack_from('>I', data, end-4)
+        assert zlib.crc32(kind+payload) & 0xffffffff == crc, 'PNG chunk CRC'
+        if kind == b'IHDR':
+            assert header is None and offset == 8 and length == 13, 'PNG header'
+            header = struct.unpack('>IIBBBBB', payload)
+        elif kind == b'IDAT':
+            assert header is not None, 'PNG data before header'
+            compressed.extend(payload)
+        elif kind == b'IEND':
+            assert length == 0 and end == len(data), 'PNG end'
+            ended = True
+            break
+        else:
+            assert kind != b'tRNS', 'PNG color-key transparency is unsupported'
+            assert kind[0] & 32, 'Unexpected critical PNG chunk'
+        offset = end
+    assert header is not None and compressed and ended, 'Incomplete PNG'
+    width, height, depth, color, compression, filtering, interlace = header
+    assert 0 < width <= 4096 and 0 < height <= 4096, 'Bounded PNG fixture dimensions'
+    assert depth == 8 and color in (2, 6) and (compression, filtering, interlace) == (0, 0, 0), 'Unsupported PNG fixture format'
+    channels = 3 if color == 2 else 4
+    stride = width * channels
+    raw = zlib.decompress(compressed)
+    assert len(raw) == height * (stride+1), 'PNG scanline length'
+    previous, pixels = bytearray(stride), bytearray()
+    for y in range(height):
+        start = y * (stride+1)
+        filter_type = raw[start]
+        assert filter_type <= 4, 'PNG scanline filter'
+        row = bytearray(raw[start+1:start+1+stride])
+        for x in range(stride):
+            left = row[x-channels] if x >= channels else 0
+            above = previous[x]
+            upper_left = previous[x-channels] if x >= channels else 0
+            prediction = left + above - upper_left
+            pa, pb, pc = abs(prediction-left), abs(prediction-above), abs(prediction-upper_left)
+            paeth = left if pa <= pb and pa <= pc else above if pb <= pc else upper_left
+            row[x] = (row[x] + (0, left, above, (left+above)//2, paeth)[filter_type]) & 255
+        if channels == 4:
+            pixels.extend(row)
+        else:
+            for x in range(0, stride, channels):
+                pixels.extend(row[x:x+3]); pixels.append(255)
+        previous = row
+    return (width, height), bytes(pixels)
+
 
 def check(value, why):
     global CHECKS
@@ -106,7 +170,6 @@ def main():
         return
     if not args.desktop or not args.cli:
         parser.error("desktop and CLI executable paths are required for live IPC validation")
-    from PIL import Image
     desktop=client=None
     with tempfile.TemporaryDirectory(prefix='nect-blend-vertical-') as tmp:
         directory=Path(tmp)
@@ -148,10 +211,17 @@ def main():
                 revision=redone['revision']
                 readback=client.compare('compositing_plan',composition=comp)
                 check(any(n['blend']==mode and n['isolated'] for n in readback['result']['roots']), 'MCP/API scope readback')
-                # Direct Host API idempotent replay proves it forwards the same
-                # Session command without introducing another edit or authority.
+                # SetCompositing retains the established accepted-same-value
+                # revision behavior. Both transports must preserve exact intent
+                # and advance once, rather than inventing a no-op contract.
                 replay=client.direct(dict(op='apply',expected_revision=revision,commands=[command]))
-                check(replay['ok'] and replay['revision']==revision and client.snapshot()==authored,'Direct API replay is idempotent')
+                check(replay['ok'] and replay['revision']==revision+1 and client.snapshot()==authored,
+                    'Direct API same-value command preserves intent and advances one revision')
+                revision=replay['revision']
+                mcp_replay=client.core('apply',expected_revision=revision,commands=[command])
+                check(mcp_replay==dict(replay,revision=revision+1) and client.snapshot()==authored,
+                    'MCP same-value command matches direct API response and authored intent')
+                revision=mcp_replay['revision']
             retained=client.snapshot();history=client.compare('history');identity=dict(client.identity)
             for mode in ('Hue','colour','future-mode'):
                 bad=client.core('apply',expected_revision=revision,commands=[dict(type='set_compositing',object='hue',blend=mode,isolated=False)])
@@ -186,10 +256,11 @@ def main():
             result=client.tool('nect_export_png',dict(client.identity,op='export_png',expected_revision=revision,
                 path=str(png),composition=comp,artboard=board,scale=1,background='transparent'))
             check(result['ok'],result)
-            pixels=Image.open(png).convert('RGBA')
-            check(pixels.size==(64,64),'MCP PNG dimensions')
+            size,pixels=png_rgba(png)
+            check(size==(64,64),'MCP PNG dimensions')
             for i,expected in enumerate(ORACLE):
-                check(pixels.getpixel((16+32*(i%2),16+32*(i//2)))==expected,'MCP decoded independent PNG oracle '+MODES[i])
+                offset=((16+32*(i//2))*size[0]+16+32*(i%2))*4
+                check(tuple(pixels[offset:offset+4])==expected,'MCP decoded independent PNG oracle '+MODES[i])
             analysis=client.tool('nect_analyze_regions',dict(client.identity,op='analyze_regions',expected_revision=revision,
                 composition=comp,artboard=board,scale=1,threshold=1))
             check(analysis['ok'],analysis)
