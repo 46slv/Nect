@@ -37,7 +37,7 @@ endforeach()
 
 if(NECT_DESKTOP)
   find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets Network Test)
-  add_library(nect_desktop_client src/desktop/artboard_background_control.cpp src/desktop/semantic_control.cpp src/desktop/semantic_slider.cpp src/desktop/semantic_toggle_control.cpp src/desktop/semantic_enum_control.cpp src/desktop/svg_import.cpp src/desktop/host.cpp src/desktop/storage.cpp src/desktop/protection.cpp src/desktop/canvas.cpp src/desktop/window.cpp src/desktop/colors.cpp src/desktop/folder_library.cpp)
+  add_library(nect_desktop_client src/desktop/artboard_background_control.cpp src/desktop/semantic_control.cpp src/desktop/semantic_slider.cpp src/desktop/semantic_toggle_control.cpp src/desktop/semantic_enum_control.cpp src/desktop/semantic_color_control.cpp src/desktop/semantic_point_control.cpp src/desktop/svg_import.cpp src/desktop/host.cpp src/desktop/storage.cpp src/desktop/protection.cpp src/desktop/canvas.cpp src/desktop/window.cpp src/desktop/colors.cpp src/desktop/folder_library.cpp)
   target_sources(nect_desktop_client PRIVATE
     src/desktop/flattened_svg_export.cpp src/desktop/compatibility_plan_control.cpp
     src/desktop/macro_revision_control.cpp src/desktop/macro_chain_control.cpp src/desktop/macro_public_interface_control.cpp src/desktop/text_alignment_batch_control.cpp
@@ -300,7 +300,7 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME instance_visibility_ui_interaction COMMAND instance_visibility_ui_tests)
     set_tests_properties(instance_visibility_ui_interaction PROPERTIES TIMEOUT 30)
-    foreach(test flattened_svg_export compatibility_plan_ui macro_revision_ui macro_chain_ui macro_public_interface_ui macro_library_v2 semantic_slider_ui semantic_toggle_ui semantic_enum_ui composite_isolation_batch_ui text_alignment_batch_ui
+    foreach(test flattened_svg_export compatibility_plan_ui macro_revision_ui macro_chain_ui macro_public_interface_ui macro_library_v2 semantic_slider_ui semantic_toggle_ui semantic_enum_ui semantic_color_ui semantic_point_ui composite_isolation_batch_ui text_alignment_batch_ui
         text_direction_batch_ui text_layout_batch_ui text_italic_batch_ui text_family_batch_ui text_locale_batch_ui paint_color_batch_ui
         text_content_literal_batch_ui multi_visibility_ui multi_blend_mode_ui operation_enabled_batch_ui multi_fill_rule_ui instance_color_ui text_string_source_batch_ui instance_text_content_ui)
       add_executable(${test}_tests tests/${test}_tests.cpp)

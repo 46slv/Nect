@@ -12,6 +12,32 @@ void require_descriptor(bool valid,const std::string& message) {
 SemanticControlResolution validate_semantic_descriptor(const SemanticParameterDescriptor& d) {
     require_descriptor(!d.key.empty()&&!d.label.empty()&&!d.unit.empty()&&!d.domain.empty(),
         "Control identity, label, unit and domain are required");
+    if(d.value_type=="point") {
+        require_descriptor(d.point_default.has_value()&&d.coordinate_space=="local"&&d.unit=="du","Point requires a typed local-space default");
+        require_descriptor(!d.color_default&&!d.boolean_default&&!d.enum_default&&d.choices.empty()&&!d.minimum&&!d.maximum&&!d.step&&d.angle_semantics.empty(),
+            "Point cannot carry constraints from another type");
+        for(const auto coordinate:*d.point_default)require_descriptor(std::isfinite(coordinate),"Point coordinates must be finite");
+        if(d.widget_hint=="point"||d.widget_hint=="vector")return {SemanticWidget::point,false,"SUPPORTED"};
+        for(const auto* hint:{"numeric","angle","slider","range","toggle","enum","dropdown","color","curve"})
+            require_descriptor(d.widget_hint!=hint,"Widget family is incompatible with point: "+d.widget_hint);
+        require_descriptor(!d.widget_hint.empty(),"Widget hint is required");
+        return {SemanticWidget::point,true,"UNKNOWN_WIDGET_HINT: "+d.widget_hint+"; using point for known local point type"};
+    }
+    require_descriptor(!d.point_default&&d.coordinate_space.empty(),"Non-point control cannot carry coordinate metadata");
+    if(d.value_type=="color") {
+        require_descriptor(d.color_default.has_value(),"Color requires a typed default");
+        require_descriptor(d.unit=="srgb"&&!d.boolean_default&&!d.enum_default&&d.choices.empty()&&!d.minimum&&!d.maximum&&!d.step&&d.angle_semantics.empty(),
+            "Color control cannot carry constraints from another type");
+        const auto& color=*d.color_default;
+        require_descriptor(color.space=="srgb"&&color.profile=="srgb"&&color.alpha=="straight","Unsupported color representation");
+        for(const auto channel:color.rgba)require_descriptor(std::isfinite(channel)&&channel>=0&&channel<=1,"Color channels must be finite and normalized");
+        if(d.widget_hint=="color")return {SemanticWidget::color,false,"SUPPORTED"};
+        for(const auto* hint:{"numeric","angle","slider","range","toggle","enum","dropdown","point","vector","curve"})
+            require_descriptor(d.widget_hint!=hint,"Widget family is incompatible with color: "+d.widget_hint);
+        require_descriptor(!d.widget_hint.empty(),"Widget hint is required");
+        return {SemanticWidget::color,true,"UNKNOWN_WIDGET_HINT: "+d.widget_hint+"; using color for known color type"};
+    }
+    require_descriptor(!d.color_default,"Non-color control cannot carry color metadata");
     if(d.value_type=="enum") {
         require_descriptor(d.enum_default.has_value()&&!d.choices.empty(),"Enum requires choices and a typed default");
         require_descriptor(d.unit=="enum"&&!d.boolean_default&&!d.minimum&&!d.maximum&&!d.step&&d.angle_semantics.empty(),
@@ -67,6 +93,16 @@ SemanticControlResolution validate_semantic_descriptor(const SemanticParameterDe
     return {SemanticWidget::numeric,true,"UNKNOWN_WIDGET_HINT: "+d.widget_hint+"; using numeric for known number type"};
 }
 std::optional<SemanticParameterDescriptor> builtin_semantic_descriptor(const std::string& type,const std::string& parameter) {
+    if(parameter=="color"&&(type=="nect.paint.fill"||type=="nect.paint.stroke")) {
+        const auto* owner=builtin_operation_type(type);
+        if(!owner)return {};
+        SemanticParameterDescriptor d;d.key="color";d.value_type="color";d.color_default=ColorValue{};
+        const std::array<std::string,4> channels{"r","g","b","a"};
+        for(std::size_t i=0;i<channels.size();++i)d.color_default->rgba[i]=owner->parameter_defaults.at(channels[i]);
+        d.unit="srgb";d.domain=owner->input;d.widget_hint="color";d.label="Color";
+        d.help="Straight-alpha sRGB color. Unchanged values retain their exact channel precision.";
+        validate_semantic_descriptor(d);return d;
+    }
     if(parameter=="fill_rule"&&(type=="nect.paint.fill"||type=="nect.shape.offset")) {
         const auto* owner=builtin_operation_type(type);
         if(!owner)return {};
@@ -108,10 +144,20 @@ std::optional<SemanticParameterDescriptor> property_semantic_descriptor(const Do
     for(const auto& operation:found->second.stack) {
         if(operation.macro)continue;
         const auto prefix="op."+operation.id+".";
-        if(ref.field.starts_with(prefix)&&(ref.field.substr(prefix.size())=="enabled"||ref.field.substr(prefix.size())=="fill_rule"||operation.parameters.contains(ref.field.substr(prefix.size()))))
+        if(ref.field.starts_with(prefix)&&(ref.field.substr(prefix.size())=="enabled"||ref.field.substr(prefix.size())=="fill_rule"||ref.field.substr(prefix.size())=="color"||operation.parameters.contains(ref.field.substr(prefix.size()))))
             return builtin_semantic_descriptor(operation.type,ref.field.substr(prefix.size()));
     }
     return {};
+}
+SemanticParameterDescriptor gradient_endpoint_semantic_descriptor(const std::string& endpoint) {
+    require_descriptor(endpoint=="start"||endpoint=="end","Unknown gradient endpoint");
+    const Gradient canonical;
+    SemanticParameterDescriptor d;d.key=endpoint;d.value_type="point";d.unit="du";d.domain="local_gradient";
+    d.coordinate_space="local";d.widget_hint="point";d.label=endpoint=="start"?"Start":"End";
+    d.point_default=endpoint=="start"?std::array<double,2>{canonical.start_x.literal,canonical.start_y.literal}:
+        std::array<double,2>{canonical.end_x.literal,canonical.end_y.literal};
+    d.help="Edit both local-space coordinates in one change. Cancel preserves the current point.";
+    validate_semantic_descriptor(d);return d;
 }
 SemanticParameterDescriptor macro_semantic_descriptor(const Document& document,const Ref& ref) {
     const auto object=document.objects.find(ref.object);

@@ -12,6 +12,24 @@ void refuses(const SemanticParameterDescriptor& descriptor){
 }
 }
 int main(){try{
+    const auto point=gradient_endpoint_semantic_descriptor("end");
+    check(point.point_default==std::array<double,2>{100,0}&&point.coordinate_space=="local","Gradient endpoint derives canonical local point");
+    check(validate_semantic_descriptor(point).widget==SemanticWidget::point,"Point resolves to paired editor");
+    auto bad_point=point;bad_point.point_default.reset();refuses(bad_point);
+    bad_point=point;bad_point.coordinate_space="world";refuses(bad_point);
+    bad_point=point;(*bad_point.point_default)[0]=std::numeric_limits<double>::infinity();refuses(bad_point);
+    bad_point=point;bad_point.widget_hint="numeric";refuses(bad_point);
+    bad_point=point;bad_point.widget_hint="future-point";check(validate_semantic_descriptor(bad_point).fallback,"Unknown point hint stays in point family");
+    const auto color=*builtin_semantic_descriptor("nect.paint.fill","color");
+    check(color.color_default.has_value()&&color.value_type=="color","Paint color retains canonical typed default");
+    check(validate_semantic_descriptor(color).widget==SemanticWidget::color,"Color resolves to color family");
+    auto bad_color=color;bad_color.color_default.reset();refuses(bad_color);
+    bad_color=color;bad_color.color_default->rgba[2]=1.1;refuses(bad_color);
+    bad_color=color;bad_color.color_default->rgba[0]=std::numeric_limits<double>::quiet_NaN();refuses(bad_color);
+    bad_color=color;bad_color.color_default->alpha="premultiplied";refuses(bad_color);
+    bad_color=color;bad_color.widget_hint="numeric";refuses(bad_color);
+    bad_color=color;bad_color.widget_hint="future-color";
+    check(validate_semantic_descriptor(bad_color).fallback,"Unknown color hint has same-type fallback");
     const auto dropdown=*builtin_semantic_descriptor("nect.paint.fill","fill_rule");
     check(dropdown.enum_default=="nonzero"&&dropdown.choices.size()==2,"Fill rule has typed canonical choices");
     check(validate_semantic_descriptor(dropdown).widget==SemanticWidget::dropdown,"Fill rule resolves to dropdown");

@@ -27,6 +27,8 @@
 #include "semantic_control.hpp"
 #include "semantic_toggle_control.hpp"
 #include "semantic_enum_control.hpp"
+#include "semantic_color_control.hpp"
+#include "semantic_point_control.hpp"
 #include "artboard_background_control.hpp"
 #include "analysis_contour_control.hpp"
 #include "macro_authoring_control.hpp"
@@ -7583,39 +7585,44 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         }
         if(operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke") {
             add_gradient(form,object,operation);
-            auto channel=[&](const char* parameter){return inspector_values_.at(operation_ref(object.id,operation.id,parameter));};
-            const auto color=QColor::fromRgbF(channel("r"),channel("g"),channel("b"),channel("a"));
-            auto* color_row=new QWidget;auto* color_layout=new QHBoxLayout(color_row);color_layout->setContentsMargins(0,0,0,0);
-            auto* swatch=new QPushButton("Color…");swatch->setObjectName("operation-color-"+qs(operation.id));
-            swatch->setStyleSheet("border: 3px solid "+color.name()+";");
-            auto* hex=new QLineEdit(hex_color(color));hex->setObjectName("operation-hex-"+qs(operation.id));
-            hex->setAccessibleName(name+" HEX RGBA");hex->setToolTip("sRGB #RRGGBB or #RRGGBBAA; linked channels require explicit unlinking before replacement.");
-            color_layout->addWidget(swatch);color_layout->addWidget(hex);
+            const auto paint_ref=operation_ref(object.id,operation.id,"color");
+            const auto exact_color=color_value(host.session.document(),paint_ref,inspector_values_);
+            auto* color_input=new SemanticColorInput(exact_color.rgba);
+            color_input->setObjectName("semantic-color-"+qs(operation.id));
+            const auto color_descriptor=*builtin_semantic_descriptor(operation.type,"color");
+            annotate_semantic_control(color_input,color_descriptor);
+            auto* swatch=color_input->swatch_button();swatch->setObjectName("operation-color-"+qs(operation.id));
+            auto* hex=color_input->hex_input();hex->setObjectName("operation-hex-"+qs(operation.id));
+            const auto precision_tooltip=swatch->toolTip();const auto hex_help=hex->toolTip();
+            annotate_semantic_control(swatch,color_descriptor);annotate_semantic_control(hex,color_descriptor);
+            swatch->setToolTip(precision_tooltip);hex->setToolTip(hex_help);
+            hex->setAccessibleName(name+" HEX RGBA");
+            bool color_driven=false;
+            for(const auto& channel:color_channels(host.session.document(),paint_ref)) {
+                const auto scalar=property(host.session.document(),channel);
+                color_driven=color_driven||scalar.binding.has_value()||scalar.expression.has_value();
+            }
+            color_input->setEnabled(!color_driven);
+            if(color_driven)color_input->setToolTip("Unlink driven color channels before replacing the color.");
             form->addRow(operation.gradient&&gradient_enabled_state(host.session.document(),
-                gradient_ref(object.id,operation.id,operation.gradient->id,"enabled")).evaluated?"Solid fallback":"sRGB",color_row);
-            form->addRow(color_tools_->menu_button(operation_ref(object.id,operation.id,"color")));
-            auto apply_color=[this,apply,id=object.id,op=operation.id](const QColor& selected) {
-                const auto values=evaluate(host.session.document());
-                const std::array<double,4> rgba{selected.redF(),selected.greenF(),selected.blueF(),selected.alphaF()};
-                const std::array<std::string,4> fields{"r","g","b","a"};
-                std::vector<Command> commands;
-                for(std::size_t i=0;i<fields.size();++i) {
-                    const auto ref=operation_ref(id,op,fields[i]);
-                    if(std::abs(values.at(ref)-rgba[i])>1e-8)commands.push_back(Set{ref,rgba[i]});
-                }
-                if(!commands.empty())apply(commands);
-            };
-            connect(swatch,&QPushButton::clicked,this,[this,color,name,apply_color] {
-                const auto chosen=QColorDialog::getColor(color,this,name+" color",QColorDialog::ShowAlphaChannel);
-                if(chosen.isValid())perform([&]{apply_color(chosen);});
-            });
-            connect(hex,&QLineEdit::editingFinished,this,[this,hex,apply_color] {
-                if(!hex->isModified())return;
-                hex->setModified(false);
+                gradient_ref(object.id,operation.id,operation.gradient->id,"enabled")).evaluated?"Solid fallback":"sRGB",color_input);
+            form->addRow(color_tools_->menu_button(paint_ref));
+            const auto color_revision=host.session.revision();
+            const QPointer<SemanticColorInput> safe_color(color_input);
+            color_input->commit=[this,safe_color,paint_ref,frozen_session,color_revision,exact_color](const std::array<double,4>& rgba) {
+                bool applied=false;
                 perform([&]{
-                    apply_color(parse_hex_color(hex->text()));
+                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Color belongs to another document");
+                    if(host.session.revision()!=color_revision)throw Error("REVISION_CONFLICT","Color changed elsewhere; reopen the Inspector");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before changing color");
+                    auto value=exact_color;value.rgba=rgba;
+                    if(value!=color_value(host.session.document(),paint_ref,evaluate(host.session.document()))) {
+                        host.session.apply({SetColor{paint_ref,value}},color_revision);host.edited();
+                    }
+                    applied=true;
                 });
-            });
+                if(!applied&&safe_color)safe_color->set_value(exact_color.rgba);
+            };
             for(const auto* parameter:{"width","r","g","b","a"})
                 if(operation.parameters.contains(parameter))add_property(form,operation_ref(object.id,operation.id,parameter),
                     std::string(parameter)=="a"?QStringLiteral("Paint opacity"):parameter_label(parameter));
@@ -7868,6 +7875,45 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
     handles->setToolTip("Edit the source motif's local start/end frame. Repeated copies share this gradient. Escape cancels a drag or exits handles.");
     form->addRow(handles);
     connect(handles,&QPushButton::clicked,this,[this,id,op]{canvas->set_gradient_edit(id,op);});
+    // Keep the individual source/expression controls below; the paired editor
+    // provides an atomic edit without replacing their canonical scalar owners.
+    for(const auto* endpoint:{"start","end"}) {
+        const auto metadata=gradient_endpoint_semantic_descriptor(endpoint);
+        const auto xref=gradient_ref(id,op,gradient_id,std::string(endpoint)+"_x");
+        const auto yref=gradient_ref(id,op,gradient_id,std::string(endpoint)+"_y");
+        auto* edit_pair=new QPushButton("Edit "+qs(metadata.label)+" XY…");
+        edit_pair->setObjectName("gradient-point-edit-"+qs(op)+"-"+endpoint);
+        const auto xs=property(host.session.document(),xref),ys=property(host.session.document(),yref);
+        edit_pair->setEnabled(!xs.binding&&!xs.expression&&!ys.binding&&!ys.expression);
+        edit_pair->setToolTip("Edit both coordinates atomically. Use individual fields below for links and expressions.");
+        form->addRow(edit_pair);
+        const auto point_revision=host.session.revision();
+        const std::array<double,2> initial{inspector_values_.at(xref),inspector_values_.at(yref)};
+        connect(edit_pair,&QPushButton::clicked,this,[this,xref,yref,metadata,initial,frozen_session,point_revision] {
+            auto* dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);
+            dialog->setObjectName("semantic-gradient-point-dialog");dialog->setWindowTitle(qs(metadata.label)+" · local XY");
+            auto* layout=new QVBoxLayout(dialog);auto* editor=new SemanticPointInput(initial,dialog);
+            editor->setObjectName("semantic-gradient-point-input");annotate_semantic_control(editor,metadata);
+            layout->addWidget(editor);const QPointer<QDialog> safe_dialog(dialog);
+            const QPointer<SemanticPointInput> safe_editor(editor);
+            connect(editor->cancel_button(),&QPushButton::clicked,dialog,&QDialog::reject);
+            editor->commit=[this,xref,yref,frozen_session,point_revision,safe_dialog,safe_editor,initial](const std::array<double,2>& value) {
+                bool applied=false;
+                perform([&]{
+                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Gradient point belongs to another document");
+                    if(host.session.revision()!=point_revision)throw Error("REVISION_CONFLICT","Gradient point changed; reopen its editor");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before editing a point");
+                    const auto xs=property(host.session.document(),xref),ys=property(host.session.document(),yref);
+                    if(xs.binding||xs.expression||ys.binding||ys.expression)throw Error("DRIVEN_PROPERTY","Unlink both coordinates before editing the point");
+                    if(value!=initial){host.session.apply({Set{xref,value[0]},Set{yref,value[1]}},point_revision);host.edited();}
+                    applied=true;
+                });
+                if(applied&&safe_dialog)safe_dialog->accept();
+                else if(safe_editor)safe_editor->set_value(initial);
+            };
+            dialog->open();
+        });
+    }
     for(const auto* field:{"start_x","start_y","end_x","end_y"})
         add_property(form,gradient_ref(id,op,gradient_id,field),parameter_label(field));
     auto* note=new QLabel("Local coordinates; radial uses Start as its center and the distance to End as radius. Stops use sRGB. Paint opacity multiplies stop alpha.");
