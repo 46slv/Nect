@@ -196,6 +196,9 @@ void SemanticColorInput::open_picker() {
     auto* dialog=new QColorDialog(displayed_color(baseline_),this);picker_=dialog;
     dialog->setObjectName("semantic-color-picker");dialog->setWindowTitle("sRGB color");
     dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setOption(QColorDialog::ShowAlphaChannel);
+    // Qt 6.5 initializes alpha as opaque before ShowAlphaChannel is enabled.
+    // Reapply the baseline after the option so its displayed alpha is correct.
+    dialog->setCurrentColor(displayed_color(baseline_));
     // Capture what this dialog actually displays, rather than converting its
     // unchanged result back into the caller's higher-precision authored value.
     const auto displayed_initial=dialog->currentColor();const auto epoch=edit_epoch_;

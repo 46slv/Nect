@@ -30,7 +30,13 @@ using namespace nect::desktop;
 using Rgba=std::array<double,4>;
 inline int checks=0;
 inline void require(bool ok,const char* why){if(!ok)throw std::runtime_error(why);++checks;}
-inline void events(){QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);}
+inline void events(){
+    QApplication::processEvents();
+    QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    // Queued commits can rebuild the Inspector in the first event pass.
+    // Drain the resulting layout/show events before testing the new rows.
+    QApplication::processEvents();
+}
 inline const Rgba exact_fill{0.1234567890123456,0.3456789012345678,0.567890123456789,0.7890123456789012};
 inline const Rgba exact_stroke{0.2345678901234567,0.4567890123456789,0.6789012345678901,0.8901234567890123};
 inline const Ref fill=operation_ref("target","target-fill","color");

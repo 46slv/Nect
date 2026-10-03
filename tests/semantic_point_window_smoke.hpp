@@ -29,7 +29,13 @@ using namespace nect::desktop;
 using Pair=std::array<double,2>;
 inline int checks=0;
 inline void require(bool ok,const char* why){if(!ok)throw std::runtime_error(why);++checks;}
-inline void events(){QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);}
+inline void events(){
+    QApplication::processEvents();
+    QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    // Queued commits can rebuild the Inspector in the first event pass.
+    // Drain the resulting layout/show events before testing the new rows.
+    QApplication::processEvents();
+}
 inline const Pair linear_start{-12.34567890123456,23.45678901234567};
 inline const Pair linear_end{134.5678901234567,-45.67890123456789};
 inline const Pair radial_start{34.56789012345678,-56.7890123456789};
