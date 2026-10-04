@@ -554,6 +554,10 @@ and revision. Opening a native file or refreshing after another edit discards
 an outdated name draft; it cannot rename an incoming object with the same ID.
 Reentering the current name leaves Undo history unchanged.
 
+Text Weight drafts also belong to the original document and revision. Refreshing
+after another canonical edit discards an outdated draft and displays the updated
+weight. Return commits one Text update; an unchanged weight adds no Undo entry.
+
 Edit → **Close / open contour** changes the contour containing the active selected
 point, preserving the other contours in that Path. A removed point refuses the
 operation. With a whole Object selected, it keeps the first-contour behavior.

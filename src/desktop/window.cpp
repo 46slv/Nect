@@ -6475,6 +6475,8 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     family_status->setObjectName("text-family-state");family_status->setWordWrap(true);family_status->setTextFormat(Qt::PlainText);form->addRow("",family_status);
     const Ref weight_ref{id,"","text.weight"};const auto weight_state=text_weight_property(host.session.document(),weight_ref);
     const auto weight_revision=host.session.revision();
+    const auto weight_document=host.session.document().id;
+    const auto weight_gesture=host.session.gesture_generation();
     auto* weight_row=new QWidget(box);auto* weight_layout=new QHBoxLayout(weight_row);weight_layout->setContentsMargins(0,0,0,0);
     auto* weight=new QSpinBox;weight->setObjectName("text-weight");weight->setRange(1,999);weight->setSingleStep(100);
     weight->setValue(static_cast<int>(weight_state.evaluated));weight->setKeyboardTracking(false);
@@ -6570,9 +6572,16 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     weight_status->setText(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(weight_state.literal).arg(weight_driver_description).arg(weight_state.evaluated));
     weight_status->setWordWrap(true);form->addRow("",weight_status);
-    connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,weight_state]{
+    connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,weight_state,frozen_session,weight_document,weight_revision,weight_gesture]{
         if(weight_state.driver||weight_state.expression)return;
-        if(static_cast<unsigned>(weight->value())!=weight_state.literal)perform([&]{update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});});});
+        if(static_cast<unsigned>(weight->value())!=weight_state.literal)perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                throw Error("SESSION_CONFLICT","Text weight draft belongs to another document");
+            if(host.session.revision()!=weight_revision||host.session.gesture_generation()!=weight_gesture)
+                throw Error("REVISION_CONFLICT","Text changed; edit its weight again");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});
+        });});
     const Ref italic_ref{id,"","text.italic"};const auto italic_state=text_italic_property(host.session.document(),italic_ref);
     const auto italic_revision=host.session.revision();
     auto* italic_row=new QWidget(box);auto* italic_layout=new QHBoxLayout(italic_row);italic_layout->setContentsMargins(0,0,0,0);

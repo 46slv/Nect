@@ -13,6 +13,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSpinBox>
 #include <QTemporaryDir>
 #include <QTest>
 #include <algorithm>
@@ -78,6 +79,60 @@ struct ContextSnapshot {
         native==encode(s.document())&&revision==s.revision()&&history==s.history()&&
         generation==s.gesture_generation()&&gesture==s.gesture_active();}
 };
+void text_weight_context(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Weight probe owns disposable scratch");
+    QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1000,650);window.show();events();
+    auto& session=window.host.session;auto document=fixture(session.document());
+    document.objects.at("first").text->weight=400;
+    session=Session(document);window.host.edited();window.canvas->set_selection("first");events();
+    QApplication::setActiveWindow(&window);events();
+    const auto draft=[&](const char* value){
+        auto* weight=named<QSpinBox>(window,"text-weight");
+        auto* scroll=named<QScrollArea>(window,"inspector-scroll");scroll->ensureWidgetVisible(weight);events();
+        weight->setFocus();events();weight->selectAll();QTest::keyClicks(weight,value);events();
+        check(weight->hasFocus()&&weight->text()==value,"Real focused Weight receives unfinished keyboard draft");
+        return weight;
+    };
+    const ContextSnapshot initial(session);auto* old=draft("700");
+    check(initial.unchanged(session),"Typing Weight leaves complete authored source/history unchanged");
+    auto external=*session.document().objects.at("first").text;external.weight=500;
+    session.apply({UpdateText{"first",external}},session.revision());
+    const ContextSnapshot incoming(session);const auto session_id=window.host.session_id;
+    check(old->hasFocus()&&old->text()=="700"&&session.document().objects.at("first").text->weight==500,
+        "External canonical update precedes Inspector refresh with old draft still focused");
+    window.host.edited();events();
+    std::cout<<"external Weight refresh weight="<<session.document().objects.at("first").text->weight
+        <<" revision="<<session.revision()<<" expected="<<incoming.revision<<'\n';
+    check(incoming.unchanged(session)&&window.host.session_id==session_id,
+        "Inspector refresh preserves complete external source without stale Weight commit or history");
+    check(named<QSpinBox>(window,"text-weight")->value()==500,"Replacement Inspector shows canonical external Weight");
+    auto* normal=draft("600");check(incoming.unchanged(session),"Normal Weight remains draft until Return");
+    Session oracle(incoming.document);auto expected=external;expected.weight=600;
+    oracle.apply({UpdateText{"first",expected}},oracle.revision());
+    QTest::keyClick(normal,Qt::Key_Return);events();
+    check(session.document()==oracle.document()&&session.preview_document()==oracle.document()&&
+        session.revision()==incoming.revision+1&&session.history().states.size()==incoming.history.states.size()+1,
+        "Return commits one complete canonical UpdateText transaction");
+    const ContextSnapshot committed(session);auto* unchanged=draft("600");
+    QTest::keyClick(unchanged,Qt::Key_Return);events();
+    check(committed.unchanged(session),"Unchanged Weight Return adds no history or revision");
+    session.undo(session.revision());window.host.edited();events();
+    check(session.document()==incoming.document&&encode(session.document())==incoming.native,
+        "Undo normal edit restores complete externally updated source");
+    session.undo(session.revision());window.host.edited();events();
+    check(session.document()==initial.document&&encode(session.document())==initial.native,
+        "Undo external edit restores complete original source");
+    session.redo(session.revision());session.redo(session.revision());window.host.edited();events();
+    check(session.document()==committed.document&&encode(session.document())==committed.native,
+        "Redo restores both complete canonical transactions");
+    const auto saved=scratch.filePath("weight.nect.json");window.host.save(saved);events();
+    const ContextSnapshot before_open(session);window.host.open(saved);events();
+    check(session.document()==before_open.document&&session.preview_document()==before_open.document&&
+        encode(session.document())==before_open.native&&session.revision()==0&&session.history().states.size()==1,
+        "Same Window native reopen preserves complete Weight and unrelated source");
+}
 void object_name_context(){
     QTemporaryDir scratch;check(scratch.isValid(),"Name probe owns disposable scratch");
     QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -274,6 +329,9 @@ int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     auto font=app.font();font.setFamily("Yu Gothic UI");font.setPixelSize(13);app.setFont(font);
     try{
+        if(app.arguments().contains("--text-weight-context")){
+            text_weight_context();std::cout<<"PASS production Text Weight context ("<<checks<<" checks; physical OS input NOT_RUN)\n";return 0;
+        }
         if(app.arguments().contains("--object-name-context")){
             object_name_context();std::cout<<"PASS Object name context ("<<checks<<" checks; physical OS input NOT_RUN)\n";return 0;
         }
