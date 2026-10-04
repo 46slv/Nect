@@ -305,7 +305,7 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME instance_visibility_ui_interaction COMMAND instance_visibility_ui_tests)
     set_tests_properties(instance_visibility_ui_interaction PROPERTIES TIMEOUT 30)
-    foreach(test flattened_svg_export compatibility_plan_ui macro_revision_ui macro_chain_ui macro_public_interface_ui macro_library_v2 macro_library_v3 shortcut_inventory shortcut_help visual_style viewport_layout canvas_small_fit inspector_batch_width inspector_viewport semantic_slider_ui semantic_toggle_ui semantic_enum_ui semantic_color_ui semantic_point_ui composite_isolation_batch_ui text_alignment_batch_ui
+    foreach(test flattened_svg_export compatibility_plan_ui macro_revision_ui macro_chain_ui macro_node_enabled_ui macro_public_interface_ui macro_library_v2 macro_library_v3 shortcut_inventory shortcut_help visual_style viewport_layout canvas_small_fit inspector_batch_width inspector_viewport semantic_slider_ui semantic_toggle_ui semantic_enum_ui semantic_color_ui semantic_point_ui composite_isolation_batch_ui text_alignment_batch_ui
         text_direction_batch_ui text_layout_batch_ui text_italic_batch_ui text_family_batch_ui text_locale_batch_ui paint_color_batch_ui
         text_content_literal_batch_ui multi_visibility_ui multi_blend_mode_ui operation_enabled_batch_ui multi_fill_rule_ui instance_color_ui text_string_source_batch_ui instance_text_content_ui)
       add_executable(${test}_tests tests/${test}_tests.cpp)
@@ -316,6 +316,8 @@ if(BUILD_TESTING)
       add_test(NAME ${test}_contract COMMAND ${test}_tests)
       set_tests_properties(${test}_contract PROPERTIES TIMEOUT 60)
     endforeach()
+    target_include_directories(macro_node_enabled_ui_tests PRIVATE ${BOOST_INCLUDE_DIR})
+    target_compile_definitions(macro_node_enabled_ui_tests PRIVATE BOOST_ALL_NO_LIB)
     target_include_directories(inspector_viewport_tests PRIVATE ${BOOST_INCLUDE_DIR})
     target_compile_definitions(inspector_viewport_tests PRIVATE BOOST_ALL_NO_LIB)
     add_executable(analysis_line_desktop_tests tests/analysis_line_tests.cpp)

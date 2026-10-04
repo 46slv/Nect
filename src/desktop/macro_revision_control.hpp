@@ -7,6 +7,7 @@
 #include <vector>
 
 class QComboBox;
+class QCheckBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -28,6 +29,7 @@ public:
 private:
     struct NodeDraft {
         Id node;
+        QCheckBox* enabled=nullptr;
         std::map<std::string,QLineEdit*> inputs;
     };
     QPointer<Host> host_;

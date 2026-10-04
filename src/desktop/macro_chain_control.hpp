@@ -43,6 +43,7 @@ private:
     std::vector<NodeDraft> nodes_;
     std::map<std::string,QLineEdit*> inputs_;
     QCheckBox* publish_amount_=nullptr;
+    QCheckBox* node_enabled_=nullptr;
     QComboBox* definitions_=nullptr;
     QComboBox* mapping_=nullptr;
     QListWidget* chain_=nullptr;

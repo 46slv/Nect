@@ -1,6 +1,7 @@
 #include "macro_chain_control.hpp"
 #include "host.hpp"
 #include "semantic_control.hpp"
+#include "semantic_toggle_control.hpp"
 #include <QComboBox>
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -162,16 +163,31 @@ void MacroChainDialog::load_definition() {
 
 void MacroChainDialog::capture_defaults() {
     const auto node=std::find_if(nodes_.begin(),nodes_.end(),[&](const auto& value){return value.node.operation.id==selected_node_;});
-    if(node!=nodes_.end())for(const auto& [key,input]:inputs_)node->values.at(key)=input->text();
+    if(node!=nodes_.end()) {
+        for(const auto& [key,input]:inputs_)node->values.at(key)=input->text();
+        if(node_enabled_)node->node.operation.enabled=node_enabled_->isChecked();
+    }
 }
 
 void MacroChainDialog::show_defaults() {
-    inputs_.clear();selected_node_.clear();delete defaults_->takeWidget();
+    inputs_.clear();node_enabled_=nullptr;selected_node_.clear();delete defaults_->takeWidget();
     const auto row=chain_->currentRow();if(row<0||static_cast<std::size_t>(row)>=nodes_.size())return;
     const auto& draft=nodes_[row];selected_node_=draft.node.operation.id;
     auto* content=new QWidget(defaults_);auto* form=new QFormLayout(content);defaults_->setWidget(content);
     auto* title=new QLabel(node_label(draft.node,row)+" defaults",content);title->setTextFormat(Qt::PlainText);
     title->setWordWrap(true);form->addRow(title);
+    // Legacy interfaces cannot express node bypass. Never upgrade them merely
+    // because the editor opens; interface3 owns this existing boolean default.
+    if(draft_.interface_version==3) {
+        const auto descriptor=builtin_semantic_descriptor(draft.node.operation.type,"enabled");
+        node_enabled_=semantic_toggle_input(*descriptor,draft.node.operation.enabled,content);
+        node_enabled_->setObjectName("macro-chain-default-enabled");
+        node_enabled_->setAccessibleName(text(builtin_operation_type(draft.node.operation.type)->label)+" / Enabled");
+        node_enabled_->setProperty("nect-node-id",text(selected_node_));
+        node_enabled_->setProperty("nect-parameter","enabled");
+        node_enabled_->setToolTip("Literal node default in this draft. Save appends a new revision; existing instances stay pinned.");
+        form->addRow("Enabled",node_enabled_);
+    }
     for(const auto& [key,value]:draft.values) {
         const auto descriptor=builtin_semantic_descriptor(draft.node.operation.type,key);
         QLineEdit* input=descriptor?semantic_number_input(*descriptor,value,content):new SemanticNumberInput(value,content);
@@ -246,7 +262,7 @@ MacroDefinitionRevision MacroChainDialog::edited_revision() {
     capture_defaults();auto result=draft_;result.graph_version=2;result.nodes.clear();result.edges.clear();
     for(const auto& value:nodes_) {
         // Retain all authored node fields, including interface3 Enabled
-        // defaults; only the numeric literals edited here are replaced.
+        // defaults; values come from this transient node draft, never live instances.
         auto node=value.node;
         for(const auto& [key,raw]:value.values)node.operation.parameters.at(key).literal=literal(raw,key);
         result.nodes.push_back(std::move(node));

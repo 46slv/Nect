@@ -1,6 +1,7 @@
 #include "macro_revision_control.hpp"
 #include "host.hpp"
 #include "semantic_control.hpp"
+#include "semantic_toggle_control.hpp"
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -142,6 +143,16 @@ void MacroRevisionDialog::load_definition() {
             auto short_type=type=="nect.shape.offset"?QString("offset"):QString("repeater");
             const auto occurrence=++type_counts[type];
             if(occurrence>1)short_type+="-"+QString::number(occurrence);
+            if(draft_.interface_version==3) {
+                const auto descriptor=builtin_semantic_descriptor(type,"enabled");
+                fields.enabled=semantic_toggle_input(*descriptor,node->operation.enabled,group);
+                fields.enabled->setObjectName("macro-revision-"+short_type+"-enabled");
+                fields.enabled->setAccessibleName(text(owner->label)+" / Enabled");
+                fields.enabled->setProperty("nect-node-id",text(fields.node));
+                fields.enabled->setProperty("nect-parameter","enabled");
+                fields.enabled->setToolTip("Literal node default in this draft. Save appends a new revision; existing instances stay pinned.");
+                node_form->addRow("Enabled",fields.enabled);
+            }
             for(const auto& [key,value]:node->operation.parameters) {
                 const auto descriptor=builtin_semantic_descriptor(type,key);
                 QLineEdit* input=descriptor?semantic_number_input(*descriptor,QString::number(value.literal,'g',17),group):
@@ -169,6 +180,7 @@ MacroDefinitionRevision MacroRevisionDialog::edited_revision() const {
     for(const auto& fields:nodes_) {
         auto node=std::find_if(result.nodes.begin(),result.nodes.end(),
             [&](const auto& candidate){return candidate.operation.id==fields.node;});
+        if(fields.enabled)node->operation.enabled=fields.enabled->isChecked();
         for(const auto& [key,input]:fields.inputs)node->operation.parameters.at(key).literal=literal(input);
     }
     return result;
