@@ -1270,8 +1270,9 @@ void folder_favorite_navigation(const QString& scratch) {
         auto* tree=dialog->findChild<QTreeWidget*>("folder-library-tree");
         auto* favorites=dialog->findChild<QListWidget*>("folder-library-favorites");
         auto* slot=dialog->findChild<QComboBox*>("folder-library-slot");
+        auto* search=dialog->findChild<QLineEdit*>("folder-library-search");
         auto* status=dialog->findChild<QLabel*>("folder-library-status");
-        check(tree&&favorites&&slot&&status,"Navigation uses the real tree, Favorites, slot and visible status");
+        check(tree&&favorites&&slot&&search&&status,"Navigation uses the real tree, Favorites, search, slot and visible status");
         auto click=[&](const char* name) {
             auto* button=dialog->findChild<QPushButton*>(name);check(button&&button->isEnabled(),std::string("Callable control: ")+name);
             QTest::mouseClick(button,Qt::LeftButton);QApplication::processEvents();
@@ -1285,6 +1286,7 @@ void folder_favorite_navigation(const QString& scratch) {
         auto invoke=[&](bool quick,const LibraryItemRefV1& ref,const QString& id,int number,const QString& error) {
             auto* sentinel=find_library_item(tree,other_ref);check(sentinel,"Separate valid root is a navigation sentinel");
             tree->setCurrentItem(sentinel);select_favorite(id);slot->setCurrentIndex(slot->findData(number));
+            const auto query=search->text();
             current.statusBar()->clearMessage();click(quick?"folder-library-use-slot":"folder-library-use-favorite");
             std::cout<<"Folder "<<(quick?"slot":"Favorite")<<" path="<<ref.normalized_relative_path.toStdString()
                 <<" restart="<<restarting<<" status="<<status->text().toStdString()
@@ -1296,6 +1298,7 @@ void folder_favorite_navigation(const QString& scratch) {
                 check(tree->currentItem()==sentinel&&status->text().contains(error)&&
                     !status->text().startsWith("Favorite opened ")&&current.statusBar()->currentMessage().contains(error),
                     "Unavailable folder refuses before navigation and reports its exact resolver error, without false success");
+                check(search->text()==query,"Unavailable Folder invocation preserves the current browse search");
             }
             unchanged(current);
             if(!restarting)check(current.host.session_id==session_id&&current.host.session.revision()==revision&&
@@ -1325,6 +1328,18 @@ void folder_favorite_navigation(const QString& scratch) {
             invoke(true,child_ref,child_favorite,2,"LIBRARY_ITEM_MISSING");
         }else {
             invoke(false,root_ref,root_favorite,1,{});invoke(true,child_ref,child_favorite,2,{});
+            for(bool quick:{false,true}) {
+                search->setFocus();search->selectAll();QTest::keyClicks(search,"Other source");QApplication::processEvents();
+                check(find_library_item(tree,root_ref)->isHidden()&&find_library_item(tree,child_ref)->isHidden(),
+                    "Actual search hides the Favorite destination and its ancestor");
+                invoke(quick,child_ref,child_favorite,2,{});
+                const auto* destination=find_library_item(tree,child_ref);
+                std::cout<<"Filtered Folder navigation query="<<search->text().toStdString()
+                    <<" hidden="<<destination->isHidden()<<" parent_hidden="<<destination->parent()->isHidden()<<'\n';
+                check(search->text().isEmpty()&&!destination->isHidden()&&!destination->parent()->isHidden(),
+                    "Folder Favorite/Quick Access clears an unrelated filter and visibly reaches its exact hierarchy");
+            }
+            search->setFocus();QTest::keyClicks(search,"Other source");QApplication::processEvents();
             check(QDir().rename(root_path,moved_root),"Move only owned registered root after caching its tree");
             invoke(false,root_ref,root_favorite,1,"LIBRARY_ITEM_MISSING");
             invoke(true,child_ref,child_favorite,2,"LIBRARY_ITEM_MISSING");

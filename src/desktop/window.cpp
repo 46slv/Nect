@@ -6013,6 +6013,7 @@ void Window::show_folder_library() {
                     const auto resolved=library.resolve(*item_ref);
                     const auto identity=library.comparison_key(resolved.ref);auto* item=node_by_identity.value(identity,nullptr);
                     if(!item)throw Error("MISSING_LIBRARY_ROOT","The Favorite folder is no longer registered");
+                    search->clear();
                     tree->setCurrentItem(item);tree->scrollToItem(item);
                     status->setText("Favorite opened "+display_ref(resolved.ref));return;
                 } catch(const Error& error) {

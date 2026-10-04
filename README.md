@@ -461,6 +461,8 @@ Folder Favorites and Quick Access check the current source before navigating;
 missing folders or paths replaced with files report the reason without changing
 the selected browse item or artwork. Refresh and reopening retain their exact
 Favorite identities and slots so restoring the source makes them usable again.
+Successful Folder navigation clears the prior search to reveal its hierarchy;
+unavailable Folder invocation retains the current search and browse selection.
 Preset updates preserve the AssetID and Favorite while advancing its accepted
 revision. The bounded canonical Preset payload files are separate from the workspace roots/Favorites
 settings; publication does not silently create a Favorite.
