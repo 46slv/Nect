@@ -183,8 +183,10 @@ or Text stack order; driven or unsupported entries are reported with their sourc
 Refs. Apply appends fresh processing entries in one Session edit and one Undo.
 Rename, update from the current stack and delete edit the named definition;
 re-editing never changes already-applied snapshots. Publish Selected Preset to
-Library copies a built-in literal definition into the workspace Preset Library.
-Macro entries are not supported by the workspace Library yet.
+Library copies the definition and every referenced Macro, including all retained
+revisions, into one workspace asset. Update Asset retains its AssetID and Favorites.
+Favorite Apply imports fresh definition IDs and applies the pinned entries in one
+Undo step. Legacy literal assets remain readable; native documents stay at 0.87.
 
 Select two or more whole Path/Text objects to use **Apply Preset to Selection**
 or **Apply Macro to Selection** in Properties. Choose a document Preset, or a
@@ -195,12 +197,13 @@ Selecting editable Text objects also exposes **Text on Path**: choose an authore
 Path and Contour, adjust start/spacing/direction, then Apply or Detach for the
 selection. Blank mixed fields keep each target's value. Existing single-line
 horizontal Text-on-Path limits still apply.
-Some repeated expanding Offset/Repeater Macros on Text outlines currently refuse
-with `OFFSET_GEOMETRY`; this leaves the entire selection and Undo history unchanged.
+Repeated expanding Offset/Repeater Macros retain editable Text sources and paint
+geometry. Invalid authored outlines still reject the entire edit atomically.
 
 The same API/MCP Session surface supports `presets`, `preset {id}` and single
 `apply` requests with `create_preset`, `create_preset_from_stack`, `rename_preset`,
-`update_preset`, `delete_preset`, `apply_preset`, `apply_preset_batch` or `import_apply_preset`.
+`update_preset`, `delete_preset`, `apply_preset`, `apply_preset_batch`,
+`import_apply_preset` or `import_apply_preset_closure`.
 `apply_preset_batch` takes a Preset ID and distinct target/prefix pairs; it validates
 every target before committing and returns the fresh operation IDs per target.
 `create_preset_from_stack` returns the exact captured source operation IDs and
@@ -461,6 +464,14 @@ transforms that cannot represent the result reject without partial changes.
 API/MCP `apply` accepts `{"type":"align_objects","objects":["a","b"],
 "axis":"x","alignment":"min","artboard":null}`. Axis is x/y; alignment is
 min/center/max; artboard is null for selection bounds or an Artboard ID.
+
+For axis-aligned Text, **Align first-line baseline** aligns horizontal text on y;
+**Align first-column baseline** aligns vertical text on x, including mixed Japanese
+and Latin runs. Both use measured layout baselines, retain text/style, and keep the
+minimum baseline or exact selected key Text fixed. Incompatible directions, blank
+columns, rotated/skewed Text and unsupported reference types reject atomically.
+API/MCP uses `alignment:"baseline"` with `reference:"selection"` or
+`reference:"key_object:ID"` and the corresponding axis.
 
 Inspector **Equal H gaps / Equal V gaps** (also in Edit → Align objects) spaces
 3–1000 non-overlapping whole objects by their geometric bounds. Spatial order is

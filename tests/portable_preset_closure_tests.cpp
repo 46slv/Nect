@@ -204,15 +204,18 @@ void dependency_and_import_refusals() {
 }
 void total_closure_limit() {
     auto portable=closure();portable.definition.entries.resize(2);
-    auto large=macro();large.revisions.clear();large.latest_revision=20;
-    for(unsigned number=1;number<=20;++number) {
+    auto large=macro();large.revisions.clear();
+    for(unsigned number=1;number<=128;++number) {
         MacroDefinitionRevision revision;revision.revision=number;revision.graph_version=2;
         revision.input={"input","local_paths_and_paint"};revision.output={"output","local_paths_and_paint"};
         for(unsigned i=0;i<16;++i)revision.nodes.push_back({default_operation("node-"+std::to_string(i),"nect.shape.offset"),
             "in-"+std::to_string(i),"out-"+std::to_string(i)});
         revision.public_parameters={{"macro.offset.amount","Amount","node-0","amount","number","du","local_paths_and_paint"}};
-        connect(revision);large.revisions.emplace(number,revision);
+        connect(revision);large.revisions.emplace(number,revision);large.latest_revision=number;
+        if(canonical_macro_payload(large).size()>portable_preset_payload_limit/2+1024)break;
     }
+    check(canonical_macro_payload(large).size()>portable_preset_payload_limit/2+1024,
+        "Each dependency exceeds half the aggregate closure budget before the oversized oracle runs");
     portable.macro_definitions={{large.id,large}};
     auto second=large;second.id="second-macro";portable.macro_definitions.emplace(second.id,second);
     auto second_entry=portable.definition.entries[1];second_entry.macro_definition=second.id;portable.definition.entries.push_back(second_entry);

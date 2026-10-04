@@ -1037,7 +1037,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     presets_save_->setToolTip("Captures the supported built-in and pinned Macro entries in the current Path/Text processing order. Driven or unsupported entries are reported.");
     presets_layout->addWidget(presets_save_);
     presets_publish_=new QPushButton("Publish Selected Preset to Library",presets_page);presets_publish_->setObjectName("preset-publish-library");
-    presets_publish_->setToolTip("Copy selected Preset to workspace Library; Macro entries are not supported yet.");
+    presets_publish_->setToolTip("Copy the selected Preset and its complete retained Macro dependencies to the workspace Library.");
     presets_layout->addWidget(presets_publish_);
     presets_apply_=new QPushButton("Apply Preset",presets_page);presets_apply_->setObjectName("preset-apply");
     presets_layout->addWidget(presets_apply_);
@@ -1132,7 +1132,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
             preset_context_current(generation,session,target,revision);
             const auto found=host.session.document().preset_definitions.find(id);
             if(found==host.session.document().preset_definitions.end())throw Error("MISSING_PRESET",id);
-            const auto published=folder_library_->publish_preset(found->second);
+            const auto published=folder_library_->publish_preset(capture_portable_preset_closure(host.session.document(),id));
             set_preset_status("Published “"+QString::fromStdString(found->second.label)+"” to Workspace Preset Library · AssetID "+
                 published.ref.asset_id+" · revision 1.");
         } catch(const Error& error) {set_preset_status(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -5947,12 +5947,13 @@ void Window::show_folder_library() {
             if(host.session.revision()!=frozen_effect_revision)
                 throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current target");
             LibraryPresetAssetV1 metadata;
-            auto definition=library.read_preset_asset(preset,&metadata);
-            Id fresh_definition_id;
-            do {fresh_definition_id=new_id();}
-            while(fresh_definition_id==definition.id||QString::fromStdString(fresh_definition_id)==preset.asset_id);
-            host.session.apply_preset_command(PresetCommand{ImportAndApplyPreset{std::move(definition),
-                fresh_definition_id,frozen_effect_target,new_id(),preset.asset_id.toStdString(),metadata.accepted_revision}},frozen_effect_revision);
+            auto closure=library.read_preset_closure_asset(preset,&metadata);
+            ImportAndApplyPresetClosure import{std::move(closure),new_id(),frozen_effect_target,
+                new_id(),preset.asset_id.toStdString(),metadata.accepted_revision,{}};
+            for(const auto& [id,definition]:import.closure.macro_definitions) {
+                (void)definition;import.macro_definition_ids.emplace(id,new_id());
+            }
+            apply_serializable_preset(host.session,PresetCommand{std::move(import)},frozen_effect_revision);
             host.edited();
             frozen_effect_revision=host.session.revision();
             expected_revision=frozen_effect_revision;
@@ -5993,7 +5994,7 @@ void Window::show_folder_library() {
                 throw Error("UNAVAILABLE_PRESET_ASSET","Refresh the Library and choose an available Preset asset");
             const auto source=host.session.document().preset_definitions.find(source_id);
             if(source==host.session.document().preset_definitions.end())throw Error("MISSING_PRESET",source_id);
-            const auto updated=library.update_preset_asset({asset_id},source->second,
+            const auto updated=library.update_preset_asset({asset_id},capture_portable_preset_closure(host.session.document(),source_id),
                 accepted_revision,expected_hash);
             refresh_preset_assets();rebuild_favorites();sync_preset_controls();
             status->setText("Updated Workspace Preset asset “"+updated.label+"” · revision "+QString::number(updated.accepted_revision)+
@@ -8893,6 +8894,13 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
         const auto reference=alignment_target->currentData().toString().toStdString();
         perform([&]{align_selection("y","baseline",reference);});
     });alignment_layout->addWidget(baseline_button);
+    auto* column_baseline_button=new QPushButton("Align first-column baseline");
+    column_baseline_button->setObjectName("quick-align-x-baseline");
+    column_baseline_button->setToolTip("Align measured first-column baselines for vertical, axis-aligned Text. Selection keeps the source with minimum Composition x fixed; a key-object reference keeps that Text fixed.");
+    connect(column_baseline_button,&QPushButton::clicked,this,[this,alignment_target]{
+        const auto reference=alignment_target->currentData().toString().toStdString();
+        perform([&]{align_selection("x","baseline",reference);});
+    });alignment_layout->addWidget(column_baseline_button);
     auto* distribute_row=new QHBoxLayout;alignment_layout->addLayout(distribute_row);
     for(const auto axis:{"x","y"}) {
         auto* button=new QPushButton(std::string(axis)=="x"?"Distribute H":"Distribute V");button->setObjectName(QString("quick-distribute-%1").arg(axis));
@@ -8921,7 +8929,8 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
         for(const auto axis:{"x","y"})for(const auto mode:{"min","center","max"})
             if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-align-%1-%2").arg(axis,mode)))
                 button->setEnabled(ordinary&&(!reference.starts_with("guide:")||guide_axis==QString::fromLatin1(axis)));
-        if(auto* button=alignment_box->findChild<QPushButton*>("quick-align-y-baseline"))button->setEnabled(baseline_ok);
+        for(const auto axis:{"x","y"})
+            if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-align-%1-baseline").arg(axis)))button->setEnabled(baseline_ok);
         for(const auto axis:{"x","y"})if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-distribute-%1").arg(axis)))button->setEnabled(distribution);
         spacing_input->setEnabled(reference.starts_with("key_object:"));
         spacing_hint->setText(reference.starts_with("key_object:")?

@@ -2529,6 +2529,11 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication application(argc, argv);
     try {
+        if(application.arguments().contains("--text-baseline-only")) {
+            snap_text_baseline_and_unsupported_axis_omission();
+            std::cout << "Canvas Text baseline contract: " << checks << " checks passed\n";
+            return 0;
+        }
         rectangle_selection_is_view_only();
         keyboard_world_placement();
         contextual_selection_and_framing();

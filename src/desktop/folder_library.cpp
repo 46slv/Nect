@@ -235,8 +235,8 @@ StoredPresetAsset read_stored_preset_asset(const QString& root,const QString& as
     }
     if(portable_preset_closure_schema(closure)!=schema||QString::fromStdString(closure.definition.label)!=QString::fromStdString(envelope.label))
         throw Error("PRESET_ASSET_ENVELOPE_MISMATCH","Preset asset label or schema does not match its canonical payload");
-    if(closure.definition.id==asset_id.toStdString())
-        throw Error("PRESET_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from the source Document DefinitionID");
+    if(closure.definition.id==asset_id.toStdString()||closure.macro_definitions.contains(asset_id.toStdString()))
+        throw Error("PRESET_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from source Document definition IDs");
     validate_portable_preset_closure(closure);
     LibraryPresetAssetV1 metadata{{asset_id},QString::fromStdString(envelope.label),revision,
         QString::fromStdString(claimed_hash),static_cast<unsigned>(schema),true,{}};
@@ -369,8 +369,8 @@ void validate_publishable_preset(const PortablePresetClosure& closure) {
 
 LibraryPresetAssetV1 metadata_for(const PortablePresetClosure& closure,const QString& asset_id,std::uint64_t revision) {
     validate_publishable_preset(closure);
-    if(closure.definition.id==asset_id.toStdString())
-        throw Error("PRESET_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from its Document DefinitionID");
+    if(closure.definition.id==asset_id.toStdString()||closure.macro_definitions.contains(asset_id.toStdString()))
+        throw Error("PRESET_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from source Document definition IDs");
     const auto payload=QByteArray::fromStdString(canonical_preset_closure_payload(closure));
     const auto hash=QCryptographicHash::hash(payload,QCryptographicHash::Sha256).toHex();
     return {{asset_id},QString::fromStdString(closure.definition.label),revision,QString::fromLatin1(hash),portable_preset_closure_schema(closure),true,{}};

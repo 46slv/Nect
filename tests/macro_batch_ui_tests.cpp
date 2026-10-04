@@ -3,6 +3,7 @@
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QComboBox>
+#include <QFile>
 #include <QLabel>
 #include <QPointer>
 #include <QPushButton>
@@ -192,6 +193,12 @@ void apply_contract(Controls& c,bool first_text,bool second_text,std::uint64_t p
         same_shape(result,evaluate_shape(ordinary,id,repeated_oracle));
     }
     check(decode(encode(twice))==twice,"Native roundtrip preserves repeated expanding Macro and complete sources");
+    if(first_text&&second_text&&pin==2) {
+        if(const auto output=qEnvironmentVariable("NECT_REPEATED_MACRO_DOCUMENT");!output.isEmpty()) {
+            QFile file(output);const auto bytes=encode(twice);
+            check(file.open(QIODevice::WriteOnly|QIODevice::NewOnly)&&file.write(bytes.data(),static_cast<qint64>(bytes.size()))==static_cast<qint64>(bytes.size()),"Owned repeated Macro candidate saved");
+        }
+    }
     c.host.session.undo(c.host.session.revision());check(c.host.session.document()==applied,"Repeated expanding batch has one exact Undo");
     c.host.session.redo(c.host.session.revision());check(c.host.session.document()==twice,"Repeated expanding batch has one exact Redo");
 }

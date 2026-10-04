@@ -827,6 +827,12 @@ void portable_preset_closure_assets(const QString& scratch) {
         check(refused,"Invalid or oversized dependency closure is refused before storage mutation");unchanged();
     };
     auto missing=next;missing.macro_definitions.clear();rejects_candidate(missing);
+    auto colliding=next;auto collision_definition=colliding.macro_definitions.at(macro.id);
+    collision_definition.id=published.ref.asset_id.toStdString();colliding.macro_definitions.clear();
+    colliding.macro_definitions.emplace(collision_definition.id,collision_definition);
+    for(auto& entry:colliding.definition.entries)if(entry.kind=="macro")entry.macro_definition=collision_definition.id;
+    rejects("PRESET_ASSET_ID_MISMATCH",[&]{library.update_preset_asset(published.ref,colliding,
+        updated.accepted_revision,updated.sha256);});unchanged();
     auto invalid=next;invalid.macro_definitions.at(macro.id).revisions.at(1).output_mapping.port="absent-output";
     rejects_candidate(invalid);
     auto oversized=next;
@@ -867,6 +873,7 @@ void portable_preset_closure_assets(const QString& scratch) {
         return changed;
     };
     const auto next_payload=QByteArray::fromStdString(canonical_preset_closure_payload(next));
+    rejects_stored(with_payload(QByteArray::fromStdString(canonical_preset_closure_payload(colliding))),"PRESET_ASSET_ID_MISMATCH");
     rejects_stored(with_payload(" "+next_payload),"UNAVAILABLE_PRESET_ASSET");
     auto missing_payload=QJsonDocument::fromJson(next_payload).object();missing_payload.insert("macro_definitions",QJsonArray{});
     rejects_stored(with_payload(QJsonDocument(missing_payload).toJson(QJsonDocument::Compact)),"UNAVAILABLE_PRESET_ASSET");
@@ -879,6 +886,14 @@ void portable_preset_closure_assets(const QString& scratch) {
 
     for(unsigned schema:{1u,2u}) {
         auto literal=portable_preset("legacy-closure-"+std::to_string(schema),"Legacy closure");literal.schema_version=schema;
+        if(schema==1) {
+            const auto operation=default_operation("legacy-repeater","nect.shape.repeater");
+            PresetEntry entry;entry.type=operation.type;entry.version=operation.version;entry.enabled=operation.enabled;
+            for(const auto& [name,value]:operation.parameters)entry.parameters.emplace(name,value.literal);
+            entry.composite=operation.composite;entry.fill_rule=operation.fill_rule;
+            entry.line_join=operation.line_join;entry.line_cap=operation.line_cap;
+            literal.entries.push_back(std::move(entry));
+        }
         const auto old_payload=canonical_preset_payload(literal);
         check(canonical_preset_closure_payload(PortablePresetClosure{literal,{}})==old_payload,
             "Empty closure preserves legacy schema-1/2 canonical payload bytes");
