@@ -543,6 +543,11 @@ point context even when a Path body is selected and no anchor is selected yet;
 with no target it does not select unrelated Objects. Edit → Select all in
 editing context offers the same operation. Text fields keep their normal Ctrl+A.
 
+Object-name edits commit on Return or focus loss in their original document
+and revision. Opening a native file or refreshing after another edit discards
+an outdated name draft; it cannot rename an incoming object with the same ID.
+Reentering the current name leaves Undo history unchanged.
+
 Edit → **Close / open contour** changes the contour containing the active selected
 point, preserving the other contours in that Path. A removed point refuses the
 operation. With a whole Object selected, it keeps the first-contour behavior.

@@ -78,6 +78,72 @@ struct ContextSnapshot {
         native==encode(s.document())&&revision==s.revision()&&history==s.history()&&
         generation==s.gesture_generation()&&gesture==s.gesture_active();}
 };
+void object_name_context(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Name probe owns disposable scratch");
+    QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1000,650);window.show();events();
+    auto& session=window.host.session;session=Session(fixture(session.document()));window.host.edited();events();
+    window.canvas->set_selection("first");events();
+    const auto name_editor=[&]()->QLineEdit*{
+        for(auto* field:window.findChildren<QLineEdit*>())
+            if(field->isVisible()&&field->accessibleName()=="Object name")return field;
+        throw std::runtime_error("Missing visible Object name field");
+    };
+    auto replacement=session.document();replacement.objects.at("first").name="Loaded name";
+    const auto incoming=scratch.filePath("incoming.nect.json");
+    QFile file(incoming);check(file.open(QIODevice::WriteOnly),"Owned replacement native opens");
+    const auto bytes=QByteArray::fromStdString(encode(replacement));
+    check(file.write(bytes)==bytes.size(),"Complete replacement native saved");file.close();
+    QApplication::setActiveWindow(&window);events();
+    auto* name=name_editor();name->setFocus();events();name->selectAll();
+    QTest::keyClicks(name,"Outgoing name draft");events();
+    std::cout<<"name draft focus="<<name->hasFocus()<<" modified="<<name->isModified()<<'\n';
+    check(name->hasFocus()&&name->isModified(),"Actual focused name field has an uncommitted draft");
+    const auto old_identity=window.host.session_id;
+    check(session.document().objects.at("first").name!="Outgoing name draft","Typing has not renamed source");
+    window.host.open(incoming);events();
+    std::cout<<"native-open name="<<session.document().objects.at("first").name
+        <<" revision="<<session.revision()<<'\n';
+    check(window.host.session_id!=old_identity,"Native open establishes another Session");
+    check(session.document()==replacement&&session.revision()==0&&session.history().states.size()==1,
+        "Native open never applies an outgoing Object-name draft to the incoming same-ID object");
+    check(encode(session.document())==bytes.toStdString(),"Loaded complete native source stays exact");
+    const ContextSnapshot loaded(session);const auto selection=window.canvas->selections();
+    const auto type_name=[&](const char* value){
+        auto* input=name_editor();input->setFocus();events();input->selectAll();QTest::keyClicks(input,value);events();
+        check(input->hasFocus()&&input->isModified(),"Name draft receives actual focused key input");return input;
+    };
+    auto* current=type_name("Current name");
+    check(loaded.unchanged(session),"Normal name draft is view-only until Return");
+    Session oracle(loaded.document);oracle.apply({Rename{"first","Current name"}},oracle.revision());
+    QTest::keyClick(current,Qt::Key_Return);events();
+    check(session.document()==oracle.document()&&session.revision()==loaded.revision+1&&
+        session.history().states.size()==loaded.history.states.size()+1&&window.canvas->selections()==selection,
+        "Actual Return commits one canonical Rename without changing stable selection or other source");
+    const auto renamed=session.document();session.undo(session.revision());window.host.edited();events();
+    check(session.document()==loaded.document,"Name Undo restores the complete loaded source");
+    session.redo(session.revision());window.host.edited();events();
+    check(session.document()==renamed,"Name Redo restores the complete renamed source");
+    const ContextSnapshot unchanged_name(session);current=type_name("Current name");
+    QTest::keyClick(current,Qt::Key_Return);events();
+    check(unchanged_name.unchanged(session),"Reentering an unchanged name creates no revision or Undo entry");
+    current=type_name("Stale local name");const auto before_external=session.document();
+    Session external_oracle(before_external);external_oracle.apply({Rename{"first","External name"}},external_oracle.revision());
+    session.apply({Rename{"first","External name"}},session.revision());const ContextSnapshot external(session);
+    window.host.edited();events();
+    check(external.unchanged(session)&&session.document()==external_oracle.document(),
+        "An external canonical edit and Inspector rebuild never commits the stale focused name draft");
+    session.undo(session.revision());window.host.edited();events();
+    check(session.document()==before_external,"One Undo removes only the external rename after stale-draft refusal");
+    session.redo(session.revision());window.host.edited();events();
+    check(session.document()==external_oracle.document(),"External rename Redo remains exact");
+    const auto saved=session.document();const auto saved_file=scratch.filePath("name-result.nect.json");
+    window.host.save(saved_file);window.host.open(saved_file);events();
+    check(session.document()==saved&&session.revision()==0&&session.history().states.size()==1,
+        "Same Window native save and reopen retains the exact committed name source");
+    check(file.open(QIODevice::ReadOnly)&&file.readAll()==bytes,"Original incoming native bytes remain unchanged");file.close();
+}
 void mixed_text_context(){
     QTemporaryDir scratch;check(scratch.isValid(),"Context probe owns disposable scratch");
     QSettings preferences(scratch.filePath("library.ini"),QSettings::IniFormat);
@@ -208,6 +274,9 @@ int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     auto font=app.font();font.setFamily("Yu Gothic UI");font.setPixelSize(13);app.setFont(font);
     try{
+        if(app.arguments().contains("--object-name-context")){
+            object_name_context();std::cout<<"PASS Object name context ("<<checks<<" checks; physical OS input NOT_RUN)\n";return 0;
+        }
         if(app.arguments().contains("--mixed-text-context")){
             mixed_text_context();std::cout<<"PASS mixed Text contextual ownership ("<<checks<<" checks; physical OS input NOT_RUN)\n";return 0;
         }

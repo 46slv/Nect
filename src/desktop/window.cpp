@@ -4779,11 +4779,23 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     if(canvas->selections().size()>1){add_multi_properties(layout);restore_scroll();return;}
     if(canvas->selections().size()==1&&canvas->selections().front().point.empty())
         add_alignment_controls(layout,canvas->selections());
-    auto* name=new QLineEdit(qs(o.name));name->setAccessibleName("Object name");layout->addWidget(name);
-    connect(name,&QLineEdit::editingFinished,this,[this,name,id=o.id]{
+    auto* name=new QLineEdit(qs(o.name));name->setObjectName("object-name");name->setAccessibleName("Object name");layout->addWidget(name);
+    const auto name_session=host.session_id;
+    const auto name_document=d.id;
+    const auto name_revision=host.session.revision(),name_gesture=host.session.gesture_generation();
+    connect(name,&QLineEdit::editingFinished,this,[this,name,id=o.id,name_session,name_document,name_revision,name_gesture]{
         if(!name->isModified()) return;
         name->setModified(false);
-        perform([&]{host.session.apply({Rename{id,name->text().toStdString()}},host.session.revision());host.edited();});
+        perform([&]{
+            if(host.session_id!=name_session||host.session.document().id!=name_document)
+                throw Error("SESSION_CONFLICT","Object name draft belongs to another document");
+            if(host.session.revision()!=name_revision||host.session.gesture_generation()!=name_gesture)
+                throw Error("REVISION_CONFLICT","Object changed; edit its name again");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            const auto value=name->text().toStdString();
+            if(host.session.document().objects.at(id).name==value)return;
+            host.session.apply({Rename{id,value}},name_revision);host.edited();
+        });
     });
     if(o.instance) {
         layout->addWidget(make_instance_visibility_controls(host,o.id,inspector_));
