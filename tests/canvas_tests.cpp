@@ -1618,7 +1618,10 @@ void snap_text_baseline_and_unsupported_axis_omission() {
         const auto end=start+QPoint(15,0);
         f.press(start);f.move(end);
         near(evaluate(f.session.preview_document()).at({"moving-text","","transform.tx"}),16,
-            "Raw 15-du horizontal drag snaps vertical column baselines by 16 du");
+            "Raw 15-du horizontal drag snaps vertical column baselines by 16 du; feedback "+
+                f.canvas.last_snap_feedback().toStdString()+", source baseline "+
+                std::to_string(source_layout.column_baselines_x[0])+", source glyph bounds "+
+                std::to_string(source_layout.x)+".."+std::to_string(source_layout.x+source_layout.width));
         check(f.canvas.last_snap_feedback().contains("X: column 1 baseline Text baseline → target-text column 1 baseline"),
             "Vertical Text feedback names both measured columns: "+f.canvas.last_snap_feedback().toStdString());
         f.release(end);near(f.value("moving-text",{},"transform.tx"),16,
