@@ -41,10 +41,91 @@ Document fixture(){
             default_primitive("plain-shape","nect.shape.rectangle")}},s.revision());
     return s.document();
 }
+void pointer_isolation() {
+    QTemporaryDir scratch;check(scratch.isValid(),"Pointer regression owns recovery, settings and native files");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1100,750);window.show();
+    const auto events=[] {QApplication::processEvents();};
+    Session setup(fixture());setup.apply({Set{{"plain-object",{},"transform.tx"},120},
+        Set{{"plain-object",{},"transform.ty"},160},
+        AddOperation{"plain-object",default_operation("plain-fill","nect.paint.fill"),
+            setup.document().objects.at("plain-object").stack.size()}},setup.revision());
+    const auto original=setup.document();
+    auto& session=window.host.session;session=Session(original);window.host.edited();events();
+    window.canvas->set_snap_enabled(false);window.canvas->fit_artboard();events();
+    const auto screen=[&](double x,double y){return QPoint(qRound(window.canvas->width()/2.0+(x-320)*window.canvas->zoom()),
+        qRound(window.canvas->height()/2.0+(y-240)*window.canvas->zoom()));};
+    const auto select_object=[&](const char* id) {
+        auto* tree=window.findChild<QTreeWidget*>();check(tree&&tree->isVisible(),"Actual Structure tree is reachable");
+        QTreeWidgetItem* target=nullptr;
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole).toString()==id&&(*i)->data(0,Qt::UserRole+1).toString().isEmpty()){target=*i;break;}
+        check(target!=nullptr,"Exact whole-Object row exists");tree->scrollToItem(target);events();
+        QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(target).center());events();
+        check(window.canvas->selected_object==id&&window.canvas->selected_point.empty(),"Actual Structure click selects exact whole Object");
+    };
+    select_object("gradient-object");auto* tool=window.findChild<QToolButton*>("tool-gradient");
+    check(tool&&tool->isVisible()&&tool->isEnabled(),"Real Gradient Rail tool is reachable");
+    const auto initial=snapshot(session);QTest::mouseClick(tool,Qt::LeftButton);events();
+    check(window.canvas->gradient_edit_mode()&&tool->isChecked()&&snapshot(session)==initial,
+        "Actual Gradient activation preserves complete source/revision/history");
+    select_object("plain-object");
+    check(tool->isChecked()&&!tool->isEnabled()&&window.canvas->gradient_operation().empty(),
+        "Ineligible selection retains disabled Gradient Tool with no handle target");
+    const auto probe=[&](QPoint start,const char* label) {
+        check(window.canvas->rect().contains(start),"Regression pointer target lies in actual Canvas");
+        const auto before=snapshot(session);const auto selection=window.canvas->selections();
+        const auto finish=start+QPoint(24,18);
+        QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,start);events();
+        QTest::mouseMove(window.canvas,finish);events();
+        const bool preview=session.gesture_active();
+        QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,finish);events();
+        std::cout<<label<<": preview="<<preview<<" authored_equal="<<(snapshot(session)==before)
+            <<" active_gradient="<<window.canvas->gradient_edit_mode()<<" selected_point="<<window.canvas->selected_point<<'\n';
+        check(!preview&&!session.gesture_active()&&snapshot(session)==before,
+            "Gradient Tool pointer cannot author ordinary Path geometry or object translation");
+        check(window.canvas->gradient_edit_mode()&&tool->isChecked()&&window.canvas->selections()==selection,
+            "Unavailable/away-from-handle Gradient drag retains Tool and whole-Object selection");
+    };
+    const auto& source=*original.objects.at("plain-object").source;
+    probe(screen(120-source.parameters.at("width").literal/2,160-source.parameters.at("height").literal/2),"Idle Gradient anchor drag");
+    probe(screen(120,160),"Idle Gradient body drag");
+    select_object("gradient-object");
+    check(tool->isEnabled()&&tool->isChecked()&&window.canvas->gradient_operation()=="gradient-fill",
+        "Eligible Structure selection restores exact Gradient handles");
+    probe(screen(320,240),"Eligible Gradient body drag");
+    // A real endpoint drag must still use the canonical Session, not become inert.
+    const auto start=screen(280,220),finish=start+QPoint(24,18);const auto before=session.document();
+    Session oracle(before);const auto revision=session.revision();
+    const auto history=session.history().states.size();
+    QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,start);events();
+    QTest::mouseMove(window.canvas,finish);events();
+    check(session.document()==before&&session.gesture_active(),"Actual Gradient endpoint still previews without committing source");
+    QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,finish);events();
+    const auto& actual=*session.document().objects.at("gradient-object").stack.front().gradient;
+    const auto& old=*before.objects.at("gradient-object").stack.front().gradient;
+    check(std::abs(actual.start_x.literal-old.start_x.literal-24/window.canvas->zoom())<1e-9&&
+        std::abs(actual.start_y.literal-old.start_y.literal-18/window.canvas->zoom())<1e-9,
+        "Independent viewport delta gives exact Gradient endpoint coordinates");
+    oracle.apply({Set{gradient_ref("gradient-object","gradient-fill","gradient-source","start_x"),actual.start_x.literal},
+        Set{gradient_ref("gradient-object","gradient-fill","gradient-source","start_y"),actual.start_y.literal}},oracle.revision());
+    check(session.document()==oracle.document()&&session.revision()==revision+1&&session.history().states.size()==history+1,
+        "Endpoint commit changes only canonical Gradient source in one undoable transaction");
+    const auto authored=session.document();session.undo(session.revision());window.host.edited();events();
+    check(session.document()==before,"One Undo restores complete source before endpoint drag");
+    session.redo(session.revision());window.host.edited();events();check(session.document()==authored,"One Redo restores complete endpoint source");
+    const auto file=scratch.filePath("gradient-pointer.nect.json");window.host.save(file);window.host.open(file);events();
+    check(session.document()==authored,"Same Window native reopen preserves complete authored source");
+    Window cold(scratch.filePath("cold"),std::make_unique<FolderLibrary>(settings),&settings);
+    cold.setAttribute(Qt::WA_DontShowOnScreen);cold.resize(1100,750);cold.show();cold.host.open(file);events();
+    check(cold.host.session.document()==authored,"New Window native reopen preserves complete authored source");
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--pointer-isolation-only")){pointer_isolation();std::cout<<"gradient_pointer_isolation: "<<checks<<" checks passed\n";return 0;}
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
         QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
         Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings));

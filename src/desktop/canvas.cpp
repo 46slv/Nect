@@ -903,7 +903,8 @@ Canvas::Hit Canvas::hit_control(QPointF screen) const {
         if(distance((world_.at(selected_object)*view()).map(anchor),screen)<=hit_radius+2)return {Drag::pivot,selected_object,{}};
         return {};
     }
-    if (gradient_control_) {
+    if (gradient_edit_mode_) {
+        if (!gradient_control_) return {};
         const auto transform = gradient_control_->world * view();
         if (distance(transform.map(gradient_control_->start), screen) <= hit_radius)
             return {Drag::gradient_start, gradient_object_, {}};
@@ -2501,9 +2502,9 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         }
         if(extend){toggle_selection({target,{}});event->accept();return;}
         if(std::find(selections_.begin(),selections_.end(),Selection{target,{}})==selections_.end())select(target);
-        if(!direct_selection_mode_&&!anchor_edit_&&!circle_mode_at_press&&!circle_source_edit_)begin_drag(Drag::object, event->position());
+        if(!direct_selection_mode_&&!anchor_edit_&&!gradient_edit_mode_&&!circle_mode_at_press&&!circle_source_edit_)begin_drag(Drag::object, event->position());
     } else {
-        if(anchor_edit_||gradient_control_||circle_source_edit_) {if(!extend)select({});}
+        if(anchor_edit_||gradient_edit_mode_||circle_source_edit_) {if(!extend)select({});}
         else {
             drag_=Drag::marquee;press_position_=marquee_position_=event->position();
             marquee_start_=selections_;marquee_extend_=extend;drag_moved_=false;

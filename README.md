@@ -326,6 +326,8 @@ The Gradient Edit Rail tool stays selected when the current Object has no enable
 Gradient; its disabled button explains why handles are unavailable. Selecting an
 Object with one eligible Gradient restores its handles. Multiple Gradients require
 an explicit Rail choice. Escape exits the tool even while no handles are available.
+Canvas drags in Gradient Edit change Gradient endpoints only; use Selection or
+Direct Selection to move artwork or Path points.
 
 The Artboards list selects a frame and its Composition. Add/Duplicate places a
 frame to the right; up/down changes export order without moving artwork. Edit
