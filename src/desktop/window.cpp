@@ -7217,7 +7217,10 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         group->setObjectName("stack-operation-"+qs(operation.id));
         group->setProperty("nect-operation",qs(operation.id));
         auto* form=new QFormLayout(group);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(group);
-        auto* controls=new QWidget;auto* row=new QHBoxLayout(controls);row->setContentsMargins(0,0,0,0);
+        auto* controls=new QWidget;auto* control_rows=new QVBoxLayout(controls);control_rows->setContentsMargins(0,0,0,0);
+        auto* row=new QHBoxLayout;row->setContentsMargins(0,0,0,0);control_rows->addLayout(row);
+        auto* operation_actions=new QHBoxLayout;operation_actions->setContentsMargins(0,0,0,0);
+        operation_actions->addStretch();control_rows->addLayout(operation_actions);
         const auto enabled_ref=operation_ref(object.id,operation.id,"enabled");
         const auto enabled_state=operation_enabled_state(host.session.document(),enabled_ref);
         const bool enabled_driven=enabled_state.driver.has_value()||enabled_state.expression.has_value();
@@ -7239,11 +7242,11 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         auto* remove=new QPushButton("×");remove->setFixedWidth(28);
         remove->setObjectName("operation-remove-"+qs(operation.id));remove->setToolTip("Remove "+name+" from the stack");
         remove->setAccessibleName("Remove "+name+" from the stack");
-        row->addWidget(up);row->addWidget(down);row->addWidget(remove);
+        operation_actions->addWidget(up);operation_actions->addWidget(down);operation_actions->addWidget(remove);
         if(operation.macro) {
             auto* detach=new QPushButton("Detach");detach->setObjectName("macro-detach-"+qs(operation.id));
             detach->setToolTip("Replace this Macro entry in place with fresh ordinary Offset and Repeater operations.");
-            row->addWidget(detach);
+            operation_actions->addWidget(detach);
             connect(detach,&QPushButton::clicked,this,[this,id=object.id,instance=operation.id,apply]{perform([&]{
                 apply({MacroCommand{DetachMacroInstance{id,instance,new_id()}}});
             });});
