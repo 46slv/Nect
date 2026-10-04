@@ -130,6 +130,8 @@ Add a Circle, Ellipse, Rectangle, Polygon or Star and adjust its parameters,
 create a Curve, or choose Pen / Draw Path and click anchors. Enter finishes the
 current open Path; clicking its first anchor closes it. Pen stays active for the
 next Path, including after Artboard navigation. Escape exits Pen.
+Closing the pending contour through Edit also finishes that Path; the next Pen
+click starts a distinct Path, even if Undo later reopens the finished contour.
 Reselecting Pen with P/G or the Rail keeps the current unfinished Path. Opening
 a native document keeps Pen active but expires the previous Session's pending
 target, so the next click starts a new Path even when saved IDs are unchanged.

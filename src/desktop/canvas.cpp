@@ -393,10 +393,20 @@ void Canvas::refresh() {
         std::erase_if(retained,[&](const auto& s){const auto* g=geometry(s.object);
             return !world_.contains(s.object)||(!s.point.empty()&&(!g||!point(*g,s.point)));});
         if(retained!=selections_)select_many(std::move(retained));
-        if (!drawing_object_.empty() && !world_.contains(drawing_object_)) {
-            drawing_object_.clear();
-            drawing_contour_.clear();
-            drawing_document_.clear();drawing_session_.clear();
+        if (!drawing_object_.empty()) {
+            const auto source=document.objects.find(drawing_object_);
+            bool pending=world_.contains(drawing_object_)&&source!=document.objects.end();
+            if(pending) {
+                const auto contour=std::find_if(source->second.contours.begin(),source->second.contours.end(),
+                    [&](const auto& item){return item.id==drawing_contour_;});
+                pending=contour!=source->second.contours.end()&&!contour->closed;
+            }
+            // A menu/API close finishes the same authored contour as a Pen
+            // first-anchor click. Keep the tool, but never append to that target.
+            if(!pending) {
+                drawing_object_.clear();drawing_contour_.clear();
+                drawing_document_.clear();drawing_session_.clear();
+            }
         }
         gradient_control_.reset();
         if (!gradient_operation_.empty()) {

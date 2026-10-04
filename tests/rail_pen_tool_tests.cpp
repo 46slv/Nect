@@ -3,6 +3,8 @@
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QListWidget>
+#include <QMenu>
+#include <QMenuBar>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -121,6 +123,56 @@ void pen_session_expiry(Window& w,const Document& initial,QTemporaryDir& scratch
     Window cold(scratch.filePath("cold-pending"),std::make_unique<FolderLibrary>(cold_preferences),&cold_preferences);show(cold);cold.host.open(file);events();
     check(cold.host.session.document()==final&&!cold.canvas->draw_mode(),"New Window native reopen preserves both Paths and defaults to Selection");
 }
+void pen_menu_completion(Window& w,const Document& initial,QTemporaryDir& scratch){
+    Session oracle(initial);activate(w);
+    const auto pending=point(w,oracle,screen(w,90,120));point(w,oracle,screen(w,190,140),pending);
+    point(w,oracle,screen(w,160,230),pending);
+    const auto before_close=w.host.session.document();const auto contour=before_close.objects.at(pending).contours.front().id;
+    QMenu* edit=nullptr;QAction* toggle=nullptr;
+    for(auto* action:w.menuBar()->actions())if(action->text()=="&Edit")edit=action->menu();
+    check(edit,"Actual Edit menu exists");
+    for(auto* action:edit->actions())if(action->text()=="Close / open contour")toggle=action;
+    check(toggle&&toggle->isEnabled(),"Actual close/open command is enabled for the pending Pen contour");
+    QApplication::setActiveWindow(&w);w.canvas->setFocus();events();
+    QTest::mouseClick(w.menuBar(),Qt::LeftButton,Qt::NoModifier,w.menuBar()->actionGeometry(edit->menuAction()).center());events();
+    check(edit->isVisible(),"Pointer opens the real Edit menu");
+    QTest::mouseClick(edit,Qt::LeftButton,Qt::NoModifier,edit->actionGeometry(toggle).center());events();
+    oracle.apply({CloseContour{pending,contour,true}},oracle.revision());
+    check(snapshot(w.host.session)==snapshot(oracle),"Menu closure is one exact canonical CloseContour with complete source/revision/history");
+    check(w.canvas->draw_mode()&&w.findChild<QToolButton*>("tool-pen")->isChecked(),"Menu closure retains the active Pen tool");
+    const auto closed=w.host.session.document();
+    std::cout<<"Menu closed="<<closed.objects.at(pending).contours.front().closed<<" next placement must create a distinct Path\n";
+    const auto next=point(w,oracle,screen(w,330,240));
+    check(next!=pending&&w.host.session.document().objects.at(pending)==closed.objects.at(pending),
+        "Next pointer placement preserves the finished closed Path and creates a distinct Path");
+    const auto with_next=w.host.session.document();
+    w.host.session.undo(w.host.session.revision());w.host.edited();events();
+    check(w.host.session.document()==closed,"One Undo removes only the subsequent Path");
+    w.host.session.redo(w.host.session.revision());w.host.edited();events();
+    check(w.host.session.document()==with_next,"One Redo restores both complete authored Paths");
+    w.host.session.undo(w.host.session.revision());w.host.edited();events();
+    w.host.session.undo(w.host.session.revision());w.host.edited();events();
+    check(w.host.session.document()==before_close&&w.canvas->draw_mode(),"Undoing closure restores source without resurrecting the expired pending draw target");
+    auto branch_oracle=w.host.session;const auto target=screen(w,390,280);const auto local=authored(w,target,{});
+    QTest::mouseClick(w.canvas,Qt::LeftButton,Qt::NoModifier,target);events();
+    const auto after_undo=w.canvas->selected_object;const auto& new_source=w.host.session.document().objects.at(after_undo);
+    check(!branch_oracle.document().objects.contains(after_undo),"Rebranch placement creates a distinct stable Object ID");
+    const auto& new_contour=new_source.contours.front();Point expected;expected.id=w.canvas->selected_point;
+    const auto& inserted=new_contour.points.front();
+    check(std::abs(inserted.x.literal-local.x())<1e-9&&std::abs(inserted.y.literal-local.y())<1e-9,
+        "Independent world/local coordinates also hold after Undo rebranch");
+    expected.x.literal=inserted.x.literal;expected.y.literal=inserted.y.literal;
+    branch_oracle.apply({CreatePath{"composition",{},after_undo,"Path",{{new_contour.id,false,{expected}}}}},branch_oracle.revision());
+    check(snapshot(w.host.session)==snapshot(branch_oracle)&&!w.host.session.can_redo(),
+        "New placement after Undo matches full canonical source/revision/history and prunes only the old redo branch");
+    check(after_undo!=pending&&w.host.session.document().objects.at(pending)==before_close.objects.at(pending),
+        "Placement after closure Undo starts another distinct Path without retargeting restored source");
+    const auto final=w.host.session.document();const auto file=scratch.filePath("pen-menu-completion.nect.json");w.host.save(file);w.host.open(file);events();
+    check(w.host.session.document()==final&&w.canvas->draw_mode(),"Same Window native reopen preserves full source and Pen");
+    QSettings cold_preferences(scratch.filePath("menu-cold.ini"),QSettings::IniFormat);
+    Window cold(scratch.filePath("menu-cold"),std::make_unique<FolderLibrary>(cold_preferences),&cold_preferences);show(cold);cold.host.open(file);events();
+    check(cold.host.session.document()==final&&!cold.canvas->draw_mode(),"New Window native reopen preserves complete editable source with default Selection");
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
@@ -133,6 +185,9 @@ int main(int argc,char** argv){
         initial.compositions.front().artboards.front().width=640;initial.compositions.front().artboards.front().height=480;
         w.host.session=Session(initial);w.host.edited();events();w.canvas->fit_artboard();w.canvas->set_snap_enabled(false);events();
         auto& s=w.host.session;
+        if(app.arguments().contains("--menu-completion-only")){
+            pen_menu_completion(w,initial,scratch);std::cout<<"pen_menu_completion: "<<checks<<" checks passed\n";return 0;
+        }
         if(app.arguments().contains("--shortcut-reactivation-only")||app.arguments().contains("--session-expiry-only")){
             if(app.arguments().contains("--session-expiry-only"))pen_session_expiry(w,initial,scratch);
             else pen_shortcut_reactivation(w,initial);

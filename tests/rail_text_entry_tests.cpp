@@ -3,8 +3,14 @@
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QComboBox>
+#include <QAbstractItemView>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDockWidget>
 #include <QMenu>
+#include <QInputMethodEvent>
+#include <QPlainTextEdit>
+#include <QPushButton>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -44,10 +50,86 @@ void variant(Window& window,bool vertical){
     unchanged(window.host.session,before,"Picking a creation variant never changes selected Text or history");
     check(button->accessibleName().startsWith(vertical?"Vertical Text":"Horizontal Text"),"Group slot reflects remembered variant");
 }
+void editing_flow(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Text flow owns preferences, recovery and native file");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1100,750);window.show();events();
+    auto& session=window.host.session;
+    const auto empty=snapshot(session);click(window,"tool-text");
+    unchanged(session,empty,"Text activation is full source/revision/history neutral");
+    QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,window.canvas->rect().center());events();
+    const auto id=window.canvas->selected_object;const auto created=session.document();
+    check(created.objects.contains(id)&&created.objects.at(id).text&&created.objects.at(id).text->direction=="horizontal",
+        "Real Canvas pointer creates editable Horizontal Text");
+    check(session.revision()==std::get<2>(empty)+1&&session.history().states.size()==std::get<3>(empty).states.size()+1,
+        "Text placement is one authored transaction");
+    const auto before_variant=snapshot(session);variant(window,true);
+    unchanged(session,before_variant,"Vertical creation choice never converts existing Horizontal Text");
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    auto* direction=window.findChild<QComboBox*>("text-direction");
+    check(scroll&&direction&&direction->isEnabled(),"Existing Text Writing control is directly enabled");
+    scroll->ensureWidgetVisible(direction);events();
+    QTest::mouseClick(direction,Qt::LeftButton);events();
+    auto* view=direction->view();const auto vertical=view->model()->index(1,0);
+    check(view->isVisible()&&!view->visualRect(vertical).isEmpty(),"Real Writing pointer opens the direction choices");
+    // Qt guards the popup's opening mouse release. A user moves to the row;
+    // QTest::mouseClick alone teleports there and leaves that guard active.
+    QTest::mouseMove(view->viewport(),view->visualRect(vertical).center());
+    QTest::qWait(QApplication::doubleClickInterval()+10);
+    QTest::mouseClick(view->viewport(),Qt::LeftButton,Qt::NoModifier,view->visualRect(vertical).center());events();
+    auto expected_vertical=created;expected_vertical.objects.at(id).text->direction="vertical";
+    std::cout<<"Writing pointer result: direction="<<session.document().objects.at(id).text->direction
+        <<" revision="<<session.revision()<<" expected_revision="<<std::get<2>(before_variant)+1
+        <<" history="<<session.history().states.size()<<" expected_history="<<std::get<3>(before_variant).states.size()+1
+        <<" selected="<<window.canvas->selected_object<<"\n";
+    check(session.document()==expected_vertical&&session.revision()==std::get<2>(before_variant)+1&&
+        session.history().states.size()==std::get<3>(before_variant).states.size()+1,
+        "Pointer Writing change preserves complete authored source except direction in one transaction");
+    const auto before_edit=snapshot(session);const QString content=QString::fromUtf8("日本語（ABC123）\n縦書き、句読点。");
+    auto* edit=window.findChild<QPushButton*>("edit-text-content");
+    check(edit&&edit->isEnabled(),"Inspector exposes the real Edit text entry");
+    scroll->ensureWidgetVisible(edit);events();bool opened=false,draft_neutral=false,applied=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");
+        if(!dialog)return;opened=dialog->isVisible();
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!editor||!buttons){dialog->reject();return;}
+        editor->setFocus();QTest::keyClick(editor,Qt::Key_A,Qt::ControlModifier);
+        QInputMethodEvent input;input.setCommitString(content);QApplication::sendEvent(editor,&input);
+        draft_neutral=snapshot(session)==before_edit&&editor->toPlainText()==content;
+        QTest::mouseClick(buttons->button(QDialogButtonBox::Apply),Qt::LeftButton);applied=!dialog->isVisible();
+        if(dialog->isVisible())dialog->reject();
+    });
+    QTest::mouseClick(edit,Qt::LeftButton);events();
+    check(opened&&draft_neutral&&applied,"Actual Edit text opens, Japanese IME draft stays neutral, pointer Apply commits");
+    auto expected_edited=expected_vertical;expected_edited.objects.at(id).text->content=content.toStdString();
+    check(session.document()==expected_edited&&session.revision()==std::get<2>(before_edit)+1&&
+        session.history().states.size()==std::get<3>(before_edit).states.size()+1,
+        "Content edit changes only exact Unicode source in one Undo transaction");
+    QApplication::setActiveWindow(&window);window.canvas->setFocus();events();
+    check(window.isActiveWindow()&&window.canvas->hasFocus(),"Undo flow has actual active Window and Canvas focus");
+    QTest::keySequence(window.canvas,QKeySequence::Undo);events();
+    check(session.document()==expected_vertical,"Actual Undo shortcut restores complete pre-content-edit source");
+    QTest::keySequence(window.canvas,QKeySequence::Redo);events();
+    check(session.document()==expected_edited,"Actual Redo shortcut restores exact editable Japanese vertical Text");
+    const auto file=scratch.filePath("text-editing-flow.nect.json");window.host.save(file);
+    window.host.open(file);events();check(session.document()==expected_edited,"Same Window native reopen preserves complete edited source");
+    window.canvas->set_selection(id);events();
+    direction=window.findChild<QComboBox*>("text-direction");edit=window.findChild<QPushButton*>("edit-text-content");
+    check(direction&&direction->isEnabled()&&direction->currentIndex()==1&&edit&&edit->isEnabled(),
+        "Reopened Japanese Text retains directly usable Writing and content controls");
+    Window reopened(scratch.filePath("new-window-recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    reopened.setAttribute(Qt::WA_DontShowOnScreen);reopened.resize(1100,750);reopened.show();reopened.host.open(file);events();
+    check(reopened.host.session.document()==expected_edited,"New Window native reopen preserves exact editable source");
+    std::cout<<"Text flow: actual Canvas create -> neutral Tool variant -> pointer Writing -> Japanese IME/Edit Apply -> shortcut Undo/Redo -> owned native save/same/new Window reopen; DPR="<<window.devicePixelRatio()<<"\n";
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--editing-flow")){editing_flow();std::cout<<"text_editing_flow: "<<checks<<" checks passed\n";return 0;}
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
         QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
         Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);
