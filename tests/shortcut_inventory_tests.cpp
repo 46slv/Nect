@@ -85,8 +85,13 @@ void label_escaping() {
         check(shortcut_inventory({&action}).front().action==label.second,
             "Mnemonic ampersands are removed while escaped pairs and Unicode remain readable");
     }
-    action.setText("");action.setIconText("&Icon && label");
+    // Empty text makes QAction::text() return iconText with escaped ampersands.
+    // A blank explicit text exercises the inventory's readable-icon fallback.
+    action.setText(" ");action.setIconText("&Icon && label");
     check(shortcut_inventory({&action}).front().action=="Icon & label","An icon-only action uses readable icon text");
+    QAction literal_icon(nullptr);literal_icon.setShortcut(QKeySequence("K"));literal_icon.setIconText("Icon & label");
+    check(shortcut_inventory({&literal_icon}).front().action=="Icon & label",
+        "Qt's icon-only text fallback preserves a literal ampersand after one mnemonic pass");
     action.setIconText("");action.setObjectName("object&name");
     check(shortcut_inventory({&action}).front().action=="object&name","An unnamed text action falls back to its literal object name");
     action.setObjectName("");
