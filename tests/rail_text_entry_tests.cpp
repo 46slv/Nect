@@ -3,11 +3,13 @@
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QComboBox>
+#include <QCursor>
 #include <QAbstractItemView>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDockWidget>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QPlainTextEdit>
@@ -123,6 +125,73 @@ void key_isolation(){
     select_text();neutral(Qt::Key_Right,Qt::NoModifier);
     std::cout<<"text_key_isolation: "<<checks<<" checks passed; DPR="<<window.devicePixelRatioF()<<'\n';
 }
+void cursor_continuity(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Text cursor probe owns preferences, recovery and native file");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1100,750);window.show();events();
+    auto document=empty_document("text-cursor-document","composition","board");
+    document.compositions.front().artboards.front().width=640;
+    document.compositions.front().artboards.front().height=480;
+    Session fixture(document);
+    fixture.apply({CreatePrimitive{"composition",{},"rectangle","Retained Rectangle",default_primitive("rectangle-source","nect.shape.rectangle")},
+        AddOperation{"rectangle",default_operation("rectangle-fill","nect.paint.fill"),0},
+        Set{{"rectangle",{},"transform.tx"},320},Set{{"rectangle",{},"transform.ty"},300}},fixture.revision());
+    auto& session=window.host.session;session=Session(fixture.document());window.host.edited();events();
+    window.canvas->fit_artboard();window.canvas->set_snap_enabled(false);events();
+    const auto& source=*session.document().objects.at("rectangle").source;
+    const QPoint corner(qRound(window.canvas->width()/2.0-source.parameters.at("width").literal/2*window.canvas->zoom()),
+        qRound(window.canvas->height()/2.0+(60-source.parameters.at("height").literal/2)*window.canvas->zoom()));
+    click(window,"tool-direct-selection");QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,corner);events();
+    check(window.canvas->selected_object=="rectangle"&&window.canvas->selected_point=="rectangle-source-top-left",
+        "Actual Direct pointer selects the retained stable point before Text hover");
+    const auto move=[&](QPoint position){
+        QMouseEvent event(QEvent::MouseMove,QPointF(position),QPointF(window.canvas->mapToGlobal(position)),
+            Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(window.canvas,&event);events();
+        check(event.isAccepted(),"Canvas accepts the dispatched mouse-move event");
+    };
+    const auto hover=[&](QPoint position){
+        const auto before=snapshot(session);const auto selection=window.canvas->selections();
+        const auto image=window.canvas->grab().toImage();const auto zoom=window.canvas->zoom();
+        auto* button=window.findChild<QToolButton*>("tool-text");const auto variant_name=button->accessibleName();
+        move(position);
+        std::cout<<"Text hover: cursor="<<window.canvas->cursor().shape()<<" text_active="<<window.canvas->text_mode()<<'\n';
+        check(window.canvas->cursor().shape()==Qt::IBeamCursor,"Active Text keeps its placement cursor over empty space and retained artwork");
+        unchanged(session,before,"Text hover preserves complete Document/native/revision/history");
+        check(window.canvas->text_mode()&&button->isChecked()&&button->accessibleName()==variant_name&&
+            window.canvas->selections()==selection&&!session.gesture_active(),
+            "Text hover retains active placement Tool and exact stable selection without an authored gesture");
+        check(window.canvas->zoom()==zoom&&window.canvas->grab().toImage()==image,"Text hover preserves rendered artwork and viewport");
+    };
+    for(bool vertical:{false,true}){
+        variant(window,vertical);
+        check(window.canvas->cursor().shape()==Qt::IBeamCursor,"Rail Text activation sets the placement cursor");
+        hover(QPoint(25,25));hover(corner);hover(window.canvas->rect().center());
+        QApplication::setActiveWindow(&window);window.canvas->setFocus();events();
+        const auto before=snapshot(session);
+        QTest::keyPress(window.canvas,Qt::Key_Space);events();
+        check(window.canvas->cursor().shape()==Qt::OpenHandCursor,"Temporary Space pan overrides the Text cursor");
+        QTest::keyRelease(window.canvas,Qt::Key_Space);events();hover(QPoint(30,30));
+        unchanged(session,before,"Temporary Hand and release preserve source and history");
+        const auto point=window.canvas->rect().center()+QPoint(50,40);
+        const auto source_before=session.document();const auto revision=session.revision();const auto history=session.history().states.size();
+        QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,point);events();
+        const auto id=window.canvas->selected_object;
+        check(session.document().objects.at(id).text&&session.document().objects.at(id).text->direction==(vertical?"vertical":"horizontal"),
+            "After hover the real Text placement still creates the selected writing variant");
+        check(session.revision()==revision+1&&session.history().states.size()==history+1,"Placement after hover remains one authored transaction");
+        const auto placed=session.document();session.undo(session.revision());window.host.edited();events();
+        check(session.document()==source_before,"One Undo restores all retained source before placement");
+        session.redo(session.revision());window.host.edited();events();check(session.document()==placed,"One Redo restores complete placed Text source");
+        const auto file=scratch.filePath("text-cursor.nect.json");window.host.save(file);window.host.open(file);events();
+        check(session.document()==placed&&window.canvas->text_mode(),"Same Window native reopen preserves editable Text and placement mode");
+        hover(QPoint(35,35));
+    }
+    click(window,"tool-selection");move(QPoint(40,40));
+    check(!window.canvas->text_mode()&&window.canvas->cursor().shape()==Qt::ArrowCursor,"Explicit Selection restores the ordinary hover cursor");
+    std::cout<<"text_cursor_continuity: "<<checks<<" checks passed; DPR="<<window.devicePixelRatioF()<<'\n';
+}
 void editing_flow(){
     QTemporaryDir scratch;check(scratch.isValid(),"Text flow owns preferences, recovery and native file");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -202,6 +271,7 @@ void editing_flow(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--cursor-continuity")){cursor_continuity();return 0;}
         if(app.arguments().contains("--key-isolation")){key_isolation();return 0;}
         if(app.arguments().contains("--editing-flow")){editing_flow();std::cout<<"text_editing_flow: "<<checks<<" checks passed\n";return 0;}
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");

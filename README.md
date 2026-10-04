@@ -253,6 +253,9 @@ does not change selected Text, native files or Undo history. Missing/invalid
 preferences default to Horizontal; a failed save keeps the choice for the current
 Window and reports that it could not be saved. Change existing Text directly in
 the Inspector's Writing control.
+Text placement keeps its I-beam cursor while hovering over empty Canvas or
+selected artwork. Space temporarily shows the Hand cursor; releasing Space
+restores the Text cursor and retains the chosen writing variant.
 
 Guide Edit drags visible Guides. Dragging artwork while Guide Edit is active
 selects the whole Object without moving it or editing its points. Hidden Guides

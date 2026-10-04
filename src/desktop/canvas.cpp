@@ -2518,7 +2518,7 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
 
 void Canvas::mouseMoveEvent(QMouseEvent* event) {
     if (drag_ != Drag::none) update_drag(event->position());
-    else if (hand_mode_||zoom_mode_||direct_selection_mode_) {
+    else if (hand_mode_||zoom_mode_||direct_selection_mode_||text_mode_) {
         zoom_out_cursor_=event->modifiers().testFlag(Qt::AltModifier);update_cursor();
     }
     else if (!space_down_ && !draw_mode_) {
