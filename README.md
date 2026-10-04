@@ -256,6 +256,9 @@ the Inspector's Writing control.
 Text placement keeps its I-beam cursor while hovering over empty Canvas or
 selected artwork. Space temporarily shows the Hand cursor; releasing Space
 restores the Text cursor and retains the chosen writing variant.
+A pan belongs to the button that started it. Pressing or releasing another
+button while panning keeps the view gesture active and does not place Text;
+ordinary Text placement resumes when the pan ends.
 
 Guide Edit drags visible Guides. Dragging artwork while Guide Edit is active
 selects the whole Object without moving it or editing its points. Hidden Guides

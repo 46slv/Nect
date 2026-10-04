@@ -255,6 +255,7 @@ private:
     QPointF pan_{40, 40};
     bool space_down_ = false;
     Drag drag_ = Drag::none;
+    Qt::MouseButton pan_button_ = Qt::NoButton;
     QPointF press_position_;
     QPointF marquee_position_;
     std::vector<Selection> marquee_start_;

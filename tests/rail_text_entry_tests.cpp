@@ -267,10 +267,80 @@ void editing_flow(){
     check(reopened.host.session.document()==expected_edited,"New Window native reopen preserves exact editable source");
     std::cout<<"Text flow: actual Canvas create -> neutral Tool variant -> pointer Writing -> Japanese IME/Edit Apply -> shortcut Undo/Redo -> owned native save/same/new Window reopen; DPR="<<window.devicePixelRatio()<<"\n";
 }
+void pan_button_isolation(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Pan chord regression owns preferences, recovery and native file");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1100,750);window.show();events();
+    auto document=empty_document("text-pan-document","composition","board");
+    document.compositions.front().artboards.front().width=640;document.compositions.front().artboards.front().height=480;
+    Session fixture(document);auto fill=default_operation("rectangle-fill","nect.paint.fill");
+    fill.parameters.at("r").literal=1;fill.parameters.at("g").literal=0;fill.parameters.at("b").literal=0;
+    fixture.apply({CreatePrimitive{"composition",{},"rectangle","Pan marker",default_primitive("rectangle-source","nect.shape.rectangle")},
+        AddOperation{"rectangle",fill,0},Set{{"rectangle",{},"transform.tx"},320},Set{{"rectangle",{},"transform.ty"},240}},fixture.revision());
+    auto& session=window.host.session;session=Session(fixture.document());window.host.edited();events();
+    const auto marker=[&]{
+        const auto image=window.canvas->grab().toImage();double sx=0,sy=0;int count=0;
+        for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x){const auto color=image.pixelColor(x,y);
+            if(color.red()>180&&color.green()<80&&color.blue()<80){sx+=x;sy+=y;++count;}}
+        check(count>100,"Rendered source has an observable red marker");return QPointF(sx/count,sy/count)/image.devicePixelRatio();
+    };
+    const auto pointer=[&](QEvent::Type type,QPoint position,Qt::MouseButton button,Qt::MouseButtons held){
+        QMouseEvent event(type,QPointF(position),QPointF(window.canvas->mapToGlobal(position)),button,held,Qt::NoModifier);
+        QApplication::sendEvent(window.canvas,&event);events();check(event.isAccepted(),"Canvas accepts the exact multi-button input event");
+    };
+    for(bool vertical:{false,true}){
+        window.canvas->fit_artboard();window.canvas->set_selection("rectangle");events();variant(window,vertical);
+        const auto before=snapshot(session);const auto selection=window.canvas->selections();const auto zoom=window.canvas->zoom();
+        auto* text=window.findChild<QToolButton*>("tool-text");const auto name=text->accessibleName();
+        const auto origin=marker();const auto start=window.canvas->rect().center();
+        pointer(QEvent::MouseButtonPress,start,Qt::MiddleButton,Qt::MiddleButton);
+        pointer(QEvent::MouseMove,start+QPoint(20,12),Qt::NoButton,Qt::MiddleButton);
+        check(window.canvas->cursor().shape()==Qt::ClosedHandCursor,"Middle press and movement own an active view pan");
+        pointer(QEvent::MouseButtonPress,start+QPoint(20,12),Qt::LeftButton,Qt::MiddleButton|Qt::LeftButton);
+        std::cout<<"Text pan chord: authored_equal="<<(snapshot(session)==before)<<" text_active="<<window.canvas->text_mode()<<'\n';
+        unchanged(session,before,"Left press during middle pan cannot create Text or change authored history");
+        pointer(QEvent::MouseButtonDblClick,start+QPoint(20,12),Qt::LeftButton,Qt::MiddleButton|Qt::LeftButton);
+        pointer(QEvent::MouseButtonRelease,start+QPoint(20,12),Qt::LeftButton,Qt::MiddleButton);
+        check(window.canvas->cursor().shape()==Qt::ClosedHandCursor,"Releasing the unrelated left button does not finish the middle pan");
+        pointer(QEvent::MouseMove,start+QPoint(36,24),Qt::NoButton,Qt::MiddleButton);
+        const auto delta=marker()-origin;
+        check(std::abs(delta.x()-36)<0.6&&std::abs(delta.y()-24)<0.6,"The original middle gesture continues with the complete viewport displacement");
+        pointer(QEvent::MouseButtonRelease,start+QPoint(36,24),Qt::MiddleButton,Qt::NoButton);
+        unchanged(session,before,"Pan chord and release preserve complete Document/native/revision/history");
+        check(!session.gesture_active()&&window.canvas->zoom()==zoom&&window.canvas->selections()==selection&&
+            window.canvas->text_mode()&&text->isChecked()&&text->accessibleName()==name&&window.canvas->cursor().shape()==Qt::IBeamCursor,
+            "Ending the owning middle button restores Text variant and exact selection without an authored gesture");
+        // The same button ownership must hold for left-button temporary Hand.
+        QApplication::setActiveWindow(&window);window.canvas->setFocus();events();QTest::keyPress(window.canvas,Qt::Key_Space);events();
+        const auto temporary_origin=marker();
+        pointer(QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+        pointer(QEvent::MouseMove,start+QPoint(10,8),Qt::NoButton,Qt::LeftButton);
+        pointer(QEvent::MouseButtonPress,start+QPoint(10,8),Qt::MiddleButton,Qt::LeftButton|Qt::MiddleButton);
+        pointer(QEvent::MouseButtonRelease,start+QPoint(10,8),Qt::MiddleButton,Qt::LeftButton);
+        check(window.canvas->cursor().shape()==Qt::ClosedHandCursor,"Middle-button chord and release preserve the original temporary left pan");
+        pointer(QEvent::MouseMove,start+QPoint(24,16),Qt::NoButton,Qt::LeftButton);
+        const auto temporary_delta=marker()-temporary_origin;
+        check(std::abs(temporary_delta.x()-24)<0.6&&std::abs(temporary_delta.y()-16)<0.6,"Temporary Hand keeps its original press coordinates across a button chord");
+        pointer(QEvent::MouseButtonRelease,start+QPoint(24,16),Qt::LeftButton,Qt::NoButton);
+        QTest::keyRelease(window.canvas,Qt::Key_Space);events();unchanged(session,before,"Temporary Hand chord remains authored-state neutral");
+        check(window.canvas->cursor().shape()==Qt::IBeamCursor&&window.canvas->text_mode(),"Temporary Hand release restores persistent Text");
+        QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,start+QPoint(50,40));events();
+        const auto placed=session.document();const auto id=window.canvas->selected_object;
+        check(placed.objects.at(id).text->direction==(vertical?"vertical":"horizontal")&&session.revision()==std::get<2>(before)+1,
+            "After pan finishes an ordinary click still places the chosen Text variant in one revision");
+        session.undo(session.revision());window.host.edited();events();check(session.document()==std::get<0>(before),"One Undo restores the complete pre-placement source");
+        session.redo(session.revision());window.host.edited();events();check(session.document()==placed,"One Redo restores the complete placed Text");
+        const auto file=scratch.filePath("pan-chord.nect.json");window.host.save(file);window.host.open(file);events();
+        check(session.document()==placed&&window.canvas->text_mode(),"Native reopen retains editable source and persistent Text Tool after pan chord");
+    }
+    std::cout<<"text_pan_button_isolation: "<<checks<<" checks passed; DPR="<<window.devicePixelRatioF()<<'\n';
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--pan-button-isolation")){pan_button_isolation();return 0;}
         if(app.arguments().contains("--cursor-continuity")){cursor_continuity();return 0;}
         if(app.arguments().contains("--key-isolation")){key_isolation();return 0;}
         if(app.arguments().contains("--editing-flow")){editing_flow();std::cout<<"text_editing_flow: "<<checks<<" checks passed\n";return 0;}

@@ -2348,6 +2348,7 @@ void Canvas::finish_drag() {
     }
     drag_ = Drag::none;
     snap_prepared_=false;snap_point_mode_=false;snap_point_world_.reset();snap_bounds_.reset();
+    pan_button_ = Qt::NoButton;
     snap_x_sources_.clear();snap_y_sources_.clear();snap_x_targets_.clear();snap_y_targets_.clear();
     snap_x_match_.reset();snap_y_match_.reset();publish_snap_feedback({});
     circle_drag_session_.clear();circle_drag_document_.clear();circle_drag_object_.clear();
@@ -2367,6 +2368,7 @@ void Canvas::cancel_interaction() {
     gesture_owned_ = false;
     drag_ = Drag::none;
     drag_moved_ = false;
+    pan_button_ = Qt::NoButton;
     guide_drag_invalid_=false;guide_drag_document_.clear();guide_drag_composition_.clear();guide_drag_session_.clear();
     circle_drag_session_.clear();circle_drag_document_.clear();circle_drag_object_.clear();
     circle_drag_source_.clear();circle_drag_composition_.clear();circle_drag_revision_=0;
@@ -2430,9 +2432,11 @@ void Canvas::append_draw_point(QPointF screen) {
 
 void Canvas::mousePressEvent(QMouseEvent* event) {
     setFocus(Qt::MouseFocusReason);
+    if(drag_==Drag::pan) {event->accept();return;}
     if (event->button() == Qt::MiddleButton ||
         (event->button() == Qt::LeftButton && (space_down_ || hand_mode_))) {
         if(armed_guide_||scoped_guide_drag_)cancel_interaction();
+        pan_button_=event->button();
         begin_drag(Drag::pan, event->position());
         event->accept();
         return;
@@ -2529,6 +2533,7 @@ void Canvas::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void Canvas::mouseReleaseEvent(QMouseEvent* event) {
+    if(drag_==Drag::pan&&event->button()!=pan_button_) {event->accept();return;}
     if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
         if(drag_==Drag::marquee||scoped_guide_drag_)update_drag(event->position());
         finish_drag();
@@ -2537,6 +2542,7 @@ void Canvas::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void Canvas::mouseDoubleClickEvent(QMouseEvent* event) {
+    if(drag_==Drag::pan) {event->accept();return;}
     if(zoom_mode_&&!space_down_&&event->button()==Qt::LeftButton) {
         zoom_at(zoom_*(event->modifiers().testFlag(Qt::AltModifier)?1.0/1.25:1.25),event->position());
         event->accept();return;
