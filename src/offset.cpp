@@ -151,7 +151,16 @@ std::shared_ptr<const Contours> offset_contours(const Contours& source,const Aff
     // all other output validity checks remain mandatory.
     bg::validity_failure_type failure;
     if(!output.empty()&&!bg::is_valid(output,failure)) {
-        if(failure==bg::failure_spikes)bg::remove_spikes(output);
+        if(failure==bg::failure_spikes) {
+            bg::remove_spikes(output);
+            // Boost 1.85 validity checks each spike with the opposite traversal
+            // from remove_spikes. Near-coincident buffer vertices can make its
+            // floating-point direction predicate asymmetric. Use the same
+            // spike policy in both directions, then restore the ring winding.
+            bg::reverse(output);
+            bg::remove_spikes(output);
+            bg::reverse(output);
+        }
         std::string invalid_reason;
         if(!bg::is_valid(output,invalid_reason))throw Error("OFFSET_GEOMETRY","Offset could not produce a valid region: "+invalid_reason);
     }
