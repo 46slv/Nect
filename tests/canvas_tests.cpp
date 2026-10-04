@@ -2337,17 +2337,39 @@ void grid_row_gutter_overlay_tracks_evaluated_source() {
     Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
     canvas.fit_artboard();QApplication::processEvents();
     const auto count_horizontal=[&](const QImage& image,double world_y) {
-        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
-        const int pixel_y=qRound((canvas.height()/2.0+(world_y-80)*canvas.zoom())*scale);int pixels=0;
+        const auto scale=static_cast<double>(image.width())/canvas.width();
+        const int pixel_y=static_cast<int>(std::floor((canvas.height()/2.0+(world_y-80)*canvas.zoom())*scale));int pixels=0;
         const int left=qRound((canvas.width()/2.0+(20-100)*canvas.zoom())*scale);
         const int right=qRound((canvas.width()/2.0+(180-100)*canvas.zoom())*scale);
-        for(int x=left;x<=right;++x)for(int y=pixel_y-qMax(2,qRound(2*scale));y<=pixel_y+qMax(2,qRound(2*scale));++y) {
-            const auto pixel=image.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+        // Observed half-covered cosmetic Grid rows are RGB202/223/209 and
+        // 202/222/208 on the250 background. The old predicate rejected both
+        // and counted only vertical crossings. Sample the coordinate's pixel
+        // cell, accepting that coverage and excluding persistent crossings.
+        const auto is_grid=[](const QColor& pixel){return pixel.green()>pixel.red()+15&&pixel.green()>pixel.blue()+10;};
+        const int crossing_offset=qRound(6*scale);
+        for(int x=left;x<=right;++x) {
+            if(is_grid(image.pixelColor(x,pixel_y-crossing_offset))&&
+                is_grid(image.pixelColor(x,pixel_y+crossing_offset)))continue;
+            if(is_grid(image.pixelColor(x,pixel_y)))++pixels;
         }
         return pixels;
     };
     const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    const auto probe_path=qEnvironmentVariable("NECT_GRID_ROW_PROBE");
+    if(!probe_path.isEmpty()) {
+        linked.save(probe_path);
+        const auto scale=static_cast<double>(linked.width())/canvas.width();
+        std::cout<<"row probe: canvas="<<canvas.width()<<'x'<<canvas.height()<<" image="<<linked.width()<<'x'<<linked.height()
+            <<" zoom="<<canvas.zoom()<<" scale="<<scale<<'\n';
+        for(const double world_y:{60.0,65.0,75.0,80.0}) {
+            const int x=qRound((canvas.width()/2.0+(60-100)*canvas.zoom())*scale);
+            const int y=qRound((canvas.height()/2.0+(world_y-80)*canvas.zoom())*scale);
+            std::cout<<"world_y="<<world_y<<" count="<<count_horizontal(linked,world_y)<<" rgb=";
+            for(int offset=-2;offset<=2;++offset){const auto color=linked.pixelColor(x,y+offset);
+                std::cout<<offset<<':'<<color.red()<<','<<color.green()<<','<<color.blue()<<' ';}
+            std::cout<<'\n';
+        }
+    }
     check(count_horizontal(linked,60)>20&&count_horizontal(linked,80)>20&&
         count_horizontal(linked,65)<=20&&count_horizontal(linked,75)<=20&&
         std::get<double>(artboard_layout_property(session.document(),target).literal)==10&&
@@ -2366,6 +2388,21 @@ void grid_row_gutter_overlay_tracks_evaluated_source() {
         ("Canvas row overlay moves both gutter edges when its upstream Artboard height changes: edges="+
             std::to_string(count_horizontal(updated,55))+","+std::to_string(count_horizontal(updated,85))+" old="+
             std::to_string(count_horizontal(updated,60))+","+std::to_string(count_horizontal(updated,80))).c_str());
+    auto literal_document=session.document();
+    literal_document.compositions.front().artboards.front().layout->grid->row_gutter_expression.reset();
+    session=Session(literal_document);canvas.refresh();QApplication::processEvents();
+    const auto literal=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_horizontal(literal,65)>20&&count_horizontal(literal,75)>20&&
+        count_horizontal(literal,55)<=20&&count_horizontal(literal,85)<=20&&
+        count_horizontal(literal,60)<=20&&count_horizontal(literal,80)<=20,
+        "Literal-only control draws literal gutter edges and rejects every expression-evaluated position");
+    const auto before_hide=encode(session.document());const auto before_revision=session.revision();const auto before_history=session.history();
+    canvas.set_show_grid(false);QApplication::processEvents();
+    const auto hidden=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_horizontal(hidden,65)==0&&count_horizontal(hidden,75)==0,
+        "Hidden Grid control cannot satisfy either positive row assertion");
+    check(encode(session.document())==before_hide&&session.revision()==before_revision&&session.history()==before_history,
+        "Grid rendering and visibility preserve complete authored/native/revision/history state");
 }
 
 void grid_column_gutter_overlay_tracks_evaluated_source() {
@@ -2574,6 +2611,11 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication application(argc, argv);
     try {
+        if(application.arguments().contains("--grid-row-gutter-only")) {
+            grid_row_gutter_overlay_tracks_evaluated_source();
+            std::cout << "Canvas Grid row gutter contract: " << checks << " checks passed\n";
+            return 0;
+        }
         if(application.arguments().contains("--linked-margin-only")) {
             layout_overlays_are_view_only_and_not_exported();
             std::cout << "Canvas linked Margin contract: " << checks << " checks passed\n";
