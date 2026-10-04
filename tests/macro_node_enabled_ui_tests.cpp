@@ -161,14 +161,26 @@ void chain_lifecycle(Host& host,const QString& directory) {
         list->item(1)->data(Qt::UserRole).toString()=="repeater-target",
         "Chain starts in execution order even with reversed node and edge storage");
     activate(toggle(dialog,"macro-chain-default-enabled","offset-target",true),true);
+    check(named<QLineEdit>(dialog,"macro-chain-default-amount")->text()=="5",
+        "Enabled editing preserves the original numeric default");
+    named<QLineEdit>(dialog,"macro-chain-default-amount")->setText("=12");
     select(dialog,"repeater-target");activate(toggle(dialog,"macro-chain-default-enabled","repeater-target",false));
     click(dialog,"macro-chain-up");toggle(dialog,"macro-chain-default-enabled","repeater-target",true);
     select(dialog,"offset-target");toggle(dialog,"macro-chain-default-enabled","offset-target",false);
-    check(named<QLineEdit>(dialog,"macro-chain-default-amount")->text()=="5",
-        "Enabled editing and reordering preserve the original numeric default");
+    check(named<QLineEdit>(dialog,"macro-chain-default-amount")->text()=="=12",
+        "Raw incomplete numeric text survives Enabled edits, node selection and reordering exactly");
     select(dialog,"repeater-target");toggle(dialog,"macro-chain-default-enabled","repeater-target",true);
     check(before.unchanged(host.session)&&notifications==0,
         "Both boolean edits survive selection/reorder entirely in the local draft");
+    click(dialog,"macro-chain-save");
+    check(dialog.saved_revision()==0&&dialog.isVisible()&&before.unchanged(host.session)&&notifications==0&&
+        named<QLabel>(dialog,"macro-chain-error")->text().contains("INVALID_VALUE"),
+        "Save refuses an incomplete numeric draft without committing Enabled edits or partial history");
+    select(dialog,"offset-target");toggle(dialog,"macro-chain-default-enabled","offset-target",false);
+    check(named<QLineEdit>(dialog,"macro-chain-default-amount")->text()=="=12",
+        "Refused Save retains the raw text and the correct stable-node boolean draft");
+    named<QLineEdit>(dialog,"macro-chain-default-amount")->setText("5");
+    select(dialog,"repeater-target");toggle(dialog,"macro-chain-default-enabled","repeater-target",true);
     auto expected=before.document.macro_definitions.at(definition_id).revisions.at(2);expected.revision=3;
     node(expected,"offset-target").operation.enabled=false;node(expected,"repeater-target").operation.enabled=true;
     expected=ordered(expected,{"repeater-target","offset-target"});
