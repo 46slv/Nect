@@ -510,7 +510,9 @@ explicit pivot is `[x,y]`. Negative/zero factors reflect/collapse an axis.
 
 On the Canvas, **Ctrl+A** selects visible artwork in the current Composition or
 entered Group, treating child Groups as whole objects. In point-edit context it
-selects all anchors of the currently selected objects. Edit → Select all in
+selects all anchors of the currently selected objects. Direct Selection uses this
+point context even when a Path body is selected and no anchor is selected yet;
+with no target it does not select unrelated Objects. Edit → Select all in
 editing context offers the same operation. Text fields keep their normal Ctrl+A.
 
 **Ctrl+2** / View → Fit selection frames selected geometric bounds (stroke width

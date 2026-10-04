@@ -429,7 +429,7 @@ void Canvas::refresh() {
 void Canvas::select_all_in_context() {
     if(drag_!=Drag::none||gesture_owned_||draw_mode_)return;
     std::vector<Selection> selected;
-    if(!selected_point.empty()) {
+    if(direct_selection_mode_||!selected_point.empty()) {
         for(const auto& id:selected_objects())if(const auto* item=geometry(id))
             for(const auto& point:item->points)selected.push_back({id,point.id});
     } else {

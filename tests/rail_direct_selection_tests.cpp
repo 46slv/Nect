@@ -2,8 +2,10 @@
 #include "visual_style.hpp"
 #include "nect/io.hpp"
 #include <QApplication>
+#include <QAction>
 #include <QDockWidget>
 #include <QFocusEvent>
+#include <QLineEdit>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -82,6 +84,68 @@ void exclusive(Window& w){
         active+=w.findChild<QToolButton*>(name)->isChecked();
     check(modes==1&&active==1,"Exactly one Canvas Tool and one Rail slot active");
 }
+void select_all_context(Window& w,const Document& original,QTemporaryDir& scratch){
+    auto& s=w.host.session;
+    reset(w,original);click(w,"tool-direct-selection");
+    // A real path-body click enters Direct Selection without first selecting an
+    // anchor. Ctrl+A must use the active Tool, rather than widen to other Objects.
+    QTest::mouseClick(w.canvas,Qt::LeftButton,Qt::NoModifier,screen(w,240,200));events();
+    check(w.canvas->selected_object=="path"&&w.canvas->selected_point.empty(),"Direct path-body click selects the intended editable source");
+    QApplication::setActiveWindow(&w);w.canvas->setFocus();events();
+    check(w.isActiveWindow()&&w.canvas->hasFocus(),"Real Ctrl+A reaches the focused Canvas");
+    const auto before=snapshot(s);
+    const std::vector<Canvas::Selection> anchors{{"path","stable-first"},{"path","stable-second"}};
+    QTest::keyClick(w.canvas,Qt::Key_A,Qt::ControlModifier);events();
+    for(const auto& item:w.canvas->selections())std::cout<<"Ctrl+A selected "<<item.object<<'/'<<item.point<<'\n';
+    check(w.canvas->selections()==anchors,"Direct Selection Ctrl+A selects only stable anchors of the current Path, not unrelated whole Objects");
+    check(snapshot(s)==before&&!s.gesture_active()&&w.canvas->direct_selection_mode(),"Select-all changes only selection, preserving complete source/native/history and Tool");
+    QTest::keyClick(w.canvas,Qt::Key_Right);events();
+    Session expected(original);expected.apply({Set{{"path","stable-first","x"},121},Set{{"path","stable-second","x"},361}},expected.revision());
+    const auto after=expected.document();
+    check(s.document()==after&&encode(s.document())==encode(after)&&s.revision()==1&&s.history().states.size()==2,
+        "Subsequent Arrow uses one canonical point batch and preserves transforms, handles and unrelated artwork");
+    undo_redo(w,original,after);
+    const auto file=scratch.filePath("direct-select-all.nect.json");w.host.save(file);w.host.open(file);events();
+    check(s.document()==after,"Native reopen retains only the canonical point edit");
+    QSettings reopened_preferences(scratch.filePath("reopened-settings.ini"),QSettings::IniFormat);
+    Window reopened(scratch.filePath("reopened"),std::make_unique<FolderLibrary>(reopened_preferences),&reopened_preferences);
+    show(reopened);reopened.host.open(file);events();
+    check(reopened.host.session.document()==after&&!reopened.canvas->direct_selection_mode(),"New Window reopens editable source with Tool state outside native Document");
+
+    reset(w,original);click(w,"tool-direct-selection");
+    w.canvas->set_selections({{"path",{}},{"other",{}}});events();
+    const auto multi=snapshot(s);auto* select_all=w.findChild<QAction*>("select-all-context");
+    check(select_all!=nullptr,"Existing Edit command is available");select_all->trigger();events();
+    check(w.canvas->selections()==std::vector<Canvas::Selection>{{"path","stable-first"},{"path","stable-second"},{"other","other-first"},{"other","other-second"}}&&snapshot(s)==multi,
+        "Edit select-all uses the same Direct context for multiple selected Paths without selecting unrelated Circle");
+    w.canvas->set_selection({});events();const auto empty=snapshot(s);
+    QTest::keyClick(w.canvas,Qt::Key_A,Qt::ControlModifier);events();
+    check(w.canvas->selections().empty()&&snapshot(s)==empty,"Direct Selection with no target does not expand to unrelated artwork");
+
+    w.canvas->set_selection("circle");events();const auto retained=snapshot(s);
+    std::vector<Canvas::Selection> generated;
+    for(const auto& contour:path_contours(s.document().objects.at("circle"),&w.canvas->evaluated_values()))
+        for(const auto& point:contour.points)generated.push_back({"circle",point.id});
+    QTest::keyClick(w.canvas,Qt::Key_A,Qt::ControlModifier);events();
+    check(!generated.empty()&&w.canvas->selections()==generated&&snapshot(s)==retained&&!s.document().objects.at("circle").point_edit,
+        "Retained generator select-all uses exact generated point IDs without authoring a correction or converting source");
+    auto driven=original;driven.objects.at("path").contours.front().points.back().x.expression=Expression{"360",1};
+    reset(w,driven);w.canvas->set_selection("path");events();const auto refused=snapshot(s);
+    QTest::keyClick(w.canvas,Qt::Key_A,Qt::ControlModifier);events();QTest::keyClick(w.canvas,Qt::Key_Right);events();
+    check(w.canvas->selections()==anchors&&snapshot(s)==refused&&!s.gesture_active(),
+        "Later driven point refuses the whole selected-point batch without committing an earlier point or changing native/history");
+
+    reset(w,original);click(w,"tool-selection");w.canvas->set_selection("path");events();
+    QTest::keyClick(w.canvas,Qt::Key_A,Qt::ControlModifier);events();
+    check(w.canvas->selected_objects()==std::vector<Id>{"path","other","circle"}&&w.canvas->selected_point.empty()&&snapshot(s)==empty,
+        "Ordinary Selection still selects all visible whole Objects in the editing scope");
+    w.canvas->set_selection("path","stable-first");events();
+    QTest::keyClick(w.canvas,Qt::Key_A,Qt::ControlModifier);events();
+    check(w.canvas->selections()==anchors&&snapshot(s)==empty,"Existing selected-point context still selects all anchors without changing Tool");
+    QLineEdit draft(&w);draft.setText("editable draft");draft.show();draft.setFocus();events();
+    const auto selections=w.canvas->selections();QTest::keyClick(&draft,Qt::Key_A,Qt::ControlModifier);events();
+    check(draft.selectedText()=="editable draft"&&w.canvas->selections()==selections&&snapshot(s)==empty,"Text-field Ctrl+A remains local and source-neutral");
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
@@ -91,6 +155,10 @@ int main(int argc,char** argv){
         preferences.setValue("unrelated","preserved");preferences.setValue("workspace/tools/textCreationDirection","vertical");
         Window w(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);show(w);
         const auto original=fixture();reset(w,original);auto& s=w.host.session;
+        if(app.arguments().contains("--select-all-context")){
+            select_all_context(w,original,scratch);
+            std::cout<<"direct_select_all_context: "<<checks<<" checks passed\n";return 0;
+        }
         auto* direct=w.findChild<QToolButton*>("tool-direct-selection");
         check(direct&&direct->accessibleName().startsWith("Direct Selection")&&direct->focusPolicy()==Qt::StrongFocus&&
             direct->toolTip().contains("points"),"Named focusable visible Direct Selection");
