@@ -336,10 +336,90 @@ void pan_button_isolation(){
     }
     std::cout<<"text_pan_button_isolation: "<<checks<<" checks passed; DPR="<<window.devicePixelRatioF()<<'\n';
 }
+void double_click_isolation(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Text double-click owns preferences, recovery and native files");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1100,750);window.show();events();
+    auto document=empty_document("text-double-click-document","composition","board");
+    document.compositions.front().artboards.front().width=640;document.compositions.front().artboards.front().height=480;
+    Session fixture(document);fixture.apply({
+        CreatePrimitive{"composition",{},"rectangle","Grouped artwork",default_primitive("rectangle-source","nect.shape.rectangle")},
+        AddOperation{"rectangle",default_operation("rectangle-fill","nect.paint.fill"),0},
+        Set{{"rectangle",{},"transform.tx"},320},Set{{"rectangle",{},"transform.ty"},240}},fixture.revision());
+    document=fixture.document();Object group;group.id="group";group.name="Group";group.kind=Kind::group;group.children={"rectangle"};
+    document.objects.emplace(group.id,group);document.compositions.front().roots={group.id};
+    auto& session=window.host.session;
+    for(bool vertical:{false,true}){
+        session=Session(document);window.host.edited();events();window.canvas->set_selection("group");
+        window.canvas->fit_artboard();window.canvas->set_snap_enabled(false);events();variant(window,vertical);
+        check(window.canvas->drill_scope().empty(),"Text starts in the root scope over grouped artwork");
+        const auto first=window.canvas->rect().center();
+        QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,first);events();
+        const auto created_id=window.canvas->selected_object;const auto created=session.document();
+        check(created.objects.at(created_id).text&&created.objects.at(created_id).text->direction==(vertical?"vertical":"horizontal")&&
+            created.compositions.front().roots.back()==created_id&&created.objects.at("group").children==std::vector<Id>{"rectangle"},
+            "The first click places the chosen Text as a root without changing underlying Group children");
+        const auto layout=evaluate_text_projection(created,created_id,window.canvas->evaluated_values());
+        const QTransform view(window.canvas->zoom(),0,0,window.canvas->zoom(),window.canvas->width()/2.0-320*window.canvas->zoom(),
+            window.canvas->height()/2.0-240*window.canvas->zoom());
+        const auto text_bounds=view.mapRect(QRectF(layout.x,layout.y,std::max(1.0,layout.width),std::max(1.0,layout.height)));
+        // A few pixels of movement can expose the underlying artwork on the
+        // second press. Verify the actual hit as well as the projected bounds.
+        std::optional<QPoint> second;
+        const auto created_state=snapshot(session);
+        click(window,"tool-selection");
+        for(const auto offset:{QPoint(-3,-3),QPoint(3,-3),QPoint(-3,3),QPoint(3,3)}){
+            const auto candidate=first+offset;if(text_bounds.contains(candidate))continue;
+            window.canvas->set_selection(created_id);events();
+            QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,candidate);events();
+            if(window.canvas->selected_object=="group"&&window.canvas->drill_scope().empty()){second=candidate;break;}
+        }
+        check(second.has_value(),"A second click three pixels away hits grouped artwork outside the newly placed Text bounds");
+        unchanged(session,created_state,"The hit probe preserves complete source/revision/history");
+        window.canvas->set_selection(created_id);events();click(window,"tool-text");
+        const auto before=snapshot(session);const auto selection=window.canvas->selections();const auto image=window.canvas->grab().toImage();
+        auto* text=window.findChild<QToolButton*>("tool-text");const auto name=text->accessibleName();const auto zoom=window.canvas->zoom();
+        QMouseEvent event(QEvent::MouseButtonDblClick,QPointF(*second),QPointF(window.canvas->mapToGlobal(*second)),
+            Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(window.canvas,&event);events();QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,*second);events();
+        std::cout<<name.toStdString()<<" second Text click: scope="<<window.canvas->drill_scope()<<" selected="<<window.canvas->selected_object
+            <<" authored_equal="<<(snapshot(session)==before)<<'\n';
+        check(window.canvas->drill_scope().empty()&&window.canvas->selections()==selection,
+            "Text double-click cannot enter Selection Group drill or replace the placed Text selection");
+        unchanged(session,before,"Text double-click preserves complete Document/native/revision/history");
+        check(!session.gesture_active()&&window.canvas->text_mode()&&text->isChecked()&&text->accessibleName()==name&&
+            window.canvas->cursor().shape()==Qt::IBeamCursor,"Text double-click retains the variant and placement cursor without an authored gesture");
+        check(window.canvas->zoom()==zoom&&window.canvas->grab().toImage()==image,"Text double-click preserves rendered artwork and viewport");
+        const auto next=first+QPoint(45,35);QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,next);events();
+        const auto next_id=window.canvas->selected_object;const auto placed=session.document();
+        check(placed.compositions.front().roots.back()==next_id&&placed.objects.at("group")==created.objects.at("group")&&
+            placed.objects.at(next_id).text->direction==(vertical?"vertical":"horizontal")&&
+            session.revision()==std::get<2>(before)+1&&session.history().states.size()==std::get<3>(before).states.size()+1,
+            "Subsequent placement retains the intended root parent and variant in one transaction");
+        session.undo(session.revision());window.host.edited();events();check(session.document()==created,"One Undo restores all pre-placement Text and grouped artwork");
+        session.redo(session.revision());window.host.edited();events();check(session.document()==placed,"One Redo restores complete Text placement");
+        const auto file=scratch.filePath("text-double-click.nect.json");window.host.save(file);window.host.open(file);events();
+        check(session.document()==placed&&window.canvas->text_mode(),"Same Window native reopen retains editable Text and the persistent Tool");
+        window.canvas->set_selection("group");click(window,"tool-selection");const auto selection_before=snapshot(session);
+        QTest::mouseDClick(window.canvas,Qt::LeftButton,Qt::NoModifier,*second);events();
+        check(window.canvas->drill_scope()=="group"&&window.canvas->selected_object=="rectangle",
+            "Explicit Selection still enters the Group and selects its authored child");
+        unchanged(session,selection_before,"Intentional Selection Group drill remains authored-state neutral");
+        click(window,"tool-text");const auto scoped_before=snapshot(session);
+        QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,next);events();
+        check(session.document().objects.at("group").children.back()==window.canvas->selected_object&&
+            session.document().objects.at(window.canvas->selected_object).text->direction==(vertical?"vertical":"horizontal"),
+            "Text placement after intentional drill still uses the explicitly chosen Group parent");
+        session.undo(session.revision());window.host.edited();events();check(session.document()==std::get<0>(scoped_before),"Scoped Text placement retains one complete Undo");
+    }
+    std::cout<<"text_double_click_isolation: "<<checks<<" checks passed; DPR="<<window.devicePixelRatioF()<<'\n';
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--double-click-isolation")){double_click_isolation();return 0;}
         if(app.arguments().contains("--pan-button-isolation")){pan_button_isolation();return 0;}
         if(app.arguments().contains("--cursor-continuity")){cursor_continuity();return 0;}
         if(app.arguments().contains("--key-isolation")){key_isolation();return 0;}

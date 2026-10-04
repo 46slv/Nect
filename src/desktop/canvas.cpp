@@ -2542,7 +2542,7 @@ void Canvas::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void Canvas::mouseDoubleClickEvent(QMouseEvent* event) {
-    if(drag_==Drag::pan) {event->accept();return;}
+    if(drag_==Drag::pan||text_mode_) {event->accept();return;}
     if(zoom_mode_&&!space_down_&&event->button()==Qt::LeftButton) {
         zoom_at(zoom_*(event->modifiers().testFlag(Qt::AltModifier)?1.0/1.25:1.25),event->position());
         event->accept();return;
