@@ -666,7 +666,7 @@ void Canvas::leave_group() {
 
 void Canvas::set_draw_mode(bool enabled) {
     cancel_interaction();
-    if (enabled) {set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);}
+    if (enabled) {set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);set_guide_edit_mode(false);}
     drawing_object_.clear();
     drawing_contour_.clear();
     if (draw_mode_ == enabled) return;
@@ -688,7 +688,7 @@ void Canvas::set_text_mode(bool enabled, bool vertical) {
 
 void Canvas::set_anchor_edit(bool enabled) {
     cancel_interaction();
-    if(enabled) {set_text_mode(false);clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();select(selected_object,{});}
+    if(enabled) {set_text_mode(false);clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();set_guide_edit_mode(false);select(selected_object,{});}
     if(anchor_edit_==enabled)return;
     anchor_edit_=enabled;update_cursor();update();
     if(anchor_edit_changed)anchor_edit_changed(enabled);
@@ -1256,6 +1256,9 @@ void Canvas::paintEvent(QPaintEvent*) {
             : circle_source_edit_ ? tr("Circle source · Drag Center or Radius · Radius follows local +X · Esc exits")
             : anchor_edit_ ? tr("Anchor · Drag the crosshair to change the pivot; artwork stays in place · Esc exits")
             : gradient_control_ ? tr("Gradient · Drag its handles · Esc cancels a drag / exits handles · Space-drag to pan")
+            : guide_edit_mode_ ? (show_guides_
+                ? tr("Guide Edit · Drag a Guide · Esc cancels a drag / exits · Space-drag to pan")
+                : tr("Guide overlays are hidden · Show Guides to edit · Esc exits"))
             : tr("Empty-drag: select contained · Shift: extend · Arrows: move · Space: pan · F: fit / Shift+F: selection");
         painter.setPen(QColor(166, 174, 186));
         painter.drawText(QRect(14, height() - 30, width() - 100, 22), Qt::AlignVCenter,
@@ -1330,7 +1333,7 @@ void Canvas::set_show_margin(bool enabled) {
 void Canvas::set_guide_edit_mode(bool enabled) {
     if(guide_edit_mode_==enabled)return;
     if(!enabled&&(drag_==Drag::guide||armed_guide_))cancel_interaction();
-    if(enabled) {set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();}
+    if(enabled) {set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();clear_circle_source_edit();}
     guide_edit_mode_=enabled;
     update_cursor();update();if(view_state_changed)view_state_changed();
 }
@@ -2430,6 +2433,7 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
         else if(anchor_edit_)set_anchor_edit(false);
         else if(circle_source_edit_)set_circle_source_edit(false);
         else if (gradient_control_) clear_gradient_edit();
+        else if (guide_edit_mode_) set_guide_edit_mode(false);
         else if (!scope_.empty()) leave_group();
         else select({});
     } else if ((event->key()==Qt::Key_Left||event->key()==Qt::Key_Right||event->key()==Qt::Key_Up||event->key()==Qt::Key_Down)&&

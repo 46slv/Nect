@@ -326,7 +326,7 @@ if(BUILD_TESTING)
     foreach(test flattened_svg_export compatibility_plan_ui macro_revision_ui macro_chain_ui macro_node_enabled_ui macro_public_interface_ui macro_library_v2 macro_library_v3 shortcut_inventory shortcut_help under_canvas_shelf visual_style viewport_layout canvas_small_fit inspector_batch_width inspector_viewport semantic_slider_ui semantic_toggle_ui semantic_enum_ui semantic_color_ui semantic_point_ui composite_isolation_batch_ui text_alignment_batch_ui
         text_direction_batch_ui text_layout_batch_ui text_italic_batch_ui text_family_batch_ui text_locale_batch_ui paint_color_batch_ui
         text_content_literal_batch_ui multi_visibility_ui multi_blend_mode_ui operation_enabled_batch_ui multi_fill_rule_ui instance_color_ui text_string_source_batch_ui instance_text_content_ui
-        text_path_batch_ui preset_batch_ui macro_batch_ui selection_authoring_window portable_preset_window vertical_baseline_window rail_text_entry)
+        text_path_batch_ui preset_batch_ui macro_batch_ui selection_authoring_window portable_preset_window vertical_baseline_window rail_text_entry rail_guide_tool)
       add_executable(${test}_tests tests/${test}_tests.cpp)
       target_link_libraries(${test}_tests PRIVATE nect_desktop_client Qt6::Test)
       if(MSVC)
@@ -470,6 +470,7 @@ if(BUILD_TESTING)
     target_link_libraries(canvas_tests PRIVATE nect_desktop_client Qt6::Test)
     add_test(NAME canvas_interaction COMMAND canvas_tests)
     add_test(NAME canvas_text_baseline_contract COMMAND canvas_tests --text-baseline-only)
+    add_test(NAME canvas_linked_margin_contract COMMAND canvas_tests --linked-margin-only)
     add_executable(window_tests tests/window_tests.cpp)
     target_include_directories(window_tests PRIVATE ${BOOST_INCLUDE_DIR})
     target_compile_definitions(window_tests PRIVATE BOOST_ALL_NO_LIB)

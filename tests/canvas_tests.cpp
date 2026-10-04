@@ -2063,19 +2063,30 @@ void layout_overlays_are_view_only_and_not_exported() {
     const double image_scale=linked_image.width()>canvas.width()?static_cast<double>(linked_image.width())/canvas.width():1.0;
     const auto count_guide_pixels=[&](const QImage& source,double position) {
         const int guide_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
-        for(int y=qRound(55*image_scale);y<qRound(215*image_scale);++y)
+        const int top=qRound((canvas.height()/2.0+(20-80)*canvas.zoom())*image_scale);
+        const int bottom=qRound((canvas.height()/2.0+(120-80)*canvas.zoom())*image_scale);
+        const int horizontal_guide=qRound((canvas.height()/2.0+(40-80)*canvas.zoom())*image_scale);
+        // A horizontal Guide / Artboard border must not count as a missing
+        // vertical Guide, especially when its physical pixel count grows.
+        for(int y=top;y<bottom;++y) {
+          if(std::abs(y-horizontal_guide)<=qMax(2,qRound(2*image_scale)))continue;
           for(int x=guide_x-qMax(2,qRound(2*image_scale));x<=guide_x+qMax(2,qRound(2*image_scale));++x) {
             const auto pixel=source.pixelColor(x,y);if(pixel.blue()>pixel.red()+25&&pixel.blue()>pixel.green()+15)++pixels;
           }
+        }
         return pixels;
     };
     const auto count_margin_pixels=[&](const QImage& source,double position) {
-        const int margin_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
+        // Pixel indices describe cells [n,n+1), not points centered at n.
+        // Rounding a fractional-scale line to n+1 can miss its covered cell.
+        const int margin_x=static_cast<int>(std::floor((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale));int pixels=0;
         const int top=qRound((canvas.height()/2.0+(15-80)*canvas.zoom())*image_scale);
         const int bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
-        for(int y=top;y<=bottom;++y)for(int x=margin_x-qMax(2,qRound(2*image_scale));
-            x<=margin_x+qMax(2,qRound(2*image_scale));++x) {
-            const auto pixel=source.pixelColor(x,y);
+        // The right evaluated/literal positions are only 2 DIP apart. A +/-2
+        // pixel search includes the evaluated line in the literal sample at
+        // 100% scale. Sample the actual column and omit horizontal corner ink.
+        for(int y=top+qRound(3*image_scale);y<bottom-qRound(3*image_scale);++y) {
+            const auto pixel=source.pixelColor(margin_x,y);
             if(pixel.red()>pixel.green()+20&&pixel.blue()>pixel.green()+30)++pixels;
         }
         return pixels;
@@ -2094,32 +2105,28 @@ void layout_overlays_are_view_only_and_not_exported() {
         const int margin_y=qRound((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale);
         const int margin_x=qRound((canvas.width()/2.0+(70-100)*canvas.zoom())*image_scale);
         const int right=qRound((canvas.width()/2.0+(130-100)*canvas.zoom())*image_scale);int pixels=0;
-        for(int x=margin_x;x<=right;++x)for(int y=margin_y-qMax(2,qRound(2*image_scale));
-            y<=margin_y+qMax(2,qRound(2*image_scale));++y) {
-            const auto pixel=source.pixelColor(x,y);
+        // Preview moves the bottom from 135 to 134 DIP: neighboring sample
+        // bands overlap here too. Keep the two coordinates distinguishable.
+        for(int x=margin_x;x<=right;++x) {
+            const auto pixel=source.pixelColor(x,margin_y);
             if(pixel.red()>pixel.green()+20&&pixel.blue()>pixel.green()+30)++pixels;
         }
         return pixels;
     };
     const auto count_grid_pixels=[&](const QImage& source,double position) {
-        const int grid_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
+        const int grid_x=static_cast<int>(std::floor((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale));int pixels=0;
         const int top=qRound((canvas.height()/2.0+(25-80)*canvas.zoom())*image_scale);
         const int bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
-        for(int y=top+3;y<bottom-3;++y)for(int x=grid_x-qMax(2,qRound(2*image_scale));
-            x<=grid_x+qMax(2,qRound(2*image_scale));++x) {
-            const auto pixel=source.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
-        }
-        return pixels;
-    };
-    const auto count_grid_y_pixels=[&](const QImage& source,double position,double grid_height=95) {
-        const int row_boundary= qRound((canvas.height()/2.0+(position+(grid_height-10)/2.0-80)*canvas.zoom())*image_scale);int pixels=0;
-        const int left=qRound((canvas.width()/2.0+(55-100)*canvas.zoom())*image_scale);
-        const int right=qRound((canvas.width()/2.0+(185-100)*canvas.zoom())*image_scale);
-        for(int x=left+3;x<right-3;++x)for(int y=row_boundary-qMax(2,qRound(2*image_scale));
-            y<=row_boundary+qMax(2,qRound(2*image_scale));++y) {
-            const auto pixel=source.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+        const auto is_grid=[](const QColor& pixel){
+            return pixel.green()>pixel.red()+15&&pixel.green()>pixel.blue()+10;
+        };
+        const int crossing_offset=qRound(6*image_scale);
+        // Include either side of a clipped Grid boundary, without the old
+        // broad band; reject horizontal crossings as evidence of a column.
+        for(int y=top+3;y<bottom-3;++y)for(int x=grid_x-1;x<=grid_x;++x) {
+            if(is_grid(source.pixelColor(x-crossing_offset,y))&&
+                is_grid(source.pixelColor(x+crossing_offset,y)))continue;
+            if(is_grid(source.pixelColor(x,y)))++pixels;
         }
         return pixels;
     };
@@ -2127,12 +2134,26 @@ void layout_overlays_are_view_only_and_not_exported() {
         const int grid_y=qRound((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale);int pixels=0;
         const int left=qRound((canvas.width()/2.0+(58-100)*canvas.zoom())*image_scale);
         const int right=qRound((canvas.width()/2.0+(132-100)*canvas.zoom())*image_scale);
-        for(int x=left;x<=right;++x)for(int y=grid_y-qMax(2,qRound(2*image_scale));
+        // A 1px translucent cosmetic stroke splits its coverage across rows at
+        // integer coordinates (observed RGB 202/223/209 on a 250 background).
+        // Exclude vertical crossings so they cannot satisfy a missing row.
+        const auto is_grid=[](const QColor& pixel){
+            return pixel.green()>pixel.red()+15&&pixel.green()>pixel.blue()+10;
+        };
+        const int crossing_offset=qRound(6*image_scale);
+        for(int x=left;x<=right;++x) {
+          if(is_grid(source.pixelColor(x,grid_y-crossing_offset))&&
+              is_grid(source.pixelColor(x,grid_y+crossing_offset)))continue;
+          for(int y=grid_y-qMax(2,qRound(2*image_scale));
             y<=grid_y+qMax(2,qRound(2*image_scale));++y) {
             const auto pixel=source.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+            if(is_grid(pixel))++pixels;
+          }
         }
         return pixels;
+    };
+    const auto count_grid_y_pixels=[&](const QImage& source,double position,double grid_height=95) {
+        return count_grid_horizontal_pixels(source,position+(grid_height-10)/2.0);
     };
     const auto evaluated_guide_pixels=count_guide_pixels(linked_image,120),literal_guide_pixels=count_guide_pixels(linked_image,30);
     check(evaluated_guide_pixels>20&&literal_guide_pixels<20,
@@ -2143,8 +2164,23 @@ void layout_overlays_are_view_only_and_not_exported() {
     check(linked_margin_left_pixels>20&&literal_margin_left_pixels<20,
         "Canvas paints the linked Margin inset at its evaluated Artboard width, not its authored literal (evaluated="+
             std::to_string(linked_margin_left_pixels)+", literal="+std::to_string(literal_margin_left_pixels)+")");
-    check(count_margin_pixels(linked_image,182)>20&&count_margin_pixels(linked_image,180)<20,
-        "Canvas paints the linked right inset at its evaluated Artboard width, not its authored literal");
+    const auto linked_margin_right_pixels=count_margin_pixels(linked_image,182);
+    const auto literal_margin_right_pixels=count_margin_pixels(linked_image,180);
+    check(linked_margin_right_pixels>20&&literal_margin_right_pixels<20,
+        "Canvas paints the linked right inset at its evaluated Artboard width, not its authored literal (evaluated="+
+            std::to_string(linked_margin_right_pixels)+", literal="+std::to_string(literal_margin_right_pixels)+
+            ", zoom="+std::to_string(canvas.zoom())+", image_scale="+std::to_string(image_scale)+")");
+    auto literal_right_document=session.document();
+    literal_right_document.compositions.front().artboards.front().layout->margin->right_driver.reset();
+    Session literal_right_session(std::move(literal_right_document));
+    Canvas literal_right_canvas(literal_right_session);
+    literal_right_canvas.resize(canvas.size());literal_right_canvas.show();QApplication::processEvents();
+    literal_right_canvas.fit_artboard();QApplication::processEvents();
+    const auto literal_right_image=literal_right_canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_margin_pixels(literal_right_image,180)>20&&count_margin_pixels(literal_right_image,182)<20,
+        "Margin pixel oracle distinguishes a literal-right control from the linked evaluated position (literal="+
+            std::to_string(count_margin_pixels(literal_right_image,180))+", evaluated="+
+            std::to_string(count_margin_pixels(literal_right_image,182))+")");
     check(count_margin_top_pixels(linked_image,15)>20,
         "Canvas paints the literal Margin top inset on the active Artboard");
     check(count_margin_bottom_pixels(linked_image,142)>20&&count_margin_bottom_pixels(linked_image,135)<20,
@@ -2191,6 +2227,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     const auto preview_grid=evaluate_artboard(session.preview_document().compositions.front(),"overlay-artboard").layout->grid.value();
     canvas.refresh();QApplication::processEvents();
     const auto preview_image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    if(const auto path=qEnvironmentVariable("NECT_LAYOUT_CAPTURE");!path.isEmpty())preview_image.save(path);
     const auto preview_grid_width=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.width"});
     const auto preview_grid_y=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.y"});
     const auto preview_grid_height=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.height"});
@@ -2206,15 +2243,23 @@ void layout_overlays_are_view_only_and_not_exported() {
         std::get<double>(preview_grid_gutter.evaluated)==26,
         "Canvas preview projection follows Grid height expressions while preserving authored literals");
     check(count_guide_pixels(preview_image,140)>20&&count_guide_pixels(preview_image,120)<20&&
-          count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,28)>20&&
+          count_guide_pixels(preview_image,30)<20,"Preview Guide uses its evaluated position");
+    check(count_margin_pixels(preview_image,28)>20&&
           count_margin_pixels(preview_image,20)<20&&count_margin_pixels(preview_image,18)<20&&
-          count_margin_top_pixels(preview_image,40)>20&&count_margin_top_pixels(preview_image,20)<20&&
+          count_margin_pixels(preview_image,174)>20&&count_margin_pixels(preview_image,180)<20,
+        "Preview Margin uses evaluated left and right positions");
+    check(count_margin_top_pixels(preview_image,40)>20&&count_margin_top_pixels(preview_image,20)<20,
+        "Preview Margin uses its evaluated top position");
+    check(
           count_margin_bottom_pixels(preview_image,134)>20&&count_margin_bottom_pixels(preview_image,142)<20&&
-          count_margin_bottom_pixels(preview_image,135)<20&&
-          count_margin_pixels(preview_image,174)>20&&count_margin_pixels(preview_image,180)<20&&
-          count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20&&
-          count_grid_pixels(preview_image,84.5)>20&&count_grid_pixels(preview_image,73.5)<20&&
-          count_grid_y_pixels(preview_image,65,90)>20&&
+          count_margin_bottom_pixels(preview_image,135)<20,
+        "Preview Margin uses its evaluated bottom position");
+    check(count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20&&
+          count_grid_pixels(preview_image,84.5)>20&&count_grid_pixels(preview_image,73.5)<20,
+        "Preview Grid uses evaluated x and column gutter positions (gutter="+
+            std::to_string(count_grid_pixels(preview_image,84.5))+", old gutter="+
+            std::to_string(count_grid_pixels(preview_image,73.5))+")");
+    check(count_grid_y_pixels(preview_image,65,90)>20&&
           count_grid_horizontal_pixels(preview_image,65)>20&&count_grid_horizontal_pixels(preview_image,25)<20&&
           count_grid_horizontal_pixels(preview_image,105)>20&&count_grid_horizontal_pixels(preview_image,97.5)<20,
         "Canvas Guide, expression Margin and Grid x/y overlays follow evaluated sources in the Session preview document (Grid x="+
@@ -2529,6 +2574,11 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication application(argc, argv);
     try {
+        if(application.arguments().contains("--linked-margin-only")) {
+            layout_overlays_are_view_only_and_not_exported();
+            std::cout << "Canvas linked Margin contract: " << checks << " checks passed\n";
+            return 0;
+        }
         if(application.arguments().contains("--text-baseline-only")) {
             snap_text_baseline_and_unsupported_axis_omission();
             std::cout << "Canvas Text baseline contract: " << checks << " checks passed\n";

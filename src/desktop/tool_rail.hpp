@@ -10,7 +10,7 @@ namespace nect::desktop {
 // Workspace presentation only: activating a slot never authors a command.
 class ToolRail final : public QToolBar {
 public:
-    enum class Tool { selection, pen, text, anchor };
+    enum class Tool { selection, pen, text, anchor, guide };
     std::function<void(Tool)> activate;
     explicit ToolRail(QWidget* parent=nullptr) : QToolBar("Tools",parent) {
         setObjectName("tool-rail");setOrientation(Qt::Vertical);
@@ -36,15 +36,17 @@ public:
         }
         text_->setMenu(variants);text_->setPopupMode(QToolButton::DelayedPopup);
         anchor_=slot(Tool::anchor,"tool-anchor","Anchor Edit · Y");
+        guide_=slot(Tool::guide,"tool-guide","Guide Edit");
         set_active(Tool::selection);
     }
     bool vertical_text()const{return vertical_;}
     void set_active(Tool tool) {
         selection_->setChecked(tool==Tool::selection);pen_->setChecked(tool==Tool::pen);
         text_->setChecked(tool==Tool::text);anchor_->setChecked(tool==Tool::anchor);
+        guide_->setChecked(tool==Tool::guide);
     }
 private:
-    QToolButton *selection_,*pen_,*text_,*anchor_;
+    QToolButton *selection_,*pen_,*text_,*anchor_,*guide_;
     bool vertical_=false;
     static QIcon icon(Tool tool,bool vertical=false) {
         QIcon result;
@@ -55,6 +57,8 @@ private:
             if(tool==Tool::selection) {QPolygonF arrow;arrow<<QPointF(4,2)<<QPointF(15,11)<<QPointF(10,12)<<QPointF(8,17);p.drawPolygon(arrow);}
             else if(tool==Tool::pen) {QPolygonF nib;nib<<QPointF(4,16)<<QPointF(6,6)<<QPointF(13,3)<<QPointF(17,10);p.drawPolygon(nib);p.drawLine(4,16,10,10);p.drawEllipse(QPointF(11,9),1.5,1.5);}
             else if(tool==Tool::anchor) {p.drawEllipse(QPointF(10,10),5,5);p.drawLine(10,2,10,18);p.drawLine(2,10,18,10);}
+            else if(tool==Tool::guide) {p.setPen(QPen(QColor("#d7dfe8"),1.2,Qt::DashLine));
+                p.drawLine(3,8,17,8);p.drawLine(8,3,8,17);p.drawRect(QRectF(12,12,4,4));}
             else {p.drawLine(4,4,14,4);p.drawLine(9,4,9,16);p.drawLine(6,16,12,16);
                 if(vertical){p.drawLine(17,5,17,15);p.drawLine(15,12,17,15);p.drawLine(19,12,17,15);}}
             p.end();result.addPixmap(pixels);

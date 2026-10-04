@@ -1404,13 +1404,14 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     auto* rail=new ToolRail(this);addToolBar(Qt::LeftToolBarArea,rail);
     const auto sync_tools=[this,rail]{
         rail->set_active(canvas->text_mode()?ToolRail::Tool::text:canvas->draw_mode()?ToolRail::Tool::pen:
-            canvas->anchor_edit()?ToolRail::Tool::anchor:ToolRail::Tool::selection);
+            canvas->anchor_edit()?ToolRail::Tool::anchor:canvas->guide_edit_mode()?ToolRail::Tool::guide:ToolRail::Tool::selection);
     };
     rail->activate=[this,rail,sync_tools](ToolRail::Tool tool){
         canvas->cancel_interaction();
         if(tool==ToolRail::Tool::pen){if(!canvas->draw_mode())canvas->set_draw_mode(true);}
         else if(tool==ToolRail::Tool::text)canvas->set_text_mode(true,rail->vertical_text());
         else if(tool==ToolRail::Tool::anchor)canvas->set_anchor_edit(true);
+        else if(tool==ToolRail::Tool::guide)canvas->set_guide_edit_mode(true);
         else {canvas->set_text_mode(false);canvas->set_draw_mode(false);canvas->set_anchor_edit(false);
             canvas->set_gradient_edit({},{});canvas->set_circle_source_edit(false);canvas->set_guide_edit_mode(false);}
         sync_tools();canvas->setFocus();
@@ -1596,7 +1597,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     };
     canvas->selection_changed=[this]{++text_selection_generation_;if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();rebuild_effects_panel();update_batch_rename_action();update_sort_paint_order_action();};
     canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
-    canvas->view_state_changed=[this]{sync_utility_view_state();};
+    canvas->view_state_changed=[this,sync_tools]{sync_utility_view_state();sync_tools();};
     canvas->zoom_changed=[this](double zoom){
         if(!utility_zoom_)return;const QSignalBlocker blocker(utility_zoom_);utility_zoom_->setValue(zoom*100.0);
     };
