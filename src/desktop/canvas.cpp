@@ -2,6 +2,7 @@
 #include "nect/blend.hpp"
 
 #include <QApplication>
+#include <QCursor>
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -520,13 +521,16 @@ void Canvas::fit_bounds(QRectF bounds) {
 }
 
 void Canvas::set_zoom(double zoom) {
+    zoom_at(zoom,QPointF(width()/2.0,height()/2.0));
+}
+
+void Canvas::zoom_at(double zoom,QPointF anchor,bool new_sequence) {
     if(!std::isfinite(zoom)||gesture_owned_||drag_==Drag::marquee)return;
-    const auto center=QPointF(width()/2.0,height()/2.0);
-    const auto world_center=view().inverted().map(center);
+    const auto under_anchor=view().inverted().map(anchor);
     zoom_=std::clamp(zoom,0.02,64.0);
-    pan_=center-world_center*zoom_;
+    pan_=anchor-under_anchor*zoom_;
     initial_fit_=false;
-    request_frame(QStringLiteral("zoom"),true);
+    request_frame(QStringLiteral("zoom"),new_sequence);
     if(zoom_changed)zoom_changed(zoom_);
 }
 
@@ -668,7 +672,7 @@ void Canvas::leave_group() {
 
 void Canvas::set_draw_mode(bool enabled) {
     cancel_interaction();
-    if (enabled) {set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);set_guide_edit_mode(false);}
+    if (enabled) {set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);set_guide_edit_mode(false);}
     drawing_object_.clear();
     drawing_contour_.clear();
     if (draw_mode_ == enabled) return;
@@ -681,7 +685,7 @@ void Canvas::set_draw_mode(bool enabled) {
 void Canvas::set_text_mode(bool enabled, bool vertical) {
     if(!enabled&&!text_mode_)return;
     cancel_interaction();
-    if(enabled) {set_hand_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_circle_source_edit();clear_gradient_edit();set_guide_edit_mode(false);}
+    if(enabled) {set_zoom_mode(false);set_hand_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_circle_source_edit();clear_gradient_edit();set_guide_edit_mode(false);}
     text_mode_=enabled;
     if(enabled)vertical_text_creation_=vertical;
     update_cursor();update();
@@ -692,6 +696,7 @@ void Canvas::set_hand_mode(bool enabled) {
     if(hand_mode_==enabled)return;
     cancel_interaction();
     if(enabled) {
+        set_zoom_mode(false);
         set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);
         set_guide_edit_mode(false);clear_gradient_edit();clear_circle_source_edit();
     }
@@ -699,9 +704,21 @@ void Canvas::set_hand_mode(bool enabled) {
     update_cursor();update();if(view_state_changed)view_state_changed();
 }
 
+void Canvas::set_zoom_mode(bool enabled) {
+    if(zoom_mode_==enabled)return;
+    cancel_interaction();
+    if(enabled) {
+        set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);
+        set_guide_edit_mode(false);clear_gradient_edit();clear_circle_source_edit();
+    }
+    zoom_mode_=enabled;
+    zoom_out_cursor_=enabled&&QApplication::keyboardModifiers().testFlag(Qt::AltModifier);
+    update_cursor();update();if(view_state_changed)view_state_changed();
+}
+
 void Canvas::set_anchor_edit(bool enabled) {
     cancel_interaction();
-    if(enabled) {set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();set_guide_edit_mode(false);select(selected_object,{});}
+    if(enabled) {set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();set_guide_edit_mode(false);select(selected_object,{});}
     if(anchor_edit_==enabled)return;
     anchor_edit_=enabled;update_cursor();update();
     if(anchor_edit_changed)anchor_edit_changed(enabled);
@@ -737,7 +754,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
             throw Error("INVALID_SELECTION","Circle source handles require a selected retained Circle");
         if(circle_source_edit_&&circle_source_object_==object.id&&circle_source_id_==object.source->id)return;
         clear_circle_source_edit();
-        set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
+        set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
         circle_source_object_=object.id;circle_source_id_=object.source->id;circle_source_edit_=true;
         refresh();update_cursor();update();
         if(circle_source_edit_changed)circle_source_edit_changed(true);
@@ -745,7 +762,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
 }
 
 void Canvas::set_gradient_edit(Id object, Id operation) {
-    if(!operation.empty()){set_hand_mode(false);set_text_mode(false);set_guide_edit_mode(false);}
+    if(!operation.empty()){set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_guide_edit_mode(false);}
     cancel_interaction();
     clear_circle_source_edit();
     set_anchor_edit(false);
@@ -1287,7 +1304,8 @@ void Canvas::paintEvent(QPaintEvent*) {
         painter.drawText(breadcrumb_rect_.adjusted(10, 0, -10, 0), Qt::AlignVCenter,
                          painter.fontMetrics().elidedText(label, Qt::ElideRight,
                              static_cast<int>(breadcrumb_rect_.width() - 20)));
-        const auto hint = hand_mode_ ? tr("Hand · Drag to pan the view · Esc exits · F: fit") : draw_mode_
+        const auto hint = zoom_mode_ ? tr("Zoom · Click in · Alt-click out · Space-drag pan · Esc exits")
+            : hand_mode_ ? tr("Hand · Drag to pan the view · Esc exits · F: fit") : draw_mode_
             ? tr("Add Path · Click for points · Click first point to close · Enter / Esc to finish")
             : circle_source_edit_ ? tr("Circle source · Drag Center or Radius · Radius follows local +X · Esc exits")
             : anchor_edit_ ? tr("Anchor · Drag the crosshair to change the pivot; artwork stays in place · Esc exits")
@@ -1369,7 +1387,7 @@ void Canvas::set_show_margin(bool enabled) {
 void Canvas::set_guide_edit_mode(bool enabled) {
     if(guide_edit_mode_==enabled)return;
     if(!enabled&&(drag_==Drag::guide||armed_guide_))cancel_interaction();
-    if(enabled) {set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();clear_circle_source_edit();}
+    if(enabled) {set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();clear_circle_source_edit();}
     guide_edit_mode_=enabled;
     update_cursor();update();if(view_state_changed)view_state_changed();
 }
@@ -2341,6 +2359,11 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         return;
     }
     if (event->button() != Qt::LeftButton) return;
+    if (zoom_mode_) {
+        zoom_out_cursor_=event->modifiers().testFlag(Qt::AltModifier);
+        zoom_at(zoom_*(zoom_out_cursor_?1.0/1.25:1.25),event->position());
+        update_cursor();event->accept();return;
+    }
     if (!scope_.empty() && breadcrumb_rect_.contains(event->position())) {
         leave_group();
         return;
@@ -2416,7 +2439,9 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
 
 void Canvas::mouseMoveEvent(QMouseEvent* event) {
     if (drag_ != Drag::none) update_drag(event->position());
-    else if (hand_mode_) update_cursor();
+    else if (hand_mode_||zoom_mode_) {
+        zoom_out_cursor_=event->modifiers().testFlag(Qt::AltModifier);update_cursor();
+    }
     else if (!space_down_ && !draw_mode_) {
         const auto hit = hit_control(event->position());
         setCursor((guide_edit_mode_&&(hit_armed_guide(event->position()).has_value()||hit_guide(event->position())))||hit.kind != Drag::none ? Qt::CrossCursor : Qt::ArrowCursor);
@@ -2433,6 +2458,10 @@ void Canvas::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void Canvas::mouseDoubleClickEvent(QMouseEvent* event) {
+    if(zoom_mode_&&!space_down_&&event->button()==Qt::LeftButton) {
+        zoom_at(zoom_*(event->modifiers().testFlag(Qt::AltModifier)?1.0/1.25:1.25),event->position());
+        event->accept();return;
+    }
     if (hand_mode_ || space_down_ || draw_mode_ || event->button() != Qt::LeftButton) return;
     cancel_interaction();
     if (const auto* item = hit_path(event->position())) {
@@ -2450,21 +2479,18 @@ void Canvas::wheelEvent(QWheelEvent* event) {
     // Changing the view mid-edit would change the drag's inverse mapping.
     if (gesture_owned_||drag_==Drag::marquee) { event->accept(); return; }
     const auto now = clock_.nsecsElapsed();
-    request_frame(QStringLiteral("zoom"), last_wheel_ns_ < 0 || now - last_wheel_ns_ > 250000000);
+    const bool new_sequence=last_wheel_ns_ < 0 || now - last_wheel_ns_ > 250000000;
     last_wheel_ns_ = now;
     const auto cursor = event->position();
-    const auto under_cursor = view().inverted().map(cursor);
     const auto delta = event->angleDelta().y() != 0 ? event->angleDelta().y() : event->pixelDelta().y();
-    zoom_ = std::clamp(zoom_ * std::pow(1.0015, delta), 0.02, 64.0);
-    pan_ = cursor - under_cursor * zoom_;
-    update();
-    if(zoom_changed)zoom_changed(zoom_);
+    zoom_at(zoom_ * std::pow(1.0015, delta),cursor,new_sequence);
     event->accept();
 }
 
 void Canvas::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) {
         if (drag_ != Drag::none||armed_guide_) cancel_interaction();
+        else if (zoom_mode_) set_zoom_mode(false);
         else if (hand_mode_) set_hand_mode(false);
         else if (draw_mode_) set_draw_mode(false);
         else if (text_mode_) set_text_mode(false);
@@ -2474,6 +2500,8 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
         else if (guide_edit_mode_) set_guide_edit_mode(false);
         else if (!scope_.empty()) leave_group();
         else select({});
+    } else if (event->key()==Qt::Key_Alt&&zoom_mode_) {
+        zoom_out_cursor_=true;update_cursor();
     } else if ((event->key()==Qt::Key_Left||event->key()==Qt::Key_Right||event->key()==Qt::Key_Up||event->key()==Qt::Key_Down)&&
         (event->modifiers()==Qt::NoModifier||event->modifiers()==Qt::ShiftModifier)) {
         const double step=event->modifiers()==Qt::ShiftModifier?10.0:1.0;
@@ -2498,7 +2526,9 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
 }
 
 void Canvas::keyReleaseEvent(QKeyEvent* event) {
-    if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
+    if(event->key()==Qt::Key_Alt&&zoom_mode_) {
+        zoom_out_cursor_=false;update_cursor();event->accept();
+    } else if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
         space_down_ = false;
         update_cursor();
         event->accept();
@@ -2507,6 +2537,7 @@ void Canvas::keyReleaseEvent(QKeyEvent* event) {
 
 void Canvas::focusOutEvent(QFocusEvent* event) {
     space_down_ = false;
+    zoom_out_cursor_=false;
     cancel_interaction();
     QWidget::focusOutEvent(event);
 }
@@ -2558,6 +2589,21 @@ void Canvas::reset_timing() {
 void Canvas::update_cursor() {
     if (drag_ == Drag::pan) setCursor(Qt::ClosedHandCursor);
     else if (space_down_ || hand_mode_) setCursor(Qt::OpenHandCursor);
+    else if (zoom_mode_) {
+        const auto magnifier=[](bool out) {
+            QPixmap pixels(32,32);pixels.fill(Qt::transparent);QPainter p(&pixels);
+            p.setRenderHint(QPainter::Antialiasing);
+            QPainterPath shape;shape.addEllipse(QRectF(3,3,16,16));
+            shape.moveTo(17,17);shape.lineTo(26,26);
+            shape.moveTo(7,11);shape.lineTo(15,11);
+            if(!out){shape.moveTo(11,7);shape.lineTo(11,15);}
+            p.setPen(QPen(Qt::black,4,Qt::SolidLine,Qt::RoundCap));p.drawPath(shape);
+            p.setPen(QPen(Qt::white,1.5,Qt::SolidLine,Qt::RoundCap));p.drawPath(shape);
+            p.end();return QCursor(pixels,11,11);
+        };
+        static const auto in=magnifier(false),out=magnifier(true);
+        setCursor(zoom_out_cursor_?out:in);
+    }
     else if(text_mode_)setCursor(Qt::IBeamCursor);
     else if (draw_mode_ || anchor_edit_ || circle_source_edit_ || guide_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
              drag_ == Drag::outgoing || drag_ == Drag::symmetric || drag_ == Drag::gradient_start ||

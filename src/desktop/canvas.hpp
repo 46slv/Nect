@@ -64,6 +64,8 @@ public:
     bool text_mode() const {return text_mode_;}
     void set_hand_mode(bool enabled);
     bool hand_mode() const {return hand_mode_;}
+    void set_zoom_mode(bool enabled);
+    bool zoom_mode() const {return zoom_mode_;}
     void set_anchor_edit(bool enabled);
     bool anchor_edit() const {return anchor_edit_;}
     void set_circle_source_edit(bool enabled);
@@ -234,6 +236,8 @@ private:
     bool draw_mode_ = false;
     bool text_mode_ = false;
     bool hand_mode_ = false;
+    bool zoom_mode_ = false;
+    bool zoom_out_cursor_ = false;
     bool vertical_text_creation_ = false;
     bool anchor_edit_ = false;
     bool circle_source_edit_ = false;
@@ -338,6 +342,7 @@ private:
     void report_error(const std::exception&);
     void request_frame(const QString& operation, bool new_sequence = false);
     void update_cursor();
+    void zoom_at(double zoom,QPointF anchor,bool new_sequence=true);
     void clear_gradient_edit();
     void clear_circle_source_edit(bool notify=true);
     std::optional<CircleSourceControl> circle_source_control() const;

@@ -11,7 +11,7 @@ namespace nect::desktop {
 // Workspace presentation only: activating a slot never authors a command.
 class ToolRail final : public QToolBar {
 public:
-    enum class Tool { selection, pen, text, anchor, guide, gradient, hand };
+    enum class Tool { selection, pen, text, anchor, guide, gradient, hand, zoom };
     std::function<void(Tool)> activate;
     std::function<void(bool)> variant_chosen;
     explicit ToolRail(QWidget* parent=nullptr) : QToolBar("Tools",parent) {
@@ -42,6 +42,7 @@ public:
         guide_=slot(Tool::guide,"tool-guide","Guide Edit");
         gradient_=slot(Tool::gradient,"tool-gradient","Gradient Edit");
         hand_=slot(Tool::hand,"tool-hand","Hand · drag to pan the view · Esc exits");
+        zoom_=slot(Tool::zoom,"tool-zoom","Zoom · click to zoom in · Alt-click to zoom out · Esc exits");
         set_gradient_available(false,"Select one Object with an enabled Gradient.");
         set_active(Tool::selection);
     }
@@ -53,6 +54,7 @@ public:
         guide_->setChecked(tool==Tool::guide);
         gradient_->setChecked(tool==Tool::gradient);
         hand_->setChecked(tool==Tool::hand);
+        zoom_->setChecked(tool==Tool::zoom);
     }
     void set_gradient_available(bool enabled,const QString& reason) {
         gradient_->setEnabled(enabled);
@@ -60,7 +62,7 @@ public:
         gradient_->setToolTip(label);gradient_->setAccessibleName(label);
     }
 private:
-    QToolButton *selection_,*pen_,*text_,*anchor_,*guide_,*gradient_,*hand_;
+    QToolButton *selection_,*pen_,*text_,*anchor_,*guide_,*gradient_,*hand_,*zoom_;
     bool vertical_=false;
     static QIcon icon(Tool tool,bool vertical=false) {
         QIcon result;
@@ -75,6 +77,8 @@ private:
                 p.drawLine(3,8,17,8);p.drawLine(8,3,8,17);p.drawRect(QRectF(12,12,4,4));}
             else if(tool==Tool::gradient) {p.drawLine(4,14,16,6);p.drawRect(QRectF(2,12,4,4));
                 p.setBrush(QColor("#d7dfe8"));p.drawEllipse(QPointF(16,6),2,2);}
+            else if(tool==Tool::zoom) {p.drawEllipse(QRectF(3,3,10,10));p.drawLine(12,12,17,17);
+                p.drawLine(5,8,11,8);p.drawLine(8,5,8,11);}
             else if(tool==Tool::hand) {QPainterPath hand;hand.moveTo(7,17);
                 hand.lineTo(3,10);hand.cubicTo(2,8,4,7,5,9);hand.lineTo(6,11);
                 hand.lineTo(6,4);hand.cubicTo(6,2,8,2,8,4);hand.lineTo(8,9);
