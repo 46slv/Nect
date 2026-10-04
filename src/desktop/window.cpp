@@ -902,8 +902,10 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     }
 }
 
-Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library)
-    : host(std::move(recovery_directory),this), folder_library_(std::move(folder_library)) {
+Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library,
+    QSettings* workspace_preferences)
+    : host(std::move(recovery_directory),this), folder_library_(std::move(folder_library)),
+      workspace_preferences_(workspace_preferences) {
     if (!folder_library_) folder_library_ = std::make_unique<FolderLibrary>();
     resize(1400,900);
     setMinimumSize(1000,650);
@@ -1402,6 +1404,29 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     draw->setObjectName("draw-path");draw->setShortcuts({QKeySequence("P"),QKeySequence("G")});
     draw->setShortcutContext(Qt::WidgetShortcut);canvas->addAction(draw);
     auto* rail=new ToolRail(this);addToolBar(Qt::LeftToolBarArea,rail);
+    constexpr auto text_variant_key="workspace/tools/textCreationDirection";
+    if(workspace_preferences_) {
+        workspace_preferences_->setFallbacksEnabled(false);
+        workspace_preferences_->setAtomicSyncRequired(true);
+        workspace_preferences_->sync();
+        rail->set_vertical_text(workspace_preferences_->status()==QSettings::NoError&&
+            workspace_preferences_->value(text_variant_key).toString()=="vertical");
+    }
+    rail->variant_chosen=[this,text_variant_key](bool vertical){
+        const auto failed=[this]{statusBar()->showMessage(
+            "Text variant is active in this window; workspace preference could not be saved.",15000);};
+        if(!workspace_preferences_){failed();return;}
+        auto& settings=*workspace_preferences_;
+        settings.sync();
+        if(settings.status()!=QSettings::NoError||!settings.isWritable()){failed();return;}
+        const auto direction=QString(vertical?"vertical":"horizontal");
+        settings.setValue(text_variant_key,direction);settings.sync();
+        if(settings.status()!=QSettings::NoError){failed();return;}
+        // Read the actual backing store, retaining injected filenames and groups.
+        QSettings readback(settings.fileName(),settings.format());
+        readback.setFallbacksEnabled(false);readback.beginGroup(settings.group());readback.sync();
+        if(readback.status()!=QSettings::NoError||readback.value(text_variant_key).toString()!=direction)failed();
+    };
     const auto sync_tools=[this,rail]{
         rail->set_active(canvas->text_mode()?ToolRail::Tool::text:canvas->draw_mode()?ToolRail::Tool::pen:
             canvas->anchor_edit()?ToolRail::Tool::anchor:canvas->guide_edit_mode()?ToolRail::Tool::guide:ToolRail::Tool::selection);

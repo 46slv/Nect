@@ -239,6 +239,14 @@ unlinking freezes the evaluated value into the authored literal. The native
 document retains editable text and font references. Text is outlined in SVG
 exports and fonts are not embedded.
 
+The left Tool Rail keeps Selection, Pen, Text, Anchor Edit and Guide Edit available.
+Hold Text to choose Horizontal or Vertical creation; an ordinary click reuses the
+last variant, including after restarting the desktop. This workspace preference
+does not change selected Text, native files or Undo history. Missing/invalid
+preferences default to Horizontal; a failed save keeps the choice for the current
+Window and reports that it could not be saved. Change existing Text directly in
+the Inspector's Writing control.
+
 Colors opens three separate views: document-authored named colors, actual enabled
 paint inputs grouped by exact RGBA, and colors explicitly copied through Nect's
 Color menu during this Window session. Each paint and gradient stop has Copy

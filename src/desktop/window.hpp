@@ -31,7 +31,10 @@ QString format_text_font_receipt(const TextLayout& result);
 class ColorTools;
 class Window : public QMainWindow {
 public:
-    explicit Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library = {});
+    // The caller owns the optional workspace store for this Window's lifetime.
+    // Omission keeps tools transient; the production entrypoint supplies QSettings.
+    explicit Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library = {},
+        QSettings* workspace_preferences = nullptr);
     ~Window() override;
     Host host;
     Canvas* canvas;
@@ -43,6 +46,7 @@ protected:
 private:
     ColorTools* color_tools_;
     std::unique_ptr<FolderLibrary> folder_library_;
+    QSettings* workspace_preferences_ = nullptr;
     QStringListModel* font_families_=nullptr;
     QString font_discovery_error_;
     std::uint64_t text_selection_generation_=0;

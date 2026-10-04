@@ -50,7 +50,7 @@ int main(int argc,char** argv){
     try{
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
         QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
-        Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences));
+        Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);
         window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1100,750);window.show();events();
         auto& session=window.host.session;
         auto document=session.document();document.objects.clear();document.compositions.front().roots={"existing","driven"};

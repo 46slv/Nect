@@ -12,6 +12,7 @@ class ToolRail final : public QToolBar {
 public:
     enum class Tool { selection, pen, text, anchor, guide };
     std::function<void(Tool)> activate;
+    std::function<void(bool)> variant_chosen;
     explicit ToolRail(QWidget* parent=nullptr) : QToolBar("Tools",parent) {
         setObjectName("tool-rail");setOrientation(Qt::Vertical);
         setMovable(false);setFloatable(false);setAllowedAreas(Qt::LeftToolBarArea);
@@ -31,7 +32,8 @@ public:
             choice->setCheckable(true);choice->setChecked(!vertical);
             choice->setIcon(icon(Tool::text,vertical));
             connect(choice,&QAction::triggered,this,[this,vertical]{
-                vertical_=vertical;refresh_text();if(activate)activate(Tool::text);
+                set_vertical_text(vertical);if(activate)activate(Tool::text);
+                if(variant_chosen)variant_chosen(vertical);
             });
         }
         text_->setMenu(variants);text_->setPopupMode(QToolButton::DelayedPopup);
@@ -40,6 +42,7 @@ public:
         set_active(Tool::selection);
     }
     bool vertical_text()const{return vertical_;}
+    void set_vertical_text(bool vertical){vertical_=vertical;refresh_text();}
     void set_active(Tool tool) {
         selection_->setChecked(tool==Tool::selection);pen_->setChecked(tool==Tool::pen);
         text_->setChecked(tool==Tool::text);anchor_->setChecked(tool==Tool::anchor);
