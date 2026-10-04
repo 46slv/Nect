@@ -550,9 +550,9 @@ Canvas **arrow keys** move selected whole objects or points by1 world du;
 auto-repeat) is one undoable Session transaction. Rotated/scaled point coordinates
 are inverse-mapped; retained shapes gain ordinary Point Edit overrides. Driven
 changes reject the whole transaction. Text/tree keys remain their usual editing
-keys; draw/drag, Anchor Edit, Guide, gradient-handle, Hand and Zoom modes do not
+keys; draw/drag, Text placement, Anchor Edit, Guide, gradient-handle, Hand and Zoom modes do not
 nudge artwork. Select Selection or Direct Selection to move artwork or points
-with arrows; idle navigation arrows preserve the Tool, selection and viewport.
+with arrows; idle Text and navigation arrows preserve the Tool, selection and viewport.
 
 Drag from empty Canvas to select objects fully contained by the rectangle;
 **Shift-drag** adds them. In point context, only anchors in the current target

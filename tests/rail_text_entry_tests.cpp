@@ -9,6 +9,7 @@
 #include <QDockWidget>
 #include <QMenu>
 #include <QInputMethodEvent>
+#include <QKeyEvent>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSettings>
@@ -17,6 +18,8 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QToolBar>
+#include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <cmath>
@@ -49,6 +52,76 @@ void variant(Window& window,bool vertical){
     check(opened&&neutral,"Actual press-and-hold opens a document/history-neutral flyout");
     unchanged(window.host.session,before,"Picking a creation variant never changes selected Text or history");
     check(button->accessibleName().startsWith(vertical?"Vertical Text":"Horizontal Text"),"Group slot reflects remembered variant");
+}
+void key_isolation(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Text key regression owns preferences, recovery and native file");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1100,750);window.show();events();
+    auto document=empty_document("text-key-document","composition","board");
+    auto& board=document.compositions.front().artboards.front();board.width=640;board.height=480;
+    Object text;text.id="text";text.name="Japanese Text";text.kind=Kind::text;
+    text.text=default_text("text-source","日本語（ABC123）");text.text->family="Yu Gothic";
+    text.text->parameters.at("origin_x").literal=100;text.text->parameters.at("origin_y").literal=100;
+    text.stack={default_operation("text-fill","nect.paint.fill")};
+    document.objects.emplace(text.id,text);document.compositions.front().roots={text.id};
+    Session fixture(document);fixture.apply({
+        CreatePrimitive{"composition",{},"rectangle","Retained Rectangle",default_primitive("rectangle-source","nect.shape.rectangle")},
+        AddOperation{"rectangle",default_operation("rectangle-fill","nect.paint.fill"),0},
+        Set{{"rectangle",{},"transform.tx"},320},Set{{"rectangle",{},"transform.ty"},300}},fixture.revision());
+    auto& session=window.host.session;session=Session(fixture.document());window.host.edited();events();
+    window.canvas->fit_artboard();window.canvas->set_snap_enabled(false);events();
+    const auto select_text=[&]{
+        auto* tree=window.findChild<QTreeWidget*>();check(tree&&tree->isVisible(),"Actual Structure is reachable");
+        QTreeWidgetItem* row=nullptr;
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole).toString()=="text"&&(*i)->data(0,Qt::UserRole+1).toString().isEmpty()){row=*i;break;}
+        check(row!=nullptr,"Exact whole Text Structure row exists");tree->scrollToItem(row);events();
+        QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(row).center());events();
+        check(window.canvas->selected_object=="text"&&window.canvas->selected_point.empty(),"Structure pointer selects exact whole Text");
+    };
+    const auto neutral=[&](Qt::Key key,Qt::KeyboardModifiers modifiers,bool repeat=false){
+        const auto before=snapshot(session);const auto selection=window.canvas->selections();
+        auto* button=window.findChild<QToolButton*>("tool-text");const auto name=button->accessibleName();
+        QApplication::setActiveWindow(&window);window.canvas->setFocus();events();
+        check(window.isActiveWindow()&&window.canvas->hasFocus(),"Text arrow reaches actual active Window and focused Canvas");
+        const auto image=window.canvas->grab().toImage();const auto zoom=window.canvas->zoom();
+        if(repeat){QKeyEvent event(QEvent::KeyPress,key,modifiers,QString{},true,1);QApplication::sendEvent(window.canvas,&event);}
+        else QTest::keyClick(window.canvas,key,modifiers);
+        events();
+        std::cout<<name.toStdString()<<" idle arrow: authored_equal="<<(snapshot(session)==before)
+            <<" text_active="<<window.canvas->text_mode()<<'\n';
+        check(snapshot(session)==before&&!session.gesture_active(),"Idle Text arrow preserves complete Document/native/revision/history");
+        check(window.canvas->text_mode()&&button->isChecked()&&button->accessibleName()==name&&window.canvas->selections()==selection,
+            "Idle Text arrow preserves active variant and exact whole Object or stable point selection");
+        check(window.canvas->zoom()==zoom&&window.canvas->grab().toImage()==image,"Idle Text arrow preserves rendered artwork and viewport");
+    };
+    for(bool vertical:{false,true}){
+        select_text();variant(window,vertical);
+        neutral(Qt::Key_Right,Qt::NoModifier);neutral(Qt::Key_Down,Qt::ShiftModifier);neutral(Qt::Key_Left,Qt::NoModifier,true);
+        click(window,"tool-direct-selection");
+        const auto& source=*session.document().objects.at("rectangle").source;
+        const QPoint corner(qRound(window.canvas->width()/2.0-source.parameters.at("width").literal/2*window.canvas->zoom()),
+            qRound(window.canvas->height()/2.0+(60-source.parameters.at("height").literal/2)*window.canvas->zoom()));
+        QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,corner);events();
+        check(window.canvas->selected_object=="rectangle"&&window.canvas->selected_point=="rectangle-source-top-left",
+            "Direct pointer discovers exact retained stable point before Text reactivation");
+        click(window,"tool-text");neutral(Qt::Key_Up,Qt::ShiftModifier);
+    }
+    select_text();click(window,"tool-selection");
+    const auto before=session.document();const auto revision=session.revision();const auto history=session.history().states.size();
+    Session oracle(before);oracle.apply({TranslateObjects{{"text"},1,0}},oracle.revision());
+    QTest::keyClick(window.canvas,Qt::Key_Right);events();
+    check(session.document()==oracle.document()&&session.revision()==revision+1&&session.history().states.size()==history+1,
+        "Explicit Selection arrow still translates Text canonically in one transaction");
+    const auto moved=session.document();session.undo(session.revision());window.host.edited();events();
+    check(session.document()==before,"One Undo restores complete Text and unrelated retained source");
+    session.redo(session.revision());window.host.edited();events();check(session.document()==moved,"One Redo restores complete Text translation");
+    click(window,"tool-text");
+    const auto file=scratch.filePath("text-key.nect.json");window.host.save(file);window.host.open(file);events();
+    check(session.document()==moved&&window.canvas->text_mode(),"Same Window native reopen preserves full editable source and active Text Tool");
+    select_text();neutral(Qt::Key_Right,Qt::NoModifier);
+    std::cout<<"text_key_isolation: "<<checks<<" checks passed; DPR="<<window.devicePixelRatioF()<<'\n';
 }
 void editing_flow(){
     QTemporaryDir scratch;check(scratch.isValid(),"Text flow owns preferences, recovery and native file");
@@ -129,6 +202,7 @@ void editing_flow(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--key-isolation")){key_isolation();return 0;}
         if(app.arguments().contains("--editing-flow")){editing_flow();std::cout<<"text_editing_flow: "<<checks<<" checks passed\n";return 0;}
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
         QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
