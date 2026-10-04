@@ -90,6 +90,8 @@
 #include <QStringListModel>
 #include <QToolBar>
 #include <QToolButton>
+#include <QTabWidget>
+#include <array>
 #include <QVBoxLayout>
 #include <limits>
 #include <cmath>
@@ -905,6 +907,8 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     canvas->set_session_identity_provider([this]{return host.session_id;});
     color_tools_=new ColorTools(*this);
     auto* central=new ViewportLayout(canvas,this);
+    central->set_utility_placement(UtilityPlacement::bottom);
+    setTabPosition(Qt::RightDockWidgetArea,QTabWidget::North);
     utility_scroll_=central->utility_scroll();utility_layout_=central->utility_layout();
     auto* utility_contents=central->utility_contents();setCentralWidget(central);
     tree_=new QTreeWidget;
@@ -1420,6 +1424,20 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         button->setMouseTracking(true);new HoverFeedback(button);
         button->setStyleSheet(utility_button_style_sheet());
     };
+    // Reuse the canonical menu actions in the under-preview creation shelf.
+    // Presentation relocation must not create a second command or shortcut owner.
+    const std::array<QAction*,4> create_actions{circle,rectangle,text,draw};
+    const std::array<const char*,4> create_names{"circle","rectangle","text","path"};
+    for(std::size_t i=0;i<create_actions.size();++i) {
+        auto* button=new QToolButton(utility_contents);
+        button->setDefaultAction(create_actions[i]);
+        button->setObjectName("canvas-create-"+QString::fromLatin1(create_names[i]));
+        button->setAccessibleName(create_actions[i]->text());
+        button->setToolTip(create_actions[i]->toolTip());
+        style_utility(button);
+        utility_layout_->insertWidget(static_cast<int>(i),button);
+    }
+    utility_layout_->insertSpacing(4,8);
     auto sync_button=[](QToolButton* button,const QString& label,const QString& state,const QString& help,bool enabled) {
         const QSignalBlocker blocker(button);button->setText(label+" "+state);button->setAccessibleName(label+" · "+state);
         button->setAccessibleDescription(help+" Current state: "+state+".");button->setToolTip(help+" Current state: "+state+".");button->setEnabled(enabled);
@@ -1447,7 +1465,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     utility_layout_->addWidget(utility_zoom_);connect(utility_zoom_,qOverload<double>(&QDoubleSpinBox::valueChanged),this,[this](double percent){canvas->set_zoom(percent/100.0);});
     utility_artboard_=new QLabel(utility_contents);utility_artboard_->setObjectName("canvas-output-readback");
     utility_artboard_->setAccessibleName("Active Artboard and output dimensions");utility_artboard_->setMinimumWidth(VisualMetrics::utility_readback_min_width);utility_artboard_->setMaximumWidth(VisualMetrics::utility_readback_max_width);
-    utility_artboard_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Preferred);utility_layout_->addWidget(utility_artboard_);
+    utility_artboard_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Preferred);
     auto* setup_button=new QToolButton(utility_contents);setup_button->setObjectName("utility-setup");setup_button->setText("Setup…");
     setup_button->setAccessibleName("Open active Artboard Margin, Grid and Guide setup");
     setup_button->setToolTip("Open the active Artboard Margin, Grid bounds/counts/gutters and Composition Guide editors.");style_utility(setup_button);
@@ -1514,12 +1532,11 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     view->addAction(structure->toggleViewAction());view->addAction(right->toggleViewAction());
     view->addAction(effects_dock_->toggleViewAction());
     auto* toolbar=addToolBar("Authoring");toolbar->setMovable(false);
-    toolbar->addAction(circle);toolbar->addAction(rectangle);toolbar->addAction(text);
-    auto* curve=toolbar->addAction("+ Curve"); connect(curve,&QAction::triggered,this,[this]{perform([this]{add_curve();});});
-    toolbar->addAction(draw);toolbar->addSeparator();toolbar->addAction(undo_);toolbar->addAction(redo_);
+    toolbar->addAction(undo_);toolbar->addAction(redo_);
     auto* fit=toolbar->addAction("Fit");connect(fit,&QAction::triggered,canvas,&Canvas::fit_artboard);
     toolbar->addAction(colors);
     breadcrumb_=new QLabel("Composition");toolbar->addWidget(breadcrumb_);
+    toolbar->addSeparator();toolbar->addWidget(utility_artboard_);
     status_=new QLabel;statusBar()->addPermanentWidget(status_);
     connect(tree_,&QTreeWidget::itemSelectionChanged,this,[this] {
         if(refreshing_) return;
