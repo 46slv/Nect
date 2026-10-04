@@ -2037,7 +2037,7 @@ void guide_drag_uses_stable_identity_and_one_session_undo() {
         "Canvas hit testing follows Guide expressions and refuses to drag their authored target literal");
 }
 
-void layout_overlays_are_view_only_and_not_exported(bool probe_grid_x=false,bool probe_margin_top=false) {
+void layout_overlays_are_view_only_and_not_exported(bool probe_grid_x=false,bool probe_margin_top=false,bool probe_grid_top=false) {
     auto document=empty_document("overlay-document","overlay-composition","overlay-artboard");
     auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
     board.layout=ArtboardLayout{Margin{10,15,20,25},Grid{"overlay-grid",{20,25,130,110},2,2,10,10}};
@@ -2150,21 +2150,36 @@ void layout_overlays_are_view_only_and_not_exported(bool probe_grid_x=false,bool
         return pixels;
     };
     const auto count_grid_horizontal_pixels=[&](const QImage& source,double position) {
-        const int grid_y=qRound((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale);int pixels=0;
+        const int grid_y=static_cast<int>(std::floor((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale));int pixels=0;
         const int left=qRound((canvas.width()/2.0+(58-100)*canvas.zoom())*image_scale);
         const int right=qRound((canvas.width()/2.0+(132-100)*canvas.zoom())*image_scale);
         // A 1px translucent cosmetic stroke splits its coverage across rows at
         // integer coordinates (observed RGB 202/223/209 on a 250 background).
         // Exclude vertical crossings so they cannot satisfy a missing row.
         const auto is_grid=[](const QColor& pixel){
-            return pixel.green()>pixel.red()+15&&pixel.green()>pixel.blue()+10;
+            // The exact 150% clipped top row covers cell173 with RGB233/240/235.
+            // Keep faint green coverage; neutral paper, blue Guides and purple
+            // Margins still fail. Crossing rejection below remains required.
+            return pixel.green()>pixel.red()+5&&pixel.green()>pixel.blue()+3;
         };
         const int crossing_offset=qRound(6*image_scale);
+        const auto grid=*evaluate_artboard(session.preview_document().compositions.front(),"overlay-artboard").layout->grid;
+        const auto middle=grid.bounds.x+(grid.bounds.width-grid.column_gutter)/2.0;
+        const std::array crossing_columns{grid.bounds.x,middle,middle+grid.column_gutter,grid.bounds.x+grid.bounds.width};
         for(int x=left;x<=right;++x) {
+          // At150%, x173 is a vertical boundary with RGB233/240/235 below,
+          // but the overlapping source Artboard masks the upper sample with
+          // RGB28/37/35. Exclude exact fixture columns even in that asymmetry.
+          if(std::any_of(crossing_columns.begin(),crossing_columns.end(),[&](double column){
+              const auto physical=(canvas.width()/2.0+(column-100)*canvas.zoom())*image_scale;
+              return std::abs((x+.5)-physical)<=2;
+          }))continue;
           if(is_grid(source.pixelColor(x,grid_y-crossing_offset))&&
               is_grid(source.pixelColor(x,grid_y+crossing_offset)))continue;
-          for(int y=grid_y-qMax(2,qRound(2*image_scale));
-            y<=grid_y+qMax(2,qRound(2*image_scale));++y) {
+          // A scaled broad band also picked up the distinct committed y107.5
+          // row while testing cancelled preview y105 (49px at100%,77 at150%).
+          // Use the observed three-cell footprint, including either clip side.
+          for(int y=grid_y-1;y<=grid_y+1;++y) {
             const auto pixel=source.pixelColor(x,y);
             if(is_grid(pixel))++pixels;
           }
@@ -2174,6 +2189,69 @@ void layout_overlays_are_view_only_and_not_exported(bool probe_grid_x=false,bool
     const auto count_grid_y_pixels=[&](const QImage& source,double position,double grid_height=95) {
         return count_grid_horizontal_pixels(source,position+(grid_height-10)/2.0);
     };
+    if(probe_grid_top) {
+        const auto observe=[&](const char* phase,const QImage& image,const std::vector<double>& positions) {
+            std::cout<<phase<<" image="<<image.width()<<'x'<<image.height()<<" scale="<<image_scale<<" zoom="<<canvas.zoom()<<'\n';
+            for(const auto position:positions) {
+                const auto physical=(canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale;
+                const auto cell=static_cast<int>(std::floor(physical));
+                std::cout<<" Grid row="<<position<<" physical="<<physical<<" legacy="<<count_grid_horizontal_pixels(image,position)<<'\n';
+                const int left=qRound((canvas.width()/2.0+(58-100)*canvas.zoom())*image_scale);
+                const int right=qRound((canvas.width()/2.0+(132-100)*canvas.zoom())*image_scale);
+                for(int y=cell-1;y<=cell+1;++y) {
+                    std::map<std::tuple<int,int,int>,int> colors;
+                    for(int x=left;x<=right;++x){const auto c=image.pixelColor(x,y);++colors[{c.red(),c.green(),c.blue()}];}
+                    std::vector<std::pair<int,std::tuple<int,int,int>>> ranked;
+                    for(const auto& [rgb,count]:colors)ranked.emplace_back(count,rgb);
+                    std::sort(ranked.rbegin(),ranked.rend());std::cout<<"  cell="<<y;
+                    for(std::size_t i=0;i<std::min<std::size_t>(6,ranked.size());++i){const auto [r,g,b]=ranked[i].second;
+                        std::cout<<" rgb("<<r<<','<<g<<','<<b<<")="<<ranked[i].first;}std::cout<<'\n';
+                }
+            }
+            if(const auto prefix=qEnvironmentVariable("NECT_GRID_TOP_PROBE");!prefix.isEmpty())image.save(prefix+"-"+phase+".png");
+        };
+        observe("initial",linked_image,{55,25,97.5});
+        check(count_grid_horizontal_pixels(linked_image,55)>20&&count_grid_horizontal_pixels(linked_image,25)==0,
+            "Evaluated initial Grid top rejects the authored literal row");
+        session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
+            {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
+        session.apply({MarginTopCommand{SetMarginTopExpression{{"overlay-artboard","","margin.top"},
+            {R"(ref("overlay-margin-source","","artboard.height") - 80)",1},false}}},session.revision());
+        canvas.refresh();QApplication::processEvents();
+        const auto committed=session.document();const auto native=encode(committed);const auto revision=session.revision();const auto history=session.history();
+        session.begin_gesture(revision);
+        session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
+            UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,120}},
+            UpdateArtboard{"overlay-composition",{"overlay-grid-source","Grid source",0,0,65,90}}});
+        canvas.refresh();QApplication::processEvents();const auto preview=canvas.grab().toImage();
+        observe("preview",preview,{65,25,105,97.5});
+        check(count_grid_horizontal_pixels(preview,65)>20&&count_grid_horizontal_pixels(preview,25)==0&&
+            count_grid_horizontal_pixels(preview,55)==0&&count_grid_horizontal_pixels(preview,105)>20&&
+            count_grid_horizontal_pixels(preview,97.5)==0,
+            "Preview Grid top and interior row qualify without old or literal coordinates");
+        const auto y=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.y"});
+        check(std::get<double>(y.literal)==25&&std::get<double>(y.evaluated)==65&&y.driver==grid_source,
+            "Grid top probe retains the literal and stable source while evaluating preview y65");
+        canvas.set_show_guides(false);canvas.set_show_margin(false);QApplication::processEvents();
+        const auto grid_only=canvas.grab().toImage();observe("grid-only",grid_only,{65,25,105,97.5});
+        check(count_grid_horizontal_pixels(grid_only,65)>20&&count_grid_horizontal_pixels(grid_only,105)>20&&
+            count_grid_horizontal_pixels(grid_only,25)==0&&count_grid_horizontal_pixels(grid_only,97.5)==0,
+            "Grid top and row remain visible without Guide and Margin overlays");
+        canvas.set_show_grid(false);canvas.set_show_guides(true);canvas.set_show_margin(true);QApplication::processEvents();
+        const auto no_grid=canvas.grab().toImage();observe("no-grid",no_grid,{65,25,105,97.5});
+        check(count_grid_horizontal_pixels(no_grid,65)==0&&count_grid_horizontal_pixels(no_grid,105)==0,
+            "Hidden Grid does not let Guide or Margin qualify top and row coordinates");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Grid top probe and visibility controls preserve complete authored/native/revision/history");
+        session.cancel_gesture();canvas.set_show_grid(true);canvas.refresh();QApplication::processEvents();
+        const auto cancelled=canvas.grab().toImage();observe("cancelled",cancelled,{55,65,97.5,105});
+        check(count_grid_horizontal_pixels(cancelled,55)>20&&count_grid_horizontal_pixels(cancelled,65)==0&&
+            count_grid_horizontal_pixels(cancelled,97.5)>20&&count_grid_horizontal_pixels(cancelled,105)==0,
+            "Cancelled Grid preview restores committed top and row without future-row false positives");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Grid top preview cancellation preserves complete authored state");
+        return;
+    }
     if(probe_margin_top) {
         const auto observe=[&](const char* phase,const QImage& image,const std::vector<double>& positions) {
             std::cout<<phase<<" image="<<image.width()<<'x'<<image.height()<<" scale="<<image_scale<<" zoom="<<canvas.zoom()<<'\n';
@@ -2757,6 +2835,10 @@ int main(int argc, char** argv) {
         if(application.arguments().contains("--margin-top-probe")) {
             layout_overlays_are_view_only_and_not_exported(false,true);
             std::cout<<"Margin top contract: "<<checks<<" focused checks passed\n";return 0;
+        }
+        if(application.arguments().contains("--grid-top-probe")) {
+            layout_overlays_are_view_only_and_not_exported(false,false,true);
+            std::cout<<"Grid top contract: "<<checks<<" focused checks passed\n";return 0;
         }
         if(application.arguments().contains("--grid-row-gutter-only")) {
             grid_row_gutter_overlay_tracks_evaluated_source();
