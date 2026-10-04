@@ -31,13 +31,14 @@ auto snapshot(Session& s){return std::tuple{s.document(),encode(s.document()),s.
 QRect region(QWidget* widget,Window& w){return {widget->mapTo(&w,QPoint{}),widget->size()};}
 bool reachable(QWidget* widget){return widget&&widget->isVisible()&&widget->visibleRegion().contains(widget->rect());}
 Document fixture(){
+    const bool stacked=QCoreApplication::arguments().contains("--stacked-effects")||QCoreApplication::arguments().contains("--effect-edit-probe");
     auto d=empty_document("workspace-document","composition","board");
     auto& board=d.compositions.front().artboards.front();board.width=640;board.height=480;
     Object path;path.id="curve";path.name="Editable workspace curve";
     Point a;a.id="first";a.x.literal=120;a.y.literal=160;a.out_length.literal=60;
     Point b;b.id="second";b.x.literal=360;b.y.literal=240;b.in_angle.literal=180;b.in_length.literal=60;
     path.contours={{"contour",false,{a,b}}};
-    if(QCoreApplication::arguments().contains("--stacked-effects")){
+    if(stacked){
         Point c;c.id="third";c.x.literal=120;c.y.literal=300;
         path.contours.front().closed=true;path.contours.front().points.push_back(c);
     }
@@ -45,7 +46,7 @@ Document fixture(){
     d.objects.emplace(path.id,path);d.compositions.front().roots={path.id};
     Session s(d);s.apply({CreateText{"composition",{},"text","Editable Text",default_text("text-source","Workspace ABC 日本語")},
         Set{{"text",{},"transform.tx"},200},Set{{"text",{},"transform.ty"},300}},s.revision());
-    if(QCoreApplication::arguments().contains("--stacked-effects"))
+    if(stacked)
         for(int i=0;i<3;++i)s.apply({AddOperation{"curve",default_operation("offset-"+std::to_string(i),"nect.shape.offset"),static_cast<std::size_t>(i)}},s.revision());
     return s.document();
 }
@@ -80,6 +81,40 @@ int main(int argc,char** argv){
         auto* left=w.findChild<QDockWidget*>("structure");auto* properties=w.findChild<QDockWidget*>("properties");
         auto* effects=w.findChild<QDockWidget*>("effects");auto* inspector=w.findChild<QScrollArea*>("inspector-scroll");
         check(left&&properties&&effects&&inspector,"Actual primary Window regions exist");
+        if(QCoreApplication::arguments().contains("--effect-edit-probe")){
+            w.resize(1000,650);events();tab(w,"Effects");
+            auto* scroll=w.findChild<QScrollArea*>("effects-scroll");check(scroll,"Actual Effects scroll path exists");
+            auto* bar=scroll->verticalScrollBar();bar->setFocus();QTest::keyClick(bar,Qt::Key_End);events();
+            auto* last=w.findChild<QPushButton*>("effects-edit-properties-offset-2");check(reachable(last),"Last exact retained instance entry reachable after scrolling");
+            const auto entry=snapshot(s);const auto selection=w.canvas->selections();save(w,"effect-entry-before");
+            QTest::mouseClick(last,Qt::LeftButton);events();
+            check(snapshot(s)==entry&&w.canvas->selections()==selection&&w.canvas->direct_selection_mode(),
+                "Actual Effects-to-Properties navigation is authored/history/selection/Tool neutral");
+            check(!properties->visibleRegion().isEmpty(),"Last-instance callback reveals real Properties");
+            QLineEdit* input=nullptr;
+            for(auto* field:inspector->findChildren<QLineEdit*>()){
+                const auto ref=QJsonDocument::fromJson(field->property("nect-reference").toByteArray()).object();
+                if(field->isVisible()&&ref.value("object")=="curve"&&ref.value("field")=="op.offset-2.amount"){input=field;break;}
+            }
+            check(input,"Exact last operation scalar control is present");inspector->ensureWidgetVisible(input);events();
+            check(reachable(input),"Exact last-instance scalar is fully reachable");save(w,"effect-parameter-before");
+            const auto initial=s.document();const auto revision=s.revision();Session expected(initial);
+            expected.apply({EditProperties{{{"curve",{},"op.offset-2.amount"}},13,false}},expected.revision());
+            input->setFocus();input->selectAll();QTest::keyClicks(input,"13");QTest::keyClick(input,Qt::Key_Return);events();
+            check(s.document()==expected.document()&&s.revision()==revision+1,"Real last-instance numeric input performs exactly canonical source edit");
+            save(w,"effect-parameter-after");
+            auto history_action=[&](const QString& label){
+                for(auto* action:w.findChildren<QAction*>())if(action->text()==label){action->trigger();events();return;}
+                throw std::runtime_error("Existing history action missing");
+            };
+            history_action("Undo");check(s.document()==initial&&encode(s.document())==std::get<1>(entry),"Existing Undo restores every authored field and native source");
+            history_action("Redo");check(s.document()==expected.document(),"Existing Redo restores exact last-instance edit");
+            const auto native=scratch.filePath("effect-edited.nect");w.host.save(native);events();w.host.open(native);events();
+            check(s.document()==expected.document(),"Same Window native reopen preserves all source after last-instance edit");
+            Window reopened(scratch.filePath("effect-reopened"),std::make_unique<FolderLibrary>(preferences),&preferences);reopened.host.open(native);
+            check(reopened.host.session.document()==expected.document(),"New Window native reopen preserves exact edited effect instance");
+            std::cout<<"DPR="<<w.devicePixelRatioF()<<" PASS "<<checks<<" exact effect entry/edit checks\n";return 0;
+        }
         QLineEdit* numeric=nullptr;
         for(auto* input:w.findChildren<QLineEdit*>()){
             const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
