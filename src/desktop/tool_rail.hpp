@@ -11,7 +11,7 @@ namespace nect::desktop {
 // Workspace presentation only: activating a slot never authors a command.
 class ToolRail final : public QToolBar {
 public:
-    enum class Tool { selection, pen, text, anchor, guide, gradient, hand, zoom };
+    enum class Tool { selection, pen, text, anchor, guide, gradient, hand, zoom, direct_selection };
     std::function<void(Tool)> activate;
     std::function<void(bool)> variant_chosen;
     explicit ToolRail(QWidget* parent=nullptr) : QToolBar("Tools",parent) {
@@ -43,6 +43,7 @@ public:
         gradient_=slot(Tool::gradient,"tool-gradient","Gradient Edit");
         hand_=slot(Tool::hand,"tool-hand","Hand · drag to pan the view · Esc exits");
         zoom_=slot(Tool::zoom,"tool-zoom","Zoom · click to zoom in · Alt-click to zoom out · Esc exits");
+        direct_selection_=slot(Tool::direct_selection,"tool-direct-selection","Direct Selection · edit points and handles · Esc exits");
         set_gradient_available(false,"Select one Object with an enabled Gradient.");
         set_active(Tool::selection);
     }
@@ -55,6 +56,7 @@ public:
         gradient_->setChecked(tool==Tool::gradient);
         hand_->setChecked(tool==Tool::hand);
         zoom_->setChecked(tool==Tool::zoom);
+        direct_selection_->setChecked(tool==Tool::direct_selection);
     }
     void set_gradient_available(bool enabled,const QString& reason) {
         gradient_->setEnabled(enabled);
@@ -62,7 +64,7 @@ public:
         gradient_->setToolTip(label);gradient_->setAccessibleName(label);
     }
 private:
-    QToolButton *selection_,*pen_,*text_,*anchor_,*guide_,*gradient_,*hand_,*zoom_;
+    QToolButton *selection_,*pen_,*text_,*anchor_,*guide_,*gradient_,*hand_,*zoom_,*direct_selection_;
     bool vertical_=false;
     static QIcon icon(Tool tool,bool vertical=false) {
         QIcon result;
@@ -71,6 +73,8 @@ private:
             p.setRenderHint(QPainter::Antialiasing);p.scale(size/20.0,size/20.0);
             p.setPen(QPen(QColor("#d7dfe8"),1.4));p.setBrush(Qt::NoBrush);
             if(tool==Tool::selection) {QPolygonF arrow;arrow<<QPointF(4,2)<<QPointF(15,11)<<QPointF(10,12)<<QPointF(8,17);p.drawPolygon(arrow);}
+            else if(tool==Tool::direct_selection) {QPolygonF arrow;arrow<<QPointF(4,2)<<QPointF(15,11)<<QPointF(10,12)<<QPointF(8,17);
+                p.setBrush(QColor("#d7dfe8"));p.drawPolygon(arrow);p.setBrush(Qt::NoBrush);p.drawRect(QRectF(14,14,4,4));}
             else if(tool==Tool::pen) {QPolygonF nib;nib<<QPointF(4,16)<<QPointF(6,6)<<QPointF(13,3)<<QPointF(17,10);p.drawPolygon(nib);p.drawLine(4,16,10,10);p.drawEllipse(QPointF(11,9),1.5,1.5);}
             else if(tool==Tool::anchor) {p.drawEllipse(QPointF(10,10),5,5);p.drawLine(10,2,10,18);p.drawLine(2,10,18,10);}
             else if(tool==Tool::guide) {p.setPen(QPen(QColor("#d7dfe8"),1.2,Qt::DashLine));

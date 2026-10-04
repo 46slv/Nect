@@ -1437,6 +1437,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         else if(tool==ToolRail::Tool::guide)canvas->set_guide_edit_mode(true);
         else if(tool==ToolRail::Tool::hand){canvas->set_hand_mode(true);statusBar()->clearMessage();}
         else if(tool==ToolRail::Tool::zoom){canvas->set_zoom_mode(true);statusBar()->clearMessage();}
+        else if(tool==ToolRail::Tool::direct_selection){canvas->set_direct_selection_mode(true);statusBar()->clearMessage();}
         else if(tool==ToolRail::Tool::gradient) {
             const auto available=canvas->gradient_edit_availability();
             const auto object=canvas->selected_object;
@@ -1467,7 +1468,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
                 gradient_choices->popup(button->mapToGlobal(QPoint(button->width(),0)));
             }
         }
-        else {canvas->set_zoom_mode(false);canvas->set_hand_mode(false);canvas->set_text_mode(false);canvas->set_draw_mode(false);canvas->set_anchor_edit(false);
+        else {canvas->set_direct_selection_mode(false);canvas->set_zoom_mode(false);canvas->set_hand_mode(false);canvas->set_text_mode(false);canvas->set_draw_mode(false);canvas->set_anchor_edit(false);
             canvas->set_gradient_edit({},{});canvas->set_circle_source_edit(false);canvas->set_guide_edit_mode(false);}
         sync_tools();canvas->setFocus();
     };
@@ -1902,7 +1903,7 @@ void Window::sync_tool_rail() {
     if(!tool_rail_)return;
     const auto available=canvas->gradient_edit_availability();
     tool_rail_->set_gradient_available(!available.operations.empty(),available.reason);
-    tool_rail_->set_active(canvas->zoom_mode()?ToolRail::Tool::zoom:canvas->hand_mode()?ToolRail::Tool::hand:canvas->text_mode()?ToolRail::Tool::text:canvas->draw_mode()?ToolRail::Tool::pen:
+    tool_rail_->set_active(canvas->direct_selection_mode()?ToolRail::Tool::direct_selection:canvas->zoom_mode()?ToolRail::Tool::zoom:canvas->hand_mode()?ToolRail::Tool::hand:canvas->text_mode()?ToolRail::Tool::text:canvas->draw_mode()?ToolRail::Tool::pen:
         canvas->anchor_edit()?ToolRail::Tool::anchor:!canvas->gradient_operation().empty()?ToolRail::Tool::gradient:
         canvas->guide_edit_mode()?ToolRail::Tool::guide:ToolRail::Tool::selection);
 }

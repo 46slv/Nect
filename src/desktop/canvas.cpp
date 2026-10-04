@@ -449,6 +449,8 @@ void Canvas::nudge_selection(double dx,double dy) {
         if(selected_point.empty())commands.push_back(TranslateObjects{selected_objects(),dx,dy});
         else {
             for(const auto& selection:selections_) {
+                if(scene_.deformation_owners.contains(selection.object))
+                    throw Error("DEFORM_SOURCE_EDIT_REQUIRED","Edit the retained source in Inspector/API; derived Path Deform anchors cannot be nudged directly");
                 const auto* g=geometry(selection.object);const auto* p=g?point(*g,selection.point):nullptr;
                 if(!p)throw Error("MISSING_POINT","Selected point is no longer available");
                 bool invertible=false;const auto inverse=g->world.inverted(&invertible);
@@ -672,7 +674,7 @@ void Canvas::leave_group() {
 
 void Canvas::set_draw_mode(bool enabled) {
     cancel_interaction();
-    if (enabled) {set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);set_guide_edit_mode(false);}
+    if (enabled) {set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);set_guide_edit_mode(false);}
     drawing_object_.clear();
     drawing_contour_.clear();
     if (draw_mode_ == enabled) return;
@@ -685,7 +687,7 @@ void Canvas::set_draw_mode(bool enabled) {
 void Canvas::set_text_mode(bool enabled, bool vertical) {
     if(!enabled&&!text_mode_)return;
     cancel_interaction();
-    if(enabled) {set_zoom_mode(false);set_hand_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_circle_source_edit();clear_gradient_edit();set_guide_edit_mode(false);}
+    if(enabled) {set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_circle_source_edit();clear_gradient_edit();set_guide_edit_mode(false);}
     text_mode_=enabled;
     if(enabled)vertical_text_creation_=vertical;
     update_cursor();update();
@@ -696,7 +698,7 @@ void Canvas::set_hand_mode(bool enabled) {
     if(hand_mode_==enabled)return;
     cancel_interaction();
     if(enabled) {
-        set_zoom_mode(false);
+        set_direct_selection_mode(false);set_zoom_mode(false);
         set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);
         set_guide_edit_mode(false);clear_gradient_edit();clear_circle_source_edit();
     }
@@ -708,7 +710,7 @@ void Canvas::set_zoom_mode(bool enabled) {
     if(zoom_mode_==enabled)return;
     cancel_interaction();
     if(enabled) {
-        set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);
+        set_direct_selection_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);
         set_guide_edit_mode(false);clear_gradient_edit();clear_circle_source_edit();
     }
     zoom_mode_=enabled;
@@ -716,9 +718,20 @@ void Canvas::set_zoom_mode(bool enabled) {
     update_cursor();update();if(view_state_changed)view_state_changed();
 }
 
+void Canvas::set_direct_selection_mode(bool enabled) {
+    if(direct_selection_mode_==enabled)return;
+    cancel_interaction();
+    if(enabled) {
+        set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);
+        set_anchor_edit(false);set_guide_edit_mode(false);clear_gradient_edit();clear_circle_source_edit();
+    }
+    direct_selection_mode_=enabled;
+    update_cursor();update();if(view_state_changed)view_state_changed();
+}
+
 void Canvas::set_anchor_edit(bool enabled) {
     cancel_interaction();
-    if(enabled) {set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();set_guide_edit_mode(false);select(selected_object,{});}
+    if(enabled) {set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();set_guide_edit_mode(false);select(selected_object,{});}
     if(anchor_edit_==enabled)return;
     anchor_edit_=enabled;update_cursor();update();
     if(anchor_edit_changed)anchor_edit_changed(enabled);
@@ -754,7 +767,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
             throw Error("INVALID_SELECTION","Circle source handles require a selected retained Circle");
         if(circle_source_edit_&&circle_source_object_==object.id&&circle_source_id_==object.source->id)return;
         clear_circle_source_edit();
-        set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
+        set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
         circle_source_object_=object.id;circle_source_id_=object.source->id;circle_source_edit_=true;
         refresh();update_cursor();update();
         if(circle_source_edit_changed)circle_source_edit_changed(true);
@@ -762,7 +775,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
 }
 
 void Canvas::set_gradient_edit(Id object, Id operation) {
-    if(!operation.empty()){set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_guide_edit_mode(false);}
+    if(!operation.empty()){set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_guide_edit_mode(false);}
     cancel_interaction();
     clear_circle_source_edit();
     set_anchor_edit(false);
@@ -877,6 +890,7 @@ Canvas::Hit Canvas::hit_control(QPointF screen) const {
     for(const auto& object:selected_objects()) {
     const auto* item = geometry(object);
     if (!item) continue;
+    if(direct_selection_mode_&&(selection_target(*item)!=item->id||!visible_hit(*item,screen)))continue;
     const auto transform = item->world * view();
     if (const auto* selected = point(*item, object==selected_object?selected_point:Id{})) {
         if (distance(transform.map(selected->anchor), screen) <= 5)
@@ -893,6 +907,15 @@ Canvas::Hit Canvas::hit_control(QPointF screen) const {
     for (const auto& p : item->points)
         if (distance(transform.map(p.anchor), screen) <= hit_radius)
             return {Drag::anchor, item->id, p.id};
+    }
+    // Direct Selection discovers canonical points in the current Group scope.
+    // Instance projections remain owned by their instance, and derived Deform
+    // points still pass through begin_drag's explicit retained-source refusal.
+    if(direct_selection_mode_)for(auto item=geometry_.rbegin();item!=geometry_.rend();++item) {
+        if(selection_target(*item)!=item->id||!visible_hit(*item,screen))continue;
+        const auto transform=item->world*view();
+        for(const auto& p:item->points)if(distance(transform.map(p.anchor),screen)<=hit_radius)
+            return {Drag::anchor,item->id,p.id};
     }
     return {};
 }
@@ -1242,6 +1265,17 @@ void Canvas::paintEvent(QPaintEvent*) {
                 painter.drawRect(QRectF(screen.x() - size / 2, screen.y() - size / 2, size, size));
             }
         }
+        if(direct_selection_mode_)for(const auto& item:geometry_) {
+            if(!item.normal_visible||selection_target(item)!=item.id||
+                std::any_of(selections_.begin(),selections_.end(),[&](const auto& s){return s.object==item.id;}))continue;
+            const auto transform=item.world*view();
+            painter.setBrush(QColor(250,250,250));
+            for(const auto& p:item.points) {
+                const auto screen=transform.map(p.anchor);if(!visible_hit(item,screen))continue;
+                painter.setPen(QPen(p.driven?linked:accent,1.3));
+                painter.drawRect(QRectF(screen.x()-3,screen.y()-3,6,6));
+            }
+        }
         if(anchor_edit_&&world_.contains(selected_object)) {
             const QPointF anchor(values_.at({selected_object,"","transform.anchor_x"}),values_.at({selected_object,"","transform.anchor_y"}));
             const auto screen=(world_.at(selected_object)*view()).map(anchor);
@@ -1304,7 +1338,8 @@ void Canvas::paintEvent(QPaintEvent*) {
         painter.drawText(breadcrumb_rect_.adjusted(10, 0, -10, 0), Qt::AlignVCenter,
                          painter.fontMetrics().elidedText(label, Qt::ElideRight,
                              static_cast<int>(breadcrumb_rect_.width() - 20)));
-        const auto hint = zoom_mode_ ? tr("Zoom · Click in · Alt-click out · Space-drag pan · Esc exits")
+        const auto hint = direct_selection_mode_ ? tr("Direct Selection · Drag points / handles · Shift: extend · Esc exits")
+            : zoom_mode_ ? tr("Zoom · Click in · Alt-click out · Space-drag pan · Esc exits")
             : hand_mode_ ? tr("Hand · Drag to pan the view · Esc exits · F: fit") : draw_mode_
             ? tr("Add Path · Click for points · Click first point to close · Enter / Esc to finish")
             : circle_source_edit_ ? tr("Circle source · Drag Center or Radius · Radius follows local +X · Esc exits")
@@ -1387,7 +1422,7 @@ void Canvas::set_show_margin(bool enabled) {
 void Canvas::set_guide_edit_mode(bool enabled) {
     if(guide_edit_mode_==enabled)return;
     if(!enabled&&(drag_==Drag::guide||armed_guide_))cancel_interaction();
-    if(enabled) {set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();clear_circle_source_edit();}
+    if(enabled) {set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();clear_circle_source_edit();}
     guide_edit_mode_=enabled;
     update_cursor();update();if(view_state_changed)view_state_changed();
 }
@@ -2218,7 +2253,13 @@ void Canvas::finish_marquee() {
     auto selected=marquee_extend_?marquee_start_:std::vector<Selection>{};
     auto include=[&](Selection item){if(std::find(selected.begin(),selected.end(),item)==selected.end())selected.push_back(std::move(item));};
     if(drag_moved_) {
-        if(!marquee_start_.empty()&&!marquee_start_.back().point.empty()) {
+        if(direct_selection_mode_) {
+            for(const auto& g:geometry_)if(g.normal_visible&&selection_target(g)==g.id)
+                for(const auto& p:g.points) {
+                    const auto screen=(g.world*view()).map(p.anchor);
+                    if(rectangle.contains(screen)&&visible_hit(g,screen))include({g.id,p.id});
+                }
+        } else if(!marquee_start_.empty()&&!marquee_start_.back().point.empty()) {
             std::set<Id> objects;for(const auto& item:marquee_start_)objects.insert(item.object);
             for(const auto& id:objects)if(const auto* g=geometry(id))
                 for(const auto& p:g->points)if(rectangle.contains((g->world*view()).map(p.anchor)))include({id,p.id});
@@ -2424,7 +2465,7 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         }
         if(extend){toggle_selection({target,{}});event->accept();return;}
         if(std::find(selections_.begin(),selections_.end(),Selection{target,{}})==selections_.end())select(target);
-        if(!anchor_edit_&&!circle_mode_at_press&&!circle_source_edit_)begin_drag(Drag::object, event->position());
+        if(!direct_selection_mode_&&!anchor_edit_&&!circle_mode_at_press&&!circle_source_edit_)begin_drag(Drag::object, event->position());
     } else {
         if(anchor_edit_||gradient_control_||circle_source_edit_) {if(!extend)select({});}
         else {
@@ -2439,7 +2480,7 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
 
 void Canvas::mouseMoveEvent(QMouseEvent* event) {
     if (drag_ != Drag::none) update_drag(event->position());
-    else if (hand_mode_||zoom_mode_) {
+    else if (hand_mode_||zoom_mode_||direct_selection_mode_) {
         zoom_out_cursor_=event->modifiers().testFlag(Qt::AltModifier);update_cursor();
     }
     else if (!space_down_ && !draw_mode_) {
@@ -2490,6 +2531,7 @@ void Canvas::wheelEvent(QWheelEvent* event) {
 void Canvas::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) {
         if (drag_ != Drag::none||armed_guide_) cancel_interaction();
+        else if (direct_selection_mode_) set_direct_selection_mode(false);
         else if (zoom_mode_) set_zoom_mode(false);
         else if (hand_mode_) set_hand_mode(false);
         else if (draw_mode_) set_draw_mode(false);
@@ -2604,6 +2646,7 @@ void Canvas::update_cursor() {
         static const auto in=magnifier(false),out=magnifier(true);
         setCursor(zoom_out_cursor_?out:in);
     }
+    else if(direct_selection_mode_)setCursor(Qt::CrossCursor);
     else if(text_mode_)setCursor(Qt::IBeamCursor);
     else if (draw_mode_ || anchor_edit_ || circle_source_edit_ || guide_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
              drag_ == Drag::outgoing || drag_ == Drag::symmetric || drag_ == Drag::gradient_start ||

@@ -66,6 +66,8 @@ public:
     bool hand_mode() const {return hand_mode_;}
     void set_zoom_mode(bool enabled);
     bool zoom_mode() const {return zoom_mode_;}
+    void set_direct_selection_mode(bool enabled);
+    bool direct_selection_mode() const {return direct_selection_mode_;}
     void set_anchor_edit(bool enabled);
     bool anchor_edit() const {return anchor_edit_;}
     void set_circle_source_edit(bool enabled);
@@ -237,6 +239,7 @@ private:
     bool text_mode_ = false;
     bool hand_mode_ = false;
     bool zoom_mode_ = false;
+    bool direct_selection_mode_ = false;
     bool zoom_out_cursor_ = false;
     bool vertical_text_creation_ = false;
     bool anchor_edit_ = false;
