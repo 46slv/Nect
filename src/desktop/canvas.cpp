@@ -884,6 +884,7 @@ const Canvas::Geometry* Canvas::hit_path(QPointF screen) const {
 }
 
 Canvas::Hit Canvas::hit_control(QPointF screen) const {
+    if(guide_edit_mode_)return {};
     if(circle_source_edit_) {
         const auto control=circle_source_control();
         if(!control)return {};
@@ -2502,9 +2503,9 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         }
         if(extend){toggle_selection({target,{}});event->accept();return;}
         if(std::find(selections_.begin(),selections_.end(),Selection{target,{}})==selections_.end())select(target);
-        if(!direct_selection_mode_&&!anchor_edit_&&!gradient_edit_mode_&&!circle_mode_at_press&&!circle_source_edit_)begin_drag(Drag::object, event->position());
+        if(!direct_selection_mode_&&!anchor_edit_&&!gradient_edit_mode_&&!guide_edit_mode_&&!circle_mode_at_press&&!circle_source_edit_)begin_drag(Drag::object, event->position());
     } else {
-        if(anchor_edit_||gradient_edit_mode_||circle_source_edit_) {if(!extend)select({});}
+        if(anchor_edit_||gradient_edit_mode_||guide_edit_mode_||circle_source_edit_) {if(!extend)select({});}
         else {
             drag_=Drag::marquee;press_position_=marquee_position_=event->position();
             marquee_start_=selections_;marquee_extend_=extend;drag_moved_=false;

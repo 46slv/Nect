@@ -254,6 +254,11 @@ preferences default to Horizontal; a failed save keeps the choice for the curren
 Window and reports that it could not be saved. Change existing Text directly in
 the Inspector's Writing control.
 
+Guide Edit drags visible Guides. Dragging artwork while Guide Edit is active
+selects the whole Object without moving it or editing its points. Hidden Guides
+stay unavailable until Show Guides is enabled; the active Tool remains Guide Edit.
+Space-drag still pans the view, and Esc cancels a Guide drag or exits the Tool.
+
 Colors opens three separate views: document-authored named colors, actual enabled
 paint inputs grouped by exact RGBA, and colors explicitly copied through Nect's
 Color menu during this Window session. Each paint and gradient stop has Copy
