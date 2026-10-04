@@ -20,6 +20,9 @@
 #include "macro_revision_control.hpp"
 #include "macro_chain_control.hpp"
 #include "text_alignment_batch_control.hpp"
+#include "text_path_batch_control.hpp"
+#include "preset_batch_control.hpp"
+#include "macro_batch_control.hpp"
 #include "analysis_line_control.hpp"
 #include "window.hpp"
 #include "nect/blend.hpp"
@@ -8956,6 +8959,13 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     }
     std::vector<Id> whole_object_targets;whole_object_targets.reserve(selected.size());
     for(const auto& item:selected)whole_object_targets.push_back(item.object);
+    if(std::any_of(whole_object_targets.begin(),whole_object_targets.end(),[&](const auto& id){
+        const auto found=d.objects.find(id);
+        return found!=d.objects.end()&&(found->second.kind==Kind::path||found->second.kind==Kind::text);
+    })) {
+        layout->addWidget(make_preset_batch_controls(host,whole_object_targets,inspector_));
+        layout->addWidget(make_macro_batch_controls(host,whole_object_targets,inspector_));
+    }
     layout->addWidget(make_multi_visibility_controls(host,whole_object_targets,inspector_));
     layout->addWidget(make_multi_blend_mode_controls(host,whole_object_targets,inspector_));
         layout->addWidget(make_composite_isolation_batch_controls(host,whole_object_targets,inspector_));
@@ -8972,6 +8982,7 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
             const auto& object=host.session.document().objects.at(id);return object.kind==Kind::text&&object.text.has_value();
         });
         if(all_text) {
+            layout->addWidget(make_text_path_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_content_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_string_source_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_family_batch_controls(host,targets,inspector_));

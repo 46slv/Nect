@@ -19,6 +19,9 @@ add_library(nect_io src/io.cpp src/compatibility.cpp src/boost_json.cpp)
 target_include_directories(nect_io PRIVATE ${BOOST_INCLUDE_DIR})
 target_compile_definitions(nect_io PRIVATE BOOST_ALL_NO_LIB)
 target_link_libraries(nect_io PUBLIC nect_core)
+if(MSVC)
+  target_compile_options(nect_io PRIVATE /bigobj)
+endif()
 
 add_executable(nect src/main.cpp)
 target_link_libraries(nect PRIVATE nect_io)
@@ -51,6 +54,9 @@ if(NECT_DESKTOP)
     src/desktop/paint_color_batch_control.cpp
     src/desktop/text_content_batch_control.cpp
     src/desktop/text_string_source_batch_control.cpp
+    src/desktop/text_path_batch_control.cpp
+    src/desktop/preset_batch_control.cpp
+    src/desktop/macro_batch_control.cpp
     src/desktop/multi_visibility_control.cpp
     src/desktop/multi_blend_mode_control.cpp
     src/desktop/composite_isolation_batch_control.cpp
@@ -307,7 +313,8 @@ if(BUILD_TESTING)
     set_tests_properties(instance_visibility_ui_interaction PROPERTIES TIMEOUT 30)
     foreach(test flattened_svg_export compatibility_plan_ui macro_revision_ui macro_chain_ui macro_node_enabled_ui macro_public_interface_ui macro_library_v2 macro_library_v3 shortcut_inventory shortcut_help under_canvas_shelf visual_style viewport_layout canvas_small_fit inspector_batch_width inspector_viewport semantic_slider_ui semantic_toggle_ui semantic_enum_ui semantic_color_ui semantic_point_ui composite_isolation_batch_ui text_alignment_batch_ui
         text_direction_batch_ui text_layout_batch_ui text_italic_batch_ui text_family_batch_ui text_locale_batch_ui paint_color_batch_ui
-        text_content_literal_batch_ui multi_visibility_ui multi_blend_mode_ui operation_enabled_batch_ui multi_fill_rule_ui instance_color_ui text_string_source_batch_ui instance_text_content_ui)
+        text_content_literal_batch_ui multi_visibility_ui multi_blend_mode_ui operation_enabled_batch_ui multi_fill_rule_ui instance_color_ui text_string_source_batch_ui instance_text_content_ui
+        text_path_batch_ui preset_batch_ui macro_batch_ui selection_authoring_window)
       add_executable(${test}_tests tests/${test}_tests.cpp)
       target_link_libraries(${test}_tests PRIVATE nect_desktop_client Qt6::Test)
       if(MSVC)

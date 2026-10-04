@@ -1,56 +1,33 @@
-# Nect — Fast Build / Bug Harvest
+# Nect — fast implementation continuation
 
-## Mission
-Advance the accepted Nect Completion Route toward a useful integrated graphics authoring app. Preserve confirmed product semantics and final L1/L2/L3 acceptance boundaries. Dot remains an active critical-path implementer with independently owned parallel Sol implementation scopes.
+## Mission Brief
 
-## Execution cadence
-Build a coherent usable vertical, run minimum useful smoke and changed high-risk checks, use the candidate, then fix demonstrated failures in parallel and batch-integrate. Full regression, every-platform matrices and exhaustive review belong at meaningful milestones, not every small edit. `USABLE_UNHARDENED` does not mean release-ready or fully verified.
+**Goal:** Grow useful integrated graphics-authoring features quickly from the current development line. Preserve accepted product semantics and final L1/L2/L3 boundaries; do not rebuild the operating system.
 
-Keep Save/Save As, native migration, stable identity, Undo/History and trust boundaries protected from the start. One source scope has one writer. Development-branch publication does not authorize primary-branch merge or release.
+**Authority:** Direct user instruction, 2026-10-04; current Master Brief / Completion Route / Fast Build policy. Mission owner implements, prioritizes, designs and integrates. All fresh subordinate workers use GPT-6.1 Sol. Normal local work, focused checks, coherent commits, development pushes and Draft PRs proceed. Protected-main merge, release, force/history changes, credentials/permissions/billing and irreversible operations keep their existing gates.
 
-## Current integrated candidate
-Native 0.81 development candidate combines:
-- Existing native 0.80 typography, source-preserving Text Apply, arithmetic compositing and save/Undo work.
-- Read-only SVG compatibility planning with source provenance and bounded local derivative closures. AI/PDF policies and encoders remain explicitly unqualified; planned bakes are not executed.
-- Metadata-driven numeric Offset, angle Repeater and Macro Amount controls.
-- An OFF-by-default developer-only Windows extension-loader fixture. No normal product autoload or production extension capability is claimed.
-- Atomic Text-content fan-out core safeguards; retained multi-target UI is the next independent UI task.
-- Optional Artboard background values with Template inheritance, local override, Reset and full detach freeze. Background is an output underlay after transparent artwork, not an object-blend backdrop. PNG/viewport/SVG include it; region analysis does not.
+**Constraints:** One source scope / one writer, isolated worktrees and branches. Serialize GUI and shared builds with Local\NectBuild. Preserve existing documents/settings, stable refs, native source, atomic commands and Undo. KNOTFIELD/Resolve, task-25/27 runtimes/caches and the original D:/Documents/Nect checkout remain protected. Do not replay completed qualification.
 
-## Current evidence and remaining work
-The `dot/req65-contour-path` candidate starts from verified public
-`dot/fast-build-native081@f3c61ef708342c379cd8d587c126b3e32ced3105`. It adds a
-REQ-65 outer-contour adoption entry through Host/API/MCP and Add > Outer contour
-to Path, using the existing CreatePath command and native schema. Exact snapshot
-and contour IDs are rechecked; original artwork is retained, each corner receives
-a fresh authored ID, and adoption is one Undo. No holes or curve fitting are claimed.
+**Light waves:** (1) Selection Preset/Text-on-Path/Macro authoring is integrated and focused-qualified. (2) Portable Preset-with-Macro dependency closure plus the observed repeated-Text-Macro geometry refusal. (3) Practical-use fixes and the next accepted missing authoring vertical from fresh Route evidence. Bind exact base/ownership at dispatch.
 
-The batch includes the portable helper from `5dcffeb`, standalone Macro authoring
-from `74330ad`, its Effects-panel entry, and the qualified background precision
-repair from `37dd7dd`. These additions retain native 0.81. Shared Windows builds
-use `Local\NectBuild`; prior task-18 worktrees, launchers and processes are preserved.
+## ACTIVE CHECKPOINT
 
-Windows Release build and five focused contracts passed: geometry helper (36),
-Host/Window adoption (62), existing region analysis, formal desktop MCP adoption/restart,
-and Macro authoring UI (48). Adoption covers
-real Canvas analysis, nonzero Artboard origin/scale, original artwork/native
-preservation, point edit, Undo/Redo, cold process reopen, stale Session/revision/
-snapshot/contour rejection, gesture refusal and draft cancellation. The background
-repair was then integrated and the desktop rebuilt. Final integration passed both
-background UI (14) and actual desktop/MCP cold restart (16 semantic checks). A
-shell-wrapper launch failure was isolated to copied Python PATH/Qt resolution;
-the explicit-Qt Python runner passes. This is USABLE_UNHARDENED;
-physical input/visual comfort, broad regression, whole REQ-65 and full Macro graph
-authoring remain open.
+**Goal:** Deliver Workspace Presets containing pinned Macro dependencies through existing Publish/Update/Favorite Apply controls, preserving legacy asset bytes and native0.87, while addressing demonstrated usable-candidate failures.
 
-The earlier Linux desktop compiler kill remains historical evidence. These Windows
-primary-path checks do not establish final interoperability or milestone hardening.
+**Current phase:** Selection-authoring candidate passed focused runtime and production load; development synchronization is the final checkpoint step. Two independent portable-closure source candidates are released, ready for review/integration. They are not runtime-qualified.
 
-## Next
-Use the supported candidate and collect demonstrated authoring failures. The parent
-owns the next independent DefinitionInstance/Template visibility lane; keep its core
-and native-version changes separate until the next batch integration. Current scope
-is released after source publication and remote SHA verification; no primary merge
-or release is authorized by this checkpoint.
+**Proven:** Qualified base 64fdc9fe7a16580352aa3c38604c54a617aa4632 and task-25/27 physical evidence remain valid. Main e405afc was an ancestor at takeover. Task 01a10562-4902-73bd-84f8-f2a15a806028 released source/build/GUI with no saved or unsaved edits. Integrated selection sources: Preset 7f6e7f2, Text-on-Path df5986e, Macro e617b53; parent Window/CMake/help and focused repairs are in this checkpoint. build/selection-usable-tests.log: all five contracts PASS (Preset core, three dedicated UI controls, real production Window at 300px with one Undo/Redo/native readback). build/selection-load-qualified.log: owned production Desktop opened build/selection-usable-candidate.nect.json and live Session inspect matched it exactly; existing Nect preferences unchanged and owned PID released. Production binary SHA256 0EDB57D70F08F9550E963074990C3628078D1AEDA133D4DFC68C3F9C60A9960C. Every worker's native runtime was verified GPT-6.1 Sol.
 
-Source policy: [Fast Build / Bug Harvest Directive](https://app.notion.com/p/3eefd279a6f381e8a206ef658c90714a).
+**Next task:** Verify the synchronized checkpoint HEAD, then review and integrate the two released closure candidates, connect Window Publish/Update/Favorite Apply and register its focused test. Independently investigate the captured expanding Text-Macro repeat geometry refusal in an isolated Sol scope if it remains higher value. No source writer is active.
+
+**Approach / frozen closure:** Asset-only PortablePresetClosure holds one PresetDefinition and a map of referenced MacroDefinitions, all retained revisions unchanged. Asset payload schema3 is additive; old schemas1/2 canonical bytes and envelope v1 remain unchanged, native stays0.87. Whole payload <=256KiB. No neighbor-asset lookup, pruning, flattening or label/content dedup. Import allocates fresh outer Preset/Macro IDs, remaps only dependency refs, preserves graph-local IDs/pins/public IDs/numeric+boolean overrides, and commits dependencies/application in one Undo after serialization preflight. Library owns canonical/hash/schema/kind/storage guards. APIs and test source are in the released candidates.
+
+**Done for next:** Closure publish/read/update/Favorite Apply and exact native reopen pass on an owned workspace; legacy assets still read byte-identically; corrupt/missing/oversized/stale/later-target failures preserve Document/history/assets/settings. Save a coherent development checkpoint and continue eligible work. Do not claim whole Requirements or final acceptance from focused checks.
+
+**State / scope bindings:** Integration worktree D:/Documents/Nect-worktrees/sol-integration-20261004, branch codex/sol-integration-20261004; verify HEAD with git rev-parse HEAD. Parent chat 01a0f6eb-3eba-7d11-995b-d4c41be08ed2 currently owns integration/Window/CMake/build/Git until successor ACK and explicit release. All child source writers are released/interrupted. Unmerged core/IO candidate f6d03135134372c275c2a7708c3d6624b4bc38cb in D:/Documents/Nect-worktrees/sol-portable-preset-core-20261004, branch codex/sol-portable-preset-core-20261004 (core.hpp/io.hpp/core.cpp/io.cpp/new closure test/model docs). Unmerged library candidate 45457d97fec0e8afcb61cde0d705d936ea1f25ec in D:/Documents/Nect-worktrees/sol-portable-preset-library-20261004, branch codex/sol-portable-preset-library-20261004 (folder_library.hpp/.cpp + test). Both exact dispatch base55e0f1891bde27172b13f9ba0aab7f127d440739, clean and source-only; build/runtime NOT_RUN. Original D:/Documents/Nect remains clean on old practical-alpha HEAD01a9090. Keep all worktrees/branches.
+
+**Known residual / acceptance limits:** Repeating the expanding Offset5/Repeater2 Macro pin1 on two Text objects containing "Retained source" refuses OFFSET_GEOMETRY ("Offset could not produce a valid region"); the new UI reports it and preserves full Document/native/revision/history. Repeated Path and identity-geometry Text applications pass with distinct fresh IDs. Repro is tests/macro_batch_ui_tests.cpp. Treat this as an observed engine limitation/bug to investigate, not a silently supported capability. Physical GUI comfort/subjective acceptance and broad regression/interop/durability are NOT_RUN for these new controls. No full Requirement promotion. Task-27 unconfirmed Undo-delivery observation stays unconfirmed.
+
+**Resume commands:** In integration worktree: git status --short; git log -5 --oneline. Qt= D:/Documents/Nect/build/deps/6.5.3/msvc2019_64; Boost= D:/Documents/Nect/build/deps/boost_1_85_0. Reuse owned build cache. Set process-only PATH to Qt/bin, QT_PLUGIN_PATH to Qt/plugins, QT_QPA_PLATFORM=offscreen, QT_QPA_FONTDIR=C:/Windows/Fonts for offscreen checks. Build only selected targets under Local\NectBuild; CMake nect_io has /bigobj for MSVC. ctest --test-dir build -C Release -R '^(preset_contract|preset_batch_ui_contract|text_path_batch_ui_contract|macro_batch_ui_contract|selection_authoring_window_contract)$' --output-on-failure. For new source register portable_preset_closure_tests linked nect_io and build folder_library_tests + desktop. Deploy qoffscreen.dll separately for an owned offscreen production probe; windeployqt copies qwindows only. Last production load probe source/log is build/selection_load_smoke.py / selection-load-qualified.log (no need replay without new code). New source shape/request APIs are in the candidate headers.
+
+**Handoff:** NEW_TASK / HANDOFF_READY after development push and exact remote readback. Reason: this long continuation already crossed compaction; the next phase changes from selection-control integration to an additive portable asset/data contract with two released candidates. Reloading this compact Brief and exact HEAD is cheaper and clearer than carrying the completed UI/debug history. Create a fresh GPT-6.1 Sol in Nect GraphicsTool with effective full project authority/no routine approvals; require actual model/profile, HEAD/dirty/ownership verification and TAKEOVER_ACK in its own scratch before the old owner releases integration. Successor does not mutate the shared integration worktree until explicit release. If formal creation/access is unavailable, retain HANDOFF_READY with this complete resume state and report the missing capability.

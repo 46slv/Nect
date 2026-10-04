@@ -186,9 +186,23 @@ re-editing never changes already-applied snapshots. Publish Selected Preset to
 Library copies a built-in literal definition into the workspace Preset Library.
 Macro entries are not supported by the workspace Library yet.
 
+Select two or more whole Path/Text objects to use **Apply Preset to Selection**
+or **Apply Macro to Selection** in Properties. Choose a document Preset, or a
+document Macro and retained revision, then Apply. Each target receives fresh
+processing entries appended to its stack in one Undo step. Browsing and Cancel
+leave the document unchanged; an incompatible target rejects the entire batch.
+Selecting editable Text objects also exposes **Text on Path**: choose an authored
+Path and Contour, adjust start/spacing/direction, then Apply or Detach for the
+selection. Blank mixed fields keep each target's value. Existing single-line
+horizontal Text-on-Path limits still apply.
+Some repeated expanding Offset/Repeater Macros on Text outlines currently refuse
+with `OFFSET_GEOMETRY`; this leaves the entire selection and Undo history unchanged.
+
 The same API/MCP Session surface supports `presets`, `preset {id}` and single
 `apply` requests with `create_preset`, `create_preset_from_stack`, `rename_preset`,
-`update_preset`, `delete_preset`, `apply_preset` or `import_apply_preset`.
+`update_preset`, `delete_preset`, `apply_preset`, `apply_preset_batch` or `import_apply_preset`.
+`apply_preset_batch` takes a Preset ID and distinct target/prefix pairs; it validates
+every target before committing and returns the fresh operation IDs per target.
 `create_preset_from_stack` returns the exact captured source operation IDs and
 types. A workspace Preset Favorite or Quick Access slot imports and applies to
 the current selected Path/Text in one Undo step; it does not look up the source
