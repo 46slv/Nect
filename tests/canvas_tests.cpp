@@ -1601,8 +1601,16 @@ void snap_text_baseline_and_unsupported_axis_omission() {
     }
     {
         auto document=text_baseline_snap_document(true,false);
+        // Keep the canonical same-font H oracle, and isolate its baseline pair
+        // from the font-line box center. The common central column baseline is
+        // not that center; at 48 du their gap is only ~1.86 du, so the legitimate
+        // distance-first Snap instead chooses baseline-to-center at raw +15.
+        document.objects.at("moving-text").text->content="H";
+        document.objects.at("moving-text").text->parameters.at("font_size").literal=96;
         auto& target=*document.objects.at("target-text").text;
         target.direction="vertical";
+        target.content="H";
+        target.parameters.at("font_size").literal=96;
         target.parameters.at("origin_x").literal=40;
         target.parameters.at("origin_y").literal=320;
         document.objects.at("target-text").transform[4].literal=16;
@@ -1613,6 +1621,8 @@ void snap_text_baseline_and_unsupported_axis_omission() {
             "Vertical source and target each expose one measured column baseline");
         near(target_layout.column_baselines_x[0]-source_layout.column_baselines_x[0],0,
             "Matching vertical Text metrics isolate the target's authored 16-du translation");
+        check(std::abs(source_layout.column_baselines_x[0]-(source_layout.x+source_layout.width/2))>2,
+            "Measured column baseline is clear of the competing text-box center Snap");
         Fixture f(document);f.canvas.set_selection("moving-text");
         const auto start=f.screen(source_layout.x+source_layout.width/2,source_layout.y+source_layout.height/2);
         const auto end=start+QPoint(15,0);
@@ -1684,8 +1694,15 @@ void snap_text_baseline_and_unsupported_axis_omission() {
         target.parameters.at("origin_y").literal=320;
         document.objects.at("moving-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{0,{}}}};
         document.objects.at("target-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{16,{}}}};
+        document.objects.at("moving-text").text->content="H";
+        target.content="H";
+        document.objects.at("moving-text").text->parameters.at("font_size").literal=96;
+        target.parameters.at("font_size").literal=96;
         const auto& source=*document.objects.at("moving-text").text;
         const auto layout=evaluate_text(source,text_parameters(source));
+        check(layout.column_baselines_x.size()==1&&
+              std::abs(layout.column_baselines_x.front()-(layout.x+layout.width/2))>2,
+            "Quarter-turn measured column baseline is clear of the text-box center Snap");
         Fixture f(document);f.canvas.set_selection("moving-text");
         const QTransform quarter_turn(0,1,-1,0,220,0);
         const QPointF body_center(layout.x+layout.width/2,layout.y+layout.height/2);
