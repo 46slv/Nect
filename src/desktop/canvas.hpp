@@ -62,6 +62,8 @@ public:
     void set_draw_mode(bool enabled);
     void set_text_mode(bool enabled, bool vertical=false);
     bool text_mode() const {return text_mode_;}
+    void set_hand_mode(bool enabled);
+    bool hand_mode() const {return hand_mode_;}
     void set_anchor_edit(bool enabled);
     bool anchor_edit() const {return anchor_edit_;}
     void set_circle_source_edit(bool enabled);
@@ -231,6 +233,7 @@ private:
     Id circle_source_object_,circle_source_id_;
     bool draw_mode_ = false;
     bool text_mode_ = false;
+    bool hand_mode_ = false;
     bool vertical_text_creation_ = false;
     bool anchor_edit_ = false;
     bool circle_source_edit_ = false;

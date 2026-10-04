@@ -2,6 +2,7 @@
 #include <QAction>
 #include <QMenu>
 #include <QPainter>
+#include <QPainterPath>
 #include <QToolBar>
 #include <QToolButton>
 #include <functional>
@@ -10,7 +11,7 @@ namespace nect::desktop {
 // Workspace presentation only: activating a slot never authors a command.
 class ToolRail final : public QToolBar {
 public:
-    enum class Tool { selection, pen, text, anchor, guide, gradient };
+    enum class Tool { selection, pen, text, anchor, guide, gradient, hand };
     std::function<void(Tool)> activate;
     std::function<void(bool)> variant_chosen;
     explicit ToolRail(QWidget* parent=nullptr) : QToolBar("Tools",parent) {
@@ -40,6 +41,7 @@ public:
         anchor_=slot(Tool::anchor,"tool-anchor","Anchor Edit · Y");
         guide_=slot(Tool::guide,"tool-guide","Guide Edit");
         gradient_=slot(Tool::gradient,"tool-gradient","Gradient Edit");
+        hand_=slot(Tool::hand,"tool-hand","Hand · drag to pan the view · Esc exits");
         set_gradient_available(false,"Select one Object with an enabled Gradient.");
         set_active(Tool::selection);
     }
@@ -50,6 +52,7 @@ public:
         text_->setChecked(tool==Tool::text);anchor_->setChecked(tool==Tool::anchor);
         guide_->setChecked(tool==Tool::guide);
         gradient_->setChecked(tool==Tool::gradient);
+        hand_->setChecked(tool==Tool::hand);
     }
     void set_gradient_available(bool enabled,const QString& reason) {
         gradient_->setEnabled(enabled);
@@ -57,7 +60,7 @@ public:
         gradient_->setToolTip(label);gradient_->setAccessibleName(label);
     }
 private:
-    QToolButton *selection_,*pen_,*text_,*anchor_,*guide_,*gradient_;
+    QToolButton *selection_,*pen_,*text_,*anchor_,*guide_,*gradient_,*hand_;
     bool vertical_=false;
     static QIcon icon(Tool tool,bool vertical=false) {
         QIcon result;
@@ -72,6 +75,13 @@ private:
                 p.drawLine(3,8,17,8);p.drawLine(8,3,8,17);p.drawRect(QRectF(12,12,4,4));}
             else if(tool==Tool::gradient) {p.drawLine(4,14,16,6);p.drawRect(QRectF(2,12,4,4));
                 p.setBrush(QColor("#d7dfe8"));p.drawEllipse(QPointF(16,6),2,2);}
+            else if(tool==Tool::hand) {QPainterPath hand;hand.moveTo(7,17);
+                hand.lineTo(3,10);hand.cubicTo(2,8,4,7,5,9);hand.lineTo(6,11);
+                hand.lineTo(6,4);hand.cubicTo(6,2,8,2,8,4);hand.lineTo(8,9);
+                hand.lineTo(8,3);hand.cubicTo(8,1,10,1,10,3);hand.lineTo(10,9);
+                hand.lineTo(10,4);hand.cubicTo(10,2,12,2,12,4);hand.lineTo(12,9);
+                hand.lineTo(12,6);hand.cubicTo(12,4,14,4,14,6);hand.lineTo(14,13);
+                hand.lineTo(12,17);hand.closeSubpath();p.drawPath(hand);}
             else {p.drawLine(4,4,14,4);p.drawLine(9,4,9,16);p.drawLine(6,16,12,16);
                 if(vertical){p.drawLine(17,5,17,15);p.drawLine(15,12,17,15);p.drawLine(19,12,17,15);}}
             p.end();result.addPixmap(pixels);

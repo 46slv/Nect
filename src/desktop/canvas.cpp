@@ -668,7 +668,7 @@ void Canvas::leave_group() {
 
 void Canvas::set_draw_mode(bool enabled) {
     cancel_interaction();
-    if (enabled) {set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);set_guide_edit_mode(false);}
+    if (enabled) {set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);set_guide_edit_mode(false);}
     drawing_object_.clear();
     drawing_contour_.clear();
     if (draw_mode_ == enabled) return;
@@ -681,16 +681,27 @@ void Canvas::set_draw_mode(bool enabled) {
 void Canvas::set_text_mode(bool enabled, bool vertical) {
     if(!enabled&&!text_mode_)return;
     cancel_interaction();
-    if(enabled) {set_draw_mode(false);set_anchor_edit(false);clear_circle_source_edit();clear_gradient_edit();set_guide_edit_mode(false);}
+    if(enabled) {set_hand_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_circle_source_edit();clear_gradient_edit();set_guide_edit_mode(false);}
     text_mode_=enabled;
     if(enabled)vertical_text_creation_=vertical;
     update_cursor();update();
     if(text_mode_changed)text_mode_changed();
 }
 
+void Canvas::set_hand_mode(bool enabled) {
+    if(hand_mode_==enabled)return;
+    cancel_interaction();
+    if(enabled) {
+        set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);
+        set_guide_edit_mode(false);clear_gradient_edit();clear_circle_source_edit();
+    }
+    hand_mode_=enabled;
+    update_cursor();update();if(view_state_changed)view_state_changed();
+}
+
 void Canvas::set_anchor_edit(bool enabled) {
     cancel_interaction();
-    if(enabled) {set_text_mode(false);clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();set_guide_edit_mode(false);select(selected_object,{});}
+    if(enabled) {set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();set_guide_edit_mode(false);select(selected_object,{});}
     if(anchor_edit_==enabled)return;
     anchor_edit_=enabled;update_cursor();update();
     if(anchor_edit_changed)anchor_edit_changed(enabled);
@@ -726,7 +737,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
             throw Error("INVALID_SELECTION","Circle source handles require a selected retained Circle");
         if(circle_source_edit_&&circle_source_object_==object.id&&circle_source_id_==object.source->id)return;
         clear_circle_source_edit();
-        set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
+        set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
         circle_source_object_=object.id;circle_source_id_=object.source->id;circle_source_edit_=true;
         refresh();update_cursor();update();
         if(circle_source_edit_changed)circle_source_edit_changed(true);
@@ -734,7 +745,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
 }
 
 void Canvas::set_gradient_edit(Id object, Id operation) {
-    if(!operation.empty()){set_text_mode(false);set_guide_edit_mode(false);}
+    if(!operation.empty()){set_hand_mode(false);set_text_mode(false);set_guide_edit_mode(false);}
     cancel_interaction();
     clear_circle_source_edit();
     set_anchor_edit(false);
@@ -1276,7 +1287,7 @@ void Canvas::paintEvent(QPaintEvent*) {
         painter.drawText(breadcrumb_rect_.adjusted(10, 0, -10, 0), Qt::AlignVCenter,
                          painter.fontMetrics().elidedText(label, Qt::ElideRight,
                              static_cast<int>(breadcrumb_rect_.width() - 20)));
-        const auto hint = draw_mode_
+        const auto hint = hand_mode_ ? tr("Hand · Drag to pan the view · Esc exits · F: fit") : draw_mode_
             ? tr("Add Path · Click for points · Click first point to close · Enter / Esc to finish")
             : circle_source_edit_ ? tr("Circle source · Drag Center or Radius · Radius follows local +X · Esc exits")
             : anchor_edit_ ? tr("Anchor · Drag the crosshair to change the pivot; artwork stays in place · Esc exits")
@@ -1358,7 +1369,7 @@ void Canvas::set_show_margin(bool enabled) {
 void Canvas::set_guide_edit_mode(bool enabled) {
     if(guide_edit_mode_==enabled)return;
     if(!enabled&&(drag_==Drag::guide||armed_guide_))cancel_interaction();
-    if(enabled) {set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();clear_circle_source_edit();}
+    if(enabled) {set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();clear_circle_source_edit();}
     guide_edit_mode_=enabled;
     update_cursor();update();if(view_state_changed)view_state_changed();
 }
@@ -2323,7 +2334,7 @@ void Canvas::append_draw_point(QPointF screen) {
 void Canvas::mousePressEvent(QMouseEvent* event) {
     setFocus(Qt::MouseFocusReason);
     if (event->button() == Qt::MiddleButton ||
-        (event->button() == Qt::LeftButton && space_down_)) {
+        (event->button() == Qt::LeftButton && (space_down_ || hand_mode_))) {
         if(armed_guide_||scoped_guide_drag_)cancel_interaction();
         begin_drag(Drag::pan, event->position());
         event->accept();
@@ -2405,6 +2416,7 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
 
 void Canvas::mouseMoveEvent(QMouseEvent* event) {
     if (drag_ != Drag::none) update_drag(event->position());
+    else if (hand_mode_) update_cursor();
     else if (!space_down_ && !draw_mode_) {
         const auto hit = hit_control(event->position());
         setCursor((guide_edit_mode_&&(hit_armed_guide(event->position()).has_value()||hit_guide(event->position())))||hit.kind != Drag::none ? Qt::CrossCursor : Qt::ArrowCursor);
@@ -2421,7 +2433,7 @@ void Canvas::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void Canvas::mouseDoubleClickEvent(QMouseEvent* event) {
-    if (draw_mode_ || event->button() != Qt::LeftButton) return;
+    if (hand_mode_ || space_down_ || draw_mode_ || event->button() != Qt::LeftButton) return;
     cancel_interaction();
     if (const auto* item = hit_path(event->position())) {
         auto target = selection_target(*item);
@@ -2453,6 +2465,7 @@ void Canvas::wheelEvent(QWheelEvent* event) {
 void Canvas::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) {
         if (drag_ != Drag::none||armed_guide_) cancel_interaction();
+        else if (hand_mode_) set_hand_mode(false);
         else if (draw_mode_) set_draw_mode(false);
         else if (text_mode_) set_text_mode(false);
         else if(anchor_edit_)set_anchor_edit(false);
@@ -2544,7 +2557,7 @@ void Canvas::reset_timing() {
 
 void Canvas::update_cursor() {
     if (drag_ == Drag::pan) setCursor(Qt::ClosedHandCursor);
-    else if (space_down_) setCursor(Qt::OpenHandCursor);
+    else if (space_down_ || hand_mode_) setCursor(Qt::OpenHandCursor);
     else if(text_mode_)setCursor(Qt::IBeamCursor);
     else if (draw_mode_ || anchor_edit_ || circle_source_edit_ || guide_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
              drag_ == Drag::outgoing || drag_ == Drag::symmetric || drag_ == Drag::gradient_start ||
