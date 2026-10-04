@@ -27,10 +27,27 @@ Document text_fixture(){
  }
  return d;
 }
+Document vertical_text_fixture(){
+ auto d=text_fixture();
+ auto& a=*d.objects.at("text-a").text;auto& b=*d.objects.at("text-b").text;
+ a.content="\xe6\x97\xa5" "ABC" "\xe6\x9c\xac"; // Japanese and sideways Latin runs.
+ b.content="\xe7\xb8\xa6" "XYZ" "\xe6\x9b\xb8\xe3\x81\x8d";
+ a.direction=b.direction="vertical";
+ a.parameters.at("font_size").literal=24;b.parameters.at("font_size").literal=42;
+ a.parameters.at("origin_x").literal=12;b.parameters.at("origin_x").literal=45;
+ d.objects.at("text-a").transform[4].literal=80;d.objects.at("text-b").transform[4].literal=210;
+ return d;
+}
+double vertical_baseline(const Document& document,const Id& id){
+ const auto values=evaluate(document);const auto layout=evaluate_text_projection(document,id,values);
+ check(!layout.column_baselines_x.empty(),"Fixture exposes a measured vertical column baseline");
+ const auto transforms=evaluate_transforms(document,values);const auto& world=transforms.at(id).world;
+ return world[0]*layout.column_baselines_x.front()+world[4];
+}
 Bounds bounds(const Document& d,const Id& id){const auto v=evaluate(d);return *object_bounds(d,id,v,evaluate_transforms(d,v),true);}
 void apply(Session& s,AlignObjects c){s.apply({c},s.revision());}
 void apply(Session& s,DistributeObjects c){s.apply({c},s.revision());}
-void rejects(Session& s,AlignObjects c,const std::string& code){auto before=s.document();auto revision=s.revision();try{apply(s,c);throw std::runtime_error("Expected failure: "+code);}catch(const Error& e){check(e.code==code,e.what());}check(s.document()==before&&s.revision()==revision,"Failure must be atomic");}
+void rejects(Session& s,AlignObjects c,const std::string& code){auto before=s.document();auto revision=s.revision();const auto native=encode(before);const auto history=s.history();try{apply(s,c);throw std::runtime_error("Expected failure: "+code);}catch(const Error& e){check(e.code==code,e.what());}check(s.document()==before&&encode(s.document())==native&&s.revision()==revision&&s.history()==history,"Alignment failure must preserve document, native bytes, revision and full history");}
 void rejects(Session& s,DistributeObjects c,const std::string& code){auto before=s.document();auto revision=s.revision();const auto history=s.history().states.size();try{apply(s,c);throw std::runtime_error("Expected failure: "+code);}catch(const Error& e){check(e.code==code,e.what());}check(s.document()==before&&s.revision()==revision&&s.history().states.size()==history,"Distribution failure must preserve document and history");}
 std::string api_code(const std::string& response){const auto start=response.find("\"code\":\"");if(start==std::string::npos)return {};const auto value=start+8;const auto end=response.find('"',value);return response.substr(value,end-value);}
 int main(){try{
@@ -181,7 +198,7 @@ int main(){try{
   const auto values=evaluate(document);std::map<std::string,double> params;
   for(const auto& [name,value]:document.objects.at(id).text->parameters){(void)value;params.emplace(name,values.at({id,"","text."+name}));}
   const auto metric=evaluate_text(*document.objects.at(id).text,params).first_line_baseline_y;
-  check(metric.has_value(),"Fixture exposes a first-line metric");const auto& world=evaluate_transforms(document,values).at(id).world;
+  check(metric.has_value(),"Fixture exposes a first-line metric");const auto transforms=evaluate_transforms(document,values);const auto& world=transforms.at(id).world;
   return world[3]*(*metric)+world[5];
  };
  near(baseline(d,"text-b")-baseline(d,"text-a"),20);
@@ -196,6 +213,81 @@ int main(){try{
  d=text_fixture();d.objects.at("text-b").text->direction="vertical";Session vertical_text(d);
  rejects(vertical_text,AlignObjects{{"text-a","text-b"},"y","baseline",{},"selection"},"UNSUPPORTED_BASELINE");
  rejects(baseline_key,AlignObjects{{"text-a","text-b"},"y","baseline",{},"grid:grid"},"UNSUPPORTED_BASELINE_REFERENCE");
+ // First vertical column baselines also use measured metrics, including unequal fonts/mixed runs.
+ d=vertical_text_fixture();const auto vertical_before=d;
+ const auto vertical_source_before=d.objects.at("text-a");
+ check(vertical_baseline(d,"text-a")<vertical_baseline(d,"text-b"),"Vertical fixture has an unambiguous minimum Composition x baseline");
+ Session vertical_selection(d);const auto vertical_history=vertical_selection.history().states.size();
+ apply(vertical_selection,AlignObjects{{"text-b","text-a"},"x","baseline",{},"selection"});
+ near(vertical_baseline(vertical_selection.document(),"text-a"),vertical_baseline(vertical_selection.document(),"text-b"));
+ check(vertical_selection.document().objects.at("text-a")==vertical_source_before,"Vertical selection fixes the minimum-x source byte-identically");
+ for(const auto& id:{"text-a","text-b"}) {
+  const auto& before=vertical_before.objects.at(id);const auto& after=vertical_selection.document().objects.at(id);
+  check(after.text==before.text&&after.contours==before.contours,"Vertical alignment preserves editable content/style and source geometry");
+  near(after.transform[5].literal,before.transform[5].literal);
+ }
+ const auto vertical_aligned=vertical_selection.document();const auto vertical_bytes=encode(vertical_aligned);
+ check(decode(vertical_bytes)==vertical_aligned&&encode(decode(vertical_bytes))==vertical_bytes,"Vertical alignment native roundtrip is exact");
+ check(vertical_selection.revision()==1&&vertical_selection.history().states.size()==vertical_history+1,"Vertical alignment is one history step");
+ vertical_selection.undo(vertical_selection.revision());check(vertical_selection.document()==vertical_before,"One Undo restores vertical alignment exactly");
+ vertical_selection.redo(vertical_selection.revision());check(vertical_selection.document()==vertical_aligned,"One Redo restores vertical alignment exactly");
+ d=vertical_text_fixture();const auto vertical_key_before=d.objects.at("text-b");Session vertical_key(d);
+ apply(vertical_key,AlignObjects{{"text-a","text-b"},"x","baseline",{},"key_object:text-b"});
+ near(vertical_baseline(vertical_key.document(),"text-a"),vertical_baseline(vertical_key.document(),"text-b"));
+ check(vertical_key.document().objects.at("text-b")==vertical_key_before,"Vertical key Text remains byte-identical");
+ d=vertical_text_fixture();d.objects.at("text-b").text->content+="\n\xe6\x97\xa5\xe6\x9c\xac";
+ check(evaluate_text_projection(d,"text-b",evaluate(d)).column_baselines_x.size()==2,"Fixture has two measured vertical columns");
+ Session multi_column_vertical(d);apply(multi_column_vertical,AlignObjects{{"text-a","text-b"},"x","baseline",{},"key_object:text-b"});
+ near(vertical_baseline(multi_column_vertical.document(),"text-a"),vertical_baseline(multi_column_vertical.document(),"text-b"));
+ check(multi_column_vertical.document().objects.at("text-b")==d.objects.at("text-b"),"First-column alignment keeps all subsequent columns and the key source intact");
+ // Evaluated direction, rather than its horizontal retained literal, controls eligibility.
+ d=vertical_text_fixture();d.objects.at("text-b").text->direction="horizontal";
+ d.objects.at("text-b").text->direction_driver=TextDirectionDriver{{"text-a","","text.direction"}};
+ const auto linked_before=d.objects.at("text-b").text;Session linked_vertical(d);
+ apply(linked_vertical,AlignObjects{{"text-a","text-b"},"x","baseline",{},"selection"});
+ near(vertical_baseline(linked_vertical.document(),"text-a"),vertical_baseline(linked_vertical.document(),"text-b"));
+ check(linked_vertical.document().objects.at("text-b").text==linked_before&&
+     linked_vertical.document().objects.at("text-a")==d.objects.at("text-a"),"Vertical alignment honors direction links and retains both source and linked authored state");
+ // Composition coordinates include the axis scale, not just the Text-local origin.
+ d=vertical_text_fixture();d.objects.at("text-b").transform[0].literal=1.5;Session scaled_vertical(d);
+ apply(scaled_vertical,AlignObjects{{"text-a","text-b"},"x","baseline",{},"key_object:text-b"});
+ near(vertical_baseline(scaled_vertical.document(),"text-a"),vertical_baseline(scaled_vertical.document(),"text-b"));
+ check(scaled_vertical.document().objects.at("text-b")==d.objects.at("text-b"),"Scaled vertical key remains fixed");
+ // A fixed Text following a moved selected parent may not be compensated by rewriting its source transform.
+ d=vertical_text_fixture();d.objects.at("text-a").transform_parent="text-b";Session dependent_vertical_key(d);
+ rejects(dependent_vertical_key,AlignObjects{{"text-a","text-b"},"x","baseline",{},"key_object:text-a"},"ALIGNMENT_PRESERVATION");
+ d.objects.at("text-a").transform[4].literal=-100;
+ check(vertical_baseline(d,"text-a")<vertical_baseline(d,"text-b"),"Dependent source has the minimum Composition baseline");
+ Session dependent_vertical_source(d);
+ rejects(dependent_vertical_source,AlignObjects{{"text-b","text-a"},"x","baseline",{},"selection"},"ALIGNMENT_PRESERVATION");
+ // Exact baseline ties and reversed input order produce the same arrangement.
+ d=vertical_text_fixture();auto tied=d.objects.at("text-a");tied.id="text-c";tied.name="text-c";tied.text->id="text-c-source";
+ d.objects.emplace("text-c",tied);d.compositions[0].roots.push_back("text-c");Session tie_first(d),tie_reversed(d);
+ apply(tie_first,AlignObjects{{"text-c","text-b","text-a"},"x","baseline",{},"selection"});
+ apply(tie_reversed,AlignObjects{{"text-a","text-b","text-c"},"x","baseline",{},"selection"});
+ check(tie_first.document()==tie_reversed.document()&&tie_first.document().objects.at("text-a")==d.objects.at("text-a")&&
+     tie_first.document().objects.at("text-c")==tied,"Vertical selection exact ties are deterministic and stationary");
+ // Later invalid targets reject the entire batch, preserving a live Redo branch as well.
+ for(const auto& invalid:{"horizontal","blank","rotation","skew","path"}) {
+  d=vertical_text_fixture();auto bad_text=d.objects.at("text-b");bad_text.id="text-c";bad_text.name="text-c";bad_text.text->id="text-c-source";
+  const auto kind=std::string(invalid);
+  if(kind=="horizontal")bad_text.text->direction="horizontal";
+  if(kind=="blank")bad_text.text->content="";
+  if(kind=="rotation"){bad_text.transform[0].literal=0;bad_text.transform[1].literal=1;bad_text.transform[2].literal=-1;bad_text.transform[3].literal=0;}
+  if(kind=="skew")bad_text.transform[2].literal=0.2;
+  if(kind=="path")bad_text=rectangle("text-c",300,0,20,20);
+  d.objects.emplace("text-c",bad_text);d.compositions[0].roots.push_back("text-c");Session invalid_vertical(d);
+  invalid_vertical.apply({Set{{"text-a","","transform.ty"},3}},0);invalid_vertical.undo(invalid_vertical.revision());
+  const auto rejected_history=invalid_vertical.history();
+  rejects(invalid_vertical,AlignObjects{{"text-a","text-b","text-c"},"x","baseline",{},"selection"},"UNSUPPORTED_BASELINE");
+  invalid_vertical.redo(invalid_vertical.revision());near(invalid_vertical.document().objects.at("text-a").transform[5].literal,3);
+  check(invalid_vertical.history().states==rejected_history.states,"Rejected vertical batch preserves the existing Redo state");
+ }
+ Session horizontal_x(text_fixture());rejects(horizontal_x,AlignObjects{{"text-a","text-b"},"x","baseline",{},"selection"},"UNSUPPORTED_BASELINE");
+ Session vertical_y(vertical_text_fixture());rejects(vertical_y,AlignObjects{{"text-a","text-b"},"y","baseline",{},"selection"},"UNSUPPORTED_BASELINE");
+ Session vertical_reference(vertical_text_fixture());
+ for(const auto& reference:{"artboard:text-art","grid:missing","guide:missing"})
+  rejects(vertical_reference,AlignObjects{{"text-a","text-b"},"x","baseline",{},reference},"UNSUPPORTED_BASELINE_REFERENCE");
  // No-op arrangement does not consume a revision/history state; stale commands are atomic.
  d=exact_fixture();Session no_op(d);AlignObjects guide_no_op{{"a"},"x","min",{},"guide:guide-x"};apply(no_op,guide_no_op);
  const auto no_op_revision=no_op.revision();const auto no_op_history=no_op.history().states.size();const auto no_op_document=no_op.document();apply(no_op,guide_no_op);
@@ -220,6 +312,10 @@ int main(){try{
  check(api_code(alias_error)=="INVALID_REFERENCE"&&alias_conflict.document()==alias_before&&alias_conflict.revision()==0,"JSON rejects simultaneous alias and explicit reference atomically");
  Session json_baseline(text_fixture());const auto baseline_api=request(json_baseline,R"({"op":"apply","expected_revision":0,"commands":[{"type":"align_objects","objects":["text-a","text-b"],"axis":"y","alignment":"baseline","reference":"selection"}]})");
  check(json_ok(baseline_api)&&baseline_api.find("\"revision\":1")!=std::string::npos,"JSON API uses the actual baseline Session command");
+ Session json_vertical(vertical_text_fixture());const auto vertical_api=request(json_vertical,R"({"op":"apply","expected_revision":0,"commands":[{"type":"align_objects","objects":["text-b","text-a"],"axis":"x","alignment":"baseline","reference":"selection"}]})");
+ check(json_ok(vertical_api)&&json_vertical.revision()==1&&json_vertical.document()==vertical_aligned,"JSON x baseline uses the same measured Session command");
+ Session json_vertical_key(vertical_text_fixture());const auto vertical_key_api=request(json_vertical_key,R"({"op":"apply","expected_revision":0,"commands":[{"type":"align_objects","objects":["text-a","text-b"],"axis":"x","alignment":"baseline","reference":"key_object:text-b"}]})");
+ check(json_ok(vertical_key_api)&&json_vertical_key.document()==vertical_key.document(),"JSON x baseline uses the exact selected key Text");
  Session guide_distribution(exact_fixture());const auto guide_error=request(guide_distribution,R"({"op":"apply","expected_revision":0,"commands":[{"type":"distribute_objects","objects":["a"],"axis":"x","reference":"guide:guide-x"}]})");
  check(api_code(guide_error)=="UNSUPPORTED_DISTRIBUTION_REFERENCE"&&guide_distribution.revision()==0,"JSON Guide Distribute has explicit unsupported error");
  Session stale_api(exact_fixture());const auto first_apply=request(stale_api,R"({"op":"apply","expected_revision":0,"commands":[{"type":"align_objects","objects":["a"],"axis":"x","alignment":"min","reference":"guide:guide-x"}]})");

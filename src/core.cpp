@@ -5764,7 +5764,6 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
             "guide_artboard requires a Guide alignment reference without the legacy Artboard alias");
     }
     const bool baseline=alignment&&*alignment=="baseline";
-    if(baseline)require(axis=="y","INVALID_ALIGNMENT","First-line baseline alignment only supports y");
     if(alignment)require(!spacing,"UNEXPECTED_SPACING","Spacing is only valid for key-object distribution");
     if(!alignment&&target.kind!=ReferenceKind::key_object)
         require(!spacing,"UNEXPECTED_SPACING","Explicit spacing is only valid for key-object distribution");
@@ -5839,6 +5838,27 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         }
     }
     const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
+    const auto measured_baselines=[&](const std::map<Ref,double>& scalar_values,
+        const std::map<Id,EvaluatedTransform>& evaluated_transforms) {
+        std::map<Id,double> result;
+        for(const auto& id:objects) {
+            const auto& object=document.objects.at(id);
+            require(object.kind==Kind::text&&object.text.has_value(),"UNSUPPORTED_BASELINE","Baseline alignment requires Text objects with a measured metric: "+id);
+            const auto layout=evaluate_text_projection(document,id,scalar_values);
+            const auto metric=axis=="x"?
+                (layout.column_baselines_x.empty()?std::optional<double>{}:std::optional<double>{layout.column_baselines_x.front()}):
+                layout.first_line_baseline_y;
+            require(metric.has_value(),"UNSUPPORTED_BASELINE",axis=="x"?
+                "Text has no vertical first-column baseline metric: "+id:"Text has no horizontal first-line baseline metric: "+id);
+            const auto& world=evaluated_transforms.at(id).world;
+            require(world[1]==0&&world[2]==0,"UNSUPPORTED_BASELINE","Rotated or non-axis-aligned Text has no supported baseline: "+id);
+            const auto coordinate=axis=="x"?world[0]*(*metric)+world[4]:world[3]*(*metric)+world[5];
+            finite(coordinate);result.emplace(id,coordinate);
+        }
+        return result;
+    };
+    // Validate every baseline before solving any displacement, including Text with no bounds.
+    const auto baselines=baseline?measured_baselines(values,transforms):std::map<Id,double>{};
     std::map<Id,Bounds> initial;std::optional<Bounds> selection_bounds;
     for(const auto& id:objects) {
         const auto bounds=object_bounds(document,id,values,transforms,true);require(bounds.has_value(),"EMPTY_BOUNDS","Object has no geometric bounds: "+id);
@@ -5862,33 +5882,23 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         }
         return std::nullopt;
     };
-    const auto first_line_baselines=[&](const std::map<Ref,double>& scalar_values,
-        const std::map<Id,EvaluatedTransform>& evaluated_transforms) {
-        std::map<Id,double> result;
-        for(const auto& id:objects) {
-            const auto& object=document.objects.at(id);
-            require(object.kind==Kind::text&&object.text.has_value(),"UNSUPPORTED_BASELINE","Baseline alignment requires Text objects with a first-line metric: "+id);
-            const auto layout=evaluate_text_projection(document,id,scalar_values);
-            require(layout.first_line_baseline_y.has_value(),"UNSUPPORTED_BASELINE","Text has no horizontal first-line baseline metric: "+id);
-            const auto& world=evaluated_transforms.at(id).world;
-            require(world[1]==0&&world[2]==0,"UNSUPPORTED_BASELINE","Rotated or non-axis-aligned Text has no supported baseline: "+id);
-            const auto y=world[3]*(*layout.first_line_baseline_y)+world[5];finite(y);result.emplace(id,y);
-        }
-        return result;
-    };
     std::map<Id,Vec2> displacements;
     for(const auto& id:objects)displacements.emplace(id,Vec2{});
     double baseline_target=0;
+    std::optional<std::pair<Id,Object>> fixed_baseline_object;
     if(alignment) {
         if(baseline) {
-            const auto baselines=first_line_baselines(values,transforms);
             Id source;
             if(target.kind==ReferenceKind::key_object)source=target.id;
             else source=*std::min_element(objects.begin(),objects.end(),[&](const Id& a,const Id& b){
                 return baselines.at(a)==baselines.at(b)?a<b:baselines.at(a)<baselines.at(b);
             });
             baseline_target=baselines.at(source);
-            for(const auto& id:objects)if(id!=source)displacements.at(id).y=baseline_target-baselines.at(id);
+            fixed_baseline_object.emplace(source,document.objects.at(source));
+            for(const auto& id:objects)if(id!=source) {
+                const auto delta=baseline_target-baselines.at(id);
+                displacements.at(id)=axis=="x"?Vec2{delta,0}:Vec2{0,delta};
+            }
         } else {
             const auto coordinate=[&](const Bounds& bounds){
                 const auto minimum=axis=="x"?bounds.left:bounds.top,maximum=axis=="x"?bounds.right:bounds.bottom;
@@ -5959,6 +5969,9 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         }
     }
     translate_objects(document,objects,displacements);
+    if(fixed_baseline_object)
+        require(document.objects.at(fixed_baseline_object->first)==fixed_baseline_object->second,"ALIGNMENT_PRESERVATION",
+            "Fixed baseline Text authored state changed through a transform dependency");
     const auto after_values=evaluate(document);const auto after_transforms=evaluate_transforms(document,after_values);
     for(const auto& [id,before]:initial) {
         const auto after=object_bounds(document,id,after_values,after_transforms,true);const auto delta=displacements.at(id);
@@ -5967,9 +5980,9 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
             "Dependent geometry changed during layout; resolve the dependency before arranging");
     }
     if(baseline) {
-        const auto after_baselines=first_line_baselines(after_values,after_transforms);
+        const auto after_baselines=measured_baselines(after_values,after_transforms);
         for(const auto& [id,value]:after_baselines) {
-            (void)id;require(transform_equal(value,baseline_target),"ALIGNMENT_PRESERVATION","First-line baseline changed during alignment");
+            (void)id;require(transform_equal(value,baseline_target),"ALIGNMENT_PRESERVATION","Measured baseline changed during alignment");
         }
     }
 }

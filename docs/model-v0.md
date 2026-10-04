@@ -1224,6 +1224,16 @@ geometry/reference side effects reject as ALIGNMENT_PRESERVATION. Session applie
 the command atomically with ordinary history. No persistent layout constraint or
 new saved format is introduced.
 
+`alignment: "baseline"` accepts axis-aligned Text with `selection` or
+`key_object:ID`: y uses the measured first horizontal line, x the measured first
+vertical column. Evaluated direction links participate in the shared Text
+projection. Selection fixes the minimum Composition baseline (stable ID breaks
+exact ties); the key reference fixes that exact selected Text. Only transforms
+move; source text/style and the fixed object remain authored unchanged. Mixed or
+incompatible directions, rotated/skewed Text, missing metrics and Artboard/Grid/
+Guide baseline references reject atomically. No glyph-box edge substitutes for
+a metric, no baseline distribution or persistent constraint is introduced.
+
 `DistributeObjects` / `distribute_objects` shares the alignment bounds and
 simultaneous translation solver. It requires3–1000 unique objects in one
 Composition, axis x/y, no structural overlapping selection. Sort by starting
