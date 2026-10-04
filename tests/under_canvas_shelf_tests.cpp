@@ -65,7 +65,10 @@ QAction* toolbar_action(QToolBar& toolbar,const QString& label) {
 }
 QRect in_widget(QWidget& widget,QWidget& parent) {return {widget.mapTo(&parent,QPoint{}),widget.size()};}
 void reveal(QScrollArea& scroll,QWidget& control) {
-    scroll.ensureWidgetVisible(&control,0,0);settle();
+    // Qt's ensureWidgetVisible targets an editor's input-method cursor rect.
+    // Scroll the complete control bounds so the spinbox arrows are covered too.
+    const auto bounds=in_widget(control,*scroll.widget());
+    scroll.ensureVisible(bounds.center().x(),bounds.center().y(),bounds.width()/2+1,bounds.height()/2+1);settle();
     if(!scroll.viewport()->rect().contains(in_widget(control,*scroll.viewport()))) {
         const auto r=in_widget(control,*scroll.viewport());
         std::cerr<<"Unreached control "<<control.objectName().toStdString()<<" at "<<r.x()<<","<<r.y()<<" "<<r.width()<<"x"<<r.height()
