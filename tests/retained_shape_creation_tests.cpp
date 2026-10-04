@@ -5,6 +5,8 @@
 #include <QApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMouseEvent>
+#include <QPushButton>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -77,19 +79,19 @@ void tool(Window& w){
         !w.canvas->text_mode()&&!w.canvas->hand_mode()&&!w.canvas->zoom_mode()&&
         !w.canvas->anchor_edit()&&!w.canvas->guide_edit_mode(),"One-shot creation/source edits retain explicit Direct Selection Tool");
 }
-void geometry(Window& w,const Id& id,bool circle,double width,double height){
+void geometry(Window& w,const Id& id,bool circle,double width,double height,double cx=320,double cy=240){
     const auto& o=w.host.session.document().objects.at(id);const auto& source=*o.source;
     const auto& values=w.canvas->evaluated_values();
     if(circle){
         const auto r=width/2;
-        check(values.at({id,source.id+"-east","x"})==320+r&&values.at({id,source.id+"-west","x"})==320-r&&
-            values.at({id,source.id+"-north","y"})==240-r&&values.at({id,source.id+"-south","y"})==240+r,
+        check(values.at({id,source.id+"-east","x"})==cx+r&&values.at({id,source.id+"-west","x"})==cx-r&&
+            values.at({id,source.id+"-north","y"})==cy-r&&values.at({id,source.id+"-south","y"})==cy+r,
             "Independent analytic Circle anchors follow precise retained radius");
     }else{
-        check(values.at({id,source.id+"-top-left","x"})==320-width/2&&
-            values.at({id,source.id+"-top-left","y"})==240-height/2&&
-            values.at({id,source.id+"-bottom-right","x"})==320+width/2&&
-            values.at({id,source.id+"-bottom-right","y"})==240+height/2,
+        check(values.at({id,source.id+"-top-left","x"})==cx-width/2&&
+            values.at({id,source.id+"-top-left","y"})==cy-height/2&&
+            values.at({id,source.id+"-bottom-right","x"})==cx+width/2&&
+            values.at({id,source.id+"-bottom-right","y"})==cy+height/2,
             "Independent analytic Rectangle corners follow precise retained dimensions");
     }
     const auto scale=w.devicePixelRatioF();
@@ -103,10 +105,100 @@ void geometry(Window& w,const Id& id,bool circle,double width,double height){
         }
     check(count>100,"Production artboard renderer paints the actual created shape");
     const auto close=[&](double pixel,double expected){return std::abs(pixel/scale-expected)<1.6;};
-    check(close(left,320-width/2-stroke/2)&&close(right+1,320+width/2+stroke/2)&&
-        close(top,240-height/2-stroke/2)&&close(bottom+1,240+height/2+stroke/2),
+    std::cout<<"bounds="<<left<<","<<top<<","<<right<<","<<bottom<<" expected="<<cx-width/2-stroke/2<<","<<cy-height/2-stroke/2
+        <<","<<cx+width/2+stroke/2<<","<<cy+height/2+stroke/2<<" DPR="<<scale<<std::endl;
+    check(close(left,cx-width/2-stroke/2)&&close(right+1,cx+width/2+stroke/2)&&
+        close(top,cy-height/2-stroke/2)&&close(bottom+1,cy+height/2+stroke/2),
         "Rendered stroke bounds match independently computed source dimensions");
     std::cout<<"shape="<<source.type<<" source="<<width<<"x"<<height<<" pixels="<<left<<","<<top<<","<<right<<","<<bottom<<" DPR="<<scale<<'\n';
+}
+void source_handles(Window& w,QTemporaryDir& scratch,QSettings& preferences,const Id& id,const Snapshot& before_creation){
+    auto& s=w.host.session;
+    auto entry=[&]{
+        auto* button=w.findChild<QPushButton*>("circle-source-handles");
+        auto* inspector=w.findChild<QScrollArea*>("inspector-scroll");
+        check(button&&inspector,"Real retained Circle Inspector handle entry exists");inspector->ensureWidgetVisible(button);events();
+        check(reachable(button),"Real Circle source-handle entry is fully reachable");
+        const Snapshot before(s);QTest::mouseClick(button,Qt::LeftButton);events();before.unchanged(s);
+    };
+    const auto selection=w.canvas->selections();entry();
+    check(w.canvas->circle_source_edit()&&!w.canvas->direct_selection_mode()&&
+        w.findChild<QToolButton*>("tool-selection")->isChecked()&&w.canvas->selections()==selection,
+        "Actual Inspector entry exposes temporary Circle source mode and neutral selection with explicit Rail state");
+    const auto created=s.document();const auto created_history=s.history().current_id;
+    const Ref radius{id,{},"generator.radius"},x{id,{},"generator.center_x"},y{id,{},"generator.center_y"};
+    auto screen=[&](double px,double py){return QPoint(qRound(w.canvas->width()/2.0+(px-320)*w.canvas->zoom()),
+        qRound(w.canvas->height()/2.0+(py-240)*w.canvas->zoom()));};
+    auto move=[&](QPoint target){
+        QMouseEvent event(QEvent::MouseMove,target,w.canvas->mapToGlobal(target),Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(w.canvas,&event);events();
+    };
+    auto drag=[&](QPoint start,QPoint delta,const std::vector<Ref>& refs){
+        const Snapshot before(s);const auto zoom=w.canvas->zoom();
+        QTest::mousePress(w.canvas,Qt::LeftButton,Qt::NoModifier,start);events();
+        check(s.gesture_active(),"Actual source-handle press owns one canonical Session gesture");move(start+delta);
+        check(s.document()==before.document&&encode(s.document())==before.native&&s.revision()==before.revision&&s.history()==before.history,
+            "Real source-handle preview preserves complete committed source/native/revision/history");
+        const auto& preview=s.preview_document();
+        if(refs.size()==1)check(std::abs(property(preview,radius).literal-(property(before.document,radius).literal+delta.x()/zoom))<1e-9,
+            "Radius preview follows independently computed local pointer displacement");
+        else check(std::abs(property(preview,x).literal-(property(before.document,x).literal+delta.x()/zoom))<1e-9&&
+            std::abs(property(preview,y).literal-(property(before.document,y).literal+delta.y()/zoom))<1e-9,
+            "Center preview follows independently computed two-axis local pointer displacement");
+        // Coordinate arithmetic above independently qualifies the numeric result. Use its exact
+        // observed double for the command oracle to avoid treating inverse-transform roundoff as mutation.
+        Session oracle(before.document);std::vector<Command> commands;
+        for(const auto& ref:refs)commands.push_back(Set{ref,property(preview,ref).literal});
+        oracle.apply(commands,oracle.revision());
+        check(preview==oracle.document(),"Complete real preview equals canonical source-only command oracle");
+        QTest::mouseRelease(w.canvas,Qt::LeftButton,Qt::NoModifier,start+delta);events();
+        check(!s.gesture_active()&&s.revision()==before.revision+1&&s.document()==oracle.document(),
+            "Actual source-handle release commits exactly one source-only History edit");
+        check(s.document().objects.at(id).source->id==created.objects.at(id).source->id&&!s.document().objects.at(id).point_edit,
+            "Source-handle editing retains exact generator identity without PointEdit or conversion");
+    };
+    geometry(w,id,true,200,200);source_input(w,id,"generator.radius");evidence(w,"circle-source-entry");
+    drag(screen(420,240),QPoint(12,0),{radius});
+    const auto after_radius=s.document();const auto radius_history=s.history().current_id;
+    const auto r=property(after_radius,radius).literal;
+    geometry(w,id,true,2*r,2*r);
+    drag(screen(320,240),QPoint(8,-6),{x,y});
+    const auto after_center=s.document();const auto center_history=s.history().current_id;
+    const auto cx=property(after_center,x).literal,cy=property(after_center,y).literal;
+    geometry(w,id,true,2*r,2*r,cx,cy);source_input(w,id,"generator.radius");evidence(w,"circle-source-edited");
+    const Snapshot cancel(s);const auto center=screen(cx,cy);
+    QTest::mousePress(w.canvas,Qt::LeftButton,Qt::NoModifier,center);events();
+    std::cout<<"cancel press="<<center.x()<<","<<center.y()<<" Canvas="<<w.canvas->width()<<"x"<<w.canvas->height()
+        <<" zoom="<<w.canvas->zoom()<<" source-mode="<<w.canvas->circle_source_edit()<<" gesture="<<s.gesture_active()
+        <<" drag-threshold="<<QApplication::startDragDistance()<<std::endl;
+    move(center+QPoint(4,4));
+    check(s.gesture_active()&&s.preview_document()==cancel.document&&s.revision()==cancel.revision&&s.history()==cancel.history,
+        "Motion below actual Qt drag threshold preserves the uncommitted source");
+    move(center+QPoint(12,10));
+    std::cout<<"cancel moved gesture="<<s.gesture_active()<<" document-equal="<<(s.preview_document()==cancel.document)
+        <<" selection="<<w.canvas->selected_object<<" point="<<w.canvas->selected_point<<std::endl;
+    check(s.gesture_active()&&s.preview_document()!=cancel.document,"Additional real Center gesture has an explicit uncommitted preview");
+    QTest::keyClick(w.canvas,Qt::Key_Escape);events();QTest::mouseRelease(w.canvas,Qt::LeftButton,Qt::NoModifier,center+QPoint(12,10));events();
+    check(!s.gesture_active()&&s.document()==cancel.document&&encode(s.document())==cancel.native&&
+        s.revision()==cancel.revision&&s.history()==cancel.history,"Escape cancels source preview without authored/history mutation");
+    if(w.canvas->circle_source_edit()){const Snapshot exit(s);QTest::keyClick(w.canvas,Qt::Key_Escape);events();exit.unchanged(s);}
+    check(!w.canvas->circle_source_edit(),"Idle Escape exits temporary source handles");
+    entry();check(w.canvas->circle_source_edit(),"Actual Inspector re-entry exposes the same retained source");
+    entry();check(!w.canvas->circle_source_edit(),"Actual Inspector Finish button exits temporary handles without mutation");
+    const std::vector<Document> states{before_creation.document,created,after_radius,after_center};
+    const std::vector<std::uint64_t> ids{before_creation.history.current_id,created_history,radius_history,center_history};
+    for(std::size_t i=states.size()-1;i>0;--i){history(w,"Undo");check(s.document()==states[i-1]&&s.history().current_id==ids[i-1],
+        "Existing Undo exactly restores each complete source gesture and creation boundary");}
+    for(std::size_t i=1;i<states.size();++i){history(w,"Redo");check(s.document()==states[i]&&s.history().current_id==ids[i],
+        "Existing Redo exactly restores each complete source gesture and creation boundary");}
+    w.canvas->set_selection(id);events();entry();check(w.canvas->circle_source_edit(),"Temporary handles are active during native save");
+    const auto native=scratch.filePath("source-handles.nect");const Snapshot save(s);w.host.save(native);events();save.unchanged(s);
+    w.host.open(native);events();check(s.document()==after_center,
+        "Same Window native reopen preserves exact source saved with temporary handles active");
+    std::cout<<"same-Window reopened source-mode="<<w.canvas->circle_source_edit()<<std::endl;
+    Window reopened(scratch.filePath("source-handle-reopened"),std::make_unique<FolderLibrary>(preferences),&preferences);
+    reopened.host.open(native);events();check(reopened.host.session.document()==after_center&&!reopened.canvas->circle_source_edit(),
+        "New Window native reopen preserves exact source and omits temporary handle mode");
 }
 void run(QTemporaryDir& scratch,QSettings& preferences,bool circle){
     const QString prefix=circle?"circle":"rectangle";
@@ -136,6 +228,7 @@ void run(QTemporaryDir& scratch,QSettings& preferences,bool circle){
     else{source.parameters.emplace("width",Scalar{220,{}});source.parameters.emplace("height",Scalar{140,{}});}
     Session oracle(before.document);oracle.apply({CreatePrimitive{"composition",{},id,created_object.name,source}},oracle.revision());
     check(s.document()==oracle.document(),"Actual creation equals independent canonical centered-source oracle for complete Document");
+    if(QCoreApplication::arguments().contains("--source-handles-probe")){source_handles(w,scratch,preferences,id,before);return;}
     std::vector<Document> states{before.document,s.document()};
     std::vector<std::uint64_t> history_ids{before.history.current_id,s.history().current_id};
     geometry(w,id,circle,circle?200:220,circle?200:140);
@@ -181,7 +274,8 @@ int main(int argc,char** argv){
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
         QSettings preferences(scratch.filePath("preferences.ini"),QSettings::IniFormat);
         preferences.setValue("unrelated","preserved");preferences.setValue("workspace/tools/textCreationDirection","vertical");
-        run(scratch,preferences,true);run(scratch,preferences,false);
+        run(scratch,preferences,true);
+        if(!QCoreApplication::arguments().contains("--source-handles-probe"))run(scratch,preferences,false);
         std::cout<<"PASS "<<checks<<" actual Utility retained-shape creation/precision checks\n";return 0;
     }catch(const std::exception& e){std::cerr<<"FAIL after "<<checks<<": "<<e.what()<<'\n';return 1;}
 }
