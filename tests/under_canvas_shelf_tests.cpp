@@ -65,7 +65,15 @@ QAction* toolbar_action(QToolBar& toolbar,const QString& label) {
 }
 QRect in_widget(QWidget& widget,QWidget& parent) {return {widget.mapTo(&parent,QPoint{}),widget.size()};}
 void reveal(QScrollArea& scroll,QWidget& control) {
-    scroll.ensureWidgetVisible(&control,0,0);settle();
+    // Qt's ensureWidgetVisible targets an editor's input-method cursor rect.
+    // Scroll the complete control bounds so the spinbox arrows are covered too.
+    const auto bounds=in_widget(control,*scroll.widget());
+    scroll.ensureVisible(bounds.center().x(),bounds.center().y(),bounds.width()/2+1,bounds.height()/2+1);settle();
+    if(!scroll.viewport()->rect().contains(in_widget(control,*scroll.viewport()))) {
+        const auto r=in_widget(control,*scroll.viewport());
+        std::cerr<<"Unreached control "<<control.objectName().toStdString()<<" at "<<r.x()<<","<<r.y()<<" "<<r.width()<<"x"<<r.height()
+            <<" in "<<scroll.viewport()->width()<<"x"<<scroll.viewport()->height()<<" scroll "<<scroll.horizontalScrollBar()->value()<<"/"<<scroll.horizontalScrollBar()->maximum()<<'\n';
+    }
     check(scroll.viewport()->rect().contains(in_widget(control,*scroll.viewport())),
         "Every shelf control is fully reachable through horizontal scrolling");
     check(control.visibleRegion().contains(control.rect().center()),"Reached shelf control has an unclipped hit center");
@@ -120,8 +128,8 @@ void composition_and_geometry(Window& window,ViewportLayout& viewport) {
         viewport.set_utility_placement(placement);settle();
         check(viewport.utility_scroll()==scroll&&viewport.utility_contents()==contents,
             "Shelf relocation preserves existing scroll and strip identity");
-        check(placement==UtilityPlacement::bottom?window.canvas->geometry().bottom()<scroll->geometry().top():
-            scroll->geometry().bottom()<window.canvas->geometry().top(),"Shelf relocation changes only positional layout order");
+        check(placement==UtilityPlacement::bottom?window.canvas->QWidget::geometry().bottom()<scroll->geometry().top():
+            scroll->geometry().bottom()<window.canvas->QWidget::geometry().top(),"Shelf relocation changes only positional layout order");
         before.unchanged(window.host.session);
     }
     check(window.tabPosition(Qt::RightDockWidgetArea)==QTabWidget::North,"Properties and Effects dock tabs are on top");

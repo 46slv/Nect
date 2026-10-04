@@ -7521,8 +7521,11 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 amount_layout->addWidget(editor);
                 add_semantic_scrub(amount_layout,editor,{amount_ref},metadata,true);
                 if(reset) {
-                    auto* reset_row=new QHBoxLayout;reset_row->setContentsMargins(0,0,0,0);reset_row->addStretch();
-                    reset->setToolTip("Restore the value published by the pinned Macro revision.");reset_row->addWidget(reset);amount_column->addLayout(reset_row);
+                    // The Inspector can retain a wider minimum content size.
+                    // Keep Reset beside its field's left edge so the default
+                    // horizontal viewport shows the complete button.
+                    auto* reset_row=new QHBoxLayout;reset_row->setContentsMargins(0,0,0,0);
+                    reset->setToolTip("Restore the value published by the pinned Macro revision.");reset_row->addWidget(reset);reset_row->addStretch();amount_column->addLayout(reset_row);
                     connect(reset,&QPushButton::clicked,this,[this,editor,id=object.id,instance=operation.id,parameter_id,
                         frozen_macro_session,frozen_macro_revision]{
                         editor->setModified(false);
