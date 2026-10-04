@@ -458,7 +458,7 @@ void Canvas::select_all_in_context() {
 }
 
 void Canvas::nudge_selection(double dx,double dy) {
-    if(drag_!=Drag::none||gesture_owned_||draw_mode_||anchor_edit_||gradient_edit_mode_||guide_edit_mode_||selections_.empty())return;
+    if(drag_!=Drag::none||gesture_owned_||draw_mode_||anchor_edit_||gradient_edit_mode_||guide_edit_mode_||hand_mode_||zoom_mode_||selections_.empty())return;
     try {
         std::vector<Command> commands;
         if(selected_point.empty())commands.push_back(TranslateObjects{selected_objects(),dx,dy});

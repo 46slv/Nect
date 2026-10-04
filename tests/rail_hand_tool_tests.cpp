@@ -4,12 +4,15 @@
 #include <QApplication>
 #include <QDockWidget>
 #include <QFocusEvent>
+#include <QKeyEvent>
 #include <QMenu>
 #include <QSettings>
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QToolButton>
+#include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -77,10 +80,81 @@ void exclusive(Window& w){
         checked+=w.findChild<QToolButton*>(name)->isChecked();
     check(modes==1&&checked==1,"Exactly one Canvas mode and one named Rail slot are active");
 }
+void key_isolation(const char* tool){
+    QTemporaryDir scratch;check(scratch.isValid(),"Navigation key regression owns its files and settings");
+    QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window w(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);show(w);
+    auto& s=w.host.session;s=Session(fixture());w.host.edited();events();
+    auto* tree=w.findChild<QTreeWidget*>();check(tree&&tree->isVisible(),"Actual Structure tree is reachable");
+    QTreeWidgetItem* row=nullptr;
+    for(QTreeWidgetItemIterator i(tree);*i;++i)
+        if((*i)->data(0,Qt::UserRole).toString()=="hand-object"&&
+            (*i)->data(0,Qt::UserRole+1).toString().isEmpty()){row=*i;break;}
+    check(row!=nullptr,"Exact whole-Object Structure row exists");tree->scrollToItem(row);events();
+    QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(row).center());events();
+    check(w.canvas->selected_object=="hand-object"&&w.canvas->selected_point.empty(),
+        "Actual Structure pointer selects the whole artwork");
+    w.canvas->fit_artboard();events();
+    const auto authored=snapshot(s);click(w,tool);
+    auto* button=w.findChild<QToolButton*>(tool);
+    const auto active=[&]{return QString::fromLatin1(tool)=="tool-hand"?w.canvas->hand_mode():w.canvas->zoom_mode();};
+    check(active()&&button->isChecked()&&snapshot(s)==authored,"Navigation activation preserves full authored state");
+    const auto neutral=[&](Qt::Key key,Qt::KeyboardModifiers modifiers,bool repeat=false){
+        const auto before=snapshot(s);const auto selection=w.canvas->selections();
+        const auto center=red_center(*w.canvas);const auto zoom=w.canvas->zoom();
+        QApplication::setActiveWindow(&w);w.canvas->setFocus();events();
+        check(w.isActiveWindow()&&w.canvas->hasFocus(),"Arrow probe has actual active Window and Canvas focus");
+        if(repeat){QKeyEvent event(QEvent::KeyPress,key,modifiers,QString{},true,1);QApplication::sendEvent(w.canvas,&event);}
+        else QTest::keyClick(w.canvas,key,modifiers);
+        events();
+        std::cout<<tool<<" idle arrow: authored_equal="<<(snapshot(s)==before)<<" active="<<active()<<'\n';
+        check(snapshot(s)==before&&!s.gesture_active(),"Idle navigation arrow cannot author artwork or point edits");
+        check(active()&&button->isChecked()&&w.canvas->selections()==selection,
+            "Arrow preserves persistent navigation Tool and exact selection");
+        check(w.canvas->zoom()==zoom&&(red_center(*w.canvas)-center).manhattanLength()<0.01,
+            "Idle navigation arrow leaves the viewport unchanged");
+    };
+    neutral(Qt::Key_Right,Qt::NoModifier);neutral(Qt::Key_Down,Qt::ShiftModifier);
+    neutral(Qt::Key_Left,Qt::NoModifier,true);
+    click(w,"tool-selection");
+    const auto before=s.document();const auto revision=s.revision();const auto history=s.history().states.size();
+    Session oracle(before);oracle.apply({TranslateObjects{{"hand-object"},1,0}},oracle.revision());
+    QTest::keyClick(w.canvas,Qt::Key_Right);events();
+    check(s.document()==oracle.document()&&s.revision()==revision+1&&s.history().states.size()==history+1,
+        "Explicit Selection Arrow still authors one canonical TranslateObjects transaction");
+    const auto moved=s.document();s.undo(s.revision());w.host.edited();events();
+    check(s.document()==before,"One Undo restores the complete artwork");
+    s.redo(s.revision());w.host.edited();events();check(s.document()==moved,"One Redo restores the complete movement");
+    // Actual point discovery establishes a different selection context before returning to navigation.
+    click(w,"tool-direct-selection");
+    const auto& source=*before.objects.at("hand-object").source;
+    const QPoint corner(qRound(w.canvas->width()/2.0+(1-source.parameters.at("width").literal/2)*w.canvas->zoom()),
+        qRound(w.canvas->height()/2.0-source.parameters.at("height").literal/2*w.canvas->zoom()));
+    QTest::mouseClick(w.canvas,Qt::LeftButton,Qt::NoModifier,corner);events();
+    check(w.canvas->selected_object=="hand-object"&&w.canvas->selected_point=="hand-shape-top-left",
+        "Actual Direct Selection pointer discovers the retained stable anchor");
+    click(w,tool);neutral(Qt::Key_Up,Qt::ShiftModifier);
+    const auto file=scratch.filePath("navigation.nect.json");w.host.save(file);w.host.open(file);events();
+    check(s.document()==moved&&active()&&button->isChecked(),"Same Window native reopen preserves source and navigation Tool");
+    // Select through the live Structure again after Session replacement.
+    tree=w.findChild<QTreeWidget*>();row=nullptr;
+    for(QTreeWidgetItemIterator i(tree);*i;++i)
+        if((*i)->data(0,Qt::UserRole).toString()=="hand-object"&&
+            (*i)->data(0,Qt::UserRole+1).toString().isEmpty()){row=*i;break;}
+    check(row!=nullptr,"Reopened exact Structure row exists");tree->scrollToItem(row);events();
+    QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(row).center());events();
+    neutral(Qt::Key_Right,Qt::NoModifier);
+    QTest::keyClick(w.canvas,Qt::Key_Escape);events();
+    check(!active()&&w.findChild<QToolButton*>("tool-selection")->isChecked()&&s.document()==moved,
+        "Explicit Escape returns navigation to Selection without authoring");
+    std::cout<<"navigation_key_isolation: "<<tool<<' '<<checks<<" checks passed; DPR="<<w.devicePixelRatioF()<<'\n';
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try {
+        if(app.arguments().contains("--hand-key-isolation")){key_isolation("tool-hand");return 0;}
+        if(app.arguments().contains("--zoom-key-isolation")){key_isolation("tool-zoom");return 0;}
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
         QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
         preferences.setValue("unrelated","preserve");preferences.setValue("workspace/tools/textCreationDirection","vertical");
