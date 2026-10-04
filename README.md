@@ -456,9 +456,13 @@ accepted pixels available for editing, export and recovery.
 browse, search and explicit Refresh. Choose a PNG/JPEG item to Place Linked or
 Place Embedded through the same image import path. Favorites retain their exact
 folder/file, built-in Effect or workspace Preset AssetID and may use Quick Access
-slots 1–9; missing or unavailable items remain visible. Preset updates preserve
-the AssetID and Favorite while advancing its accepted revision. The bounded
-canonical Preset payload files are separate from the workspace roots/Favorites
+slots 1–9; missing or unavailable items remain visible.
+Folder Favorites and Quick Access check the current source before navigating;
+missing folders or paths replaced with files report the reason without changing
+the selected browse item or artwork. Refresh and reopening retain their exact
+Favorite identities and slots so restoring the source makes them usable again.
+Preset updates preserve the AssetID and Favorite while advancing its accepted
+revision. The bounded canonical Preset payload files are separate from the workspace roots/Favorites
 settings; publication does not silently create a Favorite.
 
 Windows WIC uses only its built-in PNG/JPEG codecs from bounded memory. Eight-bit

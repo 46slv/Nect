@@ -6009,10 +6009,16 @@ void Window::show_folder_library() {
     auto invoke_favorite=[&](const LibraryFavoriteV1& favorite) {
         if(const auto* item_ref=std::get_if<LibraryItemRefV1>(&favorite.target)) {
             if(item_ref->kind=="folder") {
-                const auto identity=library.comparison_key(*item_ref);auto* item=node_by_identity.value(identity,nullptr);
-                if(!item)throw Error("MISSING_LIBRARY_ROOT","The Favorite folder is no longer registered");
-                tree->setCurrentItem(item);tree->scrollToItem(item);
-                status->setText("Favorite opened "+display_ref(*item_ref));return;
+                try {
+                    const auto resolved=library.resolve(*item_ref);
+                    const auto identity=library.comparison_key(resolved.ref);auto* item=node_by_identity.value(identity,nullptr);
+                    if(!item)throw Error("MISSING_LIBRARY_ROOT","The Favorite folder is no longer registered");
+                    tree->setCurrentItem(item);tree->scrollToItem(item);
+                    status->setText("Favorite opened "+display_ref(resolved.ref));return;
+                } catch(const Error& error) {
+                    status->setText(display_ref(*item_ref)+" · "+qs(error.code)+": "+QString::fromUtf8(error.what()));
+                    throw;
+                }
             }
             place_ref(*item_ref,"linked",frozen_session,expected_revision);
             frozen_effect_revision=host.session.revision();frozen_effect_generation=effects_generation_;

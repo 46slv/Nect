@@ -13,6 +13,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
 #include <QListWidget>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -1229,6 +1230,137 @@ void host_and_ui_placement(const QString& scratch) {
     window.close();window.host.flush();
 }
 
+void folder_favorite_navigation(const QString& scratch) {
+    const auto root_path=scratch+"/registered",moved_root=scratch+"/moved";
+    check(QDir().mkpath(root_path+"/brand")&&QDir().mkpath(scratch+"/other"),"Create owned navigation folders");
+    QSettings settings(scratch+"/navigation.ini",QSettings::IniFormat);
+    FolderLibrary seed(settings);
+    const auto root=seed.register_root(root_path,"Navigation source");
+    const auto other=seed.register_root(scratch+"/other","Other source");
+    const LibraryItemRefV1 root_ref{root.root_id,{},"folder"},child_ref{root.root_id,"brand","folder"},
+        other_ref{other.root_id,{},"folder"};
+    QString root_favorite,child_favorite;
+    const auto native_path=scratch+"/artwork.nect";
+    Window window(scratch+"/recovery",std::make_unique<FolderLibrary>(settings,
+        FolderLibrary::PersistOverride{},FolderLibrary::ReadbackOverride{},scratch+"/payloads"));
+    const auto composition=window.host.session.document().compositions.front().id;
+    window.host.session.apply({Command{CreatePrimitive{composition,"","navigation-artwork","Preserved artwork",
+        default_primitive("navigation-primitive","nect.shape.rectangle")}}},window.host.session.revision());
+    window.host.save(native_path);window.show();QApplication::processEvents();
+    const auto document=window.host.session.document();const auto native=encode(document);
+    const auto revision=window.host.session.revision();const auto history=window.host.session.history();
+    const auto session_id=window.host.session_id;const auto generation=window.host.session.gesture_generation();
+    auto unchanged=[&](const Window& current) {
+        check(current.host.session.document()==document&&encode(current.host.session.document())==native&&
+            current.host.session.preview_document()==document&&!current.host.session.gesture_active()&&!current.host.dirty(),
+            "Folder navigation/refusal preserves complete authored and preview source and clean native save state");
+    };
+    auto open_dialog=[&](Window& current,const std::function<void(QDialog*)>& interaction) {
+        std::exception_ptr failure;
+        QTimer::singleShot(0,&current,[&] {
+            auto* dialog=current.findChild<QDialog*>("folder-library-dialog");
+            try {check(dialog,"Actual Library action opens the Folder dialog");interaction(dialog);}
+            catch(...) {failure=std::current_exception();}
+            if(dialog)dialog->accept();
+        });
+        auto* action=current.findChild<QAction*>("folder-library");check(action,"Window has its real Library action");
+        action->trigger();if(failure)std::rethrow_exception(failure);
+    };
+    auto exercise=[&](Window& current,QDialog* dialog,bool restarting) {
+        auto* tree=dialog->findChild<QTreeWidget*>("folder-library-tree");
+        auto* favorites=dialog->findChild<QListWidget*>("folder-library-favorites");
+        auto* slot=dialog->findChild<QComboBox*>("folder-library-slot");
+        auto* status=dialog->findChild<QLabel*>("folder-library-status");
+        check(tree&&favorites&&slot&&status,"Navigation uses the real tree, Favorites, slot and visible status");
+        auto click=[&](const char* name) {
+            auto* button=dialog->findChild<QPushButton*>(name);check(button&&button->isEnabled(),std::string("Callable control: ")+name);
+            QTest::mouseClick(button,Qt::LeftButton);QApplication::processEvents();
+        };
+        auto select_favorite=[&](const QString& id) {
+            for(int index=0;index<favorites->count();++index)if(favorites->item(index)->data(Qt::UserRole).toString()==id) {
+                favorites->setCurrentRow(index);return;
+            }
+            check(false,"Exact persistent Favorite exists");
+        };
+        auto invoke=[&](bool quick,const LibraryItemRefV1& ref,const QString& id,int number,const QString& error) {
+            auto* sentinel=find_library_item(tree,other_ref);check(sentinel,"Separate valid root is a navigation sentinel");
+            tree->setCurrentItem(sentinel);select_favorite(id);slot->setCurrentIndex(slot->findData(number));
+            current.statusBar()->clearMessage();click(quick?"folder-library-use-slot":"folder-library-use-favorite");
+            std::cout<<"Folder "<<(quick?"slot":"Favorite")<<" path="<<ref.normalized_relative_path.toStdString()
+                <<" restart="<<restarting<<" status="<<status->text().toStdString()
+                <<" error="<<current.statusBar()->currentMessage().toStdString()<<'\n';
+            if(error.isEmpty()) {
+                check(tree->currentItem()==find_library_item(tree,ref)&&status->text().startsWith("Favorite opened "),
+                    "Existing exact Folder Favorite/slot navigates successfully");
+            }else {
+                check(tree->currentItem()==sentinel&&status->text().contains(error)&&
+                    !status->text().startsWith("Favorite opened ")&&current.statusBar()->currentMessage().contains(error),
+                    "Unavailable folder refuses before navigation and reports its exact resolver error, without false success");
+            }
+            unchanged(current);
+            if(!restarting)check(current.host.session_id==session_id&&current.host.session.revision()==revision&&
+                current.host.session.history()==history&&current.host.session.gesture_generation()==generation,
+                "Folder actions retain original Session identity, revision, complete history and gesture generation");
+        };
+        if(!restarting) {
+            click("folder-library-refresh");
+            auto add=[&](const LibraryItemRefV1& ref,int number) {
+                auto* item=find_library_item(tree,ref);check(item,"Refreshed exact folder exists");tree->setCurrentItem(item);
+                click("folder-library-favorite-add");
+                FolderLibrary reader(settings);const auto found=std::find_if(reader.favorites().begin(),reader.favorites().end(),
+                    [&](const auto& favorite){return reader.same_identity(favorite.target,LibraryFavoriteTargetV1{ref});});
+                check(found!=reader.favorites().end(),"GUI Add Favorite persists the exact folder identity");
+                const auto id=found->favorite_id;select_favorite(id);slot->setCurrentIndex(slot->findData(number));
+                click("folder-library-slot-set");unchanged(current);return id;
+            };
+            root_favorite=add(root_ref,1);child_favorite=add(child_ref,2);
+        }
+        settings.sync();const auto preferences=read_bytes(settings.fileName());
+        if(restarting) {
+            check(favorites->count()==2,"Fresh Window retains both Folder Favorites while their registered root is missing");
+            FolderLibrary reader(settings);
+            check(reader.favorite_for_slot(1)->favorite_id==root_favorite&&reader.favorite_for_slot(2)->favorite_id==child_favorite,
+                "Fresh workspace reader retains both exact Folder Favorite IDs and slots");
+            invoke(false,root_ref,root_favorite,1,"LIBRARY_ITEM_MISSING");
+            invoke(true,child_ref,child_favorite,2,"LIBRARY_ITEM_MISSING");
+        }else {
+            invoke(false,root_ref,root_favorite,1,{});invoke(true,child_ref,child_favorite,2,{});
+            check(QDir().rename(root_path,moved_root),"Move only owned registered root after caching its tree");
+            invoke(false,root_ref,root_favorite,1,"LIBRARY_ITEM_MISSING");
+            invoke(true,child_ref,child_favorite,2,"LIBRARY_ITEM_MISSING");
+        }
+        click("folder-library-refresh");
+        invoke(true,root_ref,root_favorite,1,"LIBRARY_ITEM_MISSING");
+        invoke(false,child_ref,child_favorite,2,"LIBRARY_ITEM_MISSING");
+        if(restarting) {
+            check(QDir().rename(moved_root,root_path),"Restore only the owned registered root");click("folder-library-refresh");
+            invoke(false,root_ref,root_favorite,1,{});invoke(true,child_ref,child_favorite,2,{});
+            const auto child_path=root_path+"/brand",moved_child=root_path+"/brand-moved";
+            check(QDir().rename(child_path,moved_child),"Move only owned child folder after indexing");
+            invoke(false,child_ref,child_favorite,2,"LIBRARY_ITEM_MISSING");
+            write_bytes(child_path,{'x'});
+            invoke(true,child_ref,child_favorite,2,"LIBRARY_ITEM_KIND_CHANGED");
+            check(QFile::remove(child_path)&&QDir().rename(moved_child,child_path),"Restore owned child folder after kind-change refusal");
+            invoke(false,child_ref,child_favorite,2,{});
+        }
+        settings.sync();check(read_bytes(settings.fileName())==preferences,"Invocation and Refresh preserve complete workspace preference bytes");
+    };
+    open_dialog(window,[&](QDialog* dialog){exercise(window,dialog,false);});
+    unchanged(window);window.close();window.host.flush();
+    Window restarted(scratch+"/restart-recovery",std::make_unique<FolderLibrary>(settings,
+        FolderLibrary::PersistOverride{},FolderLibrary::ReadbackOverride{},scratch+"/payloads"));
+    restarted.host.open(native_path);restarted.refresh();restarted.show();QApplication::processEvents();
+    const auto cold_history=restarted.host.session.history();const auto cold_session=restarted.host.session_id;
+    open_dialog(restarted,[&](QDialog* dialog){exercise(restarted,dialog,true);});
+    unchanged(restarted);
+    check(restarted.host.session_id==cold_session&&restarted.host.session.revision()==0&&restarted.host.session.history()==cold_history,
+        "Fresh native Window navigation/refusal preserves its new Session and untouched revision/history");
+    const auto saved_bytes=read_bytes(native_path);
+    check(encode(decode(std::string_view(reinterpret_cast<const char*>(saved_bytes.data()),saved_bytes.size())))==native,
+        "All navigation and source moves preserve the complete saved native artwork");
+    restarted.close();restarted.host.flush();
+}
+
 void portable_preset_library_ui(const QString& scratch) {
     const auto settings_path=scratch+"/preset-ui.ini";
     const auto payload_root=scratch+"/preset-assets";
@@ -1725,6 +1857,11 @@ int main(int argc,char** argv) {
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc,argv);
     try {
+        if(argc==2&&QString::fromUtf8(argv[1])=="--folder-navigation") {
+            QTemporaryDir scratch;check(scratch.isValid(),"Owned navigation scratch is available");
+            folder_favorite_navigation(scratch.path());
+            std::cout<<"PASS "<<checks<<" Folder Favorite/navigation assertions\n";return 0;
+        }
         if (argc == 5 && QString::fromUtf8(argv[1]) == "--verify-settings") {
             QSettings persisted(QString::fromUtf8(argv[2]), QSettings::IniFormat);
             FolderLibrary reloaded(persisted);
@@ -1840,6 +1977,7 @@ int main(int argc,char** argv) {
         portable_preset_closure_assets(scratch.path()+"/portable-preset-closures");
         portable_macro_assets(scratch.path()+"/portable-macros");
         host_and_ui_placement(scratch.path()+"/placement");
+        folder_favorite_navigation(scratch.path()+"/navigation");
         portable_preset_library_ui(scratch.path()+"/portable-preset-ui");
         portable_macro_library_ui(scratch.path()+"/portable-macro-ui");
         unsafe_preset_root_keeps_legacy_library_usable(scratch.path()+"/unsafe-preset-root-ui");
