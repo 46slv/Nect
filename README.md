@@ -258,6 +258,8 @@ Guide Edit drags visible Guides. Dragging artwork while Guide Edit is active
 selects the whole Object without moving it or editing its points. Hidden Guides
 stay unavailable until Show Guides is enabled; the active Tool remains Guide Edit.
 Space-drag still pans the view, and Esc cancels a Guide drag or exits the Tool.
+Idle arrow keys also leave artwork unchanged; select Selection or Direct Selection
+to nudge artwork or points.
 
 Colors opens three separate views: document-authored named colors, actual enabled
 paint inputs grouped by exact RGBA, and colors explicitly copied through Nect's

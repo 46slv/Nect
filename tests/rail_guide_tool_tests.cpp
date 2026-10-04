@@ -26,7 +26,7 @@ void click(Window& window,const char* name){
     check(button&&button->isVisible()&&button->isEnabled(),"Rail tool is visible and enabled");
     QTest::mouseClick(button,Qt::LeftButton);events();
 }
-void pointer_isolation(){
+void pointer_isolation(bool keys_only=false){
     QTemporaryDir scratch;check(scratch.isValid(),"Guide pointer regression owns its files and settings");
     QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);
@@ -58,6 +58,30 @@ void pointer_isolation(){
     auto* tool=window.findChild<QToolButton*>("tool-guide");
     check(window.canvas->guide_edit_mode()&&tool->isChecked()&&snapshot(session)==initial,
         "Actual Guide activation is source/native/revision/history neutral");
+    if(keys_only){
+        const auto selection=window.canvas->selections();
+        const auto probe=[&](Qt::Key key,Qt::KeyboardModifiers modifiers){
+            const auto before=snapshot(session);QTest::keyClick(window.canvas,key,modifiers);events();
+            std::cout<<"Idle Guide arrow: authored_equal="<<(snapshot(session)==before)
+                <<" active_guide="<<window.canvas->guide_edit_mode()<<'\n';
+            check(snapshot(session)==before,"Idle Guide arrow cannot move unrelated artwork");
+            check(window.canvas->guide_edit_mode()&&tool->isChecked()&&window.canvas->selections()==selection,
+                "Idle Guide arrow preserves Tool and selection");
+        };
+        probe(Qt::Key_Right,Qt::NoModifier);probe(Qt::Key_Down,Qt::ShiftModifier);
+        window.canvas->set_show_guides(false);events();probe(Qt::Key_Left,Qt::NoModifier);
+        click(window,"tool-selection");
+        const auto before=session.document();const auto revision=session.revision();const auto history=session.history().states.size();
+        Session oracle(before);oracle.apply({TranslateObjects{{"guide-pointer-object"},1,0}},oracle.revision());
+        window.canvas->setFocus();QTest::keyClick(window.canvas,Qt::Key_Right);events();
+        check(session.document()==oracle.document()&&session.revision()==revision+1&&session.history().states.size()==history+1,
+            "Explicit Selection Arrow still performs one canonical artwork translation");
+        const auto moved=session.document();session.undo(session.revision());window.host.edited();events();
+        check(session.document()==before,"Selection Arrow Undo restores complete source");
+        session.redo(session.revision());window.host.edited();events();
+        check(session.document()==moved,"Selection Arrow Redo restores complete source");
+        std::cout<<"guide_key_isolation: "<<checks<<" checks passed\n";return;
+    }
     const auto probe=[&](QPoint start,const char* label){
         check(window.canvas->rect().contains(start),"Guide regression pointer lies in Canvas");
         const auto before=snapshot(session);const auto selection=window.canvas->selections();
@@ -107,6 +131,7 @@ int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try {
         if(app.arguments().contains("--pointer-isolation-only")){pointer_isolation();return 0;}
+        if(app.arguments().contains("--key-isolation-only")){pointer_isolation(true);return 0;}
         QTemporaryDir scratch;check(scratch.isValid(),"Owned test scratch exists");
         QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
         Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences));
