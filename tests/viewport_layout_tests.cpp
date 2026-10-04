@@ -56,9 +56,9 @@ int main(int argc,char** argv) {
         QApplication::processEvents();
         check(left->features()==QDockWidget::DockWidgetClosable,"Fixed panels stay closable without move/float affordances");
         check(left->allowedAreas()==Qt::LeftDockWidgetArea,"Fixed panel region is explicit");
-        left->toggleViewAction()->setChecked(false);QApplication::processEvents();
+        left->toggleViewAction()->trigger();QApplication::processEvents();
         check(!left->isVisible(),"Fixed panel can be hidden");
-        left->toggleViewAction()->setChecked(true);QApplication::processEvents();
+        left->toggleViewAction()->trigger();QApplication::processEvents();
         check(left->isVisible()&&!left->isFloating(),"Fixed panel reopens in its region");
         std::cout<<"PASS "<<checks<<" viewport composition checks\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<" after "<<checks<<" checks\n";return 1;}
