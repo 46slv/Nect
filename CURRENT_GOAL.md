@@ -40,4 +40,3 @@
 **Sources:** REQ210 https://app.notion.com/p/3effd279a6f38168ae08fdea86a89a5f; REQ209 https://app.notion.com/p/3effd279a6f3810287fdcddc646a623d; design notes https://app.notion.com/p/3e0fd279a6f3816284c2da8c8b37b32e; Completion Route https://app.notion.com/p/3e3fd279a6f381b4ba9dd2d1bf066e0f; C0 https://app.notion.com/p/3eafd279a6f381b9a740e217473c8562. Requirements/Route freshly read this Task.
 
 **Handoff:** NEW_TASK / HANDOFF_READY after sync. Reason: accumulated ACK/build/Qt cursor/Alt fixture/mode/selection/native/rendered and physical-cell/crossing diagnostics after two qualified outcomes; independent Direct Selection point/handle reachability domain resumes cheaply from compact Brief/source/HEAD. Honor periodic fresh GPT-6.1 Sol ownership. Exactly one same-Project successor, own scratch ACK then explicit release/C0 transfer; no duplicate successor, planning restart, routine confirmation or second ACK-only stop after release.
-
