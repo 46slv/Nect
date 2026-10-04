@@ -66,6 +66,11 @@ QAction* toolbar_action(QToolBar& toolbar,const QString& label) {
 QRect in_widget(QWidget& widget,QWidget& parent) {return {widget.mapTo(&parent,QPoint{}),widget.size()};}
 void reveal(QScrollArea& scroll,QWidget& control) {
     scroll.ensureWidgetVisible(&control,0,0);settle();
+    if(!scroll.viewport()->rect().contains(in_widget(control,*scroll.viewport()))) {
+        const auto r=in_widget(control,*scroll.viewport());
+        std::cerr<<"Unreached control "<<control.objectName().toStdString()<<" at "<<r.x()<<","<<r.y()<<" "<<r.width()<<"x"<<r.height()
+            <<" in "<<scroll.viewport()->width()<<"x"<<scroll.viewport()->height()<<" scroll "<<scroll.horizontalScrollBar()->value()<<"/"<<scroll.horizontalScrollBar()->maximum()<<'\n';
+    }
     check(scroll.viewport()->rect().contains(in_widget(control,*scroll.viewport())),
         "Every shelf control is fully reachable through horizontal scrolling");
     check(control.visibleRegion().contains(control.rect().center()),"Reached shelf control has an unclipped hit center");
