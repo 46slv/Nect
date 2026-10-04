@@ -308,6 +308,11 @@ drags its Canvas crosshair without moving the artwork. The original affine
 properties remain available under Affine matrix. Rotation/scale actions do not
 create separately linkable TRS properties.
 
+Position X/Y drafts belong to their original document, revision and gesture context.
+Refreshing after another canonical edit discards the old draft and shows the incoming
+Position without changing its source or Undo history. An active preview is preserved.
+Absolute values and `+=` / `-=` adjustments remain in the effective parent's coordinates.
+
 Transform Parent chooses a same-Composition object to follow, with Keep artwork
 in place enabled by default. Detach returns to structural inheritance. Structure
 still owns ordering and groups; explicit following replaces its transform to

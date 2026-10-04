@@ -8,6 +8,8 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QLineEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSettings>
@@ -60,6 +62,93 @@ void tool(Window& w){check(w.findChild<QToolButton*>("tool-direct-selection")->i
 void history(Window& w,const QString& label){
     for(auto* action:w.findChildren<QAction*>())if(action->text()==label){action->trigger();events();return;}
     throw std::runtime_error("Existing History action missing");
+}
+void position_context(QTemporaryDir& scratch,QSettings& preferences){
+    Window w(scratch.filePath("position-recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);
+    w.setAttribute(Qt::WA_DontShowOnScreen);w.resize(1000,650);w.show();events();
+    auto document=fixture();auto& rectangle=document.objects.at("rectangle");
+    rectangle.anchor[0].literal=240;rectangle.anchor[1].literal=200;rectangle.transform_parent="text";
+    auto& parent=document.objects.at("text");
+    parent.transform[0].literal=0;parent.transform[1].literal=1;
+    parent.transform[2].literal=-1;parent.transform[3].literal=0;
+    auto& s=w.host.session;s=Session(document);w.host.edited();w.canvas->set_selection("rectangle");events();
+    QApplication::setActiveWindow(&w);events();
+    const auto field=[&](const char* name){
+        for(auto* input:w.findChildren<QLineEdit*>(name))if(input->isVisible())return input;
+        throw std::runtime_error("Visible Position field missing");
+    };
+    const auto draft=[&](const char* name,const char* text){
+        QPointer<QLineEdit> input=field(name);auto* scroll=w.findChild<QScrollArea*>("inspector-scroll");
+        check(scroll!=nullptr,"Production Position Inspector scroll exists");scroll->ensureWidgetVisible(input);events();
+        check(input&&reachable(input),"Actual Position field is fully reachable");
+        input->setFocus();events();check(input&&input->hasFocus(),"Actual Position field owns focus");
+        input->selectAll();QTest::keyClicks(input,text);events();
+        check(input&&input->hasFocus()&&input->isModified()&&input->text()==text,
+            "Actual focused Position receives exact unfinished modified keyboard draft");return input;
+    };
+    const Snapshot initial(s);const auto session_id=w.host.session_id;const auto selection=w.canvas->selections();
+    auto old=draft("transform-position-x","700");initial.unchanged(s);
+    s.apply({SetPosition{"rectangle",400,300}},s.revision());const Snapshot incoming(s);
+    check(old&&old->hasFocus()&&old->text()=="700"&&old->isModified(),
+        "External canonical SetPosition arrives before refresh while old draft remains focused");
+    w.host.edited();events();
+    const auto position=[&]{const auto values=evaluate(s.document());return map_point(evaluate_transforms(s.document(),values).at("rectangle").local,
+        {values.at({"rectangle","","transform.anchor_x"}),values.at({"rectangle","","transform.anchor_y"})});};
+    std::cout<<"external Position refresh local="<<position().x<<','<<position().y
+        <<" revision="<<s.revision()<<" expected="<<incoming.revision<<std::endl;
+    incoming.unchanged(s);
+    check(w.host.session_id==session_id&&w.canvas->selections()==selection,
+        "Position refresh keeps exact Session and stable selection");
+    check(field("transform-position-x")->text().toDouble()==400&&field("transform-position-y")->text().toDouble()==300,
+        "Replacement Inspector displays incoming effective-parent Position");
+    history(w,"Undo");check(s.document()==initial.document&&encode(s.document())==initial.native,
+        "External Position Undo restores complete original source");
+    history(w,"Redo");check(s.document()==incoming.document&&encode(s.document())==incoming.native,
+        "External Position Redo restores complete incoming source");
+    const Snapshot y_draft(s);auto old_y=draft("transform-position-y","+=10");y_draft.unchanged(s);
+    s.apply({SetPosition{"rectangle",400,350}},s.revision());const Snapshot incoming_y(s);
+    check(old_y&&old_y->hasFocus()&&old_y->text()=="+=10"&&old_y->isModified(),
+        "External Y Position arrives while unfinished relative draft is still focused");
+    w.host.edited();events();incoming_y.unchanged(s);
+    check(field("transform-position-y")->text().toDouble()==350,"Replacement Y field shows external canonical Position");
+    const auto commit=[&](const char* name,const char* text,double x,double y){
+        const Snapshot before(s);auto input=draft(name,text);before.unchanged(s);
+        Session oracle(before.document);oracle.apply({SetPosition{"rectangle",x,y}},oracle.revision());
+        QTest::keyClick(input,Qt::Key_Return);events();
+        check(s.document()==oracle.document()&&s.preview_document()==oracle.document()&&
+            s.revision()==before.revision+1&&s.history().states.size()==before.history.states.size()+1,
+            "Position Return commits one complete canonical SetPosition transaction");
+        check(std::abs(position().x-x)<1e-9&&std::abs(position().y-y)<1e-9,
+            "Absolute and relative Position preserve effective-parent coordinates");
+        const auto world=map_point(evaluate_transforms(s.document(),evaluate(s.document())).at("rectangle").world,{240,200});
+        check(std::abs(world.x-(300-y))<1e-9&&std::abs(world.y-(340+x))<1e-9,
+            "Independent rotated-parent coordinates retain the authored Anchor");
+        auto source=s.document().objects.at("rectangle");source.transform=before.document.objects.at("rectangle").transform;
+        check(source==before.document.objects.at("rectangle")&&s.document().objects.at("path")==before.document.objects.at("path")&&
+            s.document().objects.at("text")==before.document.objects.at("text")&&s.document().objects.at("unrelated")==before.document.objects.at("unrelated"),
+            "Position preserves retained geometry/Anchor/stable IDs and every unrelated source");
+        const Snapshot applied(s);history(w,"Undo");check(s.document()==before.document&&encode(s.document())==before.native,
+            "Position Undo restores complete previous source");history(w,"Redo");
+        check(s.document()==applied.document&&encode(s.document())==applied.native,"Position Redo restores complete canonical source");
+    };
+    commit("transform-position-x","425",425,350);commit("transform-position-y","-=75",425,275);
+    const auto native=scratch.filePath("position.nect");const Snapshot saved(s);w.host.save(native);events();saved.unchanged(s);
+    w.host.open(native);events();check(s.document()==saved.document&&s.preview_document()==saved.document&&encode(s.document())==saved.native&&
+        s.revision()==0&&s.history().states.size()==1,"Same Window native reopen retains complete Position/Anchor/parent/source");
+    const Snapshot before_gesture(s);auto gesture_draft=draft("transform-position-x","+=10");before_gesture.unchanged(s);
+    s.begin_gesture(s.revision());s.update_gesture({SetPosition{"rectangle",500,350}});
+    const auto preview=s.preview_document();const auto generation=s.gesture_generation();const auto gesture_history=s.history();
+    check(gesture_draft&&gesture_draft->hasFocus()&&preview!=s.document(),"Distinct canonical preview begins while Position draft is focused");
+    w.host.edited();events();
+    check(s.document()==before_gesture.document&&encode(s.document())==before_gesture.native&&s.preview_document()==preview&&
+        s.revision()==before_gesture.revision&&s.history()==gesture_history&&s.gesture_generation()==generation&&s.gesture_active(),
+        "Stale Position refresh preserves complete external preview and gesture ownership");
+    auto active_draft=draft("transform-position-y","600");QTest::keyClick(active_draft,Qt::Key_Return);events();
+    check(s.document()==before_gesture.document&&encode(s.document())==before_gesture.native&&s.preview_document()==preview&&
+        s.revision()==before_gesture.revision&&s.history()==gesture_history&&s.gesture_generation()==generation&&s.gesture_active(),
+        "Current Position Return during an external gesture preserves complete source/preview/history/ownership");
+    s.cancel_gesture();w.host.edited();events();
+    check(s.document()==saved.document&&s.preview_document()==saved.document,"Owned preview cancellation retains native-restored complete source");
 }
 void run(QTemporaryDir& scratch,QSettings& preferences){
     Window w(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);
@@ -153,6 +242,9 @@ void run(QTemporaryDir& scratch,QSettings& preferences){
 }
 int main(int argc,char** argv){QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");QSettings preferences(scratch.filePath("preferences.ini"),QSettings::IniFormat);
-        preferences.setValue("unrelated","preserved");preferences.setValue("workspace/tools/textCreationDirection","vertical");run(scratch,preferences);
+        preferences.setValue("unrelated","preserved");preferences.setValue("workspace/tools/textCreationDirection","vertical");
+        if(app.arguments().contains("--position-context")){position_context(scratch,preferences);
+            std::cout<<"PASS "<<checks<<" actual Window Position context checks; physical OS input NOT_RUN\n";return 0;}
+        run(scratch,preferences);
         std::cout<<"PASS "<<checks<<" real mixed-selection contextual Transform checks\n";return 0;
     }catch(const std::exception& error){std::cerr<<"FAIL after "<<checks<<": "<<error.what()<<'\n';return 1;}}

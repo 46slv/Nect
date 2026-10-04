@@ -5489,14 +5489,22 @@ void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) 
     };
     const auto position=map_point(canvas->evaluated_transforms().at(id).local,
         {inspector_values_.at({id,"","transform.anchor_x"}),inspector_values_.at({id,"","transform.anchor_y"})});
+    const auto position_document=host.session.document().id;
+    const auto position_revision=host.session.revision();const auto position_gesture=host.session.gesture_generation();
     for(int axis=0;axis<2;++axis) {
         auto* input=new QLineEdit(display_value(axis?position.y:position.x));
         input->setObjectName(axis?"transform-position-y":"transform-position-x");input->setAccessibleName(axis?"Position Y":"Position X");
         input->setToolTip("Anchor position in the effective parent's coordinates. Enter a value or += / -= adjustment.");form->addRow(axis?"Position Y":"Position X",input);
-        connect(input,&QLineEdit::editingFinished,this,[this,id,input,axis,apply,frozen_session]{
+        connect(input,&QLineEdit::editingFinished,this,[this,id,input,axis,apply,frozen_session,position_document,position_revision,position_gesture]{
             if(!input->isModified())return;input->setModified(false);
             const auto focused=input->hasFocus();const auto name=input->objectName();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
-            perform([&]{const auto values=evaluate(host.session.document());const auto tf=evaluate_transforms(host.session.document(),values).at(id);
+            perform([&]{
+                if(host.session_id!=frozen_session||host.session.document().id!=position_document)
+                    throw Error("SESSION_CONFLICT","Position draft belongs to another document");
+                if(host.session.revision()!=position_revision||host.session.gesture_generation()!=position_gesture)
+                    throw Error("REVISION_CONFLICT","Position changed; edit it again");
+                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                const auto values=evaluate(host.session.document());const auto tf=evaluate_transforms(host.session.document(),values).at(id);
                 auto p=map_point(tf.local,{values.at({id,"","transform.anchor_x"}),values.at({id,"","transform.anchor_y"})});
                 auto text=input->text().trimmed();const bool relative=text.startsWith("+=")||text.startsWith("-=");bool ok=false;
                 auto value=(relative?text.mid(2):text).toDouble(&ok);if(!ok||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite position or += / -= adjustment");
