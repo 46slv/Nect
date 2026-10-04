@@ -14,6 +14,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <d2d1.h>
 #include <dwrite_3.h>
 #include <bcrypt.h>
 #include <wrl/client.h>
@@ -23,7 +24,7 @@
 namespace {
 int checks=0;
 void check(bool value,const std::string& message) {if(!value)throw std::runtime_error(message);++checks;}
-void near(double a,double b,const std::string& message,double tolerance=0.003) {
+void assert_near(double a,double b,const std::string& message,double tolerance=0.003) {
     check(std::isfinite(a)&&std::isfinite(b)&&std::abs(a-b)<=tolerance,
         message+": "+std::to_string(a)+" != "+std::to_string(b));
 }
@@ -197,7 +198,7 @@ void geometry(const std::vector<Edge>& expected,const std::vector<Edge>& actual)
     for(const auto& e:expected){bool found=false;for(std::size_t i=0;i<actual.size();++i)if(!used[i]){const auto& a=actual[i];
         if(same(e.a,a.a)&&same(e.c1,a.c1)&&same(e.c2,a.c2)&&same(e.b,a.b)){used[i]=true;found=true;break;}}
         check(found,"Every absolute DirectWrite cubic/line is present in Nect within 0.003 DIP");}
-    const auto a=bounds(actual),e=bounds(expected);near(a.left,e.left,"Ink left");near(a.top,e.top,"Ink top");near(a.right,e.right,"Ink right");near(a.bottom,e.bottom,"Ink bottom");
+    const auto a=bounds(actual),e=bounds(expected);assert_near(a.left,e.left,"Ink left");assert_near(a.top,e.top,"Ink top");assert_near(a.right,e.right,"Ink right");assert_near(a.bottom,e.bottom,"Ink bottom");
 }
 // A small monochrome coverage oracle, not an antialiasing/font-rasterizer claim.
 // Both independent DW cubics and Nect cubics are flattened at 32 subdivisions;
@@ -234,10 +235,10 @@ void run_identity(const Oracle& oracle,const nect::TextLayout& layout) {
         check(e.family=="Yu Gothic"&&e.simulations==0,"Exact installed Yu Gothic without fallback/synthesis");
         check(a.utf16_start==e.start&&a.utf16_length==e.length&&a.family==e.family&&a.face==e.face&&a.face_index==e.index&&a.simulations==e.simulations&&a.bidi_level==e.bidi&&a.sideways==(e.sideways!=FALSE),"Run ranges and actual face identity agree");
         check(a.resolved_weight==static_cast<UINT32>(e.weight)&&a.resolved_style==static_cast<UINT32>(e.style)&&a.glyph_indices==e.indices,"Actual weight/style and shaped glyph indices agree");
-        near(a.font_em_size,e.em,"Actual em size");check(a.files.size()==e.keys.size(),"Font file identity count agrees");
+        assert_near(a.font_em_size,e.em,"Actual em size");check(a.files.size()==e.keys.size(),"Font file identity count agrees");
         for(std::size_t f=0;f<e.keys.size();++f)check(a.files[f].key_sha256==e.keys[f],"Actual font file identity hash agrees");
         check(a.glyph_advances&&a.glyph_advances->size()==e.advances.size(),"Actual advances are captured");
-        for(std::size_t g=0;g<e.advances.size();++g){check(e.indices[g]!=0,"Fixture has no missing glyph");near(a.glyph_advances->at(g),e.advances[g],"Shaped advance");check(std::isfinite(e.offsets[g].advanceOffset)&&std::isfinite(e.offsets[g].ascenderOffset),"Finite actual glyph offsets");}
+        for(std::size_t g=0;g<e.advances.size();++g){check(e.indices[g]!=0,"Fixture has no missing glyph");assert_near(a.glyph_advances->at(g),e.advances[g],"Shaped advance");check(std::isfinite(e.offsets[g].advanceOffset)&&std::isfinite(e.offsets[g].ascenderOffset),"Finite actual glyph offsets");}
         check(std::isfinite(e.x)&&std::isfinite(e.y),"Finite callback baseline origins");
         std::cout<<"run utf16="<<e.start<<"+"<<e.length<<" angle="<<static_cast<unsigned>(e.angle)*90<<" sideways="<<(e.sideways!=FALSE)<<" origin="<<e.x<<","<<e.y<<" glyphs="<<e.indices.size()<<'\n';
     }
@@ -278,12 +279,12 @@ void fixture() {
     for(const UINT32 position:{6u,7u,8u,9u,10u,16u,17u,18u}) {
         const auto v=character(vertical,position),hchar=character(horizontal,position);
         check(v.run->angle==DWRITE_GLYPH_ORIENTATION_ANGLE_90_DEGREES&&!v.run->sideways,"Latin/digit callback reports clockwise sideways presentation");
-        check(v.glyph==hchar.glyph,"Latin/digit keeps its horizontal glyph identity");near(v.ink.width(),hchar.ink.height(),"Latin/digit rotated ink width");near(v.ink.height(),hchar.ink.width(),"Latin/digit rotated ink height");
+        check(v.glyph==hchar.glyph,"Latin/digit keeps its horizontal glyph identity");assert_near(v.ink.width(),hchar.ink.height(),"Latin/digit rotated ink width");assert_near(v.ink.height(),hchar.ink.width(),"Latin/digit rotated ink height");
     }
     for(const UINT32 position:{1u,2u,13u,14u}){const auto v=character(vertical,position),hchar=character(horizontal,position);
-        near(v.ink.width(),hchar.ink.width(),"CJK upright ink width");near(v.ink.height(),hchar.ink.height(),"CJK upright ink height");}
+        assert_near(v.ink.width(),hchar.ink.width(),"CJK upright ink width");assert_near(v.ink.height(),hchar.ink.height(),"CJK upright ink height");}
     check(actual.column_baselines_x.size()==2,"Nect exposes both measured columns");
-    double right=origin_x+width;for(std::size_t i=0;i<vertical.lines.size();++i){near(actual.column_baselines_x[i],right-vertical.lines[i].baseline,"Independent column baseline");right-=vertical.lines[i].height;}
+    double right=origin_x+width;for(std::size_t i=0;i<vertical.lines.size();++i){assert_near(actual.column_baselines_x[i],right-vertical.lines[i].baseline,"Independent column baseline");right-=vertical.lines[i].height;}
     std::cout<<"coverage ink="<<ink<<" mismatch="<<changed<<" samples="<<expected_bitmap.size()<<'\n';
 }
 #endif
