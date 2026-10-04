@@ -747,6 +747,156 @@ void portable_preset_assets(const QString& scratch) {
         "Delete removes only the selected AssetID, retains a separate good asset and leaves its Favorite as an explicit broken reference");
 }
 
+void portable_preset_closure_assets(const QString& scratch) {
+    QDir().mkpath(scratch);
+    const auto root=scratch+"/closure-assets";
+    const auto settings_path=scratch+"/closure-library.ini";
+    QSettings settings(settings_path,QSettings::IniFormat);
+    settings.setFallbacksEnabled(false);
+    FolderLibrary library(settings,{}, {},root);
+
+    auto macro=portable_macro_with_revisions("closure-macro","Closure Macro");
+    for(auto& [pin,graph]:macro.revisions)graph.graph_version=2;
+    auto& latest=macro.revisions.at(2);latest.interface_version=3;
+    latest.public_parameters.push_back({"macro.offset.enabled","Use Offset","portable-macro-offset","enabled",
+        "boolean","boolean","local_paths_and_paint"});
+    latest.nodes.front().operation.enabled=false;
+    std::reverse(latest.nodes.begin(),latest.nodes.end());
+    std::reverse(latest.edges.begin(),latest.edges.end());
+    auto preset=portable_preset("closure-preset","Mixed closure");
+    PresetEntry pinned;pinned.kind="macro";pinned.type=macro_entry_type;
+    pinned.macro_definition=macro.id;pinned.pinned_revision=1;
+    pinned.overrides={{"macro.offset.amount",14}};
+    preset.entries.push_back(pinned);
+    pinned.pinned_revision=2;pinned.enabled=false;
+    pinned.overrides.at("macro.offset.amount")=27;
+    pinned.boolean_overrides={{"macro.offset.enabled",true}};
+    preset.entries.push_back(pinned);
+    const PortablePresetClosure closure{preset,{{macro.id,macro}}};
+    const auto canonical=canonical_preset_closure_payload(closure);
+    const auto published=library.publish_preset(closure);
+    const auto path=QDir(root).filePath(published.ref.asset_id+".preset.json");
+    const auto favorite=library.add_favorite(published.ref,3);
+    check(published.payload_schema==3&&published.accepted_revision==1&&
+        library.favorite_status(favorite)=="Available"&&library.preset_assets().front().available&&
+        library.preset_assets().front().payload_schema==3&&library.macro_assets().isEmpty(),
+        "A mixed closure publishes as one available schema-3 Preset asset and creates no dependency assets");
+    LibraryPresetAssetV1 refused_metadata;refused_metadata.label="unchanged sentinel";
+    rejects("PRESET_DEPENDENCY_CLOSURE_REQUIRED",[&]{(void)library.read_preset_asset(published.ref,&refused_metadata);});
+    check(refused_metadata.label=="unchanged sentinel","A dependency-dropping read refusal leaves its output metadata unchanged");
+
+    QSettings fresh_settings(settings_path,QSettings::IniFormat);fresh_settings.setFallbacksEnabled(false);
+    FolderLibrary fresh(fresh_settings,{}, {},root);
+    LibraryPresetAssetV1 read_metadata;
+    const auto snapshot=fresh.read_preset_closure_asset(published.ref,&read_metadata);
+    check(snapshot==closure&&canonical_preset_closure_payload(snapshot)==canonical&&
+        snapshot.macro_definitions.size()==1&&snapshot.macro_definitions.at(macro.id).revisions.size()==2&&
+        snapshot.definition.entries.at(1).pinned_revision==1&&snapshot.definition.entries.at(2).pinned_revision==2&&
+        snapshot.definition.entries.at(2).boolean_overrides.at("macro.offset.enabled")&&
+        read_metadata.sha256==published.sha256&&fresh.favorite_for_slot(3)->favorite_id==favorite.favorite_id,
+        "A separate Library reload preserves one repeated dependency, all revisions, exact pins and typed overrides");
+
+    auto next=closure;next.definition.label="Updated mixed closure";
+    next.macro_definitions.at(macro.id).revisions.at(1).nodes.front().operation.parameters.at("amount").literal=22;
+    const auto updated=library.update_preset_asset(published.ref,next,published.accepted_revision,published.sha256);
+    check(updated.ref==published.ref&&updated.accepted_revision==2&&updated.sha256!=published.sha256&&
+        fresh.read_preset_closure_asset(published.ref)==next&&snapshot==closure&&
+        canonical_preset_closure_payload(snapshot)==canonical&&
+        fresh.favorite_for_slot(3)->favorite_id==favorite.favorite_id&&fresh.favorite_status(favorite)=="Available",
+        "Closure Update keeps AssetID, FavoriteID and slot while a previously read snapshot stays unchanged");
+    const auto bytes=read_bytes(path);
+    const QByteArray accepted(reinterpret_cast<const char*>(bytes.data()),static_cast<qsizetype>(bytes.size()));
+    fresh_settings.sync();const auto preferences=fresh_settings.value("library/v1/state").toByteArray();
+    const auto unchanged=[&] {
+        fresh_settings.sync();
+        check(read_bytes(path)==bytes&&fresh_settings.value("library/v1/state").toByteArray()==preferences&&
+            fresh.favorite_for_slot(3)->favorite_id==favorite.favorite_id,
+            "A refused closure update preserves accepted bytes and shared Favorite preferences");
+    };
+    rejects("PRESET_ASSET_REVISION_CONFLICT",[&]{
+        library.update_preset_asset(published.ref,closure,published.accepted_revision,published.sha256);
+    });unchanged();
+    rejects("PRESET_ASSET_REVISION_CONFLICT",[&]{
+        library.update_preset_asset(published.ref,closure,updated.accepted_revision,published.sha256);
+    });unchanged();
+
+    auto rejects_candidate=[&](const PortablePresetClosure& candidate) {
+        bool refused=false;
+        try {library.update_preset_asset(published.ref,candidate,updated.accepted_revision,updated.sha256);}
+        catch(const Error&) {refused=true;}
+        check(refused,"Invalid or oversized dependency closure is refused before storage mutation");unchanged();
+    };
+    auto missing=next;missing.macro_definitions.clear();rejects_candidate(missing);
+    auto invalid=next;invalid.macro_definitions.at(macro.id).revisions.at(1).output_mapping.port="absent-output";
+    rejects_candidate(invalid);
+    auto oversized=next;
+    auto& many_revisions=oversized.macro_definitions.at(macro.id);
+    for(std::uint64_t pin=3;pin<=128;++pin) {
+        auto retained=many_revisions.revisions.at(2);retained.revision=pin;
+        many_revisions.revisions.emplace(pin,std::move(retained));
+    }
+    many_revisions.latest_revision=128;
+    auto second_dependency=many_revisions;second_dependency.id="closure-second-macro";
+    oversized.macro_definitions.emplace(second_dependency.id,second_dependency);
+    auto second_reference=oversized.definition.entries.at(2);second_reference.macro_definition=second_dependency.id;
+    oversized.definition.entries.push_back(std::move(second_reference));
+    rejects("PRESET_PAYLOAD_LIMIT",[&]{library.update_preset_asset(published.ref,oversized,
+        updated.accepted_revision,updated.sha256);});unchanged();
+
+    const auto envelope=QJsonDocument::fromJson(accepted).object();
+    const auto rejects_stored=[&](QJsonObject bad,const char* code) {
+        const auto bad_bytes=QJsonDocument(bad).toJson(QJsonDocument::Compact);write_qbytes(path,bad_bytes);
+        rejects(code,[&]{(void)fresh.read_preset_closure_asset(published.ref);});
+        const auto listed=fresh.preset_assets();
+        check(listed.size()==1&&!listed.front().available&&fresh.favorite_status(favorite)!="Available",
+            "Malformed closure stays visible as unavailable under the original AssetID and Favorite");
+        rejects(code,[&]{library.update_preset_asset(published.ref,closure,updated.accepted_revision,updated.sha256);});
+        const auto observed=read_bytes(path);
+        check(QByteArray(reinterpret_cast<const char*>(observed.data()),static_cast<qsizetype>(observed.size()))==bad_bytes,
+            "Refused read/update never rewrites observed malformed asset bytes");
+        fresh_settings.sync();check(fresh_settings.value("library/v1/state").toByteArray()==preferences,
+            "Malformed closure refusal leaves persisted shared preferences unchanged");
+        write_qbytes(path,accepted);
+    };
+    auto bad=envelope;bad.insert("sha256",QString(64,'0'));rejects_stored(bad,"PRESET_ASSET_HASH_MISMATCH");
+    bad=envelope;bad.insert("payload_schema",99);rejects_stored(bad,"UNSUPPORTED_PRESET_SCHEMA");
+    bad=envelope;bad.insert("kind","macro_definition");rejects_stored(bad,"UNSUPPORTED_PRESET_ASSET_VERSION");
+    const auto with_payload=[&](const QByteArray& payload) {
+        auto changed=envelope;changed.insert("payload",QString::fromUtf8(payload));
+        changed.insert("sha256",QString::fromLatin1(QCryptographicHash::hash(payload,QCryptographicHash::Sha256).toHex()));
+        return changed;
+    };
+    const auto next_payload=QByteArray::fromStdString(canonical_preset_closure_payload(next));
+    rejects_stored(with_payload(" "+next_payload),"UNAVAILABLE_PRESET_ASSET");
+    auto missing_payload=QJsonDocument::fromJson(next_payload).object();missing_payload.insert("macro_definitions",QJsonArray{});
+    rejects_stored(with_payload(QJsonDocument(missing_payload).toJson(QJsonDocument::Compact)),"UNAVAILABLE_PRESET_ASSET");
+    auto invalid_payload=QJsonDocument::fromJson(next_payload).object();auto dependencies=invalid_payload.value("macro_definitions").toArray();
+    auto dependency=dependencies.first().toObject();dependency.insert("latest_revision",999);dependencies[0]=dependency;
+    invalid_payload.insert("macro_definitions",dependencies);
+    rejects_stored(with_payload(QJsonDocument(invalid_payload).toJson(QJsonDocument::Compact)),"UNAVAILABLE_PRESET_ASSET");
+    rejects_stored(with_payload(QByteArray(static_cast<qsizetype>(portable_preset_payload_limit+1),'x')),"PRESET_PAYLOAD_LIMIT");
+    unchanged();
+
+    for(unsigned schema:{1u,2u}) {
+        auto literal=portable_preset("legacy-closure-"+std::to_string(schema),"Legacy closure");literal.schema_version=schema;
+        const auto old_payload=canonical_preset_payload(literal);
+        check(canonical_preset_closure_payload(PortablePresetClosure{literal,{}})==old_payload,
+            "Empty closure preserves legacy schema-1/2 canonical payload bytes");
+        const auto legacy=library.publish_preset(literal);
+        const auto reloaded=fresh.read_preset_closure_asset(legacy.ref);
+        check(legacy.payload_schema==schema&&reloaded.macro_definitions.empty()&&reloaded.definition==literal&&
+            canonical_preset_payload(fresh.read_preset_asset(legacy.ref))==old_payload,
+            "Legacy schema-1/2 publication remains readable through both Library APIs");
+        const auto legacy_path=QDir(root).filePath(legacy.ref.asset_id+".preset.json");
+        const auto legacy_raw=read_bytes(legacy_path);
+        const QByteArray legacy_bytes(reinterpret_cast<const char*>(legacy_raw.data()),static_cast<qsizetype>(legacy_raw.size()));
+        auto mismatched=QJsonDocument::fromJson(legacy_bytes).object();mismatched.insert("payload_schema",static_cast<int>(3-schema));
+        write_qbytes(legacy_path,QJsonDocument(mismatched).toJson(QJsonDocument::Compact));
+        rejects("PRESET_ASSET_ENVELOPE_MISMATCH",[&]{(void)fresh.read_preset_closure_asset(legacy.ref);});
+        write_qbytes(legacy_path,legacy_bytes);
+    }
+}
+
 void portable_macro_assets(const QString& scratch) {
     const auto root=scratch+"/payloads";const auto settings_path=scratch+"/macro-library.ini";
     QSettings settings(settings_path,QSettings::IniFormat);
@@ -1672,6 +1822,7 @@ int main(int argc,char** argv) {
         grouped_settings_identity(scratch.path()+"/grouped");
         unified_effect_favorites(scratch.path()+"/unified");
         portable_preset_assets(scratch.path()+"/portable-presets");
+        portable_preset_closure_assets(scratch.path()+"/portable-preset-closures");
         portable_macro_assets(scratch.path()+"/portable-macros");
         host_and_ui_placement(scratch.path()+"/placement");
         portable_preset_library_ui(scratch.path()+"/portable-preset-ui");
