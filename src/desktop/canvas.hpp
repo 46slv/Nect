@@ -77,6 +77,7 @@ public:
     bool draw_mode() const { return draw_mode_; }
     void set_gradient_edit(Id object, Id operation);
     const Id& gradient_operation() const { return gradient_operation_; }
+    bool gradient_edit_mode() const { return gradient_edit_mode_; }
     struct GradientEditAvailability {std::vector<Id> operations;QString reason;};
     GradientEditAvailability gradient_edit_availability() const;
     void cancel_interaction();
@@ -232,6 +233,7 @@ private:
     struct GradientControl { Id id; QPointF start, end; QTransform world; bool radial = false; };
     struct CircleSourceControl { QPointF center, radius; QTransform world; bool center_driven=false, radius_driven=false; };
     Id gradient_object_, gradient_operation_, gradient_document_;
+    bool gradient_edit_mode_=false;
     QString gradient_session_;
     std::optional<GradientControl> gradient_control_;
     Id circle_source_object_,circle_source_id_;
@@ -347,7 +349,7 @@ private:
     void request_frame(const QString& operation, bool new_sequence = false);
     void update_cursor();
     void zoom_at(double zoom,QPointF anchor,bool new_sequence=true);
-    void clear_gradient_edit();
+    void clear_gradient_edit(bool retain_tool=false);
     void clear_circle_source_edit(bool notify=true);
     std::optional<CircleSourceControl> circle_source_control() const;
     bool circle_drag_context_current() const;

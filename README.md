@@ -317,6 +317,10 @@ authors the linked linear/radial gradient variant from an empty live document.
 The editable result and SVG are checked in as `examples/gradient-ornament.*`.
 Select a paint's Linear/Radial mode, edit coordinates/stops numerically, or enable
 Edit gradient handles in its Inspector. Solid bypass retains its stops and links.
+The Gradient Edit Rail tool stays selected when the current Object has no enabled
+Gradient; its disabled button explains why handles are unavailable. Selecting an
+Object with one eligible Gradient restores its handles. Multiple Gradients require
+an explicit Rail choice. Escape exits the tool even while no handles are available.
 
 The Artboards list selects a frame and its Composition. Add/Duplicate places a
 frame to the right; up/down changes export order without moving artwork. Edit

@@ -10,6 +10,8 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QToolButton>
+#include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -75,6 +77,72 @@ int main(int argc,char** argv){
             if(button->isVisible())inspector=button;
         check(inspector&&inspector->text()=="Finish gradient handles","Gradient callback also preserves Inspector synchronization");
         if(app.arguments().contains("--mode-conflict-only"))return 0;
+        if(app.arguments().contains("--selection-continuity-only")) {
+            const auto select_object=[&](const char* id) {
+                auto* tree=window.findChild<QTreeWidget*>();check(tree&&tree->isVisible(),"Real Structure navigation is reachable");
+                QTreeWidgetItem* target=nullptr;
+                for(QTreeWidgetItemIterator i(tree);*i;++i)
+                    if((*i)->data(0,Qt::UserRole).toString()==id&&(*i)->data(0,Qt::UserRole+1).toString().isEmpty()){target=*i;break;}
+                check(target!=nullptr,"Exact whole-Object Structure row exists");tree->scrollToItem(target);QApplication::processEvents();
+                QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(target).center());QApplication::processEvents();
+                check(window.canvas->selected_object==id&&window.canvas->selected_point.empty(),"Actual Structure click selects the exact Object");
+            };
+            select_object("plain-object");
+            std::cout<<"Plain selection: checked="<<gradient->isChecked()<<" disabled="<<!gradient->isEnabled()
+                <<" target="<<window.canvas->gradient_operation()<<" source_unchanged="<<(snapshot(session)==before)<<'\n';
+            check(gradient->isChecked()&&!window.findChild<QToolButton*>("tool-selection")->isChecked(),
+                "Selecting an ineligible Object retains Gradient Edit as the active Tool");
+            check(!gradient->isEnabled()&&gradient->toolTip().contains("no enabled Gradient")&&
+                window.canvas->gradient_operation().empty()&&snapshot(session)==before,
+                "Ineligible selection clears handle target and exposes its reason without authoring");
+            QTest::keyClick(window.canvas,Qt::Key_Right);QApplication::processEvents();
+            check(snapshot(session)==before,"Idle Gradient Edit retains the no-artwork-nudge contract");
+            select_object("gradient-object");
+            check(gradient->isChecked()&&window.canvas->gradient_operation()=="gradient-fill"&&snapshot(session)==before,
+                "Selecting the sole eligible Gradient restores its exact handles without reselecting the Rail");
+            const auto screen=[&](double x,double y){return QPoint(qRound(window.canvas->width()/2.0+(x-320)*window.canvas->zoom()),
+                qRound(window.canvas->height()/2.0+(y-240)*window.canvas->zoom()));};
+            window.canvas->set_snap_enabled(false);
+            window.canvas->fit_artboard();QApplication::processEvents();
+            std::cout<<"Retargeted viewport="<<window.canvas->width()<<'x'<<window.canvas->height()
+                <<" zoom="<<window.canvas->zoom()<<" target="<<window.canvas->gradient_operation()<<'\n';
+            const auto start=screen(280,220);const auto finish=start+QPoint(20,10);const auto revision=session.revision();
+            const auto history=session.history().states.size();
+            QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,start);QApplication::processEvents();
+            QTest::mouseMove(window.canvas,finish);QApplication::processEvents();
+            check(session.document()==original&&session.gesture_active(),"Retargeted handles preview through the canonical Session gesture");
+            QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,finish);QApplication::processEvents();
+            auto expected_gradient=*original.objects.at("gradient-object").stack.front().gradient;
+            const auto& actual=*session.document().objects.at("gradient-object").stack.front().gradient;
+            std::cout.precision(17);std::cout<<"Retargeted drag actual="<<actual.start_x.literal<<','<<actual.start_y.literal
+                <<" expected="<<expected_gradient.start_x.literal+20/window.canvas->zoom()<<','<<expected_gradient.start_y.literal+10/window.canvas->zoom()<<'\n';
+            check(std::abs(actual.start_x.literal-(expected_gradient.start_x.literal+20/window.canvas->zoom()))<1e-8&&
+                std::abs(actual.start_y.literal-(expected_gradient.start_y.literal+10/window.canvas->zoom()))<1e-8,
+                "Retargeted handle uses independent screen/local displacement");
+            expected_gradient.start_x.literal=actual.start_x.literal;expected_gradient.start_y.literal=actual.start_y.literal;
+            Session oracle(original);oracle.apply({SetGradient{"gradient-object","gradient-fill",expected_gradient}},oracle.revision());
+            check(session.document()==oracle.document()&&session.revision()==revision+1&&session.history().states.size()==history+1&&!session.gesture_active(),
+                "Retargeted actual handle drag matches the complete canonical source command with one revision");
+            session.undo(session.revision());window.host.edited();check(session.document()==original,"One Undo restores complete source after retargeted drag");
+            session.redo(session.revision());window.host.edited();check(session.document()==oracle.document(),"One Redo restores complete retargeted edit");
+            const auto edited=snapshot(session);select_object("plain-object");QTest::keyClick(window.canvas,Qt::Key_Escape);QApplication::processEvents();
+            check(!gradient->isChecked()&&window.findChild<QToolButton*>("tool-selection")->isChecked()&&snapshot(session)==edited,
+                "Escape exits idle Gradient Edit without modifying source/history");
+            select_object("gradient-object");click("tool-gradient");select_object("plain-object");
+            auto second=default_operation("second-paint","nect.paint.stroke");second.gradient=expected_gradient;
+            second.gradient->id="second-gradient";second.gradient->stops[0].id="second-first";second.gradient->stops[1].id="second-last";
+            session.apply({AddOperation{"gradient-object",second,1}},session.revision());window.host.edited();
+            const auto ambiguous=snapshot(session);select_object("gradient-object");
+            check(gradient->isChecked()&&gradient->isEnabled()&&window.canvas->gradient_operation().empty()&&
+                gradient->toolTip().contains("Choose")&&snapshot(session)==ambiguous,
+                "Retained Gradient Tool never chooses an implicit first paint when the next Object has multiple candidates");
+            select_object("plain-object");const auto idle_source=session.document();const auto old_session=window.host.session_id;
+            const auto idle_file=scratch.filePath("idle-gradient.nect.json");window.host.save(idle_file);window.host.open(idle_file);QApplication::processEvents();
+            check(window.host.session_id!=old_session&&!gradient->isChecked()&&!window.canvas->gradient_edit_mode()&&
+                window.canvas->gradient_operation().empty()&&session.document()==idle_source,
+                "Same-ID native reopen expires idle Tool/target ownership while preserving all source");
+            std::cout<<"gradient_selection_continuity: "<<checks<<" checks passed\n";return 0;
+        }
         QTest::keyClick(window.canvas,Qt::Key_Escape);QApplication::processEvents();
         check(window.canvas->gradient_operation().empty()&&!gradient->isChecked()&&
             window.findChild<QToolButton*>("tool-selection")->isChecked(),"Idle Escape returns gradient handles to Selection");

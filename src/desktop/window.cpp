@@ -1909,7 +1909,7 @@ void Window::sync_tool_rail() {
     const auto available=canvas->gradient_edit_availability();
     tool_rail_->set_gradient_available(!available.operations.empty(),available.reason);
     tool_rail_->set_active(canvas->direct_selection_mode()?ToolRail::Tool::direct_selection:canvas->zoom_mode()?ToolRail::Tool::zoom:canvas->hand_mode()?ToolRail::Tool::hand:canvas->text_mode()?ToolRail::Tool::text:canvas->draw_mode()?ToolRail::Tool::pen:
-        canvas->anchor_edit()?ToolRail::Tool::anchor:!canvas->gradient_operation().empty()?ToolRail::Tool::gradient:
+        canvas->anchor_edit()?ToolRail::Tool::anchor:canvas->gradient_edit_mode()?ToolRail::Tool::gradient:
         canvas->guide_edit_mode()?ToolRail::Tool::guide:ToolRail::Tool::selection);
 }
 

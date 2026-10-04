@@ -178,7 +178,7 @@ void Canvas::refresh() {
     }
     if(armed_guide_&&!scoped_guide_context_current(*armed_guide_))disarm_scoped_guide();
     const auto& document = session_.preview_document();
-    if(!gradient_operation_.empty()&&(gradient_document_!=document.id||
+    if(gradient_edit_mode_&&(gradient_document_!=document.id||
         (session_identity_provider_&&gradient_session_!=session_identity_provider_())))clear_gradient_edit();
     const auto previous_composition = active_composition_, previous_artboard = active_artboard_;
     try {
@@ -406,7 +406,7 @@ void Canvas::refresh() {
                         {get("end_x"), get("end_y")}, world_.at(gradient_object_), gradient.type == "radial"};
                 }
             }
-            if (!gradient_control_) clear_gradient_edit();
+            if (!gradient_control_) clear_gradient_edit(true);
         }
         if(circle_source_edit_) {
             const auto source=document.objects.find(circle_source_object_);
@@ -443,7 +443,7 @@ void Canvas::select_all_in_context() {
 }
 
 void Canvas::nudge_selection(double dx,double dy) {
-    if(drag_!=Drag::none||gesture_owned_||draw_mode_||anchor_edit_||gradient_control_||selections_.empty())return;
+    if(drag_!=Drag::none||gesture_owned_||draw_mode_||anchor_edit_||gradient_edit_mode_||selections_.empty())return;
     try {
         std::vector<Command> commands;
         if(selected_point.empty())commands.push_back(TranslateObjects{selected_objects(),dx,dy});
@@ -603,12 +603,17 @@ void Canvas::select_many(std::vector<Selection> items,bool enter_parent) {
     if(enter_parent)set_scope(valid.empty()?Id{}:unprojected_text_parents.contains(valid.back().object)?
         unprojected_text_parents.at(valid.back().object):parents_.at(valid.back().object));
     if(valid==selections_)return;
-    if(valid.size()!=1||valid.back().object!=gradient_object_||!valid.back().point.empty())clear_gradient_edit();
+    if(valid.size()!=1||valid.back().object!=gradient_object_||!valid.back().point.empty())clear_gradient_edit(gradient_edit_mode_);
     if(circle_source_edit_&&(valid.size()!=1||valid.back()!=Selection{circle_source_object_,{}}))
         clear_circle_source_edit(false);
     selections_=std::move(valid);
     selected_object=selections_.empty()?Id{}:selections_.back().object;
     selected_point=selections_.empty()?Id{}:selections_.back().point;
+    if(gradient_edit_mode_) {
+        const auto available=gradient_edit_availability();
+        if(available.operations.size()==1&&(gradient_object_!=selected_object||gradient_operation_!=available.operations.front()))
+            set_gradient_edit(selected_object,available.operations.front());
+    }
     if (selection_changed) selection_changed();
     update();
 }
@@ -737,11 +742,12 @@ void Canvas::set_anchor_edit(bool enabled) {
     if(anchor_edit_changed)anchor_edit_changed(enabled);
 }
 
-void Canvas::clear_gradient_edit() {
-    const bool active = !gradient_operation_.empty();
+void Canvas::clear_gradient_edit(bool retain_tool) {
+    const bool active = gradient_edit_mode_ || !gradient_operation_.empty();
     gradient_object_.clear(); gradient_operation_.clear(); gradient_control_.reset();
-    gradient_document_.clear();gradient_session_.clear();
+    if(!retain_tool) {gradient_edit_mode_=false;gradient_document_.clear();gradient_session_.clear();}
     if (active && gradient_edit_changed) gradient_edit_changed();
+    update_cursor();
     update();
 }
 
@@ -785,10 +791,12 @@ void Canvas::set_gradient_edit(Id object, Id operation) {
     set_draw_mode(false);
     select(object, {}, true);
     gradient_object_ = std::move(object); gradient_operation_ = std::move(operation);
+    gradient_edit_mode_=true;
     gradient_document_=session_.document().id;
     gradient_session_=session_identity_provider_?session_identity_provider_():QString{};
     refresh();
     if (gradient_edit_changed) gradient_edit_changed();
+    update_cursor();
     setFocus();
 }
 
@@ -1344,7 +1352,9 @@ void Canvas::paintEvent(QPaintEvent*) {
             ? tr("Pen · Click points · First point: close · Enter: next Path · Esc: exit")
             : circle_source_edit_ ? tr("Circle source · Drag Center or Radius · Radius follows local +X · Esc exits")
             : anchor_edit_ ? tr("Anchor · Drag the crosshair to change the pivot; artwork stays in place · Esc exits")
-            : gradient_control_ ? tr("Gradient · Drag its handles · Esc cancels a drag / exits handles · Space-drag to pan")
+            : gradient_edit_mode_ ? (gradient_control_
+                ? tr("Gradient · Drag its handles · Esc cancels a drag / exits handles · Space-drag to pan")
+                : tr("Gradient Edit · Select one Object / choose its Gradient · Esc exits"))
             : guide_edit_mode_ ? (show_guides_
                 ? tr("Guide Edit · Drag a Guide · Esc cancels a drag / exits · Space-drag to pan")
                 : tr("Guide overlays are hidden · Show Guides to edit · Esc exits"))
@@ -2545,7 +2555,7 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
         else if (text_mode_) set_text_mode(false);
         else if(anchor_edit_)set_anchor_edit(false);
         else if(circle_source_edit_)set_circle_source_edit(false);
-        else if (gradient_control_) clear_gradient_edit();
+        else if (gradient_edit_mode_) clear_gradient_edit();
         else if (guide_edit_mode_) set_guide_edit_mode(false);
         else if (!scope_.empty()) leave_group();
         else select({});
@@ -2655,7 +2665,7 @@ void Canvas::update_cursor() {
     }
     else if(direct_selection_mode_)setCursor(Qt::CrossCursor);
     else if(text_mode_)setCursor(Qt::IBeamCursor);
-    else if (draw_mode_ || anchor_edit_ || circle_source_edit_ || guide_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
+    else if (draw_mode_ || anchor_edit_ || circle_source_edit_ || guide_edit_mode_ || gradient_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
              drag_ == Drag::outgoing || drag_ == Drag::symmetric || drag_ == Drag::gradient_start ||
              drag_ == Drag::gradient_end || drag_==Drag::circle_center || drag_==Drag::circle_radius) setCursor(Qt::CrossCursor);
     else if (drag_ == Drag::object) setCursor(Qt::SizeAllCursor);
