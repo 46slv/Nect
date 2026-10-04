@@ -29,6 +29,7 @@ class SemanticScrub;
 // Pure presentation of an existing derived receipt; does not shape or infer runs.
 QString format_text_font_receipt(const TextLayout& result);
 class ColorTools;
+class ToolRail;
 class Window : public QMainWindow {
 public:
     // The caller owns the optional workspace store for this Window's lifetime.
@@ -47,6 +48,8 @@ private:
     ColorTools* color_tools_;
     std::unique_ptr<FolderLibrary> folder_library_;
     QSettings* workspace_preferences_ = nullptr;
+    ToolRail* tool_rail_=nullptr;
+    void sync_tool_rail();
     QStringListModel* font_families_=nullptr;
     QString font_discovery_error_;
     std::uint64_t text_selection_generation_=0;

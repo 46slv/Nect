@@ -10,7 +10,7 @@ namespace nect::desktop {
 // Workspace presentation only: activating a slot never authors a command.
 class ToolRail final : public QToolBar {
 public:
-    enum class Tool { selection, pen, text, anchor, guide };
+    enum class Tool { selection, pen, text, anchor, guide, gradient };
     std::function<void(Tool)> activate;
     std::function<void(bool)> variant_chosen;
     explicit ToolRail(QWidget* parent=nullptr) : QToolBar("Tools",parent) {
@@ -39,6 +39,8 @@ public:
         text_->setMenu(variants);text_->setPopupMode(QToolButton::DelayedPopup);
         anchor_=slot(Tool::anchor,"tool-anchor","Anchor Edit · Y");
         guide_=slot(Tool::guide,"tool-guide","Guide Edit");
+        gradient_=slot(Tool::gradient,"tool-gradient","Gradient Edit");
+        set_gradient_available(false,"Select one Object with an enabled Gradient.");
         set_active(Tool::selection);
     }
     bool vertical_text()const{return vertical_;}
@@ -47,9 +49,15 @@ public:
         selection_->setChecked(tool==Tool::selection);pen_->setChecked(tool==Tool::pen);
         text_->setChecked(tool==Tool::text);anchor_->setChecked(tool==Tool::anchor);
         guide_->setChecked(tool==Tool::guide);
+        gradient_->setChecked(tool==Tool::gradient);
+    }
+    void set_gradient_available(bool enabled,const QString& reason) {
+        gradient_->setEnabled(enabled);
+        const auto label=reason.isEmpty()?QString("Gradient Edit"):QString("Gradient Edit · ")+reason;
+        gradient_->setToolTip(label);gradient_->setAccessibleName(label);
     }
 private:
-    QToolButton *selection_,*pen_,*text_,*anchor_,*guide_;
+    QToolButton *selection_,*pen_,*text_,*anchor_,*guide_,*gradient_;
     bool vertical_=false;
     static QIcon icon(Tool tool,bool vertical=false) {
         QIcon result;
@@ -62,6 +70,8 @@ private:
             else if(tool==Tool::anchor) {p.drawEllipse(QPointF(10,10),5,5);p.drawLine(10,2,10,18);p.drawLine(2,10,18,10);}
             else if(tool==Tool::guide) {p.setPen(QPen(QColor("#d7dfe8"),1.2,Qt::DashLine));
                 p.drawLine(3,8,17,8);p.drawLine(8,3,8,17);p.drawRect(QRectF(12,12,4,4));}
+            else if(tool==Tool::gradient) {p.drawLine(4,14,16,6);p.drawRect(QRectF(2,12,4,4));
+                p.setBrush(QColor("#d7dfe8"));p.drawEllipse(QPointF(16,6),2,2);}
             else {p.drawLine(4,4,14,4);p.drawLine(9,4,9,16);p.drawLine(6,16,12,16);
                 if(vertical){p.drawLine(17,5,17,15);p.drawLine(15,12,17,15);p.drawLine(19,12,17,15);}}
             p.end();result.addPixmap(pixels);

@@ -177,6 +177,8 @@ void Canvas::refresh() {
     }
     if(armed_guide_&&!scoped_guide_context_current(*armed_guide_))disarm_scoped_guide();
     const auto& document = session_.preview_document();
+    if(!gradient_operation_.empty()&&(gradient_document_!=document.id||
+        (session_identity_provider_&&gradient_session_!=session_identity_provider_())))clear_gradient_edit();
     const auto previous_composition = active_composition_, previous_artboard = active_artboard_;
     try {
         auto composition = std::find_if(document.compositions.begin(), document.compositions.end(),
@@ -697,6 +699,7 @@ void Canvas::set_anchor_edit(bool enabled) {
 void Canvas::clear_gradient_edit() {
     const bool active = !gradient_operation_.empty();
     gradient_object_.clear(); gradient_operation_.clear(); gradient_control_.reset();
+    gradient_document_.clear();gradient_session_.clear();
     if (active && gradient_edit_changed) gradient_edit_changed();
     update();
 }
@@ -731,7 +734,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
 }
 
 void Canvas::set_gradient_edit(Id object, Id operation) {
-    if(!operation.empty())set_text_mode(false);
+    if(!operation.empty()){set_text_mode(false);set_guide_edit_mode(false);}
     cancel_interaction();
     clear_circle_source_edit();
     set_anchor_edit(false);
@@ -741,9 +744,31 @@ void Canvas::set_gradient_edit(Id object, Id operation) {
     set_draw_mode(false);
     select(object, {}, true);
     gradient_object_ = std::move(object); gradient_operation_ = std::move(operation);
+    gradient_document_=session_.document().id;
+    gradient_session_=session_identity_provider_?session_identity_provider_():QString{};
     refresh();
     if (gradient_edit_changed) gradient_edit_changed();
     setFocus();
+}
+
+Canvas::GradientEditAvailability Canvas::gradient_edit_availability() const {
+    if(selections_.size()!=1||!selected_point.empty())
+        return {{},"Select one whole Object with an enabled Gradient."};
+    if(projection_error_||!world_.contains(selected_object))
+        return {{},"Gradient handles are unavailable for this Object."};
+    const auto& document=session_.preview_document();
+    const auto object=document.objects.find(selected_object);
+    if(object==document.objects.end())return {{},"Select one Object with an enabled Gradient."};
+    GradientEditAvailability result;
+    try {
+        const auto enabled=evaluate_gradient_enableds(document);
+        for(const auto& operation:object->second.stack)
+            if(operation.gradient&&enabled.at(gradient_ref(object->first,operation.id,operation.gradient->id,"enabled")))
+                result.operations.push_back(operation.id);
+    }catch(const std::exception& e){return {{},QString("Gradient handles unavailable: ")+QString::fromUtf8(e.what())};}
+    if(result.operations.empty())result.reason="This Object has no enabled Gradient. Set its Paint in Inspector.";
+    else if(result.operations.size()>1)result.reason="Choose the Gradient to edit.";
+    return result;
 }
 
 Id Canvas::selection_target(const Geometry& item) const {

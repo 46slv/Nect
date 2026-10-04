@@ -71,6 +71,8 @@ public:
     bool draw_mode() const { return draw_mode_; }
     void set_gradient_edit(Id object, Id operation);
     const Id& gradient_operation() const { return gradient_operation_; }
+    struct GradientEditAvailability {std::vector<Id> operations;QString reason;};
+    GradientEditAvailability gradient_edit_availability() const;
     void cancel_interaction();
     const Id& drill_scope() const { return scope_; }
     QString breadcrumb() const;
@@ -223,7 +225,8 @@ private:
     std::vector<Artboard> artboards_;
     struct GradientControl { Id id; QPointF start, end; QTransform world; bool radial = false; };
     struct CircleSourceControl { QPointF center, radius; QTransform world; bool center_driven=false, radius_driven=false; };
-    Id gradient_object_, gradient_operation_;
+    Id gradient_object_, gradient_operation_, gradient_document_;
+    QString gradient_session_;
     std::optional<GradientControl> gradient_control_;
     Id circle_source_object_,circle_source_id_;
     bool draw_mode_ = false;
