@@ -664,6 +664,10 @@ struct RenamePreset { Id preset; std::string label; };
 struct UpdatePreset { PresetDefinition definition; };
 struct DeletePreset { Id preset; };
 struct ApplyPreset { Id preset; Id object; Id operation_id_prefix; };
+// Applies one document Preset to exact retained targets in one candidate/Undo.
+// Every target requires its own caller-supplied fresh processing ID prefix.
+struct PresetApplyTarget { Id object; Id operation_id_prefix; };
+struct ApplyPresetBatch { Id preset; std::vector<PresetApplyTarget> targets; };
 // Imports a portable literal payload and applies it in the same Session commit.
 // Library identity is receipt context only; the Document receives a fresh local ID.
 struct ImportAndApplyPreset {
@@ -674,7 +678,7 @@ struct ImportAndApplyPreset {
     Id asset_id;
     std::uint64_t accepted_revision=0;
 };
-using PresetMutation=std::variant<CreatePreset,CreatePresetFromStack,RenamePreset,UpdatePreset,DeletePreset,ApplyPreset,
+using PresetMutation=std::variant<CreatePreset,CreatePresetFromStack,RenamePreset,UpdatePreset,DeletePreset,ApplyPreset,ApplyPresetBatch,
     ImportAndApplyPreset>;
 struct PresetCommand { PresetMutation mutation; };
 struct CreateDefinition { Definition definition; };

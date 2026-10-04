@@ -7374,6 +7374,16 @@ void edit_preset(Document& candidate,const PresetCommand& command) {
             const auto found=candidate.preset_definitions.find(mutation.preset);
             require(found!=candidate.preset_definitions.end(),"MISSING_PRESET",mutation.preset);
             append_preset_to_target(candidate,found->second,mutation.object,mutation.operation_id_prefix);
+        } else if constexpr(std::is_same_v<T,ApplyPresetBatch>) {
+            require(mutation.targets.size()>=2&&mutation.targets.size()<=1000,
+                "INVALID_BATCH","Preset selection must contain 2..1000 distinct targets");
+            const auto found=candidate.preset_definitions.find(mutation.preset);
+            require(found!=candidate.preset_definitions.end(),"MISSING_PRESET",mutation.preset);
+            std::set<Id> targets;
+            for(const auto& target:mutation.targets) {
+                require(targets.insert(target.object).second,"INVALID_BATCH","Duplicate Preset target: "+target.object);
+                append_preset_to_target(candidate,found->second,target.object,target.operation_id_prefix);
+            }
         } else if constexpr(std::is_same_v<T,ImportAndApplyPreset>) {
             require(!mutation.asset_id.empty()&&mutation.accepted_revision>0,
                 "INVALID_PRESET_ASSET_REF","Portable Preset import requires an exact asset ID and positive accepted revision");
@@ -7403,9 +7413,11 @@ std::string preset_history_label(const PresetCommand& command,const Document& ca
         else if constexpr(std::is_same_v<T,RenamePreset>)return "Rename Preset: "+mutation.label;
         else if constexpr(std::is_same_v<T,UpdatePreset>)return "Update Preset: "+mutation.definition.label;
         else if constexpr(std::is_same_v<T,DeletePreset>)return "Delete Preset: "+mutation.preset;
-        else if constexpr(std::is_same_v<T,ApplyPreset>) {
+        else if constexpr(std::is_same_v<T,ApplyPreset>||std::is_same_v<T,ApplyPresetBatch>) {
             const auto found=candidate.preset_definitions.find(mutation.preset);
-            return "Apply Preset: "+(found==candidate.preset_definitions.end()?mutation.preset:found->second.label);
+            const auto label=found==candidate.preset_definitions.end()?mutation.preset:found->second.label;
+            if constexpr(std::is_same_v<T,ApplyPresetBatch>)return "Apply Preset to Selection: "+label;
+            else return "Apply Preset: "+label;
         } else return "Import and Apply Preset: "+mutation.definition.label;
     },command.mutation);
 }

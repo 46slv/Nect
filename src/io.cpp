@@ -1848,6 +1848,17 @@ PresetCommand read_preset_command(const j::value& v) {
         keys(o,{"type","preset","object","operation_id_prefix"});
         return PresetCommand{ApplyPreset{text(o.at("preset")),text(o.at("object")),text(o.at("operation_id_prefix"))}};
     }
+    if(type=="apply_preset_batch") {
+        keys(o,{"type","preset","targets"});
+        ApplyPresetBatch batch;batch.preset=text(o.at("preset"));
+        const auto& targets=o.at("targets").as_array();
+        if(targets.size()<2||targets.size()>1000)throw Error("INVALID_BATCH","Preset selection must contain 2..1000 distinct targets");
+        for(const auto& item:targets) {
+            const auto& target=item.as_object();keys(target,{"object","operation_id_prefix"});
+            batch.targets.push_back({text(target.at("object")),text(target.at("operation_id_prefix"))});
+        }
+        return PresetCommand{std::move(batch)};
+    }
     if(type=="import_apply_preset") {
         keys(o,{"type","definition","definition_id","object","operation_id_prefix","asset_id","accepted_revision"});
         return PresetCommand{ImportAndApplyPreset{read_preset_definition(o.at("definition")),
@@ -2099,7 +2110,7 @@ MacroCommand read_macro_command(const j::value& value) {
 bool is_preset_command(const j::value& v) {
     const auto type=text(v.as_object().at("type"));
     return type=="create_preset"||type=="create_preset_from_stack"||type=="rename_preset"||
-        type=="update_preset"||type=="delete_preset"||type=="apply_preset"||type=="import_apply_preset";
+        type=="update_preset"||type=="delete_preset"||type=="apply_preset"||type=="apply_preset_batch"||type=="import_apply_preset";
 }
 
 Command read_command(const j::value& v) {
@@ -3952,6 +3963,7 @@ std::string request(Session& session,std::string_view input) {
                     "Preset commands are single Session operations and cannot be mixed into a generic command batch");
                 const auto preset=read_preset_command(wire_commands.front());
                 const auto* apply=std::get_if<ApplyPreset>(&preset.mutation);
+                const auto* batch=std::get_if<ApplyPresetBatch>(&preset.mutation);
                 const auto* import=std::get_if<ImportAndApplyPreset>(&preset.mutation);
                 j::array captured_source_operations,captured_source_entries;
                 if(const auto* capture=std::get_if<CreatePresetFromStack>(&preset.mutation)) {
@@ -3972,6 +3984,15 @@ std::string request(Session& session,std::string_view input) {
                     for(const auto& id:preset_operation_ids(definition,apply->operation_id_prefix))operation_ids.push_back(j::value(id));
                     applied.push_back(j::object{{"preset",preset_json(definition)},
                         {"target",apply->object},{"operation_ids",operation_ids},{"processing_entry_ids",operation_ids}});
+                }
+                if(batch&&session.revision()!=before) {
+                    const auto& definition=session.document().preset_definitions.at(batch->preset);
+                    for(const auto& target:batch->targets) {
+                        j::array operation_ids;
+                        for(const auto& id:preset_operation_ids(definition,target.operation_id_prefix))operation_ids.push_back(j::value(id));
+                        applied.push_back(j::object{{"preset",preset_json(definition)},
+                            {"target",target.object},{"operation_ids",operation_ids},{"processing_entry_ids",operation_ids}});
+                    }
                 }
                 if(import&&session.revision()!=before) {
                     const auto& definition=session.document().preset_definitions.at(import->document_definition_id);
