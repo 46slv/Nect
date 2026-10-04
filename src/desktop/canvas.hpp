@@ -34,6 +34,7 @@ public:
     std::function<void()> document_changed;
     std::function<void()> scope_changed;
     std::function<void(bool)> draw_mode_changed;
+    std::function<void()> text_mode_changed;
     std::function<void()> gradient_edit_changed;
     std::function<void(bool)> anchor_edit_changed;
     std::function<void(bool)> circle_source_edit_changed;
@@ -59,6 +60,8 @@ public:
     void set_selection(Id object, Id point = {});
     void set_selections(std::vector<Selection> items);
     void set_draw_mode(bool enabled);
+    void set_text_mode(bool enabled, bool vertical=false);
+    bool text_mode() const {return text_mode_;}
     void set_anchor_edit(bool enabled);
     bool anchor_edit() const {return anchor_edit_;}
     void set_circle_source_edit(bool enabled);
@@ -224,6 +227,8 @@ private:
     std::optional<GradientControl> gradient_control_;
     Id circle_source_object_,circle_source_id_;
     bool draw_mode_ = false;
+    bool text_mode_ = false;
+    bool vertical_text_creation_ = false;
     bool anchor_edit_ = false;
     bool circle_source_edit_ = false;
     Id drawing_object_;

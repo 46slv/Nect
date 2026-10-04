@@ -666,7 +666,7 @@ void Canvas::leave_group() {
 
 void Canvas::set_draw_mode(bool enabled) {
     cancel_interaction();
-    if (enabled) {clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);}
+    if (enabled) {set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);}
     drawing_object_.clear();
     drawing_contour_.clear();
     if (draw_mode_ == enabled) return;
@@ -676,9 +676,19 @@ void Canvas::set_draw_mode(bool enabled) {
     if (draw_mode_changed) draw_mode_changed(enabled);
 }
 
+void Canvas::set_text_mode(bool enabled, bool vertical) {
+    if(!enabled&&!text_mode_)return;
+    cancel_interaction();
+    if(enabled) {set_draw_mode(false);set_anchor_edit(false);clear_circle_source_edit();clear_gradient_edit();set_guide_edit_mode(false);}
+    text_mode_=enabled;
+    if(enabled)vertical_text_creation_=vertical;
+    update_cursor();update();
+    if(text_mode_changed)text_mode_changed();
+}
+
 void Canvas::set_anchor_edit(bool enabled) {
     cancel_interaction();
-    if(enabled) {clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();select(selected_object,{});}
+    if(enabled) {set_text_mode(false);clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();select(selected_object,{});}
     if(anchor_edit_==enabled)return;
     anchor_edit_=enabled;update_cursor();update();
     if(anchor_edit_changed)anchor_edit_changed(enabled);
@@ -713,7 +723,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
             throw Error("INVALID_SELECTION","Circle source handles require a selected retained Circle");
         if(circle_source_edit_&&circle_source_object_==object.id&&circle_source_id_==object.source->id)return;
         clear_circle_source_edit();
-        set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
+        set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
         circle_source_object_=object.id;circle_source_id_=object.source->id;circle_source_edit_=true;
         refresh();update_cursor();update();
         if(circle_source_edit_changed)circle_source_edit_changed(true);
@@ -721,6 +731,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
 }
 
 void Canvas::set_gradient_edit(Id object, Id operation) {
+    if(!operation.empty())set_text_mode(false);
     cancel_interaction();
     clear_circle_source_edit();
     set_anchor_edit(false);
@@ -1319,7 +1330,7 @@ void Canvas::set_show_margin(bool enabled) {
 void Canvas::set_guide_edit_mode(bool enabled) {
     if(guide_edit_mode_==enabled)return;
     if(!enabled&&(drag_==Drag::guide||armed_guide_))cancel_interaction();
-    if(enabled) {set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();}
+    if(enabled) {set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();}
     guide_edit_mode_=enabled;
     update_cursor();update();if(view_state_changed)view_state_changed();
 }
@@ -2299,6 +2310,23 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         append_draw_point(event->position());
         return;
     }
+    if(text_mode_) {
+        try {
+            if(active_composition_.empty())throw Error("MISSING_COMPOSITION","Choose a composition before placing Text");
+            const auto parent_world=scope_.empty()?QTransform{}:world_.at(scope_);
+            bool invertible=false;const auto inverse=parent_world.inverted(&invertible);
+            if(!invertible)throw Error("SINGULAR_TRANSFORM","Cannot place Text through a singular group transform");
+            const auto local=inverse.map(view().inverted().map(event->position()));
+            auto source=default_text(unique_id("text-source-"));
+            source.direction=vertical_text_creation_?"vertical":"horizontal";
+            source.parameters.at("origin_x").literal=local.x();source.parameters.at("origin_y").literal=local.y();
+            const auto id=unique_id("text-");
+            session_.apply({CreateText{active_composition_,scope_,id,"Text",std::move(source)}},session_.revision());
+            refresh();select(id);
+            if(document_changed)document_changed();
+        } catch(const std::exception& exception){report_error(exception);}
+        event->accept();return;
+    }
     if(circle_source_edit_) {
         const auto source_hit=hit_control(event->position());
         if(source_hit.kind==Drag::circle_center||source_hit.kind==Drag::circle_radius) {
@@ -2398,6 +2426,7 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) {
         if (drag_ != Drag::none||armed_guide_) cancel_interaction();
         else if (draw_mode_) set_draw_mode(false);
+        else if (text_mode_) set_text_mode(false);
         else if(anchor_edit_)set_anchor_edit(false);
         else if(circle_source_edit_)set_circle_source_edit(false);
         else if (gradient_control_) clear_gradient_edit();
@@ -2487,6 +2516,7 @@ void Canvas::reset_timing() {
 void Canvas::update_cursor() {
     if (drag_ == Drag::pan) setCursor(Qt::ClosedHandCursor);
     else if (space_down_) setCursor(Qt::OpenHandCursor);
+    else if(text_mode_)setCursor(Qt::IBeamCursor);
     else if (draw_mode_ || anchor_edit_ || circle_source_edit_ || guide_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
              drag_ == Drag::outgoing || drag_ == Drag::symmetric || drag_ == Drag::gradient_start ||
              drag_ == Drag::gradient_end || drag_==Drag::circle_center || drag_==Drag::circle_radius) setCursor(Qt::CrossCursor);

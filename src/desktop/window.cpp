@@ -10,6 +10,7 @@
 #include "multi_visibility_control.hpp"
 #include "multi_blend_mode_control.hpp"
 #include "text_direction_batch_control.hpp"
+#include "tool_rail.hpp"
 #include "text_layout_batch_control.hpp"
 #include "text_italic_batch_control.hpp"
 #include "text_family_batch_control.hpp"
@@ -1400,6 +1401,24 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     auto* draw=action(add,"Draw Path",QKeySequence("P"),[this]{canvas->set_draw_mode(true);canvas->setFocus();statusBar()->showMessage("Click to add points · Enter finishes the path · Escape exits",10000);});
     draw->setObjectName("draw-path");draw->setShortcuts({QKeySequence("P"),QKeySequence("G")});
     draw->setShortcutContext(Qt::WidgetShortcut);canvas->addAction(draw);
+    auto* rail=new ToolRail(this);addToolBar(Qt::LeftToolBarArea,rail);
+    const auto sync_tools=[this,rail]{
+        rail->set_active(canvas->text_mode()?ToolRail::Tool::text:canvas->draw_mode()?ToolRail::Tool::pen:
+            canvas->anchor_edit()?ToolRail::Tool::anchor:ToolRail::Tool::selection);
+    };
+    rail->activate=[this,rail,sync_tools](ToolRail::Tool tool){
+        canvas->cancel_interaction();
+        if(tool==ToolRail::Tool::pen){if(!canvas->draw_mode())canvas->set_draw_mode(true);}
+        else if(tool==ToolRail::Tool::text)canvas->set_text_mode(true,rail->vertical_text());
+        else if(tool==ToolRail::Tool::anchor)canvas->set_anchor_edit(true);
+        else {canvas->set_text_mode(false);canvas->set_draw_mode(false);canvas->set_anchor_edit(false);
+            canvas->set_gradient_edit({},{});canvas->set_circle_source_edit(false);canvas->set_guide_edit_mode(false);}
+        sync_tools();canvas->setFocus();
+    };
+    canvas->draw_mode_changed=[sync_tools](bool){sync_tools();};
+    const auto anchor_changed=canvas->anchor_edit_changed;
+    canvas->anchor_edit_changed=[anchor_changed,sync_tools](bool enabled){if(anchor_changed)anchor_changed(enabled);sync_tools();};
+    canvas->text_mode_changed=sync_tools;
     action(view,"Fit Artboard",QKeySequence("Ctrl+0"),[this]{canvas->fit_artboard();});
     action(view,"Fit selection",QKeySequence("Ctrl+2"),[this]{canvas->fit_selection();})->setObjectName("fit-selection");
     action(view,"Fit all artboards",QKeySequence("Ctrl+Shift+0"),[this]{canvas->fit_all_artboards();});
@@ -6642,8 +6661,26 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const auto direction_revision=host.session.revision();
     auto* direction_row=new QWidget(box);auto* direction_layout=new QHBoxLayout(direction_row);direction_layout->setContentsMargins(0,0,0,0);
     auto* direction=new QComboBox;direction->setObjectName("text-direction");direction->addItems({"Horizontal","Vertical"});
-    direction->setCurrentIndex(direction_state.evaluated=="vertical"?1:0);direction->setEnabled(false);
-    direction->setToolTip("Use Edit writing direction to stage and apply a change.");direction_layout->addWidget(direction);
+    direction->setCurrentIndex(direction_state.evaluated=="vertical"?1:0);direction->setEnabled(!direction_state.driver);
+    direction->setAccessibleName("Text writing direction");
+    direction->setToolTip(direction_state.driver?"Writing direction is linked. Unlink it explicitly using Driver before editing.":
+        "Change this Text object's writing direction. Content, font and style stay editable; one Undo restores the change.");direction_layout->addWidget(direction);
+    const auto direction_gesture=host.session.gesture_generation();
+    connect(direction,qOverload<int>(&QComboBox::activated),this,[this,id,frozen_session,direction_revision,direction_gesture](int index){
+        perform([&]{
+            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=direction_revision||host.session.gesture_generation()!=direction_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing writing direction");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing writing direction");
+            const auto& object=host.session.document().objects.at(id);
+            if(!object.text)throw Error("NOT_TEXT","Text no longer exists");
+            if(object.text->direction_driver)throw Error("DRIVEN_PROPERTY","Unlink Text writing direction explicitly before editing");
+            const auto value=index==1?std::string("vertical"):std::string("horizontal");
+            if(object.text->direction==value)return;
+            auto source=*object.text;source.direction=value;
+            host.session.apply({UpdateText{id,std::move(source)}},direction_revision);host.edited();
+        });
+    });
     auto* direction_driver_button=new QToolButton(direction_row);direction_driver_button->setObjectName("text-direction-driver");
     direction_driver_button->setText(direction_state.driver?"Driver…":"Drive…");direction_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* direction_menu=new QMenu(direction_driver_button);direction_driver_button->setMenu(direction_menu);direction_layout->addWidget(direction_driver_button);
@@ -6729,7 +6766,9 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
             host.session.apply({UnlinkTextDirection{direction_ref}},direction_revision);host.edited();});
     });
-    direction_layout->addStretch();form->addRow("Writing",direction_row);
+    // Writing is a primary Text edit, immediately after Content, ahead of the
+    // optional Text-on-Path and secondary font/driver details.
+    direction_layout->addStretch();form->insertRow(2,"Writing",direction_row);
     const auto direction_driver_name=[this](const std::optional<TextDirectionDriver>& driver) {
         if(!driver)return QString("none");
         const auto found=host.session.document().objects.find(driver->link.object);
