@@ -73,6 +73,8 @@ void holes_winding_and_invalid_boundaries() {
     d.objects.at("path").contours[1]=rectangle("hole",0,30,40,40);rejects("OFFSET_GEOMETRY",[&]{Session invalid(d);});
     d.objects.at("path").contours[1]=rectangle("hole",90,30,40,40);rejects("OFFSET_GEOMETRY",[&]{Session invalid(d);});
     d.objects.at("path").contours={polygon("cross",{{0,0},{100,100},{0,100},{100,0}})};rejects("OFFSET_GEOMETRY",[&]{Session invalid(d);});
+    d.objects.at("path").contours={polygon("spike",{{0,0},{100,0},{100,60},{50,60},{50,80},{50,60},{0,60}})};
+    rejects("OFFSET_GEOMETRY",[&]{Session invalid(d);});
     d.objects.at("path").contours={rectangle("open")};d.objects.at("path").contours[0].closed=false;rejects("OFFSET_OPEN_PATH",[&]{Session invalid(d);});
     d.objects.at("path").stack.back().parameters.at("amount").literal=0;Session zero(d);check(points(shape(zero).paths)==4&&!shape(zero).paths[0].contours->front().closed,"Amount zero is exact no-op even for unsupported open input");
 }
@@ -122,5 +124,25 @@ void sources_links_history_and_limits() {
     rejects("OUT_OF_RANGE",[&]{gesture.update_gesture({AddOperation{"path",offset(1000001),1}});});check(gesture.preview_document()==preview&&gesture.revision()==0,"Failed Offset preview retains last valid preview");
     gesture.cancel_gesture();check(!gesture.can_undo()&&gesture.document()==fixture(),"Canceled Offset gesture leaves no history");
 }
+void repeated_text_expansion() {
+#ifdef _WIN32
+    auto d=empty_document("text-doc","comp","art");Object object;object.id="path";object.kind=Kind::text;
+    object.text=default_text("source","Retained source");object.stack={default_operation("fill","nect.paint.fill"),offset(5)};
+    d.objects.emplace(object.id,object);d.compositions[0].roots={object.id};Session s(d);
+    const auto original=s.document();const auto first=shape(s);const auto first_bounds=bounds(first.paths);
+    auto second=offset(5);second.id="offset-again";apply(s,{AddOperation{"path",second,2}});
+    const auto expanded=shape(s);const auto expanded_bounds=bounds(expanded.paths);
+    check(!expanded.paths.front().contours->empty()&&area(expanded.paths)>area(first.paths),
+        "Repeated positive Text Offset expands its filled region");
+    check(expanded_bounds.left<first_bounds.left&&expanded_bounds.top<first_bounds.top&&
+        expanded_bounds.right>first_bounds.right&&expanded_bounds.bottom>first_bounds.bottom,
+        "Second Text Offset expands every exterior bound");
+    same_geometry(expanded.paths,expanded.paints.front().paths,expanded.paints.front().transform);
+    const auto applied=s.document();auto unchanged=applied;unchanged.objects.at("path").stack=original.objects.at("path").stack;
+    check(unchanged==original,"Repeated Text Offset retains the exact authored Text source");
+    s.undo(s.revision());check(s.document()==original,"One Undo restores the preceding Text Offset");
+    s.redo(s.revision());check(s.document()==applied,"One Redo restores the exact repeated Text Offset");
+#endif
 }
-int main(){try{rectangle_joins_and_signed_amount();holes_winding_and_invalid_boundaries();paint_order_basis_and_repeat_space();sources_links_history_and_limits();std::cout<<"PASS "<<checks<<" retained local Offset checks\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL after "<<checks<<" checks: "<<e.what()<<'\n';return 1;}}
+}
+int main(){try{rectangle_joins_and_signed_amount();holes_winding_and_invalid_boundaries();paint_order_basis_and_repeat_space();sources_links_history_and_limits();repeated_text_expansion();std::cout<<"PASS "<<checks<<" retained local Offset checks\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL after "<<checks<<" checks: "<<e.what()<<'\n';return 1;}}

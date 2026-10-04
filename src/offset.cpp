@@ -145,7 +145,16 @@ std::shared_ptr<const Contours> offset_contours(const Contours& source,const Aff
         else bg::buffer(input,output,distance,side,Join{miter_limit,join=="bevel"},end,point);
     }
     require(amount<0||input.empty()||!output.empty(),"OFFSET_GEOMETRY","Positive Offset could not represent its expanded region");
-    require(output.empty()||bg::is_valid(output),"OFFSET_GEOMETRY","Offset could not produce a valid region");
+    // Buffer can leave zero-area backtracking edges when an expanded concavity
+    // closes (including a second Offset on glyph outlines). Remove only those
+    // generated spikes; authored input is still validated without repair, and
+    // all other output validity checks remain mandatory.
+    bg::validity_failure_type failure;
+    if(!output.empty()&&!bg::is_valid(output,failure)) {
+        if(failure==bg::failure_spikes)bg::remove_spikes(output);
+        std::string invalid_reason;
+        if(!bg::is_valid(output,invalid_reason))throw Error("OFFSET_GEOMETRY","Offset could not produce a valid region: "+invalid_reason);
+    }
     auto result=std::make_shared<Contours>();std::size_t vertices=0;
     const auto append=[&](const auto& ring) {
         if(ring.empty())return;

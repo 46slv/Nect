@@ -164,14 +164,36 @@ void apply_contract(Controls& c,bool first_text,bool second_text,std::uint64_t p
     check(decode(encode(applied))==applied,"Native roundtrip preserves all instance IDs and exact old/latest pins");
     c.host.session.undo(1);check(c.host.session.document()==before,"One Undo restores every target and source");
     c.host.session.redo(c.host.session.revision());check(c.host.session.document()==applied,"One Redo restores exact fresh IDs");
-    if(first_text||second_text)return;
-    c.rebuild();c.choose(pin);c.apply()->click();
+    c.rebuild();c.choose(pin);const auto repeated_history=c.host.session.history();
+    const auto repeated_revision=c.host.session.revision();c.apply()->click();
     if(c.host.session.document().objects.at("first").stack.size()!=3)
         throw std::runtime_error("Repeated Macro Apply (text="+std::to_string(first_text)+","+std::to_string(second_text)+", pin="+std::to_string(pin)+"): "+c.error().toStdString());
     check(c.host.session.document().objects.at("first").stack.size()==3&&c.host.session.document().objects.at("second").stack.size()==3,
         "Applying the same Macro again intentionally appends another instance to each target");
-    for(const auto* id:{"first","second"})check(ids.insert(c.host.session.document().objects.at(id).stack.back().id).second,
-        "Repeated Apply allocates fresh identities instead of reusing or replacing instances");
+    const auto twice=c.host.session.document();auto retained=twice;
+    for(const auto* id:{"first","second"}) {
+        check(ids.insert(twice.objects.at(id).stack.back().id).second,
+            "Repeated Apply allocates fresh identities instead of reusing or replacing instances");
+        retained.objects.at(id).stack=applied.objects.at(id).stack;
+        for(const auto* node:macro_execution_order(before.macro_definitions.at("document-macro").revisions.at(pin))) {
+            auto operation=node->operation;operation.id=std::string(id)+"-second-oracle-"+operation.id;
+            ordinary.objects.at(id).stack.push_back(operation);
+        }
+    }
+    check(retained==applied,"Repeated Apply changes only new entries and retains complete Text/Path sources and existing IDs");
+    check(c.host.session.revision()==repeated_revision+1&&
+        c.host.session.history().states.size()==repeated_history.states.size()+1,
+        "Repeated expanding Macro batch has one revision and one complete Undo state");
+    const auto twice_values=evaluate(twice);const auto repeated_oracle=evaluate(ordinary);
+    for(const auto* id:{"first","second"}) {
+        const auto result=evaluate_shape(twice,id,twice_values);
+        check(result.paths.size()==(pin==1?4u:9u)&&!result.paths.front().contours->empty(),
+            "Repeated expanding Macro keeps the real four/nine nonempty output instances");
+        same_shape(result,evaluate_shape(ordinary,id,repeated_oracle));
+    }
+    check(decode(encode(twice))==twice,"Native roundtrip preserves repeated expanding Macro and complete sources");
+    c.host.session.undo(c.host.session.revision());check(c.host.session.document()==applied,"Repeated expanding batch has one exact Undo");
+    c.host.session.redo(c.host.session.revision());check(c.host.session.document()==twice,"Repeated expanding batch has one exact Redo");
 }
 }
 int main(int argc,char** argv){
@@ -179,10 +201,10 @@ int main(int argc,char** argv){
     QApplication app(argc,argv);try {
         Controls c;apply_contract(c,false,false,1);apply_contract(c,false,false,2);
         apply_contract(c,true,true,1);apply_contract(c,true,true,2);apply_contract(c,false,true,2);
-        // Captured engine limitation: repeating the expanding old pin on these
-        // Text outlines fails geometry validation. Preserve the whole batch.
-        c.reset(fixture(true,true));c.choose(1);c.apply()->click();c.choose(1);
-        c.refusal("OFFSET_GEOMETRY",[&]{c.apply()->click();});
+        // A later unsupported target still refuses atomically after a valid
+        // expanding Text target has been preflighted.
+        auto open_second=fixture(true,false);open_second.objects.at("second").contours.front().closed=false;
+        c.reset(open_second);c.choose(1);c.refusal("OFFSET_OPEN_PATH",[&]{c.apply()->click();});
         // Exercise repeated fresh allocation on supported identity geometry,
         // without turning the batch UI into a geometry-engine expansion.
         auto repeatable=fixture(true,true);for(auto& [pin,graph]:repeatable.macro_definitions.at("document-macro").revisions){
