@@ -5,12 +5,14 @@
 #include <QApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 #include <QToolButton>
 #include <algorithm>
 #include <cmath>
@@ -111,6 +113,109 @@ void geometry(Window& w,const Id& id,bool circle,double width,double height,doub
         close(top,cy-height/2-stroke/2)&&close(bottom+1,cy+height/2+stroke/2),
         "Rendered stroke bounds match independently computed source dimensions");
     std::cout<<"shape="<<source.type<<" source="<<width<<"x"<<height<<" pixels="<<left<<","<<top<<","<<right<<","<<bottom<<" DPR="<<scale<<'\n';
+}
+void appearance(Window& w,QTemporaryDir& scratch,QSettings& preferences,const Id& id,const Snapshot& before_creation,bool circle){
+    auto& s=w.host.session;const QString prefix=circle?"circle":"rectangle";
+    const auto source=s.document().objects.at(id).source;
+    const auto original_stroke=s.document().objects.at(id).stack.front();
+    const auto selection=w.canvas->selections();
+    const auto canvas_before=w.canvas->grab().toImage();
+    Session oracle(s.document());
+    std::vector<Document> states{before_creation.document,s.document()};
+    std::vector<std::uint64_t> ids{before_creation.history.current_id,s.history().current_id};
+    auto remember=[&]{
+        check(s.document()==oracle.document(),"Appearance equals independent canonical commands for the complete Document");
+        const auto& object=s.document().objects.at(id);
+        check(object.source==source&&object.contours.empty()&&!object.point_edit&&object.stack.front()==original_stroke,
+            "Appearance preserves retained generator, geometry ownership and original Stroke instance");
+        check(s.document().objects.at("unrelated-path")==before_creation.document.objects.at("unrelated-path")&&
+            s.document().objects.at("unrelated-text")==before_creation.document.objects.at("unrelated-text")&&
+            w.canvas->selections()==selection,"Appearance preserves unrelated complete Path/Text and stable selection");
+        tool(w);states.push_back(s.document());ids.push_back(s.history().current_id);
+    };
+    auto add=[&](const QString& name,const std::string& type){
+        const Snapshot before(s);auto* command=action(w,name);QSignalSpy triggered(command,&QAction::triggered);
+        auto* button=w.findChild<QPushButton*>("stack-add");auto* scroll=w.findChild<QScrollArea*>("inspector-scroll");
+        check(button&&scroll&&button->menu()&&command->isEnabled(),"Existing Appearance Add paint command is enabled for the retained shape");
+        auto* menu=button->menu();scroll->ensureWidgetVisible(button);events();
+        check(reachable(button)&&menu->actions().contains(command),"Actual Appearance Add button exposes the canonical paint command");
+        before.unchanged(s);bool opened=false,neutral=false;
+        QTimer::singleShot(100,menu,[&]{
+            opened=menu->isVisible()&&menu->actionGeometry(command).isValid();
+            neutral=s.document()==before.document&&encode(s.document())==before.native&&s.revision()==before.revision&&
+                s.history()==before.history&&s.gesture_generation()==before.generation&&s.gesture_active()==before.gesture;
+            if(opened)QTest::mouseClick(menu,Qt::LeftButton,Qt::NoModifier,menu->actionGeometry(command).center());
+            else menu->close();
+        });
+        QTest::mouseClick(button,Qt::LeftButton);events();
+        check(opened&&neutral,"Actual Appearance popup opens without authored/history/gesture mutation");
+        check(triggered.count()==1&&s.revision()==before.revision+1,"Actual Add menu pointer click commits exactly one paint operation");
+        const auto op=s.document().objects.at(id).stack.back().id;
+        oracle.apply({AddOperation{id,default_operation(op,type),before.document.objects.at(id).stack.size()}},oracle.revision());
+        remember();return op;
+    };
+    const auto fill=add("add-fill","nect.paint.fill");
+    auto edit=[&](const Id& op,const char* parameter,double value){
+        const auto ref=operation_ref(id,op,parameter);const Snapshot before(s);
+        auto* input=source_input(w,id,ref.field);before.unchanged(s);tool(w);
+        oracle.apply({EditProperties{{ref},value,false}},oracle.revision());
+        input->setFocus();input->selectAll();QTest::keyClicks(input,QString::number(value,'g',17));QTest::keyClick(input,Qt::Key_Return);events();
+        check(s.revision()==before.revision+1&&w.canvas->evaluated_values().at(ref)==value,
+            "Exact operation scalar input makes one edit and reevaluates the selected source");remember();
+    };
+    edit(fill,"r",0.375);
+    auto* inspector=w.findChild<QScrollArea*>("inspector-scroll");
+    auto* hex=w.findChild<QLineEdit*>("operation-hex-"+QString::fromStdString(fill));
+    check(inspector&&hex,"Real exact-instance Fill HEX source control exists");
+    const Snapshot hex_navigation(s);inspector->ensureWidgetVisible(hex);events();
+    check(reachable(hex)&&hex->isEnabled(),"Real Fill color control is fully reachable");hex_navigation.unchanged(s);
+    // The displayed red byte is 96, but its exact authored value is 0.375.
+    // Changing other HEX bytes must retain that unmodified source component.
+    auto color=color_value(oracle.document(),operation_ref(id,fill,"color"),evaluate(oracle.document()));
+    color.rgba={0.375,159/255.0,239/255.0,1};
+    oracle.apply({SetColor{operation_ref(id,fill,"color"),color}},oracle.revision());
+    const auto color_revision=s.revision();hex->setFocus();hex->selectAll();QTest::keyClicks(hex,"#609FEFFF");QTest::keyClick(hex,Qt::Key_Return);events();
+    check(s.revision()==color_revision+1&&property(s.document(),operation_ref(id,fill,"r")).literal==0.375,
+        "Actual HEX editing commits once and retains exact untouched red without byte quantization");remember();
+    evidence(w,prefix+"-fill-color");
+    const auto stroke=add("add-stroke","nect.paint.stroke");
+    edit(stroke,"width",7.25);edit(stroke,"r",0.875);
+    const auto& values=w.canvas->evaluated_values();
+    check(color_value(s.document(),operation_ref(id,fill,"color"),values)==color&&
+        values.at(operation_ref(id,stroke,"width"))==7.25&&values.at(operation_ref(id,stroke,"r"))==0.875,
+        "Complete evaluated Fill color and additional Stroke values follow their exact operation IDs");
+    auto pixels=[&](Window& window){
+        const auto scale=window.devicePixelRatioF();
+        const auto image=Canvas::render_artboard(window.host.session.document(),"composition","board",scale,false);
+        const auto inside=image.pixelColor(qRound(320*scale),qRound(240*scale));
+        const auto outside=image.pixelColor(qRound((circle?422:432)*scale),qRound(240*scale));
+        const auto wanted=color_value(oracle.document(),operation_ref(id,stroke,"color"),evaluate(oracle.document())).rgba;
+        const auto wanted_stroke=QColor::fromRgbF(wanted[0],wanted[1],wanted[2],wanted[3]);
+        std::cout<<"Appearance "<<prefix.toStdString()<<" DPR="<<scale<<" center="<<inside.name(QColor::HexArgb).toStdString()
+            <<" outer-stroke="<<outside.name(QColor::HexArgb).toStdString()<<" expected-stroke="<<wanted_stroke.name(QColor::HexArgb).toStdString()<<std::endl;
+        check(inside.alpha()==255&&std::abs(inside.red()-96)<=1&&std::abs(inside.green()-159)<=1&&std::abs(inside.blue()-239)<=1,
+            "Production renderer paints the independently expected sRGB Fill in the retained shape interior");
+        check(outside.alpha()==255&&std::abs(outside.red()-wanted_stroke.red())<=1&&
+            std::abs(outside.green()-wanted_stroke.green())<=1&&std::abs(outside.blue()-wanted_stroke.blue())<=1,
+            "Production renderer paints the edited additional Stroke outside the independent generator boundary");
+    };
+    pixels(w);check(w.canvas->grab().toImage()!=canvas_before,"Actual editable Canvas paint changes after the exact Appearance source edits");
+    evidence(w,prefix+"-stroke-source");
+    const Snapshot valid(s);auto* invalid=source_input(w,id,operation_ref(id,stroke,"r").field);
+    invalid->setFocus();invalid->selectAll();QTest::keyClicks(invalid,"1.5");QTest::keyClick(invalid,Qt::Key_Return);events();valid.unchanged(s);
+    for(std::size_t i=states.size()-1;i>0;--i){history(w,"Undo");check(s.document()==states[i-1]&&
+        encode(s.document())==encode(states[i-1])&&s.history().current_id==ids[i-1],"Existing Undo restores every complete Appearance and creation boundary");tool(w);}
+    for(std::size_t i=1;i<states.size();++i){history(w,"Redo");check(s.document()==states[i]&&s.history().current_id==ids[i],
+        "Existing Redo restores each complete Appearance source and exact instance ID");tool(w);}
+    const auto native=scratch.filePath(prefix+"-appearance.nect");const Snapshot saved(s);w.host.save(native);events();saved.unchanged(s);
+    w.host.open(native);events();check(s.document()==oracle.document()&&encode(s.document())==encode(states.back()),
+        "Same Window native reopen restores complete Appearance source and all retained IDs");pixels(w);
+    Window reopened(scratch.filePath(prefix+"-appearance-reopened"),std::make_unique<FolderLibrary>(preferences),&preferences);
+    reopened.setAttribute(Qt::WA_DontShowOnScreen);reopened.resize(1000,650);reopened.show();reopened.host.open(native);events();
+    check(reopened.host.session.document()==oracle.document(),"New Window native reopen restores complete retained shape, paints and unrelated source");
+    reopened.canvas->set_selection(id);events();source_input(reopened,id,operation_ref(id,stroke,"width").field);pixels(reopened);
+    check(preferences.value("unrelated")=="preserved"&&preferences.value("workspace/tools/textCreationDirection")=="vertical",
+        "Appearance preserves unrelated preferences and remembered Text direction");
 }
 void source_handles(Window& w,QTemporaryDir& scratch,QSettings& preferences,const Id& id,const Snapshot& before_creation){
     auto& s=w.host.session;
@@ -228,6 +333,7 @@ void run(QTemporaryDir& scratch,QSettings& preferences,bool circle){
     else{source.parameters.emplace("width",Scalar{220,{}});source.parameters.emplace("height",Scalar{140,{}});}
     Session oracle(before.document);oracle.apply({CreatePrimitive{"composition",{},id,created_object.name,source}},oracle.revision());
     check(s.document()==oracle.document(),"Actual creation equals independent canonical centered-source oracle for complete Document");
+    if(QCoreApplication::arguments().contains("--appearance-probe")){appearance(w,scratch,preferences,id,before,circle);return;}
     if(QCoreApplication::arguments().contains("--source-handles-probe")){source_handles(w,scratch,preferences,id,before);return;}
     std::vector<Document> states{before.document,s.document()};
     std::vector<std::uint64_t> history_ids{before.history.current_id,s.history().current_id};
@@ -276,6 +382,7 @@ int main(int argc,char** argv){
         preferences.setValue("unrelated","preserved");preferences.setValue("workspace/tools/textCreationDirection","vertical");
         run(scratch,preferences,true);
         if(!QCoreApplication::arguments().contains("--source-handles-probe"))run(scratch,preferences,false);
-        std::cout<<"PASS "<<checks<<" actual Utility retained-shape creation/precision checks\n";return 0;
+        std::cout<<"PASS "<<checks<<(QCoreApplication::arguments().contains("--appearance-probe")?
+            " actual Utility retained-shape Appearance checks\n":" actual Utility retained-shape creation/precision checks\n");return 0;
     }catch(const std::exception& e){std::cerr<<"FAIL after "<<checks<<": "<<e.what()<<'\n';return 1;}
 }
