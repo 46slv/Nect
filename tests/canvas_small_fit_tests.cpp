@@ -138,7 +138,7 @@ void constrained_viewport(Session& session) {
         parent.setFixedSize(size);
         settle();
         check(parent.size() == size && viewport->size() == size, "Parent keeps the requested available viewport");
-        check(viewport->rect().contains(canvas->geometry()) &&
+        check(viewport->rect().contains(canvas->QWidget::geometry()) &&
               parent.rect().contains(QRect(canvas->mapTo(&parent, QPoint{}), canvas->size())),
               "Canvas geometry stays completely within its allocated visible region");
         check(canvas->width() == size.width(), "Canvas genuinely shrinks to the available center width");
