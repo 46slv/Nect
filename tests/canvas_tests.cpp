@@ -7,6 +7,7 @@
 #include <iostream>
 #include <numbers>
 #include <stdexcept>
+#include <tuple>
 
 using namespace nect;
 using nect::desktop::Canvas;
@@ -2036,7 +2037,7 @@ void guide_drag_uses_stable_identity_and_one_session_undo() {
         "Canvas hit testing follows Guide expressions and refuses to drag their authored target literal");
 }
 
-void layout_overlays_are_view_only_and_not_exported() {
+void layout_overlays_are_view_only_and_not_exported(bool probe_grid_x=false) {
     auto document=empty_document("overlay-document","overlay-composition","overlay-artboard");
     auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
     board.layout=ArtboardLayout{Margin{10,15,20,25},Grid{"overlay-grid",{20,25,130,110},2,2,10,10}};
@@ -2118,12 +2119,27 @@ void layout_overlays_are_view_only_and_not_exported() {
         const int top=qRound((canvas.height()/2.0+(25-80)*canvas.zoom())*image_scale);
         const int bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
         const auto is_grid=[](const QColor& pixel){
-            return pixel.green()>pixel.red()+15&&pixel.green()>pixel.blue()+10;
+            // Clipping at fractional physical pixels can leave only faint
+            // coverage (observed RGB233/240/235 at150%). Neutral paper, purple
+            // Margin and blue Guide ink fail these two color differences.
+            return pixel.green()>pixel.red()+5&&pixel.green()>pixel.blue()+3;
         };
         const int crossing_offset=qRound(6*image_scale);
+        const auto grid=*evaluate_artboard(session.preview_document().compositions.front(),"overlay-artboard").layout->grid;
+        // The exact fixture has two rows. Omit its known horizontal boundary
+        // cells even where an overlapping source Artboard masks one side of
+        // the color-based crossing check (observed two false pixels at y173).
+        const auto middle=grid.bounds.y+(grid.bounds.height-grid.row_gutter)/2.0;
+        const std::array crossing_rows{grid.bounds.y,middle,middle+grid.row_gutter,grid.bounds.y+grid.bounds.height};
         // Include either side of a clipped Grid boundary, without the old
         // broad band; reject horizontal crossings as evidence of a column.
-        for(int y=top+3;y<bottom-3;++y)for(int x=grid_x-1;x<=grid_x;++x) {
+        // At125% a clipped x65 boundary falls in the right adjacent cell144,
+        // while cells142/143 are paper. Keep a narrow three-cell footprint.
+        for(int y=top+3;y<bottom-3;++y)for(int x=grid_x-1;x<=grid_x+1;++x) {
+            if(std::any_of(crossing_rows.begin(),crossing_rows.end(),[&](double row){
+                const auto physical=(canvas.height()/2.0+(row-80)*canvas.zoom())*image_scale;
+                return std::abs((y+.5)-physical)<=2;
+            }))continue;
             if(is_grid(source.pixelColor(x-crossing_offset,y))&&
                 is_grid(source.pixelColor(x+crossing_offset,y)))continue;
             if(is_grid(source.pixelColor(x,y)))++pixels;
@@ -2155,6 +2171,66 @@ void layout_overlays_are_view_only_and_not_exported() {
     const auto count_grid_y_pixels=[&](const QImage& source,double position,double grid_height=95) {
         return count_grid_horizontal_pixels(source,position+(grid_height-10)/2.0);
     };
+    if(probe_grid_x) {
+        const auto observe=[&](const char* phase,const QImage& image,const std::vector<double>& positions){
+            std::cout<<phase<<" image="<<image.width()<<'x'<<image.height()<<" scale="<<image_scale<<" zoom="<<canvas.zoom()<<'\n';
+            for(const auto position:positions) {
+                const auto physical_x=(canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale;
+                const auto cell=static_cast<int>(std::floor(physical_x));
+                const auto top=qRound((canvas.height()/2.0+(25-80)*canvas.zoom())*image_scale);
+                const auto bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
+                std::map<std::tuple<int,int,int>,int> colors;
+                for(int y=top+3;y<bottom-3;++y)for(int x=cell-1;x<=cell+1;++x) {
+                    const auto pixel=image.pixelColor(x,y);
+                    if(pixel.green()>pixel.red()+5&&pixel.green()>pixel.blue()+3)
+                        ++colors[{pixel.red(),pixel.green(),pixel.blue()}];
+                }
+                std::vector<std::pair<int,std::tuple<int,int,int>>> ranked;
+                for(const auto& [rgb,count]:colors)ranked.push_back({count,rgb});
+                std::sort(ranked.rbegin(),ranked.rend());
+                std::cout<<"  x="<<position<<" physical="<<physical_x<<" cell="<<cell<<" count="<<count_grid_pixels(image,position);
+                for(std::size_t i=0;i<std::min<std::size_t>(8,ranked.size());++i) {
+                    const auto [r,g,b]=ranked[i].second;std::cout<<" rgb("<<r<<','<<g<<','<<b<<")="<<ranked[i].first;
+                }
+                std::cout<<'\n';
+            }
+            if(const auto prefix=qEnvironmentVariable("NECT_GRID_X_PROBE");!prefix.isEmpty())image.save(prefix+"-"+phase+".png");
+        };
+        observe("initial",linked_image,{55,20,73.5,77.5});
+        check(count_grid_pixels(linked_image,55)>20&&count_grid_pixels(linked_image,20)==0&&
+            count_grid_pixels(linked_image,73.5)>20&&count_grid_pixels(linked_image,77.5)==0,
+            "Exact initial Grid x and gutter edges have coverage; their retained literal positions do not");
+        session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
+            {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
+        session.apply({MarginTopCommand{SetMarginTopExpression{{"overlay-artboard","","margin.top"},
+            {R"(ref("overlay-margin-source","","artboard.height") - 80)",1},false}}},session.revision());
+        const auto committed=session.document();const auto native=encode(committed);
+        const auto revision=session.revision();const auto history=session.history();
+        session.begin_gesture(revision);
+        session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
+            UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,120}},
+            UpdateArtboard{"overlay-composition",{"overlay-grid-source","Grid source",0,0,65,90}}});
+        canvas.refresh();QApplication::processEvents();
+        const auto preview=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        observe("preview",preview,{65,55,20,84.5,73.5});
+        check(count_grid_pixels(preview,65)>20&&count_grid_pixels(preview,84.5)>20&&count_grid_pixels(preview,55)==0&&
+            count_grid_pixels(preview,20)==0&&count_grid_pixels(preview,73.5)==0,
+            "Exact preview Grid x and gutter edges move to evaluated coordinates without old/literal column ink");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Narrow Grid probe leaves authored/native/revision/history unchanged during preview");
+        session.cancel_gesture();canvas.refresh();QApplication::processEvents();
+        const auto cancelled=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        check(count_grid_pixels(cancelled,55)>20&&count_grid_pixels(cancelled,73.5)>20&&
+            count_grid_pixels(cancelled,65)==0&&count_grid_pixels(cancelled,84.5)==0,
+            "Cancellation restores the exact committed columns and removes preview columns");
+        canvas.set_show_grid(false);QApplication::processEvents();
+        const auto hidden=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        check(count_grid_pixels(hidden,55)==0&&count_grid_pixels(hidden,73.5)==0,
+            "Hidden Grid negative control rejects Guide/Margin/Artboard crossings at the positive sample columns");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Narrow Grid cancellation and visibility controls preserve authored/native/revision/history");
+        return;
+    }
     const auto evaluated_guide_pixels=count_guide_pixels(linked_image,120),literal_guide_pixels=count_guide_pixels(linked_image,30);
     check(evaluated_guide_pixels>20&&literal_guide_pixels<20,
         "Canvas paints the expression-driven Guide at its evaluated coordinate, not its authored literal (evaluated="+
@@ -2611,6 +2687,10 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication application(argc, argv);
     try {
+        if(application.arguments().contains("--linked-grid-x-probe")) {
+            layout_overlays_are_view_only_and_not_exported(true);
+            std::cout<<"Linked Grid x contract: "<<checks<<" focused checks passed\n";return 0;
+        }
         if(application.arguments().contains("--grid-row-gutter-only")) {
             grid_row_gutter_overlay_tracks_evaluated_source();
             std::cout << "Canvas Grid row gutter contract: " << checks << " checks passed\n";
