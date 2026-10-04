@@ -127,7 +127,9 @@ build output. Close the development executable before rebuilding it. No SDK is
 downloaded by configure or the script.
 
 Add a Circle, Ellipse, Rectangle, Polygon or Star and adjust its parameters,
-create a Curve, or choose Draw Path and click anchors (Enter finishes).
+create a Curve, or choose Pen / Draw Path and click anchors. Enter finishes the
+current open Path; clicking its first anchor closes it. Pen stays active for the
+next Path, including after Artboard navigation. Escape exits Pen.
 Drag anchors/handles; Alt-drag an anchor to create handles. Escape cancels a drag.
 Shift-click adds/removes objects or points; Ctrl/Shift extended selection in the
 tree uses the same selection. Dragging multiple objects or points is one Undo.

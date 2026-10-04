@@ -342,6 +342,7 @@ private:
     void finish_drag();
     void finish_marquee();
     void append_draw_point(QPointF screen);
+    void finish_draw_path();
     void report_error(const std::exception&);
     void request_frame(const QString& operation, bool new_sequence = false);
     void update_cursor();

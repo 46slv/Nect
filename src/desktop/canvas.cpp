@@ -545,7 +545,7 @@ void Canvas::set_active_artboard(Id composition, Id artboard, bool fit) {
         throw Error("MISSING_ARTBOARD", "Choose an artboard in its owning composition");
     const bool changed = composition != active_composition_ || artboard != active_artboard_;
     cancel_interaction();
-    if (changed) set_draw_mode(false);
+    if (changed) finish_draw_path();
     if (composition != active_composition_) { select({}); set_scope({}); }
     active_composition_ = std::move(composition); active_artboard_ = std::move(artboard);
     refresh();
@@ -1341,7 +1341,7 @@ void Canvas::paintEvent(QPaintEvent*) {
         const auto hint = direct_selection_mode_ ? tr("Direct Selection · Drag points / handles · Shift: extend · Esc exits")
             : zoom_mode_ ? tr("Zoom · Click in · Alt-click out · Space-drag pan · Esc exits")
             : hand_mode_ ? tr("Hand · Drag to pan the view · Esc exits · F: fit") : draw_mode_
-            ? tr("Add Path · Click for points · Click first point to close · Enter / Esc to finish")
+            ? tr("Pen · Click points · First point: close · Enter: next Path · Esc: exit")
             : circle_source_edit_ ? tr("Circle source · Drag Center or Radius · Radius follows local +X · Esc exits")
             : anchor_edit_ ? tr("Anchor · Drag the crosshair to change the pivot; artwork stays in place · Esc exits")
             : gradient_control_ ? tr("Gradient · Drag its handles · Esc cancels a drag / exits handles · Space-drag to pan")
@@ -2347,6 +2347,13 @@ void Canvas::cancel_interaction() {
     else if(had_marquee)update();
 }
 
+void Canvas::finish_draw_path() {
+    cancel_interaction();
+    drawing_object_.clear();
+    drawing_contour_.clear();
+    update();
+}
+
 void Canvas::append_draw_point(QPointF screen) {
     try {
         if (active_composition_.empty()) throw Error("MISSING_COMPOSITION", "Create a composition before drawing");
@@ -2361,7 +2368,7 @@ void Canvas::append_draw_point(QPointF screen) {
                 distance((item->world * view()).map(item->points.front().anchor), screen) <= hit_radius) {
                 session_.apply({CloseContour{drawing_object_, drawing_contour_, true}}, session_.revision());
                 refresh();
-                set_draw_mode(false);
+                finish_draw_path();
                 if (document_changed) document_changed();
                 return;
             }
@@ -2557,7 +2564,7 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
         space_down_ = true;
         update_cursor();
     } else if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && draw_mode_) {
-        set_draw_mode(false);
+        finish_draw_path();
     } else if (event->key() == Qt::Key_F && event->modifiers() == Qt::NoModifier && drag_ == Drag::none) {
         fit_artboard();
     } else {
