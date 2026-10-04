@@ -2,6 +2,7 @@
 #include "visual_style.hpp"
 #include "nect/io.hpp"
 #include <QApplication>
+#include <QAbstractItemView>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDockWidget>
@@ -10,10 +11,12 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QPushButton>
+#include <QPointer>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
 #include <QSpinBox>
+#include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
 #include <algorithm>
@@ -132,6 +135,97 @@ void text_weight_context(){
     check(session.document()==before_open.document&&session.preview_document()==before_open.document&&
         encode(session.document())==before_open.native&&session.revision()==0&&session.history().states.size()==1,
         "Same Window native reopen preserves complete Weight and unrelated source");
+}
+void text_family_context(){
+    std::cerr<<"family probe entered\n";
+    QTemporaryDir scratch;check(scratch.isValid(),"Family probe owns disposable scratch");
+    QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1000,650);window.show();events();
+    std::cerr<<"family Window shown\n";
+    auto& session=window.host.session;auto document=fixture(session.document());
+    document.objects.at("first").text->family="Arial";
+    session=Session(document);window.host.edited();window.canvas->set_selection("first");events();
+    QApplication::setActiveWindow(&window);events();
+    std::cerr<<"family selection ready source="<<session.document().objects.at("first").text->family<<'\n';
+    const auto draft=[&](const char* value){
+        std::cerr<<"family locating editor\n";
+        QPointer<QComboBox> family=named<QComboBox>(window,"text-family");QPointer<QLineEdit> editor=family->lineEdit();
+        check(editor!=nullptr,"Editable Font family owns a line editor");
+        auto* scroll=named<QScrollArea>(window,"inspector-scroll");scroll->ensureWidgetVisible(family);events();
+        std::cerr<<"family focusing editor\n";
+        editor->setFocus();events();
+        check(editor&&editor->hasFocus(),"Actual family editor owns focus before typing");
+        editor->selectAll();std::cerr<<"family typing\n";
+        QTest::keyClicks(editor,value);events();
+        std::cerr<<"family typed editor_alive="<<bool(editor)<<" combo_alive="<<bool(family)
+            <<" source="<<session.document().objects.at("first").text->family<<" revision="<<session.revision()<<'\n';
+        if(editor&&family)std::cerr<<"family draft focus="<<editor->hasFocus()<<" modified="<<editor->isModified()
+            <<" text="<<family->currentText().toStdString()<<'\n';
+        // Editable QComboBox completion may reset QLineEdit's modified flag.
+        // Actual focused key input, exact text and unchanged source establish the draft.
+        check(editor&&family&&editor->hasFocus()&&family->currentText()==value,
+            "Real focused family editor receives exact unfinished keyboard draft");
+        return editor.data();
+    };
+    const ContextSnapshot initial(session);auto* old=draft("Courier New");
+    check(initial.unchanged(session),"Family typing leaves complete source/native/history unchanged");
+    std::cerr<<"family unfinished draft focus="<<old->hasFocus()<<" modified="<<old->isModified()
+        <<" text="<<old->text().toStdString()<<" source="<<session.document().objects.at("first").text->family<<'\n';
+    auto external=*session.document().objects.at("first").text;external.family="Times New Roman";
+    session.apply({UpdateText{"first",external}},session.revision());const ContextSnapshot incoming(session);
+    check(old->hasFocus()&&old->text()=="Courier New"&&session.document().objects.at("first").text->family==external.family,
+        "External canonical family arrives while outgoing draft remains focused");
+    std::cerr<<"family before refresh source="<<session.document().objects.at("first").text->family
+        <<" revision="<<session.revision()<<'\n';
+    window.host.edited();events();
+    std::cout<<"external Family refresh family="<<session.document().objects.at("first").text->family
+        <<" revision="<<session.revision()<<" expected="<<incoming.revision<<'\n';
+    check(incoming.unchanged(session),"Family refresh preserves complete external source without stale draft/history");
+    check(named<QComboBox>(window,"text-family")->currentText()=="Times New Roman",
+        "Replacement Inspector displays canonical family");
+    window.statusBar()->clearMessage();
+    auto* normal=draft("Arial");check(incoming.unchanged(session),"Ordinary family input stays draft until Return");
+    Session oracle(incoming.document);auto expected=external;expected.family="Arial";
+    oracle.apply({UpdateText{"first",expected}},oracle.revision());QTest::keyClick(normal,Qt::Key_Return);events();
+    check(session.document()==oracle.document()&&session.preview_document()==oracle.document()&&
+        session.revision()==incoming.revision+1&&session.history().states.size()==incoming.history.states.size()+1,
+        "Family Return commits one complete canonical UpdateText despite dual Qt signals");
+    check(!window.statusBar()->currentMessage().contains("REVISION_CONFLICT"),"Dual normal family signals do not report a false stale error");
+    const ContextSnapshot committed(session);auto* same=draft("Arial");QTest::keyClick(same,Qt::Key_Return);events();
+    check(committed.unchanged(session),"Current family Return adds no revision/history");
+    session.undo(session.revision());window.host.edited();events();
+    check(session.document()==incoming.document&&encode(session.document())==incoming.native,"Family Undo restores complete external source");
+    session.undo(session.revision());window.host.edited();events();
+    check(session.document()==initial.document&&encode(session.document())==initial.native,"External family Undo restores complete original source");
+    session.redo(session.revision());session.redo(session.revision());window.host.edited();events();
+    check(session.document()==committed.document&&encode(session.document())==committed.native,"Family Redo restores complete authored source");
+    auto* combo=named<QComboBox>(window,"text-family");
+    named<QScrollArea>(window,"inspector-scroll")->ensureWidgetVisible(combo);events();
+    QTest::mouseClick(combo,Qt::LeftButton,Qt::NoModifier,QPoint(combo->width()-8,combo->height()/2));events();
+    check(combo->view()->isVisible(),"Actual family pointer opens installed-font popup");
+    // Let Qt finish guarding the release that opened the popup before a new click.
+    QTest::qWait(QApplication::doubleClickInterval()+20);events();
+    const auto index=combo->findText("Courier New");check(index>=0,"Popup offers an installed family for actual activation");
+    const auto item=combo->model()->index(index,0);combo->view()->scrollTo(item);events();
+    const auto bounds=combo->view()->visualRect(item);
+    check(combo->view()->viewport()->rect().contains(bounds.center()),"Chosen installed font is reachable in popup");
+    Session popup_oracle(session.document());auto popup_source=*session.document().objects.at("first").text;
+    popup_source.family="Courier New";popup_oracle.apply({UpdateText{"first",popup_source}},popup_oracle.revision());
+    const auto before_popup_revision=session.revision();const auto before_popup_history=session.history().states.size();
+    QTest::mouseClick(combo->view()->viewport(),Qt::LeftButton,Qt::NoModifier,bounds.center());events();
+    std::cerr<<"family popup source="<<session.document().objects.at("first").text->family
+        <<" revision="<<session.revision()<<" expected="<<before_popup_revision+1
+        <<" states="<<session.history().states.size()<<" expected="<<before_popup_history+1
+        <<" status="<<window.statusBar()->currentMessage().toStdString()<<'\n';
+    check(session.document()==popup_oracle.document()&&session.revision()==before_popup_revision+1&&
+        session.history().states.size()==before_popup_history+1,"Installed-font activation commits one canonical family update");
+    const ContextSnapshot popup_result(session);
+    session.undo(session.revision());window.host.edited();events();check(session.document()==committed.document,"Popup Undo restores previous complete source");
+    session.redo(session.revision());window.host.edited();events();check(session.document()==popup_result.document,"Popup Redo restores complete family source");
+    const auto saved=scratch.filePath("family.nect.json");window.host.save(saved);window.host.open(saved);events();
+    check(session.document()==popup_result.document&&encode(session.document())==popup_result.native&&
+        session.revision()==0&&session.history().states.size()==1,"Same Window native save/reopen retains complete family/source");
 }
 void object_name_context(){
     QTemporaryDir scratch;check(scratch.isValid(),"Name probe owns disposable scratch");
@@ -331,6 +425,9 @@ int main(int argc,char** argv){
     try{
         if(app.arguments().contains("--text-weight-context")){
             text_weight_context();std::cout<<"PASS production Text Weight context ("<<checks<<" checks; physical OS input NOT_RUN)\n";return 0;
+        }
+        if(app.arguments().contains("--text-family-context")){
+            text_family_context();std::cout<<"PASS production Text family context ("<<checks<<" checks; physical OS input NOT_RUN)\n";return 0;
         }
         if(app.arguments().contains("--object-name-context")){
             object_name_context();std::cout<<"PASS Object name context ("<<checks<<" checks; physical OS input NOT_RUN)\n";return 0;

@@ -6385,6 +6385,8 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     const Ref family_ref{id,"","text.family"};const auto family_state=text_family_property(host.session.document(),family_ref);
     const auto family_revision=host.session.revision();
+    const auto family_document=host.session.document().id;
+    const auto family_gesture=host.session.gesture_generation();
     auto* family_row=new QWidget(box);auto* family_layout=new QHBoxLayout(family_row);family_layout->setContentsMargins(0,0,0,0);
     auto* family=new FontFamilyCombo(font_families_);family->setObjectName("text-family");
     family->addItem(qs(family_state.driver?family_state.evaluated:family_state.literal));
@@ -6461,10 +6463,22 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         dialog.exec();
     });
     form->addRow("Font family",family_row);
-    connect(family->lineEdit(),&QLineEdit::editingFinished,this,[this,family,update,before=family_state.literal,linked=family_state.driver.has_value()]{
+    auto update_family=[this,id,frozen_session,family_document,family_revision,family_gesture,update](const std::string& value){
+        if(host.session_id!=frozen_session||host.session.document().id!=family_document)
+            throw Error("SESSION_CONFLICT","Text family draft belongs to another document");
+        const auto found=host.session.document().objects.find(id);
+        if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
+        // Return can deliver both signals after the first has rebuilt the Inspector.
+        if(found->second.text->family==value)return;
+        if(host.session.revision()!=family_revision||host.session.gesture_generation()!=family_gesture)
+            throw Error("REVISION_CONFLICT","Text changed; edit its family again");
+        if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+        update([&](auto& s){s.family=value;});
+    };
+    connect(family->lineEdit(),&QLineEdit::editingFinished,this,[this,family,update_family,before=family_state.literal,linked=family_state.driver.has_value()]{
         if(linked)return;
-        const auto value=family->currentText().toStdString();if(value!=before)perform([&]{update([&](auto& s){s.family=value;});});});
-    connect(family,QOverload<int>::of(&QComboBox::activated),this,[this,family,update]{perform([&]{update([&](auto& s){s.family=family->currentText().toStdString();});});});
+        const auto value=family->currentText().toStdString();if(value!=before)perform([&]{update_family(value);});});
+    connect(family,QOverload<int>::of(&QComboBox::activated),this,[this,family,update_family]{perform([&]{update_family(family->currentText().toStdString());});});
     const auto family_driver_name=[this](const std::optional<TextFamilyDriver>& driver) {
         if(!driver)return QString("none");
         const auto found=host.session.document().objects.find(driver->link.object);

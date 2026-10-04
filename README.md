@@ -557,6 +557,8 @@ Reentering the current name leaves Undo history unchanged.
 Text Weight drafts also belong to the original document and revision. Refreshing
 after another canonical edit discards an outdated draft and displays the updated
 weight. Return commits one Text update; an unchanged weight adds no Undo entry.
+Font family drafts use the same source context. Typing/Return and the installed-font
+popup keep their usual behavior; a stale draft cannot replace a newer family edit.
 
 Edit → **Close / open contour** changes the contour containing the active selected
 point, preserving the other contours in that Path. A removed point refuses the
