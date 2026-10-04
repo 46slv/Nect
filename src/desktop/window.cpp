@@ -965,6 +965,11 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     auto* effects_root_layout=new QVBoxLayout(effects_body);
     effects_root_layout->setContentsMargins(8,8,8,8);effects_root_layout->setSpacing(6);
     effects_tabs_=new QTabWidget(effects_body);effects_tabs_->setObjectName("effects-tabs");
+    auto scroll_page=[this](QWidget* page,const char* name) {
+        auto* scroll=new QScrollArea(effects_tabs_);scroll->setObjectName(name);
+        scroll->setFrameShape(QFrame::NoFrame);scroll->setWidgetResizable(true);
+        scroll->setMinimumWidth(300);scroll->setWidget(page);return scroll;
+    };
     auto* effects_page=new QWidget(effects_tabs_);
     auto* effects_layout=new QVBoxLayout(effects_page);
     effects_layout->setContentsMargins(4,4,4,4);effects_layout->setSpacing(6);
@@ -1022,7 +1027,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     effects_operations_layout_->setContentsMargins(0,0,0,0);effects_operations_layout_->setSpacing(4);
     auto* applied_layout=new QVBoxLayout(applied);applied_layout->addWidget(effects_operations_);
     effects_layout->addWidget(applied);effects_layout->addStretch();
-    effects_tabs_->addTab(effects_page,"Effects");
+    effects_tabs_->addTab(scroll_page(effects_page,"effects-scroll"),"Effects");
 
     auto* presets_page=new QWidget(effects_tabs_);
     auto* presets_layout=new QVBoxLayout(presets_page);
@@ -1050,7 +1055,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     presets_layout->addWidget(presets_update_);
     presets_delete_=new QPushButton("Delete Preset",presets_page);presets_delete_->setObjectName("preset-delete");
     presets_layout->addWidget(presets_delete_);presets_layout->addStretch();
-    effects_tabs_->addTab(presets_page,"Presets");
+    effects_tabs_->addTab(scroll_page(presets_page,"presets-scroll"),"Presets");
     effects_root_layout->addWidget(effects_tabs_);
     effects_dock_->setWidget(effects_body);
     addDockWidget(Qt::RightDockWidgetArea,effects_dock_);
@@ -7316,6 +7321,7 @@ void Window::edit_text_content(const Id& id) {
 void Window::add_text() {
     canvas->set_draw_mode(false);const auto& comp=find_composition(host.session.document(),canvas->active_composition());
     const auto board=evaluate_artboard(comp,canvas->active_artboard());auto source=default_text(new_id());
+    source.direction=tool_rail_->vertical_text()?"vertical":"horizontal";
     source.parameters.at("origin_x").literal=board.x+board.width*.15;
     source.parameters.at("origin_y").literal=board.y+board.height*.2;
     const auto id=new_id();host.session.apply({CreateText{comp.id,"",id,"Text "+std::to_string(host.session.document().objects.size()+1),source}},host.session.revision());

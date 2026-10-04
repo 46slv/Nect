@@ -326,7 +326,7 @@ if(BUILD_TESTING)
     foreach(test flattened_svg_export compatibility_plan_ui macro_revision_ui macro_chain_ui macro_node_enabled_ui macro_public_interface_ui macro_library_v2 macro_library_v3 shortcut_inventory shortcut_help under_canvas_shelf visual_style viewport_layout canvas_small_fit inspector_batch_width inspector_viewport semantic_slider_ui semantic_toggle_ui semantic_enum_ui semantic_color_ui semantic_point_ui composite_isolation_batch_ui text_alignment_batch_ui
         text_direction_batch_ui text_layout_batch_ui text_italic_batch_ui text_family_batch_ui text_locale_batch_ui paint_color_batch_ui
         text_content_literal_batch_ui multi_visibility_ui multi_blend_mode_ui operation_enabled_batch_ui multi_fill_rule_ui instance_color_ui text_string_source_batch_ui instance_text_content_ui
-        text_path_batch_ui preset_batch_ui macro_batch_ui selection_authoring_window portable_preset_window vertical_baseline_window rail_text_entry rail_guide_tool rail_gradient_tool rail_hand_tool rail_zoom_tool rail_direct_selection workspace_text_variant)
+        text_path_batch_ui preset_batch_ui macro_batch_ui selection_authoring_window portable_preset_window vertical_baseline_window rail_text_entry rail_guide_tool rail_gradient_tool rail_hand_tool rail_zoom_tool rail_direct_selection workspace_text_variant workspace_reachability)
       add_executable(${test}_tests tests/${test}_tests.cpp)
       target_link_libraries(${test}_tests PRIVATE nect_desktop_client Qt6::Test)
       if(MSVC)
@@ -335,6 +335,8 @@ if(BUILD_TESTING)
       add_test(NAME ${test}_contract COMMAND ${test}_tests)
       set_tests_properties(${test}_contract PROPERTIES TIMEOUT 60)
     endforeach()
+    add_test(NAME workspace_stacked_reachability_contract COMMAND workspace_reachability_tests --stacked-effects)
+    set_tests_properties(workspace_stacked_reachability_contract PROPERTIES TIMEOUT 60)
     target_include_directories(macro_node_enabled_ui_tests PRIVATE ${BOOST_INCLUDE_DIR})
     target_compile_definitions(macro_node_enabled_ui_tests PRIVATE BOOST_ALL_NO_LIB)
     target_include_directories(inspector_viewport_tests PRIVATE ${BOOST_INCLUDE_DIR})
