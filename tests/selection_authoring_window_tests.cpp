@@ -8,12 +8,14 @@
 #include <QFont>
 #include <QFile>
 #include <QLineEdit>
+#include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 
@@ -68,11 +70,84 @@ Document fixture(Document document){
     macro.revisions={{1,graph}};document.macro_definitions.emplace(macro.id,macro);
     return document;
 }
+struct ContextSnapshot {
+    Document document;std::string native;std::uint64_t revision,generation;HistoryInfo history;bool gesture;
+    explicit ContextSnapshot(const Session& s):document(s.document()),native(encode(document)),revision(s.revision()),
+        generation(s.gesture_generation()),history(s.history()),gesture(s.gesture_active()){}
+    bool unchanged(const Session& s)const{return document==s.document()&&document==s.preview_document()&&
+        native==encode(s.document())&&revision==s.revision()&&history==s.history()&&
+        generation==s.gesture_generation()&&gesture==s.gesture_active();}
+};
+void mixed_text_context(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Context probe owns disposable scratch");
+    QSettings preferences(scratch.filePath("library.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences));
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1000,650);window.show();events();
+    auto* properties=named<QDockWidget>(window,"properties");
+    properties->setMinimumWidth(300);properties->setMaximumWidth(300);events();
+    auto document=fixture(window.host.session.document());
+    Session setup(document);setup.apply({CreatePrimitive{document.compositions.front().id,{},"rectangle","Retained Rectangle",
+        default_primitive("retained-rectangle","nect.shape.rectangle")}},setup.revision());
+    auto& session=window.host.session;session=Session(setup.document());window.host.edited();events();
+    const ContextSnapshot initial(session);
+    const auto alignment_visible=[&]{const auto panels=window.findChildren<QWidget*>("text-alignment-batch-panel");
+        return std::any_of(panels.begin(),panels.end(),[](auto* panel){return panel->isVisible();});};
+    const auto mixed=std::vector<Canvas::Selection>{{"rectangle",{}},{"path",{}},{"first",{}}};
+    window.canvas->set_selections(mixed);events();
+    const auto selected=window.canvas->selections();
+    check(!alignment_visible(),"Mixed Rectangle/Path/Text context omits inapplicable Text alignment panel");
+    check(initial.unchanged(session)&&window.canvas->selections()==selected,
+        "Mixed-context presentation preserves complete source/native/history/gesture and exact selection");
+    auto* transform=named<QPushButton>(window,"selection-transform-open");
+    check(transform->isEnabled()&&named<QPushButton>(window,"quick-align-x-min")->isEnabled(),
+        "Mixed context retains usable geometric Align and Transform commands");
+    auto* scroll=named<QScrollArea>(window,"inspector-scroll");scroll->ensureWidgetVisible(transform);events();
+    check(transform->visibleRegion().contains(transform->rect()),"Geometric Transform remains reachable in narrow mixed context");
+    if(const auto output=qEnvironmentVariable("NECT_SELECTION_CAPTURE");!output.isEmpty())
+        check(window.grab().save(output),"Repaired mixed-context Window preview saved");
+    window.canvas->set_selections({{"rectangle",{}},{"path",{}}});events();
+    check(!alignment_visible()&&initial.unchanged(session),"Non-Text context has no Text alignment authority or authored mutation");
+    select(window);
+    check(alignment_visible()&&named<QComboBox>(window,"text-alignment-batch-editor")->isEnabled(),
+        "All-Text context retains its real alignment editor");
+    choose(named<QComboBox>(window,"text-alignment-batch-editor"),"center");
+    check(initial.unchanged(session),"All-Text alignment choice is draft only");
+    Session oracle(initial.document);std::vector<Command> commands;
+    for(const auto* id:{"first","second"}){auto text=*initial.document.objects.at(id).text;text.alignment="center";
+        commands.push_back(UpdateText{id,std::move(text)});}
+    oracle.apply(commands,oracle.revision());
+    auto* apply=named<QPushButton>(window,"text-alignment-batch-apply");scroll->ensureWidgetVisible(apply);events();
+    check(apply->isEnabled()&&apply->visibleRegion().contains(apply->rect()),"All-Text Apply remains enabled and fully reachable");
+    QTest::mouseClick(apply,Qt::LeftButton);events();
+    check(session.document()==oracle.document()&&session.revision()==initial.revision+1&&
+        session.history().states.size()==initial.history.states.size()+1,
+        "Actual all-Text pointer Apply matches one complete canonical batch, preserving non-Text source and IDs");
+    const auto committed=encode(session.document());
+    check(decode(committed)==oracle.document(),"All-Text batch retains complete native authorship");
+    session.undo(session.revision());window.host.edited();events();
+    check(session.document()==initial.document&&encode(session.document())==initial.native&&!session.can_undo(),
+        "One Undo restores both complete Text sources and unrelated retained Rectangle/Path");
+    session.redo(session.revision());window.host.edited();events();
+    check(session.document()==oracle.document()&&encode(session.document())==committed,
+        "One Redo restores the entire alignment batch exactly");
+    const ContextSnapshot after(session);window.canvas->set_selections(mixed);events();
+    check(!alignment_visible()&&after.unchanged(session),"Returning to mixed context removes Text alignment without editing its authored result");
+    auto driven=session.document();driven.objects.at("first").text->alignment_driver=TextAlignmentDriver{{"second",{},"text.alignment"}};
+    session=Session(driven);window.host.edited();select(window);const ContextSnapshot linked(session);
+    auto* refused=named<QPushButton>(window,"text-alignment-batch-apply");
+    check(alignment_visible()&&!refused->isEnabled()&&
+        named<QLabel>(window,"text-alignment-batch-status")->text().startsWith("DRIVEN_PROPERTY"),
+        "Compatible all-Text context still explains a genuinely driven-property refusal");
+    refused->click();check(linked.unchanged(session),"Driven all-Text refusal preserves source/native/history atomically");
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     auto font=app.font();font.setFamily("Yu Gothic UI");font.setPixelSize(13);app.setFont(font);
     try{
+        if(app.arguments().contains("--mixed-text-context")){
+            mixed_text_context();std::cout<<"PASS mixed Text contextual ownership ("<<checks<<" checks; physical OS input NOT_RUN)\n";return 0;
+        }
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
         QSettings preferences(scratch.filePath("library.ini"),QSettings::IniFormat);
         Window window(scratch.path()+"/recovery",std::make_unique<FolderLibrary>(preferences));

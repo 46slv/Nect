@@ -9098,11 +9098,11 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     })) {
         std::vector<Id> targets;targets.reserve(selected.size());
         for(const auto& item:selected)targets.push_back(item.object);
-        layout->addWidget(make_text_alignment_batch_controls(host,targets,inspector_));
         const bool all_text=std::all_of(targets.begin(),targets.end(),[&](const auto& id){
             const auto& object=host.session.document().objects.at(id);return object.kind==Kind::text&&object.text.has_value();
         });
         if(all_text) {
+            layout->addWidget(make_text_alignment_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_path_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_content_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_string_source_batch_controls(host,targets,inspector_));
