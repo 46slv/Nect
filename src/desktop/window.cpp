@@ -8963,6 +8963,10 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
     auto* spacing_row=new QVBoxLayout;alignment_layout->addLayout(spacing_row);
     spacing_row->addWidget(new QLabel("Key spacing (du):"));
     auto* spacing_input=new QLineEdit;spacing_input->setObjectName("distribution-spacing");
+    spacing_input->setText(qs(distribution_spacing_draft_));
+    connect(spacing_input,&QLineEdit::textChanged,this,[this](const QString& value){
+        distribution_spacing_draft_=value.toStdString();
+    });
     spacing_input->setPlaceholderText("Enter explicit gap");
     spacing_input->setToolTip("Explicit nonnegative spacing in Composition du. Text entry is a draft; a Distribute button applies it.");
     spacing_row->addWidget(spacing_input);

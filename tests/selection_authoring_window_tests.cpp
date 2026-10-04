@@ -140,6 +140,69 @@ void mixed_text_context(){
         "Compatible all-Text context still explains a genuinely driven-property refusal");
     refused->click();check(linked.unchanged(session),"Driven all-Text refusal preserves source/native/history atomically");
 }
+void key_spacing_retention(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Key spacing probe owns disposable scratch");
+    QSettings preferences(scratch.filePath("library.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences));
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1000,650);window.show();events();
+    auto document=fixture(window.host.session.document());
+    auto& points=document.objects.at("path").contours.front().points;
+    points.front().x.literal=200;points.back().x.literal=240;points.back().y.literal=220;
+    document.objects.at("first").transform[4].literal=320;document.objects.at("first").transform[5].literal=320;
+    auto rectangle=default_primitive("spacing-key-source","nect.shape.rectangle");
+    rectangle.parameters.at("center_x").literal=100;rectangle.parameters.at("center_y").literal=100;
+    rectangle.parameters.at("width").literal=40;rectangle.parameters.at("height").literal=30;
+    Session setup(document);setup.apply({CreatePrimitive{document.compositions.front().id,{},"rectangle","Fixed key",rectangle}},setup.revision());
+    auto& session=window.host.session;session=Session(setup.document());window.host.edited();
+    window.canvas->set_selections({{"rectangle",{}},{"path",{}},{"first",{}}});events();
+    const auto targets=window.canvas->selected_objects();const ContextSnapshot initial(session);
+    choose(named<QComboBox>(window,"alignment-target"),"key_object:rectangle");
+    auto* spacing=named<QLineEdit>(window,"distribution-spacing");
+    auto* scroll=named<QScrollArea>(window,"inspector-scroll");scroll->ensureWidgetVisible(spacing);events();
+    check(spacing->isEnabled()&&spacing->visibleRegion().contains(spacing->rect()),"Explicit key spacing input is fully reachable");
+    spacing->setFocus();QTest::keyClicks(spacing,"12.500");events();
+    check(spacing->text()=="12.500"&&initial.unchanged(session),"Exact spacing keyboard draft and key choice do not author Document or History");
+    const auto apply_axis=[&](const char* axis){
+        const ContextSnapshot before(session);Session oracle(before.document);
+        oracle.apply({DistributeObjects{targets,axis,"key_object:rectangle",12.5}},oracle.revision());
+        auto* button=named<QPushButton>(window,std::string("quick-distribute-").append(axis).c_str());
+        scroll->ensureWidgetVisible(button);events();
+        check(button->isEnabled()&&button->visibleRegion().contains(button->rect()),"Actual Distribute pointer command is ready and reachable");
+        QTest::mouseClick(button,Qt::LeftButton);events();
+        check(session.document()==oracle.document()&&session.revision()==before.revision+1&&
+            session.history().states.size()==before.history.states.size()+1,
+            "Each axis applies one complete canonical Distribute command with exact gap");
+        check(session.document().objects.at("rectangle")==initial.document.objects.at("rectangle")&&
+            session.document().objects.at("second")==initial.document.objects.at("second"),
+            "Chosen retained key and complete unrelated Text remain fixed");
+        check(named<QComboBox>(window,"alignment-target")->currentData().toString()=="key_object:rectangle"&&
+            named<QLineEdit>(window,"distribution-spacing")->text()=="12.500",
+            "Inspector rebuild after Distribute retains explicit key and exact spacing draft for the next axis");
+    };
+    apply_axis("x");const auto horizontal=session.document();apply_axis("y");const auto both=session.document();
+    check(decode(encode(both))==both,"Two-axis layout retains complete native authored source");
+    session.undo(session.revision());window.host.edited();events();check(session.document()==horizontal,"One Undo restores only the second-axis command");
+    session.undo(session.revision());window.host.edited();events();check(session.document()==initial.document,"Second Undo restores complete original mixed source");
+    session.redo(session.revision());session.redo(session.revision());window.host.edited();events();
+    check(session.document()==both&&named<QLineEdit>(window,"distribution-spacing")->text()=="12.500",
+        "Redo restores both commands while transient gap stays exact");
+    const ContextSnapshot committed(session);
+    spacing=named<QLineEdit>(window,"distribution-spacing");spacing->setText("-1");window.host.edited();events();
+    check(named<QLineEdit>(window,"distribution-spacing")->text()=="-1"&&
+        !named<QPushButton>(window,"quick-distribute-x")->isEnabled()&&
+        !named<QPushButton>(window,"quick-distribute-y")->isEnabled()&&committed.unchanged(session),
+        "Invalid gap draft survives refresh with both commands disabled and no authored mutation");
+    named<QLineEdit>(window,"distribution-spacing")->clear();window.host.edited();events();
+    check(named<QLineEdit>(window,"distribution-spacing")->text().isEmpty()&&
+        !named<QPushButton>(window,"quick-distribute-x")->isEnabled()&&committed.unchanged(session),
+        "Clearing spacing remains explicit and never substitutes a default gap");
+    Window reopened(scratch.filePath("other-recovery"),std::make_unique<FolderLibrary>(preferences));
+    reopened.setAttribute(Qt::WA_DontShowOnScreen);reopened.resize(1000,650);reopened.show();
+    reopened.host.session=Session(decode(encode(both)));reopened.host.edited();
+    reopened.canvas->set_selections({{"rectangle",{}},{"path",{}},{"first",{}}});events();
+    check(named<QLineEdit>(reopened,"distribution-spacing")->text().isEmpty()&&reopened.host.session.document()==both,
+        "New Window starts without spacing draft; native carries only canonical authored layout");
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
@@ -147,6 +210,9 @@ int main(int argc,char** argv){
     try{
         if(app.arguments().contains("--mixed-text-context")){
             mixed_text_context();std::cout<<"PASS mixed Text contextual ownership ("<<checks<<" checks; physical OS input NOT_RUN)\n";return 0;
+        }
+        if(app.arguments().contains("--key-spacing-retention")){
+            key_spacing_retention();std::cout<<"PASS key spacing retention ("<<checks<<" checks; physical OS input NOT_RUN)\n";return 0;
         }
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
         QSettings preferences(scratch.filePath("library.ini"),QSettings::IniFormat);

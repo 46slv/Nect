@@ -163,6 +163,7 @@ private:
         const std::optional<Id>& guide_artboard={});
     std::string alignment_reference_="selection";
     std::optional<Id> alignment_guide_artboard_;
+    std::string distribution_spacing_draft_;
     struct AngleAdapterCancellation { QPointer<QWidget> control; std::function<void(bool)> cancel; };
     std::vector<AngleAdapterCancellation> angle_adapters_;
     void register_angle_adapter(QWidget* control,std::function<void(bool)> cancel);
