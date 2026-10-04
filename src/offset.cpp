@@ -151,6 +151,12 @@ std::shared_ptr<const Contours> offset_contours(const Contours& source,const Aff
     // all other output validity checks remain mandatory.
     bg::validity_failure_type failure;
     if(!output.empty()&&!bg::is_valid(output,failure)) {
+        // Roundoff can also leave consecutive vertices equal under Boost's
+        // point-comparison policy, reported as a tiny self-intersection rather
+        // than a spike (notably on translated glyph copies). Remove those
+        // generated duplicates before classifying the remaining failure.
+        bg::unique(output);
+        bg::is_valid(output,failure);
         if(failure==bg::failure_spikes) {
             bg::remove_spikes(output);
             // Boost 1.85 validity checks each spike with the opposite traversal

@@ -142,6 +142,30 @@ void repeated_text_expansion() {
     check(unchanged==original,"Repeated Text Offset retains the exact authored Text source");
     s.undo(s.revision());check(s.document()==original,"One Undo restores the preceding Text Offset");
     s.redo(s.revision());check(s.document()==applied,"One Redo restores the exact repeated Text Offset");
+    // The translated Repeater instance must also support the next positive
+    // Offset, as in the retained Offset/Repeater Macro applied a second time.
+    auto repeat=default_operation("repeat","nect.shape.repeater");repeat.parameters.at("copies").literal=2;
+    repeat.parameters.at("position_x").literal=125;
+    d.objects.at("path").stack.push_back(repeat);Session translated(d);
+    const auto translated_before=translated.document();const auto previous=shape(translated);
+    const auto previous_bounds=bounds(previous.paths);
+    apply(translated,{AddOperation{"path",second,3}});
+    const auto translated_after=translated.document();const auto projected=shape(translated);
+    const auto projected_bounds=bounds(projected.paths);
+    check(projected.paths.size()==2&&!projected.paths[0].contours->empty()&&!projected.paths[1].contours->empty(),
+        "Repeated Text Offset retains nonempty translated Repeater instances");
+    check(area(projected.paths)>area(previous.paths)&&projected_bounds.left<previous_bounds.left&&
+        projected_bounds.top<previous_bounds.top&&projected_bounds.right>previous_bounds.right&&
+        projected_bounds.bottom>previous_bounds.bottom,"Translated repeated Offset expands region and exterior bounds");
+    check(projected.paints.size()==2,"Translated repeated Offset retains both Fill instances");
+    for(const auto& paint:projected.paints) {
+        const auto index=paint.transform[4]>0?1u:0u;
+        same_geometry({projected.paths[index]},paint.paths,paint.transform);
+    }
+    auto retained=translated_after;retained.objects.at("path").stack=translated_before.objects.at("path").stack;
+    check(retained==translated_before,"Translated repeated Offset preserves exact authored Text and prior operations");
+    translated.undo(translated.revision());check(translated.document()==translated_before,"Translated repeated Offset has one exact Undo");
+    translated.redo(translated.revision());check(translated.document()==translated_after,"Translated repeated Offset has one exact Redo");
 #endif
 }
 }
