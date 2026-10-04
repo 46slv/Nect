@@ -1378,7 +1378,15 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         const auto& o=host.session.document().objects.at(canvas->selected_object);
         const auto contours=path_contours(o,&canvas->evaluated_values());
         if(contours.empty()) throw Error("NO_CONTOUR","Select a path");
-        const auto& c=contours.front();
+        auto target=contours.begin();
+        if(!canvas->selected_point.empty()) {
+            target=std::find_if(contours.begin(),contours.end(),[&](const auto& contour){
+                return std::any_of(contour.points.begin(),contour.points.end(),
+                    [&](const auto& point){return point.id==canvas->selected_point;});
+            });
+            if(target==contours.end())throw Error("MISSING_POINT","Select a current point before changing its contour");
+        }
+        const auto& c=*target;
         host.session.apply({CloseContour{o.id,c.id,!c.closed}},host.session.revision());host.edited();
     });
     auto* convert=action(edit,"Convert to Path…",{},[this]{convert_to_path();});

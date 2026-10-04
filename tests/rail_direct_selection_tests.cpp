@@ -6,11 +6,15 @@
 #include <QDockWidget>
 #include <QFocusEvent>
 #include <QLineEdit>
+#include <QMenu>
+#include <QMenuBar>
 #include <QSettings>
+#include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QToolButton>
 #include <QWheelEvent>
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <numbers>
@@ -146,6 +150,67 @@ void select_all_context(Window& w,const Document& original,QTemporaryDir& scratc
     const auto selections=w.canvas->selections();QTest::keyClick(&draft,Qt::Key_A,Qt::ControlModifier);events();
     check(draft.selectedText()=="editable draft"&&w.canvas->selections()==selections&&snapshot(s)==empty,"Text-field Ctrl+A remains local and source-neutral");
 }
+void toggle_contour_menu(Window& w){
+    QMenu* edit=nullptr;
+    for(auto* action:w.menuBar()->actions())if(action->text()=="&Edit")edit=action->menu();
+    check(edit,"Actual Edit menu is available");
+    QAction* toggle=nullptr;
+    for(auto* action:edit->actions())if(action->text()=="Close / open contour")toggle=action;
+    check(toggle&&toggle->isEnabled(),"Actual contour command is available");
+    QApplication::setActiveWindow(&w);w.canvas->setFocus();events();
+    QTest::mouseClick(w.menuBar(),Qt::LeftButton,Qt::NoModifier,w.menuBar()->actionGeometry(edit->menuAction()).center());events();
+    check(edit->isVisible(),"Pointer opens the real Edit menu");
+    QTest::mouseClick(edit,Qt::LeftButton,Qt::NoModifier,edit->actionGeometry(toggle).center());events();
+    check(!edit->isVisible(),"Pointer invokes the contour menu command");
+}
+void contour_target_context(Window& w,Document original,QTemporaryDir& scratch){
+    Point a;a.id="second-a";a.x.literal=240;a.y.literal=350;
+    Point b=a;b.id="second-b";b.x.literal=300;b.y.literal=390;
+    Point c=a;c.id="second-c";c.x.literal=420;c.y.literal=340;
+    original.objects.at("path").contours.push_back({"second-contour",true,{a,b,c}});
+    auto& s=w.host.session;reset(w,original);click(w,"tool-direct-selection");
+    w.canvas->fit_artboard();events();
+    QTest::mouseClick(w.canvas,Qt::LeftButton,Qt::NoModifier,screen(w,240,350));events();
+    check(w.canvas->selected_object=="path"&&w.canvas->selected_point=="second-a","Actual Canvas pointer selects the second contour's stable point");
+    const auto before=snapshot(s);Session expected(original);
+    expected.apply({CloseContour{"path","second-contour",false}},expected.revision());
+    toggle_contour_menu(w);
+    std::cout<<"contour target first_closed="<<s.document().objects.at("path").contours.front().closed
+        <<" second_closed="<<s.document().objects.at("path").contours.back().closed
+        <<" revision_delta="<<(s.revision()-std::get<2>(before))<<'\n';
+    check(snapshot(s)==snapshot(expected),"Close/open toggles the selected point's contour through one canonical transaction; complete source and unrelated contours preserved");
+    check(w.canvas->direct_selection_mode()&&w.canvas->selected_point=="second-a","Contour toggle keeps the active Tool and stable point target");
+    undo_redo(w,original,expected.document());
+
+    auto reordered=original;std::reverse(reordered.objects.at("path").contours.begin(),reordered.objects.at("path").contours.end());
+    reset(w,reordered);w.canvas->set_selection("path","stable-second");events();
+    Session reordered_expected(reordered);reordered_expected.apply({CloseContour{"path","stable-contour",true}},reordered_expected.revision());
+    toggle_contour_menu(w);
+    check(snapshot(s)==snapshot(reordered_expected),"Contour reorder cannot retarget a selected stable point to the first contour");
+    undo_redo(w,reordered,reordered_expected.document());
+
+    reset(w,original);w.canvas->set_selection("path");events();
+    Session whole_expected(original);whole_expected.apply({CloseContour{"path","stable-contour",true}},whole_expected.revision());
+    toggle_contour_menu(w);check(snapshot(s)==snapshot(whole_expected),"Whole-Object context retains the existing first-contour behavior");
+
+    reset(w,original);w.canvas->set_selection("path","second-a");events();
+    // A legitimate external Session command invalidates the Canvas point before
+    // refresh. The menu must refuse rather than fall back to another contour.
+    s.apply({RemovePoint{"path","second-contour","second-a"}},s.revision());
+    const auto stale=snapshot(s);toggle_contour_menu(w);
+    check(snapshot(s)==stale&&w.statusBar()->currentMessage().contains("MISSING_POINT"),"Stale point refuses with a reason and no partial source/history mutation");
+
+    reset(w,original);const auto generated=path_contours(s.document().objects.at("circle"),&w.canvas->evaluated_values());
+    w.canvas->set_selection("circle",generated.front().points.front().id);events();const auto retained=snapshot(s);
+    toggle_contour_menu(w);
+    check(snapshot(s)==retained&&w.statusBar()->currentMessage().contains("GENERATED_TOPOLOGY"),"Generated topology refusal preserves retained source, native data and Undo history");
+
+    reset(w,expected.document());const auto native=encode(s.document());const auto file=scratch.filePath("contour-target.nect.json");
+    w.host.save(file);w.host.open(file);events();check(encode(s.document())==native,"Same Window native reopen preserves the exact selected-contour edit");
+    QSettings preferences(scratch.filePath("cold-contour.ini"),QSettings::IniFormat);
+    Window cold(scratch.filePath("cold-contour-recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);show(cold);
+    cold.host.open(file);events();check(encode(cold.host.session.document())==native,"New Window native reopen preserves complete source and unrelated contours");
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
@@ -155,6 +220,11 @@ int main(int argc,char** argv){
         preferences.setValue("unrelated","preserved");preferences.setValue("workspace/tools/textCreationDirection","vertical");
         Window w(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);show(w);
         const auto original=fixture();reset(w,original);auto& s=w.host.session;
+        if(app.arguments().contains("--contour-target-context")){
+            contour_target_context(w,original,scratch);
+            check(preferences.value("unrelated").toString()=="preserved"&&preferences.value("workspace/tools/textCreationDirection").toString()=="vertical","Unrelated workspace preferences preserved");
+            std::cout<<"contour_target_context: "<<checks<<" checks passed\n";return 0;
+        }
         if(app.arguments().contains("--select-all-context")){
             select_all_context(w,original,scratch);
             std::cout<<"direct_select_all_context: "<<checks<<" checks passed\n";return 0;
