@@ -248,6 +248,8 @@ private:
     bool circle_source_edit_ = false;
     Id drawing_object_;
     Id drawing_contour_;
+    Id drawing_document_;
+    QString drawing_session_;
     bool initial_fit_ = true;
     double zoom_ = 1;
     QPointF pan_{40, 40};

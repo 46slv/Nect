@@ -1413,7 +1413,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     radial->setObjectName("add-radial-repeater");
     add->addSeparator();
     auto* add_curve_action=action(add,"Curve",QKeySequence("Ctrl+Shift+P"),[this]{add_curve();});add_curve_action->setObjectName("add-curve");
-    auto* draw=action(add,"Draw Path",QKeySequence("P"),[this]{canvas->set_draw_mode(true);canvas->setFocus();statusBar()->showMessage("Click to add points · Enter finishes the path · Escape exits",10000);});
+    auto* draw=action(add,"Draw Path",QKeySequence("P"),[this]{if(!canvas->draw_mode())canvas->set_draw_mode(true);canvas->setFocus();statusBar()->showMessage("Click to add points · Enter finishes the path · Escape exits",10000);});
     draw->setObjectName("draw-path");draw->setShortcuts({QKeySequence("P"),QKeySequence("G")});
     draw->setShortcutContext(Qt::WidgetShortcut);canvas->addAction(draw);
     auto* rail=new ToolRail(this);tool_rail_=rail;addToolBar(Qt::LeftToolBarArea,rail);

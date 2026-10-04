@@ -178,6 +178,10 @@ void Canvas::refresh() {
     }
     if(armed_guide_&&!scoped_guide_context_current(*armed_guide_))disarm_scoped_guide();
     const auto& document = session_.preview_document();
+    if(!drawing_object_.empty()&&(drawing_document_!=document.id||
+        (session_identity_provider_&&drawing_session_!=session_identity_provider_()))) {
+        drawing_object_.clear();drawing_contour_.clear();drawing_document_.clear();drawing_session_.clear();
+    }
     if(gradient_edit_mode_&&(gradient_document_!=document.id||
         (session_identity_provider_&&gradient_session_!=session_identity_provider_())))clear_gradient_edit();
     const auto previous_composition = active_composition_, previous_artboard = active_artboard_;
@@ -392,6 +396,7 @@ void Canvas::refresh() {
         if (!drawing_object_.empty() && !world_.contains(drawing_object_)) {
             drawing_object_.clear();
             drawing_contour_.clear();
+            drawing_document_.clear();drawing_session_.clear();
         }
         gradient_control_.reset();
         if (!gradient_operation_.empty()) {
@@ -682,6 +687,7 @@ void Canvas::set_draw_mode(bool enabled) {
     if (enabled) {set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);set_guide_edit_mode(false);}
     drawing_object_.clear();
     drawing_contour_.clear();
+    drawing_document_.clear();drawing_session_.clear();
     if (draw_mode_ == enabled) return;
     draw_mode_ = enabled;
     update_cursor();
@@ -2361,6 +2367,7 @@ void Canvas::finish_draw_path() {
     cancel_interaction();
     drawing_object_.clear();
     drawing_contour_.clear();
+    drawing_document_.clear();drawing_session_.clear();
     update();
 }
 
@@ -2399,6 +2406,8 @@ void Canvas::append_draw_point(QPointF screen) {
         }
         drawing_object_ = object_id;
         drawing_contour_ = contour_id;
+        drawing_document_=session_.document().id;
+        drawing_session_=session_identity_provider_?session_identity_provider_():QString{};
         refresh();
         select(object_id, p.id);
         if (document_changed) document_changed();

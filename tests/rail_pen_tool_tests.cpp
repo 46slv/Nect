@@ -48,6 +48,10 @@ Id point(Window& w,Session& oracle,QPoint p,const Id& path={},const Id& parent={
     QTest::mouseClick(w.canvas,Qt::LeftButton,Qt::NoModifier,p);events();
     auto& actual=w.host.session;const auto id=w.canvas->selected_object;
     check(!id.empty()&&actual.document().objects.contains(id),"Pointer authored a selected Path");
+    if(path.empty()) {
+        std::cout<<"New path target="<<id<<" already_exists="<<oracle.document().objects.contains(id)<<'\n';
+        check(!oracle.document().objects.contains(id),"New placement cannot append to a Path owned by an expired drawing context");
+    }
     const auto& object=actual.document().objects.at(id);const auto& contour=object.contours.front();
     Point expected;expected.id=w.canvas->selected_point;const auto local=authored(w,p,transform);
     const auto& inserted=contour.points.back();
@@ -81,6 +85,42 @@ void choose_board(Window& w,int index,const Id& composition,const Id& board){
     check(w.canvas->draw_mode()&&w.findChild<QToolButton*>("tool-pen")->isChecked(),"Artboard navigation retains active Pen");
     check(snapshot(w.host.session)==before,"Artboard navigation does not author or add history");
 }
+void pen_shortcut_reactivation(Window& w,const Document& initial){
+    for(const auto key:{Qt::Key_P,Qt::Key_G}) {
+        w.canvas->set_draw_mode(false);w.host.session=Session(initial);w.host.edited();events();w.canvas->fit_artboard();events();
+        Session oracle(initial);activate(w);
+        const auto path=point(w,oracle,screen(w,90,120));point(w,oracle,screen(w,190,140),path);
+        QApplication::setActiveWindow(&w);w.canvas->setFocus();events();check(w.canvas->hasFocus(),"Shortcut reaches the actual focused Canvas");
+        const auto before=snapshot(w.host.session);QTest::keyClick(w.canvas,key);events();
+        check(w.canvas->draw_mode()&&w.findChild<QToolButton*>("tool-pen")->isChecked()&&snapshot(w.host.session)==before,"P/G reactivation retains Pen without authoring");
+        point(w,oracle,screen(w,290,150),path);
+        check(w.host.session.document().objects.size()==1,"Reactivating Pen cannot silently start another Path");
+        activate(w);point(w,oracle,screen(w,390,170),path);
+        const auto authored=w.host.session.document();w.host.session.undo(w.host.session.revision());w.host.edited();events();
+        check(w.host.session.document().objects.at(path).contours.front().points.size()==3,"One Undo removes only the last continued point");
+        w.host.session.redo(w.host.session.revision());w.host.edited();events();check(w.host.session.document()==authored,"Redo restores the complete continued Path");
+        finish_open(w);const auto next=point(w,oracle,screen(w,450,250));check(next!=path,"Enter still finishes the current Path before another placement");
+        QTest::keyClick(w.canvas,Qt::Key_Escape);events();check(!w.canvas->draw_mode(),"Escape still exits Pen explicitly");
+    }
+}
+void pen_session_expiry(Window& w,const Document& initial,QTemporaryDir& scratch){
+    Session oracle(initial);activate(w);const auto pending=point(w,oracle,screen(w,90,120));point(w,oracle,screen(w,190,140),pending);
+    const auto source=w.host.session.document();const auto file=scratch.filePath("pending-pen.nect.json");w.host.save(file);events();
+    const auto saved=snapshot(w.host.session);const auto previous_session=w.host.session_id;
+    w.host.open(file);events();w.canvas->fit_artboard();events();
+    check(w.host.session_id!=previous_session&&w.host.session.document()==source,"Native reopen starts a distinct Session with the same Document and Path IDs");
+    check(w.canvas->draw_mode()&&w.findChild<QToolButton*>("tool-pen")->isChecked(),"Native reopen preserves active workspace Pen");
+    check(std::get<0>(saved)==w.host.session.document(),"Reopen does not author a source edit");
+    Session reopened(source);const auto next=point(w,reopened,screen(w,290,150));
+    check(next!=pending&&w.host.session.document().objects.at(pending)==source.objects.at(pending),"New Session expires only the pending target and preserves the original Path");
+    point(w,reopened,screen(w,390,170),next);const auto final=w.host.session.document();
+    w.host.session.undo(w.host.session.revision());w.host.edited();events();
+    check(w.host.session.document().objects.at(next).contours.front().points.size()==1&&w.host.session.document().objects.at(pending)==source.objects.at(pending),"Undo in the new Session removes only its new point");
+    w.host.session.redo(w.host.session.revision());w.host.edited();events();check(w.host.session.document()==final,"Redo in the new Session restores complete authored state");
+    w.host.save(file);events();QSettings cold_preferences(scratch.filePath("cold-pending.ini"),QSettings::IniFormat);
+    Window cold(scratch.filePath("cold-pending"),std::make_unique<FolderLibrary>(cold_preferences),&cold_preferences);show(cold);cold.host.open(file);events();
+    check(cold.host.session.document()==final&&!cold.canvas->draw_mode(),"New Window native reopen preserves both Paths and defaults to Selection");
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
@@ -92,7 +132,14 @@ int main(int argc,char** argv){
         auto initial=empty_document("pen-document","composition","board");
         initial.compositions.front().artboards.front().width=640;initial.compositions.front().artboards.front().height=480;
         w.host.session=Session(initial);w.host.edited();events();w.canvas->fit_artboard();w.canvas->set_snap_enabled(false);events();
-        auto& s=w.host.session;Session oracle(initial);activate(w);
+        auto& s=w.host.session;
+        if(app.arguments().contains("--shortcut-reactivation-only")||app.arguments().contains("--session-expiry-only")){
+            if(app.arguments().contains("--session-expiry-only"))pen_session_expiry(w,initial,scratch);
+            else pen_shortcut_reactivation(w,initial);
+            check(preferences.value("unrelated").toString()=="preserved"&&preferences.value("workspace/tools/textCreationDirection").toString()=="vertical","Pen continuation preserves workspace preferences");
+            std::cout<<"pen_context_contract: "<<checks<<" checks passed\n";return 0;
+        }
+        Session oracle(initial);activate(w);
         const auto first=point(w,oracle,screen(w,90,120));point(w,oracle,screen(w,190,140),first);
         const auto first_source=s.document().objects.at(first);finish_open(w);finish_open(w,Qt::Key_Enter);
         const auto second_start=screen(w,290,150);const auto second=point(w,oracle,second_start);
