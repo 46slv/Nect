@@ -120,8 +120,8 @@ void composition_and_geometry(Window& window,ViewportLayout& viewport) {
         viewport.set_utility_placement(placement);settle();
         check(viewport.utility_scroll()==scroll&&viewport.utility_contents()==contents,
             "Shelf relocation preserves existing scroll and strip identity");
-        check(placement==UtilityPlacement::bottom?window.canvas->geometry().bottom()<scroll->geometry().top():
-            scroll->geometry().bottom()<window.canvas->geometry().top(),"Shelf relocation changes only positional layout order");
+        check(placement==UtilityPlacement::bottom?window.canvas->QWidget::geometry().bottom()<scroll->geometry().top():
+            scroll->geometry().bottom()<window.canvas->QWidget::geometry().top(),"Shelf relocation changes only positional layout order");
         before.unchanged(window.host.session);
     }
     check(window.tabPosition(Qt::RightDockWidgetArea)==QTabWidget::North,"Properties and Effects dock tabs are on top");
