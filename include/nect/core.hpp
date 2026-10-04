@@ -1186,8 +1186,9 @@ struct TextLayout {
     std::optional<double> first_line_baseline_y;
     // Measured horizontal line baselines in layout order; empty for vertical text.
     std::vector<double> line_baselines_y;
-    // Measured vertical column baseline origins in layout order. Empty if a
-    // column has no run or its DirectWrite run origins disagree.
+    // Measured vertical central column baselines in layout order, independent
+    // of each glyph run's Roman/central drawing origin. Empty if a column has
+    // no visible glyph run or its measured line metrics are unavailable.
     std::vector<double> column_baselines_x;
     bool overflow=false;
     std::size_t glyph_count=0;
