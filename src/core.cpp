@@ -4182,6 +4182,39 @@ static void preflight_preset_macro_entries(const Document& document,const Preset
         }
     }
 }
+void validate_portable_preset_closure(const PortablePresetClosure& closure) {
+    Document dependencies;
+    std::set<Id> referenced;
+    for(const auto& entry:closure.definition.entries)
+        if(entry.kind=="macro")referenced.insert(entry.macro_definition);
+    for(const auto& [id,definition]:closure.macro_definitions) {
+        require(id==definition.id,"ID_MISMATCH",id);
+        require(id!=closure.definition.id,"DUPLICATE_ID",id);
+        require(referenced.contains(id),"UNUSED_PRESET_DEPENDENCY",id);
+        validate_portable_macro_definition(definition,portable_macro_payload_schema(definition));
+        dependencies.macro_definitions.emplace(id,definition);
+    }
+    validate_preset_definition(closure.definition.id,closure.definition,dependencies);
+    preflight_preset_macro_entries(dependencies,closure.definition);
+}
+
+PortablePresetClosure capture_portable_preset_closure(const Document& document,const Id& preset) {
+    const auto found=document.preset_definitions.find(preset);
+    require(found!=document.preset_definitions.end(),"MISSING_PRESET",preset);
+    PortablePresetClosure closure{found->second,{}};
+    for(const auto& entry:closure.definition.entries)if(entry.kind=="macro") {
+        const auto definition=document.macro_definitions.find(entry.macro_definition);
+        require(definition!=document.macro_definitions.end(),"MISSING_MACRO_DEFINITION",entry.macro_definition);
+        closure.macro_definitions.emplace(definition->first,definition->second);
+    }
+    validate_portable_preset_closure(closure);
+    return closure;
+}
+
+unsigned portable_preset_closure_schema(const PortablePresetClosure& closure) {
+    return closure.macro_definitions.empty()?closure.definition.schema_version:3u;
+}
+
 static bool same_public_parameter_contract(const MacroPublicParameter& a,const MacroPublicParameter& b) {
     return a.value_type==b.value_type&&a.unit==b.unit&&a.domain==b.domain;
 }
@@ -7401,6 +7434,43 @@ void edit_preset(Document& candidate,const PresetCommand& command) {
             candidate.preset_definitions.emplace(definition.id,definition);
             append_preset_to_target(candidate,candidate.preset_definitions.at(definition.id),
                 mutation.object,mutation.operation_id_prefix);
+        } else if constexpr(std::is_same_v<T,ImportAndApplyPresetClosure>) {
+            require(!mutation.asset_id.empty()&&mutation.accepted_revision>0&&mutation.accepted_revision<=9007199254740991ULL,
+                "INVALID_PRESET_ASSET_REF","Portable Preset import requires an exact asset ID and positive exact accepted revision");
+            identity(mutation.asset_id);
+            validate_portable_preset_closure(mutation.closure);
+            require(mutation.macro_definition_ids.size()==mutation.closure.macro_definitions.size(),
+                "INVALID_PRESET_DEPENDENCY_MAPPING","Every Macro dependency requires exactly one fresh Document ID");
+            const auto& source=mutation.closure.definition;
+            std::set<Id> source_ids{source.id};
+            for(const auto& [id,definition]:mutation.closure.macro_definitions){(void)definition;source_ids.insert(id);}
+            require(!source_ids.contains(mutation.asset_id),"PRESET_ASSET_ID_MISMATCH",
+                "Workspace AssetID must remain distinct from source definition IDs");
+            auto occupied=document_identity_ids(candidate);
+            occupied.insert(source_ids.begin(),source_ids.end());occupied.insert(mutation.asset_id);
+            const auto fresh=[&](const Id& id) {
+                identity(id);require(occupied.insert(id).second,"DUPLICATE_ID",id);
+                require(std::none_of(candidate.objects.begin(),candidate.objects.end(),[&](const auto& entry){return generated_point(entry.second,id);}),
+                    "DUPLICATE_ID",id);
+            };
+            fresh(mutation.document_definition_id);
+            for(const auto& [source_id,id]:mutation.macro_definition_ids) {
+                require(mutation.closure.macro_definitions.contains(source_id),"INVALID_PRESET_DEPENDENCY_MAPPING",source_id);
+                fresh(id);
+            }
+            auto definition=source;definition.id=mutation.document_definition_id;
+            // Generated application IDs also stay distinct from all source and
+            // workspace identities; the same global Document collision rule applies.
+            for(const auto& id:preset_operation_ids(definition,mutation.operation_id_prefix))fresh(id);
+            for(const auto& [source_id,source_definition]:mutation.closure.macro_definitions) {
+                auto imported=source_definition;imported.id=mutation.macro_definition_ids.at(source_id);
+                candidate.macro_definitions.emplace(imported.id,std::move(imported));
+            }
+            for(auto& entry:definition.entries)if(entry.kind=="macro")
+                entry.macro_definition=mutation.macro_definition_ids.at(entry.macro_definition);
+            candidate.preset_definitions.emplace(definition.id,definition);
+            append_preset_to_target(candidate,candidate.preset_definitions.at(definition.id),
+                mutation.object,mutation.operation_id_prefix);
         }
     },command.mutation);
 }
@@ -7418,7 +7488,8 @@ std::string preset_history_label(const PresetCommand& command,const Document& ca
             const auto label=found==candidate.preset_definitions.end()?mutation.preset:found->second.label;
             if constexpr(std::is_same_v<T,ApplyPresetBatch>)return "Apply Preset to Selection: "+label;
             else return "Apply Preset: "+label;
-        } else return "Import and Apply Preset: "+mutation.definition.label;
+        } else if constexpr(std::is_same_v<T,ImportAndApplyPresetClosure>)return "Import and Apply Preset: "+mutation.closure.definition.label;
+        else return "Import and Apply Preset: "+mutation.definition.label;
     },command.mutation);
 }
 

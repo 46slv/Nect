@@ -657,9 +657,18 @@ struct ReorderOperations { Id object; std::vector<Id> order; };
 struct CreatePreset { PresetDefinition definition; };
 struct CreatePresetFromStack { PresetDefinition metadata; Id object; };
 PresetDefinition capture_preset_definition(const Document&,PresetDefinition metadata,const Id& object);
-// Pure v1/v2 validation for the portable built-in literal slice. Macro entries
-// remain document-local because the workspace Library does not carry dependencies.
+// Pure v1/v2 validation for the portable built-in literal slice.
 void validate_portable_literal_preset(const PresetDefinition&);
+// Asset-only dependency closure. Document Presets retain their native v1/v2
+// shape; each referenced Macro is copied once with every retained revision.
+struct PortablePresetClosure {
+    PresetDefinition definition;
+    std::map<Id,MacroDefinition> macro_definitions;
+    bool operator==(const PortablePresetClosure&) const = default;
+};
+PortablePresetClosure capture_portable_preset_closure(const Document&,const Id& preset);
+void validate_portable_preset_closure(const PortablePresetClosure&);
+unsigned portable_preset_closure_schema(const PortablePresetClosure&);
 struct RenamePreset { Id preset; std::string label; };
 struct UpdatePreset { PresetDefinition definition; };
 struct DeletePreset { Id preset; };
@@ -678,8 +687,17 @@ struct ImportAndApplyPreset {
     Id asset_id;
     std::uint64_t accepted_revision=0;
 };
+struct ImportAndApplyPresetClosure {
+    PortablePresetClosure closure;
+    Id document_definition_id;
+    Id object;
+    Id operation_id_prefix;
+    Id asset_id;
+    std::uint64_t accepted_revision=0;
+    std::map<Id,Id> macro_definition_ids;
+};
 using PresetMutation=std::variant<CreatePreset,CreatePresetFromStack,RenamePreset,UpdatePreset,DeletePreset,ApplyPreset,ApplyPresetBatch,
-    ImportAndApplyPreset>;
+    ImportAndApplyPreset,ImportAndApplyPresetClosure>;
 struct PresetCommand { PresetMutation mutation; };
 struct CreateDefinition { Definition definition; };
 struct RenameDefinition { Id definition; std::string name; };

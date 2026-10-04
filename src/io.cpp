@@ -55,6 +55,16 @@ void apply_serializable(Session& session,const std::vector<Command>& commands,st
     }
     session.apply(commands,revision);
 }
+void apply_serializable_preset(Session& session,const PresetCommand& command,std::uint64_t revision) {
+    if(session.revision()!=revision)throw Error("REVISION_CONFLICT","Expected revision differs from current Session");
+    if(const auto* import=std::get_if<ImportAndApplyPresetClosure>(&command.mutation))
+        (void)canonical_preset_closure_payload(import->closure);
+    Session candidate=session;
+    candidate.apply_preset_command(command,revision);
+    if(encode(candidate.document()).size()>native_size_limit)
+        throw Error("OUTPUT_LIMIT","Preset edit would exceed the 64 MiB native serialization limit");
+    session=std::move(candidate);
+}
 namespace {
 void keys(const j::object& o,std::initializer_list<std::string_view> allowed) {
     for(const auto& p:o) {
@@ -1331,6 +1341,27 @@ std::string canonical_json(const j::value& value) {
     return j::serialize(value);
 }
 
+PortablePresetClosure read_preset_closure(const j::value& value) {
+    const auto& object=value.as_object();keys(object,{"definition","macro_definitions"});
+    PortablePresetClosure closure{read_preset_definition(object.at("definition")),{}};
+    const auto& definitions=object.at("macro_definitions").as_array();
+    if(definitions.size()>128)
+        throw Error("INVALID_PRESET_DEPENDENCIES","Preset closure supports at most 128 Macro dependencies");
+    for(const auto& value:definitions) {
+        auto definition=read_macro_definition(value);const auto id=definition.id;
+        if(!closure.macro_definitions.emplace(id,std::move(definition)).second)
+            throw Error("DUPLICATE_PRESET_DEPENDENCY",id);
+    }
+    validate_portable_preset_closure(closure);
+    return closure;
+}
+
+j::value preset_closure_json(const PortablePresetClosure& closure) {
+    j::array definitions;
+    for(const auto& [id,definition]:closure.macro_definitions){(void)id;definitions.push_back(macro_definition_json(definition));}
+    return j::object{{"definition",preset_json(closure.definition)},{"macro_definitions",std::move(definitions)}};
+}
+
 Definition read_definition(const j::value& value) {
     const auto& o=value.as_object();keys(o,{"id","name","root"});
     return {text(o.at("id")),text(o.at("name")),text(o.at("root"))};
@@ -1866,6 +1897,17 @@ PresetCommand read_preset_command(const j::value& v) {
             text(o.at("asset_id")),preset_unsigned(o.at("accepted_revision"),std::numeric_limits<std::uint64_t>::max(),
                 "Preset asset accepted revision")}};
     }
+    if(type=="import_apply_preset_closure") {
+        keys(o,{"type","closure","definition_id","object","operation_id_prefix","asset_id","accepted_revision","macro_definition_ids"});
+        ImportAndApplyPresetClosure import;
+        import.closure=read_preset_closure(o.at("closure"));
+        import.document_definition_id=text(o.at("definition_id"));import.object=text(o.at("object"));
+        import.operation_id_prefix=text(o.at("operation_id_prefix"));import.asset_id=text(o.at("asset_id"));
+        import.accepted_revision=preset_unsigned(o.at("accepted_revision"),std::numeric_limits<std::uint64_t>::max(),"Preset asset accepted revision");
+        for(const auto& [source,id]:o.at("macro_definition_ids").as_object())
+            import.macro_definition_ids.emplace(std::string(source),text(id));
+        return PresetCommand{std::move(import)};
+    }
     throw Error("UNSUPPORTED_PRESET_OPERATION",type);
 }
 
@@ -2110,7 +2152,8 @@ MacroCommand read_macro_command(const j::value& value) {
 bool is_preset_command(const j::value& v) {
     const auto type=text(v.as_object().at("type"));
     return type=="create_preset"||type=="create_preset_from_stack"||type=="rename_preset"||
-        type=="update_preset"||type=="delete_preset"||type=="apply_preset"||type=="apply_preset_batch"||type=="import_apply_preset";
+        type=="update_preset"||type=="delete_preset"||type=="apply_preset"||type=="apply_preset_batch"||type=="import_apply_preset"||
+        type=="import_apply_preset_closure";
 }
 
 Command read_command(const j::value& v) {
@@ -3141,6 +3184,36 @@ PresetDefinition read_canonical_preset_payload(std::string_view input) {
     return definition;
 }
 
+std::string canonical_preset_closure_payload(const PortablePresetClosure& closure) {
+    validate_portable_preset_closure(closure);
+    if(closure.macro_definitions.empty())return canonical_preset_payload(closure.definition);
+    const auto payload=canonical_json(preset_closure_json(closure));
+    if(payload.size()>portable_preset_payload_limit)
+        throw Error("PRESET_PAYLOAD_LIMIT","Portable Preset dependency closure exceeds 256 KiB");
+    return payload;
+}
+
+PortablePresetClosure read_canonical_preset_closure_payload(std::string_view input,unsigned payload_schema) {
+    if(input.size()>portable_preset_payload_limit)
+        throw Error("PRESET_PAYLOAD_LIMIT","Portable Preset dependency closure exceeds 256 KiB");
+    if(payload_schema>3)throw Error("UNSUPPORTED_PRESET_SCHEMA","Supported portable Preset schemas are 1 through 3");
+    const auto parsed=parse(input);
+    if(payload_schema==0)payload_schema=parsed.as_object().contains("definition")?3u:
+        read_preset_definition(parsed).schema_version;
+    PortablePresetClosure closure;
+    if(payload_schema==3)closure=read_preset_closure(parsed);
+    else {
+        closure.definition=read_canonical_preset_payload(input);
+        if(closure.definition.schema_version!=payload_schema)
+            throw Error("PRESET_SCHEMA_MISMATCH","Portable Preset schema does not match the payload");
+    }
+    if(portable_preset_closure_schema(closure)!=payload_schema)
+        throw Error("PRESET_SCHEMA_MISMATCH","Portable Preset schema does not match the payload");
+    if(canonical_preset_closure_payload(closure)!=input)
+        throw Error("NONCANONICAL_PRESET_PAYLOAD","Portable Preset closure is not in canonical serialized form");
+    return closure;
+}
+
 std::string export_svg(const Document& d,const Id& comp_id,const Id& art_id) {
     validate(d);
     const auto operation_enabled=evaluate_operation_enableds(d);
@@ -3965,6 +4038,7 @@ std::string request(Session& session,std::string_view input) {
                 const auto* apply=std::get_if<ApplyPreset>(&preset.mutation);
                 const auto* batch=std::get_if<ApplyPresetBatch>(&preset.mutation);
                 const auto* import=std::get_if<ImportAndApplyPreset>(&preset.mutation);
+                const auto* closure_import=std::get_if<ImportAndApplyPresetClosure>(&preset.mutation);
                 j::array captured_source_operations,captured_source_entries;
                 if(const auto* capture=std::get_if<CreatePresetFromStack>(&preset.mutation)) {
                     if(const auto object=session.document().objects.find(capture->object);object!=session.document().objects.end())
@@ -3976,7 +4050,8 @@ std::string request(Session& session,std::string_view input) {
                         }
                 }
                 const auto before=session.revision();
-                session.apply_preset_command(preset,expected);
+                if(closure_import)apply_serializable_preset(session,preset,expected);
+                else session.apply_preset_command(preset,expected);
                 j::array applied,applied_library;
                 if(apply&&session.revision()!=before) {
                     const auto& definition=session.document().preset_definitions.at(apply->preset);
@@ -4002,6 +4077,27 @@ std::string request(Session& session,std::string_view input) {
                         {"accepted_revision",import->accepted_revision},{"definition_id",definition.id},
                         {"label",definition.label},{"schema_version",definition.schema_version},
                         {"target",import->object},{"processing_entry_ids",operation_ids},
+                        {"asset_identity_source","caller_supplied"}});
+                }
+                if(closure_import&&session.revision()!=before) {
+                    const auto& definition=session.document().preset_definitions.at(closure_import->document_definition_id);
+                    j::array operation_ids,imported_macros,macro_pins;
+                    for(const auto& id:preset_operation_ids(definition,closure_import->operation_id_prefix))operation_ids.push_back(j::value(id));
+                    for(const auto& [source,id]:closure_import->macro_definition_ids) {
+                        const auto& macro=session.document().macro_definitions.at(id);
+                        imported_macros.push_back(j::object{{"source_definition_id",source},{"definition_id",macro.id},
+                            {"latest_revision",macro.latest_revision}});
+                    }
+                    for(std::size_t i=0;i<definition.entries.size();++i)if(definition.entries[i].kind=="macro") {
+                        const auto& entry=definition.entries[i];
+                        macro_pins.push_back(j::object{{"processing_entry_id",operation_ids[i]},
+                            {"definition_id",entry.macro_definition},{"pinned_revision",entry.pinned_revision}});
+                    }
+                    applied_library.push_back(j::object{{"asset_id",closure_import->asset_id},
+                        {"accepted_revision",closure_import->accepted_revision},{"definition_id",definition.id},
+                        {"label",definition.label},{"schema_version",definition.schema_version},
+                        {"target",closure_import->object},{"processing_entry_ids",operation_ids},
+                        {"imported_macro_definitions",imported_macros},{"macro_pins",macro_pins},
                         {"asset_identity_source","caller_supplied"}});
                 }
                 result=j::object{{"changed",session.revision()!=before},{"applied_presets",applied},
