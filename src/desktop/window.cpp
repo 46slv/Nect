@@ -5023,14 +5023,20 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         connect(path_picker,&QComboBox::currentTextChanged,path_picker,&QWidget::setToolTip);
         follow_form->addRow("Authored Path",path_picker);
         auto* contour_picker=new QComboBox(follow_box);contour_picker->setObjectName("group-path-follow-contour");
+        contour_picker->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        contour_picker->setMinimumContentsLength(10);contour_picker->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
+        connect(contour_picker,&QComboBox::currentTextChanged,contour_picker,&QWidget::setToolTip);
         follow_form->addRow("Contour",contour_picker);
         auto populate_contours=[this,path_picker,contour_picker](const QString& preferred) {
             const QSignalBlocker blocker(contour_picker);contour_picker->clear();
             const auto selected=path_picker->currentData().toString().toStdString();
             const auto& document=host.session.document();
-            if(document.objects.contains(selected))for(const auto& contour:document.objects.at(selected).contours)
+            if(document.objects.contains(selected))for(const auto& contour:document.objects.at(selected).contours) {
                 contour_picker->addItem(qs(contour.id),qs(contour.id));
+                contour_picker->setItemData(contour_picker->count()-1,qs(contour.id),Qt::ToolTipRole);
+            }
             const auto index=contour_picker->findData(preferred);if(index>=0)contour_picker->setCurrentIndex(index);
+            contour_picker->setToolTip(contour_picker->currentText());
         };
         auto* start_mode=new QComboBox(follow_box);start_mode->setObjectName("group-path-follow-start-mode");
         start_mode->addItem("Distance",QStringLiteral("distance"));start_mode->addItem("Normalized",QStringLiteral("normalized"));
@@ -5103,16 +5109,17 @@ void Window::rebuild_inspector(bool use_canvas_values) {
                 const auto& child=d.objects.at(child_id);
                 const auto found=existing->items.find(child_id);const bool active=found!=existing->items.end();
                 const GroupPathFollowItem item=active?found->second:GroupPathFollowItem{};
-                auto* row=new QWidget(follow_box);auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
+                auto* row=new QWidget(follow_box);auto* row_layout=new QFormLayout(row);row_layout->setContentsMargins(0,0,0,0);
+                row_layout->setRowWrapPolicy(QFormLayout::WrapLongRows);
                 auto* enabled=new QCheckBox(qs(child.name),row);enabled->setObjectName("group-path-follow-item-"+qs(child_id));
-                enabled->setToolTip(qs(child_id));enabled->setChecked(active);row_layout->addWidget(enabled);
+                enabled->setToolTip(qs(child_id));enabled->setChecked(active);row_layout->addRow(enabled);
                 auto* distance=make_follow_number(("group-path-follow-distance-"+child_id).c_str(),item.distance);
-                distance->setToolTip("Distance along the authored source contour");row_layout->addWidget(distance);
+                distance->setToolTip("Distance along the authored source contour");row_layout->addRow("Distance",distance);
                 auto* offset=make_follow_number(("group-path-follow-item-offset-"+child_id).c_str(),item.normal_offset);
-                offset->setToolTip("Normal offset from this Path Follow relation");row_layout->addWidget(offset);
+                offset->setToolTip("Normal offset from this Path Follow relation");row_layout->addRow("Normal offset",offset);
                 auto* tangent=new QCheckBox("Tangent",row);tangent->setObjectName("group-path-follow-tangent-"+qs(child_id));
                 tangent->setChecked(item.follow_tangent);tangent->setEnabled(active&&existing->mode=="rigid");
-                tangent->setToolTip("Rigid placement only; Deform always uses the sampled tangent/normal frame");row_layout->addWidget(tangent);
+                tangent->setToolTip("Rigid placement only; Deform always uses the sampled tangent/normal frame");row_layout->addRow(tangent);
                 distance->setEnabled(active);offset->setEnabled(active);follow_form->addRow(row);
                 connect(enabled,&QCheckBox::toggled,this,[this,enabled,id=o.id,child_id,session_id,active](bool checked) {
                     bool applied=false;perform([&] {
