@@ -4810,23 +4810,28 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
-    QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
+    QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_composition())+"/"+qs(canvas->active_artboard()):QString{});
     for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
     // Preserve a queued context reset across back-to-back selection and host refreshes.
     const auto scroll=context==inspector_context_?
         inspector_pending_scroll_.value_or(inspector_scroll_->verticalScrollBar()->value()):0;
+    const auto horizontal=context==inspector_context_?
+        inspector_pending_horizontal_scroll_.value_or(inspector_scroll_->horizontalScrollBar()->value()):0;
     inspector_context_=context;inspector_pending_scroll_=scroll;
+    inspector_pending_horizontal_scroll_=horizontal;
     const auto generation=++inspector_scroll_generation_;
     // Qt may scroll to a disappearing focused field while the new form lays out.
     // Restore the previous viewport only for the same editing context.
-    const auto restore_scroll=[this,context,scroll,generation]{QTimer::singleShot(0,this,[this,context,scroll,generation]{
+    const auto restore_scroll=[this,context,scroll,horizontal,generation]{QTimer::singleShot(0,this,[this,context,scroll,horizontal,generation]{
         if(inspector_context_!=context||inspector_scroll_generation_!=generation)return;
         if(auto* current_layout=inspector_->layout()) {
             current_layout->activate();
             inspector_->updateGeometry();
         }
         inspector_scroll_->verticalScrollBar()->setValue(scroll);
+        inspector_scroll_->horizontalScrollBar()->setValue(horizontal);
         inspector_pending_scroll_.reset();
+        inspector_pending_horizontal_scroll_.reset();
     });};
     // Avoid deleting a focused field synchronously from its editingFinished signal.
     if(auto* old=inspector_->layout()) {

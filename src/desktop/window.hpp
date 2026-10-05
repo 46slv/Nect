@@ -114,6 +114,7 @@ private:
     QString tree_signature_;
     QString inspector_context_;
     std::optional<int> inspector_pending_scroll_;
+    std::optional<int> inspector_pending_horizontal_scroll_;
     std::uint64_t inspector_scroll_generation_=0;
     struct ExpressionDraft {
         QString session,source;

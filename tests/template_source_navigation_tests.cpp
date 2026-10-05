@@ -7,6 +7,7 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -61,6 +62,11 @@ void reached(Window& w,const Snapshot& before,double zoom){
     check(before.unchanged(w.host.session),"Navigation preserves complete authored Document/native/preview/revision/history/generation");
     check(w.canvas->active_composition()=="composition"&&w.canvas->active_artboard()=="source"&&w.canvas->selections().empty(),"Exact source frame selected despite duplicate names and dimensions");
     check(w.canvas->zoom()==zoom,"Source navigation retains zoom");
+    auto* area=w.findChild<QScrollArea*>("inspector-scroll");
+    std::cout<<"Source Properties horizontal="<<area->horizontalScrollBar()->value()<<std::endl;
+    check(area->horizontalScrollBar()->value()==0,"New source frame starts at the Properties left edge");
+    const auto viewport_evidence=qEnvironmentVariable("NECT_TEMPLATE_VIEWPORT_EVIDENCE");
+    if(!viewport_evidence.isEmpty())check(w.grab().save(viewport_evidence),"Source frame left-edge viewport captured");
     auto* list=w.findChild<QListWidget*>("artboards");check(list->currentItem()&&list->currentItem()->data(Qt::UserRole+1).toString()=="source","Artboards selection agrees with source stable ID");
     check(list->viewport()->rect().contains(list->visualItemRect(list->currentItem())),"Exact source row revealed");
     auto* height=visible<QLineEdit>(w,"artboard-height");reveal(w,height);
@@ -75,6 +81,12 @@ int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch
     try{Window w(scratch.filePath("recovery"));w.host.session=Session(fixture());w.host.session_id="template-navigation-session";
         w.host.edited();w.resize(1280,900);w.show();w.activateWindow();events();select_frame(w,"target");
         auto& s=w.host.session;s.apply({Rename{"text","Existing history"}},s.revision());w.host.edited();events();
+        auto* area=w.findChild<QScrollArea*>("inspector-scroll");auto* horizontal=area->horizontalScrollBar();
+        check(horizontal->isVisible()&&horizontal->maximum()>0,"Fixture exposes actual Properties horizontal overflow");
+        horizontal->setFocus();QTest::keyClick(horizontal,Qt::Key_End);events();const auto manual_horizontal=horizontal->value();
+        check(manual_horizontal>0,"Actual keyboard scroll moves the Properties viewport right");
+        const Snapshot before_refresh(s);w.host.edited();events();
+        check(before_refresh.unchanged(s)&&horizontal->value()==manual_horizontal,"Same-context refresh preserves manual horizontal scroll and complete Session");
         const Snapshot original(s);check(original.history.states.size()>1,"Fixture retains existing Undo history");
         const auto zoom=w.canvas->zoom();auto* button=entry(w);check(button->isEnabled(),"Assigned source entry enabled");
         const auto evidence=qEnvironmentVariable("NECT_TEMPLATE_SOURCE_EVIDENCE");if(!evidence.isEmpty())check(w.grab().save(evidence),"Actual Template source entry captured");
@@ -106,6 +118,11 @@ int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch
         Window cold(scratch.filePath("cold"));cold.host.open(file);cold.resize(1280,900);cold.show();cold.activateWindow();events();
         check(cold.host.session.document()==saved,"Fresh Window native reopen retains exact source IDs");select_frame(cold,"target");const Snapshot cold_state(cold.host.session);const auto cold_zoom=cold.canvas->zoom();
         button=entry(cold);button->setFocus();events();QTest::keyClick(button,Qt::Key_Space);events();reached(cold,cold_state,cold_zoom);
+        auto* cold_horizontal=cold.findChild<QScrollArea*>("inspector-scroll")->horizontalScrollBar();
+        cold_horizontal->setFocus();QTest::keyClick(cold_horizontal,Qt::Key_End);events();
+        const Snapshot queued(cold.host.session);
+        cold.canvas->set_active_artboard("composition","target",false);cold.host.edited();events();
+        check(queued.unchanged(cold.host.session)&&cold_horizontal->value()==0,"Back-to-back new-frame refresh retains queued left-edge reset without Session mutation");
         select_frame(cold,"decoy");check(!cold.findChild<QPushButton*>("artboard-template-source-go"),"Unassigned frame excludes Template-only action");
         w.host.changed={};cold.host.changed={};w.hide();cold.hide();std::cout<<"PASS "<<checks<<" Template source navigation checks; physical input NOT_RUN\n";return 0;
     }catch(const std::exception& e){std::cerr<<"FAIL after "<<checks<<": "<<e.what()<<'\n';return 1;}}

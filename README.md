@@ -240,6 +240,8 @@ source Artboard's frame and layout Properties, including when Artboards share
 names. Navigation preserves authored state, Undo history and zoom. Subsequent
 source edits propagate to inheriting Artboards while their local overrides remain.
 Finish or cancel a preview before navigating.
+Switching the edited frame or selection starts Properties at its left edge;
+refreshing the same target preserves manual scrolling.
 Dependencies must stay within the source subtree, and nested/cross-Composition use
 reject. Native 0.64 stores Definitions and Instances; 0.63 and older remain readable.
 
