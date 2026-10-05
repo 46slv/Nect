@@ -62,16 +62,17 @@ void evidence(Window& w,const QString& suffix) {
     const auto prefix=qEnvironmentVariable("NECT_PRIMITIVE_CONTEXT_EVIDENCE");
     if(!prefix.isEmpty())check(w.grab().save(prefix+suffix+".png"),"Window evidence saved");
 }
-void select(Window& w,const Id& id) {
+void select(Window& w,const Id& id,const Id& point={}) {
     auto* dock=named<QDockWidget>(w,"structure");dock->show();dock->raise();events();
     auto* tree=dock->findChild<QTreeWidget*>();check(tree,"Structure tree");tree->expandAll();
     QTreeWidgetItem* row=nullptr;
     for(QTreeWidgetItemIterator it(tree);*it;++it)
         if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&
-            (*it)->data(0,Qt::UserRole+1).toString().isEmpty())row=*it;
+            (*it)->data(0,Qt::UserRole+1).toString().toStdString()==point)row=*it;
     check(row,"Exact retained object row");tree->scrollToItem(row);events();
     QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(row).center());events();
     check(w.canvas->selected_object==id,"Exact retained object selected");
+    check(w.canvas->selected_point==point,"Exact stable generated point selection");
     dock=named<QDockWidget>(w,"properties");dock->show();dock->raise();events();
 }
 void reveal(Window& w,QWidget* c) {
@@ -91,8 +92,8 @@ void reveal(Window& w,QWidget* c) {
     }
     check(fits,"Primitive control reachable with vertical scrolling only");
 }
-QLineEdit* field(Window& w,const Id& object,const char* name) {
-    const auto key=QJsonDocument(QJsonObject{{"object",QString::fromStdString(object)},{"point",""},{"field",name}}).toJson(QJsonDocument::Compact);
+QLineEdit* field(Window& w,const Id& object,const char* name,const Id& point={}) {
+    const auto key=QJsonDocument(QJsonObject{{"object",QString::fromStdString(object)},{"point",QString::fromStdString(point)},{"field",name}}).toJson(QJsonDocument::Compact);
     for(auto* p:w.findChildren<QLineEdit*>())if(p->isVisible()&&p->property("nect-reference").toByteArray()==key)return p;
     throw std::runtime_error("Missing visible primitive field");
 }
@@ -105,21 +106,21 @@ void canonical(Window& w,Session& expected) {
     history(w,"Undo");expected.undo(expected.revision());check(same(w.host.session,expected),"Undo full equality");
     history(w,"Redo");expected.redo(expected.revision());check(same(w.host.session,expected),"Redo full equality");
 }
-void number(Window& w,Session& expected,const Id& id,const char* name,const char* text,double value,bool refused=false) {
+void number(Window& w,Session& expected,const Id& id,const char* name,const char* text,double value,bool refused=false,const Id& point={}) {
     std::cout<<"Numeric "<<id<<" "<<name<<std::endl;
-    auto* c=field(w,id,name);reveal(w,c);QTest::mouseClick(c,Qt::LeftButton);
+    auto* c=field(w,id,name,point);reveal(w,c);QTest::mouseClick(c,Qt::LeftButton);
     QTest::keyClick(c,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(c,text);
     check(same(w.host.session,expected),"Numeric draft fully Session neutral");
     QTest::keyClick(c,Qt::Key_Return);events();
     if(refused) {
         bool rejected=false;
-        try {expected.apply({EditProperties{{{id,"",name}},value,false}},expected.revision());}
+        try {expected.apply({EditProperties{{{id,point,name}},value,false}},expected.revision());}
         catch(const Error& e) {check(e.code=="UNRESOLVED_POINT_EDIT","Intentional topology refusal code");rejected=true;}
         check(rejected&&w.statusBar()->currentMessage().contains("UNRESOLVED_POINT_EDIT"),"GUI reports intentional topology refusal");
         check(same(w.host.session,expected),"Refused Points edit atomically preserves complete Session");
     } else {
-        expected.apply({EditProperties{{{id,"",name}},value,false}},expected.revision());canonical(w,expected);
-        check(evaluate(w.host.session.document()).at({id,"",name})==value,"Source property evaluated exact value");
+        expected.apply({EditProperties{{{id,point,name}},value,false}},expected.revision());canonical(w,expected);
+        check(evaluate(w.host.session.document()).at({id,point,name})==value,"Property evaluated exact value");
     }
 }
 void enabled(Window& w,Session& expected,const Id& id,bool value) {
@@ -127,16 +128,16 @@ void enabled(Window& w,Session& expected,const Id& id,bool value) {
     QTest::mouseClick(c,Qt::LeftButton);events();expected.apply({EnablePointEdit{id,value}},expected.revision());canonical(w,expected);
     check(named<QCheckBox>(w,"point-edit-enabled")->isChecked()==value,"Point Edit control reflects canonical state");
 }
-void angle(Window& w,Session& expected,const Id& id) {
-    auto* knob=named<QWidget>(w,"primitive-angle-knob");reveal(w,knob);
-    const Ref ref{id,"","generator.rotation"};const double initial=evaluate(expected.document()).at(ref);
+void angle(Window& w,Session& expected,const Id& id,const Id& point={},const char* property="generator.rotation",const char* knob_name="primitive-angle-knob") {
+    auto* knob=named<QWidget>(w,knob_name);reveal(w,knob);
+    const Ref ref{id,point,property};const double initial=evaluate(expected.document()).at(ref);
     const QPoint right(knob->width()/2+15,knob->height()/2),down(knob->width()/2,knob->height()/2+15);
     QTest::mousePress(knob,Qt::LeftButton,Qt::NoModifier,right);expected.begin_gesture(expected.revision());
     check(same(w.host.session,expected),"Angle press equals independent gesture begin");
     QTest::mouseMove(knob,down);events();expected.update_gesture({EditProperties{{ref},initial+90,false}});
     check(same(w.host.session,expected),"Quarter-turn preview equals independent full Session");
     QTest::mouseRelease(knob,Qt::LeftButton,Qt::NoModifier,down);events();expected.commit_gesture();canonical(w,expected);
-    check(field(w,id,"generator.rotation")->text().toDouble()==initial+90,"Angle and exact numeric value agree");
+    check(field(w,id,property,point)->text().toDouble()==initial+90,"Angle and exact numeric value agree");
 }
 void paint(Window& w,const Session& expected,const QString& suffix) {
     const auto image=Canvas::render_artboard(w.host.session.document(),"comp","art",1,false);
@@ -160,6 +161,41 @@ void preserved_corrections(const Session& s) {
         s.document().objects.at("other").source->parameters.at("width").binding->source==Ref{"star","star-source-outer-1-5","x"},
         "Generator and linked angular point identities retained");
 }
+void point_context(const QString& scratch) {
+    Window w(scratch+"/point-recovery");w.host.session=Session(fixture());w.host.session_id="primitive-point-context-session";
+    w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;
+    const Id point="star-source-outer-1-5";select(w,"star",point);
+    check(same(w.host.session,expected),"Generated point selection fully Session neutral");
+    const auto canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
+    const auto source=expected.document().objects.at("star").source;
+    const auto correction_id=expected.document().objects.at("star").point_edit->id;
+    number(w,expected,"star","x","240",240,false,point);number(w,expected,"star","y","220",220,false,point);
+    number(w,expected,"star","in.angle","725.5",725.5,false,point);
+    angle(w,expected,"star",point,"in.angle","point-angle-knob-in.angle");
+    number(w,expected,"star","in.length","18",18,false,point);
+    number(w,expected,"star","out.angle","-450.25",-450.25,false,point);
+    angle(w,expected,"star",point,"out.angle","point-angle-knob-out.angle");
+    number(w,expected,"star","out.length","22",22,false,point);
+    check(expected.document().objects.at("star").source==source&&
+        expected.document().objects.at("star").point_edit->id==correction_id&&
+        expected.document().objects.at("star").contours.empty(),"Absolute point edits retain full generator/correction identity and geometry ownership");
+    check(evaluate(expected.document()).at({"other","","generator.width"})==24,"Existing angular Ref follows corrected coordinate without retargeting");
+    enabled(w,expected,"star",false);
+    check(evaluate(expected.document()).at({"star",point,"in.length"})==0&&
+        expected.document().objects.at("star").point_edit->overrides.at(point).at("in.length").literal==18,"Bypass restores generated handles and retains authored correction");
+    enabled(w,expected,"star",true);paint(w,expected,".point");
+    check(w.canvas->width()==canvas_width&&named<QDockWidget>(w,"properties")->width()==dock_width,"Point authoring keeps standard pane/Canvas widths");
+    const auto native=scratch+"/point-retained.nect";w.host.save(native);check(same(w.host.session,expected),"Point native save fully Session neutral");
+    w.host.changed={};w.hide();Window cold(scratch+"/point-cold");cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();
+    check(cold.host.session.document()==expected.document()&&encode(cold.host.session.document())==encode(expected.document()),"Fresh native full point source/overrides/links/stacks/Artboards readback");
+    const Session reopened=cold.host.session;select(cold,"star",point);
+    for(const auto* name:{"x","y","in.angle","in.length","out.angle","out.length"}) {
+        auto* c=field(cold,"star",name,point);reveal(cold,c);
+        check(c->text().toDouble()==evaluate(expected.document()).at({"star",point,name}),"Fresh exact selected-point numeric control readback");
+    }
+    reveal(cold,named<QWidget>(cold,"point-angle-knob-in.angle"));reveal(cold,named<QWidget>(cold,"point-angle-knob-out.angle"));
+    check(same(cold.host.session,reopened),"Fresh point navigation and control readback Session neutral");paint(cold,reopened,".point-cold");cold.host.changed={};cold.hide();
+}
 }
 int main(int argc,char** argv) {
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
@@ -167,7 +203,12 @@ int main(int argc,char** argv) {
     QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());
     app.setOrganizationName("NectTest");app.setApplicationName("PrimitiveContext");
     try {
-        check(scratch.isValid(),"Owned scratch");Window w(scratch.filePath("recovery"));
+        check(scratch.isValid(),"Owned scratch");
+        if(app.arguments().contains("--point-context")) {
+            point_context(scratch.path());
+            std::cout<<"PASS "<<checks<<" standard-pane selected-point contextual authoring; physical/subjective input NOT_RUN\n";return 0;
+        }
+        Window w(scratch.filePath("recovery"));
         w.host.session=Session(fixture());w.host.session_id="primitive-context-session";w.host.edited();
         w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;
         select(w,"star");check(same(w.host.session,expected),"Selection fully Session neutral");
