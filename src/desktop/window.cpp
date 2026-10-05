@@ -5012,10 +5012,15 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         };
         for(const auto& root:composition.roots)collect_paths(root);
         auto* path_picker=new QComboBox(follow_box);path_picker->setObjectName("group-path-follow-source");
+        path_picker->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        path_picker->setMinimumContentsLength(10);path_picker->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
         for(const auto& path_id:path_ids) {
             const auto& source=d.objects.at(path_id);
             path_picker->addItem(qs(source.name)+" · "+qs(path_id),qs(path_id));
+            path_picker->setItemData(path_picker->count()-1,path_picker->itemText(path_picker->count()-1),Qt::ToolTipRole);
         }
+        path_picker->setToolTip(path_picker->currentText());
+        connect(path_picker,&QComboBox::currentTextChanged,path_picker,&QWidget::setToolTip);
         follow_form->addRow("Authored Path",path_picker);
         auto* contour_picker=new QComboBox(follow_box);contour_picker->setObjectName("group-path-follow-contour");
         follow_form->addRow("Contour",contour_picker);
@@ -5652,7 +5657,10 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     mask_status->setText(QString("Authored literal: %1 · Source: %2 · Evaluated enabled: %3")
         .arg(mask_state.literal?"true":"false",mask_source,mask_state.evaluated?"true":"false"));
     mask_form->addRow("Mask enabled state",mask_status);
-    auto* edit=new QPushButton("Edit: "+qs(host.session.document().objects.at(mask.source).name));edit->setObjectName("mask-edit-source");edit->setToolTip("Select the retained source to edit its points and parameters. Its normal visibility stays unchanged.");mask_form->addRow(edit);
+    const auto mask_source_name=qs(host.session.document().objects.at(mask.source).name);
+    auto* edit=new QPushButton("Edit source");edit->setObjectName("mask-edit-source");
+    edit->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
+    edit->setToolTip("Edit source: "+mask_source_name+" ("+qs(mask.source)+"). Select the retained source to edit its points and parameters. Its normal visibility stays unchanged.");mask_form->addRow(edit);
     connect(edit,&QPushButton::clicked,this,[this,source=mask.source]{canvas->set_selection(source);});
     auto* rule=new QComboBox;rule->setObjectName("mask-fill-rule");rule->addItem("Nonzero","nonzero");rule->addItem("Even–odd","evenodd");
     rule->setCurrentIndex(mask.fill_rule=="evenodd"?1:0);rule->setEnabled(mask.mode=="geometry");mask_form->addRow("Fill rule",rule);
