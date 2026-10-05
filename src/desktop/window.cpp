@@ -5805,10 +5805,27 @@ void Window::add_image_properties(QVBoxLayout* layout,const Object& object) {
     if(asset.mode=="linked") {auto* location=new QLabel(qs(asset.locator));location->setWordWrap(true);location->setTextInteractionFlags(Qt::TextSelectableByMouse);form->addRow(location);}
     add_property(form,{object.id,"","image.width"},"Width");add_property(form,{object.id,"","image.height"},"Height");
     auto* fit=new QPushButton("Fit width to Artboard");fit->setObjectName("image-fit-width");form->addRow(fit);
-    connect(fit,&QPushButton::clicked,this,[this,identity,revision,object_id=object.id,id]{perform([&]{
+    // Fit owns both dimension drafts during its pointer gesture. The numeric
+    // blur handler defers their commit so this button survives through release.
+    fit->setProperty("nect-image-fit-object",qs(object.id));
+    std::vector<QPointer<QLineEdit>> dimensions;
+    for(auto* input:box->findChildren<QLineEdit*>()) {
+        const auto reference_data=input->property("nect-reference").toByteArray();if(reference_data.isEmpty())continue;
+        const auto ref=read_ref(reference_data);
+        if(ref.object==object.id&&ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height"))dimensions.push_back(input);
+    }
+    const auto fit_gesture=host.session.gesture_generation();const bool fit_preview=host.session.gesture_active();
+    connect(fit,&QPushButton::clicked,this,[this,identity,revision,fit_gesture,fit_preview,dimensions,object_id=object.id,id]{perform([&]{
         if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
+        if(host.session.revision()!=revision||host.session.gesture_generation()!=fit_gesture)
+            throw Error("REVISION_CONFLICT","Image changed; reopen its Properties");
+        if(fit_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
         const auto& asset=host.session.document().raster_assets.at(id);const auto board=evaluate_artboard(find_composition(host.session.document(),canvas->active_composition()),canvas->active_artboard());
-        host.session.apply({Set{{object_id,"","image.width"},board.width},Set{{object_id,"","image.height"},board.width*asset.payload->height()/asset.payload->width()}},revision);host.edited();
+        // Discard only drafts which this explicit action supersedes, after its
+        // canonical transaction succeeds and before Inspector focus changes.
+        host.session.apply({Set{{object_id,"","image.width"},board.width},Set{{object_id,"","image.height"},board.width*asset.payload->height()/asset.payload->width()}},revision);
+        for(const auto& input:dimensions)if(input)input->setModified(false);
+        host.edited();
     });});
     if(asset.mode=="linked") {
         auto* check=new QPushButton("Check link");check->setObjectName("image-check-link");form->addRow(check);
@@ -9887,6 +9904,12 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
         input_session,input_document,input_revision,input_gesture,input_preview] {
         if(!input->isModified()) return;
+        // The explicit Image Fit click supersedes both dimensions; committing
+        // this blur would rebuild away its button or stale its frozen revision.
+        const auto* focus=QApplication::focusWidget();
+        if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
+           focus->property("nect-image-fit-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         input->setModified(false);
         const bool keep_focus=input->hasFocus();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
         const auto frozen_session=host.session_id;

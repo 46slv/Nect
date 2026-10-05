@@ -512,6 +512,9 @@ The Image Assets dialog reuses accepted sources and removes unused assets;
 deleting a placement alone keeps its asset. Reopening starts link status at
 `unchecked` and never fetches external files. Missing/unreadable files leave
 accepted pixels available for editing, export and recovery.
+**Fit width to Artboard** replaces Width and Height using the accepted image's
+aspect ratio in one Undo, including when a dimension field has an unfinished
+draft. Cancelling the button press keeps that draft.
 
 **Library → Folder Library…** registers selected local folders for hierarchical
 browse, search and explicit Refresh. Choose a PNG/JPEG item to Place Linked or
