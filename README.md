@@ -345,6 +345,13 @@ original document, revision and gesture context. Refreshing after another canoni
 edit discards the old numeric draft, preserving the incoming relation and Undo history.
 Return applies one child item edit; an active preview keeps its source and ownership.
 
+Path Follow's Mode, Deform axis, Normalized start and Reverse traversal controls
+are uncommitted until Apply. Selecting
+another object discards those drafts. Deform projects retained child geometry along
+the selected contour using X or Y as the longitudinal source axis; Tangent is a
+rigid-only option. Changing mode or axis preserves child source geometry, Point Edit,
+references, transforms and item membership, with one ordinary Undo per Apply.
+
 Transform Parent chooses a same-Composition object to follow, with Keep artwork
 in place enabled by default. Detach returns to structural inheritance. Structure
 still owns ordering and groups; explicit following replaces its transform to

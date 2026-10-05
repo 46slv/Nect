@@ -4994,7 +4994,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     auto section=[&](const QString& title){auto* box=new QGroupBox(title);auto* form=new QFormLayout(box);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);return form;};
     if(o.kind==Kind::group) {
-        auto* follow_box=new QGroupBox("Rigid Path Follow");follow_box->setObjectName("group-path-follow");
+        auto* follow_box=new QGroupBox("Path Follow");follow_box->setObjectName("group-path-follow");
         auto* follow_form=new QFormLayout(follow_box);follow_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
         const auto composition_id=canvas->active_composition();
         const auto& composition=find_composition(d,composition_id);
@@ -5103,7 +5103,9 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             canvas->cancel_interaction();host.session.apply({GroupPathFollowCommand{ClearGroupPathFollow{id}}},host.session.revision());host.edited();
         });});
         if(existing) {
-            auto* item_note=new QLabel("Child placement stays authored; the relation adds a derived Group-local frame during evaluation.",follow_box);
+            auto* item_note=new QLabel(existing->mode=="deform"
+                ?"Deform bends child geometry along the selected contour. Source geometry remains editable."
+                :"Path Follow places children along the selected contour. Source geometry remains editable.",follow_box);
             item_note->setWordWrap(true);follow_form->addRow(item_note);
             for(const auto& child_id:o.children) {
                 const auto& child=d.objects.at(child_id);

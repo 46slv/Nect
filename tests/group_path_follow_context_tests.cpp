@@ -9,12 +9,15 @@
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QPushButton>
+#include <QPainterPath>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTreeWidget>
+#include <QtMath>
+#include <cmath>
 #include <iostream>
 using namespace nect;
 using namespace nect::desktop;
@@ -23,7 +26,7 @@ const Id contour_a="117a738e-06ad-4df0-b7ad-2c84c5080c2b",contour_b="db17d798-16
 void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 void events(){QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);QTest::qWait(20);}
 template<class T>T* named(QObject& scope,const char* name){auto* p=scope.findChild<T*>(name);check(p,name);return p;}
-bool same(const Session& a,const Session& b){return a.document()==b.document()&&a.preview_document()==b.preview_document()&&encode(a.document())==encode(b.document())&&a.history()==b.history()&&a.revision()==b.revision()&&a.gesture_generation()==b.gesture_generation()&&a.gesture_active()==b.gesture_active();}
+bool same(const Session& a,const Session& b){return a.document()==b.document()&&a.preview_document()==b.preview_document()&&encode(a.document())==encode(b.document())&&a.history()==b.history()&&a.revision()==b.revision()&&a.gesture_generation()==b.gesture_generation()&&a.gesture_active()==b.gesture_active()&&a.can_undo()==b.can_undo()&&a.can_redo()==b.can_redo();}
 Contour line(const Id& id,double y){Contour c;c.id=id;for(auto xy:std::vector<Vec2>{{100,y},{400,y}}){Point p;p.id=id+std::to_string(c.points.size());p.x.literal=xy.x;p.y.literal=xy.y;c.points.push_back(p);}return c;}
 Document fixture(){
     Session s(empty_document("follow-context","comp","art"));
@@ -38,10 +41,10 @@ Document fixture(){
     auto blue=red;blue.id="other-fill";blue.parameters.at("r").literal=0;blue.parameters.at("b").literal=1;d.objects.at("other").stack.push_back(blue);return d;
 }
 void evidence(Window& w,const QString& suffix){const auto path=qEnvironmentVariable("NECT_FOLLOW_CONTEXT_EVIDENCE");if(!path.isEmpty())check(w.grab().save(path+suffix),"Window evidence saved");}
-void select(Window& w){
+void select(Window& w,const Id& target="group"){
     auto* dock=named<QDockWidget>(w,"structure");dock->show();dock->raise();events();auto* tree=dock->findChild<QTreeWidget*>();check(tree,"Structure tree");tree->expandAll();QTreeWidgetItem* row=nullptr;
-    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString()=="group"&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty())row=*it;
-    check(row,"Exact Group row");tree->scrollToItem(row);events();QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(row).center());events();check(w.canvas->selected_object=="group","Exact Group selected");dock=named<QDockWidget>(w,"properties");dock->show();dock->raise();events();
+    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString()==QString::fromStdString(target)&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty())row=*it;
+    check(row,"Exact Structure row");tree->scrollToItem(row);events();QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(row).center());events();check(w.canvas->selected_object==target,"Exact object selected");dock=named<QDockWidget>(w,"properties");dock->show();dock->raise();events();
 }
 void reveal(Window& w,QWidget* c){
     auto* area=named<QScrollArea>(w,"inspector-scroll");check(c->isVisible()&&c->isEnabled(),"Actual enabled Path Follow control");area->verticalScrollBar()->setValue(c->mapTo(area->widget(),QPoint()).y()-area->viewport()->height()/2);events();
@@ -86,8 +89,184 @@ void update_clear(Window& w,Session& expected){
     const auto image=Canvas::render_artboard(w.host.session.document(),"comp","art",1,false);check(image.pixelColor(160,255)==QColor(Qt::red)&&image.pixelColor(140,260).alpha()==0&&image.pixelColor(520,100)==QColor(Qt::blue),"Update moves evaluated painted child and retains other artwork");evidence(w,".updated.png");
     click(w,"group-path-follow-clear");expected.apply({GroupPathFollowCommand{ClearGroupPathFollow{"group"}}},expected.revision());canonical(w,expected);history(w,"Undo");expected.undo(expected.revision());check(same(w.host.session,expected),"Clear Undo restores exact relation/children/source/history");
 }
+Document deform_context_fixture() {
+    auto d=fixture();
+    d.objects.at("child").source->parameters.at("width").literal=40;
+    const Affine group{0,1,-1,0,500,0},child_matrix{1,0,0,1,16,16};
+    for(std::size_t i=0;i<6;++i) {
+        d.objects.at("group").transform[i].literal=group[i];
+        d.objects.at("child").transform[i].literal=child_matrix[i];
+    }
+    // Authored L contour: a 100-unit eastward leg followed by 200 units south.
+    auto& guide=d.objects.at("guide");guide.visible=false;
+    auto& bend=guide.contours.front();bend.points.back().x.literal=200;
+    Point end=bend.points.back();end.id="bend-end";end.y.literal=350;bend.points.push_back(end);
+    auto green=default_operation("second-fill","nect.paint.fill");
+    green.parameters.at("r").literal=0;green.parameters.at("g").literal=1;green.parameters.at("b").literal=0;
+    d.objects.at("second").stack.push_back(green);
+    Session s(d);
+    s.apply({Set{{"child","child-source-top-left","x"},-19.25},
+        Link{{"other","","generator.width"},{{"child","child-source-top-left","x"},-1,0,"copy_local_value"}}},s.revision());
+    GroupPathFollow r;r.id="retained-bend-relation";r.path="guide";r.contour=contour_a;
+    r.start=80.12567891234567;r.normal_offset=-32.37567891234567;
+    r.items={{"child",{4,-3.125,true}},{"second",{100,-30,false}}};
+    s.apply({GroupPathFollowCommand{AttachGroupPathFollow{"group",r}}},s.revision());
+    return s.document();
+}
+void retained_deform(const Document& initial,const Document& actual) {
+    auto expected=initial;expected.objects.at("group").path_follow=actual.objects.at("group").path_follow;
+    check(actual==expected&&encode(actual)==encode(expected),"Only retained relation changes; full child sources/Point Edit/Ref/transforms/paint/order/Artboards preserved");
+    const auto& a=*initial.objects.at("group").path_follow;const auto& b=*actual.objects.at("group").path_follow;
+    check(a.id==b.id&&a.path==b.path&&a.contour==b.contour&&a.start_mode==b.start_mode&&a.start==b.start&&
+        a.normal_offset==b.normal_offset&&a.reversed==b.reversed&&a.items==b.items,
+        "Mode/axis preserve exact relation identity, precise start/offset and complete stable item map");
+}
+struct DeformOraclePoint {Id id;Vec2 source,world,local;};
+std::vector<DeformOraclePoint> deform_oracle(const GroupPathFollow& r,const Id& id) {
+    // No actual evaluation output enters this oracle. Rectangle anchors, local
+    // translation, L-contour distance/normal and inverse Group matrix are explicit.
+    const bool child=id=="child",y=r.deform_axis=="y";
+    const std::vector<Vec2> anchors=child?std::vector<Vec2>{{-19.25,-8},{20,-8},{20,8},{-20,8}}:
+        std::vector<Vec2>{{-10,32},{10,32},{10,48},{-10,48}};
+    const std::vector<std::string> roles={"top-left","top-right","bottom-right","bottom-left"};
+    std::vector<DeformOraclePoint> result;
+    for(std::size_t i=0;i<anchors.size();++i) {
+        auto p=anchors[i];if(child){p.x+=16;p.y+=16;}
+        const auto& item=r.items.at(id);
+        const double distance=(r.start_mode=="normalized"?r.start*300:r.start)+item.distance+(y?p.y:p.x);
+        const double normal=r.normal_offset+item.normal_offset+(y?p.x:p.y);
+        const Vec2 world=r.reversed
+            ?(distance<200?Vec2{200+normal,350-distance}:Vec2{400-distance,150-normal})
+            :(distance<100?Vec2{100+distance,150+normal}:Vec2{200-normal,150+distance-100});
+        result.push_back({(child?"child-source-":"second-source-")+roles[i],anchors[i],world,{world.y,500-world.x}});
+    }
+    return result;
+}
+void deform_pixels(Window& w,const Session& independent,const Document& initial,const QString& suffix) {
+    check(same(w.host.session,independent),"Projection observation remains full Session neutral");
+    retained_deform(initial,w.host.session.document());
+    const auto& d=independent.document();const auto& r=*d.objects.at("group").path_follow;
+    const auto values=evaluate(w.host.session.document());
+    const auto scene=evaluate_scene(w.host.session.document(),"comp",values,evaluate_transforms(w.host.session.document(),values));
+    const auto image=Canvas::render_artboard(w.host.session.document(),"comp","art",1,false);
+    check(image==Canvas::render_artboard(d,"comp","art",1,false),"Full artwork equals independent canonical Session");
+    const auto canvas=w.canvas->grab().toImage();
+    for(const Id id:{"child","second"}) {
+        const auto predicted=deform_oracle(r,id);const auto& actual=scene.deformation_points.at(id);
+        check(actual.size()==predicted.size()&&scene.deformation_owners.at(id)=="group","Projected source point topology and Group owner retained");
+        QPainterPath polygon;polygon.moveTo(predicted.front().world.x,predicted.front().world.y);
+        double cx=0,cy=0;
+        for(std::size_t i=0;i<predicted.size();++i) {
+            const auto& p=predicted[i];
+            const auto near=[&](Vec2 a,Vec2 b){return std::hypot(a.x-b.x,a.y-b.y)<1e-7;};
+            check(actual[i].id==p.id&&near(actual[i].anchor,p.local)&&near(actual[i].incoming,p.local)&&near(actual[i].outgoing,p.local),
+                "Analytical L-contour axis/child affine/inverse Group oracle matches stable anchors and controls");
+            const auto world=map_point(scene.geometry_worlds.at(id),actual[i].anchor);
+            check(near(world,p.world),"Group world consumed exactly once");
+            polygon.lineTo(p.world.x,p.world.y);cx+=p.world.x/4;cy+=p.world.y/4;
+        }
+        polygon.closeSubpath();
+        // The three probes are chosen from our independently predicted polygon,
+        // far from its boundary and source selection overlays.
+        for(const QPointF probe:{QPointF(cx,cy),QPointF(cx+2,cy),QPointF(cx,cy+2)}) {
+            check(polygon.contains(probe),"Analytical polygon contains independent interior pixel");
+            const QColor color=id=="child"?QColor(Qt::red):QColor(Qt::green);
+            check(image.pixelColor(qFloor(probe.x()),qFloor(probe.y()))==color,"Analytical deformed child interior color");
+            const double z=w.canvas->zoom();
+            const QPoint screen(qRound(w.canvas->width()/2.0+(probe.x()-320)*z),qRound(w.canvas->height()/2.0+(probe.y()-240)*z));
+            const auto visible=canvas.pixelColor(qRound(screen.x()*canvas.devicePixelRatio()),qRound(screen.y()*canvas.devicePixelRatio()));
+            check(visible==color,"Actual Canvas independently predicted deformed child interior color");
+        }
+    }
+    check(image.pixelColor(520,100)==QColor(Qt::blue)&&image.pixelColor(20,20).alpha()==0,"Linked other artwork and transparent background retained");
+    const auto prefix=qEnvironmentVariable("NECT_FOLLOW_CONTEXT_EVIDENCE");
+    if(!prefix.isEmpty())check(image.save(prefix+suffix+".artwork.png"),"Deform artwork evidence saved");
+    evidence(w,suffix+".png");check(same(w.host.session,independent),"Geometry/pixels observations preserve full Session");
+}
+void deform_context(const QString& scratch) {
+    const auto initial=deform_context_fixture();Window w(scratch+"/deform-recovery");
+    w.host.session=Session(initial);w.host.session_id="deform-context-session";w.host.edited();w.show();events();w.canvas->fit_artboard();events();
+    Session expected=w.host.session;select(w);check(same(w.host.session,expected),"Retained Group selection is Session neutral");
+    const int canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
+    check(!named<QComboBox>(w,"group-path-deform-axis")->isEnabled(),"Rigid relation disables axis editing");
+    choose(w,"group-path-follow-mode","deform",false);check(same(w.host.session,expected),"Deform mode draft is Session neutral");
+    choose(w,"group-path-deform-axis","y",false);check(same(w.host.session,expected),"Y-axis draft is Session neutral");
+    select(w,"other");select(w);check(same(w.host.session,expected),"Reselection discards uncommitted mode/axis without authored or History change");
+    check(named<QComboBox>(w,"group-path-follow-mode")->currentData().toString()=="rigid"&&
+        named<QComboBox>(w,"group-path-deform-axis")->currentData().toString()=="x"&&
+        !named<QComboBox>(w,"group-path-deform-axis")->isEnabled(),"Discard restores retained mode, axis and eligibility");
+    auto apply_axis=[&](Window& window,Session& oracle,const char* axis) {
+        choose(window,"group-path-follow-mode","deform",false);
+        choose(window,"group-path-deform-axis",axis,false);
+        check(same(window.host.session,oracle),"Actual mode/axis input is fully uncommitted before Apply");
+        auto r=*oracle.document().objects.at("group").path_follow;r.mode="deform";r.deform_axis=axis;
+        click(window,"group-path-follow-apply");
+        oracle.apply({GroupPathFollowCommand{UpdateGroupPathFollow{"group",r}}},oracle.revision());canonical(window,oracle);
+        check(named<QComboBox>(window,"group-path-follow-mode")->currentData().toString()=="deform"&&
+            named<QComboBox>(window,"group-path-deform-axis")->currentData().toString()==axis&&
+            !named<QCheckBox>(window,"group-path-follow-tangent-second")->isEnabled(),"Applied deform axis/disabled tangent reads retained relation");
+    };
+    apply_axis(w,expected,"x");deform_pixels(w,expected,initial,".deform-x");
+    apply_axis(w,expected,"y");deform_pixels(w,expected,initial,".deform-y");
+    history(w,"Undo");expected.undo(expected.revision());check(same(w.host.session,expected),"Axis Undo restores full source, relation and History");
+    deform_pixels(w,expected,initial,".deform-x-undo");
+    history(w,"Redo");expected.redo(expected.revision());check(same(w.host.session,expected),"Axis Redo full equality");
+    check(w.canvas->width()==canvas_width&&named<QDockWidget>(w,"properties")->width()==dock_width,"Deform workflow preserves standard dock and Canvas widths");
+    const auto file=scratch+"/retained-deform.nect";w.host.save(file);check(same(w.host.session,expected),"Native save is fully Session neutral");
+    w.host.changed={};w.hide();Window cold(scratch+"/deform-cold");cold.host.open(file);cold.show();events();cold.canvas->fit_artboard();events();
+    check(cold.host.session.document()==expected.document()&&encode(cold.host.session.document())==encode(expected.document()),"Cold complete retained source/Point Edit/Ref/paint/transforms/relation/items/Artboard equality");
+    Session reopened=cold.host.session;select(cold);
+    check(same(cold.host.session,reopened)&&named<QComboBox>(cold,"group-path-follow-mode")->currentData().toString()=="deform"&&
+        named<QComboBox>(cold,"group-path-deform-axis")->currentData().toString()=="y"&&named<QComboBox>(cold,"group-path-deform-axis")->isEnabled(),
+        "Cold contextual mode/axis/eligibility and navigation neutral");
+    deform_pixels(cold,reopened,initial,".deform-cold-y");
+    apply_axis(cold,reopened,"x");deform_pixels(cold,reopened,initial,".deform-cold-x");
+    cold.host.changed={};cold.hide();
+}
+void deform_traversal_context(const QString& scratch) {
+    auto initial=deform_context_fixture();
+    initial.objects.at("group").path_follow->mode="deform";
+    initial.objects.at("group").path_follow->deform_axis="y";
+    Window w(scratch+"/traversal-recovery");w.host.session=Session(initial);
+    w.host.session_id="deform-traversal-context-session";w.host.edited();w.show();events();w.canvas->fit_artboard();events();
+    Session expected=w.host.session;select(w);
+    const int canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
+    check(same(w.host.session,expected),"Traversal selection fully Session neutral");
+    choose(w,"group-path-follow-start-mode","normalized",false);
+    number(w,"group-path-follow-start","0.3");
+    check(same(w.host.session,expected),"Normalized start draft/Enter preserves full retained Session/History");
+    auto relation=*expected.document().objects.at("group").path_follow;
+    relation.start_mode="normalized";relation.start=0.3;
+    click(w,"group-path-follow-apply");
+    expected.apply({GroupPathFollowCommand{UpdateGroupPathFollow{"group",relation}}},expected.revision());canonical(w,expected);
+    auto protected_source=initial;protected_source.objects.at("group").path_follow=relation;
+    deform_pixels(w,expected,protected_source,".normalized-y");
+    auto* reverse=named<QCheckBox>(w,"group-path-follow-reversed");reveal(w,reverse);
+    QTest::mouseClick(reverse,Qt::LeftButton,Qt::NoModifier,QPoint(8,reverse->height()/2));events();
+    check(reverse->isChecked()&&same(w.host.session,expected),"Reverse traversal draft changes only local controls");
+    relation.reversed=true;click(w,"group-path-follow-apply");
+    expected.apply({GroupPathFollowCommand{UpdateGroupPathFollow{"group",relation}}},expected.revision());canonical(w,expected);
+    protected_source.objects.at("group").path_follow=relation;
+    deform_pixels(w,expected,protected_source,".normalized-reversed-y");
+    check(w.canvas->width()==canvas_width&&named<QDockWidget>(w,"properties")->width()==dock_width,"Traversal preserves standard pane/Canvas widths");
+    const auto file=scratch+"/retained-deform-traversal.nect";w.host.save(file);
+    check(same(w.host.session,expected),"Traversal native save fully Session neutral");
+    w.host.changed={};w.hide();
+    Window cold(scratch+"/traversal-cold");cold.host.open(file);cold.show();events();cold.canvas->fit_artboard();events();select(cold);
+    check(cold.host.session.document()==expected.document()&&encode(cold.host.session.document())==encode(expected.document()),"Cold normalized/reversed source, relation, items, Ref, Point Edit and Artboards equality");
+    const Session reopened=cold.host.session;
+    check(named<QComboBox>(cold,"group-path-follow-start-mode")->currentData().toString()=="normalized"&&
+        named<QDoubleSpinBox>(cold,"group-path-follow-start")->value()==0.3&&
+        named<QCheckBox>(cold,"group-path-follow-reversed")->isChecked()&&
+        named<QComboBox>(cold,"group-path-deform-axis")->currentData().toString()=="y",
+        "Cold retained normalized start, reverse and axis controls read back");
+    deform_pixels(cold,reopened,protected_source,".traversal-cold");
+    cold.host.changed={};cold.hide();
+}
 }
 int main(int argc,char** argv){QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());QTemporaryDir scratch;QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());app.setOrganizationName("NectTest");app.setApplicationName("FollowContext");
+    if(argc>1&&std::string(argv[1])=="--deform-traversal-context")try{deform_traversal_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Group Deform normalized/reversed traversal, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
+    if(argc>1&&std::string(argv[1])=="--deform-context")try{deform_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Group Deform mode/axis, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     try{Window w(scratch.filePath("recovery"));w.host.session=Session(fixture());w.host.session_id="follow-context-session";w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;select(w);check(same(w.host.session,expected),"Selection Session neutral");const auto canvas=w.canvas->width(),dock=named<QDockWidget>(w,"properties")->width();attach(w,expected,true);child(w,expected);update_clear(w,expected);check(w.canvas->width()==canvas&&named<QDockWidget>(w,"properties")->width()==dock,"Standard dock/Canvas widths preserved");
         const auto saved=expected.document();const auto file=scratch.filePath("follow.nect");w.host.save(file);check(same(w.host.session,expected),"Native save preserves complete Session");w.host.changed={};w.hide();Window cold(scratch.filePath("cold"));cold.host.open(file);cold.show();events();cold.canvas->fit_artboard();events();select(cold);check(cold.host.session.document()==saved&&encode(cold.host.session.document())==encode(saved),"Fresh native Window retains full authored state/IDs/stacks/Artboards");
         auto* cold_start=named<QDoubleSpinBox>(cold,"group-path-follow-start");reveal(cold,cold_start);check(cold_start->value()==60&&named<QDoubleSpinBox>(cold,"group-path-follow-normal-offset")->value()==5&&named<QComboBox>(cold,"group-path-follow-contour")->currentData().toString()==QString::fromStdString(contour_b),"Fresh Window controls read retained source/contour/start/offset");const auto cold_pixels=Canvas::render_artboard(cold.host.session.document(),"comp","art",1,false);check(cold_pixels.pixelColor(160,255)==QColor(Qt::red)&&cold_pixels.pixelColor(520,100)==QColor(Qt::blue),"Fresh native Window paints retained derived placement and unrelated artwork");evidence(cold,".cold-native.png");
