@@ -33,8 +33,11 @@ delay, a 34.75 ms dense-scene point-release measurement, and bounded output subs
 `CURRENT_GOAL.md` records the active daily-output Mission and continuous-development authority.
 
 Circle, Rectangle, Polygon and Star retain their generators after direct point edits, with
-visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
-Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
+visible Point Edit overrides/bypass and explicit Convert to Path.
+Conversion review follows ordinary property completion; Cancel keeps that edit,
+and explicit confirmation is a separate undoable conversion. A review refuses a
+changed Session, document, revision or gesture context without touching incoming state.
+Ordered local Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
 0.13 saves Linked/Embedded PNG/JPEG assets and editable Image placements, retained Offset Paths, geometry masks, common compositing, expression source, procedural state, editable linear/radial gradients, ordered Artboards
 with parent-size inheritance, editable Text, named colors, retained Polygon/Star,
 authored Anchors and explicit Transform Parents. It migrates 0.1–0.12 without

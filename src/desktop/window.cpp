@@ -10276,7 +10276,9 @@ void Window::convert_to_path() {
     const auto& object=found->second;
     const auto blockers=conversion_blockers(document,object.id);
     const auto frozen_session=host.session_id;
+    const auto frozen_document=document.id;
     const auto revision=host.session.revision();
+    const auto generation=host.session.gesture_generation();
     auto* dialog=new QDialog(this);
     dialog->setObjectName("convert-to-path-dialog");
     dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -10320,10 +10322,12 @@ void Window::convert_to_path() {
     buttons->button(QDialogButtonBox::Cancel)->setDefault(true);
     layout->addWidget(buttons);
     connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
-    connect(buttons,&QDialogButtonBox::accepted,dialog,[this,dialog,error,id=object.id,frozen_session,revision] {
+    connect(buttons,&QDialogButtonBox::accepted,dialog,[this,dialog,error,id=object.id,frozen_session,frozen_document,revision,generation] {
         try {
-            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The conversion plan belongs to another document");
-            if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","The document changed. Reopen Convert to Path to review the current shape and links.");
+            if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+                throw Error("SESSION_CONFLICT","The conversion plan belongs to another document");
+            if(host.session.revision()!=revision||host.session.gesture_generation()!=generation||host.session.gesture_active())
+                throw Error("REVISION_CONFLICT","The document changed. Reopen Convert to Path to review the current shape and links.");
             host.session.apply({ConvertToPath{id}},revision);
             host.edited();dialog->accept();
         } catch(const Error& exception) {

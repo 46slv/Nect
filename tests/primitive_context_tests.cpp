@@ -3,10 +3,15 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDockWidget>
 #include <QJsonDocument>
 #include <QLineEdit>
+#include <QLabel>
+#include <QPointer>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
@@ -161,6 +166,70 @@ void preserved_corrections(const Session& s) {
         s.document().objects.at("other").source->parameters.at("width").binding->source==Ref{"star","star-source-outer-1-5","x"},
         "Generator and linked angular point identities retained");
 }
+void conversion_context(const QString& scratch,const QString& mode) {
+    const auto base_prefix=qEnvironmentVariable("NECT_PRIMITIVE_CONTEXT_EVIDENCE");
+    if(!base_prefix.isEmpty())qputenv("NECT_PRIMITIVE_CONTEXT_EVIDENCE",(base_prefix+"."+mode).toUtf8());
+    Window w(scratch+"/conversion-recovery");w.host.session=Session(fixture());w.host.session_id="primitive-conversion-session";
+    w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;
+    select(w,"star");
+    auto* open=named<QPushButton>(w,"convert-to-path-button");reveal(w,open);
+    auto* radius=field(w,"star","generator.outer_radius");reveal(w,radius);
+    QTest::mouseClick(radius,Qt::LeftButton);QTest::keyClick(radius,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(radius,"70");
+    check(same(w.host.session,expected),"Conversion pending radius is fully Session neutral");
+    reveal(w,open);QTest::mouseClick(open,Qt::LeftButton);events();
+    QPointer<QDialog> dialog=named<QDialog>(w,"convert-to-path-dialog");
+    auto* confirm=named<QPushButton>(*dialog,"confirm-convert-to-path");
+    check(dialog->windowModality()==Qt::WindowModal&&confirm->isEnabled(),"Actual first click opens nonblocking explicit conversion review");
+    expected.apply({EditProperties{{{"star","","generator.outer_radius"}},70,false}},expected.revision());
+    std::cout<<"Conversion review actual revision="<<w.host.session.revision()<<" expected="<<expected.revision()<<std::endl;
+    evidence(w,".conversion-review");
+    const auto prefix=qEnvironmentVariable("NECT_PRIMITIVE_CONTEXT_EVIDENCE");
+    if(!prefix.isEmpty())check(dialog->grab().save(prefix+".conversion-dialog.png"),"Actual conversion dialog saved");
+    check(same(w.host.session,expected),"Review opening completes only canonical ordinary radius edit");
+    if(mode=="cancel") {
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();check(buttons,"Conversion review cancel");
+        QTest::mouseClick(buttons->button(QDialogButtonBox::Cancel),Qt::LeftButton);events();
+        check(same(w.host.session,expected),"Conversion cancel keeps only the ordinary scalar command");
+        canonical(w,expected);preserved_corrections(expected);paint(w,expected,".conversion-cancel");
+    } else if(mode=="accept") {
+        const auto topology=path_contours(expected.document().objects.at("star"));
+        QTest::mouseClick(confirm,Qt::LeftButton);events();expected.apply({ConvertToPath{"star"}},expected.revision());
+        evidence(w,".conversion-after");
+        check(same(w.host.session,expected),"Explicit conversion equals independent complete canonical Session");
+        const auto& star=expected.document().objects.at("star");
+        check(!star.source&&!star.point_edit&&star.contours.front().id==topology.front().id,"Conversion removes retained source/correction and preserves contour identity");
+        check(star.contours.front().points.size()==topology.front().points.size(),"Conversion preserves topology size");
+        for(std::size_t i=0;i<topology.front().points.size();++i)
+            check(star.contours.front().points[i].id==topology.front().points[i].id,"Conversion preserves each stable generated point ID");
+        check(evaluate(expected.document()).at({"star","star-source-outer-1-5","x"})==245&&
+            expected.document().objects.at("other").source->parameters.at("width").binding->source==Ref{"star","star-source-outer-1-5","x"},"Absolute correction and incoming stable point Ref survive conversion");
+        canonical(w,expected);paint(w,expected,".conversion-accepted");
+        const auto native=scratch+"/converted.nect";w.host.save(native);check(same(w.host.session,expected),"Converted native save Session neutral");
+        w.host.changed={};w.hide();Window cold(scratch+"/conversion-cold");cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();
+        check(cold.host.session.document()==expected.document()&&encode(cold.host.session.document())==encode(expected.document()),"Fresh native complete converted source/stable refs/stack/other Artboards readback");
+        paint(cold,cold.host.session,".conversion-cold");cold.host.changed={};cold.hide();w.show();events();
+        history(w,"Undo");expected.undo(expected.revision());check(same(w.host.session,expected),"Separate conversion Undo restores complete scalar-edited source and Point Edit");
+        preserved_corrections(expected);history(w,"Undo");expected.undo(expected.revision());check(same(w.host.session,expected)&&expected.document()==fixture(),"Separate scalar Undo restores original complete retained fixture");
+    } else {
+        if(mode=="session") {w.host.session_id="incoming-conversion-session";}
+        else if(mode=="document") {auto incoming=expected.document();incoming.id="incoming-conversion-document";w.host.session=Session(incoming);expected=Session(incoming);
+            w.host.session.apply({EditProperties{{{"polygon","","generator.radius"}},65,false}},0);expected.apply({EditProperties{{{"polygon","","generator.radius"}},65,false}},0);}
+        else if(mode=="generation") {w.host.session.begin_gesture(w.host.session.revision());w.host.session.cancel_gesture();expected.begin_gesture(expected.revision());expected.cancel_gesture();}
+        else if(mode=="revision") {w.host.session.apply({EditProperties{{{"polygon","","generator.radius"}},65,false}},w.host.session.revision());expected.apply({EditProperties{{{"polygon","","generator.radius"}},65,false}},expected.revision());}
+        else if(mode=="preview") {w.host.session.begin_gesture(w.host.session.revision());expected.begin_gesture(expected.revision());
+            w.host.session.update_gesture({EditProperties{{{"polygon","","generator.radius"}},65,false}});expected.update_gesture({EditProperties{{{"polygon","","generator.radius"}},65,false}});}
+        else throw std::runtime_error("Unknown conversion incoming mode");
+        check(same(w.host.session,expected),"Incoming state independently established before confirmation");
+        QTest::mouseClick(confirm,Qt::LeftButton);events();evidence(w,".conversion-incoming-after");
+        if(!prefix.isEmpty()&&dialog&&dialog->isVisible())check(dialog->grab().save(prefix+".conversion-refusal.png"),"Incoming conversion response saved");
+        check(same(w.host.session,expected),"Stale conversion confirmation preserves incoming complete Session");
+        check(dialog&&dialog->isVisible(),"Refused conversion keeps the review available to cancel");
+        auto* error=named<QLabel>(*dialog,"conversion-error");check(error->text().contains(mode=="document"||mode=="session"?"SESSION_CONFLICT":"REVISION_CONFLICT"),"Incoming conversion reports explicit context conflict");
+        dialog->reject();events();
+        check(same(w.host.session,expected),"Closing stale review preserves incoming Session including active preview");
+    }
+    w.host.changed={};w.hide();
+}
 void point_context(const QString& scratch) {
     Window w(scratch+"/point-recovery");w.host.session=Session(fixture());w.host.session_id="primitive-point-context-session";
     w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;
@@ -204,6 +273,10 @@ int main(int argc,char** argv) {
     app.setOrganizationName("NectTest");app.setApplicationName("PrimitiveContext");
     try {
         check(scratch.isValid(),"Owned scratch");
+        for(const auto& mode:{"cancel","accept","session","document","revision","generation","preview"})if(app.arguments().contains(QString("--conversion-")+mode)) {
+            conversion_context(scratch.path(),mode);
+            std::cout<<"PASS "<<checks<<" retained conversion contextual review; physical/subjective input NOT_RUN\n";return 0;
+        }
         if(app.arguments().contains("--point-context")) {
             point_context(scratch.path());
             std::cout<<"PASS "<<checks<<" standard-pane selected-point contextual authoring; physical/subjective input NOT_RUN\n";return 0;
