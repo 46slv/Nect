@@ -313,6 +313,11 @@ Refreshing after another canonical edit discards the old draft and shows the inc
 Position without changing its source or Undo history. An active preview is preserved.
 Absolute values and `+=` / `-=` adjustments remain in the effective parent's coordinates.
 
+Group Path Follow child Distance and Normal offset drafts also belong to their
+original document, revision and gesture context. Refreshing after another canonical
+edit discards the old numeric draft, preserving the incoming relation and Undo history.
+Return applies one child item edit; an active preview keeps its source and ownership.
+
 Transform Parent chooses a same-Composition object to follow, with Keep artwork
 in place enabled by default. Detach returns to structural inheritance. Structure
 still owns ordering and groups; explicit following replaces its transform to

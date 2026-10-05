@@ -4938,10 +4938,20 @@ void Window::rebuild_inspector(bool use_canvas_values) {
                     });
                     if(!applied){const QSignalBlocker blocker(enabled);enabled->setChecked(active);}
                 });
-                const auto update_item=[this,id=o.id,child_id,session_id,enabled,distance,offset,tangent](int changed) {
+                const auto item_document=d.id;
+                const auto item_revision=host.session.revision(),item_gesture=host.session.gesture_generation();
+                const auto item_preview=host.session.gesture_active();
+                const auto update_item=[this,id=o.id,child_id,session_id,enabled,distance,offset,tangent,item_document,item_revision,item_gesture,item_preview](int changed) {
                     if(!enabled->isChecked())return;
                     perform([&] {
                         if(host.session_id!=session_id)throw Error("SESSION_CONFLICT","Group Path Follow belongs to another document");
+                        if(changed<2) {
+                            if(host.session.document().id!=item_document)
+                                throw Error("SESSION_CONFLICT","Group Path Follow child draft belongs to another document");
+                            if(host.session.revision()!=item_revision||host.session.gesture_generation()!=item_gesture)
+                                throw Error("REVISION_CONFLICT","Group Path Follow child changed; edit it again");
+                            if(item_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                        }
                         const auto& relation=host.session.document().objects.at(id).path_follow;
                         if(!relation)throw Error("MISSING_GROUP_PATH_FOLLOW","Group Path Follow was cleared");
                         const auto current=relation->items.find(child_id);

@@ -63,6 +63,122 @@ void history(Window& w,const QString& label){
     for(auto* action:w.findChildren<QAction*>())if(action->text()==label){action->trigger();events();return;}
     throw std::runtime_error("Existing History action missing");
 }
+void group_follow_context(QTemporaryDir& scratch,QSettings& preferences){
+    Window w(scratch.filePath("follow-recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);
+    w.setAttribute(Qt::WA_DontShowOnScreen);w.resize(1000,650);w.show();events();
+    auto document=fixture();document.objects.at("rectangle").anchor[0].literal=240;
+    document.objects.at("rectangle").anchor[1].literal=200;
+    // Deform samples the retained geometry's full local extent along the contour.
+    document.objects.at("path").contours.front().points.front().x.literal=0;
+    document.objects.at("path").contours.front().points.back().x.literal=1000;
+    document.objects.at("path").contours.front().points.back().y.literal=280;
+    Session setup(document);
+    setup.apply({GroupContiguous{"composition",{}, {"rectangle","text"},"group","Retained followers"}},setup.revision());
+    GroupPathFollow relation;relation.id="retained-relation";relation.path="path";relation.contour="kept-contour";
+    relation.items={{"rectangle",{5,2,true}},{"text",{15,-3,false}}};
+    setup.apply({GroupPathFollowCommand{AttachGroupPathFollow{"group",relation}}},setup.revision());
+    auto& s=w.host.session;s=Session(setup.document());w.host.edited();w.canvas->set_selection("group");events();
+    QApplication::setActiveWindow(&w);events();
+    const auto field=[&](const char* name){
+        for(auto* input:w.findChildren<QDoubleSpinBox*>(name))if(input->isVisible())return input;
+        throw std::runtime_error("Visible Group Path Follow child field missing");
+    };
+    const auto draft=[&](const char* name,const char* text){
+        QPointer<QDoubleSpinBox> input=field(name);auto* scroll=w.findChild<QScrollArea*>("inspector-scroll");
+        check(scroll!=nullptr,"Production Group Path Follow Inspector scroll exists");scroll->ensureWidgetVisible(input);events();
+        check(input&&reachable(input)&&input->isEnabled(),"Actual child numeric field is enabled and fully reachable");
+        input->setFocus();events();check(input&&input->hasFocus(),"Actual child numeric field owns focus");
+        input->selectAll();QTest::keyClicks(input,text);events();
+        auto* editor=input->findChild<QLineEdit*>();
+        check(input&&input->hasFocus()&&editor&&editor->text()==text,
+            "Actual focused child field receives exact unfinished keyboard draft");return input;
+    };
+    const Snapshot initial(s);const auto selection=w.canvas->selections();const auto session_id=w.host.session_id;
+    auto old=draft("group-path-follow-distance-rectangle","25");initial.unchanged(s);
+    auto item=relation.items.at("rectangle");item.distance=35;
+    s.apply({GroupPathFollowCommand{SetGroupPathFollowItem{"group","rectangle",item}}},s.revision());const Snapshot incoming(s);
+    check(old&&old->hasFocus()&&old->findChild<QLineEdit*>()->text()=="25",
+        "External canonical item edit arrives while the old numeric draft is focused");
+    w.host.edited();events();
+    std::cout<<"external Group child refresh distance="<<s.document().objects.at("group").path_follow->items.at("rectangle").distance
+        <<" revision="<<s.revision()<<" expected="<<incoming.revision<<std::endl;
+    incoming.unchanged(s);
+    check(w.host.session_id==session_id&&w.canvas->selections()==selection&&field("group-path-follow-distance-rectangle")->value()==35,
+        "Replacement child Inspector displays external value and retains Session/selection");
+    history(w,"Undo");check(s.document()==initial.document&&encode(s.document())==initial.native,
+        "External child edit Undo restores complete original relation/source");
+    history(w,"Redo");check(s.document()==incoming.document&&encode(s.document())==incoming.native,
+        "External child edit Redo restores complete incoming relation/source");
+    const Snapshot before_offset(s);auto old_offset=draft("group-path-follow-item-offset-rectangle","9");before_offset.unchanged(s);
+    item.normal_offset=6;
+    s.apply({GroupPathFollowCommand{SetGroupPathFollowItem{"group","rectangle",item}}},s.revision());const Snapshot incoming_offset(s);
+    check(old_offset&&old_offset->hasFocus()&&old_offset->findChild<QLineEdit*>()->text()=="9",
+        "External offset arrives while distinct unfinished numeric draft is focused");
+    w.host.edited();events();incoming_offset.unchanged(s);
+    check(field("group-path-follow-item-offset-rectangle")->value()==6,"Replacement child offset shows external canonical value");
+    const auto commit=[&](const char* name,const char* text,bool distance,double value){
+        const Snapshot before(s);auto input=draft(name,text);before.unchanged(s);
+        auto expected=before.document.objects.at("group").path_follow->items.at("rectangle");
+        if(distance)expected.distance=value;else expected.normal_offset=value;
+        Session oracle(before.document);oracle.apply({GroupPathFollowCommand{SetGroupPathFollowItem{"group","rectangle",expected}}},oracle.revision());
+        QTest::keyClick(input,Qt::Key_Return);events();
+        check(s.document()==oracle.document()&&s.preview_document()==oracle.document()&&encode(s.document())==encode(oracle.document())&&
+            s.revision()==before.revision+1&&s.history().states.size()==before.history.states.size()+1,
+            "Child numeric Return commits exactly one complete canonical item transaction");
+        const auto& after=s.document();auto group=after.objects.at("group");group.path_follow=before.document.objects.at("group").path_follow;
+        auto untouched=*after.objects.at("group").path_follow;
+        untouched.items.at("rectangle")=before.document.objects.at("group").path_follow->items.at("rectangle");
+        check(group==before.document.objects.at("group")&&after.objects.at("rectangle")==before.document.objects.at("rectangle")&&
+            after.objects.at("text")==before.document.objects.at("text")&&after.objects.at("path")==before.document.objects.at("path")&&
+            after.objects.at("unrelated")==before.document.objects.at("unrelated")&&
+            after.objects.at("group").path_follow->id=="retained-relation"&&
+            untouched==*before.document.objects.at("group").path_follow,
+            "Child numeric edit retains hierarchy/relation identity/Anchor/geometry/Text/source Path and every unrelated item");
+        const Snapshot applied(s);history(w,"Undo");check(s.document()==before.document&&encode(s.document())==before.native,
+            "Child numeric Undo restores complete previous source");history(w,"Redo");
+        check(s.document()==applied.document&&encode(s.document())==applied.native,"Child numeric Redo restores complete canonical source");
+    };
+    commit("group-path-follow-distance-rectangle","40",true,40);
+    commit("group-path-follow-item-offset-rectangle","-4",false,-4);
+    // The changed numeric branches are shared by rigid placement and retained deformation.
+    auto deform=*s.document().objects.at("group").path_follow;deform.items.erase("text");deform.mode="deform";
+    s.apply({GroupPathFollowCommand{UpdateGroupPathFollow{"group",deform}}},s.revision());w.host.edited();events();
+    const Snapshot before_deform(s);auto old_deform=draft("group-path-follow-distance-rectangle","45");before_deform.unchanged(s);
+    auto deform_item=deform.items.at("rectangle");deform_item.distance=30;
+    s.apply({GroupPathFollowCommand{SetGroupPathFollowItem{"group","rectangle",deform_item}}},s.revision());const Snapshot incoming_deform(s);
+    check(old_deform&&old_deform->hasFocus(),"Retained Deform draft remains focused before external edit refresh");
+    w.host.edited();events();incoming_deform.unchanged(s);
+    check(s.document().objects.at("group").path_follow->mode=="deform","Child numeric refresh retains Deform mode");
+    commit("group-path-follow-item-offset-rectangle","7",false,7);
+    const auto native=scratch.filePath("follow.nect");const Snapshot saved(s);w.host.save(native);events();saved.unchanged(s);
+    w.host.open(native);events();check(s.document()==saved.document&&s.preview_document()==saved.document&&encode(s.document())==saved.native&&
+        s.revision()==0&&s.history().states.size()==1,"Same Window native reopen retains complete relation/children/Anchor/source");
+    const Snapshot before_gesture(s);auto gesture_draft=draft("group-path-follow-distance-rectangle","50");before_gesture.unchanged(s);
+    auto preview_item=s.document().objects.at("group").path_follow->items.at("rectangle");preview_item.distance=20;
+    s.begin_gesture(s.revision());s.update_gesture({GroupPathFollowCommand{SetGroupPathFollowItem{"group","rectangle",preview_item}}});
+    const auto preview=s.preview_document();const auto generation=s.gesture_generation();const auto gesture_history=s.history();
+    check(gesture_draft&&gesture_draft->hasFocus()&&preview!=s.document(),"Distinct external item preview begins while old draft is focused");
+    w.host.edited();events();
+    const auto preview_unchanged=[&]{
+        check(s.document()==before_gesture.document&&encode(s.document())==before_gesture.native&&s.preview_document()==preview&&
+            s.revision()==before_gesture.revision&&s.history()==gesture_history&&s.gesture_generation()==generation&&s.gesture_active(),
+            "Child numeric input preserves complete external preview/source/history/gesture ownership");
+    };
+    preview_unchanged();auto active_draft=draft("group-path-follow-item-offset-rectangle","12");
+    QTest::keyClick(active_draft,Qt::Key_Return);events();preview_unchanged();
+    s.cancel_gesture();
+    check(s.document()==saved.document&&s.preview_document()==saved.document&&s.revision()==before_gesture.revision,
+        "Canonical preview cancellation itself retains complete native-restored source");
+    std::cout<<"cancel before child refresh offset="<<s.document().objects.at("group").path_follow->items.at("rectangle").normal_offset
+        <<" revision="<<s.revision()<<" generation="<<s.gesture_generation()<<std::endl;
+    w.host.edited();events();
+    std::cout<<"cancel after child refresh offset="<<s.document().objects.at("group").path_follow->items.at("rectangle").normal_offset
+        <<" revision="<<s.revision()<<" expected="<<before_gesture.revision<<std::endl;
+    check(s.document()==saved.document&&s.preview_document()==saved.document,"Owned preview cancellation retains complete native-restored source");
+    commit("group-path-follow-distance-rectangle","32",true,32);
+    check(preferences.value("unrelated")=="preserved"&&preferences.value("workspace/tools/textCreationDirection")=="vertical",
+        "Group numeric editing/native paths retain unrelated workspace preferences");
+}
 void position_context(QTemporaryDir& scratch,QSettings& preferences){
     Window w(scratch.filePath("position-recovery"),std::make_unique<FolderLibrary>(preferences),&preferences);
     w.setAttribute(Qt::WA_DontShowOnScreen);w.resize(1000,650);w.show();events();
@@ -243,6 +359,8 @@ void run(QTemporaryDir& scratch,QSettings& preferences){
 int main(int argc,char** argv){QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");QSettings preferences(scratch.filePath("preferences.ini"),QSettings::IniFormat);
         preferences.setValue("unrelated","preserved");preferences.setValue("workspace/tools/textCreationDirection","vertical");
+        if(app.arguments().contains("--group-follow-context")){group_follow_context(scratch,preferences);
+            std::cout<<"PASS "<<checks<<" actual Window Group Path Follow child context checks; physical OS input NOT_RUN\n";return 0;}
         if(app.arguments().contains("--position-context")){position_context(scratch,preferences);
             std::cout<<"PASS "<<checks<<" actual Window Position context checks; physical OS input NOT_RUN\n";return 0;}
         run(scratch,preferences);
