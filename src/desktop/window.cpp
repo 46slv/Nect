@@ -5888,7 +5888,8 @@ void Window::show_assets() {
     auto* list=new QListWidget;list->setObjectName("image-assets-list");layout->addWidget(list);
     auto* buttons=new QHBoxLayout;layout->addLayout(buttons);auto* check=new QPushButton("Check links"),*place=new QPushButton("Place selected"),*remove=new QPushButton("Delete unused"),*close=new QPushButton("Close");
     check->setObjectName("assets-check");place->setObjectName("assets-place");remove->setObjectName("assets-delete");buttons->addWidget(check);buttons->addWidget(place);buttons->addWidget(remove);buttons->addStretch();buttons->addWidget(close);
-    const auto identity=host.session_id;auto revision=host.session.revision();
+    const auto identity=host.session_id;const auto document_id=host.session.document().id;
+    const auto generation=host.session.gesture_generation();auto revision=host.session.revision();
     const auto refresh=[&] {
         const auto selected=list->currentItem()?list->currentItem()->data(Qt::UserRole).toString():QString{};list->clear();
         for(const auto& [id,asset]:host.session.document().raster_assets) {
@@ -5898,7 +5899,13 @@ void Window::show_assets() {
         }
         if(!list->currentItem()&&list->count())list->setCurrentRow(0);revision=host.session.revision();
     };
-    const auto guard=[&]{if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Asset list belongs to another document");if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Close and reopen Image Assets to refresh changes");};
+    const auto guard=[&]{
+        if(host.session_id!=identity||host.session.document().id!=document_id)
+            throw Error("SESSION_CONFLICT","Asset list belongs to another document");
+        if(host.session.revision()!=revision||host.session.gesture_generation()!=generation)
+            throw Error("REVISION_CONFLICT","Close and reopen Image Assets to refresh changes");
+        if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+    };
     connect(check,&QPushButton::clicked,&dialog,[&]{perform([&]{guard();for(const auto& [id,asset]:host.session.document().raster_assets){(void)asset;host.check_asset(id);}refresh();});});
     connect(place,&QPushButton::clicked,&dialog,[&]{perform([&]{guard();if(!list->currentItem())return;
         const auto asset_id=list->currentItem()->data(Qt::UserRole).toString().toStdString();const auto& asset=host.session.document().raster_assets.at(asset_id);

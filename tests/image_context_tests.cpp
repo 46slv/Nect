@@ -10,11 +10,13 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPushButton>
 #include <QPointer>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
+#include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
@@ -84,6 +86,69 @@ void draft_fit(const QString& scratch) {
         "Cold source controls read canonical fitted dimensions");painted(cold,reopened,QColor(200,100,40),".draft-fit-cold");cold.host.changed={};cold.hide();
 }
 bool same_asset_session(const Session& a,const Session& b){return same(a,b)&&a.can_undo()==b.can_undo()&&a.can_redo()==b.can_redo();}
+void assets_modal(const QString& scratch,const std::string& scenario) {
+    const auto path=scratch+"/assets-reference.png";const auto original=png(200,100,40);write(path,original);
+    const auto initial=fixture(path,original);Window w(scratch+"/assets-recovery");w.host.session=Session(initial);
+    w.host.session_id="assets-modal-session";w.host.edited();w.show();events();w.canvas->fit_artboard();events();select(w);
+    Session expected(initial);QPushButton* button=nullptr;
+    if(scenario=="place"){w.canvas->set_active_artboard("comp","other-art",false);events();select(w);check(w.canvas->active_artboard()=="other-art","Place starts on the exact nonzero-origin Artboard");}
+    for(auto* b:w.findChildren<QPushButton*>())if(b->isVisible()&&b->text()=="Image Assets…")button=b;
+    check(button,"Exact owned Properties Image Assets button");reveal(w,button);
+    auto* width=field(w,"image.width");reveal(w,width);
+    QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"160");
+    check(width->hasFocus()&&width->isModified()&&same_asset_session(w.host.session,expected),"Assets pending Width full Session neutral");
+    // Reach the existing library using only the pane's vertical scroll; retain focus and draft.
+    const auto suffix=".assets-"+QString::fromStdString(scenario);
+    reveal(w,button);evidence(w,suffix+"-before.png");
+    expected.apply({EditProperties{{{"image","","image.width"}},160,false}},expected.revision());
+    bool opened=false,entry=false,selected=false,neutral=false;std::string failure;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QDialog*>("image-assets-dialog");if(!dialog)return;
+        try {
+            opened=dialog->isVisible();entry=same_asset_session(w.host.session,expected);
+            auto* list=dialog->findChild<QListWidget*>("image-assets-list");
+            selected=list&&list->currentItem()&&list->currentItem()->data(Qt::UserRole).toString()=="asset";
+            const auto prefix=qEnvironmentVariable("NECT_IMAGE_CONTEXT_EVIDENCE");
+            check(prefix.isEmpty()||dialog->grab().save(prefix+suffix+"-dialog.png"),"Actual Assets dialog saved");
+            std::cout<<"Assets opened="<<opened<<" entryFullSession="<<entry<<" revision="<<w.host.session.revision()<<std::endl;
+            auto* place=dialog->findChild<QPushButton*>("assets-place");check(place,"Actual Place selected button");
+            if(scenario!="close"&&scenario!="place") {
+                if(scenario=="revision")w.host.session.apply({Set{{"copy","","image.height"},65}},w.host.session.revision());
+                else if(scenario=="session")w.host.session_id="incoming-assets-session";
+                else if(scenario=="document") {auto d=w.host.session.document();d.id="incoming-assets-document";w.host.session=Session(d);w.host.session.apply({Set{{"copy","","image.height"},65}},0);}
+                else {w.host.session.begin_gesture(w.host.session.revision());w.host.session.update_gesture({Set{{"copy","","image.height"},65}});if(scenario=="generation")w.host.session.cancel_gesture();}
+                const Session incoming=w.host.session;QTest::mouseClick(place,Qt::LeftButton);
+                neutral=same_asset_session(w.host.session,incoming);expected=incoming;
+                const auto code=scenario=="session"||scenario=="document"?"SESSION_CONFLICT":"REVISION_CONFLICT";
+                check(w.statusBar()->currentMessage().startsWith(code),"Assets incoming conflict is explicitly reported");
+            } else if(scenario=="place") {
+                write(path,png(30,190,220,30,30));
+                for(int n=0;n<2;++n) {
+                    QTest::mouseClick(place,Qt::LeftButton);const auto id=w.canvas->selected_object;
+                    check(!id.empty()&&!expected.document().objects.contains(id),"Place emits a fresh stable placement ID");
+                    expected.apply({CreateImage{"comp","",id,"Shared reference",{"asset",{40},{20}}},Set{{id,"","transform.tx"},700},Set{{id,"","transform.ty"},0}},expected.revision());
+                    check(same_asset_session(w.host.session,expected),"Repeated Place exact independent source/full History/revision equality");
+                    check(list->currentItem()&&list->currentItem()->data(Qt::UserRole).toString()=="asset","Place refresh retains selected shared asset identity");
+                }
+            }
+        }catch(const std::exception& e){failure=e.what();}
+        QPushButton* close=nullptr;for(auto* b:dialog->findChildren<QPushButton*>())if(b->text()=="Close")close=b;
+        if(close)QTest::mouseClick(close,Qt::LeftButton);else{failure="Missing actual Close button";dialog->reject();}
+    });
+    QTest::mouseClick(button,Qt::LeftButton);events();evidence(w,suffix+"-after.png");
+    check(failure.empty(),failure.c_str());check(opened&&entry&&selected,"First pointer click enters actual Assets modal after ordinary Width commit");
+    if(scenario!="close"&&scenario!="place") {check(neutral,"Assets Place refuses incoming context with complete source/preview/History/generation/eligibility neutral");w.host.changed={};w.hide();return;}
+    check(same_asset_session(w.host.session,expected),"Assets Close retains only scalar and explicit placement transactions");
+    w.canvas->set_active_artboard("comp","art");events();painted(w,expected,QColor(200,100,40),suffix);
+    const int steps=scenario=="place"?3:1;
+    for(int n=0;n<steps;++n){history(w,"Undo");expected.undo(expected.revision());check(same_asset_session(w.host.session,expected),"Assets separate Undo full equality");}
+    check(w.host.session.document()==initial,"Assets all Undo restores complete initial placements/asset/source/artwork/Artboards");
+    for(int n=0;n<steps;++n){history(w,"Redo");expected.redo(expected.revision());check(same_asset_session(w.host.session,expected),"Assets separate Redo full equality");}
+    const auto native=scratch+"/assets.nect";w.host.save(native);check(same_asset_session(w.host.session,expected),"Assets save full Session neutral");w.host.changed={};w.hide();
+    Window cold(scratch+"/assets-cold");cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();select(cold);
+    Session reopened(expected.document());check(same_asset_session(cold.host.session,reopened),"Assets cold native restores all accepted shared source/placements");
+    painted(cold,reopened,QColor(200,100,40),suffix+"-cold");cold.host.changed={};cold.hide();
+}
 struct RelinkObservation { bool opened=false,scalar=false,saved=false; };
 RelinkObservation relink_dialog(Window& w,QPushButton* button,const Session& modal_expected,const QString& path,bool cancel,const QString& suffix,const std::function<void()>& incoming={}) {
     RelinkObservation result;
@@ -358,6 +423,7 @@ void draft_fit_guards(const QString& scratch) {
 }
 }
 int main(int argc,char** argv){if(argc>1&&(std::string(argv[1])=="--draft-relink"||std::string(argv[1]).starts_with("--relink-")))QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());QTemporaryDir scratch(qEnvironmentVariable("NECT_IMAGE_CONTEXT_SCRATCH",QDir::tempPath())+"/image-context-XXXXXX");QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());app.setOrganizationName("NectTest");app.setApplicationName("ImageContext");
+    if(argc>1&&std::string(argv[1])=="--assets-modal")try{check(scratch.isValid()&&argc==3,"Owned Assets exact scenario");assets_modal(scratch.path(),argv[2]);std::cout<<"PASS "<<checks<<" owned Qt Assets modal full Session/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1]).starts_with("--relink-"))try{check(scratch.isValid(),"Owned Relink guard scratch");if(std::string(argv[1])=="--relink-preflight")relink_preflight(scratch.path());else{check(argc==3,"Exact modal guard scenario");relink_guard(scratch.path(),argv[2]);}std::cout<<"PASS "<<checks<<" Image Relink modal/preflight guard full Session; native OS chooser/physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--draft-relink")try{check(scratch.isValid(),"Owned Relink scratch");draft_relink(scratch.path());std::cout<<"PASS "<<checks<<" Image first-click owned Qt Relink chooser/cancel/accept/full Session/native; native OS chooser/physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--draft-check")try{check(scratch.isValid(),"Owned draft-check scratch");draft_check_link(scratch.path());std::cout<<"PASS "<<checks<<" first Check link/ordinary draft/visible observation/full accepted source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}

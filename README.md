@@ -515,6 +515,12 @@ The Image Assets dialog reuses accepted sources and removes unused assets;
 deleting a placement alone keeps its asset. Reopening starts link status at
 `unchecked` and never fetches external files. Missing/unreadable files leave
 accepted pixels available for editing, export and recovery.
+Opening Image Assets after a pending dimension keeps the ordinary property edit.
+Each explicit Place selected adds a separate shared placement at the active
+Artboard origin, using the accepted source's pixel dimensions. Repeated placement
+keeps the selected asset row and advances the dialog's revision after its own
+actions. An incoming Session, Document, revision or gesture change makes the old
+dialog refuse actions; close and reopen it to use the current context.
 **Fit width to Artboard** replaces Width and Height using the accepted image's
 aspect ratio in one Undo, including when a dimension field has an unfinished
 draft. Cancelling the button press keeps that draft.
