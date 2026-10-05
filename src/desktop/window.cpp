@@ -4825,6 +4825,35 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         });
     });
     if(o.instance) {
+        const auto& definition=d.definitions.at(o.instance->definition);
+        auto* source_box=new QGroupBox("Shared Definition",inspector_);
+        auto* source_layout=new QVBoxLayout(source_box);
+        auto* source_name=new QLabel(qs(definition.name),source_box);
+        source_name->setToolTip(qs(definition.id));source_layout->addWidget(source_name);
+        auto* go_source=new QPushButton("Go to source",source_box);go_source->setObjectName("instance-source-go");
+        go_source->setToolTip("Select the shared source in Structure. Source edits affect every Instance of this Definition.");
+        go_source->setEnabled(!host.session.gesture_active());source_layout->addWidget(go_source);layout->addWidget(source_box);
+        const auto source_selection=canvas->selections();
+        connect(go_source,&QPushButton::clicked,this,[this,id=o.id,definition_id=definition.id,root=definition.root,
+            name_session,name_document,name_revision,name_gesture,source_selection] {
+            // View-only navigation must not cancel a preview or retarget an old
+            // Properties control after an external edit or document replacement.
+            const auto& current=host.session.document();
+            if(host.session_id!=name_session||current.id!=name_document||host.session.revision()!=name_revision||
+               host.session.gesture_generation()!=name_gesture||host.session.gesture_active()||
+               canvas->selections()!=source_selection||canvas->selected_object!=id||
+               !current.definitions.contains(definition_id)||current.definitions.at(definition_id).root!=root||
+               !current.objects.contains(root)) {
+                statusBar()->showMessage("Instance context changed; select it again before going to its source.",6000);return;
+            }
+            canvas->set_selection(root);
+            if(auto* item=tree_->currentItem()) {
+                for(auto* parent=item->parent();parent;parent=parent->parent())parent->setExpanded(true);
+                tree_->scrollToItem(item,QAbstractItemView::PositionAtCenter);
+            }
+            if(auto* structure=findChild<QDockWidget*>("structure")){structure->show();structure->raise();}
+            tree_->setFocus();
+        });
         auto* scalar_box=new QGroupBox("Scalar overrides",inspector_);
         scalar_box->setObjectName("instance-scalar-actions");
         auto* scalar_layout=new QVBoxLayout(scalar_box);

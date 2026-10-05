@@ -231,6 +231,10 @@ Selecting one whole Instance exposes **Scalar overrides → Set… / Reset…** 
 Properties. These open the existing source-item/field chooser, edit only that
 Instance and preserve shared Definition source. Reset is available when a local
 Scalar override exists; Undo restores the previous override or inheritance.
+**Shared Definition → Go to source** selects that Definition's existing source
+root and reveals it in Structure. Navigation changes selection only; subsequent
+source edits affect every Instance of that Definition. Finish or cancel a preview
+before navigating. Multi-selection keeps its own Properties context.
 Dependencies must stay within the source subtree, and nested/cross-Composition use
 reject. Native 0.64 stores Definitions and Instances; 0.63 and older remain readable.
 
