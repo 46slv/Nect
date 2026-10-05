@@ -503,6 +503,9 @@ Image sources cannot themselves be geometry masks or use vector Shape stacks.
 Both modes keep accepted original source bytes in the native document. A linked
 asset also remembers an absolute local drive path. **Check link** (or File →
 Image Assets → Check links) compares the current file without changing artwork.
+The first Check link click also works after an unfinished dimension edit: normal
+property blur commits that edit, and the current Properties show the observation.
+Checking adds no Undo entry or accepted image bytes.
 There is no automatic filesystem scan or pixel replacement. **Reload** accepts
 changed bytes; **Relink…** accepts a new file and locator; **Embed accepted image**
 keeps cached bytes and removes the link, including when the source is missing.

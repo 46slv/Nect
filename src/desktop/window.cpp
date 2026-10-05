@@ -5800,7 +5800,9 @@ void Window::add_image_properties(QVBoxLayout* layout,const Object& object) {
     details->setWordWrap(true);form->addRow(details);
     auto* status=new QLabel;status->setObjectName("image-link-status");status->setWordWrap(true);
     const auto describe=[&]{const auto state=host.asset_status(id);return state.value("state").toString()+
-        (asset.mode=="linked"?QString(" · accepted pixels shown\nCheck link to compare the current file."):QString(" · self-contained"));};
+        (asset.mode=="linked"?QString(" · accepted pixels shown\n")+
+            (state.value("checked_at").toString().isEmpty()?QString("Check link to compare the current file."):
+                QString("Checked ")+state.value("checked_at").toString()):QString(" · self-contained"));};
     status->setText(describe());form->addRow(status);
     if(asset.mode=="linked") {auto* location=new QLabel(qs(asset.locator));location->setWordWrap(true);location->setTextInteractionFlags(Qt::TextSelectableByMouse);form->addRow(location);}
     add_property(form,{object.id,"","image.width"},"Width");add_property(form,{object.id,"","image.height"},"Height");
@@ -5829,9 +5831,12 @@ void Window::add_image_properties(QVBoxLayout* layout,const Object& object) {
     });});
     if(asset.mode=="linked") {
         auto* check=new QPushButton("Check link");check->setObjectName("image-check-link");form->addRow(check);
-        connect(check,&QPushButton::clicked,this,[this,identity,id,status]{perform([&]{
+        connect(check,&QPushButton::clicked,this,[this,identity,id]{perform([&]{
             if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
-            const auto result=host.check_asset(id);status->setText(result.value("state").toString()+" · accepted pixels shown\nChecked "+result.value("checked_at").toString());
+            host.check_asset(id);
+            // Ordinary property blur may already have rebuilt this form. Show
+            // the observation in the current form, never a retired label.
+            rebuild_inspector();
         });});
     }
     const auto operation=[&](const QString& label,const char* action) {

@@ -81,6 +81,53 @@ void draft_fit(const QString& scratch) {
         "Cold source controls read canonical fitted dimensions");painted(cold,reopened,QColor(200,100,40),".draft-fit-cold");cold.host.changed={};cold.hide();
 }
 bool same_asset_session(const Session& a,const Session& b){return same(a,b)&&a.can_undo()==b.can_undo()&&a.can_redo()==b.can_redo();}
+void draft_check_link(const QString& scratch) {
+    const auto path=scratch+"/check-reference.png";
+    const auto original=png(200,100,40),replacement=png(30,190,220,30,30);write(path,original);
+    const auto initial=fixture(path,original);Window w(scratch+"/check-recovery");w.host.session=Session(initial);
+    w.host.session_id="image-draft-check-session";w.host.edited();w.show();events();w.canvas->fit_artboard();events();
+    Session expected(initial);select(w);const auto canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
+    auto* action=named<QPushButton>(w,"image-check-link");reveal(w,action);auto* width=field(w,"image.width");reveal(w,width);
+    auto* area=named<QScrollArea>(w,"inspector-scroll");
+    check(area->viewport()->rect().contains(QRect(action->mapTo(area->viewport(),QPoint()),action->size())),"Check link and Width simultaneously reachable");
+    write(path,replacement);QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"160");
+    check(width->hasFocus()&&width->isModified()&&same_asset_session(w.host.session,expected),"Pending Width before Check remains complete Session neutral");
+    evidence(w,".draft-check-before.png");QTest::mouseClick(action,Qt::LeftButton);events();
+    expected.apply({EditProperties{{{"image","","image.width"}},160,false}},expected.revision());
+    const auto observed=w.host.asset_status("asset");const auto visible=named<QLabel>(w,"image-link-status")->text();
+    std::cout<<"First Check width="<<w.host.session.document().objects.at("image").image->width.literal<<" revision="<<w.host.session.revision()
+             <<" fullSession="<<same_asset_session(w.host.session,expected)<<" state="<<observed.value("state").toString().toStdString()
+             <<" visible="<<visible.toStdString()<<std::endl;evidence(w,".draft-check-after.png");
+    check(same_asset_session(w.host.session,expected),"First Check commits only ordinary Width; complete independent source/native/History/preview/eligibility");
+    auto protected_source=initial;protected_source.objects.at("image").image->width.literal=160;
+    check(w.host.session.document()==protected_source&&encode(w.host.session.document())==encode(protected_source),"Check retains accepted/shared asset, locator, other placement, transforms, paint and Artboards");
+    painted(w,expected,QColor(200,100,40),".draft-check");
+    check(observed.value("state").toString()=="changed"&&visible.startsWith("changed"),"First Check observes changed owned file in current visible Properties");
+    check(observed.value("accepted_sha256").toString()==QString::fromStdString(make_raster(original)->sha256())&&
+          observed.value("observed_sha256").toString()==QString::fromStdString(make_raster(replacement)->sha256())&&!observed.value("checked_at").toString().isEmpty(),"Observation binds original accepted hash and changed file hash");
+    history(w,"Undo");expected.undo(expected.revision());check(same_asset_session(w.host.session,expected)&&w.host.session.document()==initial,"Check adds no Undo entry beyond ordinary Width");
+    history(w,"Redo");expected.redo(expected.revision());check(same_asset_session(w.host.session,expected),"Ordinary Width Redo complete equality");
+    check(named<QLabel>(w,"image-link-status")->text().startsWith("changed"),"Observation visible after Properties rebuild");
+    write(path,original);click(w,"image-check-link");check(same_asset_session(w.host.session,expected),"Current file check complete Session neutral");
+    check(w.host.asset_status("asset").value("state").toString()=="current"&&named<QLabel>(w,"image-link-status")->text().startsWith("current"),"Current accepted file observation visible");
+    check(QFile::remove(path),"Remove only owned Check fixture");click(w,"image-check-link");check(same_asset_session(w.host.session,expected),"Missing file check complete Session neutral");
+    check(w.host.asset_status("asset").value("state").toString()=="missing"&&named<QLabel>(w,"image-link-status")->text().startsWith("missing"),"Missing file observation visible");
+    w.host.session.begin_gesture(w.host.session.revision());w.host.session.update_gesture({Set{{"copy","","image.height"},65}});w.host.edited();events();
+    const Session preview=w.host.session;click(w,"image-check-link");
+    check(same_asset_session(w.host.session,preview),"Check presentation preserves external active preview/source/History/generation/eligibility");
+    w.host.session.cancel_gesture();expected=w.host.session;w.host.edited();events();
+    auto* stale=named<QPushButton>(w,"image-check-link");const auto missing=w.host.asset_status("asset");write(path,original);
+    w.host.session_id="other-check-session";stale->click();events();
+    check(same_asset_session(w.host.session,expected)&&w.host.asset_status("asset")==missing,"Old Check callback refuses another Session without observing or changing source");
+    w.host.session_id="image-draft-check-session";w.host.edited();events();
+    check(w.canvas->width()==canvas_width&&named<QDockWidget>(w,"properties")->width()==dock_width,"Check preserves standard pane and Canvas widths");
+    const auto native=scratch+"/checked.nect";w.host.save(native);check(same_asset_session(w.host.session,expected),"Check native save full Session neutral");w.host.changed={};w.hide();
+    Window cold(scratch+"/check-cold");cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();select(cold);Session reopened(expected.document());
+    check(same_asset_session(cold.host.session,reopened),"Fresh native Window restores full accepted source with ordinary Width");
+    check(cold.host.asset_status("asset").value("state").toString()=="unchecked"&&named<QLabel>(cold,"image-link-status")->text().startsWith("unchecked"),"Cold native starts unchecked without implicit filesystem acceptance");
+    reveal(cold,field(cold,"image.width"));check(field(cold,"image.width")->text().toDouble()==160&&field(cold,"image.height")->text().toDouble()==60,"Cold controls read ordinary dimension source");
+    painted(cold,reopened,QColor(200,100,40),".draft-check-cold");cold.host.changed={};cold.hide();
+}
 void draft_asset_action(const QString& scratch,bool embed=false) {
     const QString tag=embed?"draft-embed":"draft-reload";
     const auto path=scratch+"/"+tag+"-reference.png";
@@ -205,6 +252,7 @@ void draft_fit_guards(const QString& scratch) {
 }
 }
 int main(int argc,char** argv){QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());QTemporaryDir scratch(qEnvironmentVariable("NECT_IMAGE_CONTEXT_SCRATCH",QDir::tempPath())+"/image-context-XXXXXX");QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());app.setOrganizationName("NectTest");app.setApplicationName("ImageContext");
+    if(argc>1&&std::string(argv[1])=="--draft-check")try{check(scratch.isValid(),"Owned draft-check scratch");draft_check_link(scratch.path());std::cout<<"PASS "<<checks<<" first Check link/ordinary draft/visible observation/full accepted source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--draft-reload")try{check(scratch.isValid(),"Owned draft-reload scratch");draft_asset_action(scratch.path());draft_asset_guards(scratch.path());draft_asset_scalar_forms(scratch.path());std::cout<<"PASS "<<checks<<" Image direct draft-to-Reload/cancel/context/scalar guards/full accepted source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--draft-embed")try{check(scratch.isValid(),"Owned draft-embed scratch");draft_asset_action(scratch.path(),true);draft_asset_guards(scratch.path(),true);draft_asset_scalar_forms(scratch.path(),true);std::cout<<"PASS "<<checks<<" Image direct draft-to-Embed/cancel/context/scalar guards/full accepted source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--draft-fit")try{check(scratch.isValid(),"Owned draft-fit scratch");draft_fit(scratch.path());draft_fit_guards(scratch.path());std::cout<<"PASS "<<checks<<" Image direct draft-to-Fit click/cancelled press/genuine context guards/full source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
