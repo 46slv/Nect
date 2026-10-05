@@ -9628,6 +9628,11 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
     timer->start();editor->setFocus();
 }
 void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label) {
+    const auto input_session=host.session_id;
+    const auto input_document=host.session.document().id;
+    const auto input_revision=host.session.revision();
+    const auto input_gesture=host.session.gesture_generation();
+    const auto input_preview=host.session.gesture_active();
     const auto& ref=targets.front();
     const auto& d=host.session.document();
     const auto origin=property_origin(d,ref);
@@ -9695,12 +9700,21 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
-    connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand] {
+    connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
+        input_session,input_document,input_revision,input_gesture,input_preview] {
         if(!input->isModified()) return;
         input->setModified(false);
         const bool keep_focus=input->hasFocus();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
         const auto frozen_session=host.session_id;
         perform([&]{
+            if(host.session_id!=input_session||host.session.document().id!=input_document)
+                throw Error("SESSION_CONFLICT","This property draft belongs to another document");
+            if(host.session.revision()!=input_revision||host.session.gesture_generation()!=input_gesture)
+                throw Error("REVISION_CONFLICT","The property edit context changed; edit it again");
+            // Preview-born fields stay ineligible after cancellation, even when
+            // the canonical revision and gesture generation remain unchanged.
+            if(input_preview||host.session.gesture_active())
+                throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
             if(host.session_id!=field_session)throw Error("SESSION_CONFLICT","These properties belong to another document");
             if(host.session.revision()!=field_revision)throw Error("REVISION_CONFLICT","These properties changed elsewhere; reopen the Inspector");
             auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");

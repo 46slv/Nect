@@ -31,7 +31,7 @@ auto snapshot(Session& s){return std::tuple{s.document(),encode(s.document()),s.
 QRect region(QWidget* widget,Window& w){return {widget->mapTo(&w,QPoint{}),widget->size()};}
 bool reachable(QWidget* widget){return widget&&widget->isVisible()&&widget->visibleRegion().contains(widget->rect());}
 Document fixture(){
-    const bool stacked=QCoreApplication::arguments().contains("--stacked-effects")||QCoreApplication::arguments().contains("--effect-edit-probe");
+    const bool stacked=QCoreApplication::arguments().contains("--stacked-effects")||QCoreApplication::arguments().contains("--effect-edit-probe")||QCoreApplication::arguments().contains("--effect-draft-context");
     auto d=empty_document("workspace-document","composition","board");
     auto& board=d.compositions.front().artboards.front();board.width=640;board.height=480;
     Object path;path.id="curve";path.name="Editable workspace curve";
@@ -48,6 +48,11 @@ Document fixture(){
         Set{{"text",{},"transform.tx"},200},Set{{"text",{},"transform.ty"},300}},s.revision());
     if(stacked)
         for(int i=0;i<3;++i)s.apply({AddOperation{"curve",default_operation("offset-"+std::to_string(i),"nect.shape.offset"),static_cast<std::size_t>(i)}},s.revision());
+    if(QCoreApplication::arguments().contains("--effect-draft-context")){
+        s.apply({CreatePrimitive{"composition",{},"retained","Untouched Rectangle",default_primitive("retained-source","nect.shape.rectangle")}},s.revision());
+        auto document=s.document();document.compositions.front().artboards.push_back({"other-board","Untouched Artboard",700,0,320,240});
+        return document;
+    }
     return s.document();
 }
 QTabBar* dock_tabs(Window& w){
@@ -66,6 +71,106 @@ void save(Window& w,const QString& name){
     const auto dir=qEnvironmentVariable("NECT_WORKSPACE_EVIDENCE");
     if(!dir.isEmpty())check(w.grab().save(dir+"/"+name+".png"),"Source-rendered Window evidence saved");
 }
+void effect_draft_context(Window& w,const QString& directory){
+    QApplication::setActiveWindow(&w);events();
+    auto& s=w.host.session;
+    auto complete_session=[](const Session& session){return std::tuple{session.document(),encode(session.document()),session.preview_document(),session.revision(),session.history(),session.gesture_generation(),session.gesture_active()};};
+    auto complete=[&]{return complete_session(s);};
+    const Ref amount_ref{"curve",{},"op.offset-2.amount"};
+    auto* inspector=w.findChild<QScrollArea*>("inspector-scroll");
+    auto field=[&](const Ref& wanted){
+        for(auto* field:inspector->findChildren<QLineEdit*>()){
+            const auto ref=QJsonDocument::fromJson(field->property("nect-reference").toByteArray()).object();
+            if(field->isVisible()&&ref.value("object").toString()==QString::fromStdString(wanted.object)&&
+               ref.value("point").toString()==QString::fromStdString(wanted.point)&&ref.value("field").toString()==QString::fromStdString(wanted.field)){
+                inspector->ensureWidgetVisible(field);events();
+                check(field->isEnabled()&&reachable(field),"Exact effect Amount is visible, enabled and fully reachable");return field;
+            }
+        }
+        throw std::runtime_error("Missing exact effect Amount field");
+    };
+    auto amount=[&]{return field(amount_ref);};
+    auto draft=[&](const Ref& ref,const QString& text){
+        auto* input=field(ref);QTest::mouseClick(input,Qt::LeftButton);events();
+        QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);events();
+        check(input->hasFocus()&&input->text()==text&&input->isModified(),"Real visible property input holds unfinished focused keyboard draft");
+        return QPointer<QLineEdit>(input);
+    };
+    tab(w,"Effects");
+    auto* scroll=w.findChild<QScrollArea*>("effects-scroll");
+    auto* last=w.findChild<QPushButton*>("effects-edit-properties-offset-2");
+    check(scroll&&last,"Exact retained effect entry exists");scroll->ensureWidgetVisible(last);events();
+    check(last->isEnabled()&&reachable(last),"Exact effect Properties entry is reachable");
+    const auto before_navigation=complete();QTest::mouseClick(last,Qt::LeftButton);events();
+    check(complete()==before_navigation,"Effect entry navigation preserves complete canonical context");
+    s.begin_gesture(s.revision());s.update_gesture({Set{{"curve",{},"transform.tx"},44}});w.host.edited();events();
+    const auto active_preview=complete();QPointer<QLineEdit> input=amount();
+    QTest::mouseClick(input,Qt::LeftButton);events();QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,"13");events();
+    std::cout<<"effect draft focus="<<input->hasFocus()<<" text="<<input->text().toStdString()<<" modified="<<input->isModified()<<'\n';
+    check(input->hasFocus()&&input->text()=="13"&&input->isModified(),"Preview-born effect Amount holds unfinished real keyboard draft");
+    check(complete()==active_preview,"Unfinished effect draft preserves external preview and complete source");
+    s.cancel_gesture();const auto cancelled=complete();
+    check(input&&input->hasFocus(),"External cancellation precedes focused Amount refresh");
+    w.host.edited();events();
+    std::cout<<"effect Amount cancel/refresh value="<<property(s.document(),{"curve",{},"op.offset-2.amount"}).literal
+        <<" revision="<<s.revision()<<" expected="<<std::get<3>(cancelled)<<'\n';
+    check(complete()==cancelled,"Cancelling external preview then refreshing cannot commit its unfinished effect Amount");
+
+    const auto history_action=[&](const char* name){
+        for(auto* action:w.findChildren<QAction*>())if(action->text()==QString::fromLatin1(name)){
+            check(action->isEnabled(),"Existing Window history action is enabled");action->trigger();events();return;
+        }
+        throw std::runtime_error("Missing Window history action");
+    };
+    const auto commit=[&](const Ref& ref,const QString& text,const Command& command){
+        const auto before=complete();Session expected=s;expected.apply({command},expected.revision());
+        auto input=draft(ref,text);check(complete()==before,"Typing a fresh property draft does not author source");
+        QTest::keyClick(input,Qt::Key_Return);events();
+        check(complete()==complete_session(expected),"Fresh Return equals one complete canonical source/native/history transaction");
+        expected.undo(expected.revision());history_action("Undo");check(complete()==complete_session(expected),"One Window Undo restores complete canonical context");
+        expected.redo(expected.revision());history_action("Redo");check(complete()==complete_session(expected),"One Window Redo restores complete canonical context");
+    };
+    commit(amount_ref,"13",EditProperties{{amount_ref},13,false});
+    commit(amount_ref,"+=2",EditProperties{{amount_ref},2,true});
+
+    input=draft(amount_ref,"31");
+    s.apply({EditProperties{{amount_ref},22,false}},s.revision());const auto external=complete();w.host.edited();events();
+    check(complete()==external,"External canonical Amount edit survives unfinished draft refresh with full retained source");
+    check(amount()->text()=="22","Fresh Amount shows the incoming canonical edit");
+
+    input=draft(amount_ref,"37");s.begin_gesture(s.revision());s.update_gesture({Set{{"curve",{},"transform.tx"},55}});
+    const auto external_preview=complete();QTest::keyClick(input,Qt::Key_Return);events();
+    check(complete()==external_preview,"Old property Return preserves another client's complete active preview");
+    s.cancel_gesture();const auto old_cancelled=complete();w.host.edited();events();
+    check(complete()==old_cancelled,"Old property draft remains invalid after intervening preview cancellation");
+
+    s.begin_gesture(s.revision());s.update_gesture({Set{{"curve",{},"transform.tx"},66}});w.host.edited();events();
+    input=draft(amount_ref,"41");const auto born_preview=complete();QTest::keyClick(input,Qt::Key_Return);events();
+    check(complete()==born_preview,"Preview-born Amount Return preserves external preview ownership and source");
+    s.cancel_gesture();const auto born_cancelled=complete();w.host.edited();events();
+    check(complete()==born_cancelled,"Refused preview-born input stays nonmutating after cancel/refresh");
+
+    input=draft(amount_ref,"47");s.begin_gesture(s.revision());s.update_gesture({Set{{"curve",{},"transform.tx"},77}});
+    s.commit_gesture();const auto committed_preview=complete();w.host.edited();events();
+    check(complete()==committed_preview,"External preview commit survives unfinished property draft refresh");
+
+    input=draft(amount_ref,"not-a-number");const auto invalid=complete();QTest::keyClick(input,Qt::Key_Return);events();
+    check(complete()==invalid,"Invalid numeric input is completely atomic");
+    commit(amount_ref,"=7+2",SetExpression{{amount_ref},{"7+2",1},false});
+    const auto driven=complete();auto* readonly=amount();check(readonly->isReadOnly(),"Expression source stays explicitly read-only");
+    QTest::keyClick(readonly,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(readonly,"99");QTest::keyClick(readonly,Qt::Key_Return);events();
+    check(complete()==driven,"Literal input cannot silently unlink expression source");
+
+    w.canvas->set_selection("curve","first");events();
+    const Ref point_ref{"curve","first","x"};check(!field(point_ref)->property("nect-semantic-key").isValid(),"Authored point uses the ordinary shared scalar field");
+    commit(point_ref,"128",EditProperties{{point_ref},128,false});
+    const auto native=directory+"/effect-context.nect";const auto saved=s.document();w.host.save(native);events();
+    QFile file(native);check(file.open(QIODevice::ReadOnly)&&file.readAll().toStdString()==encode(saved),"Same Window native save writes every authored field exactly");file.close();
+    input=draft(point_ref,"188");const auto old_session=w.host.session_id;w.host.open(native);events();
+    const Session reopened(saved);
+    check(w.host.session_id!=old_session&&complete()==complete_session(reopened),"Same-ID native reload discards focused scalar draft and preserves exact source/new Session context");
+    w.canvas->set_selection("curve","first");events();commit(point_ref,"132",EditProperties{{point_ref},132,false});
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
@@ -81,6 +186,9 @@ int main(int argc,char** argv){
         auto* left=w.findChild<QDockWidget*>("structure");auto* properties=w.findChild<QDockWidget*>("properties");
         auto* effects=w.findChild<QDockWidget*>("effects");auto* inspector=w.findChild<QScrollArea*>("inspector-scroll");
         check(left&&properties&&effects&&inspector,"Actual primary Window regions exist");
+        if(QCoreApplication::arguments().contains("--effect-draft-context")){
+            effect_draft_context(w,scratch.path());std::cout<<"PASS "<<checks<<" effect draft context checks (physical OS input NOT_RUN)\n";return 0;
+        }
         if(QCoreApplication::arguments().contains("--effect-edit-probe")){
             w.resize(1000,650);events();tab(w,"Effects");
             auto* scroll=w.findChild<QScrollArea*>("effects-scroll");check(scroll,"Actual Effects scroll path exists");

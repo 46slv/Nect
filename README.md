@@ -418,6 +418,12 @@ writes in the final rename race. See the persistence contract in `docs/model-v0.
 
 ## Property expressions
 
+Scalar drafts in Properties keep the document, revision and gesture context
+where they opened. Refresh discards an obsolete unfinished draft; a field opened
+during a preview cannot commit after that preview ends. Finish or cancel the
+preview, then use a fresh field. This also applies to effect parameters reached
+through **Edit in Properties**. A fresh Return keeps the normal single Undo step.
+
 Type `=expression` in a numeric field, or click **fx**. Use **Insert reference…**
 for searchable stable property references. Arithmetic, min/max/clamp, rounding,
 sqrt and degree-based sin/cos are supported; units and normal property ranges
