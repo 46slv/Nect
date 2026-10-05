@@ -4825,6 +4825,34 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         });
     });
     if(o.instance) {
+        auto* scalar_box=new QGroupBox("Scalar overrides",inspector_);
+        scalar_box->setObjectName("instance-scalar-actions");
+        auto* scalar_layout=new QVBoxLayout(scalar_box);
+        auto* scalar_state=new QLabel(QString("%1 local override(s)").arg(o.instance->overrides.size()),scalar_box);
+        scalar_state->setObjectName("instance-scalar-state");scalar_layout->addWidget(scalar_state);
+        auto* scalar_buttons=new QHBoxLayout;scalar_layout->addLayout(scalar_buttons);
+        auto* set_scalar=new QPushButton("Set…",scalar_box);set_scalar->setObjectName("instance-scalar-set");
+        set_scalar->setToolTip("Choose a source item and set a Scalar override for this Instance only.");
+        auto* reset_scalar=new QPushButton("Reset…",scalar_box);reset_scalar->setObjectName("instance-scalar-reset");
+        reset_scalar->setToolTip("Remove one Scalar override and follow the current Definition source.");
+        set_scalar->setEnabled(!host.session.gesture_active());
+        reset_scalar->setEnabled(!host.session.gesture_active()&&!o.instance->overrides.empty());
+        scalar_buttons->addWidget(set_scalar);scalar_buttons->addWidget(reset_scalar);layout->addWidget(scalar_box);
+        const auto scalar_selection=canvas->selections();
+        const auto verify_scalar_context=[this,id=o.id,name_session,name_document,name_revision,name_gesture,scalar_selection] {
+            if(host.session_id!=name_session||host.session.document().id!=name_document)
+                throw Error("SESSION_CONFLICT","Instance actions belong to another document");
+            if(host.session.revision()!=name_revision||host.session.gesture_generation()!=name_gesture||
+               canvas->selections()!=scalar_selection||canvas->selected_object!=id)
+                throw Error("REVISION_CONFLICT","Instance context changed; select it again");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+        };
+        connect(set_scalar,&QPushButton::clicked,this,[this,verify_scalar_context]{perform([&]{
+            verify_scalar_context();set_instance_override();
+        });});
+        connect(reset_scalar,&QPushButton::clicked,this,[this,verify_scalar_context]{perform([&]{
+            verify_scalar_context();reset_instance_override();
+        });});
         layout->addWidget(make_instance_visibility_controls(host,o.id,inspector_));
         layout->addWidget(make_instance_color_controls(host,o.id,inspector_));
         layout->addWidget(make_instance_text_content_controls(host,o.id,inspector_));

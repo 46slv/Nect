@@ -224,8 +224,13 @@ its stable IDs; it does not add duplicate authored source Objects. Instance plac
 visibility and compositing remain local, while source edits flow to live instances.
 The source root's affine/anchor/transform-parent/visibility are excluded from the
 shared appearance, while its content and compositing (including opacity) remain.
-Scalar overrides are limited to `composite.opacity` and Text `text.font_size`.
+Scalar overrides support `composite.opacity` and Text `text.font_size`.
+Descendant items also support local translation and retained Rectangle size.
 Reset restores source evaluation; Detach materializes a frozen copy in one Undo.
+Selecting one whole Instance exposes **Scalar overrides → Set… / Reset…** in
+Properties. These open the existing source-item/field chooser, edit only that
+Instance and preserve shared Definition source. Reset is available when a local
+Scalar override exists; Undo restores the previous override or inheritance.
 Dependencies must stay within the source subtree, and nested/cross-Composition use
 reject. Native 0.64 stores Definitions and Instances; 0.63 and older remain readable.
 
