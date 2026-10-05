@@ -8,6 +8,8 @@
 #include <QComboBox>
 #include <QDockWidget>
 #include <QDoubleSpinBox>
+#include <QJsonDocument>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QPainterPath>
 #include <QScrollArea>
@@ -41,10 +43,10 @@ Document fixture(){
     auto blue=red;blue.id="other-fill";blue.parameters.at("r").literal=0;blue.parameters.at("b").literal=1;d.objects.at("other").stack.push_back(blue);return d;
 }
 void evidence(Window& w,const QString& suffix){const auto path=qEnvironmentVariable("NECT_FOLLOW_CONTEXT_EVIDENCE");if(!path.isEmpty())check(w.grab().save(path+suffix),"Window evidence saved");}
-void select(Window& w,const Id& target="group"){
+void select(Window& w,const Id& target="group",const Id& point={}){
     auto* dock=named<QDockWidget>(w,"structure");dock->show();dock->raise();events();auto* tree=dock->findChild<QTreeWidget*>();check(tree,"Structure tree");tree->expandAll();QTreeWidgetItem* row=nullptr;
-    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString()==QString::fromStdString(target)&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty())row=*it;
-    check(row,"Exact Structure row");tree->scrollToItem(row);events();QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(row).center());events();check(w.canvas->selected_object==target,"Exact object selected");dock=named<QDockWidget>(w,"properties");dock->show();dock->raise();events();
+    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString()==QString::fromStdString(target)&&(*it)->data(0,Qt::UserRole+1).toString()==QString::fromStdString(point))row=*it;
+    check(row,"Exact Structure row");tree->scrollToItem(row);events();QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(row).center());events();check(w.canvas->selected_object==target&&w.canvas->selected_point==point,"Exact object/source point selected");dock=named<QDockWidget>(w,"properties");dock->show();dock->raise();events();
 }
 void reveal(Window& w,QWidget* c){
     auto* area=named<QScrollArea>(w,"inspector-scroll");check(c->isVisible()&&c->isEnabled(),"Actual enabled Path Follow control");area->verticalScrollBar()->setValue(c->mapTo(area->widget(),QPoint()).y()-area->viewport()->height()/2);events();
@@ -122,11 +124,11 @@ void retained_deform(const Document& initial,const Document& actual) {
         "Mode/axis preserve exact relation identity, precise start/offset and complete stable item map");
 }
 struct DeformOraclePoint {Id id;Vec2 source,world,local;};
-std::vector<DeformOraclePoint> deform_oracle(const GroupPathFollow& r,const Id& id) {
+std::vector<DeformOraclePoint> deform_oracle(const GroupPathFollow& r,const Id& id,double width=40,double top_left_x=-19.25) {
     // No actual evaluation output enters this oracle. Rectangle anchors, local
     // translation, L-contour distance/normal and inverse Group matrix are explicit.
     const bool child=id=="child",y=r.deform_axis=="y";
-    const std::vector<Vec2> anchors=child?std::vector<Vec2>{{-19.25,-8},{20,-8},{20,8},{-20,8}}:
+    const std::vector<Vec2> anchors=child?std::vector<Vec2>{{top_left_x,-8},{width/2,-8},{width/2,8},{-width/2,8}}:
         std::vector<Vec2>{{-10,32},{10,32},{10,48},{-10,48}};
     const std::vector<std::string> roles={"top-left","top-right","bottom-right","bottom-left"};
     std::vector<DeformOraclePoint> result;
@@ -263,8 +265,112 @@ void deform_traversal_context(const QString& scratch) {
     deform_pixels(cold,reopened,protected_source,".traversal-cold");
     cold.host.changed={};cold.hide();
 }
+QLineEdit* source_field(Window& w,const Ref& ref) {
+    const auto key=QJsonDocument(QJsonObject{{"object",QString::fromStdString(ref.object)},
+        {"point",QString::fromStdString(ref.point)},{"field",QString::fromStdString(ref.field)}}).toJson(QJsonDocument::Compact);
+    for(auto* input:w.findChildren<QLineEdit*>())
+        if(input->isVisible()&&input->property("nect-reference").toByteArray()==key)return input;
+    throw std::runtime_error("Missing visible retained source field");
+}
+void source_pixels(Window& w,const Session& independent,const Document& protected_source,
+                   double width,double top_left_x,const QString& suffix) {
+    check(same(w.host.session,independent),"Source task matches full independent Session/native/history/preview/generation");
+    auto expected=protected_source;
+    expected.objects.at("child").source->parameters.at("width").literal=width;
+    expected.objects.at("child").point_edit->overrides.at("child-source-top-left").at("x").literal=top_left_x;
+    check(w.host.session.document()==expected&&encode(w.host.session.document())==encode(expected),
+        "Only intended authored width/absolute x changes; complete relation/items/source identities/Refs/transforms/paint/order/Artboards retained");
+    const auto values=evaluate(w.host.session.document());
+    check(values.at({"child","","generator.width"})==width&&
+        values.at({"child","child-source-top-left","x"})==top_left_x&&
+        values.at({"other","","generator.width"})==-top_left_x,
+        "Exact source values and linked other width reevaluate independently of projection/display rounding");
+    const auto scene=evaluate_scene(w.host.session.document(),"comp",values,evaluate_transforms(w.host.session.document(),values));
+    const auto image=Canvas::render_artboard(w.host.session.document(),"comp","art",1,false);
+    check(image==Canvas::render_artboard(independent.document(),"comp","art",1,false),"Complete source-edit artwork equals independent canonical renderer");
+    const auto canvas=w.canvas->grab().toImage();
+    const auto sample=[&](QPointF probe) {
+        const QPoint pixel(qRound(w.canvas->width()/2.0+(probe.x()-320)*w.canvas->zoom()),
+                           qRound(w.canvas->height()/2.0+(probe.y()-240)*w.canvas->zoom()));
+        return canvas.pixelColor(qRound(pixel.x()*canvas.devicePixelRatio()),qRound(pixel.y()*canvas.devicePixelRatio()));
+    };
+    for(const Id id:{"child","second"}) {
+        const auto predicted=deform_oracle(*protected_source.objects.at("group").path_follow,id,width,top_left_x);
+        const auto& actual=scene.deformation_points.at(id);
+        check(actual.size()==predicted.size()&&scene.deformation_owners.at(id)=="group","Retained source point topology/Group owner survive source edit");
+        QPainterPath polygon;polygon.moveTo(predicted.front().world.x,predicted.front().world.y);
+        QPointF center;
+        for(std::size_t i=0;i<predicted.size();++i) {
+            const auto& p=predicted[i];
+            const auto near=[](Vec2 a,Vec2 b){return std::hypot(a.x-b.x,a.y-b.y)<1e-7;};
+            check(values.at({id,p.id,"x"})==p.source.x&&values.at({id,p.id,"y"})==p.source.y,
+                "Authored source anchors equal independently supplied source values");
+            check(actual[i].id==p.id&&near(actual[i].anchor,p.local)&&near(actual[i].incoming,p.local)&&near(actual[i].outgoing,p.local),
+                "Source edit reevaluates analytical L-contour/leaf affine/inverse Group anchor/control projection");
+            check(near(map_point(scene.geometry_worlds.at(id),actual[i].anchor),p.world),"Source edit consumes final Group world once");
+            polygon.lineTo(p.world.x,p.world.y);center+=QPointF(p.world.x/4,p.world.y/4);
+        }
+        polygon.closeSubpath();
+        for(const QPointF probe:{center,center+QPointF(2,0),center+QPointF(0,2)}) {
+            check(polygon.contains(probe),"Independent source-edit polygon contains interior probe");
+            const QColor color=id=="child"?QColor(Qt::red):QColor(Qt::green);
+            check(image.pixelColor(qFloor(probe.x()),qFloor(probe.y()))==color,"Independently predicted source-edit interior pixel");
+            check(sample(probe)==color,"Actual Canvas displays independently predicted source-edit pixel");
+        }
+    }
+    // The linked rectangle is centered at 520 with exact width -top_left_x.
+    const double edge=520-top_left_x/2;
+    check(image.pixelColor(520,100)==QColor(Qt::blue)&&
+        image.pixelColor(qFloor(edge-3),100)==QColor(Qt::blue)&&
+        image.pixelColor(qCeil(edge+3),100).alpha()==0&&image.pixelColor(20,20).alpha()==0,
+        "Linked exact Ref controls other source width and independently predicted edge pixels");
+    check(sample({520,100})==QColor(Qt::blue),"Actual Canvas retains linked unrelated artwork");
+    const auto prefix=qEnvironmentVariable("NECT_FOLLOW_CONTEXT_EVIDENCE");
+    if(!prefix.isEmpty())check(image.save(prefix+suffix+".artwork.png"),"Source-edit artwork evidence saved");
+    evidence(w,suffix+".png");check(same(w.host.session,independent),"Source geometry/pixel observations fully Session neutral");
+}
+void edit_source(Window& w,Session& independent,const Ref& ref,const char* text,double value) {
+    auto* input=source_field(w,ref);reveal(w,input);evidence(w,".source-before.png");
+    QTest::mouseClick(input,Qt::LeftButton);QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);
+    check(same(w.host.session,independent),"Actual retained source scalar draft is full Session neutral");
+    QTest::keyClick(input,Qt::Key_Return);events();
+    independent.apply({EditProperties{{ref},value,false}},independent.revision());
+    check(same(w.host.session,independent),"Actual Enter commits one independent canonical authored-source command");
+}
+void deform_source_context(const QString& scratch) {
+    auto initial=deform_context_fixture();initial.objects.at("group").path_follow->mode="deform";
+    initial.objects.at("group").path_follow->deform_axis="x";
+    Window w(scratch+"/source-recovery");w.host.session=Session(initial);w.host.session_id="deform-source-context-session";
+    w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session independent(initial);
+    select(w,"child");check(same(w.host.session,independent),"Expanded Structure exact deformed child selection is Session neutral");
+    const auto canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
+    constexpr double width=64.25,correction=-27.12567891234567;
+    edit_source(w,independent,{"child","","generator.width"},"64.25",width);
+    source_pixels(w,independent,initial,width,-19.25,".source-width");
+    history(w,"Undo");independent.undo(independent.revision());source_pixels(w,independent,initial,40,-19.25,".source-width-undo");
+    history(w,"Redo");independent.redo(independent.revision());source_pixels(w,independent,initial,width,-19.25,".source-width-redo");
+    select(w,"child","child-source-top-left");check(same(w.host.session,independent),"Exact stable source point selection is full Session neutral");
+    edit_source(w,independent,{"child","child-source-top-left","x"},"-27.12567891234567",correction);
+    source_pixels(w,independent,initial,width,correction,".source-point");
+    history(w,"Undo");independent.undo(independent.revision());source_pixels(w,independent,initial,width,-19.25,".source-point-undo");
+    history(w,"Redo");independent.redo(independent.revision());source_pixels(w,independent,initial,width,correction,".source-point-redo");
+    check(w.canvas->width()==canvas_width&&named<QDockWidget>(w,"properties")->width()==dock_width,"Source task preserves standard Canvas/Properties widths");
+    const auto file=scratch+"/retained-deform-source.nect";w.host.save(file);
+    check(same(w.host.session,independent),"Native source save preserves complete Session/history");w.host.changed={};w.hide();
+    Window cold(scratch+"/source-cold");cold.host.open(file);cold.show();events();cold.canvas->fit_artboard();events();
+    Session reopened(independent.document());check(same(cold.host.session,reopened),"Fresh native Window restores complete independent authored Document with fresh Session");
+    select(cold,"child","child-source-top-left");auto* x=source_field(cold,{"child","child-source-top-left","x"});reveal(cold,x);
+    check(std::abs(x->text().toDouble()-correction)<0.0001&&x->isEnabled()&&
+        named<QCheckBox>(cold,"point-edit-enabled")->isChecked(),"Cold Point Edit field reads retained absolute source x and eligibility");
+    source_pixels(cold,reopened,initial,width,correction,".source-cold-point");
+    select(cold,"child");auto* generator=source_field(cold,{"child","","generator.width"});reveal(cold,generator);
+    check(generator->text().toDouble()==width&&generator->isEnabled(),"Cold generator field reads retained width and eligibility");
+    source_pixels(cold,reopened,initial,width,correction,".source-cold-width");
+    cold.host.changed={};cold.hide();
+}
 }
 int main(int argc,char** argv){QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());QTemporaryDir scratch;QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());app.setOrganizationName("NectTest");app.setApplicationName("FollowContext");
+    if(argc>1&&std::string(argv[1])=="--deform-source-context")try{deform_source_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Deform child/source point edits, exact linked Ref, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--deform-traversal-context")try{deform_traversal_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Group Deform normalized/reversed traversal, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--deform-context")try{deform_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Group Deform mode/axis, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     try{Window w(scratch.filePath("recovery"));w.host.session=Session(fixture());w.host.session_id="follow-context-session";w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;select(w);check(same(w.host.session,expected),"Selection Session neutral");const auto canvas=w.canvas->width(),dock=named<QDockWidget>(w,"properties")->width();attach(w,expected,true);child(w,expected);update_clear(w,expected);check(w.canvas->width()==canvas&&named<QDockWidget>(w,"properties")->width()==dock,"Standard dock/Canvas widths preserved");

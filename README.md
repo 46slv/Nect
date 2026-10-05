@@ -351,6 +351,10 @@ another object discards those drafts. Deform projects retained child geometry al
 the selected contour using X or Y as the longitudinal source axis; Tangent is a
 rigid-only option. Changing mode or axis preserves child source geometry, Point Edit,
 references, transforms and item membership, with one ordinary Undo per Apply.
+Select a deformed child or its generated point in the expanded Structure tree to
+edit its retained source in Properties. Generator size and absolute Point Edit
+coordinates reevaluate the bend and linked properties without flattening the child;
+projected Canvas point dragging still requires source editing.
 
 Transform Parent chooses a same-Composition object to follow, with Keep artwork
 in place enabled by default. Detach returns to structural inheritance. Structure
