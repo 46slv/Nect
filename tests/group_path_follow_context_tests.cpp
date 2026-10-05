@@ -368,8 +368,60 @@ void deform_source_context(const QString& scratch) {
     source_pixels(cold,reopened,initial,width,correction,".source-cold-width");
     cold.host.changed={};cold.hide();
 }
+void deform_item_pixels(Window& w,const Session& independent,const Document& initial,
+                        const GroupPathFollow& relation,const QString& suffix) {
+    auto protected_source=initial;protected_source.objects.at("group").path_follow=relation;
+    source_pixels(w,independent,protected_source,40,-19.25,suffix);
+}
+void deform_item_context(const QString& scratch) {
+    auto initial=deform_context_fixture();auto& authored=*initial.objects.at("group").path_follow;
+    authored.mode="deform";authored.deform_axis="x";
+    authored.items.at("child").distance=4.12567891234567;
+    authored.items.at("child").normal_offset=-3.12567891234567;
+    authored.items.at("second").distance=100.62567891234567;
+    authored.items.at("second").normal_offset=-30.12567891234567;
+    Window w(scratch+"/item-recovery");w.host.session=Session(initial);w.host.session_id="deform-item-context-session";
+    w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session independent(initial);
+    select(w);check(same(w.host.session,independent),"Exact Group selection for Deform items fully Session neutral");
+    const auto canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
+    auto relation=authored;
+    const auto observe=[&](const QString& suffix){deform_item_pixels(w,independent,initial,relation,suffix);};
+    const auto edit=[&](const char* name,const char* text,double value,bool distance) {
+        auto* input=named<QDoubleSpinBox>(w,name);reveal(w,input);evidence(w,".item-before.png");
+        QTest::mouseClick(input,Qt::LeftButton);QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);
+        check(same(w.host.session,independent),"Actual Deform item numeric draft is full Session neutral");
+        QTest::keyClick(input,Qt::Key_Return);events();
+        const auto before=relation;
+        auto& item=relation.items.at("child");if(distance)item.distance=value;else item.normal_offset=value;
+        independent.apply({GroupPathFollowCommand{SetGroupPathFollowItem{"group","child",item}}},independent.revision());
+        observe(distance?".item-distance":".item-offset");
+        history(w,"Undo");independent.undo(independent.revision());relation=before;observe(distance?".item-distance-undo":".item-offset-undo");
+        history(w,"Redo");independent.redo(independent.revision());
+        relation=before;if(distance)relation.items.at("child").distance=value;else relation.items.at("child").normal_offset=value;
+        observe(distance?".item-distance-redo":".item-offset-redo");
+    };
+    edit("group-path-follow-distance-child","24.875",24.875,true);
+    check(relation.items.at("child").normal_offset==authored.items.at("child").normal_offset,
+        "Distance edit preserves untouched precise normal offset rather than displayed rounding");
+    edit("group-path-follow-item-offset-child","-12.875",-12.875,false);
+    check(relation.items.at("second")==authored.items.at("second")&&
+        !named<QCheckBox>(w,"group-path-follow-tangent-child")->isEnabled(),
+        "Deform item edits preserve exact other item and rigid-only Tangent eligibility");
+    check(w.canvas->width()==canvas_width&&named<QDockWidget>(w,"properties")->width()==dock_width,"Deform item task preserves standard Canvas/Properties widths");
+    const auto file=scratch+"/retained-deform-items.nect";w.host.save(file);
+    check(same(w.host.session,independent),"Deform item native save preserves complete Session/history");w.host.changed={};w.hide();
+    Window cold(scratch+"/item-cold");cold.host.open(file);cold.show();events();cold.canvas->fit_artboard();events();Session reopened(independent.document());
+    check(same(cold.host.session,reopened),"Fresh native Window restores full independent item/source state and fresh Session");select(cold);
+    auto* distance=named<QDoubleSpinBox>(cold,"group-path-follow-distance-child");reveal(cold,distance);
+    auto* offset=named<QDoubleSpinBox>(cold,"group-path-follow-item-offset-child");reveal(cold,offset);
+    check(distance->value()==24.875&&offset->value()==-12.875&&distance->isEnabled()&&offset->isEnabled()&&
+        named<QCheckBox>(cold,"group-path-follow-item-child")->isChecked()&&
+        !named<QCheckBox>(cold,"group-path-follow-tangent-child")->isEnabled(),"Cold retained Deform item fields/membership/eligibility read back");
+    deform_item_pixels(cold,reopened,initial,relation,".item-cold");cold.host.changed={};cold.hide();
+}
 }
 int main(int argc,char** argv){QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());QTemporaryDir scratch;QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());app.setOrganizationName("NectTest");app.setApplicationName("FollowContext");
+    if(argc>1&&std::string(argv[1])=="--deform-item-context")try{deform_item_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Deform item distance/normal offset, precise untouched fields, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--deform-source-context")try{deform_source_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Deform child/source point edits, exact linked Ref, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--deform-traversal-context")try{deform_traversal_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Group Deform normalized/reversed traversal, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--deform-context")try{deform_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Group Deform mode/axis, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
