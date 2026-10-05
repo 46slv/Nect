@@ -5729,7 +5729,10 @@ void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) 
         if(x!=1||y!=1)apply(TransformAroundAnchor{id,0,x,y});});};
     connect(scale,&QPushButton::clicked,this,scale_action);connect(sx,&QLineEdit::returnPressed,this,scale_action);connect(sy,&QLineEdit::returnPressed,this,scale_action);
     auto* parent=new QPushButton(object.transform_parent?"Follows: "+qs(host.session.document().objects.at(*object.transform_parent).name):"Follow structure…");
-    parent->setObjectName("transform-parent");parent->setToolTip("Choose Transform Parent; structure still controls order and grouping.");
+    parent->setObjectName("transform-parent");
+    const QString parent_help="Choose Transform Parent; structure still controls order and grouping.";
+    parent->setToolTip(object.transform_parent?
+        QString("Current Transform Parent: %1 (%2)\n%3").arg(qs(host.session.document().objects.at(*object.transform_parent).name),qs(*object.transform_parent),parent_help):parent_help);
     parent->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);form->addRow("Parent",parent);
     connect(parent,&QPushButton::clicked,this,[this]{perform([this]{choose_transform_parent();});});
     auto* note=new QLabel("Anchor moves preserve artwork. Rotation and scale apply once about that anchor; they are not persistent formulas.");note->setWordWrap(true);note->setStyleSheet("color:#a4acb8;font-size:11px;");form->addRow(note);
