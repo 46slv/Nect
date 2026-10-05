@@ -1,6 +1,7 @@
 #include "window.hpp"
 #include "visual_style.hpp"
 #include "semantic_color_control.hpp"
+#include "semantic_point_control.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QColorDialog>
@@ -244,6 +245,115 @@ void gradient_context(const QString& scratch) {
     for(const auto& stop:gradient.stops){auto* hex=named<QLineEdit>(cold,("gradient-stop-hex-"+stop.id).c_str());reveal(cold,hex);check(hex->text()==(stop.id==first.id?"#FF0000FF":"#0000FFFF"),"Cold exact stable stop control readback");}
     check(same(cold.host.session,reopened),"Cold Gradient navigation fully neutral");pixels(cold,reopened,".gradient-cold");cold.host.changed={};cold.hide();
 }
+void gradient_handles_context(const QString& scratch) {
+    Session setup(fixture());
+    Gradient gradient;gradient.id="retained-frame";
+    gradient.start_x.literal=280;gradient.start_y.literal=180;
+    gradient.end_x.literal=320;gradient.end_y.literal=180;
+    GradientStop first,last;first.id="retained-red";last.id="retained-blue";
+    first.rgba[0].literal=1;first.rgba[3].literal=1;
+    last.offset.literal=1;last.rgba[2].literal=1;last.rgba[3].literal=1;gradient.stops={first,last};
+    auto ref=[](const char* field){return gradient_ref("tile","tile-fill","retained-frame",field);};
+    // A nonidentity source plane: world(x,y)=(510-y,x-100).
+    // The later Repeater offsets local x by 80, then shares this world transform.
+    setup.apply({SetGradient{"tile","tile-fill",gradient},
+        Link{ref("end_y"),{ref("start_y"),1,0,"copy_local_value"}},
+        Set{{"tile","","op.tile-fill.a"},1},
+        Set{{"tile","","transform.a"},0},Set{{"tile","","transform.b"},1},
+        Set{{"tile","","transform.c"},-1},Set{{"tile","","transform.d"},0},
+        Set{{"tile","","transform.tx"},510},Set{{"tile","","transform.ty"},-100}},setup.revision());
+    const auto initial=setup.document();Window w(scratch+"/handles-recovery");
+    w.host.session=Session(initial);w.host.session_id="retained-handles-session";w.host.edited();w.show();events();
+    w.canvas->fit_artboard();events();Session expected=w.host.session;select(w);
+    const auto canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
+    check(same(w.host.session,expected),"Handle context selection fully neutral");
+    check(!named<QPushButton>(w,"gradient-point-edit-tile-fill-end")->isEnabled(),"Existing driven End pair remains disabled");
+    auto pair=[&]() {
+        auto* button=named<QPushButton>(w,"gradient-point-edit-tile-fill-start");reveal(w,button);
+        QTest::mouseClick(button,Qt::LeftButton);events();
+        auto* dialog=named<QDialog>(w,"semantic-gradient-point-dialog");
+        return named<SemanticPointInput>(*dialog,"semantic-gradient-point-input");
+    };
+    auto* input=pair();draft(input->x_input(),"281.125");draft(input->y_input(),"179.875");
+    check(same(w.host.session,expected),"Paired local XY draft fully neutral");
+    QTest::mouseClick(input->cancel_button(),Qt::LeftButton);events();
+    check(same(w.host.session,expected),"Paired local XY Cancel preserves full state");
+    input=pair();draft(input->x_input(),"281.125");draft(input->y_input(),"179.875");
+    QTest::mouseClick(input->apply_button(),Qt::LeftButton);events();
+    expected.apply({Set{ref("start_x"),281.125},Set{ref("start_y"),179.875}},expected.revision());canonical(w,expected);
+    retained(initial,w.host.session.document());
+    auto* handles=named<QPushButton>(w,"gradient-handles-tile-fill");reveal(w,handles);
+    QTest::mouseClick(handles,Qt::LeftButton);events();
+    check(w.canvas->gradient_operation()=="tile-fill"&&w.canvas->gradient_edit_mode()&&same(w.host.session,expected),"Actual Inspector activates exact retained-source handles neutrally");
+    w.canvas->set_snap_enabled(false);
+    const QTransform source(0,1,-1,0,510,-100);
+    auto view=[](Window& window){const double z=window.canvas->zoom();return QTransform(z,0,0,z,window.canvas->width()/2.0-320*z,window.canvas->height()/2.0-240*z);};
+    auto screen=[&](Window& window,const QPointF& world){return view(window).map(world).toPoint();};
+    auto pixels=[&](Window& window,const Session& oracle,const QString& stage) {
+        const auto& d=oracle.preview_document();const auto& g=*d.objects.at("tile").stack.front().gradient;
+        const double sx=g.start_x.literal,ex=g.end_x.literal;
+        const auto image=Canvas::render_artboard(window.host.session.preview_document(),"comp","art",1,false);
+        check(image==Canvas::render_artboard(d,"comp","art",1,false),"Preview/committed complete artwork equals independent canonical projection");
+        const auto canvas=window.canvas->grab().toImage();
+        // Pixel centers transformed back independently: world pixel(336,x-100)
+        // corresponds to local(x+0.5,173.5), with local Repeater translation removed.
+        for(const int copy:{0,80})for(const int x:{300,310}) {
+            const auto world=QPoint(336,x+copy-100);const double t=std::clamp((x+0.5-sx)/(ex-sx),0.0,1.0);
+            const QColor analytical(qRound(255*(1-t)),0,qRound(255*t));
+            auto near=[&](const QColor& c,int tolerance){return std::abs(c.red()-analytical.red())<=tolerance&&c.green()==0&&std::abs(c.blue()-analytical.blue())<=tolerance&&c.alpha()==255;};
+            check(near(image.pixelColor(world),3),"Independent transformed source and virtual-copy Gradient pixels");
+            const auto p=screen(window,world);const auto visible=canvas.pixelColor(qRound(p.x()*canvas.devicePixelRatio()),qRound(p.y()*canvas.devicePixelRatio()));
+            check(near(visible,10),"Actual Canvas transformed source and virtual-copy Gradient pixels");
+        }
+        check(image.pixelColor(520,440)==QColor(Qt::blue)&&image.pixelColor(20,20).alpha()==0,"Linked other artwork and transparent background retained");
+        const auto prefix=qEnvironmentVariable("NECT_PAINT_CONTEXT_EVIDENCE");
+        if(!prefix.isEmpty())check(image.save(prefix+stage+".artwork.png"),"Handle artwork evidence saved");evidence(window,stage);
+    };
+    pixels(w,expected,".handles-before");
+    auto begin=[&](const QPoint& delta) {
+        const auto& g=*expected.document().objects.at("tile").stack.front().gradient;
+        const QPointF local(g.start_x.literal,g.start_y.literal);
+        const QPoint press=screen(w,source.map(local)),finish=press+delta;
+        check(w.canvas->rect().contains(press)&&w.canvas->rect().contains(finish),"Source handle and gesture end inside actual Canvas");
+        // Predict local values from authored source matrix + measured viewport,
+        // never by reading the actual endpoint result or derived Canvas transform.
+        const auto inverse_view=view(w).inverted(),inverse_source=source.inverted();
+        const auto target=local+inverse_source.map(inverse_view.map(QPointF(finish)))-inverse_source.map(inverse_view.map(QPointF(press)));
+        const std::vector<Command> commands{Set{ref("start_x"),target.x()},Set{ref("start_y"),target.y()}};
+        QTest::mousePress(w.canvas,Qt::LeftButton,Qt::NoModifier,press);events();expected.begin_gesture(expected.revision());
+        check(same(w.host.session,expected),"Handle press equals complete independent Session gesture baseline");
+        QTest::mouseMove(w.canvas,finish);events();expected.update_gesture(commands);
+        check(same(w.host.session,expected),"Handle move equals independent local XY preview/full History/generation");
+        check(w.host.session.document()==expected.document()&&w.host.session.document()!=expected.preview_document(),"Preview changes projected Gradient only, authored Document remains fixed");
+        retained(initial,w.host.session.preview_document());
+        check(w.host.session.preview_document().objects.at("tile").transform==initial.objects.at("tile").transform,"Preview preserves complete authored source transform");
+        return finish;
+    };
+    auto finish=begin(QPoint(24,18));pixels(w,expected,".handles-preview");
+    QTest::keyClick(w.canvas,Qt::Key_Escape);events();expected.cancel_gesture();
+    check(same(w.host.session,expected)&&w.canvas->gradient_operation()=="tile-fill","Escape cancels complete preview and retains exact source handle target");
+    QTest::mouseRelease(w.canvas,Qt::LeftButton,Qt::NoModifier,finish);events();
+    check(same(w.host.session,expected),"Release after Cancel remains fully neutral");pixels(w,expected,".handles-cancelled");
+    finish=begin(QPoint(32,16));pixels(w,expected,".handles-commit-preview");
+    QTest::mouseRelease(w.canvas,Qt::LeftButton,Qt::NoModifier,finish);events();expected.commit_gesture();canonical(w,expected);
+    retained(initial,w.host.session.document());
+    check(w.host.session.document().objects.at("tile").transform==initial.objects.at("tile").transform,"Handle commit keeps exact source transform");
+    check(property(w.host.session.document(),ref("end_y")).binding==property(initial,ref("end_y")).binding,"Existing end_y driver remains exact");
+    pixels(w,expected,".handles-committed");
+    check(w.canvas->width()==canvas_width&&named<QDockWidget>(w,"properties")->width()==dock_width,"Handle workflow preserves standard pane and Canvas widths");
+    const auto native=scratch+"/retained-handles.nect";w.host.save(native);
+    check(same(w.host.session,expected),"Handle native save fully Session neutral");w.host.changed={};w.hide();
+    Window cold(scratch+"/handles-cold");cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();
+    check(cold.host.session.document()==expected.document()&&encode(cold.host.session.document())==encode(expected.document()),"Cold full native source/Gradient/stops/drivers/Refs/paint/Repeater/Artboard equality");
+    const auto reopened=cold.host.session;select(cold);retained(initial,reopened.document());
+    const auto& saved=*expected.document().objects.at("tile").stack.front().gradient;
+    for(const auto& [key,value]:{std::pair{"start_x",saved.start_x.literal},std::pair{"start_y",saved.start_y.literal}}) {
+        auto* control=field(cold,ref(key).field.c_str());reveal(cold,control);
+        check(std::abs(control->text().toDouble()-value)<1e-5,"Cold local endpoint controls read back authored handle coordinates");
+    }
+    check(named<QPushButton>(cold,"gradient-point-edit-tile-fill-start")->isEnabled()&&!named<QPushButton>(cold,"gradient-point-edit-tile-fill-end")->isEnabled(),"Cold literal Start/driven End pair eligibility preserved");
+    check(same(cold.host.session,reopened),"Cold handle context navigation fully neutral");pixels(cold,reopened,".handles-cold");cold.host.changed={};cold.hide();
+}
 void paint_order_context(const QString& scratch) {
     Session setup(fixture());auto red=color(setup,"tile-fill"),green=color(setup,"tile-stroke");
     red.rgba={1,0,0,1};green.rgba={0,1,0,1};
@@ -289,6 +399,9 @@ int main(int argc,char** argv) {
     app.setOrganizationName("NectTest");app.setApplicationName("PaintContext");
     try {
         check(scratch.isValid(),"Owned scratch");
+        if(app.arguments().contains("--gradient-handles-context")) {
+            gradient_handles_context(scratch.path());std::cout<<"PASS "<<checks<<" standard-pane retained Gradient local/world handles; physical/subjective input NOT_RUN\n";return 0;
+        }
         if(app.arguments().contains("--gradient-context")) {
             gradient_context(scratch.path());std::cout<<"PASS "<<checks<<" standard-pane retained Gradient authoring; physical/subjective input NOT_RUN\n";return 0;
         }
