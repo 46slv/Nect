@@ -515,6 +515,11 @@ accepted pixels available for editing, export and recovery.
 **Fit width to Artboard** replaces Width and Height using the accepted image's
 aspect ratio in one Undo, including when a dimension field has an unfinished
 draft. Cancelling the button press keeps that draft.
+**Reload** and **Embed accepted image** finish an unfinished dimension through
+the ordinary property edit before updating the asset on the same click. Undo
+reverses the asset action first, then the dimension edit. A cancelled button press
+keeps the draft; an invalid dimension blocks the asset action. If Reload cannot
+read the link, the committed dimension remains and accepted pixels stay intact.
 
 **Library → Folder Library…** registers selected local folders for hierarchical
 browse, search and explicit Refresh. Choose a PNG/JPEG item to Place Linked or

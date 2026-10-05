@@ -80,6 +80,98 @@ void draft_fit(const QString& scratch) {
     reveal(cold,field(cold,"image.width"));check(field(cold,"image.width")->text().toDouble()==640&&field(cold,"image.height")->text().toDouble()==320,
         "Cold source controls read canonical fitted dimensions");painted(cold,reopened,QColor(200,100,40),".draft-fit-cold");cold.host.changed={};cold.hide();
 }
+bool same_asset_session(const Session& a,const Session& b){return same(a,b)&&a.can_undo()==b.can_undo()&&a.can_redo()==b.can_redo();}
+void draft_asset_action(const QString& scratch,bool embed=false) {
+    const QString tag=embed?"draft-embed":"draft-reload";
+    const auto path=scratch+"/"+tag+"-reference.png";
+    const auto original=png(200,100,40),replacement=png(30,190,220,30,30);write(path,original);
+    const auto initial=fixture(path,original);Window w(scratch+"/"+tag+"-recovery");w.host.session=Session(initial);
+    w.host.session_id="image-draft-reload-session";w.host.edited();w.show();events();w.canvas->fit_artboard();events();
+    Session expected(initial);select(w);auto* reload=named<QPushButton>(w,embed?"image-embed":"image-reload");reveal(w,reload);
+    auto* width=field(w,"image.width");reveal(w,width);
+    auto* area=named<QScrollArea>(w,"inspector-scroll");
+    check(area->viewport()->rect().contains(QRect(reload->mapTo(area->viewport(),QPoint()),reload->size())),"Asset action and Width simultaneously reachable");
+    write(path,replacement);QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"160");
+    check(width->hasFocus()&&width->isModified()&&same_asset_session(w.host.session,expected),"Draft-to-asset action remains full Session neutral before click");
+    const QPointer<QLineEdit> pending_width=width;
+    QTest::mousePress(reload,Qt::LeftButton);QTest::mouseRelease(reload,Qt::LeftButton,Qt::NoModifier,QPoint(-4,-4));events();
+    check(pending_width&&pending_width->isModified()&&pending_width->text()=="160"&&same_asset_session(w.host.session,expected),"Cancelled asset action press preserves complete Session and pending Width");
+    evidence(w,"."+tag+"-before.png");QTest::mouseClick(reload,Qt::LeftButton);events();
+    std::cout<<"First "<<tag.toStdString()<<" width="<<w.host.session.document().objects.at("image").image->width.literal
+             <<" payload="<<w.host.session.document().raster_assets.at("asset").payload->width()<<"x"
+             <<w.host.session.document().raster_assets.at("asset").payload->height()<<" mode="<<w.host.session.document().raster_assets.at("asset").mode<<" revision="<<w.host.session.revision()<<std::endl;
+    evidence(w,"."+tag+"-after.png");
+    expected.apply({EditProperties{{{"image","","image.width"}},160,false}},expected.revision());
+    auto accepted=expected.document().raster_assets.at("asset");
+    if(embed){accepted.mode="embedded";accepted.locator.clear();}else accepted.payload=make_raster(replacement);
+    expected.apply({ReplaceRasterAsset{accepted}},expected.revision());
+    check(same_asset_session(w.host.session,expected),
+        "First asset action click commits ordinary pending Width then exact accepted asset with complete independent Session/History");
+    auto protected_source=initial;protected_source.objects.at("image").image->width.literal=160;protected_source.raster_assets.at("asset")=accepted;
+    check(w.host.session.document()==protected_source&&encode(w.host.session.document())==encode(protected_source),
+        "Asset action preserves complete per-placement source/transforms/paint/Artboards except pending Width and shared accepted payload");
+    const QColor accepted_color=embed?QColor(200,100,40):QColor(30,190,220);
+    painted(w,expected,accepted_color,"."+tag);
+    history(w,"Undo");expected.undo(expected.revision());check(same_asset_session(w.host.session,expected),"Asset action Undo restores original asset while retaining committed Width");
+    history(w,"Undo");expected.undo(expected.revision());check(same_asset_session(w.host.session,expected)&&w.host.session.document()==initial,"Next Undo restores exact initial source");
+    history(w,"Redo");expected.redo(expected.revision());history(w,"Redo");expected.redo(expected.revision());check(same_asset_session(w.host.session,expected),"Both Redos restore full accepted source/history");
+    const auto native=scratch+"/"+tag+".nect";w.host.save(native);check(same_asset_session(w.host.session,expected),"Asset action native save full Session neutral");w.host.changed={};w.hide();
+    Window cold(scratch+"/"+tag+"-cold");cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();select(cold);Session reopened(expected.document());
+    check(same_asset_session(cold.host.session,reopened),"Fresh native Window restores complete accepted asset source");
+    reveal(cold,field(cold,"image.width"));check(field(cold,"image.width")->text().toDouble()==160&&field(cold,"image.height")->text().toDouble()==60,
+        "Asset action cold controls retain committed per-placement dimensions");painted(cold,reopened,accepted_color,"."+tag+"-cold");cold.host.changed={};cold.hide();
+}
+void draft_asset_guards(const QString& scratch,bool embed=false) {
+    const char* action=embed?"image-embed":"image-reload";
+    const auto path=scratch+"/reload-guards.png";const auto original=png(200,100,40);write(path,original);
+    Window w(scratch+"/reload-guards-recovery");w.host.session=Session(fixture(path,original));w.host.session_id="reload-guards-session";
+    w.host.edited();w.show();events();select(w);
+    auto* reload=named<QPushButton>(w,action);reveal(w,reload);auto* width=field(w,"image.width");reveal(w,width);
+    QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"160");Session expected=w.host.session;
+    QTest::mousePress(reload,Qt::LeftButton);QTest::mouseRelease(reload,Qt::LeftButton,Qt::NoModifier,QPoint(-4,-4));events();
+    check(same_asset_session(w.host.session,expected)&&width->isModified(),"Cancelled asset action retains pending ordinary draft");
+    QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_Return);events();expected.apply({EditProperties{{{"image","","image.width"}},160,false}},expected.revision());
+    canonical(w,expected);check(w.host.session.can_undo()==expected.can_undo()&&w.host.session.can_redo()==expected.can_redo(),"Cancelled asset action resumed Enter retains full Undo eligibility");
+    auto* stale=named<QPushButton>(w,action);w.host.session.apply({Set{{"copy","","image.height"},65}},w.host.session.revision());Session external=w.host.session;
+    stale->click();check(same_asset_session(w.host.session,external),"Old asset action rejects external revision without adopting it");w.host.edited();events();
+    stale=named<QPushButton>(w,action);w.host.session_id="different-session";stale->click();check(same_asset_session(w.host.session,external),"Asset action refuses another Session");w.host.session_id="reload-guards-session";
+    w.host.session.begin_gesture(w.host.session.revision());Session active=w.host.session;stale->click();check(same_asset_session(w.host.session,active),"Asset action refuses active external gesture and preserves preview");
+    w.host.edited();events();auto* preview_born=named<QPushButton>(w,action);w.host.session.cancel_gesture();Session cancelled=w.host.session;
+    preview_born->click();check(same_asset_session(w.host.session,cancelled),"Preview-born asset action remains ineligible after cancellation at same revision/generation");w.host.edited();events();
+    reload=named<QPushButton>(w,action);reveal(w,reload);width=field(w,"image.width");reveal(w,width);
+    QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"-3");Session refused=w.host.session;
+    QTest::mouseClick(reload,Qt::LeftButton);events();check(same_asset_session(w.host.session,refused),"Invalid dimension refuses asset acceptance with complete Session unchanged");
+    w.host.edited();events();reload=named<QPushButton>(w,action);reveal(w,reload);width=field(w,"image.width");reveal(w,width);
+    QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"+=40");expected=w.host.session;
+    check(QFile::remove(path),"Remove only owned link");QTest::mouseClick(reload,Qt::LeftButton);events();
+    expected.apply({EditProperties{{{"image","","image.width"}},40,true}},expected.revision());
+    if(embed){auto asset=expected.document().raster_assets.at("asset");asset.mode="embedded";asset.locator.clear();expected.apply({ReplaceRasterAsset{asset}},expected.revision());}
+    canonical(w,expected);check(w.host.session.document().raster_assets.at("asset").payload->sha256()==make_raster(original)->sha256(),
+        "Missing-link asset action keeps accepted bytes and the independently committed relative dimension");w.host.changed={};w.hide();
+}
+void draft_asset_scalar_forms(const QString& scratch,bool embed=false) {
+    const auto path=scratch+"/asset-scalar-forms.png";const auto original=png(200,100,40),replacement=png(30,190,220,30,30);write(path,original);
+    const auto initial=fixture(path,original);write(path,replacement);
+    for(const auto& text:{"120","=120 + 40"}) {
+        Window w(scratch+"/scalar-form-recovery");w.host.session=Session(initial);w.host.session_id="asset-scalar-forms";
+        w.host.edited();w.show();events();select(w);auto* button=named<QPushButton>(w,embed?"image-embed":"image-reload");reveal(w,button);
+        auto* width=field(w,"image.width");reveal(w,width);QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,text);
+        Session expected(initial);QTest::mouseClick(button,Qt::LeftButton);events();
+        if(text[0]=='=')expected.apply({SetExpression{{{"image","","image.width"}},{"120 + 40",1},false}},expected.revision());
+        else expected.apply({EditProperties{{{"image","","image.width"}},120,false}},expected.revision());
+        auto asset=expected.document().raster_assets.at("asset");if(embed){asset.mode="embedded";asset.locator.clear();}else asset.payload=make_raster(replacement);
+        expected.apply({ReplaceRasterAsset{asset}},expected.revision());
+        std::cout<<"Scalar draft "<<text<<" actualRevision="<<w.host.session.revision()<<" expectedRevision="<<expected.revision()
+                 <<" fullDocument="<<(w.host.session.document()==expected.document())<<std::endl;
+        check(same_asset_session(w.host.session,expected),"Asset action preserves exact expression source or no-op dimension with independent full Session");
+        canonical(w,expected);w.host.changed={};w.hide();
+    }
+    Session driven(initial);driven.apply({Link{{"image","","image.width"},{{"copy","","image.width"},1,0,"copy_local_value"}}},driven.revision());
+    Window w(scratch+"/driven-asset-recovery");w.host.session=driven;w.host.session_id="driven-asset-session";w.host.edited();w.show();events();select(w);
+    auto* button=named<QPushButton>(w,embed?"image-embed":"image-reload");reveal(w,button);auto* width=field(w,"image.width");reveal(w,width);
+    QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"160");QTest::mouseClick(button,Qt::LeftButton);events();
+    check(same_asset_session(w.host.session,driven),"Driven dimension refusal preserves complete binding/source/accepted asset/History atomically");w.host.changed={};w.hide();
+}
 void draft_fit_guards(const QString& scratch) {
     const auto path=scratch+"/guard-reference.png";const auto original=png(200,100,40);write(path,original);
     Window resumed(scratch+"/cancelled-draft-recovery");resumed.host.session=Session(fixture(path,original));resumed.host.session_id="image-cancelled-fit-session";
@@ -113,6 +205,8 @@ void draft_fit_guards(const QString& scratch) {
 }
 }
 int main(int argc,char** argv){QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());QTemporaryDir scratch(qEnvironmentVariable("NECT_IMAGE_CONTEXT_SCRATCH",QDir::tempPath())+"/image-context-XXXXXX");QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());app.setOrganizationName("NectTest");app.setApplicationName("ImageContext");
+    if(argc>1&&std::string(argv[1])=="--draft-reload")try{check(scratch.isValid(),"Owned draft-reload scratch");draft_asset_action(scratch.path());draft_asset_guards(scratch.path());draft_asset_scalar_forms(scratch.path());std::cout<<"PASS "<<checks<<" Image direct draft-to-Reload/cancel/context/scalar guards/full accepted source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
+    if(argc>1&&std::string(argv[1])=="--draft-embed")try{check(scratch.isValid(),"Owned draft-embed scratch");draft_asset_action(scratch.path(),true);draft_asset_guards(scratch.path(),true);draft_asset_scalar_forms(scratch.path(),true);std::cout<<"PASS "<<checks<<" Image direct draft-to-Embed/cancel/context/scalar guards/full accepted source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--draft-fit")try{check(scratch.isValid(),"Owned draft-fit scratch");draft_fit(scratch.path());draft_fit_guards(scratch.path());std::cout<<"PASS "<<checks<<" Image direct draft-to-Fit click/cancelled press/genuine context guards/full source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     try{check(scratch.isValid(),"Owned scratch");const auto path=scratch.filePath("shared-reference-v01.png");const auto original=png(200,100,40),replacement=png(30,190,220,30,30);write(path,original);Window w(scratch.filePath("recovery"));w.host.session=Session(fixture(path,original));w.host.session_id="image-context-session";w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;select(w);check(same(w.host.session,expected),"Selection fully Session neutral");const auto canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
         number(w,expected,"image.width","160",160);number(w,expected,"image.height","90",90);click(w,"image-fit-width");expected.apply({Set{{"image","","image.width"},640},Set{{"image","","image.height"},320}},expected.revision());canonical(w,expected);painted(w,expected,QColor(200,100,40),".fit");

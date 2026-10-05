@@ -5836,11 +5836,33 @@ void Window::add_image_properties(QVBoxLayout* layout,const Object& object) {
     }
     const auto operation=[&](const QString& label,const char* action) {
         auto* button=new QPushButton(label);button->setObjectName("image-"+QString::fromLatin1(action));form->addRow(button);
-        connect(button,&QPushButton::clicked,this,[this,identity,revision,id,action=std::string(action)]{perform([&]{
+        const bool finish_dimension=std::string_view(action)=="reload"||std::string_view(action)=="embed";
+        if(finish_dimension)button->setProperty("nect-image-source-action-object",qs(object.id));
+        connect(button,&QPushButton::clicked,this,[this,identity,revision,id,dimensions,fit_gesture,fit_preview,
+            document_id=host.session.document().id,finish_dimension,action=std::string(action)]{perform([&]{
+            if(finish_dimension) {
+                if(host.session_id!=identity||host.session.document().id!=document_id)
+                    throw Error("SESSION_CONFLICT","Image belongs to another document");
+                if(host.session.revision()!=revision||host.session.gesture_generation()!=fit_gesture)
+                    throw Error("REVISION_CONFLICT","Image changed; reopen its Properties");
+                if(fit_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                // Keep the button alive through its pointer gesture, then finish
+                // the ordinary scalar edit. Only that exact successful commit
+                // may advance this action's frozen revision.
+                for(const auto& input:dimensions)if(input&&input->isModified()) {
+                    input->setProperty("nect-image-draft-committed-revision",QVariant{});
+                    input->editingFinished();
+                    const auto committed=input?input->property("nect-image-draft-committed-revision"):QVariant{};
+                    if(!committed.isValid())return;
+                    if(host.session_id!=identity||host.session.document().id!=document_id||
+                       host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=fit_gesture||host.session.gesture_active())
+                        throw Error("REVISION_CONFLICT","Image changed while finishing its dimension draft");
+                }
+            }
             QString path;
             if(action=="relink") {path=QFileDialog::getOpenFileName(this,"Relink Image",{},"PNG / JPEG (*.png *.jpg *.jpeg)");if(path.isEmpty())return;}
             if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
-            host.update_asset(id,action,path,revision);
+            host.update_asset(id,action,path,finish_dimension?host.session.revision():revision);
         });});
     };
     if(asset.mode=="linked") {operation("Reload from link","reload");operation("Embed accepted image","embed");}
@@ -9904,15 +9926,20 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
         input_session,input_document,input_revision,input_gesture,input_preview] {
         if(!input->isModified()) return;
-        // The explicit Image Fit click supersedes both dimensions; committing
-        // this blur would rebuild away its button or stale its frozen revision.
+        // Image actions finish their own pointer gesture before handling the
+        // dimension draft; blur must not rebuild away the pressed button.
         const auto* focus=QApplication::focusWidget();
         if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
-           focus->property("nect-image-fit-object").toString()==qs(ref.object)&&
+           (focus->property("nect-image-fit-object").toString()==qs(ref.object)||
+            focus->property("nect-image-source-action-object").toString()==qs(ref.object))&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         input->setModified(false);
         const bool keep_focus=input->hasFocus();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
         const auto frozen_session=host.session_id;
+        const auto record_image_dimension_commit=[&] {
+            if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height"))
+                input->setProperty("nect-image-draft-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+        };
         perform([&]{
             if(host.session_id!=input_session||host.session.document().id!=input_document)
                 throw Error("SESSION_CONFLICT","This property draft belongs to another document");
@@ -9926,15 +9953,19 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             if(host.session.revision()!=field_revision)throw Error("REVISION_CONFLICT","These properties changed elsewhere; reopen the Inspector");
             auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");
             if(text.startsWith('=')) {
-                try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);host.edited();}
+                try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);
+                    record_image_dimension_commit();host.edited();}
                 catch(const Error& e){if(e.code=="REVISION_CONFLICT"||e.code=="SESSION_CONFLICT")throw;expand(text);input->setText(input->property("nect-exact-value").toBool()?QString::number(inspector_values_.at(ref),'g',17):display_value(inspector_values_.at(ref)));}
                 return;
             }
             auto value=(relative?text.mid(2):text).toDouble(&valid);if(relative&&text.startsWith("-="))value=-value;
             if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number, += / -= adjustment, or =expression");
             if(input->property("nect-semantic-key").isValid()&&!relative&&
-               std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return inspector_values_.at(target)==value;}))return;
-            canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},field_revision);host.edited();
+               std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return inspector_values_.at(target)==value;})) {
+                record_image_dimension_commit();return;
+            }
+            canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},field_revision);
+            record_image_dimension_commit();host.edited();
             if(keep_focus)QTimer::singleShot(0,this,[this,target_data,scroll,frozen_session]{
                 if(host.session_id!=frozen_session)return;
                 for(auto* current:inspector_->findChildren<QLineEdit*>())if(current->isVisible()&&current->property("nect-targets").toByteArray()==target_data) {
