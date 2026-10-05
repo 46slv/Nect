@@ -2601,6 +2601,9 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         if(!name->isModified())return;name->setModified(false);
         perform([&]{auto board=read();board.name=name->text().toStdString();apply({UpdateArtboard{composition,board}});});
     });
+    const auto numeric_document=host.session.document().id;
+    const auto numeric_gesture=host.session.gesture_generation();
+    const auto numeric_preview=host.session.gesture_active();
     auto number=[&](const char* key,const QString& label,double Artboard::* member) {
         auto* input=new QLineEdit(display_value(resolved.*member));input->setObjectName(QString("artboard-")+key);
         input->setAccessibleName(label);form->addRow(label,input);
@@ -2616,9 +2619,20 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 "Typing a size creates a local override. Use Inherit below to reset to the parent size.");
         }
         else input->setToolTip("Crop position only; this does not move any artwork.");
-        connect(input,&QLineEdit::editingFinished,this,[this,input,composition,read,apply,member,key=std::string(key)]{
+        connect(input,&QLineEdit::editingFinished,this,[this,input,composition,read,apply,member,key=std::string(key),
+            frozen_session,frozen_revision,numeric_document,numeric_gesture,numeric_preview]{
             if(!input->isModified())return;input->setModified(false);
-            perform([&]{bool valid=false;const auto value=input->text().trimmed().toDouble(&valid);
+            perform([&]{
+                // Hiding a focused field during refresh can finish its old draft.
+                // Validate the original context before reading the current Artboard.
+                if(host.session_id!=frozen_session||host.session.document().id!=numeric_document)
+                    throw Error("SESSION_CONFLICT","Frame numeric draft belongs to another document");
+                if(host.session.revision()!=frozen_revision||host.session.gesture_generation()!=numeric_gesture)
+                    throw Error("REVISION_CONFLICT","Frame edit context changed; edit it again");
+                // Cancel keeps revision/generation, so preview-born fields remain ineligible.
+                if(numeric_preview||host.session.gesture_active())
+                    throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                bool valid=false;const auto value=input->text().trimmed().toDouble(&valid);
                 if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite frame coordinate or size");
                 auto board=read();
                 if(board.template_assignment&&(key=="width"||key=="height")) {

@@ -364,6 +364,10 @@ The Artboards list selects a frame and its Composition. Add/Duplicate places a
 frame to the right; up/down changes export order without moving artwork. Edit
 active frame exposes crop coordinates and dimensions, with independent width/
 height overrides of a same-Composition parent. Detach keeps the current size.
+Frame numeric drafts belong to the document and edit context where they opened.
+Refresh, another edit or preview cancellation discards an obsolete draft; a
+field opened during a preview cannot commit after that preview ends. Fresh
+X/Y edits change only the crop; size edits keep the existing inheritance rules.
 Fit focuses the active frame; View > Fit all artboards shows that Composition.
 SVG export uses the active frame. CLI callers can use
 `nect --svg <composition-id> <artboard-id>` with native JSON on stdin.
