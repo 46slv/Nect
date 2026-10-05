@@ -368,6 +368,113 @@ void deform_source_context(const QString& scratch) {
     source_pixels(cold,reopened,initial,width,correction,".source-cold-width");
     cold.host.changed={};cold.hide();
 }
+std::vector<DeformOraclePoint> guide_source_oracle(const GroupPathFollow& relation,const Id& id,double middle_x) {
+    // Authored guide A=(100,150), B=(middle_x,150), C=(200,350).
+    // Neither evaluated guide samples nor projected child points enter this oracle.
+    const double first_length=middle_x-100,second_length=std::hypot(200-middle_x,200);
+    const Vec2 tangent{(200-middle_x)/second_length,200/second_length};
+    const Vec2 normal{-tangent.y,tangent.x};
+    const bool child=id=="child";
+    const std::vector<Vec2> anchors=child?std::vector<Vec2>{{-19.25,-8},{20,-8},{20,8},{-20,8}}:
+        std::vector<Vec2>{{-10,32},{10,32},{10,48},{-10,48}};
+    const std::vector<std::string> roles={"top-left","top-right","bottom-right","bottom-left"};
+    std::vector<DeformOraclePoint> result;
+    for(std::size_t i=0;i<anchors.size();++i) {
+        auto source=anchors[i];if(child){source.x+=16;source.y+=16;}
+        const auto& item=relation.items.at(id);
+        const double distance=relation.start+item.distance+source.x;
+        const double offset=relation.normal_offset+item.normal_offset+source.y;
+        const Vec2 world=distance<first_length?Vec2{100+distance,150+offset}:
+            Vec2{middle_x+tangent.x*(distance-first_length)+normal.x*offset,
+                 150+tangent.y*(distance-first_length)+normal.y*offset};
+        result.push_back({(child?"child-source-":"second-source-")+roles[i],anchors[i],world,{world.y,500-world.x}});
+    }
+    return result;
+}
+void guide_source_pixels(Window& w,const Session& independent,const Document& initial,double middle_x,const QString& suffix) {
+    check(same(w.host.session,independent),"Guide source edit equals full independent Session/native/History/preview/generation");
+    auto expected=initial;expected.objects.at("guide").contours.front().points.at(1).x.literal=middle_x;
+    check(w.host.session.document()==expected&&encode(w.host.session.document())==encode(expected),
+        "Only exact guide contour middle source X changes; complete other contour/decoy/relation/items/children/Point Edit/Refs/transforms/paint/order/Artboards retained");
+    const auto& relation=*initial.objects.at("group").path_follow;
+    const auto values=evaluate(w.host.session.document());
+    check(values.at({"guide",contour_a+"1","x"})==middle_x&&values.at({"other","","generator.width"})==19.25,
+        "Exact guide source and protected linked child-source Ref retain independent values");
+    const auto scene=evaluate_scene(w.host.session.document(),"comp",values,evaluate_transforms(w.host.session.document(),values));
+    const auto image=Canvas::render_artboard(w.host.session.document(),"comp","art",1,false);
+    check(image==Canvas::render_artboard(independent.document(),"comp","art",1,false),"Guide source artwork equals complete independent canonical renderer");
+    const auto canvas=w.canvas->grab().toImage();
+    const auto sample=[&](QPointF probe) {
+        const QPoint pixel(qRound(w.canvas->width()/2.0+(probe.x()-320)*w.canvas->zoom()),
+                           qRound(w.canvas->height()/2.0+(probe.y()-240)*w.canvas->zoom()));
+        return canvas.pixelColor(qRound(pixel.x()*canvas.devicePixelRatio()),qRound(pixel.y()*canvas.devicePixelRatio()));
+    };
+    for(const Id id:{"child","second"}) {
+        const auto predicted=guide_source_oracle(relation,id,middle_x);
+        const auto& actual=scene.deformation_points.at(id);
+        check(actual.size()==predicted.size()&&scene.deformation_owners.at(id)=="group","Guide edit preserves stable retained child topology and Group owner");
+        QPainterPath polygon;polygon.moveTo(predicted.front().world.x,predicted.front().world.y);QPointF center;
+        for(std::size_t i=0;i<predicted.size();++i) {
+            const auto& p=predicted[i];const auto near=[](Vec2 a,Vec2 b){return std::hypot(a.x-b.x,a.y-b.y)<1e-7;};
+            check(values.at({id,p.id,"x"})==p.source.x&&values.at({id,p.id,"y"})==p.source.y,
+                "Guide editing preserves independently authored retained child source anchors");
+            check(actual[i].id==p.id&&near(actual[i].anchor,p.local)&&near(actual[i].incoming,p.local)&&near(actual[i].outgoing,p.local),
+                "Guide source edit reevaluates independent piecewise distance/tangent/normal, child affine and inverse Group anchors/controls");
+            check(near(map_point(scene.geometry_worlds.at(id),actual[i].anchor),p.world),"Changed guide consumes final Group world exactly once");
+            polygon.lineTo(p.world.x,p.world.y);
+        }
+        polygon.closeSubpath();
+        // The initial red polygon's centroid is the selected guide bend itself.
+        // Use its authored left-side interior, away from guide selection overlays.
+        for(std::size_t i=0;i<predicted.size();++i) {
+            const double weight=i==0||i==3?0.4:0.1;
+            center+=QPointF(predicted[i].world.x*weight,predicted[i].world.y*weight);
+        }
+        for(const QPointF probe:{center,center+QPointF(2,0),center+QPointF(0,2)}) {
+            check(polygon.contains(probe),"Independent changed-guide polygon contains interior probe");
+            const QColor color=id=="child"?QColor(Qt::red):QColor(Qt::green);
+            check(image.pixelColor(qFloor(probe.x()),qFloor(probe.y()))==color,"Independent changed-guide child interior pixel");
+            const auto visible=sample(probe);
+            if(visible!=color) {
+                std::cout<<"Guide Canvas probe "<<id<<" at "<<probe.x()<<","<<probe.y()<<" expected "<<color.name().toStdString()
+                         <<" actual "<<visible.name().toStdString()<<" zoom "<<w.canvas->zoom()<<std::endl;
+                evidence(w,".guide-probe-failure.png");
+            }
+            check(visible==color,"Actual Canvas displays independent changed-guide child interior pixel");
+        }
+    }
+    check(image.pixelColor(520,100)==QColor(Qt::blue)&&image.pixelColor(526,100)==QColor(Qt::blue)&&
+        image.pixelColor(533,100).alpha()==0&&image.pixelColor(20,20).alpha()==0&&sample({520,100})==QColor(Qt::blue),
+        "Guide edit retains independent linked-other source/edge pixels and transparent background");
+    const auto prefix=qEnvironmentVariable("NECT_FOLLOW_CONTEXT_EVIDENCE");
+    if(!prefix.isEmpty())check(image.save(prefix+suffix+".artwork.png"),"Guide-source artwork evidence saved");
+    evidence(w,suffix+".png");check(same(w.host.session,independent),"Guide source geometry/pixel observations remain full Session neutral");
+}
+void deform_guide_source_context(const QString& scratch) {
+    auto initial=deform_context_fixture();initial.objects.at("group").path_follow->mode="deform";
+    initial.objects.at("group").path_follow->deform_axis="x";
+    Window w(scratch+"/guide-source-recovery");w.host.session=Session(initial);w.host.session_id="deform-guide-source-context-session";
+    w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session independent(initial);
+    const Ref middle{"guide",contour_a+"1","x"};
+    select(w,middle.object,middle.point);check(same(w.host.session,independent),"Exact invisible guide contour point selection is fully Session neutral");
+    const auto canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
+    auto* input=source_field(w,middle);reveal(w,input);check(input->text().toDouble()==200,"Existing enabled guide source X reads authored coordinate");
+    guide_source_pixels(w,independent,initial,200,".guide-before");
+    constexpr double middle_x=240.125;
+    edit_source(w,independent,middle,"240.125",middle_x);
+    guide_source_pixels(w,independent,initial,middle_x,".guide-edited");
+    history(w,"Undo");independent.undo(independent.revision());guide_source_pixels(w,independent,initial,200,".guide-undo");
+    history(w,"Redo");independent.redo(independent.revision());guide_source_pixels(w,independent,initial,middle_x,".guide-redo");
+    check(w.canvas->width()==canvas_width&&named<QDockWidget>(w,"properties")->width()==dock_width,"Guide source task preserves standard Canvas/Properties widths");
+    const auto file=scratch+"/retained-deform-guide-source.nect";w.host.save(file);
+    check(same(w.host.session,independent),"Guide source native save preserves complete Session/history");w.host.changed={};w.hide();
+    Window cold(scratch+"/guide-source-cold");cold.host.open(file);cold.show();events();cold.canvas->fit_artboard();events();
+    Session reopened(independent.document());check(same(cold.host.session,reopened),"Fresh native Window restores complete independent guide/child source with fresh Session");
+    select(cold,middle.object,middle.point);input=source_field(cold,middle);reveal(cold,input);
+    check(input->text().toDouble()==middle_x&&input->isEnabled()&&!cold.host.session.document().objects.at("guide").visible,
+        "Cold native exact invisible guide source field reads retained coordinate and edit eligibility");
+    guide_source_pixels(cold,reopened,initial,middle_x,".guide-cold");cold.host.changed={};cold.hide();
+}
 void deform_item_pixels(Window& w,const Session& independent,const Document& initial,
                         const GroupPathFollow& relation,const QString& suffix) {
     auto protected_source=initial;protected_source.objects.at("group").path_follow=relation;
@@ -421,6 +528,7 @@ void deform_item_context(const QString& scratch) {
 }
 }
 int main(int argc,char** argv){QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());QTemporaryDir scratch;QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());app.setOrganizationName("NectTest");app.setApplicationName("FollowContext");
+    if(argc>1&&std::string(argv[1])=="--deform-guide-source-context")try{deform_guide_source_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Deform external guide source point edit, independent changed tangent/normal child geometry/pixels and complete native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--deform-item-context")try{deform_item_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Deform item distance/normal offset, precise untouched fields, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--deform-source-context")try{deform_source_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Deform child/source point edits, exact linked Ref, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--deform-traversal-context")try{deform_traversal_context(qEnvironmentVariable("NECT_FOLLOW_CONTEXT_SCRATCH",scratch.path()));std::cout<<"PASS standard-pane retained Group Deform normalized/reversed traversal, analytical geometry/pixels and native/Undo; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}

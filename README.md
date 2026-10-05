@@ -355,6 +355,9 @@ Select a deformed child or its generated point in the expanded Structure tree to
 edit its retained source in Properties. Generator size and absolute Point Edit
 coordinates reevaluate the bend and linked properties without flattening the child;
 projected Canvas point dragging still requires source editing.
+Select the guide Path's point in Structure to edit its source coordinates in
+Properties, including an invisible guide. Its changed contour reevaluates the
+retained children while their source geometry and Path Follow settings stay editable.
 
 Transform Parent chooses a same-Composition object to follow, with Keep artwork
 in place enabled by default. Detach returns to structural inheritance. Structure
