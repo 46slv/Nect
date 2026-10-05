@@ -2083,7 +2083,10 @@ void Window::rebuild_effects_panel() {
     const auto effect_name=entry?entry->text():QStringLiteral("Unavailable effect");
     const bool macro_effect=effect_type.startsWith("macro:");
     const bool matches=entry&&!entry->isHidden();
-    effects_apply_->setText("Apply "+effect_name);
+    // Macro labels are authored text. Give the action its own line so adding
+    // another card (and a vertical scrollbar) keeps the whole button reachable.
+    effects_apply_->setText((macro_effect?QStringLiteral("Apply\n"):QStringLiteral("Apply "))+effect_name);
+    effects_apply_->setAccessibleName("Apply "+effect_name);
     if(auto* empty=effects_dock_->findChild<QLabel*>("effects-no-results")) {
         empty->setVisible(!matches);
         if(!first_match)empty->setText("No supported effect matches “"+query+"”.");
@@ -2152,9 +2155,18 @@ void Window::rebuild_effects_panel() {
             const auto panel_target_label=effects_target_->text();
             const auto card_title=operation.macro?operation_name+" · Macro revision v"+
                 QString::number(operation.macro->pinned_revision):operation_name+" · behavior v"+QString::number(operation.version);
-            auto* card=new QGroupBox(card_title,effects_operations_);
+            // Authored Macro names must not force every Effects control wider
+            // than the standard pane. Keep the complete caption in a wrapped row.
+            auto* card=new QGroupBox(operation.macro?QString{}:card_title,effects_operations_);
             card->setObjectName("effects-operation-"+qs(operation.id));
             auto* card_layout=new QVBoxLayout(card);
+            if(operation.macro) {
+                card->setAccessibleName(card_title);
+                auto* caption=new QLabel(card_title,card);
+                caption->setObjectName("effects-operation-caption-"+qs(operation.id));
+                caption->setTextFormat(Qt::PlainText);caption->setWordWrap(true);
+                card_layout->addWidget(caption);
+            }
             auto* identity=new QLabel("Instance ID: "+qs(operation.id),card);
             identity->setObjectName("effects-operation-id-"+qs(operation.id));
             identity->setTextFormat(Qt::PlainText);identity->setWordWrap(true);card_layout->addWidget(identity);
