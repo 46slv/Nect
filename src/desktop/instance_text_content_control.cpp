@@ -2,7 +2,7 @@
 #include "host.hpp"
 #include <QComboBox>
 #include <QGroupBox>
-#include <QHBoxLayout>
+#include <QGridLayout>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -91,7 +91,7 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
     editor->setAccessibleName("Local Text content draft for this Instance");
     editor->setToolTip("Starts from current occurrence content, including local upstream Text links. Typing edits a draft; Apply local writes only this Instance's selected Text content.");
     layout->addWidget(editor);
-    auto* row=new QHBoxLayout;
+    auto* row=new QGridLayout;
     auto* apply=new QPushButton("Apply local",box);apply->setObjectName("instance-text-content-apply");
     apply->setToolTip("Sets a literal content override in one Undo step. Unchanged inherited text can be frozen locally; source links remain unchanged.");
     auto* cancel=new QPushButton("Cancel draft",box);cancel->setObjectName("instance-text-content-cancel");
@@ -100,7 +100,9 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
     clear->setToolTip("Makes the draft explicitly empty. Apply local commits empty content; this does not reset inheritance.");
     auto* reset=new QPushButton("Use Source",box);reset->setObjectName("instance-text-content-reset");
     reset->setToolTip("Removes only the selected Text's local override and follows its current source content.");
-    row->addWidget(apply);row->addWidget(cancel);row->addWidget(clear);row->addWidget(reset);layout->addLayout(row);
+    // Keep complete action labels reachable at the standard Properties width.
+    row->addWidget(apply,0,0);row->addWidget(cancel,0,1);
+    row->addWidget(clear,1,0);row->addWidget(reset,1,1);layout->addLayout(row);
     auto* note=new QLabel("Descendant Text only. Source content links stay intact. Unsupported Text-on-Path line breaks are refused on Apply.",box);
     note->setTextFormat(Qt::PlainText);note->setWordWrap(true);layout->addWidget(note);
     auto* status=new QLabel(box);status->setObjectName("instance-text-content-error");

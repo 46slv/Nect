@@ -82,6 +82,10 @@ int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch
         w.host.edited();w.resize(1280,900);w.show();w.activateWindow();events();select_frame(w,"target");
         auto& s=w.host.session;s.apply({Rename{"text","Existing history"}},s.revision());w.host.edited();events();
         auto* area=w.findChild<QScrollArea*>("inspector-scroll");auto* horizontal=area->horizontalScrollBar();
+        // Give the scroll area an explicit oversized inspector fixture. This
+        // exercises genuine overflow independently of the repaired Text row.
+        area->setWidgetResizable(false);
+        area->widget()->resize(area->viewport()->width()+80,area->widget()->height());events();
         check(horizontal->isVisible()&&horizontal->maximum()>0,"Fixture exposes actual Properties horizontal overflow");
         horizontal->setFocus();QTest::keyClick(horizontal,Qt::Key_End);events();const auto manual_horizontal=horizontal->value();
         check(manual_horizontal>0,"Actual keyboard scroll moves the Properties viewport right");
@@ -119,7 +123,11 @@ int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch
         check(cold.host.session.document()==saved,"Fresh Window native reopen retains exact source IDs");select_frame(cold,"target");const Snapshot cold_state(cold.host.session);const auto cold_zoom=cold.canvas->zoom();
         button=entry(cold);button->setFocus();events();QTest::keyClick(button,Qt::Key_Space);events();reached(cold,cold_state,cold_zoom);
         auto* cold_horizontal=cold.findChild<QScrollArea*>("inspector-scroll")->horizontalScrollBar();
+        auto* cold_area=cold.findChild<QScrollArea*>("inspector-scroll");
+        cold_area->setWidgetResizable(false);
+        cold_area->widget()->resize(cold_area->viewport()->width()+80,cold_area->widget()->height());events();
         cold_horizontal->setFocus();QTest::keyClick(cold_horizontal,Qt::Key_End);events();
+        check(cold_horizontal->value()>0,"Reopened overflow fixture gives back-to-back reset a real manual offset");
         const Snapshot queued(cold.host.session);
         cold.canvas->set_active_artboard("composition","target",false);cold.host.edited();events();
         check(queued.unchanged(cold.host.session)&&cold_horizontal->value()==0,"Back-to-back new-frame refresh retains queued left-edge reset without Session mutation");

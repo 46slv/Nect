@@ -231,6 +231,9 @@ Selecting one whole Instance exposes **Scalar overrides → Set… / Reset…** 
 Properties. These open the existing source-item/field chooser, edit only that
 Instance and preserve shared Definition source. Reset is available when a local
 Scalar override exists; Undo restores the previous override or inheritance.
+**Item Text content** keeps Apply local, Cancel draft, Clear draft and Use Source
+in two rows within the standard Properties pane. Clear proposes an explicit empty
+draft; Apply commits it locally. Use Source removes only that Text's local override.
 **Shared Definition → Go to source** selects that Definition's existing source
 root and reveals it in Structure. Navigation changes selection only; subsequent
 source edits affect every Instance of that Definition. Finish or cancel a preview
