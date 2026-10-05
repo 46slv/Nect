@@ -328,6 +328,12 @@ Add → Polygon / Star exposes center, point count, rotation and radii. Count is
 normal linkable integer property. Point edits follow stable angular roles; a
 count change that would remove an edited/referenced vertex rejects atomically.
 Reset point edits explicitly removes corrections in one undoable command.
+Clicking Reset first commits an ordinary pending point value; Cancel keeps that
+value, while confirming Reset adds a separate undoable edit. Reset keeps the
+generator, stable point IDs, incoming point references and appearance stack;
+referenced points follow their generated fallback. A confirmation from an older
+document, revision or gesture context is refused without changing the incoming
+Session. Reopen Reset to review the current corrections.
 `examples/polystar-field.nect` combines linked counts, a retained point edit,
 Repeater, gradient, named colors and editable Text; recreate it with
 `scripts/create_polystar_demo.py --endpoint <name> --output <file.nect>`.

@@ -5339,9 +5339,14 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             connect(reset,&QPushButton::clicked,this,[this,id=o.id,frozen_session=host.session_id,field_count]{perform([&]{
                 if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
                 const auto before=host.session.revision();
+                const auto document=host.session.document().id;
+                const auto generation=host.session.gesture_generation();
                 const auto choice=QMessageBox::question(this,"Reset point edits",QString("Remove all %1 point/handle overrides and their bindings? The generator and appearance stay editable. This is one undoable edit.").arg(field_count),QMessageBox::Reset|QMessageBox::Cancel,QMessageBox::Cancel);
                 if(choice!=QMessageBox::Reset)return;
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Document changed while reviewing Point Edit reset");
+                if(host.session_id!=frozen_session||host.session.document().id!=document)
+                    throw Error("SESSION_CONFLICT","Document changed while reviewing Point Edit reset");
+                if(host.session.revision()!=before||host.session.gesture_generation()!=generation||host.session.gesture_active())
+                    throw Error("REVISION_CONFLICT","The document changed. Reopen Reset point edits to review the current corrections.");
                 canvas->cancel_interaction();host.session.apply({ClearPointEdit{id}},before);host.edited();
             });});
         }

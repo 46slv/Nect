@@ -10,6 +10,7 @@
 #include <QJsonDocument>
 #include <QLineEdit>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
@@ -19,6 +20,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTreeWidget>
+#include <QTimer>
 #include <cmath>
 #include <iostream>
 
@@ -230,6 +232,100 @@ void conversion_context(const QString& scratch,const QString& mode) {
     }
     w.host.changed={};w.hide();
 }
+void reset_context(const QString& scratch,const QString& mode) {
+    const auto base_prefix=qEnvironmentVariable("NECT_PRIMITIVE_CONTEXT_EVIDENCE");
+    if(!base_prefix.isEmpty())qputenv("NECT_PRIMITIVE_CONTEXT_EVIDENCE",(base_prefix+"."+mode).toUtf8());
+    Window w(scratch+"/reset-recovery");w.host.session=Session(fixture());w.host.session_id="primitive-reset-session";
+    w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;
+    const Id point="star-source-outer-1-5";select(w,"star",point);
+    auto* reset=named<QPushButton>(w,"point-edit-reset");reveal(w,reset);
+    auto* x=field(w,"star","x",point);reveal(w,x);
+    QTest::mouseClick(x,Qt::LeftButton);QTest::keyClick(x,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(x,"240");
+    check(same(w.host.session,expected),"Reset pending point x is fully Session neutral");
+    reveal(w,reset);
+    bool observed=false;std::exception_ptr callback_error;QTimer modal_timer;modal_timer.setInterval(10);
+    QObject::connect(&modal_timer,&QTimer::timeout,&w,[&] {
+        auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        if(!box||box->parentWidget()!=&w||box->windowTitle()!="Reset point edits")return;
+        modal_timer.stop();observed=true;
+        try {
+            check(box->parentWidget()==&w&&box->windowTitle()=="Reset point edits"&&
+                box->standardButtons()==(QMessageBox::Reset|QMessageBox::Cancel),"Owned actual synchronous Reset modal");
+            expected.apply({EditProperties{{{"star",point,"x"}},240,false}},expected.revision());
+            std::cout<<"Reset review actual revision="<<w.host.session.revision()<<" expected="<<expected.revision()<<std::endl;
+            check(same(w.host.session,expected),"First Reset click completes only canonical ordinary point edit");
+            evidence(w,".reset-review");
+            const auto prefix=qEnvironmentVariable("NECT_PRIMITIVE_CONTEXT_EVIDENCE");
+            if(!prefix.isEmpty())check(box->grab().save(prefix+".reset-dialog.png"),"Actual Reset dialog saved");
+            if(mode=="session")w.host.session_id="incoming-reset-session";
+            else if(mode=="document") {
+                auto incoming=expected.document();incoming.id="incoming-reset-document";
+                w.host.session=Session(incoming);expected=Session(incoming);
+                w.host.session.apply({EditProperties{{{"polygon","","generator.radius"}},65,false}},0);
+                expected.apply({EditProperties{{{"polygon","","generator.radius"}},65,false}},0);
+            } else if(mode=="revision") {
+                w.host.session.apply({EditProperties{{{"polygon","","generator.radius"}},65,false}},w.host.session.revision());
+                expected.apply({EditProperties{{{"polygon","","generator.radius"}},65,false}},expected.revision());
+            } else if(mode=="generation") {
+                w.host.session.begin_gesture(w.host.session.revision());w.host.session.cancel_gesture();
+                expected.begin_gesture(expected.revision());expected.cancel_gesture();
+            } else if(mode=="preview") {
+                w.host.session.begin_gesture(w.host.session.revision());expected.begin_gesture(expected.revision());
+                w.host.session.update_gesture({EditProperties{{{"polygon","","generator.radius"}},65,false}});
+                expected.update_gesture({EditProperties{{{"polygon","","generator.radius"}},65,false}});
+            } else check(mode=="accept"||mode=="cancel","Known Reset mode");
+            check(same(w.host.session,expected),"Incoming Reset state independently established before confirmation");
+            QTest::mouseClick(box->button(mode=="cancel"?QMessageBox::Cancel:QMessageBox::Reset),Qt::LeftButton);
+        } catch(...) {callback_error=std::current_exception();box->reject();}
+    });
+    QTimer watchdog;watchdog.setSingleShot(true);
+    QObject::connect(&watchdog,&QTimer::timeout,&w,[&] {
+        callback_error=std::make_exception_ptr(std::runtime_error("Owned Reset modal observation timed out"));
+        for(auto* box:w.findChildren<QMessageBox*>())if(box->isVisible()&&box->windowTitle()=="Reset point edits")box->reject();
+        modal_timer.stop();
+    });
+    modal_timer.start();watchdog.start(4000);QTest::mouseClick(reset,Qt::LeftButton);watchdog.stop();modal_timer.stop();events();
+    if(callback_error)std::rethrow_exception(callback_error);
+    check(observed,"First pointer click observed actual Reset review");evidence(w,".reset-after");
+    if(mode=="cancel") {
+        check(same(w.host.session,expected),"Reset Cancel preserves only the ordinary scalar edit");
+        canonical(w,expected);paint(w,expected,".reset-cancel");
+        history(w,"Undo");expected.undo(expected.revision());
+        check(same(w.host.session,expected)&&expected.document()==fixture(),"Cancel scalar Undo restores original complete fixture");
+    } else if(mode=="accept") {
+        const auto source=expected.document().objects.at("star").source;
+        const auto topology=path_contours(expected.document().objects.at("star"));
+        auto fallback=expected.document();fallback.objects.at("star").point_edit.reset();
+        const double generated_x=evaluate(fallback).at({"star",point,"x"});
+        expected.apply({ClearPointEdit{"star"}},expected.revision());
+        check(same(w.host.session,expected),"Explicit Reset equals complete independent ClearPointEdit Session");
+        const auto& star=expected.document().objects.at("star");
+        check(star.source==source&&!star.point_edit&&star.contours.empty(),"Reset retains full generator and removes only correction");
+        const auto after=path_contours(star);check(after.front().id==topology.front().id&&after.front().points.size()==topology.front().points.size(),"Reset retains generated contour and topology");
+        for(std::size_t i=0;i<topology.front().points.size();++i)
+            check(after.front().points[i].id==topology.front().points[i].id,"Reset retains each stable generated point ID");
+        check(evaluate(expected.document()).at({"star",point,"x"})==generated_x&&generated_x!=240,"Reset shows independently evaluated generator fallback");
+        check(expected.document().objects.at("other").source->parameters.at("width").binding->source==Ref{"star",point,"x"}&&
+            evaluate(expected.document()).at({"other","","generator.width"})==generated_x*0.1,"Incoming stable point Ref follows fallback without retargeting");
+        canonical(w,expected);paint(w,expected,".reset-accepted");
+        const auto native=scratch+"/reset.nect";w.host.save(native);check(same(w.host.session,expected),"Reset native save Session neutral");
+        const auto refresh=w.host.changed;
+        w.host.changed={};w.hide();Window cold(scratch+"/reset-cold");cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();
+        check(cold.host.session.document()==expected.document()&&encode(cold.host.session.document())==encode(expected.document()),"Fresh native complete reset source/stable refs/stack/other Artboards readback");
+        select(cold,"star",point);check(field(cold,"star","x",point)->text()==QString::number(generated_x,'g',12),"Fresh exact point field shows generator fallback in normal display precision");
+        paint(cold,cold.host.session,".reset-cold");cold.host.changed={};cold.hide();w.host.changed=refresh;w.show();events();
+        history(w,"Undo");expected.undo(expected.revision());check(same(w.host.session,expected)&&evaluate(expected.document()).at({"star",point,"x"})==240,"Separate Reset Undo restores scalar-edited correction");
+        history(w,"Undo");expected.undo(expected.revision());check(same(w.host.session,expected)&&expected.document()==fixture(),"Separate scalar Undo restores original complete source/correction fixture");
+        history(w,"Redo");expected.redo(expected.revision());
+        check(same(w.host.session,expected),"Separate scalar Redo restores full scalar-edited correction Session");
+        history(w,"Redo");expected.redo(expected.revision());
+        check(same(w.host.session,expected),"Separate scalar and Reset Redo restore complete accepted Session");
+    } else {
+        check(same(w.host.session,expected),"Stale Reset confirmation preserves incoming complete Session");
+        check(w.statusBar()->currentMessage().contains(mode=="document"||mode=="session"?"SESSION_CONFLICT":"REVISION_CONFLICT"),"Incoming Reset reports explicit context conflict");
+    }
+    w.host.changed={};w.hide();
+}
 void point_context(const QString& scratch) {
     Window w(scratch+"/point-recovery");w.host.session=Session(fixture());w.host.session_id="primitive-point-context-session";
     w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;
@@ -273,6 +369,10 @@ int main(int argc,char** argv) {
     app.setOrganizationName("NectTest");app.setApplicationName("PrimitiveContext");
     try {
         check(scratch.isValid(),"Owned scratch");
+        for(const auto& mode:{"cancel","accept","session","document","revision","generation","preview"})if(app.arguments().contains(QString("--reset-")+mode)) {
+            reset_context(scratch.path(),mode);
+            std::cout<<"PASS "<<checks<<" retained point reset contextual review; physical/subjective input NOT_RUN\n";return 0;
+        }
         for(const auto& mode:{"cancel","accept","session","document","revision","generation","preview"})if(app.arguments().contains(QString("--conversion-")+mode)) {
             conversion_context(scratch.path(),mode);
             std::cout<<"PASS "<<checks<<" retained conversion contextual review; physical/subjective input NOT_RUN\n";return 0;
