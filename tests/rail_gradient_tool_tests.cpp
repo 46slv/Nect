@@ -113,9 +113,7 @@ void hex_context() {
         "External HEX Redo restores complete incoming source");
     const auto commit=[&](const char* text,const std::array<double,4>& rgba) {
         const HexSnapshot before(session);auto input=draft(text);before.unchanged(session);
-        // Qt 6 exposes normalized sRGB components as float. Match that public representation exactly.
-        auto expected_rgba=rgba;for(auto& component:expected_rgba)component=static_cast<float>(component);
-        Session oracle(before.document);oracle.apply(commands(expected_rgba),oracle.revision());
+        Session oracle(before.document);oracle.apply(commands(rgba),oracle.revision());
         QTest::keyClick(input,Qt::Key_Return);events();
         check(session.document()==oracle.document()&&session.preview_document()==oracle.document()&&encode(session.document())==encode(oracle.document())&&
             session.revision()==before.revision+1&&session.history().states.size()==before.history.states.size()+1,
@@ -124,7 +122,9 @@ void hex_context() {
         check(session.document()==before.document&&encode(session.document())==before.native,"HEX Undo restores complete previous source");
         history("Redo");check(session.document()==after.document&&encode(session.document())==after.native,"HEX Redo restores complete edited source");
     };
-    commit("#33669980",{51/255.0,102/255.0,153/255.0,128/255.0});
+    // Changed Qt channels use its normalized float representation. The displayed
+    // blue byte remains 0x99, so its authored incoming double 0.6 must stay exact.
+    commit("#33669980",{static_cast<float>(51/255.0),static_cast<float>(102/255.0),0.6,static_cast<float>(128/255.0)});
     const auto native=scratch.filePath("hex.nect");const HexSnapshot saved(session);window.host.save(native);events();saved.unchanged(session);
     window.host.open(native);events();
     check(session.document()==saved.document&&encode(session.document())==saved.native&&session.revision()==0&&session.history().states.size()==1,
@@ -141,7 +141,7 @@ void hex_context() {
         "Canonical cancel retains revision/generation with a focused preview-born HEX draft");
     window.host.edited();events();cancelled.unchanged(session);
     check(session.document()==saved.document,"Preview cancellation/refresh retains complete native-restored source");
-    commit("#102030",{16/255.0,32/255.0,48/255.0,1});
+    commit("#102030",{static_cast<float>(16/255.0),static_cast<float>(32/255.0),static_cast<float>(48/255.0),1});
     const HexSnapshot before_reload(session);auto reload_old=draft("#DEADBEEF");before_reload.unchanged(session);
     const auto old_session=window.host.session_id;
     check(reload_old&&reload_old->hasFocus()&&reload_old->isModified(),"Same-ID native reload begins with unfinished HEX draft focused");

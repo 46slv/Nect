@@ -8416,7 +8416,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         row_layout->addWidget(hex);row_layout->addWidget(remove);stop_form->addRow("sRGB",row);
         stop_form->addRow(color_tools_->menu_button(ref("color")));
         connect(hex,&QLineEdit::editingFinished,this,[this,hex,id,op,gradient_id,stop_id,apply,
-            frozen_session,hex_document,hex_revision,hex_gesture,hex_preview]{
+            frozen_session,hex_document,hex_revision,hex_gesture,hex_preview,displayed_color=color]{
             if(!hex->isModified())return;hex->setModified(false);
             perform([&]{
                 // Refresh hides the old focused input. Refuse its draft before reading current channels.
@@ -8426,14 +8426,25 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                     throw Error("REVISION_CONFLICT","Gradient color changed; edit it again");
                 // Cancel retains revision/generation, so a preview-born form must also refuse after cancel.
                 if(hex_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
-                const auto color=parse_hex_color(hex->text());const auto values=evaluate(host.session.document());
+                const auto text=hex->text().trimmed();
+                const bool opaque_alpha=(text.startsWith('#')?text.size()-1:text.size())==6;
+                const auto color=parse_hex_color(text);const auto values=evaluate(host.session.document());
                 const std::array<double,4> rgba{color.redF(),color.greenF(),color.blueF(),color.alphaF()};
+                const std::array<int,4> edited_bytes{color.red(),color.green(),color.blue(),color.alpha()};
+                const std::array<int,4> displayed_bytes{displayed_color.red(),displayed_color.green(),displayed_color.blue(),displayed_color.alpha()};
                 const std::array<std::string,4> fields{"r","g","b","a"};std::vector<Command> commands;
                 for(std::size_t i=0;i<fields.size();++i) {
                     const auto ref=gradient_ref(id,op,gradient_id,"stop."+stop_id+"."+fields[i]);
-                    if(std::abs(values.at(ref)-rgba[i])>1e-8)commands.push_back(Set{ref,rgba[i]});
+                    // HEX is a rounded display; editing one byte must not quantize the others.
+                    if((edited_bytes[i]!=displayed_bytes[i]||(i==3&&opaque_alpha))&&values.at(ref)!=rgba[i])commands.push_back(Set{ref,rgba[i]});
                 }
-                if(!commands.empty())apply(commands);
+                if(!commands.empty()) {
+                    for(const auto& field:fields) {
+                        const auto scalar=nect::property(host.session.document(),gradient_ref(id,op,gradient_id,"stop."+stop_id+"."+field));
+                        if(scalar.binding||scalar.expression)throw Error("DRIVEN_PROPERTY","Unlink driven color channels before replacing the color");
+                    }
+                    apply(commands);
+                }
             });
         });
         connect(remove,&QPushButton::clicked,this,[this,id,op,stop_id,apply]{perform([&]{

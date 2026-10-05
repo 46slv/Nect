@@ -148,6 +148,102 @@ void paint(Window& w,const Session& expected,const QString& suffix) {
     }
     const auto prefix=qEnvironmentVariable("NECT_PAINT_CONTEXT_EVIDENCE");if(!prefix.isEmpty())check(image.save(prefix+suffix+".artwork.png"),"Artwork evidence saved");evidence(w,suffix);
 }
+void gradient_context(const QString& scratch) {
+    const auto initial=fixture();Window w(scratch+"/gradient-recovery");
+    w.host.session=Session(initial);w.host.session_id="retained-gradient-session";w.host.edited();w.show();events();w.canvas->fit_artboard();events();
+    Session expected=w.host.session;select(w);check(same(w.host.session,expected),"Gradient selection fully Session neutral");
+    auto current_gradient=[](const Document& d) {
+        for(const auto& operation:d.objects.at("tile").stack)if(operation.id=="tile-fill")return operation.gradient;
+        throw std::runtime_error("Missing exact tile Fill");
+    };
+    const auto canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
+    auto choose=[&](int index) {
+        auto* c=named<QComboBox>(w,"gradient-mode-tile-fill");reveal(w,c);
+        check(std::abs(index-c->currentIndex())==1,"Adjacent actual Paint mode option");
+        const auto key=index>c->currentIndex()?Qt::Key_Down:Qt::Key_Up;QTest::mouseClick(c,Qt::LeftButton);
+        QTest::keyClick(c,key);QTest::keyClick(c,Qt::Key_Return);events();
+    };
+    choose(1);
+    // Bind only generated component identities; compute all authored values independently.
+    const auto actual=current_gradient(w.host.session.document());
+    check(actual&&actual->stops.size()==2,"Contextual retained-source Gradient created");
+    Gradient gradient;gradient.id=actual->id;gradient.start_x.literal=280;gradient.start_y.literal=180;
+    gradient.end_x.literal=320;gradient.end_y.literal=180;
+    GradientStop first,last;first.id=actual->stops[0].id;last.id=actual->stops[1].id;last.offset.literal=1;
+    const auto fallback=color(expected,"tile-fill");
+    for(std::size_t n=0;n<3;++n){first.rgba[n].literal=fallback.rgba[n];last.rgba[n].literal=fallback.rgba[n]+(1-fallback.rgba[n])*0.6;}
+    first.rgba[3].literal=1;last.rgba[3].literal=1;gradient.stops={first,last};
+    expected.apply({SetGradient{"tile","tile-fill",gradient}},expected.revision());canonical(w,expected);retained(initial,expected.document());
+    auto ref=[&](const std::string& suffix){return gradient_ref("tile","tile-fill",gradient.id,suffix);};
+    auto suffix=[&](const Id& stop,const char* channel){return "stop."+stop+"."+channel;};
+    // Owned pre-existing endpoint source must survive stop and mode edits.
+    const Link endpoint_source{ref("end_y"),{ref("start_y"),1,0,"copy_local_value"}};
+    w.host.session.apply({endpoint_source},w.host.session.revision());expected.apply({endpoint_source},expected.revision());w.host.edited();events();
+    check(same(w.host.session,expected),"Owned Gradient endpoint driver fixture full equality");
+    auto* paired_end=named<QPushButton>(w,"gradient-point-edit-tile-fill-end");
+    check(!paired_end->isEnabled(),"Driven endpoint retains explicit paired-editor refusal");
+    const auto alpha_property=ref(suffix(first.id,"a")).field;
+    number(w,expected,alpha_property.c_str(),"0.3456789123456789",0.3456789123456789);
+    auto hex_stop=[&](const Id& stop,const QString& text,const std::vector<Command>& commands) {
+        auto* input=named<QLineEdit>(w,("gradient-stop-hex-"+stop).c_str());reveal(w,input);draft(input,text);
+        check(same(w.host.session,expected),"Stop HEX draft fully neutral");QTest::keyClick(input,Qt::Key_Return);events();
+        if(commands.empty())check(same(w.host.session,expected),"Displayed stop HEX noop preserves exact doubles and complete History");
+        else {expected.apply(commands,expected.revision());canonical(w,expected);}
+    };
+    auto* input=named<QLineEdit>(w,("gradient-stop-hex-"+first.id).c_str());
+    const auto displayed=input->text();hex_stop(first.id,displayed,{});
+    hex_stop(first.id,"#FF"+displayed.mid(3),{Set{ref(suffix(first.id,"r")),1}});
+    check(color_value(expected.document(),ref(suffix(first.id,"color")),evaluate(expected.document())).rgba[1]==fallback.rgba[1],"One stop channel preserves exact unedited green");
+    hex_stop(first.id,"#FF"+displayed.mid(3,4),{Set{ref(suffix(first.id,"a")),1}});
+    hex_stop(first.id,"#FF0000FF",{Set{ref(suffix(first.id,"g")),0},Set{ref(suffix(first.id,"b")),0}});
+    hex_stop(last.id,"#0000FFFF",{Set{ref(suffix(last.id,"r")),0},Set{ref(suffix(last.id,"g")),0},Set{ref(suffix(last.id,"b")),1}});
+    number(w,expected,"op.tile-fill.a","1",1);
+    auto change_mode=[&](int index,const char* type,bool enabled) {
+        choose(index);gradient=*current_gradient(expected.document());gradient.type=type;gradient.enabled=enabled;
+        expected.apply({SetGradient{"tile","tile-fill",gradient}},expected.revision());canonical(w,expected);retained(initial,expected.document());
+    };
+    change_mode(2,"radial",true);change_mode(1,"linear",true);change_mode(0,"linear",false);change_mode(1,"linear",true);
+    check(color(expected,"tile-fill").rgba[0]==fallback.rgba[0]&&color(expected,"tile-fill").rgba[1]==fallback.rgba[1]&&color(expected,"tile-fill").rgba[2]==fallback.rgba[2],"Mode changes preserve exact solid fallback RGB");
+    auto* add=named<QPushButton>(w,"gradient-stop-add-tile-fill");reveal(w,add);QTest::mouseClick(add,Qt::LeftButton);events();
+    const auto added=current_gradient(w.host.session.document());
+    check(added&&added->stops.size()==3,"Actual stop insertion in retained context");
+    gradient=*current_gradient(expected.document());
+    GradientStop middle;middle.id=added->stops.back().id;middle.offset.literal=0.5;middle.rgba[0].literal=0.5;middle.rgba[2].literal=0.5;middle.rgba[3].literal=1;
+    gradient.stops.push_back(middle);expected.apply({SetGradient{"tile","tile-fill",gradient}},expected.revision());canonical(w,expected);
+    const auto middle_property=ref(suffix(middle.id,"offset")).field;number(w,expected,middle_property.c_str(),"0.6",0.6);
+    auto* remove=named<QPushButton>(w,("gradient-stop-remove-"+middle.id).c_str());reveal(w,remove);QTest::mouseClick(remove,Qt::LeftButton);events();
+    gradient=*current_gradient(expected.document());gradient.stops.pop_back();
+    expected.apply({SetGradient{"tile","tile-fill",gradient}},expected.revision());canonical(w,expected);
+    check(gradient.stops[0].id==first.id&&gradient.stops[1].id==last.id,"Original stop IDs and vector order retained");
+    // The authored frame is local to the corrected source, copied by the later Repeater.
+    const auto end_property=ref("end_x").field;number(w,expected,end_property.c_str(),"340",340);
+    number(w,expected,end_property.c_str(),"320",320);
+    auto pixels=[&](Window& window,const Session& independent,const QString& stage) {
+        const auto image=Canvas::render_artboard(window.host.session.document(),"comp","art",1,false);
+        check(image==Canvas::render_artboard(independent.document(),"comp","art",1,false),"Gradient complete artwork equals independent canonical projection");
+        const auto canvas=window.canvas->grab().toImage();
+        for(const int copy:{0,80})for(const int x:{288,312}) {
+            const double t=(x+0.5-280)/40.0;const QColor analytical(qRound(255*(1-t)),0,qRound(255*t));
+            auto near=[&](const QColor& c){return std::abs(c.red()-analytical.red())<=3&&c.green()==0&&std::abs(c.blue()-analytical.blue())<=3&&c.alpha()==255;};
+            check(near(image.pixelColor(x+copy,180)),"Independent linear interpolation repeats the local Gradient field");
+            const QPoint screen(qRound(window.canvas->width()/2.0+(x+copy-320)*window.canvas->zoom()),qRound(window.canvas->height()/2.0+(180-240)*window.canvas->zoom()));
+            const auto visible=canvas.pixelColor(qRound(screen.x()*canvas.devicePixelRatio()),qRound(screen.y()*canvas.devicePixelRatio()));
+            check(std::abs(visible.red()-analytical.red())<=8&&visible.green()==0&&std::abs(visible.blue()-analytical.blue())<=8,"Actual Canvas shows independently expected source and virtual-copy Gradient");
+        }
+        check(image.pixelColor(520,440)==QColor(Qt::blue)&&image.pixelColor(20,20).alpha()==0,"Unrelated artwork and transparency retained");
+        const auto prefix=qEnvironmentVariable("NECT_PAINT_CONTEXT_EVIDENCE");if(!prefix.isEmpty())check(image.save(prefix+stage+".artwork.png"),"Gradient artwork evidence saved");evidence(window,stage);
+    };
+    retained(initial,w.host.session.document());pixels(w,expected,".gradient-edited");
+    check(w.canvas->width()==canvas_width&&named<QDockWidget>(w,"properties")->width()==dock_width,"Gradient preserves standard pane and Canvas widths");
+    const auto native=scratch+"/retained-gradient.nect";w.host.save(native);check(same(w.host.session,expected),"Gradient native save fully neutral");w.host.changed={};w.hide();
+    Window cold(scratch+"/gradient-cold");cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();
+    check(cold.host.session.document()==expected.document()&&encode(cold.host.session.document())==encode(expected.document()),"Cold full Gradient/source/correction/Refs/stack/Artboard/native equality");
+    const Session reopened=cold.host.session;select(cold);retained(initial,reopened.document());
+    auto* mode=named<QComboBox>(cold,"gradient-mode-tile-fill");reveal(cold,mode);check(mode->currentIndex()==1,"Cold contextual Linear Paint mode");
+    auto* endpoint=field(cold,end_property.c_str());reveal(cold,endpoint);check(endpoint->text().toDouble()==320,"Cold local endpoint readback");
+    for(const auto& stop:gradient.stops){auto* hex=named<QLineEdit>(cold,("gradient-stop-hex-"+stop.id).c_str());reveal(cold,hex);check(hex->text()==(stop.id==first.id?"#FF0000FF":"#0000FFFF"),"Cold exact stable stop control readback");}
+    check(same(cold.host.session,reopened),"Cold Gradient navigation fully neutral");pixels(cold,reopened,".gradient-cold");cold.host.changed={};cold.hide();
+}
 void paint_order_context(const QString& scratch) {
     Session setup(fixture());auto red=color(setup,"tile-fill"),green=color(setup,"tile-stroke");
     red.rgba={1,0,0,1};green.rgba={0,1,0,1};
@@ -193,6 +289,9 @@ int main(int argc,char** argv) {
     app.setOrganizationName("NectTest");app.setApplicationName("PaintContext");
     try {
         check(scratch.isValid(),"Owned scratch");
+        if(app.arguments().contains("--gradient-context")) {
+            gradient_context(scratch.path());std::cout<<"PASS "<<checks<<" standard-pane retained Gradient authoring; physical/subjective input NOT_RUN\n";return 0;
+        }
         if(app.arguments().contains("--paint-order-context")) {
             paint_order_context(scratch.path());std::cout<<"PASS "<<checks<<" standard-pane retained paint composite authoring; physical/subjective input NOT_RUN\n";return 0;
         }

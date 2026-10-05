@@ -306,7 +306,9 @@ are pending the next checkpoint; see [the contract](docs/model-v0.md#stroke-beha
 
 The Shape stack supports multiple solid Fill/Stroke entries, HEX RGBA/color
 editing, enable/reorder/remove and Repeater.
-Gradient stop HEX drafts commit RGBA together in one Undo step. An intervening
+Gradient stop HEX drafts commit RGBA together in one Undo step. Editing a HEX
+channel preserves the exact numeric values of the other channels;
+confirming the displayed HEX unchanged adds no History entry. An intervening
 document edit, reload or preview invalidates the old draft before it can overwrite
 the current color. Fields opened during a preview stay invalid after cancellation;
 edit the refreshed field. Linked or expression-driven channels reject atomically.
