@@ -13,6 +13,7 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTreeWidget>
 #include <iostream>
 #include <stdexcept>
 using namespace nect;
@@ -96,6 +97,25 @@ int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch
     try{const bool assigned_diagnostic=app.arguments().contains("--assigned-frame");
         Window w(scratch.filePath("recovery"));w.host.session=Session(fixture(assigned_diagnostic));w.host.session_id="frame-layout-session";
         w.host.edited();w.show();w.activateWindow();events();select_frame(w,"source");
+        if(app.arguments().contains("--text-source-discovery")){
+            const Snapshot before(w.host.session);
+            auto* dock=w.findChild<QDockWidget*>("structure");dock->show();dock->raise();events();
+            auto* tree=dock->findChild<QTreeWidget*>();tree->expandAll();QTreeWidgetItem* text_item=nullptr;
+            for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString()=="text"&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty())text_item=*it;
+            check(text_item,"Stable source Text row exists");tree->scrollToItem(text_item);events();
+            QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(text_item).center());events();
+            check(w.canvas->selections()==std::vector<Canvas::Selection>{{"text",{}}}&&before.unchanged(w.host.session),"Actual Structure click selects whole Text without authoring");
+            dock=w.findChild<QDockWidget*>("properties");dock->show();dock->raise();events();
+            auto* text_area=w.findChild<QScrollArea*>("inspector-scroll");
+            std::cout<<"Text source Window="<<w.width()<<" viewport="<<text_area->viewport()->width()<<" content="<<text_area->widget()->width()<<" minimum="<<text_area->widget()->minimumSizeHint().width()<<" hmax="<<text_area->horizontalScrollBar()->maximum()<<std::endl;
+            for(auto* child:text_area->widget()->findChildren<QWidget*>())if(child->minimumSizeHint().width()>text_area->viewport()->width()-40)
+                std::cout<<child->metaObject()->className()<<" "<<child->objectName().toStdString()<<" width="<<child->width()<<" minHint="<<child->minimumSizeHint().width()<<std::endl;
+            auto* edit=visible<QPushButton>(w,"edit-text-content");reveal(w,edit);check(edit->isEnabled(),"Source Edit text action enabled");
+            auto* family=visible<QComboBox>(w,"text-family");reveal(w,family);check(family->isEnabled(),"Source font family enabled");
+            const auto evidence=qEnvironmentVariable("NECT_FRAME_LAYOUT_EVIDENCE");if(!evidence.isEmpty())check(w.grab().save(evidence+".text-source.png"),"Normal Text Properties screenshot saved");
+            check(before.unchanged(w.host.session),"Source property reachability discovery preserves complete Session");
+            w.host.changed={};w.hide();std::cout<<"PASS "<<checks<<" normal Text source reachability observations; no next product RED, physical input NOT_RUN\n";return 0;
+        }
         if(assigned_diagnostic)select_frame(w,"target");
         auto* area=w.findChild<QScrollArea*>("inspector-scroll");auto* viewport=area->viewport();
         std::cout<<"Window="<<w.width()<<" viewport="<<viewport->width()<<" content="<<area->widget()->width()<<" minimum="<<area->widget()->minimumSizeHint().width()<<" horizontal max="<<area->horizontalScrollBar()->maximum()<<std::endl;
