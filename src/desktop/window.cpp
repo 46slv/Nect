@@ -114,6 +114,40 @@
 
 namespace nect::desktop {
 namespace {
+// Keep frame actions readable in the existing pane; wider panes reuse a row.
+class FrameActionLayout final : public QLayout {
+public:
+    explicit FrameActionLayout(QWidget* parent=nullptr):QLayout(parent){setContentsMargins(0,0,0,0);setSpacing(6);}
+    ~FrameActionLayout() override {while(auto* item=takeAt(0))delete item;}
+    void addItem(QLayoutItem* item) override {items_.push_back(item);}
+    int count() const override {return static_cast<int>(items_.size());}
+    QLayoutItem* itemAt(int index) const override {
+        return index>=0&&index<count()?items_[static_cast<std::size_t>(index)]:nullptr;
+    }
+    QLayoutItem* takeAt(int index) override {
+        auto* item=itemAt(index);if(item)items_.erase(items_.begin()+index);return item;
+    }
+    Qt::Orientations expandingDirections() const override {return {};}
+    bool hasHeightForWidth() const override {return true;}
+    int heightForWidth(int width) const override {return arrange(QRect(0,0,width,0),false);}
+    QSize minimumSize() const override {
+        QSize result;for(auto* item:items_)result=result.expandedTo(item->minimumSize());return result;
+    }
+    QSize sizeHint() const override {return minimumSize();}
+    void setGeometry(const QRect& rect) override {QLayout::setGeometry(rect);arrange(rect,true);}
+private:
+    int arrange(const QRect& rect,bool place) const {
+        int x=0,y=0,row_height=0;
+        for(auto* item:items_) {
+            const auto size=item->sizeHint().expandedTo(item->minimumSize());
+            if(x>0&&x+size.width()>rect.width()){x=0;y+=row_height+spacing();row_height=0;}
+            if(place)item->setGeometry(QRect(rect.topLeft()+QPoint(x,y),size));
+            x+=size.width()+spacing();row_height=std::max(row_height,size.height());
+        }
+        return y+row_height;
+    }
+    std::vector<QLayoutItem*> items_;
+};
 QString qs(const std::string& s) { return QString::fromStdString(s); }
 // Grid scopes carry the exact edit context and acquired Session gesture. These
 // guards apply only to Grid dismissal; other layout editors keep their contract.
@@ -228,6 +262,8 @@ TextSourcePicker make_text_source_picker(QWidget* parent,const Document& documen
 }
 QLineEdit* add_artboard_source_search(QWidget* parent,QVBoxLayout* layout,QComboBox* source,
         const std::vector<Ref>& refs,const QStringList& labels,const std::optional<Ref>& selected_ref) {
+    source->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    source->setMinimumContentsLength(10);source->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
     auto* search=new QLineEdit(parent);
     search->setObjectName(source->objectName()+"-search");
     search->setAccessibleName("Search Artboard source name, ID or field path");
@@ -2702,7 +2738,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* replace=new QCheckBox("Replace current source",source_box);
         replace->setObjectName("artboard-"+axis+"-replace");replace->setEnabled(parent_driven||driver.has_value());
         source_layout->addWidget(replace);
-        auto* actions=new QHBoxLayout;source_layout->addLayout(actions);
+        auto* actions=new FrameActionLayout;source_layout->addLayout(actions);
         auto* link=new QPushButton("Link",source_box);link->setObjectName("artboard-"+axis+"-link");actions->addWidget(link);
         auto* set_expression=new QPushButton("Apply expression",source_box);
         set_expression->setObjectName("artboard-"+axis+"-apply-expression");actions->addWidget(set_expression);
@@ -2734,7 +2770,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         connect(set_expression,&QPushButton::clicked,this,apply_expression);
         connect(unlink,&QPushButton::clicked,this,[this,target,commit]{perform([&]{commit({UnlinkArtboardSize{target}});});});
         connect(cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
-        form->addRow("",source_box);
+        form->addRow(source_box);
     };
     size_source(true);size_source(false);
 
@@ -2901,7 +2937,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_replace=new QCheckBox("Replace current left source",margin_source_box);
     margin_replace->setObjectName("margin-left-replace");margin_replace->setEnabled(margin_left_is_driven);
     margin_source_layout->addWidget(margin_replace);
-    auto* margin_source_actions=new QHBoxLayout;margin_source_layout->addLayout(margin_source_actions);
+    auto* margin_source_actions=new FrameActionLayout;margin_source_layout->addLayout(margin_source_actions);
     auto* margin_link=new QPushButton("Link",margin_source_box);margin_link->setObjectName("margin-left-link");
     const bool margin_link_available=board.layout&&board.layout->margin&&!margin_left_sources.empty();
     margin_link->setEnabled(margin_link_available&&margin_left_source->currentIndex()>=0);margin_source_actions->addWidget(margin_link);
@@ -2919,7 +2955,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_expression->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(margin_left_expression)margin_expression->setPlainText(qs(margin_left_expression->source));
     margin_source_layout->addWidget(margin_expression);
-    auto* margin_expression_actions=new QHBoxLayout;margin_source_layout->addLayout(margin_expression_actions);
+    auto* margin_expression_actions=new FrameActionLayout;margin_source_layout->addLayout(margin_expression_actions);
     auto* margin_expression_apply=new QPushButton("Apply expression",margin_source_box);
     margin_expression_apply->setObjectName("margin-left-apply-expression");
     margin_expression_apply->setEnabled(board.layout&&board.layout->margin);margin_expression_actions->addWidget(margin_expression_apply);
@@ -2977,7 +3013,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_top_replace=new QCheckBox("Replace current top source",margin_top_source_box);
     margin_top_replace->setObjectName("margin-top-replace");margin_top_replace->setEnabled(margin_top_is_driven);
     margin_top_source_layout->addWidget(margin_top_replace);
-    auto* margin_top_actions=new QHBoxLayout;margin_top_source_layout->addLayout(margin_top_actions);
+    auto* margin_top_actions=new FrameActionLayout;margin_top_source_layout->addLayout(margin_top_actions);
     auto* margin_top_link=new QPushButton("Link",margin_top_source_box);margin_top_link->setObjectName("margin-top-link");
     const bool margin_top_link_available=board.layout&&board.layout->margin&&!margin_top_sources.empty();
     margin_top_link->setEnabled(margin_top_link_available&&margin_top_source->currentIndex()>=0);margin_top_actions->addWidget(margin_top_link);
@@ -2995,7 +3031,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_top_expression->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(margin_top_authored_expression)margin_top_expression->setPlainText(qs(margin_top_authored_expression->source));
     margin_top_source_layout->addWidget(margin_top_expression);
-    auto* margin_top_expression_actions=new QHBoxLayout;margin_top_source_layout->addLayout(margin_top_expression_actions);
+    auto* margin_top_expression_actions=new FrameActionLayout;margin_top_source_layout->addLayout(margin_top_expression_actions);
     auto* margin_top_expression_apply=new QPushButton("Apply expression",margin_top_source_box);
     margin_top_expression_apply->setObjectName("margin-top-apply-expression");
     margin_top_expression_apply->setEnabled(board.layout&&board.layout->margin);
@@ -3051,7 +3087,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_right_replace=new QCheckBox("Replace current right source",margin_right_source_box);
     margin_right_replace->setObjectName("margin-right-replace");margin_right_replace->setEnabled(margin_right_is_driven);
     margin_right_source_layout->addWidget(margin_right_replace);
-    auto* margin_right_actions=new QHBoxLayout;margin_right_source_layout->addLayout(margin_right_actions);
+    auto* margin_right_actions=new FrameActionLayout;margin_right_source_layout->addLayout(margin_right_actions);
     auto* margin_right_link=new QPushButton("Link",margin_right_source_box);margin_right_link->setObjectName("margin-right-link");
     const bool margin_right_link_available=board.layout&&board.layout->margin&&!margin_right_sources.empty();
     margin_right_link->setEnabled(margin_right_link_available&&margin_right_source->currentIndex()>=0);
@@ -3071,7 +3107,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_right_expression_input->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(margin_right_expression)margin_right_expression_input->setPlainText(qs(margin_right_expression->source));
     margin_right_source_layout->addWidget(margin_right_expression_input);
-    auto* margin_right_expression_actions=new QHBoxLayout;margin_right_source_layout->addLayout(margin_right_expression_actions);
+    auto* margin_right_expression_actions=new FrameActionLayout;margin_right_source_layout->addLayout(margin_right_expression_actions);
     auto* margin_right_expression_apply=new QPushButton("Apply expression",margin_right_source_box);
     margin_right_expression_apply->setObjectName("margin-right-apply-expression");
     margin_right_expression_apply->setEnabled(board.layout&&board.layout->margin);
@@ -3135,7 +3171,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_bottom_replace=new QCheckBox("Replace current bottom source",margin_bottom_source_box);
     margin_bottom_replace->setObjectName("margin-bottom-replace");
     margin_bottom_replace->setEnabled(margin_bottom_is_driven);margin_bottom_source_layout->addWidget(margin_bottom_replace);
-    auto* margin_bottom_actions=new QHBoxLayout;margin_bottom_source_layout->addLayout(margin_bottom_actions);
+    auto* margin_bottom_actions=new FrameActionLayout;margin_bottom_source_layout->addLayout(margin_bottom_actions);
     auto* margin_bottom_link=new QPushButton("Link",margin_bottom_source_box);
     margin_bottom_link->setObjectName("margin-bottom-link");
     const bool margin_bottom_link_available=board.layout&&board.layout->margin&&!margin_bottom_sources.empty();
@@ -3161,7 +3197,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_bottom_expression_input->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(margin_bottom_expression)margin_bottom_expression_input->setPlainText(qs(margin_bottom_expression->source));
     margin_bottom_source_layout->addWidget(margin_bottom_expression_input);
-    auto* margin_bottom_expression_actions=new QHBoxLayout;margin_bottom_source_layout->addLayout(margin_bottom_expression_actions);
+    auto* margin_bottom_expression_actions=new FrameActionLayout;margin_bottom_source_layout->addLayout(margin_bottom_expression_actions);
     auto* margin_bottom_expression_apply=new QPushButton("Apply expression",margin_bottom_source_box);
     margin_bottom_expression_apply->setObjectName("margin-bottom-apply-expression");
     margin_bottom_expression_apply->setEnabled(board.layout&&board.layout->margin);
@@ -3189,7 +3225,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             {margin_bottom_expression_input->toPlainText().toStdString(),1},margin_bottom_replace->isChecked()}}});
     });});
     connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
-    auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new QHBoxLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
+    auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new FrameActionLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
     auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(resolved.layout&&resolved.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
     if(!margin_left_is_driven)bind_number(margin_left,margin_box,margin_builder);
@@ -3398,7 +3434,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_x_replace=new QCheckBox("Replace current X source",grid_source_box);
     grid_x_replace->setObjectName("grid-bounds-x-replace");grid_x_replace->setEnabled(grid_bounds_x_is_driven);
     grid_source_layout->addWidget(grid_x_replace);
-    auto* grid_source_actions=new QHBoxLayout;grid_source_layout->addLayout(grid_source_actions);
+    auto* grid_source_actions=new FrameActionLayout;grid_source_layout->addLayout(grid_source_actions);
     auto* grid_x_link=new QPushButton("Link",grid_source_box);grid_x_link->setObjectName("grid-bounds-x-link");
     const bool grid_link_available=board.layout&&board.layout->grid&&!grid_x_sources.empty();
     grid_x_link->setEnabled(grid_link_available&&grid_x_source->currentIndex()>=0);grid_source_actions->addWidget(grid_x_link);
@@ -3415,7 +3451,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_x_expression->setAccessibleName("Grid bounds x expression draft");grid_x_expression->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(grid_bounds_x_expression)grid_x_expression->setPlainText(qs(grid_bounds_x_expression->source));
     grid_source_layout->addWidget(grid_x_expression);
-    auto* grid_expression_actions=new QHBoxLayout;grid_source_layout->addLayout(grid_expression_actions);
+    auto* grid_expression_actions=new FrameActionLayout;grid_source_layout->addLayout(grid_expression_actions);
     auto* grid_x_expression_apply=new QPushButton("Apply expression",grid_source_box);
     grid_x_expression_apply->setObjectName("grid-bounds-x-apply-expression");
     grid_x_expression_apply->setEnabled(board.layout&&board.layout->grid);grid_expression_actions->addWidget(grid_x_expression_apply);
@@ -3461,7 +3497,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_columns_replace=new QCheckBox("Replace current columns source",grid_columns_source_box);
     grid_columns_replace->setObjectName("grid-columns-replace");
     grid_columns_replace->setEnabled(grid_columns_is_driven);grid_columns_source_layout->addWidget(grid_columns_replace);
-    auto* grid_columns_actions=new QHBoxLayout;grid_columns_source_layout->addLayout(grid_columns_actions);
+    auto* grid_columns_actions=new FrameActionLayout;grid_columns_source_layout->addLayout(grid_columns_actions);
     auto* grid_columns_link=new QPushButton("Link",grid_columns_source_box);
     grid_columns_link->setObjectName("grid-columns-link");
     const bool grid_columns_link_available=board.layout&&board.layout->grid&&!grid_columns_sources.empty();
@@ -3486,7 +3522,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_columns_expression_input->setPlaceholderText("unitless expression using Grid columns ref() values");
     if(grid_columns_expression)grid_columns_expression_input->setPlainText(qs(grid_columns_expression->source));
     grid_columns_source_layout->addWidget(grid_columns_expression_input);
-    auto* grid_columns_expression_actions=new QHBoxLayout;grid_columns_source_layout->addLayout(grid_columns_expression_actions);
+    auto* grid_columns_expression_actions=new FrameActionLayout;grid_columns_source_layout->addLayout(grid_columns_expression_actions);
     auto* grid_columns_expression_apply=new QPushButton("Apply expression",grid_columns_source_box);
     grid_columns_expression_apply->setObjectName("grid-columns-apply-expression");
     grid_columns_expression_apply->setEnabled(board.layout&&board.layout->grid);
@@ -3549,7 +3585,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_rows_replace=new QCheckBox("Replace current rows source",grid_rows_source_box);
     grid_rows_replace->setObjectName("grid-rows-replace");
     grid_rows_replace->setEnabled(grid_rows_is_driven);grid_rows_source_layout->addWidget(grid_rows_replace);
-    auto* grid_rows_actions=new QHBoxLayout;grid_rows_source_layout->addLayout(grid_rows_actions);
+    auto* grid_rows_actions=new FrameActionLayout;grid_rows_source_layout->addLayout(grid_rows_actions);
     auto* grid_rows_link=new QPushButton("Link",grid_rows_source_box);
     grid_rows_link->setObjectName("grid-rows-link");
     const bool grid_rows_link_available=board.layout&&board.layout->grid&&!grid_rows_sources.empty();
@@ -3589,7 +3625,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_rows_expression_input->setPlaceholderText("unitless expression using Grid rows ref() values");
     if(grid_rows_expression)grid_rows_expression_input->setPlainText(qs(grid_rows_expression->source));
     grid_rows_source_layout->addWidget(grid_rows_expression_input);
-    auto* grid_rows_expression_actions=new QHBoxLayout;grid_rows_source_layout->addLayout(grid_rows_expression_actions);
+    auto* grid_rows_expression_actions=new FrameActionLayout;grid_rows_source_layout->addLayout(grid_rows_expression_actions);
     auto* grid_rows_expression_apply=new QPushButton("Apply expression",grid_rows_source_box);
     grid_rows_expression_apply->setObjectName("grid-rows-apply-expression");
     grid_rows_expression_apply->setEnabled(board.layout&&board.layout->grid);
@@ -3638,7 +3674,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_y_replace=new QCheckBox("Replace current Y source",grid_y_source_box);
     grid_y_replace->setObjectName("grid-bounds-y-replace");grid_y_replace->setEnabled(grid_bounds_y_is_driven);
     grid_y_source_layout->addWidget(grid_y_replace);
-    auto* grid_y_source_actions=new QHBoxLayout;grid_y_source_layout->addLayout(grid_y_source_actions);
+    auto* grid_y_source_actions=new FrameActionLayout;grid_y_source_layout->addLayout(grid_y_source_actions);
     auto* grid_y_link=new QPushButton("Link",grid_y_source_box);grid_y_link->setObjectName("grid-bounds-y-link");
     const bool grid_y_link_available=board.layout&&board.layout->grid&&!grid_y_sources.empty();
     grid_y_link->setEnabled(grid_y_link_available&&grid_y_source->currentIndex()>=0);grid_y_source_actions->addWidget(grid_y_link);
@@ -3656,7 +3692,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_y_expression->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(grid_bounds_y_expression)grid_y_expression->setPlainText(qs(grid_bounds_y_expression->source));
     grid_y_source_layout->addWidget(grid_y_expression);
-    auto* grid_y_expression_actions=new QHBoxLayout;grid_y_source_layout->addLayout(grid_y_expression_actions);
+    auto* grid_y_expression_actions=new FrameActionLayout;grid_y_source_layout->addLayout(grid_y_expression_actions);
     auto* grid_y_expression_apply=new QPushButton("Apply expression",grid_y_source_box);
     grid_y_expression_apply->setObjectName("grid-bounds-y-apply-expression");
     grid_y_expression_apply->setEnabled(board.layout&&board.layout->grid);grid_y_expression_actions->addWidget(grid_y_expression_apply);
@@ -3732,7 +3768,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_width_replace=new QCheckBox("Replace current width source",grid_width_source_box);
     grid_width_replace->setObjectName("grid-bounds-width-replace");grid_width_replace->setEnabled(grid_bounds_width_is_driven);
     grid_width_source_layout->addWidget(grid_width_replace);
-    auto* grid_width_source_actions=new QHBoxLayout;grid_width_source_layout->addLayout(grid_width_source_actions);
+    auto* grid_width_source_actions=new FrameActionLayout;grid_width_source_layout->addLayout(grid_width_source_actions);
     auto* grid_width_link=new QPushButton("Link",grid_width_source_box);grid_width_link->setObjectName("grid-bounds-width-link");
     const bool grid_width_link_available=board.layout&&board.layout->grid&&!grid_width_sources.empty();
     grid_width_link->setEnabled(grid_width_link_available&&grid_width_source->currentIndex()>=0);
@@ -3753,7 +3789,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_width_expression->setPlaceholderText("du expression using ref(\"artboard-id\",\"\",\"artboard.width\")");
     if(grid_bounds_width_expression)grid_width_expression->setPlainText(qs(grid_bounds_width_expression->source));
     grid_width_source_layout->addWidget(grid_width_expression);
-    auto* grid_width_expression_actions=new QHBoxLayout;grid_width_source_layout->addLayout(grid_width_expression_actions);
+    auto* grid_width_expression_actions=new FrameActionLayout;grid_width_source_layout->addLayout(grid_width_expression_actions);
     auto* grid_width_expression_apply=new QPushButton("Apply expression",grid_width_source_box);
     grid_width_expression_apply->setObjectName("grid-bounds-width-apply-expression");
     grid_width_expression_apply->setEnabled(board.layout&&board.layout->grid);
@@ -3821,7 +3857,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_height_replace->setObjectName("grid-bounds-height-replace");
     grid_height_replace->setEnabled(grid_bounds_height_is_driven);
     grid_height_source_layout->addWidget(grid_height_replace);
-    auto* grid_height_source_actions=new QHBoxLayout;
+    auto* grid_height_source_actions=new FrameActionLayout;
     grid_height_source_layout->addLayout(grid_height_source_actions);
     auto* grid_height_link=new QPushButton("Link",grid_height_source_box);
     grid_height_link->setObjectName("grid-bounds-height-link");
@@ -3846,7 +3882,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_height_expression->setPlaceholderText("du expression using ref(\"artboard-id\",\"\",\"artboard.height\")");
     if(grid_bounds_height_expression)grid_height_expression->setPlainText(qs(grid_bounds_height_expression->source));
     grid_height_source_layout->addWidget(grid_height_expression);
-    auto* grid_height_expression_actions=new QHBoxLayout;
+    auto* grid_height_expression_actions=new FrameActionLayout;
     grid_height_source_layout->addLayout(grid_height_expression_actions);
     auto* grid_height_expression_apply=new QPushButton("Apply expression",grid_height_source_box);
     grid_height_expression_apply->setObjectName("grid-bounds-height-apply-expression");
@@ -3916,7 +3952,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_column_gutter_replace->setObjectName("grid-column-gutter-replace");
     grid_column_gutter_replace->setEnabled(grid_column_gutter_is_driven);
     grid_column_gutter_source_layout->addWidget(grid_column_gutter_replace);
-    auto* grid_column_gutter_source_actions=new QHBoxLayout;
+    auto* grid_column_gutter_source_actions=new FrameActionLayout;
     grid_column_gutter_source_layout->addLayout(grid_column_gutter_source_actions);
     auto* grid_column_gutter_link=new QPushButton("Link",grid_column_gutter_source_box);
     grid_column_gutter_link->setObjectName("grid-column-gutter-link");
@@ -4011,7 +4047,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_row_gutter_replace->setObjectName("grid-row-gutter-replace");
     grid_row_gutter_replace->setEnabled(grid_row_gutter_is_driven);
     grid_row_gutter_source_layout->addWidget(grid_row_gutter_replace);
-    auto* grid_row_gutter_source_actions=new QHBoxLayout;
+    auto* grid_row_gutter_source_actions=new FrameActionLayout;
     grid_row_gutter_source_layout->addLayout(grid_row_gutter_source_actions);
     auto* grid_row_gutter_link=new QPushButton("Link",grid_row_gutter_source_box);
     grid_row_gutter_link->setObjectName("grid-row-gutter-link");
@@ -4064,7 +4100,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 {grid_row_gutter_expression_input->toPlainText().toStdString(),1},grid_row_gutter_replace->isChecked()}}});
         });});
     connect(grid_row_gutter_cancel,&QPushButton::clicked,this,cancel_grid_editor);
-    auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new QHBoxLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
+    auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new FrameActionLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
     auto* grid_apply=new QPushButton("Apply Grid",grid_actions);grid_apply->setObjectName("grid-apply");grid_buttons->addWidget(grid_apply);
     auto* grid_copy=new QPushButton("Set Grid to margin box",grid_actions);grid_copy->setObjectName("grid-copy-margin-box");grid_copy->setToolTip("Copy the evaluated Margin box once; later Margin edits do not change Grid.");grid_buttons->addWidget(grid_copy);
     auto* grid_clear=new QPushButton("Clear Grid",grid_actions);grid_clear->setObjectName("grid-clear");grid_clear->setEnabled(resolved.layout&&resolved.layout->grid);grid_buttons->addWidget(grid_clear);
@@ -4182,7 +4218,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         form->addRow("Name",name_input);form->addRow("Axis",axis_input);form->addRow("Position · du",position_input);
         form->addRow("Position source",position_status);form->addRow("Position expression · du",expression);
         form->addRow("",replace_source);form->addRow("",apply_expression);form->addRow(unlink_position);
-        auto* actions=new QWidget(row);auto* buttons=new QHBoxLayout(actions);buttons->setContentsMargins(0,0,0,0);
+        auto* actions=new QWidget(row);auto* buttons=new FrameActionLayout(actions);buttons->setContentsMargins(0,0,0,0);
         auto* apply=new QPushButton("Apply Guide",actions);apply->setObjectName("guide-apply-"+qs(source.id));buttons->addWidget(apply);
         auto* remove=new QPushButton("Delete Guide",actions);remove->setObjectName("guide-delete-"+qs(source.id));buttons->addWidget(remove);form->addRow(actions);
         const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,parse_number] {
@@ -4316,40 +4352,42 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         }
     }
     auto* template_selector=new QComboBox(template_box);template_selector->setObjectName("artboard-template-selector");
+    template_selector->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);template_selector->setMinimumContentsLength(10);template_selector->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
     template_selector->addItem("Choose a Template…",QString{});
     for(const auto& item:comp.templates)template_selector->addItem(
         template_choice_label(host.session.document(),comp,item),qs(item.id));
     if(board.template_assignment)template_selector->setCurrentIndex(template_selector->findData(qs(board.template_assignment->template_id)));
     template_form->addRow("Template",template_selector);
-    auto* template_actions=new QGridLayout;template_form->addRow(template_actions);
-    const auto template_button=[&](const QString& label,const char* object_name,int row,int column,
+    auto* template_actions=new FrameActionLayout;template_form->addRow(template_actions);
+    const auto template_button=[&](const QString& label,const char* object_name,
                                    const std::function<void(const ArtboardTemplateContext&)>& action,bool enabled=true) {
         auto* button=new QPushButton(label,template_box);button->setObjectName(QString::fromLatin1(object_name));
-        button->setEnabled(enabled);template_actions->addWidget(button,row,column);
+        button->setEnabled(enabled);template_actions->addWidget(button);
         connect(button,&QPushButton::clicked,this,[this,action,template_context]{perform([&]{action(template_context);});});
     };
-    template_button("Create from source…","artboard-template-create",0,0,
+    template_button("Create from source…","artboard-template-create",
         [this](const auto& context){create_artboard_template(context);});
-    template_button("Rename…","artboard-template-rename",0,1,
+    template_button("Rename…","artboard-template-rename",
         [this](const auto& context){rename_artboard_template(context);},!comp.templates.empty());
-    template_button("Delete…","artboard-template-delete",0,2,
+    template_button("Delete…","artboard-template-delete",
         [this](const auto& context){delete_artboard_template(context);},!comp.templates.empty());
-    template_button("Assign selected","artboard-template-assign",1,0,
+    template_button("Assign selected","artboard-template-assign",
         [this,template_selector](const auto& context) {
             const auto selected=template_selector->currentData().toString().toStdString();
             assign_artboard_template(context,selected.empty()?std::nullopt:std::optional<Id>{selected});
         },!comp.templates.empty());
-    template_button("Set frame / layout…","artboard-template-set-override",1,1,
+    template_button("Set frame / layout…","artboard-template-set-override",
         [this](const auto& context){set_artboard_template_override(context);},board.template_assignment.has_value());
-    template_button("Reset override…","artboard-template-reset-override",1,2,
+    template_button("Reset override…","artboard-template-reset-override",
         [this](const auto& context){reset_artboard_template_override(context);},board.template_assignment.has_value());
-    template_button("Detach Template","artboard-template-detach",2,0,
+    template_button("Detach Template","artboard-template-detach",
         [this](const auto& context){detach_artboard_template(context);},board.template_assignment.has_value());
     auto* template_note=new QLabel("Choose a source Artboard or Definition, assign a Template to this frame, and reset individual fields to restore inheritance.",template_box);
     template_note->setWordWrap(true);template_form->addRow(template_note);
     auto* guide_box=new QGroupBox("Artboard Guides",template_box);guide_box->setObjectName("artboard-guide-panel");
-    auto* guide_form=new QFormLayout(guide_box);
+    auto* guide_form=new QFormLayout(guide_box);guide_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     auto* guide_selector=new QComboBox(guide_box);guide_selector->setObjectName("artboard-guide-selector");
+    guide_selector->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);guide_selector->setMinimumContentsLength(10);guide_selector->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
     const auto occurrences=effective_artboard_guides(host.session.document(),composition,id);
     for(const auto& guide:occurrences) {
         const auto label=(guide.inherited?QStringLiteral("Inherited"):QStringLiteral("Local"))+QStringLiteral(" · ")+
@@ -4358,7 +4396,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         guide_selector->addItem(label,qs(guide.guide_id));
     }
     guide_form->addRow("Guide occurrence",guide_selector);
-    auto* guide_actions=new QGridLayout;guide_form->addRow(guide_actions);
+    auto* guide_actions=new FrameActionLayout;guide_form->addRow(guide_actions);
     auto* guide_add=new QPushButton("Add local…",guide_box);guide_add->setObjectName("artboard-guide-add");
     auto* guide_edit_button=new QPushButton("Edit local…",guide_box);guide_edit_button->setObjectName("artboard-guide-edit");
     auto* guide_delete=new QPushButton("Delete local",guide_box);guide_delete->setObjectName("artboard-guide-delete");
@@ -4367,9 +4405,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* guide_detach=new QPushButton("Detach occurrence",guide_box);guide_detach->setObjectName("artboard-guide-detach");
     auto* guide_drag=new QPushButton("Drag once…",guide_box);guide_drag->setObjectName("artboard-guide-drag");
     guide_drag->setToolTip("Arm only the selected visible Guide occurrence, then drag its clipped line once on Canvas. Escape cancels.");
-    guide_actions->addWidget(guide_drag,2,0,1,3);
-    guide_actions->addWidget(guide_add,0,0);guide_actions->addWidget(guide_edit_button,0,1);guide_actions->addWidget(guide_delete,0,2);
-    guide_actions->addWidget(guide_override,1,0);guide_actions->addWidget(guide_reset,1,1);guide_actions->addWidget(guide_detach,1,2);
+    guide_actions->addWidget(guide_add);guide_actions->addWidget(guide_edit_button);guide_actions->addWidget(guide_delete);
+    guide_actions->addWidget(guide_override);guide_actions->addWidget(guide_reset);guide_actions->addWidget(guide_detach);guide_actions->addWidget(guide_drag);
     const auto update_guide_buttons=[guide_selector,guide_edit_button,guide_delete,guide_override,guide_reset,guide_detach,guide_drag,
         occurrences,assignment=board.template_assignment](int) {
         const auto selected=guide_selector->currentData().toString().toStdString();
