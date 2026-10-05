@@ -6,6 +6,7 @@
 #include <QDockWidget>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
@@ -16,8 +17,10 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 #include <QTreeWidget>
 #include <iostream>
+#include <functional>
 using namespace nect;
 using namespace nect::desktop;
 namespace {
@@ -81,6 +84,109 @@ void draft_fit(const QString& scratch) {
         "Cold source controls read canonical fitted dimensions");painted(cold,reopened,QColor(200,100,40),".draft-fit-cold");cold.host.changed={};cold.hide();
 }
 bool same_asset_session(const Session& a,const Session& b){return same(a,b)&&a.can_undo()==b.can_undo()&&a.can_redo()==b.can_redo();}
+struct RelinkObservation { bool opened=false,scalar=false,saved=false; };
+RelinkObservation relink_dialog(Window& w,QPushButton* button,const Session& modal_expected,const QString& path,bool cancel,const QString& suffix,const std::function<void()>& incoming={}) {
+    RelinkObservation result;
+    QTimer::singleShot(0,&w,[&]{
+        auto* dialog=w.findChild<QFileDialog*>();if(!dialog)return;
+        result.opened=dialog->isVisible()&&dialog->windowTitle()=="Relink Image";
+        result.scalar=same_asset_session(w.host.session,modal_expected);
+        const auto prefix=qEnvironmentVariable("NECT_IMAGE_CONTEXT_EVIDENCE");
+        result.saved=prefix.isEmpty()||dialog->grab().save(prefix+suffix+".chooser.png");
+        std::cout<<"Relink chooser opened="<<result.opened<<" modalFullSession="<<result.scalar<<" revision="<<w.host.session.revision()<<std::endl;
+        if(incoming)incoming();
+        if(cancel)dialog->reject();else{dialog->selectFile(path);QMetaObject::invokeMethod(dialog,"accept",Qt::QueuedConnection);}
+    });
+    QTest::mouseClick(button,Qt::LeftButton);events();return result;
+}
+void relink_guard(const QString& scratch,const std::string& scenario) {
+    const auto path=scratch+"/guard-original.png",chosen=scratch+"/guard-chosen.png";
+    const auto original=png(200,100,40),replacement=png(30,190,220,30,30);write(path,original);write(chosen,replacement);
+    Window w(scratch+"/modal-guard-recovery");w.host.session=Session(fixture(path,original));w.host.session_id="modal-guard-session";
+    w.host.edited();w.show();events();select(w);Session expected=w.host.session;
+    auto* button=named<QPushButton>(w,"image-relink");reveal(w,button);auto* width=field(w,"image.width");reveal(w,width);
+    QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"160");
+    expected.apply({EditProperties{{{"image","","image.width"}},160,false}},expected.revision());
+    const auto result=relink_dialog(w,button,expected,chosen,false,".guard-"+QString::fromStdString(scenario),[&]{
+        if(scenario=="revision")w.host.session.apply({Set{{"copy","","image.height"},65}},w.host.session.revision());
+        else if(scenario=="session")w.host.session_id="incoming-session";
+        else if(scenario=="document"){
+            auto d=w.host.session.document();d.id="incoming-document";w.host.session=Session(d);
+            w.host.session.apply({Set{{"copy","","image.height"},65}},w.host.session.revision());
+        }else{
+            w.host.session.begin_gesture(w.host.session.revision());
+            w.host.session.update_gesture({Set{{"copy","","image.height"},65}});
+            if(scenario=="generation")w.host.session.cancel_gesture();
+        }
+        expected=w.host.session;w.host.edited();
+    });
+    check(result.opened&&result.scalar&&result.saved,"Guard starts in owned modal with exact committed scalar state");
+    check(same_asset_session(w.host.session,expected),"Modal Relink refuses incoming revision/Session/document/preview/generation with full incoming Session preserved");
+    check(w.host.session.document().raster_assets.at("asset").locator==path.toStdString()&&w.host.session.document().raster_assets.at("asset").payload->bytes()==original,"Modal conflict preserves complete original accepted asset");
+    if(scenario=="session")check(w.host.session_id=="incoming-session","Incoming Session identity preserved");
+    evidence(w,".guard-"+QString::fromStdString(scenario)+"-after.png");w.host.changed={};w.hide();
+}
+void relink_preflight(const QString& scratch) {
+    const auto path=scratch+"/preflight.png",chosen=scratch+"/preflight-chosen.png";const auto original=png(200,100,40);write(path,original);write(chosen,png(30,190,220));
+    for(const bool driven:{false,true}) {
+        Session expected(fixture(path,original));if(driven)expected.apply({Link{{"image","","image.width"},{{"copy","","image.width"},1,0,"copy_local_value"}}},expected.revision());
+        Window w(scratch+"/preflight-recovery");w.host.session=expected;w.host.session_id="relink-preflight";w.host.edited();w.show();events();select(w);
+        auto* button=named<QPushButton>(w,"image-relink");reveal(w,button);auto* width=field(w,"image.width");reveal(w,width);
+        QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,driven?"160":"-3");
+        const auto refused=relink_dialog(w,button,expected,chosen,true,".preflight");
+        check(!refused.opened&&same_asset_session(w.host.session,expected),"Invalid or driven dimension refuses before chooser and retains complete source/history");
+        w.host.changed={};w.hide();
+    }
+    Window w(scratch+"/cancelled-pointer-recovery");w.host.session=Session(fixture(path,original));w.host.session_id="relink-pointer-session";w.host.edited();w.show();events();select(w);Session expected=w.host.session;
+    auto* button=named<QPushButton>(w,"image-relink");reveal(w,button);auto* width=field(w,"image.width");reveal(w,width);
+    QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"160");const QPointer<QLineEdit> pending=width;
+    QTest::mousePress(button,Qt::LeftButton);QTest::mouseRelease(button,Qt::LeftButton,Qt::NoModifier,QPoint(-4,-4));events();
+    check(pending&&pending->isModified()&&pending->text()=="160"&&same_asset_session(w.host.session,expected),"Cancelled Relink pointer press preserves pending ordinary dimension and full Session");
+    QTest::mouseClick(pending,Qt::LeftButton);QTest::keyClick(pending,Qt::Key_Return);events();expected.apply({EditProperties{{{"image","","image.width"}},160,false}},expected.revision());canonical(w,expected);
+    button=named<QPushButton>(w,"image-relink");w.host.session.apply({Set{{"copy","","image.height"},65}},w.host.session.revision());expected=w.host.session;
+    const auto stale=relink_dialog(w,button,expected,chosen,true,".stale");check(!stale.opened&&same_asset_session(w.host.session,expected),"Old Relink callback refuses stale revision before opening chooser");
+    w.host.edited();events();w.host.session.begin_gesture(w.host.session.revision());w.host.edited();events();button=named<QPushButton>(w,"image-relink");w.host.session.cancel_gesture();expected=w.host.session;
+    const auto preview_born=relink_dialog(w,button,expected,chosen,true,".preview-born");check(!preview_born.opened&&same_asset_session(w.host.session,expected),"Preview-born Relink stays ineligible after cancellation at same revision/generation");
+    w.host.changed={};w.hide();
+}
+void draft_relink(const QString& scratch) {
+    const auto original=png(200,100,40),replacement=png(30,190,220,30,30);
+    for(const bool cancel:{true,false}) {
+        const QString tag=cancel?"relink-cancel":"relink-accept";
+        const auto path=scratch+"/"+tag+"-original.png",chosen=scratch+"/"+tag+"-chosen.png";
+        write(path,original);write(chosen,replacement);const auto initial=fixture(path,original);
+        Window w(scratch+"/"+tag+"-recovery");w.host.session=Session(initial);w.host.session_id="image-relink-session";
+        w.host.edited();w.show();events();w.canvas->fit_artboard();events();select(w);Session expected(initial);
+        auto* button=named<QPushButton>(w,"image-relink");reveal(w,button);auto* width=field(w,"image.width");reveal(w,width);
+        auto* area=named<QScrollArea>(w,"inspector-scroll");
+        check(area->viewport()->rect().contains(QRect(button->mapTo(area->viewport(),QPoint()),button->size())),"Relink and Width simultaneously reachable in standard pane");
+        QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"160");
+        check(width->hasFocus()&&width->isModified()&&same_asset_session(w.host.session,expected),"Pending Width before Relink complete Session neutral");
+        evidence(w,"."+tag+"-before.png");expected.apply({EditProperties{{{"image","","image.width"}},160,false}},expected.revision());
+        const auto result=relink_dialog(w,button,expected,chosen,cancel,"."+tag);
+        check(result.opened&&result.saved,"First pointer click opens actual owned Qt Relink chooser; evidence saved");
+        check(result.scalar,"Chooser entry follows exact ordinary dimension commit with full Session equality");
+        auto accepted=expected.document().raster_assets.at("asset");
+        if(!cancel){accepted.locator=chosen.toStdString();accepted.payload=make_raster(replacement);expected.apply({ReplaceRasterAsset{accepted}},expected.revision());}
+        std::cout<<"Relink "<<tag.toStdString()<<" width="<<w.host.session.document().objects.at("image").image->width.literal
+                 <<" revision="<<w.host.session.revision()<<" expected="<<expected.revision()<<" fullSession="<<same_asset_session(w.host.session,expected)<<std::endl;
+        evidence(w,"."+tag+"-after.png");
+        check(same_asset_session(w.host.session,expected),"Relink cancel keeps scalar only; accept adds exact selected shared asset with full Session equality");
+        auto protected_source=initial;protected_source.objects.at("image").image->width.literal=160;protected_source.raster_assets.at("asset")=accepted;
+        check(w.host.session.document()==protected_source&&encode(w.host.session.document())==encode(protected_source),"Relink retains full identity/per-placement source/transforms/paint/Artboards");
+        painted(w,expected,cancel?QColor(200,100,40):QColor(30,190,220),"."+tag);
+        history(w,"Undo");expected.undo(expected.revision());check(same_asset_session(w.host.session,expected),"Relink first Undo complete canonical equality");
+        if(!cancel){check(w.host.session.document().raster_assets.at("asset")==initial.raster_assets.at("asset"),"Relink Undo restores original asset while retaining scalar");history(w,"Undo");expected.undo(expected.revision());}
+        check(same_asset_session(w.host.session,expected)&&w.host.session.document()==initial,"All relevant Undo restores full original source");
+        history(w,"Redo");expected.redo(expected.revision());if(!cancel){history(w,"Redo");expected.redo(expected.revision());}
+        check(same_asset_session(w.host.session,expected),"Relink Redo full canonical equality");
+        const auto native=scratch+"/"+tag+".nect";w.host.save(native);check(same_asset_session(w.host.session,expected),"Relink native save complete Session neutral");w.host.changed={};w.hide();
+        Window cold(scratch+"/"+tag+"-cold");cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();select(cold);Session reopened(expected.document());
+        check(same_asset_session(cold.host.session,reopened),"Relink native fresh Window full source and accepted pixels");
+        reveal(cold,field(cold,"image.width"));check(field(cold,"image.width")->text().toDouble()==160&&field(cold,"image.height")->text().toDouble()==60,"Relink cold controls read per-placement dimensions");
+        painted(cold,reopened,cancel?QColor(200,100,40):QColor(30,190,220),"."+tag+"-cold");cold.host.changed={};cold.hide();
+    }
+}
 void draft_check_link(const QString& scratch) {
     const auto path=scratch+"/check-reference.png";
     const auto original=png(200,100,40),replacement=png(30,190,220,30,30);write(path,original);
@@ -251,7 +357,9 @@ void draft_fit_guards(const QString& scratch) {
     check(same(linked.host.session,driven_source),"Driven dimension Fit refuses atomically without partial height/source/history changes");linked.host.changed={};linked.hide();
 }
 }
-int main(int argc,char** argv){QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());QTemporaryDir scratch(qEnvironmentVariable("NECT_IMAGE_CONTEXT_SCRATCH",QDir::tempPath())+"/image-context-XXXXXX");QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());app.setOrganizationName("NectTest");app.setApplicationName("ImageContext");
+int main(int argc,char** argv){if(argc>1&&(std::string(argv[1])=="--draft-relink"||std::string(argv[1]).starts_with("--relink-")))QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());QTemporaryDir scratch(qEnvironmentVariable("NECT_IMAGE_CONTEXT_SCRATCH",QDir::tempPath())+"/image-context-XXXXXX");QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());app.setOrganizationName("NectTest");app.setApplicationName("ImageContext");
+    if(argc>1&&std::string(argv[1]).starts_with("--relink-"))try{check(scratch.isValid(),"Owned Relink guard scratch");if(std::string(argv[1])=="--relink-preflight")relink_preflight(scratch.path());else{check(argc==3,"Exact modal guard scenario");relink_guard(scratch.path(),argv[2]);}std::cout<<"PASS "<<checks<<" Image Relink modal/preflight guard full Session; native OS chooser/physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
+    if(argc>1&&std::string(argv[1])=="--draft-relink")try{check(scratch.isValid(),"Owned Relink scratch");draft_relink(scratch.path());std::cout<<"PASS "<<checks<<" Image first-click owned Qt Relink chooser/cancel/accept/full Session/native; native OS chooser/physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--draft-check")try{check(scratch.isValid(),"Owned draft-check scratch");draft_check_link(scratch.path());std::cout<<"PASS "<<checks<<" first Check link/ordinary draft/visible observation/full accepted source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--draft-reload")try{check(scratch.isValid(),"Owned draft-reload scratch");draft_asset_action(scratch.path());draft_asset_guards(scratch.path());draft_asset_scalar_forms(scratch.path());std::cout<<"PASS "<<checks<<" Image direct draft-to-Reload/cancel/context/scalar guards/full accepted source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}
     if(argc>1&&std::string(argv[1])=="--draft-embed")try{check(scratch.isValid(),"Owned draft-embed scratch");draft_asset_action(scratch.path(),true);draft_asset_guards(scratch.path(),true);draft_asset_scalar_forms(scratch.path(),true);std::cout<<"PASS "<<checks<<" Image direct draft-to-Embed/cancel/context/scalar guards/full accepted source/History/native; physical input NOT_RUN\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}

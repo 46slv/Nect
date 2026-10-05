@@ -5841,7 +5841,7 @@ void Window::add_image_properties(QVBoxLayout* layout,const Object& object) {
     }
     const auto operation=[&](const QString& label,const char* action) {
         auto* button=new QPushButton(label);button->setObjectName("image-"+QString::fromLatin1(action));form->addRow(button);
-        const bool finish_dimension=std::string_view(action)=="reload"||std::string_view(action)=="embed";
+        const bool finish_dimension=std::string_view(action)=="reload"||std::string_view(action)=="embed"||std::string_view(action)=="relink";
         if(finish_dimension)button->setProperty("nect-image-source-action-object",qs(object.id));
         connect(button,&QPushButton::clicked,this,[this,identity,revision,id,dimensions,fit_gesture,fit_preview,
             document_id=host.session.document().id,finish_dimension,action=std::string(action)]{perform([&]{
@@ -5864,10 +5864,16 @@ void Window::add_image_properties(QVBoxLayout* layout,const Object& object) {
                         throw Error("REVISION_CONFLICT","Image changed while finishing its dimension draft");
                 }
             }
+            // A modal chooser may run arbitrary document/gesture work. Freeze
+            // only after our ordinary scalar commit, never adopt a later edit.
+            const auto action_revision=finish_dimension?host.session.revision():revision;
             QString path;
             if(action=="relink") {path=QFileDialog::getOpenFileName(this,"Relink Image",{},"PNG / JPEG (*.png *.jpg *.jpeg)");if(path.isEmpty())return;}
             if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
-            host.update_asset(id,action,path,finish_dimension?host.session.revision():revision);
+            if(host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Image belongs to another document");
+            if(host.session.gesture_generation()!=fit_gesture)throw Error("REVISION_CONFLICT","Image changed while choosing its source");
+            if(fit_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            host.update_asset(id,action,path,action_revision);
         });});
     };
     if(asset.mode=="linked") {operation("Reload from link","reload");operation("Embed accepted image","embed");}
