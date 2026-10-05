@@ -2596,10 +2596,23 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* note=new QLabel("Frame X/Y changes the crop only. Artwork stays at its existing composition coordinates. List order does not change placement.");
     note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");layout->addWidget(note);
     auto* group=new QGroupBox("Frame");auto* form=new QFormLayout(group);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(group);
+    const auto name_document=host.session.document().id;
+    const auto name_gesture=host.session.gesture_generation();
+    const auto name_preview=host.session.gesture_active();
     auto* name=new QLineEdit(qs(board.name));name->setObjectName("artboard-name");form->addRow("Name",name);
-    connect(name,&QLineEdit::editingFinished,this,[this,name,composition,read,apply]{
+    connect(name,&QLineEdit::editingFinished,this,[this,name,composition,read,apply,
+        frozen_session,frozen_revision,name_document,name_gesture,name_preview]{
         if(!name->isModified())return;name->setModified(false);
-        perform([&]{auto board=read();board.name=name->text().toStdString();apply({UpdateArtboard{composition,board}});});
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=name_document)
+                throw Error("SESSION_CONFLICT","Frame name draft belongs to another document");
+            if(host.session.revision()!=frozen_revision||host.session.gesture_generation()!=name_gesture)
+                throw Error("REVISION_CONFLICT","Frame edit context changed; edit it again");
+            // A form created during a preview must stay ineligible after cancel.
+            if(name_preview||host.session.gesture_active())
+                throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            auto board=read();board.name=name->text().toStdString();apply({UpdateArtboard{composition,board}});
+        });
     });
     const auto numeric_document=host.session.document().id;
     const auto numeric_gesture=host.session.gesture_generation();
