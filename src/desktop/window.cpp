@@ -8199,6 +8199,9 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         add_property(form,gradient_ref(id,op,gradient_id,field),parameter_label(field));
     auto* note=new QLabel("Local coordinates; radial uses Start as its center and the distance to End as radius. Stops use sRGB. Paint opacity multiplies stop alpha.");
     note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");form->addRow(note);
+    const auto hex_document=document.id;
+    const auto hex_revision=host.session.revision(),hex_gesture=host.session.gesture_generation();
+    const auto hex_preview=host.session.gesture_active();
     for(std::size_t index=0;index<gradient.stops.size();++index) {
         const auto& stop=gradient.stops[index];const auto stop_id=stop.id;
         auto* group=new QGroupBox("Stop "+QString::number(index+1));
@@ -8214,9 +8217,17 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         remove->setObjectName("gradient-stop-remove-"+qs(stop_id));remove->setToolTip("Remove this stop; keep at least two");
         row_layout->addWidget(hex);row_layout->addWidget(remove);stop_form->addRow("sRGB",row);
         stop_form->addRow(color_tools_->menu_button(ref("color")));
-        connect(hex,&QLineEdit::editingFinished,this,[this,hex,id,op,gradient_id,stop_id,apply]{
+        connect(hex,&QLineEdit::editingFinished,this,[this,hex,id,op,gradient_id,stop_id,apply,
+            frozen_session,hex_document,hex_revision,hex_gesture,hex_preview]{
             if(!hex->isModified())return;hex->setModified(false);
             perform([&]{
+                // Refresh hides the old focused input. Refuse its draft before reading current channels.
+                if(host.session_id!=frozen_session||host.session.document().id!=hex_document)
+                    throw Error("SESSION_CONFLICT","Gradient HEX draft belongs to another document");
+                if(host.session.revision()!=hex_revision||host.session.gesture_generation()!=hex_gesture)
+                    throw Error("REVISION_CONFLICT","Gradient color changed; edit it again");
+                // Cancel retains revision/generation, so a preview-born form must also refuse after cancel.
+                if(hex_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                 const auto color=parse_hex_color(hex->text());const auto values=evaluate(host.session.document());
                 const std::array<double,4> rgba{color.redF(),color.greenF(),color.blueF(),color.alphaF()};
                 const std::array<std::string,4> fields{"r","g","b","a"};std::vector<Command> commands;

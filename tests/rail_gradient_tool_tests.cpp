@@ -3,8 +3,12 @@
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QDockWidget>
+#include <QAction>
+#include <QLineEdit>
 #include <QMenu>
+#include <QPointer>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSettings>
 #include <QStatusBar>
 #include <QTemporaryDir>
@@ -40,6 +44,121 @@ Document fixture(){
         CreatePrimitive{"gradient-rail-composition",{},"plain-object","Plain object",
             default_primitive("plain-shape","nect.shape.rectangle")}},s.revision());
     return s.document();
+}
+struct HexSnapshot {
+    Document document,preview;std::string native;std::uint64_t revision,generation;HistoryInfo history;bool gesture;
+    explicit HexSnapshot(const Session& s):document(s.document()),preview(s.preview_document()),native(encode(document)),
+        revision(s.revision()),generation(s.gesture_generation()),history(s.history()),gesture(s.gesture_active()){}
+    void unchanged(const Session& s)const {
+        check(s.document()==document&&s.preview_document()==preview&&encode(s.document())==native,
+            "HEX input preserves complete canonical source/native/external preview");
+        check(s.revision()==revision&&s.history()==history&&s.gesture_generation()==generation&&s.gesture_active()==gesture,
+            "HEX input preserves revision/history/external gesture ownership");
+    }
+};
+void hex_context() {
+    QTemporaryDir scratch;check(scratch.isValid(),"HEX regression owns recovery/settings/native files");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    settings.setValue("unrelated","preserved");
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    window.setAttribute(Qt::WA_DontShowOnScreen);window.resize(1100,750);window.show();
+    const auto events=[] {QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        QTest::qWait(20);QApplication::processEvents();};
+    auto& session=window.host.session;session=Session(fixture());window.host.edited();events();
+    QApplication::setActiveWindow(&window);events();
+    auto* tree=window.findChild<QTreeWidget*>();check(tree&&tree->isVisible(),"Actual Structure tree is reachable");
+    QTreeWidgetItem* target=nullptr;
+    for(QTreeWidgetItemIterator i(tree);*i;++i)
+        if((*i)->data(0,Qt::UserRole).toString()=="gradient-object"&&(*i)->data(0,Qt::UserRole+1).toString().isEmpty()){target=*i;break;}
+    check(target!=nullptr,"Exact retained Gradient Object row exists");tree->scrollToItem(target);events();
+    QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(target).center());events();
+    check(window.canvas->selected_object=="gradient-object"&&window.canvas->selected_point.empty(),
+        "Actual Structure click selects retained Gradient Object");
+    const auto field=[&] {
+        for(auto* input:window.findChildren<QLineEdit*>("gradient-stop-hex-gradient-first"))if(input->isVisible())return input;
+        throw std::runtime_error("Current visible Gradient HEX field missing");
+    };
+    const auto draft=[&](const char* text) {
+        auto* input=field();auto* parent=input->parentWidget();
+        while(parent&&!qobject_cast<QScrollArea*>(parent))parent=parent->parentWidget();
+        auto* scroll=qobject_cast<QScrollArea*>(parent);check(scroll&&input->isEnabled(),"Actual enabled HEX editor is in Inspector");
+        scroll->ensureWidgetVisible(input);events();QTest::mouseClick(input,Qt::LeftButton);
+        QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);events();
+        check(input->hasFocus()&&input->isModified()&&input->text()==text,
+            "Actual keyboard input leaves exact unfinished modified HEX draft focused");
+        return QPointer<QLineEdit>(input);
+    };
+    const auto commands=[](const std::array<double,4>& rgba) {
+        std::vector<Command> result;const std::array<std::string,4> fields{"r","g","b","a"};
+        for(std::size_t i=0;i<fields.size();++i)result.push_back(Set{
+            gradient_ref("gradient-object","gradient-fill","gradient-source","stop.gradient-first."+fields[i]),rgba[i]});
+        return result;
+    };
+    const auto history=[&](const QString& name) {
+        for(auto* action:window.findChildren<QAction*>())if(action->text()==name){action->trigger();events();return;}
+        throw std::runtime_error("Existing History action missing");
+    };
+    const HexSnapshot initial(session);auto old=draft("#11223344");initial.unchanged(session);
+    session.apply(commands({0.4,0.5,0.6,0.7}),session.revision());const HexSnapshot incoming(session);
+    check(old&&old->hasFocus()&&old->text()=="#11223344"&&old->isModified(),
+        "Complete external same-stop transaction arrives before unfinished focused HEX draft loses focus");
+    window.host.edited();events();
+    std::cout<<"HEX refresh red="<<session.document().objects.at("gradient-object").stack.front().gradient->stops.front().rgba[0].literal
+        <<" revision="<<session.revision()<<" expected="<<incoming.revision<<std::endl;
+    incoming.unchanged(session);
+    check(field()->text()=="#668099B3","Replacement HEX editor shows incoming RGBA including alpha");
+    history("Undo");check(session.document()==initial.document&&encode(session.document())==initial.native,
+        "External HEX Undo restores complete prior source");
+    history("Redo");check(session.document()==incoming.document&&encode(session.document())==incoming.native,
+        "External HEX Redo restores complete incoming source");
+    const auto commit=[&](const char* text,const std::array<double,4>& rgba) {
+        const HexSnapshot before(session);auto input=draft(text);before.unchanged(session);
+        // Qt 6 exposes normalized sRGB components as float. Match that public representation exactly.
+        auto expected_rgba=rgba;for(auto& component:expected_rgba)component=static_cast<float>(component);
+        Session oracle(before.document);oracle.apply(commands(expected_rgba),oracle.revision());
+        QTest::keyClick(input,Qt::Key_Return);events();
+        check(session.document()==oracle.document()&&session.preview_document()==oracle.document()&&encode(session.document())==encode(oracle.document())&&
+            session.revision()==before.revision+1&&session.history().states.size()==before.history.states.size()+1,
+            "HEX Return commits one complete canonical RGBA transaction preserving all other source and stable IDs");
+        const HexSnapshot after(session);history("Undo");
+        check(session.document()==before.document&&encode(session.document())==before.native,"HEX Undo restores complete previous source");
+        history("Redo");check(session.document()==after.document&&encode(session.document())==after.native,"HEX Redo restores complete edited source");
+    };
+    commit("#33669980",{51/255.0,102/255.0,153/255.0,128/255.0});
+    const auto native=scratch.filePath("hex.nect");const HexSnapshot saved(session);window.host.save(native);events();saved.unchanged(session);
+    window.host.open(native);events();
+    check(session.document()==saved.document&&encode(session.document())==saved.native&&session.revision()==0&&session.history().states.size()==1,
+        "Same Window native reopen preserves complete retained Gradient/geometry/stop/operation/Object identity");
+    window.canvas->set_selection("gradient-object");events();const HexSnapshot before_preview(session);
+    auto preview_old=draft("#AABBCCDD");before_preview.unchanged(session);
+    session.begin_gesture(session.revision());session.update_gesture(commands({0.8,0.7,0.6,0.5}));const HexSnapshot preview(session);
+    check(preview_old&&preview_old->hasFocus()&&preview.preview!=preview.document,"External RGBA preview starts while old HEX draft stays focused");
+    window.host.edited();events();preview.unchanged(session);
+    auto preview_return=draft("#22446688");preview.unchanged(session);QTest::keyClick(preview_return,Qt::Key_Return);events();preview.unchanged(session);
+    // A fresh form born during a preview must remain ineligible after cancel, even when revision/generation match.
+    auto cancel_old=draft("#778899AA");preview.unchanged(session);session.cancel_gesture();const HexSnapshot cancelled(session);
+    check(cancel_old&&cancel_old->hasFocus()&&session.gesture_generation()==preview.generation&&session.revision()==preview.revision,
+        "Canonical cancel retains revision/generation with a focused preview-born HEX draft");
+    window.host.edited();events();cancelled.unchanged(session);
+    check(session.document()==saved.document,"Preview cancellation/refresh retains complete native-restored source");
+    commit("#102030",{16/255.0,32/255.0,48/255.0,1});
+    const HexSnapshot before_reload(session);auto reload_old=draft("#DEADBEEF");before_reload.unchanged(session);
+    const auto old_session=window.host.session_id;
+    check(reload_old&&reload_old->hasFocus()&&reload_old->isModified(),"Same-ID native reload begins with unfinished HEX draft focused");
+    window.host.open(native);events();
+    // Host::open flushes current canonical edits before reloading the same native file.
+    std::cout<<"reload session_changed="<<(window.host.session_id!=old_session)<<" document_equal="<<(session.document()==before_reload.document)
+        <<" preview_equal="<<(session.preview_document()==before_reload.document)<<" native_equal="<<(encode(session.document())==before_reload.native)
+        <<" revision="<<session.revision()<<" history="<<session.history().states.size()<<" gesture="<<session.gesture_active()<<std::endl;
+    check(window.host.session_id!=old_session&&session.document()==before_reload.document&&session.preview_document()==before_reload.document&&
+        encode(session.document())==before_reload.native&&session.revision()==0&&session.history().states.size()==1&&!session.gesture_active(),
+        "Same-ID native reload rejects old Session draft and preserves complete flushed source without extra history");
+    window.canvas->set_selection("gradient-object");events();
+    const auto red=gradient_ref("gradient-object","gradient-fill","gradient-source","stop.gradient-first.r");
+    session.apply({SetExpression{{red},{"0.25",1},false}},session.revision());window.host.edited();events();const HexSnapshot driven(session);
+    auto driven_input=draft("#ABCDEF80");driven.unchanged(session);QTest::keyClick(driven_input,Qt::Key_Return);events();driven.unchanged(session);
+    check(window.statusBar()->currentMessage().contains("DRIVEN_PROPERTY"),"Driven RGBA channel refuses complete HEX transaction atomically");
+    check(settings.value("unrelated")=="preserved","HEX editing preserves unrelated workspace settings");
 }
 void pointer_isolation() {
     QTemporaryDir scratch;check(scratch.isValid(),"Pointer regression owns recovery, settings and native files");
@@ -125,6 +244,7 @@ void pointer_isolation() {
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--hex-context-only")){hex_context();std::cout<<"gradient_hex_context: "<<checks<<" checks passed; physical OS input NOT_RUN\n";return 0;}
         if(app.arguments().contains("--pointer-isolation-only")){pointer_isolation();std::cout<<"gradient_pointer_isolation: "<<checks<<" checks passed\n";return 0;}
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
         QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);

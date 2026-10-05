@@ -286,7 +286,13 @@ Default Stroke v1 remains butt/miter/4. Inspector controls and SVG style import
 are pending the next checkpoint; see [the contract](docs/model-v0.md#stroke-behavior-v2-within-native-013).
 
 The Shape stack supports multiple solid Fill/Stroke entries, HEX RGBA/color
-editing, enable/reorder/remove and Repeater. Add a radial repeater for a fixed-step
+editing, enable/reorder/remove and Repeater.
+Gradient stop HEX drafts commit RGBA together in one Undo step. An intervening
+document edit, reload or preview invalidates the old draft before it can overwrite
+the current color. Fields opened during a preview stay invalid after cancellation;
+edit the refreshed field. Linked or expression-driven channels reject atomically.
+
+Add a radial repeater for a fixed-step
 12 × 30° starting point. Repeater before paint creates a compound path; after
 paint it repeats separately painted copies. Source points remain directly editable.
 Open `examples/radial-ornament.nect` for an original procedural sample, or reproduce
