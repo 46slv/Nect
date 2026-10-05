@@ -235,6 +235,11 @@ Scalar override exists; Undo restores the previous override or inheritance.
 root and reveals it in Structure. Navigation changes selection only; subsequent
 source edits affect every Instance of that Definition. Finish or cancel a preview
 before navigating. Multi-selection keeps its own Properties context.
+An assigned Artboard's **Artboard Template → Edit source frame** opens the exact
+source Artboard's frame and layout Properties, including when Artboards share
+names. Navigation preserves authored state, Undo history and zoom. Subsequent
+source edits propagate to inheriting Artboards while their local overrides remain.
+Finish or cancel a preview before navigating.
 Dependencies must stay within the source subtree, and nested/cross-Composition use
 reject. Native 0.64 stores Definitions and Instances; 0.63 and older remain readable.
 

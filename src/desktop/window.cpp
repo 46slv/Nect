@@ -4273,6 +4273,48 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             "Assigned: "+qs(found->name)+" · source Artboard "+qs(find_artboard(comp,found->source_artboard).name));
     } else template_status->setText("No Template assigned to this Artboard");
     template_status->setWordWrap(true);template_form->addRow(template_status);
+    if(board.template_assignment) {
+        const auto assigned=std::find_if(comp.templates.begin(),comp.templates.end(),[&](const ArtboardTemplate& item) {
+            return item.id==board.template_assignment->template_id;
+        });
+        if(assigned!=comp.templates.end()) {
+            auto* source_button=new QPushButton("Edit source frame",template_box);
+            source_button->setObjectName("artboard-template-source-go");
+            source_button->setToolTip("Open this Template's source Artboard in Properties. Source frame and layout edits affect Artboards that inherit them.");
+            source_button->setEnabled(!host.session.gesture_active());template_form->addRow(source_button);
+            const auto source_document=host.session.document().id;
+            const auto source_gesture=host.session.gesture_generation();
+            const auto source_generation=inspector_scroll_generation_;
+            connect(source_button,&QPushButton::clicked,this,[this,composition,id,frozen_session,frozen_revision,
+                source_document,source_gesture,source_generation,assignment=*board.template_assignment,
+                template_id=assigned->id,source_id=assigned->source_artboard] {
+                const auto& document=host.session.document();
+                // Resolve only the captured assignment; navigation must not
+                // cancel a preview or reuse an old same-ID document/frame.
+                if(host.session_id!=frozen_session||document.id!=source_document||host.session.revision()!=frozen_revision||
+                   host.session.gesture_generation()!=source_gesture||host.session.gesture_active()||
+                   inspector_scroll_generation_!=source_generation||!artboard_editing_||!canvas->selections().empty()||
+                   canvas->active_composition()!=composition||canvas->active_artboard()!=id)return;
+                const auto current_comp=std::find_if(document.compositions.begin(),document.compositions.end(),
+                    [&](const auto& item){return item.id==composition;});
+                if(current_comp==document.compositions.end())return;
+                const auto target=std::find_if(current_comp->artboards.begin(),current_comp->artboards.end(),
+                    [&](const auto& item){return item.id==id;});
+                const auto source=std::find_if(current_comp->artboards.begin(),current_comp->artboards.end(),
+                    [&](const auto& item){return item.id==source_id;});
+                const auto current_template=std::find_if(current_comp->templates.begin(),current_comp->templates.end(),
+                    [&](const auto& item){return item.id==template_id;});
+                if(target==current_comp->artboards.end()||source==current_comp->artboards.end()||
+                   current_template==current_comp->templates.end()||target->template_assignment!=assignment||
+                   current_template->source_artboard!=source_id)return;
+                canvas->set_active_artboard(composition,source_id,false);
+                if(auto* structure=findChild<QDockWidget*>("structure")){structure->show();structure->raise();}
+                artboards_->scrollToItem(artboards_->currentItem(),QAbstractItemView::PositionAtCenter);
+                if(auto* properties=findChild<QDockWidget*>("properties")){properties->show();properties->raise();}
+                if(auto* name=inspector_->findChild<QLineEdit*>("artboard-name"))name->setFocus();
+            });
+        }
+    }
     auto* template_selector=new QComboBox(template_box);template_selector->setObjectName("artboard-template-selector");
     template_selector->addItem("Choose a Template…",QString{});
     for(const auto& item:comp.templates)template_selector->addItem(
