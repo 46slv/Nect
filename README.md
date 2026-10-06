@@ -407,6 +407,9 @@ Object with one eligible Gradient restores its handles. Multiple Gradients requi
 an explicit Rail choice. Escape exits the tool even while no handles are available.
 Canvas drags in Gradient Edit change Gradient endpoints only; use Selection or
 Direct Selection to move artwork or Path points.
+Double-clicking a Group enters its child scope while keeping Gradient Edit selected.
+An eligible child restores its exact paint handles; returning to an ineligible
+parent clears the handle target. These navigation steps add no authored command.
 
 The Artboards list selects a frame and its Composition. Add/Duplicate places a
 frame to the right; up/down changes export order without moving artwork. Edit

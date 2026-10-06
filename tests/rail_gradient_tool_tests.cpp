@@ -3,6 +3,7 @@
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QDockWidget>
+#include <QDir>
 #include <QAction>
 #include <QLineEdit>
 #include <QMenu>
@@ -160,6 +161,98 @@ void hex_context() {
     check(window.statusBar()->currentMessage().contains("DRIVEN_PROPERTY"),"Driven RGBA channel refuses complete HEX transaction atomically");
     check(settings.value("unrelated")=="preserved","HEX editing preserves unrelated workspace settings");
 }
+void group_drill_context() {
+    QTemporaryDir scratch(qEnvironmentVariable("NECT_GRADIENT_CONTEXT_SCRATCH",QDir::tempPath())+"/gradient-group-XXXXXX");
+    check(scratch.isValid(),"Gradient Group navigation owns recovery/settings/native files");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);settings.setValue("unrelated","preserved");
+    Session setup(fixture());
+    auto plain_fill=default_operation("plain-fill","nect.paint.fill");plain_fill.parameters.at("r").literal=1;
+    auto guard_fill=default_operation("guard-fill","nect.paint.fill");guard_fill.parameters.at("b").literal=1;
+    setup.apply({Set{{"plain-object",{},"transform.tx"},120},Set{{"plain-object",{},"transform.ty"},160},
+        AddOperation{"plain-object",plain_fill,0},Set{{"gradient-object","gradient-shape-top-left","x"},-52},
+        GroupContiguous{"gradient-rail-composition",{}, {"gradient-object","plain-object"},"gradient-group","Gradient Group"},
+        CreatePrimitive{"gradient-rail-composition",{},"guard","Other artwork",default_primitive("guard-source","nect.shape.rectangle")},
+        AddOperation{"guard",guard_fill,0},Set{{"guard",{},"transform.tx"},520},Set{{"guard",{},"transform.ty"},440},
+        Set{{"guard",{},"generator.height"},24},
+        Link{{"guard",{},"generator.width"},{{"gradient-object","gradient-shape-top-left","x"},-0.5,0,"copy_local_value"}}},setup.revision());
+    auto original=setup.document();auto second=original.compositions.front().artboards.front();
+    second.id="other-artboard";second.name="Other Artboard";second.x=700;original.compositions.front().artboards.push_back(second);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto& session=window.host.session;session=Session(original);session.apply({Set{{"guard",{},"transform.tx"},530}},session.revision());
+    Session expected=session;window.host.edited();window.show();
+    const auto events=[] {QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);QTest::qWait(20);};
+    events();window.canvas->fit_artboard();events();window.canvas->set_snap_enabled(false);
+    const auto equal=[](const Session& a,const Session& b) {
+        return a.document()==b.document()&&a.preview_document()==b.preview_document()&&encode(a.document())==encode(b.document())&&
+            a.history()==b.history()&&a.revision()==b.revision()&&a.gesture_generation()==b.gesture_generation()&&
+            a.gesture_active()==b.gesture_active()&&a.can_undo()==b.can_undo()&&a.can_redo()==b.can_redo();
+    };
+    const auto action=[&](const QString& name) {
+        for(auto* a:window.findChildren<QAction*>())if(a->text()==name){a->trigger();events();return;}
+        throw std::runtime_error("Actual Group navigation/History action missing");
+    };
+    const auto evidence=[&](const char* suffix) {
+        const auto prefix=qEnvironmentVariable("NECT_GRADIENT_CONTEXT_EVIDENCE");
+        if(!prefix.isEmpty())check(window.grab().save(prefix+suffix+".png"),"Actual Gradient Group Window evidence saved");
+    };
+    auto* tree=window.findChild<QTreeWidget*>();check(tree&&tree->isVisible(),"Actual Structure is reachable");tree->expandAll();
+    QTreeWidgetItem* row=nullptr;
+    for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString()=="gradient-object"&&
+        (*i)->data(0,Qt::UserRole+1).toString().isEmpty())row=*i;
+    check(row,"Exact whole Gradient child row exists");tree->scrollToItem(row);events();
+    QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(row).center());events();
+    check(window.canvas->drill_scope()=="gradient-group"&&window.canvas->selected_object=="gradient-object"&&equal(session,expected),
+        "Actual Structure selects exact child and its Group scope without authoring");
+    auto* tool=window.findChild<QToolButton*>("tool-gradient");check(tool&&tool->isVisible()&&tool->isEnabled(),"Child exposes enabled Gradient Rail tool");
+    QTest::mouseClick(tool,Qt::LeftButton);events();
+    check(tool->isChecked()&&window.canvas->gradient_edit_mode()&&window.canvas->gradient_operation()=="gradient-fill"&&equal(session,expected),
+        "Gradient activation targets exact existing child paint without authoring");
+    action("Return to parent Group");
+    check(window.canvas->drill_scope().empty()&&window.canvas->selected_object=="gradient-group"&&tool->isChecked()&&!tool->isEnabled()&&
+        window.canvas->gradient_edit_mode()&&window.canvas->gradient_operation().empty()&&equal(session,expected),
+        "Actual return selects ineligible parent while retaining explicit Gradient Tool and complete Session");
+    const auto canvas_width=window.canvas->width();const auto* properties=window.findChild<QDockWidget*>("properties");
+    check(properties,"Standard Properties pane exists");const auto pane_width=properties->width();evidence(".parent");
+    const auto zoom=window.canvas->zoom();const QPoint body(qRound(window.canvas->width()/2.0),qRound(window.canvas->height()/2.0));
+    QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,body);events();
+    check(equal(session,expected),"First Gradient Group body click starts no authored gesture");
+    QTest::mouseDClick(window.canvas,Qt::LeftButton,Qt::NoModifier,body);QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,body);events();
+    std::cout<<"Gradient Group double-click scope="<<window.canvas->drill_scope()<<" object="<<window.canvas->selected_object
+        <<" operation="<<window.canvas->gradient_operation()<<" revision="<<session.revision()<<" generation="<<session.gesture_generation()<<std::endl;
+    evidence(".drilled");
+    check(window.canvas->drill_scope()=="gradient-group"&&window.canvas->selected_object=="gradient-object"&&window.canvas->selected_point.empty(),
+        "Actual Canvas double-click enters Group and selects exact whole Gradient child");
+    check(tool->isChecked()&&tool->isEnabled()&&window.canvas->gradient_edit_mode()&&window.canvas->gradient_operation()=="gradient-fill"&&equal(session,expected),
+        "Group drill restores exact eligible Gradient handles and preserves full source/native/History/preview/generation/Undo");
+    check(session.document().objects.at("gradient-object")==original.objects.at("gradient-object")&&
+        session.document().objects.at("gradient-group")==original.objects.at("gradient-group")&&
+        session.document().objects.at("plain-object")==original.objects.at("plain-object"),"Drill retains entire child generator/correction/paint/Gradient stops and Group order");
+    const auto values=evaluate(session.document());
+    check(session.document().objects.at("guard").source->parameters.at("width").binding->source==Ref{"gradient-object","gradient-shape-top-left","x"}&&
+        values.at({"guard",{},"generator.width"})==26,"Incoming stable child point Ref remains exact and evaluates independently");
+    const auto artwork=Canvas::render_artboard(session.document(),"gradient-rail-composition","gradient-rail-artboard",1,false);
+    check(artwork==Canvas::render_artboard(expected.document(),"gradient-rail-composition","gradient-rail-artboard",1,false)&&
+        artwork.pixelColor(530,440)==QColor(Qt::blue)&&artwork.pixelColor(120,160)==QColor(Qt::red),"Drill preserves independent other artwork and canonical projection");
+    const auto canvas=window.canvas->grab().toImage();const QPoint guard(qRound(canvas_width/2.0+(530-320)*zoom),
+        qRound(window.canvas->height()/2.0+(440-240)*zoom));
+    check(canvas.pixelColor(qRound(guard.x()*canvas.devicePixelRatio()),qRound(guard.y()*canvas.devicePixelRatio()))==QColor(Qt::blue),
+        "Actual Canvas retains unrelated artwork during child handle navigation");
+    action("Return to parent Group");
+    check(window.canvas->drill_scope().empty()&&window.canvas->selected_object=="gradient-group"&&tool->isChecked()&&!tool->isEnabled()&&
+        window.canvas->gradient_operation().empty()&&equal(session,expected),"Return after Canvas drill stays navigation-only and releases child handle target");
+    action("Undo");expected.undo(expected.revision());check(equal(session,expected)&&session.document()==original,"One Undo reaches preexisting scalar edit without a Group navigation History entry");
+    action("Redo");expected.redo(expected.revision());check(equal(session,expected),"Scalar Redo restores full Session after drill/return");
+    const auto native=scratch.filePath("gradient-group.nect");window.host.save(native);check(equal(session,expected),"Group navigation native save is complete Session neutral");
+    const auto refresh=window.host.changed;window.host.changed={};window.hide();
+    Window cold(scratch.filePath("cold"),std::make_unique<FolderLibrary>(settings),&settings);cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();
+    check(cold.host.session.document()==expected.document()&&encode(cold.host.session.document())==encode(expected.document())&&
+        !cold.canvas->gradient_edit_mode()&&cold.canvas->drill_scope().empty(),"Fresh native Window preserves complete Group/child/source/refs/Artboards and excludes transient Tool/scope");
+    check(Canvas::render_artboard(cold.host.session.document(),"gradient-rail-composition","gradient-rail-artboard",1,false)==artwork,
+        "Fresh native projection preserves full artwork");cold.host.changed={};cold.hide();window.host.changed=refresh;
+    check(window.canvas->width()==canvas_width&&properties->width()==pane_width&&settings.value("unrelated")=="preserved",
+        "Group navigation keeps standard pane/Canvas widths and unrelated owned preferences");
+    window.host.changed={};
+}
 void pointer_isolation() {
     QTemporaryDir scratch;check(scratch.isValid(),"Pointer regression owns recovery, settings and native files");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -244,6 +337,7 @@ void pointer_isolation() {
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--group-drill-only")){group_drill_context();std::cout<<"gradient_group_drill: "<<checks<<" checks passed; physical OS input NOT_RUN\n";return 0;}
         if(app.arguments().contains("--hex-context-only")){hex_context();std::cout<<"gradient_hex_context: "<<checks<<" checks passed; physical OS input NOT_RUN\n";return 0;}
         if(app.arguments().contains("--pointer-isolation-only")){pointer_isolation();std::cout<<"gradient_pointer_isolation: "<<checks<<" checks passed\n";return 0;}
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
