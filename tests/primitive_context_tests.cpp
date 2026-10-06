@@ -22,6 +22,7 @@
 #include <QTreeWidget>
 #include <QTimer>
 #include <QToolButton>
+#include <QWindow>
 #include <cmath>
 #include <iostream>
 
@@ -356,7 +357,10 @@ void circle_entry_context(const QString& scratch) {
     QTest::mouseClick(radius,Qt::LeftButton);QTest::keyClick(radius,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(radius,"75");
     check(radius->hasFocus()&&radius->isModified()&&same(w.host.session,expected),"Pending Circle radius75 is focused and complete Session neutral");
     evidence(w,".circle-pending");reveal(w,enter);
-    QTest::mouseClick(enter,Qt::LeftButton);events();
+    // Route through the Window so Qt performs native focus transfer before
+    // delivering the press. Sending directly to the button skips that step.
+    QTest::mouseClick(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,
+        enter->mapTo(&w,enter->rect().center()));events();
     expected.apply({EditProperties{{{"circle","","generator.radius"}},75,false}},expected.revision());
     std::cout<<"Circle first click revision="<<w.host.session.revision()<<" expected="<<expected.revision()
         <<" source-mode="<<w.canvas->circle_source_edit()<<std::endl;
@@ -391,6 +395,21 @@ void circle_entry_context(const QString& scratch) {
     auto* finish=named<QPushButton>(w,"circle-source-handles");reveal(w,finish);
     check(finish->text()=="Finish Circle source handles","Actual mode reflects Finish action");QTest::mouseClick(finish,Qt::LeftButton);events();
     check(!w.canvas->circle_source_edit()&&same(w.host.session,expected),"Finish exits Circle mode without an authored command");
+    enter=named<QPushButton>(w,"circle-source-handles");reveal(w,enter);
+    radius=field(w,"circle","generator.radius");reveal(w,radius);
+    QTest::mouseClick(radius,Qt::LeftButton);QTest::keyClick(radius,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(radius,"invalid");
+    reveal(w,enter);
+    QTest::mouseClick(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,
+        enter->mapTo(&w,enter->rect().center()));events();
+    check(!w.canvas->circle_source_edit()&&same(w.host.session,expected),"Invalid pending scalar refuses first Circle entry without partial authoring");
+    w.host.edited();events();
+    enter=named<QPushButton>(w,"circle-source-handles");reveal(w,enter);
+    check(enter->focusPolicy()&Qt::TabFocus,"Circle entry remains keyboard focusable");
+    enter->setFocus(Qt::TabFocusReason);QTest::keyClick(enter,Qt::Key_Space);events();
+    check(w.canvas->circle_source_edit()&&same(w.host.session,expected),"Keyboard Circle entry is complete Session neutral");
+    finish=named<QPushButton>(w,"circle-source-handles");reveal(w,finish);
+    finish->setFocus(Qt::TabFocusReason);QTest::keyClick(finish,Qt::Key_Space);events();
+    check(!w.canvas->circle_source_edit()&&same(w.host.session,expected),"Keyboard Finish is complete Session neutral");
     history(w,"Undo");expected.undo(expected.revision());
     check(same(w.host.session,expected)&&expected.document()==original,"One scalar Undo restores entire original Circle and incoming reference fixture");
     history(w,"Redo");expected.redo(expected.revision());

@@ -130,7 +130,9 @@ build output. Close the development executable before rebuilding it. No SDK is
 downloaded by configure or the script.
 
 Circle Properties → Edit Circle source handles first completes any ordinary pending
-radius edit, then shows temporary Center/Radius controls. Escape or Finish exits
+radius edit on the first mouse click, then shows temporary Center/Radius controls.
+An invalid pending value keeps the mode closed. The entry and Finish buttons also
+support keyboard focus and Space activation. Escape or Finish exits
 without adding an authored command; the mode is excluded from native save.
 
 Add a Circle, Ellipse, Rectangle, Polygon or Star and adjust its parameters,

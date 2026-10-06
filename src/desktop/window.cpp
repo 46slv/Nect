@@ -5185,12 +5185,49 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         if(o.source->type=="nect.shape.circle") {
             auto* handles=new QPushButton(canvas->circle_source_edit()?"Finish Circle source handles":"Edit Circle source handles");
             handles->setObjectName("circle-source-handles");
+            // This action owns blur during its pointer gesture so the ordinary
+            // scalar commit cannot rebuild away the pressed button.
+            handles->setProperty("nect-circle-source-action-object",qs(o.id));
             handles->setAccessibleName(canvas->circle_source_edit()?"Finish Circle source handles":"Edit Circle source handles");
             handles->setToolTip("Temporarily show Center and Radius controls on the Canvas. Escape exits; this mode is not saved.");
             generator->addRow(handles);
-            connect(handles,&QPushButton::clicked,this,[this]{
+            connect(handles,&QPushButton::clicked,this,[this,identity=host.session_id,
+                document=d.id,object=o.id,source=o.source->id,revision=host.session.revision(),
+                gesture=host.session.gesture_generation(),preview=host.session.gesture_active()]{try {
+                if(host.session_id!=identity||host.session.document().id!=document)
+                    throw Error("SESSION_CONFLICT","Circle belongs to another document");
+                if(host.session.revision()!=revision||host.session.gesture_generation()!=gesture)
+                    throw Error("REVISION_CONFLICT","Circle changed; reopen its Properties");
+                if(preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                if(canvas->selected_object!=object)return;
+                QPointer<QLineEdit> input;
+                for(auto* candidate:inspector_->findChildren<QLineEdit*>()) {
+                    const auto data=candidate->property("nect-reference").toByteArray();
+                    if(!candidate->isVisible()||!candidate->isModified()||data.isEmpty()||read_ref(data).object!=object)continue;
+                    if(input)throw Error("INVALID_VALUE","Finish the pending property edits before entering Circle handles");
+                    input=candidate;
+                }
+                if(input) {
+                    // Complete the ordinary scalar transaction before entering
+                    // the temporary mode. A failed draft must not enter handles.
+                    input->setProperty("nect-finishing-circle-source",true);
+                    input->setProperty("nect-circle-source-committed-revision",QVariant{});
+                    input->clearFocus();
+                    if(input&&input->isModified())input->editingFinished();
+                    const auto committed=input?input->property("nect-circle-source-committed-revision"):QVariant{};
+                    if(input)input->setProperty("nect-finishing-circle-source",false);
+                    if(!committed.isValid())return;
+                    if(host.session_id!=identity||host.session.document().id!=document||
+                       host.session.revision()!=committed.toULongLong()||
+                       host.session.gesture_generation()!=gesture||host.session.gesture_active())
+                        throw Error("REVISION_CONFLICT","Circle changed while finishing its property draft");
+                }
+                const auto& current=host.session.document().objects.at(object);
+                if(canvas->selected_object!=object||!current.source||current.source->id!=source||
+                   current.source->type!="nect.shape.circle")return;
                 canvas->set_circle_source_edit(!canvas->circle_source_edit());canvas->setFocus();
-            });
+            } catch(const Error& e) {statusBar()->showMessage(qs(e.code)+": "+QString::fromUtf8(e.what()),12000);}
+              catch(const std::exception& e) {statusBar()->showMessage(QString::fromUtf8(e.what()),12000);}});
         }
         for(const auto* parameter:{"center_x","center_y","points","rotation","radius","outer_radius","inner_radius","width","height"})
             if(o.source->parameters.contains(parameter)) {
@@ -9958,6 +9995,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         // Image actions finish their own pointer gesture before handling the
         // dimension draft; blur must not rebuild away the pressed button.
         const auto* focus=QApplication::focusWidget();
+        if(focus&&focus->property("nect-circle-source-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
            (focus->property("nect-image-fit-object").toString()==qs(ref.object)||
             focus->property("nect-image-source-action-object").toString()==qs(ref.object))&&
@@ -9965,9 +10004,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         input->setModified(false);
         const bool keep_focus=input->hasFocus();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
         const auto frozen_session=host.session_id;
-        const auto record_image_dimension_commit=[&] {
+        const auto record_scalar_commit=[&] {
             if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height"))
                 input->setProperty("nect-image-draft-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-circle-source").toBool())
+                input->setProperty("nect-circle-source-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
         };
         perform([&]{
             if(host.session_id!=input_session||host.session.document().id!=input_document)
@@ -9983,7 +10024,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");
             if(text.startsWith('=')) {
                 try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);
-                    record_image_dimension_commit();host.edited();}
+                    record_scalar_commit();host.edited();}
                 catch(const Error& e){if(e.code=="REVISION_CONFLICT"||e.code=="SESSION_CONFLICT")throw;expand(text);input->setText(input->property("nect-exact-value").toBool()?QString::number(inspector_values_.at(ref),'g',17):display_value(inspector_values_.at(ref)));}
                 return;
             }
@@ -9991,10 +10032,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number, += / -= adjustment, or =expression");
             if(input->property("nect-semantic-key").isValid()&&!relative&&
                std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return inspector_values_.at(target)==value;})) {
-                record_image_dimension_commit();return;
+                record_scalar_commit();return;
             }
             canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},field_revision);
-            record_image_dimension_commit();host.edited();
+            record_scalar_commit();host.edited();
             if(keep_focus)QTimer::singleShot(0,this,[this,target_data,scroll,frozen_session]{
                 if(host.session_id!=frozen_session)return;
                 for(auto* current:inspector_->findChildren<QLineEdit*>())if(current->isVisible()&&current->property("nect-targets").toByteArray()==target_data) {
