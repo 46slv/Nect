@@ -1,5 +1,6 @@
 #include "window.hpp"
 #include "visual_style.hpp"
+#include "tool_rail.hpp"
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QComboBox>
@@ -20,6 +21,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QToolBar>
+#include <QToolTip>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <QScrollArea>
@@ -54,6 +56,46 @@ void variant(Window& window,bool vertical){
     check(opened&&neutral,"Actual press-and-hold opens a document/history-neutral flyout");
     unchanged(window.host.session,before,"Picking a creation variant never changes selected Text or history");
     check(button->accessibleName().startsWith(vertical?"Vertical Text":"Horizontal Text"),"Group slot reflects remembered variant");
+}
+void keyboard_focus_help(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    window.resize(1100,750);window.show();
+    window.activateWindow();events();
+    auto* rail=static_cast<ToolRail*>(window.findChild<QToolBar*>("tool-rail"));
+    auto* pen=window.findChild<QToolButton*>("tool-pen");
+    auto* text=window.findChild<QToolButton*>("tool-text");
+    auto* anchor=window.findChild<QToolButton*>("tool-anchor");
+    check(rail&&pen&&text&&anchor,"Adjacent real Rail controls exist");
+    const auto before=snapshot(window.host.session);
+    const auto preference=settings.value("workspace/tools/textCreationDirection");
+    QCursor::setPos(window.canvas->mapToGlobal(window.canvas->rect().center()));
+    QToolTip::hideText();pen->setFocus(Qt::OtherFocusReason);events();
+    QTest::keyClick(pen,Qt::Key_Tab);events();
+    check(text->hasFocus(),"Tab reaches Text without activating it");
+    if(!QToolTip::isVisible()||QToolTip::text()!=text->toolTip())
+        std::cerr<<"Focused tooltip visible="<<QToolTip::isVisible()<<" text="<<QToolTip::text().toStdString()<<'\n';
+    check(QToolTip::isVisible()&&QToolTip::text()==text->toolTip()&&
+        QToolTip::text().startsWith("Horizontal Text"),"Keyboard focus visibly names Text, current variant and hold hint away from pointer");
+    QTest::keyClick(text,Qt::Key_Tab);events();
+    check(anchor->hasFocus()&&QToolTip::isVisible()&&QToolTip::text()==anchor->toolTip(),
+        "Next keyboard focus replaces Text help with adjacent Tool name and shortcut");
+    QTest::keyClick(anchor,Qt::Key_Tab,Qt::ShiftModifier);events();
+    check(text->hasFocus()&&QToolTip::text()==text->toolTip(),"Backtab restores current Text help");
+    rail->set_vertical_text(true);events();
+    check(QToolTip::isVisible()&&QToolTip::text()==text->toolTip()&&QToolTip::text().startsWith("Vertical Text"),
+        "Focused Text help follows current workspace variant");
+    window.canvas->setFocus();events();QTest::qWait(350);
+    check(!QToolTip::isVisible(),"Leaving Rail clears keyboard help");
+    text->setFocus(Qt::MouseFocusReason);events();
+    check(!QToolTip::isVisible(),"Pointer focus retains the normal hover route");
+    check(!text->menu()->isVisible()&&!window.canvas->text_mode()&&pen->isChecked()==false,
+        "Keyboard traversal opens no variant menu and activates no Tool");
+    unchanged(window.host.session,before,"Focus help preserves complete authored state, revision and history");
+    check(settings.value("workspace/tools/textCreationDirection")==preference,
+        "Focus help does not write the creation preference");
+    std::cout<<"rail_keyboard_focus_help: "<<checks<<" checks passed\n";
 }
 void key_isolation(){
     QTemporaryDir scratch;check(scratch.isValid(),"Text key regression owns preferences, recovery and native file");
@@ -419,6 +461,7 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--keyboard-focus-help")){keyboard_focus_help();return 0;}
         if(app.arguments().contains("--double-click-isolation")){double_click_isolation();return 0;}
         if(app.arguments().contains("--pan-button-isolation")){pan_button_isolation();return 0;}
         if(app.arguments().contains("--cursor-continuity")){cursor_continuity();return 0;}

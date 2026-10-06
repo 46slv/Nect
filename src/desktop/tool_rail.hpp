@@ -1,10 +1,14 @@
 #pragma once
 #include <QAction>
+#include <QFocusEvent>
 #include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPointer>
 #include <QToolBar>
 #include <QToolButton>
+#include <QToolTip>
+#include <QTimer>
 #include <functional>
 
 namespace nect::desktop {
@@ -65,7 +69,31 @@ public:
     }
 private:
     QToolButton *selection_,*pen_,*text_,*anchor_,*guide_,*gradient_,*hand_,*zoom_,*direct_selection_;
+    QPointer<QToolButton> keyboard_help_;
     bool vertical_=false;
+    void show_keyboard_help(QToolButton* button) {
+        QToolTip::showText(button->mapToGlobal(QPoint(button->width()+4,0)),button->toolTip(),button);
+    }
+    bool eventFilter(QObject* watched,QEvent* event) override {
+        if(auto* button=qobject_cast<QToolButton*>(watched)) {
+            if(event->type()==QEvent::FocusIn) {
+                const auto reason=static_cast<QFocusEvent*>(event)->reason();
+                if(reason==Qt::TabFocusReason||reason==Qt::BacktabFocusReason||reason==Qt::ShortcutFocusReason) {
+                    keyboard_help_=button;
+                    // Qt's tooltip filter closes tips on focus events. Show after
+                    // focus dispatch, only if this button still owns the help.
+                    QTimer::singleShot(0,this,[this,button=QPointer<QToolButton>(button)] {
+                        if(button&&keyboard_help_==button&&button->hasFocus())show_keyboard_help(button);
+                    });
+                }
+            } else if(event->type()==QEvent::FocusOut&&keyboard_help_==button) {
+                keyboard_help_.clear();QToolTip::hideText();
+            } else if(event->type()==QEvent::ToolTipChange&&keyboard_help_==button&&button->hasFocus()) {
+                show_keyboard_help(button);
+            }
+        }
+        return QToolBar::eventFilter(watched,event);
+    }
     static QIcon icon(Tool tool,bool vertical=false) {
         QIcon result;
         for(const int size:{20,40}) {
@@ -99,7 +127,7 @@ private:
         auto* button=new QToolButton(this);button->setObjectName(QString::fromLatin1(name));
         button->setAccessibleName(label);button->setToolTip(label);button->setCheckable(true);
         button->setFixedSize(32,32);button->setIconSize(QSize(20,20));button->setIcon(icon(tool));
-        button->setFocusPolicy(Qt::StrongFocus);addWidget(button);
+        button->setFocusPolicy(Qt::StrongFocus);button->installEventFilter(this);addWidget(button);
         connect(button,&QToolButton::clicked,this,[this,tool]{if(activate)activate(tool);});return button;
     }
     void refresh_text() {
