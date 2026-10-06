@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QDockWidget>
 #include <QDir>
+#include <QJsonDocument>
 #include <QAction>
 #include <QLineEdit>
 #include <QMenu>
@@ -160,6 +161,78 @@ void hex_context() {
     auto driven_input=draft("#ABCDEF80");driven.unchanged(session);QTest::keyClick(driven_input,Qt::Key_Return);events();driven.unchanged(session);
     check(window.statusBar()->currentMessage().contains("DRIVEN_PROPERTY"),"Driven RGBA channel refuses complete HEX transaction atomically");
     check(settings.value("unrelated")=="preserved","HEX editing preserves unrelated workspace settings");
+}
+void choice_context(const QString& mode) {
+    QTemporaryDir scratch(qEnvironmentVariable("NECT_GRADIENT_CONTEXT_SCRATCH",QDir::tempPath())+"/gradient-choice-XXXXXX");
+    check(scratch.isValid(),"Gradient popup context owns settings/recovery/native files");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);settings.setValue("unrelated","preserved");
+    Session setup(fixture());auto stroke=default_operation("choice-stroke","nect.paint.stroke");
+    auto second=*setup.document().objects.at("gradient-object").stack.front().gradient;
+    second.id="choice-gradient";second.stops[0].id="choice-first";second.stops[1].id="choice-last";
+    setup.apply({AddOperation{"gradient-object",stroke,1},SetGradient{"gradient-object",stroke.id,second}},setup.revision());
+    const auto original=setup.document();
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto& session=window.host.session;session=Session(original);window.host.edited();window.show();
+    const auto events=[] {QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);QTest::qWait(20);};
+    events();window.canvas->fit_artboard();events();window.canvas->set_selection("gradient-object");events();Session expected=session;
+    const auto equal=[](const Session& a,const Session& b) {
+        return a.document()==b.document()&&a.preview_document()==b.preview_document()&&encode(a.document())==encode(b.document())&&
+            a.history()==b.history()&&a.revision()==b.revision()&&a.gesture_generation()==b.gesture_generation()&&
+            a.gesture_active()==b.gesture_active()&&a.can_undo()==b.can_undo()&&a.can_redo()==b.can_redo();
+    };
+    const std::vector<Command> preview{Set{{"plain-object",{},"transform.tx"},25}};
+    if(mode=="preview-born") {
+        session.begin_gesture(session.revision());session.update_gesture(preview);
+        expected.begin_gesture(expected.revision());expected.update_gesture(preview);window.host.edited();events();
+    } else {
+        auto* area=window.findChild<QScrollArea*>("inspector-scroll");check(area,"Standard Inspector exists");
+        QLineEdit* width=nullptr;
+        for(auto* input:area->findChildren<QLineEdit*>()) {
+            const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+            if(input->isVisible()&&ref.value("object")=="gradient-object"&&ref.value("point").toString().isEmpty()&&ref.value("field")=="generator.width")width=input;
+        }
+        check(width&&width->isEnabled(),"Exact visible ordinary Rectangle width field");area->ensureWidgetVisible(width);events();
+        QTest::mouseClick(width,Qt::LeftButton);QTest::keyClick(width,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(width,"230");
+        check(width->hasFocus()&&width->isModified()&&equal(session,expected),"Pending width230 remains complete Session neutral before Rail click");
+    }
+    auto* tool=window.findChild<QToolButton*>("tool-gradient");check(tool&&tool->isVisible()&&tool->isEnabled(),"Actual eligible Gradient Rail target selector");
+    QTest::mouseClick(tool,Qt::LeftButton);events();
+    if(mode!="preview-born")expected.apply({EditProperties{{{"gradient-object",{},"generator.width"}},230,false}},expected.revision());
+    check(equal(session,expected),"First Rail pointer click finishes only ordinary scalar edit or preserves existing preview");
+    auto* menu=window.findChild<QMenu*>("gradient-tool-targets");
+    check(menu&&menu->isVisible()&&menu->actions().size()==2&&window.canvas->gradient_operation().empty(),"Actual nonblocking popup has two exact candidates with no implicit handles");
+    auto* target=window.findChild<QAction*>("gradient-tool-target-choice-stroke");
+    check(target&&target->text().contains("choice-stroke"),"Actual frozen popup choice identifies exact paint");
+    const auto session_id=window.host.session_id;const auto frozen_revision=session.revision();
+    if(mode=="document") {
+        auto incoming=original;incoming.id="incoming-choice-document";expected=Session(incoming);
+        expected.apply({EditProperties{{{"gradient-object",{},"generator.width"}},230,false}},expected.revision());session=expected;
+    } else if(mode=="generation"||mode=="preview") {
+        session.begin_gesture(session.revision());expected.begin_gesture(expected.revision());
+        if(mode=="generation"){session.cancel_gesture();expected.cancel_gesture();}
+        else{session.update_gesture(preview);expected.update_gesture(preview);}
+    } else if(mode=="preview-born") {session.cancel_gesture();expected.cancel_gesture();}
+    window.host.edited();events();
+    check(window.host.session_id==session_id&&session.revision()==frozen_revision&&equal(session,expected),"Incoming context reaches old popup at same Session/revision with complete independent state");
+    check(menu->isVisible()&&target->isEnabled(),"Exact old choice remains actually reachable across incoming boundary");
+    QTest::mouseClick(menu,Qt::LeftButton,Qt::NoModifier,menu->actionGeometry(target).center());events();
+    std::cout<<"Gradient choice "<<mode.toStdString()<<" document="<<session.document().id<<" revision="<<session.revision()
+        <<" generation="<<session.gesture_generation()<<" preview="<<session.gesture_active()<<" operation="<<window.canvas->gradient_operation()
+        <<" status="<<window.statusBar()->currentMessage().toStdString()<<std::endl;
+    const auto prefix=qEnvironmentVariable("NECT_GRADIENT_CONTEXT_EVIDENCE");
+    if(!prefix.isEmpty())check(window.grab().save(prefix+"."+mode+".png"),"Actual popup outcome evidence saved");
+    check(equal(session,expected),"Old popup choice preserves entire incoming Session/native/history/preview/generation/Undo ownership");
+    check(window.canvas->gradient_operation().empty()&&window.statusBar()->currentMessage().contains("target changed"),
+        "Old popup choice refuses changed Document/gesture context before entering incoming source handles");
+    if(session.gesture_active()){session.cancel_gesture();expected.cancel_gesture();window.host.edited();events();}
+    QTest::mouseClick(tool,Qt::LeftButton);events();
+    check(menu->isVisible(),"Explicitly reopened selector shows current context");
+    target=window.findChild<QAction*>("gradient-tool-target-choice-stroke");check(target,"Fresh exact paint candidate exists");
+    QTest::mouseClick(menu,Qt::LeftButton,Qt::NoModifier,menu->actionGeometry(target).center());events();
+    check(window.canvas->gradient_edit_mode()&&window.canvas->gradient_operation()=="choice-stroke"&&equal(session,expected),
+        "Fresh popup choice enters exact current handles without authoring after stale refusal");
+    check(settings.value("unrelated")=="preserved","Popup refusal preserves unrelated owned preferences");
+    window.host.changed={};window.hide();
 }
 void group_drill_context() {
     QTemporaryDir scratch(qEnvironmentVariable("NECT_GRADIENT_CONTEXT_SCRATCH",QDir::tempPath())+"/gradient-group-XXXXXX");
@@ -337,6 +410,9 @@ void pointer_isolation() {
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        for(const auto& mode:{"document","generation","preview","preview-born"})if(app.arguments().contains(QString("--choice-")+mode)) {
+            choice_context(mode);std::cout<<"gradient_choice_context: "<<checks<<" checks passed; physical OS input NOT_RUN\n";return 0;
+        }
         if(app.arguments().contains("--group-drill-only")){group_drill_context();std::cout<<"gradient_group_drill: "<<checks<<" checks passed; physical OS input NOT_RUN\n";return 0;}
         if(app.arguments().contains("--hex-context-only")){hex_context();std::cout<<"gradient_hex_context: "<<checks<<" checks passed; physical OS input NOT_RUN\n";return 0;}
         if(app.arguments().contains("--pointer-isolation-only")){pointer_isolation();std::cout<<"gradient_pointer_isolation: "<<checks<<" checks passed\n";return 0;}

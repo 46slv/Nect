@@ -410,6 +410,8 @@ Direct Selection to move artwork or Path points.
 Double-clicking a Group enters its child scope while keeping Gradient Edit selected.
 An eligible child restores its exact paint handles; returning to an ineligible
 parent clears the handle target. These navigation steps add no authored command.
+An old paint-choice popup is refused after its document or edit context changes;
+finish or cancel the edit and reopen the selector to choose the current paint.
 
 The Artboards list selects a frame and its Composition. Add/Duplicate places a
 frame to the right; up/down changes export order without moving artwork. Edit

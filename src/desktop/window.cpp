@@ -1491,9 +1491,15 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
             const auto available=canvas->gradient_edit_availability();
             const auto object=canvas->selected_object;
             const auto session=host.session_id;const auto revision=host.session.revision();
-            const auto activate=[this,object,session,revision,sync_tools](const Id& operation){
+            const auto document=host.session.document().id;const auto generation=host.session.gesture_generation();
+            const auto preview=host.session.gesture_active();
+            const bool popup_choice=available.operations.size()>1;
+            const auto activate=[this,object,session,revision,document,generation,preview,popup_choice,sync_tools](const Id& operation){
                 const auto current=canvas->gradient_edit_availability();
-                if(host.session_id!=session||host.session.revision()!=revision||canvas->selected_object!=object||
+                // Only the asynchronous paint choice outlives its document/gesture context.
+                if(host.session_id!=session||host.session.revision()!=revision||
+                    (popup_choice&&(host.session.document().id!=document||host.session.gesture_generation()!=generation||preview||host.session.gesture_active()))||
+                    canvas->selected_object!=object||
                     std::find(current.operations.begin(),current.operations.end(),operation)==current.operations.end()) {
                     statusBar()->showMessage("Gradient target changed. Select it again.",10000);sync_tools();return;
                 }
