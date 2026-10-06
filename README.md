@@ -129,6 +129,10 @@ the build script defaults work. It deploys Qt DLLs/plugins only into the local
 build output. Close the development executable before rebuilding it. No SDK is
 downloaded by configure or the script.
 
+Circle Properties → Edit Circle source handles first completes any ordinary pending
+radius edit, then shows temporary Center/Radius controls. Escape or Finish exits
+without adding an authored command; the mode is excluded from native save.
+
 Add a Circle, Ellipse, Rectangle, Polygon or Star and adjust its parameters,
 create a Curve, or choose Pen / Draw Path and click anchors. Enter finishes the
 current open Path; clicking its first anchor closes it. Pen stays active for the

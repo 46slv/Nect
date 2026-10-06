@@ -21,6 +21,7 @@
 #include <QTest>
 #include <QTreeWidget>
 #include <QTimer>
+#include <QToolButton>
 #include <cmath>
 #include <iostream>
 
@@ -326,6 +327,77 @@ void reset_context(const QString& scratch,const QString& mode) {
     }
     w.host.changed={};w.hide();
 }
+void circle_entry_context(const QString& scratch) {
+    Session setup(fixture());
+    auto source=default_primitive("circle-source","nect.shape.circle");
+    source.parameters.at("center_x").literal=320;source.parameters.at("center_y").literal=330;
+    source.parameters.at("radius").literal=60;
+    auto fill=default_operation("circle-fill","nect.paint.fill");
+    fill.parameters.at("r").literal=1;fill.parameters.at("g").literal=1;
+    setup.apply({CreatePrimitive{"comp","","circle","Retained Circle",source},AddOperation{"circle",fill,0},
+        Set{{"circle","circle-source-north","x"},330},
+        Link{{"other","","generator.height"},{{"circle","circle-source-east","x"},0.04,0,"copy_local_value"}}},setup.revision());
+    const auto original=setup.document();
+    Window w(scratch+"/circle-entry-recovery");w.host.session=Session(original);w.host.session_id="circle-entry-session";
+    w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;
+    select(w,"circle");check(same(w.host.session,expected),"Circle selection fully Session neutral");
+    const auto canvas_width=w.canvas->width(),dock_width=named<QDockWidget>(w,"properties")->width();
+    const auto selection=w.canvas->selections();
+    const auto identities=[](const Object& object) {
+        std::vector<Id> ids;
+        for(const auto& contour:path_contours(object)) {
+            ids.push_back(contour.id);for(const auto& point:contour.points)ids.push_back(point.id);
+        }
+        return ids;
+    };
+    const auto stable_ids=identities(original.objects.at("circle"));
+    auto* enter=named<QPushButton>(w,"circle-source-handles");reveal(w,enter);
+    auto* radius=field(w,"circle","generator.radius");reveal(w,radius);
+    QTest::mouseClick(radius,Qt::LeftButton);QTest::keyClick(radius,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(radius,"75");
+    check(radius->hasFocus()&&radius->isModified()&&same(w.host.session,expected),"Pending Circle radius75 is focused and complete Session neutral");
+    evidence(w,".circle-pending");reveal(w,enter);
+    QTest::mouseClick(enter,Qt::LeftButton);events();
+    expected.apply({EditProperties{{{"circle","","generator.radius"}},75,false}},expected.revision());
+    std::cout<<"Circle first click revision="<<w.host.session.revision()<<" expected="<<expected.revision()
+        <<" source-mode="<<w.canvas->circle_source_edit()<<std::endl;
+    evidence(w,".circle-first-click");
+    check(same(w.host.session,expected),"First Circle pointer click completes only ordinary canonical radius authoring");
+    check(w.canvas->circle_source_edit()&&w.canvas->selections()==selection&&!w.canvas->direct_selection_mode()&&
+        named<QToolButton>(w,"tool-selection")->isChecked(),"First Circle pointer click enters temporary source handles with explicit Selection Rail state");
+    auto preserved=original.objects.at("circle");preserved.source->parameters.at("radius").literal=75;
+    check(expected.document().objects.at("circle")==preserved&&identities(preserved)==stable_ids,
+        "Radius entry retains entire Circle source/correction/stack and each stable contour/point ID");
+    const auto& values=w.canvas->evaluated_values();
+    check(values.at({"circle","circle-source-east","x"})==395&&values.at({"circle","circle-source-west","x"})==245&&
+        values.at({"circle","circle-source-north","y"})==255&&values.at({"circle","circle-source-south","y"})==405&&
+        values.at({"circle","circle-source-north","x"})==330,"Named Circle anchors follow independent radius while absolute correction survives");
+    check(expected.document().objects.at("other").source->parameters.at("height").binding->source==Ref{"circle","circle-source-east","x"}&&
+        values.at({"other","","generator.height"})==395*0.04,"Incoming stable Circle point Ref follows radius without retargeting");
+    paint(w,expected,".circle-entered");
+    check(Canvas::render_artboard(expected.document(),"comp","art",1,false).pixelColor(320,330)==QColor(Qt::yellow),"Independent Circle fill remains painted");
+    const auto native=scratch+"/circle-entry.nect";w.host.save(native);
+    check(same(w.host.session,expected)&&w.canvas->circle_source_edit(),"Native save while in source mode preserves complete Session and temporary mode");
+    const auto refresh=w.host.changed;w.host.changed={};w.hide();
+    Window cold(scratch+"/circle-entry-cold");cold.host.open(native);cold.show();events();cold.canvas->fit_artboard();events();
+    check(cold.host.session.document()==expected.document()&&encode(cold.host.session.document())==encode(expected.document())&&
+        !cold.canvas->circle_source_edit(),"Fresh native Window retains full source/corrections/refs/stack/Artboards and excludes temporary mode");
+    const Session reopened=cold.host.session;select(cold,"circle");
+    check(field(cold,"circle","generator.radius")->text().toDouble()==75&&same(cold.host.session,reopened),"Fresh Circle field readback and navigation are Session neutral");
+    paint(cold,reopened,".circle-cold");cold.host.changed={};cold.hide();w.host.changed=refresh;w.show();events();
+    w.canvas->setFocus();QTest::keyClick(w.canvas,Qt::Key_Escape);events();
+    check(!w.canvas->circle_source_edit()&&same(w.host.session,expected),"Idle Escape exits Circle mode without an authored command");
+    enter=named<QPushButton>(w,"circle-source-handles");reveal(w,enter);QTest::mouseClick(enter,Qt::LeftButton);events();
+    check(w.canvas->circle_source_edit()&&same(w.host.session,expected),"Circle re-entry adds no authored command");
+    auto* finish=named<QPushButton>(w,"circle-source-handles");reveal(w,finish);
+    check(finish->text()=="Finish Circle source handles","Actual mode reflects Finish action");QTest::mouseClick(finish,Qt::LeftButton);events();
+    check(!w.canvas->circle_source_edit()&&same(w.host.session,expected),"Finish exits Circle mode without an authored command");
+    history(w,"Undo");expected.undo(expected.revision());
+    check(same(w.host.session,expected)&&expected.document()==original,"One scalar Undo restores entire original Circle and incoming reference fixture");
+    history(w,"Redo");expected.redo(expected.revision());
+    check(same(w.host.session,expected),"Scalar Redo restores complete source/native/history/preview/generation");
+    check(w.canvas->width()==canvas_width&&named<QDockWidget>(w,"properties")->width()==dock_width,"Circle entry and exit keep standard pane/Canvas widths");
+    w.host.changed={};w.hide();
+}
 void point_context(const QString& scratch) {
     Window w(scratch+"/point-recovery");w.host.session=Session(fixture());w.host.session_id="primitive-point-context-session";
     w.host.edited();w.show();events();w.canvas->fit_artboard();events();Session expected=w.host.session;
@@ -369,6 +441,10 @@ int main(int argc,char** argv) {
     app.setOrganizationName("NectTest");app.setApplicationName("PrimitiveContext");
     try {
         check(scratch.isValid(),"Owned scratch");
+        if(app.arguments().contains("--circle-entry")) {
+            circle_entry_context(scratch.path());
+            std::cout<<"PASS "<<checks<<" pending Circle radius and temporary source entry; physical/subjective input NOT_RUN\n";return 0;
+        }
         for(const auto& mode:{"cancel","accept","session","document","revision","generation","preview"})if(app.arguments().contains(QString("--reset-")+mode)) {
             reset_context(scratch.path(),mode);
             std::cout<<"PASS "<<checks<<" retained point reset contextual review; physical/subjective input NOT_RUN\n";return 0;
