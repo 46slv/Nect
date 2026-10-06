@@ -69,25 +69,40 @@ public:
     }
 private:
     QToolButton *selection_,*pen_,*text_,*anchor_,*guide_,*gradient_,*hand_,*zoom_,*direct_selection_;
-    QPointer<QToolButton> keyboard_help_;
+    QPointer<QToolButton> keyboard_help_,popup_keyboard_help_;
     bool vertical_=false;
     void show_keyboard_help(QToolButton* button) {
         QToolTip::showText(button->mapToGlobal(QPoint(button->width()+4,0)),button->toolTip(),button);
+    }
+    void queue_keyboard_help(QToolButton* button) {
+        // Qt's tooltip filter closes tips on focus events. Show after
+        // focus dispatch, only if this button still owns the help.
+        QTimer::singleShot(0,this,[this,button=QPointer<QToolButton>(button)] {
+            if(button&&keyboard_help_==button&&button->hasFocus())show_keyboard_help(button);
+        });
     }
     bool eventFilter(QObject* watched,QEvent* event) override {
         if(auto* button=qobject_cast<QToolButton*>(watched)) {
             if(event->type()==QEvent::FocusIn) {
                 const auto reason=static_cast<QFocusEvent*>(event)->reason();
-                if(reason==Qt::TabFocusReason||reason==Qt::BacktabFocusReason||reason==Qt::ShortcutFocusReason) {
+                const bool returning_keyboard_popup=reason==Qt::PopupFocusReason&&popup_keyboard_help_==button;
+                popup_keyboard_help_.clear();
+                if(reason==Qt::TabFocusReason||reason==Qt::BacktabFocusReason||reason==Qt::ShortcutFocusReason||returning_keyboard_popup) {
                     keyboard_help_=button;
-                    // Qt's tooltip filter closes tips on focus events. Show after
-                    // focus dispatch, only if this button still owns the help.
-                    QTimer::singleShot(0,this,[this,button=QPointer<QToolButton>(button)] {
-                        if(button&&keyboard_help_==button&&button->hasFocus())show_keyboard_help(button);
-                    });
+                    queue_keyboard_help(button);
                 }
-            } else if(event->type()==QEvent::FocusOut&&keyboard_help_==button) {
-                keyboard_help_.clear();QToolTip::hideText();
+            } else if(event->type()==QEvent::FocusOut) {
+                const auto reason=static_cast<QFocusEvent*>(event)->reason();
+                if(keyboard_help_==button) {
+                    popup_keyboard_help_=reason==Qt::PopupFocusReason?button:nullptr;
+                    keyboard_help_.clear();QToolTip::hideText();
+                } else if(popup_keyboard_help_==button&&reason!=Qt::PopupFocusReason) {
+                    popup_keyboard_help_.clear();
+                }
+            } else if(event->type()==QEvent::MouseButtonPress) {
+                // A pointer gesture must not inherit keyboard-origin popup help.
+                popup_keyboard_help_.clear();
+                if(keyboard_help_) {keyboard_help_.clear();QToolTip::hideText();}
             } else if(event->type()==QEvent::ToolTipChange&&keyboard_help_==button&&button->hasFocus()) {
                 show_keyboard_help(button);
             }

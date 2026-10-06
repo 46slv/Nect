@@ -97,6 +97,70 @@ void keyboard_focus_help(){
         "Focus help does not write the creation preference");
     std::cout<<"rail_keyboard_focus_help: "<<checks<<" checks passed\n";
 }
+void keyboard_popup_focus_help(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Popup focus check owns preferences and recovery");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    window.resize(1100,750);window.show();window.activateWindow();events();
+    auto* pen=window.findChild<QToolButton*>("tool-pen");
+    auto* text=window.findChild<QToolButton*>("tool-text");
+    check(pen&&text&&text->menu(),"Existing Text Tool and variant menu are present");
+    struct FocusProbe final:QObject {
+        bool popup_out=false,popup_in=false;
+        bool eventFilter(QObject*,QEvent* event)override {
+            if(event->type()==QEvent::FocusIn||event->type()==QEvent::FocusOut) {
+                if(static_cast<QFocusEvent*>(event)->reason()==Qt::PopupFocusReason) {
+                    if(event->type()==QEvent::FocusOut)popup_out=true;else popup_in=true;
+                }
+            }
+            return false;
+        }
+    } probe;
+    text->installEventFilter(&probe);
+    const auto before=snapshot(window.host.session);
+    const auto preference=settings.value("workspace/tools/textCreationDirection");
+    const auto tool_state=std::tuple{text->isChecked(),window.canvas->text_mode()};
+    QCursor::setPos(window.canvas->mapToGlobal(window.canvas->rect().center()));
+    pen->setFocus(Qt::OtherFocusReason);events();QTest::keyClick(pen,Qt::Key_Tab);events();
+    check(text->hasFocus()&&QToolTip::isVisible()&&QToolTip::text()==text->toolTip(),
+        "Keyboard-origin Text focus begins with visible current help");
+    auto* menu=text->menu();
+    const auto cancel_popup=[&](bool pointer,bool leave_after_cancel){
+        bool opened=false,neutral=false;probe.popup_out=false;probe.popup_in=false;
+        QTimer::singleShot(1000,menu,[&]{
+            opened=menu->isVisible();neutral=snapshot(window.host.session)==before;
+            if(opened){
+                if(!pointer)QTest::keyRelease(menu,Qt::Key_Space);
+                QTest::keyClick(menu,Qt::Key_Escape);
+                if(leave_after_cancel)window.canvas->setFocus();
+            }
+        });
+        if(pointer)QTest::mousePress(text,Qt::LeftButton);else QTest::keyPress(text,Qt::Key_Space);
+        QTest::qWait(1200);events();
+        if(pointer){QTest::mouseRelease(text,Qt::LeftButton);events();}
+        check(opened&&!menu->isVisible(),"Existing delayed popup opens and Escape cancels it");
+        check(probe.popup_out&&probe.popup_in,"Actual Qt popup uses PopupFocusReason on departure and return");
+        check(neutral,"Open variant menu preserves the complete authored state and History");
+        unchanged(window.host.session,before,"Popup cancel preserves document, revision and History");
+        check(settings.value("workspace/tools/textCreationDirection")==preference,
+            "Popup cancel preserves the creation preference");
+        check(std::tuple{text->isChecked(),window.canvas->text_mode()}==tool_state,
+            "Popup cancel activates no Tool or variant");
+    };
+    cancel_popup(false,false);
+    check(text->hasFocus(),"Qt PopupFocusReason returns focus to Text");
+    check(QToolTip::isVisible()&&QToolTip::text()==text->toolTip(),
+        "Keyboard popup cancel restores visible Text name, current variant and hold hint");
+    cancel_popup(false,true);QTest::qWait(350);events();
+    check(window.canvas->hasFocus()&&!QToolTip::isVisible(),
+        "Leaving on popup cancel refuses queued old Text help");
+    pen->setFocus(Qt::OtherFocusReason);events();QTest::keyClick(pen,Qt::Key_Tab);events();
+    check(text->hasFocus()&&QToolTip::isVisible(),"Keyboard help is available before changing to pointer input");
+    cancel_popup(true,false);QTest::qWait(350);events();
+    check(text->hasFocus()&&!QToolTip::isVisible(),
+        "Pointer popup cancel does not revive earlier keyboard help");
+    std::cout<<"rail_keyboard_popup_focus_help: "<<checks<<" checks passed; Qt event route, not native input\n";
+}
 void key_isolation(){
     QTemporaryDir scratch;check(scratch.isValid(),"Text key regression owns preferences, recovery and native file");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -462,6 +526,7 @@ int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
         if(app.arguments().contains("--keyboard-focus-help")){keyboard_focus_help();return 0;}
+        if(app.arguments().contains("--keyboard-popup-focus-help")){keyboard_popup_focus_help();return 0;}
         if(app.arguments().contains("--double-click-isolation")){double_click_isolation();return 0;}
         if(app.arguments().contains("--pan-button-isolation")){pan_button_isolation();return 0;}
         if(app.arguments().contains("--cursor-continuity")){cursor_continuity();return 0;}
