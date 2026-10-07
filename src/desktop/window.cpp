@@ -8217,6 +8217,21 @@ void Window::verify_text_typography_context(const TextTypographyContext& context
     if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The gesture context changed. Copy this draft, cancel, and reopen the latest Text.");
 }
 
+void Window::verify_circle_scalar_context(const PropertyActionContext& context,bool browsing) const {
+    if(host.session_id!=context.session||host.session.document().id!=context.document)
+        throw Error("SESSION_CONFLICT","The Circle property belongs to another document");
+    if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The Circle property revision changed");
+    const auto found=host.session.document().objects.find(context.object);
+    if(found==host.session.document().objects.end()||found->second.kind!=Kind::path||!found->second.source||
+       found->second.source->id!=context.source||found->second.source->type!="nect.shape.circle")
+        throw Error("PROPERTY_CONFLICT","The original Circle source changed");
+    if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+       (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}})))
+        throw Error("SELECTION_CONFLICT","The Circle property selection or scope changed");
+    if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the Circle property");
+    if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The Circle property gesture context changed");
+}
+
 QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
     auto* box=new QGroupBox("Advanced Typography");box->setObjectName("text-advanced-typography");
     auto* rows=new QVBoxLayout(box);layout->addWidget(box);
@@ -10732,12 +10747,14 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     box->addWidget(input);
     if(semantic)add_semantic_scrub(box,input,targets,*semantic);
     const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
-    auto* prepared_fx=text_scalar_fx?new PreparedTextActionButton("fx"):nullptr;
+    const bool circle_scalar_fx=targets.size()==1&&ref.point.empty()&&ref.field=="generator.radius"&&
+        d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.circle";
+    auto* prepared_fx=(text_scalar_fx||circle_scalar_fx)?new PreparedTextActionButton("fx"):nullptr;
     QPushButton* fx=prepared_fx?static_cast<QPushButton*>(prepared_fx):new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
     fx->setObjectName("property-expression");
     fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
     if(formula)fx->setStyleSheet("color: #84d5eb;");
-    auto* prepared_pick=text_scalar_fx?new PreparedTextActionButton("↗"):nullptr;
+    auto* prepared_pick=(text_scalar_fx||circle_scalar_fx)?new PreparedTextActionButton("↗"):nullptr;
     QPushButton* pick=prepared_pick?static_cast<QPushButton*>(prepared_pick):new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
     pick->setAccessibleName("Pick source for "+label);box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
@@ -10746,18 +10763,22 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     layout->addRow(label,row);
     const auto field_session=host.session_id;
     const auto field_revision=host.session.revision();
+    const auto scalar_source=circle_scalar_fx?d.objects.at(ref.object).source->id:text_scalar_fx?d.objects.at(ref.object).text->id:Id{};
+    auto verify_scalar_context=[this,circle_scalar_fx](const PropertyActionContext& context) {
+        if(circle_scalar_fx)verify_circle_scalar_context(context);else verify_text_typography_context(context);
+    };
     if(prepared_pick) {
         prepared_pick->setProperty("nect-text-scalar-pick-action-object",qs(ref.object));prepared_pick->setFocusPolicy(Qt::StrongFocus);
-        auto context=std::make_shared<TextTypographyContext>(TextTypographyContext{field_session,ref.object,d.objects.at(ref.object).text->id,
+        auto context=std::make_shared<PropertyActionContext>(PropertyActionContext{field_session,ref.object,scalar_source,
             canvas->active_composition(),canvas->active_artboard(),field_revision,text_selection_generation_,d.id,host.session.gesture_generation(),host.session.gesture_active()});
-        prepared_pick->prepare=[this,input,context] {
+        prepared_pick->prepare=[this,input,context,verify_scalar_context] {
             bool ready=false;perform([&]{
-                verify_text_typography_context(*context);
+                verify_scalar_context(*context);
                 if(input->isModified()) {
                     input->setProperty("nect-finishing-text-scalar-pick",true);input->setProperty("nect-text-scalar-pick-committed-revision",QVariant{});
                     input->editingFinished();const auto committed=input->property("nect-text-scalar-pick-committed-revision");
                     input->setProperty("nect-finishing-text-scalar-pick",false);if(!committed.isValid())return;
-                    auto advanced=*context;advanced.revision=committed.toULongLong();verify_text_typography_context(advanced);*context=std::move(advanced);
+                    auto advanced=*context;advanced.revision=committed.toULongLong();verify_scalar_context(advanced);*context=std::move(advanced);
                     const auto session=context->session,document=qs(context->document);
                     QTimer::singleShot(0,this,[this,session,document]{if(host.session_id==session&&qs(host.session.document().id)==document)rebuild_inspector();});
                 }ready=true;
@@ -10765,7 +10786,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         };
         // Browsing a source intentionally changes selection. Keep the target
         // identity, scope and edit generation frozen while allowing that view.
-        prepared_pick->verify_context=[this,context] {
+        prepared_pick->verify_context=[this,context,circle_scalar_fx] {
+            if(circle_scalar_fx){verify_circle_scalar_context(*context,true);return;}
             if(host.session_id!=context->session||host.session.document().id!=context->document)throw Error("SESSION_CONFLICT","The source picker belongs to another document");
             if(host.session.revision()!=context->revision)throw Error("REVISION_CONFLICT","The source picker revision changed");
             if(context->preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before choosing a source");
@@ -10774,7 +10796,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=context->source)throw Error("TEXT_EDIT_CONFLICT","The original Text source changed");
             if(artboard_editing_||canvas->active_composition()!=context->composition||canvas->active_artboard()!=context->artboard)throw Error("SELECTION_CONFLICT","The source picker scope changed");
         };
-        connect(pick,&QPushButton::clicked,this,[this,targets,context,verify=prepared_pick->verify_context]{perform([&]{verify_text_typography_context(*context);pick_source(targets,false,verify);});});
+        connect(pick,&QPushButton::clicked,this,[this,targets,context,verify_scalar_context,verify=prepared_pick->verify_context]{perform([&]{verify_scalar_context(*context);pick_source(targets,false,verify);});});
     } else connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
     auto expand=[this,column,row,input,targets,target_data,label,field_session,field_revision](QString source,std::optional<std::uint64_t> prepared_revision={},std::function<void()> verify_context={}) {
         if(host.session_id!=field_session)return;
@@ -10786,17 +10808,17 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const auto initial_expression=formula?qs(formula->source):(mixed?QString{}:QString::number(evaluated,'g',17));
     if(prepared_fx) {
         prepared_fx->setProperty("nect-text-scalar-fx-action-object",qs(ref.object));prepared_fx->setFocusPolicy(Qt::StrongFocus);
-        auto context=std::make_shared<TextTypographyContext>(TextTypographyContext{field_session,ref.object,d.objects.at(ref.object).text->id,
+        auto context=std::make_shared<PropertyActionContext>(PropertyActionContext{field_session,ref.object,scalar_source,
             canvas->active_composition(),canvas->active_artboard(),field_revision,text_selection_generation_,d.id,host.session.gesture_generation(),host.session.gesture_active()});
         auto scalar_prepared=std::make_shared<bool>(false);
-        prepared_fx->prepare=[this,input,context,scalar_prepared] {
+        prepared_fx->prepare=[this,input,context,scalar_prepared,verify_scalar_context] {
             bool ready=false;perform([&]{
-                verify_text_typography_context(*context);
+                verify_scalar_context(*context);
                 if(input->isModified()) {
                     input->setProperty("nect-finishing-text-scalar-fx",true);input->setProperty("nect-text-scalar-fx-committed-revision",QVariant{});
                     input->editingFinished();const auto committed=input->property("nect-text-scalar-fx-committed-revision");
                     input->setProperty("nect-finishing-text-scalar-fx",false);if(!committed.isValid())return;
-                    auto advanced=*context;advanced.revision=committed.toULongLong();verify_text_typography_context(advanced);
+                    auto advanced=*context;advanced.revision=committed.toULongLong();verify_scalar_context(advanced);
                     *context=std::move(advanced);*scalar_prepared=true;
                 }ready=true;
             });return ready;
@@ -10805,11 +10827,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             if(!*scalar_prepared)return;const auto session=context->session;const auto document=context->document;
             QTimer::singleShot(0,this,[this,session,document]{if(host.session_id==session&&host.session.document().id==document)rebuild_inspector();});
         };
-        connect(fx,&QPushButton::clicked,this,[this,ref,context,expand]{perform([&]{
-            verify_text_typography_context(*context);const auto frozen=*context;
+        connect(fx,&QPushButton::clicked,this,[this,ref,context,expand,verify_scalar_context]{perform([&]{
+            verify_scalar_context(*context);const auto frozen=*context;
             const auto formula=nect::property(host.session.document(),ref).expression;
             const auto source=formula?qs(formula->source):QString::number(evaluate(host.session.document()).at(ref),'g',17);
-            expand(source,frozen.revision,[this,frozen]{verify_text_typography_context(frozen);});
+            expand(source,frozen.revision,[frozen,verify_scalar_context]{verify_scalar_context(frozen);});
         });});
     } else connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
@@ -10852,11 +10874,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            focus->property("nect-text-locale-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-scalar-fx").toBool()&&
-           ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&focus&&
+           ref.point.empty()&&(ref.field=="generator.radius"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&focus&&
            focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-scalar-pick").toBool()&&
-           ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&focus&&
+           ref.point.empty()&&(ref.field=="generator.radius"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&focus&&
            focus->property("nect-text-scalar-pick-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-path").toBool()&&

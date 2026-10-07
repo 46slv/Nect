@@ -205,7 +205,7 @@ private:
     void show_folder_library();
     void add_image_properties(QVBoxLayout*,const Object&);
     void add_text_properties(QVBoxLayout* layout,const Object& object);
-    struct TextTypographyContext {
+    struct PropertyActionContext {
         QString session;
         Id object,source,composition,artboard;
         std::uint64_t revision=0,selection_generation=0;
@@ -213,7 +213,9 @@ private:
         std::uint64_t gesture_generation=0;
         bool preview=false;
     };
+    using TextTypographyContext=PropertyActionContext;
     void verify_text_typography_context(const TextTypographyContext& context) const;
+    void verify_circle_scalar_context(const PropertyActionContext& context,bool browsing=false) const;
     QLabel* add_text_typography(QVBoxLayout* layout,const Object& object);
     void edit_text_typography(const TextTypographyContext& context,bool axis,
         const std::optional<std::string>& tag={},bool remove=false);

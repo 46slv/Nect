@@ -1504,15 +1504,24 @@ void locale_source_action_pending_pointer(const std::string& action){
 }
 void scalar_pick_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size"){
     const std::string field=mode=="generic"?"text.tracking":scalar_field;
-    const QString label=field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
+    const QString label=field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     QTemporaryDir scratch;check(scratch.isValid(),"Text numeric picker owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     auto document=empty_document("scalar-pick-document","composition","board");
     Object text;text.id="text";text.name="Numeric picker target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
     text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
-    Object source=text;source.id="source";source.name="Numeric picker source";source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=72;
+    if(scalar_field=="generator.radius"){
+        text.name="Retained Circle scalar target";text.kind=Kind::path;text.text.reset();
+        text.source=default_primitive("circle-target-source","nect.shape.circle");text.source->parameters.at("radius").literal=60;
+    }
+    Object source=text;source.id="source";source.name="Numeric picker source";if(scalar_field=="generator.radius"){source.source->id="circle-pick-source";source.source->parameters.at("radius").literal=72;}else{source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=72;}
     document.objects.emplace(text.id,text);document.objects.emplace(source.id,source);document.compositions.front().roots={text.id,source.id};
+    if(scalar_field=="generator.radius"){
+        Session seeded(document);seeded.apply({AddOperation{"text",default_operation("circle-target-fill","nect.paint.fill"),0},Set{{"text","circle-target-source-north","x"},10}},seeded.revision());
+        if(document.objects.contains("source"))seeded.apply({Link{{"source","","generator.center_x"},{{"text","circle-target-source-east","x"},0.1,0,"copy_local_value"}}},seeded.revision());
+        document=seeded.document();
+    }
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
     const Ref target{text.id,"",field}, source_ref{source.id,"",field};
     Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* pick=nullptr;
@@ -1526,8 +1535,17 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     const bool pending=mode!="plain"&&mode!="generic";
     if(pending){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
     check(size->hasFocus()&&size->isModified()==pending&&snapshot(window.host.session)==snapshot(expected),"Pending Font size remains full-state neutral before source picker");
-    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field=="generator.radius"?"generator.center_y":"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-pick-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
+    if(mode=="entry-source"){
+        auto incoming=expected.document();auto& circle=incoming.objects.at("text");
+        circle.source->id="replacement-circle-source";circle.point_edit.reset();
+        if(incoming.objects.contains("source"))incoming.objects.at("source").source->parameters.at("center_x").binding->source={"text","replacement-circle-source-east","x"};
+        Session replacement(incoming);
+        if(std::string("entry")=="apply")replacement.apply({EditProperties{{{"text","","generator.radius"}},64,false}},replacement.revision());
+        check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
+        window.host.session=replacement;expected=replacement;
+    }
     if(mode=="entry-session")window.host.session_id="incoming-pick-entry-session";
     const auto selection=window.canvas->selections();const auto position=pick->mapTo(&window,pick->rect().center());
     check(window.childAt(position)==pick,"Actual Window pointer hits numeric source picker");
@@ -1560,7 +1578,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");
     if(mode=="invalid"||mode.rfind("entry-",0)==0){
         check(!picker&&snapshot(window.host.session)==snapshot(expected),"Refused picker entry preserves incoming full source/history");
-        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker entry identifies exact cause");return;
+        check(window.statusBar()->currentMessage().contains(mode=="entry-source"?"PROPERTY_CONFLICT":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker entry identifies exact cause");return;
     }
     if(pending)expected.apply({EditProperties{{target},64,false}},expected.revision());
     std::cerr<<field<<" numeric picker mode="<<mode<<" picker="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
@@ -1573,18 +1591,31 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
         buttons->button(QDialogButtonBox::Cancel)->click();events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Picker Cancel restores target and preserves only scalar");
         window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Cancelled picker scalar independently restores original source");return;
     }
-    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field=="generator.radius"?"generator.center_y":"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="apply-document"){
         auto incoming=document;incoming.id="incoming-pick-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{target},64,false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"Incoming picker document collides at exact revision");window.host.session=replacement;expected=replacement;
     }
+    if(mode=="apply-source"){
+        auto incoming=expected.document();auto& circle=incoming.objects.at("text");
+        circle.source->id="replacement-circle-source";circle.point_edit.reset();
+        if(incoming.objects.contains("source"))incoming.objects.at("source").source->parameters.at("center_x").binding->source={"text","replacement-circle-source-east","x"};
+        Session replacement(incoming);
+        if(std::string("apply")=="apply")replacement.apply({EditProperties{{{"text","","generator.radius"}},64,false}},replacement.revision());
+        check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
+        window.host.session=replacement;expected=replacement;
+    }
     if(mode=="apply-session")window.host.session_id="incoming-pick-apply-session";
     if(mode=="apply-gesture"||mode=="apply-cancelled-gesture"){window.host.session.begin_gesture(window.host.session.revision());if(mode=="apply-cancelled-gesture")window.host.session.cancel_gesture();}
+    if(scalar_field=="generator.radius"&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","generator.center_y"}},13,false}});
+    const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+
     if(mode.rfind("apply-",0)==0){
         const auto current_selection=window.canvas->selections();buttons->button(QDialogButtonBox::Ok)->click();events();
         check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused picker Apply preserves exact incoming full source/history");
-        check(window.statusBar()->currentMessage().contains(mode=="apply-gesture"?"GESTURE_ACTIVE":mode=="apply-revision"||mode=="apply-cancelled-gesture"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker Apply identifies exact cause");
+        check(window.statusBar()->currentMessage().contains(mode=="apply-source"?"PROPERTY_CONFLICT":mode=="apply-gesture"?"GESTURE_ACTIVE":mode=="apply-revision"||mode=="apply-cancelled-gesture"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker Apply identifies exact cause");
         if(mode=="apply-document"||mode=="apply-session"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(window.canvas->selections()==current_selection&&snapshot(window.host.session)==snapshot(expected),"Stale picker Cancel does not restore selection into replacement document");}
+        if(scalar_field=="generator.radius")check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Circle refusal preserves complete preview/gesture state");
         if(mode=="apply-gesture"){check(window.host.session.gesture_active(),"Picker refusal preserves active gesture");window.host.session.cancel_gesture();}return;
     }
     buttons->button(QDialogButtonBox::Ok)->click();events();expected.apply({LinkProperties{{target},source_ref,false}},expected.revision());
@@ -1600,10 +1631,19 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     auto document=empty_document("scalar-fx-document","composition","board");
     Object text;text.id="text";text.name="Font size fx target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
     text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
+    if(scalar_field=="generator.radius"){
+        text.name="Retained Circle scalar target";text.kind=Kind::path;text.text.reset();
+        text.source=default_primitive("circle-target-source","nect.shape.circle");text.source->parameters.at("radius").literal=60;
+    }
     document.objects.emplace(text.id,text);document.compositions.front().roots={text.id};
+    if(scalar_field=="generator.radius"){
+        Session seeded(document);seeded.apply({AddOperation{"text",default_operation("circle-target-fill","nect.paint.fill"),0},Set{{"text","circle-target-source-north","x"},10}},seeded.revision());
+        if(document.objects.contains("source"))seeded.apply({Link{{"source","","generator.center_x"},{{"text","circle-target-source-east","x"},0.1,0,"copy_local_value"}}},seeded.revision());
+        document=seeded.document();
+    }
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
     const std::string field=mode=="other-field"?"text.tracking":scalar_field;
-    const QString label=field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
+    const QString label=field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* fx=nullptr;
     for(auto* input:window.findChildren<QLineEdit*>()){
         const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
@@ -1613,14 +1653,23 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     check(scroll&&size&&fx,"Existing same-object Font size and inline fx controls available");scroll->ensureWidgetVisible(size);events();
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));if((mode!="plain"&&mode!="other-field")){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":mode=="expression-scalar"?"=40 + 2":"64");events();}
     check(size->hasFocus()&&size->isModified()==((mode!="plain"&&mode!="other-field"))&&snapshot(window.host.session)==snapshot(expected),"Font size draft remains fully authored-state neutral");
-    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field=="generator.radius"?"generator.center_y":"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-fx-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
+    if(mode=="entry-source"){
+        auto incoming=expected.document();auto& circle=incoming.objects.at("text");
+        circle.source->id="replacement-circle-source";circle.point_edit.reset();
+        if(incoming.objects.contains("source"))incoming.objects.at("source").source->parameters.at("center_x").binding->source={"text","replacement-circle-source-east","x"};
+        Session replacement(incoming);
+        if(std::string("entry")=="apply")replacement.apply({EditProperties{{{"text","","generator.radius"}},64,false}},replacement.revision());
+        check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
+        window.host.session=replacement;expected=replacement;
+    }
     if(mode=="entry-session")window.host.session_id="incoming-fx-entry-session";
     const auto position=fx->mapTo(&window,fx->rect().center());check(window.childAt(position)==fx,"Actual Window pointer hits existing Font size fx");
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
     if(mode=="invalid"||mode.rfind("entry-",0)==0){
         check(snapshot(window.host.session)==snapshot(expected),"Rejected fx entry preserves full incoming source/history without scalar mutation");
-        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Rejected fx entry reports exact bound cause");return;
+        check(window.statusBar()->currentMessage().contains(mode=="entry-source"?"PROPERTY_CONFLICT":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Rejected fx entry reports exact bound cause");return;
     }
     if(mode=="expression-scalar")expected.apply({SetExpression{{{"text","",field}},{"40 + 2",1},false}},expected.revision());
     else if((mode!="plain"&&mode!="other-field"))expected.apply({EditProperties{{{"text","",field}},64,false}},expected.revision());
@@ -1633,15 +1682,27 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     check(editor->toPlainText()==(mode=="expression-scalar"?"40 + 2":(mode=="plain"||mode=="other-field")?QString::number(evaluate(expected.document()).at({"text","",field}),'g',17):"64"),"Inline initial source follows exactly its own committed scalar or expression");
     editor->setPlainText(mode=="invalid-expression"?"broken(":"32 + 3");events();
     check(snapshot(window.host.session)==snapshot(expected),"Inline expression draft is fully source/history neutral");scroll->ensureWidgetVisible(apply);events();
-    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field=="generator.radius"?"generator.center_y":"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="apply-document"){
         auto incoming=document;incoming.id="incoming-fx-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{{"text","",field}},64,false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"Incoming fx Document collides at exact revision");window.host.session=replacement;expected=replacement;
+    }
+    if(mode=="apply-source"){
+        auto incoming=expected.document();auto& circle=incoming.objects.at("text");
+        circle.source->id="replacement-circle-source";circle.point_edit.reset();
+        if(incoming.objects.contains("source"))incoming.objects.at("source").source->parameters.at("center_x").binding->source={"text","replacement-circle-source-east","x"};
+        Session replacement(incoming);
+        if(std::string("apply")=="apply")replacement.apply({EditProperties{{{"text","","generator.radius"}},64,false}},replacement.revision());
+        check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
+        window.host.session=replacement;expected=replacement;
     }
     if(mode=="apply-session")window.host.session_id="incoming-fx-apply-session";
     if(mode=="apply-gesture"||mode=="apply-cancelled-gesture"){
         window.host.session.begin_gesture(window.host.session.revision());if(mode=="apply-cancelled-gesture")window.host.session.cancel_gesture();
     }
+    if(scalar_field=="generator.radius"&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","generator.center_y"}},13,false}});
+    const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+
     if(mode=="apply-selection"){
         window.canvas->set_selections({});events();window.canvas->set_selection(text.id);events();
         panel=window.findChild<QWidget*>("nect-expression-panel");check(panel,"Retained draft reappears after exact whole selection roundtrip");
@@ -1653,6 +1714,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     if(mode.rfind("apply-",0)==0||mode=="invalid-expression"){
         check(snapshot(window.host.session)==snapshot(expected),"Refused inline Apply preserves full incoming source/history and neutral draft");
         auto* result=window.findChild<QLabel*>("nect-expression-result");check(result&&result->text().contains("Committed result is unchanged"),"Refused inline Apply keeps existing visible recovery status");
+        if(scalar_field=="generator.radius")check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Circle refusal preserves complete preview/gesture state");
         if(mode=="apply-gesture"){check(window.host.session.gesture_active(),"Inline rejection retains active gesture");window.host.session.cancel_gesture();}
         return;
     }
@@ -2348,6 +2410,27 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--origin-scalars-whip-pending-pointer")){
             for(const auto* field:{"text.origin_x","text.origin_y"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
             std::cout<<"text_origin_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-scalar-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"generator.radius"})for(const auto* action:{"fx","pick"}){
+                try{if(std::string(action)=="fx")scalar_fx_pending_pointer("valid",field);else scalar_pick_pending_pointer("valid",field);}
+                catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<action<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Circle Radius first-pointer entries satisfy the existing source contract");
+            std::cout<<"text_circle_scalar_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-scalar-fx-affected-pending-pointer")){
+            for(const auto* field:{"generator.radius"})for(const auto* mode:{"plain","cancel","invalid","expression-scalar","invalid-expression","entry-revision","entry-document","entry-session","entry-source","apply-revision","apply-document","apply-session","apply-source","apply-gesture","apply-cancelled-gesture","apply-selection"})scalar_fx_pending_pointer(mode,field);
+            std::cout<<"text_circle_scalar_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-scalar-pick-affected-pending-pointer")){
+            for(const auto* field:{"generator.radius"})for(const auto* mode:{"plain","cancel","invalid","entry-revision","entry-document","entry-session","entry-source","apply-revision","apply-document","apply-session","apply-source","apply-gesture","apply-cancelled-gesture"})scalar_pick_pending_pointer(mode,field);
+            std::cout<<"text_circle_scalar_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-scalar-whip-pending-pointer")){
+            for(const auto* field:{"generator.radius"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
+            std::cout<<"text_circle_scalar_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--path-affected-pending-pointer")){for(const auto* mode:{"update","detach","plain","invalid","invalid-start","invalid-spacing","missing","entry-revision","entry-document","entry-session","entry-gesture","entry-cancelled-gesture"})path_pending_pointer(mode);std::cout<<"text_path_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--path-pending-pointer")){path_pending_pointer("attach");std::cout<<"text_path_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
