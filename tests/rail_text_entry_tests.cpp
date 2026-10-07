@@ -1500,6 +1500,88 @@ void locale_source_action_pending_pointer(const std::string& action){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original fixture and history");
     std::cout<<"text_locale_source_action_pending_pointer "<<action<<": "<<checks<<" checks passed; Qt Window pointer route\n";
 }
+void typography_pending_pointer(const std::string& mode){
+    QTemporaryDir scratch;check(scratch.isValid(),"Typography entry owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("typography-pointer-document","composition","board");
+    Object text;text.id="text";text.name="Typography pointer target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
+    text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
+    document.objects.emplace(text.id,text);document.compositions.front().roots={text.id};
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    const bool axis=mode=="axis-add"||mode=="axis-edit"||mode=="axis-remove";
+    const bool edit=mode=="feature-edit"||mode=="axis-edit",remove=mode=="feature-remove"||mode=="axis-remove";
+    const char* name=axis?(remove?"text-font-axis-remove":edit?"text-font-axis-edit":"text-font-axis-add"):(remove?"text-font-feature-remove":edit?"text-font-feature-edit":"text-font-feature-add");
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");auto* action=window.findChild<QPushButton*>(name);
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()){
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&action&&size,"Existing Add feature and scalar controls available");scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    if(mode!="plain"){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),"Typography scalar draft is authored-state neutral");
+    scroll->ensureWidgetVisible(action);events();
+    if(mode=="entry-revision"){
+        window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;
+    }
+    if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
+    const auto position=action->mapTo(&window,action->rect().center());check(window.childAt(position)==action,"Actual Window pointer hits existing Add feature button");
+    const bool rejected=mode=="invalid"||mode=="entry-revision"||mode=="entry-document";
+    if(mode!="plain"&&!rejected)expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    QPointer<QDialog> dialog=window.findChild<QDialog*>("text-typography-dialog");
+    std::cout<<"Typography "<<mode<<" dialog="<<bool(dialog&&dialog->isVisible())<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<" status="<<window.statusBar()->currentMessage().toStdString()<<std::endl;
+    check(snapshot(window.host.session)==snapshot(expected),"Typography first pointer commits only independent scalar or refuses atomically");
+    if(rejected){
+        check(!dialog||!dialog->isVisible(),"Invalid or stale Typography entry has no writable dialog");
+        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Typography entry reports exact cause");return;
+    }
+    check(dialog&&dialog->isVisible(),"Actual first Typography pointer opens existing Window-owned dialog");
+    auto* tag=dialog->findChild<QLineEdit*>("text-typography-tag");auto* value=dialog->findChild<QLineEdit*>("text-typography-value");auto* apply=dialog->findChild<QPushButton*>("text-typography-apply");auto* cancel=dialog->findChild<QPushButton*>("text-typography-cancel");
+    check(tag&&value&&apply&&cancel,"Existing exact-tag draft fields available");
+    const QString exact=axis?(edit||remove?"wdth":" A  "):(edit||remove?"KERN":"kern");
+    const QString numeric=axis?(edit?"82.5":"83.75"):"29";
+    if(!edit&&!remove){QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,tag->mapTo(dialog,tag->rect().center()));QTest::keyClicks(tag,exact);}
+    if(!remove){QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,value->mapTo(dialog,value->rect().center()));QTest::keyClick(value,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(value,numeric);events();}
+    check(tag->text()==exact&&(remove||value->text()==numeric)&&snapshot(window.host.session)==snapshot(expected),"Typography exact draft is neutral with lowercase/uppercase/spaced tag boundaries preserved");
+    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="apply-document"){
+        auto incoming=document;incoming.id="incoming-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{{"text","","text.font_size"}},64,false}},replacement.revision());
+        check(replacement.revision()==window.host.session.revision(),"Incoming typography Document has same revision");window.host.session=replacement;expected=replacement;
+    }
+    if(mode=="apply-session")window.host.session_id="incoming-typography-session";
+    if(mode=="apply-gesture"||mode=="apply-cancelled-gesture"){
+        window.host.session.begin_gesture(window.host.session.revision());
+        if(mode=="apply-cancelled-gesture")window.host.session.cancel_gesture();
+    }
+    if(mode=="apply-selection")window.canvas->set_selections({});
+    auto* button=mode=="cancel"?cancel:apply;QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,button->mapTo(dialog,button->rect().center()));events();
+    if(mode=="apply-revision"||mode=="apply-document"||mode=="apply-session"){
+        check(dialog&&dialog->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Stale typography Apply keeps full incoming source/history");
+        check(dialog->findChild<QLabel*>("text-typography-status")->text().contains(mode=="apply-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Typography dialog reports exact context cause");dialog->reject();events();return;
+    }
+    if(mode=="apply-gesture"||mode=="apply-cancelled-gesture"||mode=="apply-selection"){
+        check(dialog&&dialog->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Gesture or selection conflict preserves complete authored state/history");
+        const auto code=mode=="apply-gesture"?"GESTURE_ACTIVE":mode=="apply-selection"?"SELECTION_CONFLICT":"REVISION_CONFLICT";
+        check(dialog->findChild<QLabel*>("text-typography-status")->text().contains(code),"Typography guard retains exact active/cancelled gesture or selection code");
+        if(mode=="apply-gesture"){check(window.host.session.gesture_active(),"Rejected dialog retains actual active gesture");window.host.session.cancel_gesture();}
+        dialog->reject();events();return;
+    }
+    if(mode=="feature-edit")expected.apply({UpdateTextFontFeature{"text","KERN",29}},expected.revision());
+    else if(mode=="feature-remove")expected.apply({RemoveTextFontFeature{"text","KERN"}},expected.revision());
+    else if(mode=="axis-add")expected.apply({SetTextAdditionalAxis{"text"," A  ",83.75}},expected.revision());
+    else if(mode=="axis-edit")expected.apply({SetTextAdditionalAxis{"text","wdth",82.5}},expected.revision());
+    else if(mode=="axis-remove")expected.apply({RemoveTextAdditionalAxis{"text","wdth"}},expected.revision());
+    else if(mode!="cancel")expected.apply({AddTextFontFeature{"text",{"kern",29,"whole_text"}}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected),"Typography Apply or Cancel equals independent canonical command and complete source/history");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected),"One typography or cancelled scalar Undo preserves canonical source/history");
+    if(mode!="plain"&&mode!="cancel"){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();}
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores exact original tags/style/source");
+}
 void keyboard_focus_help(){
     QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -1975,6 +2057,14 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--locale-source-actions-pending-pointer")){
             for(const auto* action:{"edit","unlink","linked-edit"})locale_source_action_pending_pointer(action);
             return 0;
+        }
+        if(app.arguments().contains("--typography-affected-pending-pointer")){
+            for(const auto* mode:{"feature-edit","feature-remove","axis-add","axis-edit","axis-remove","apply-gesture","apply-cancelled-gesture","apply-selection"})typography_pending_pointer(mode);
+            std::cout<<"text_typography_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--typography-pending-pointer")){
+            for(const auto* mode:{"valid","cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})typography_pending_pointer(mode);
+            std::cout<<"text_typography_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--locale-link-pending-pointer")){
             for(const auto* mode:{"valid","cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})locale_link_pending_pointer(mode);

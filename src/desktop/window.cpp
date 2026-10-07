@@ -371,6 +371,26 @@ protected:
         return QToolButton::eventFilter(watched,event);
     }
 };
+class PreparedTextActionButton final : public QPushButton {
+public:
+    using QPushButton::QPushButton;
+    std::function<bool()> prepare;
+    std::function<void()> completed;
+protected:
+    void mousePressEvent(QMouseEvent* event)override {
+        if(event->button()==Qt::LeftButton&&prepare) {
+            setProperty("nect-retain-text-inspector",true);
+            const bool ready=prepare();
+            setProperty("nect-retain-text-inspector",false);
+            if(!ready){event->accept();return;}
+        }
+        QPushButton::mousePressEvent(event);
+    }
+    void mouseReleaseEvent(QMouseEvent* event)override {
+        QPushButton::mouseReleaseEvent(event);
+        if(completed)completed();
+    }
+};
 class PropertyInput final : public QLineEdit {
 public:
     using QLineEdit::QLineEdit;
@@ -4940,6 +4960,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
     if(auto* driver=inspector_->findChild<QToolButton*>("text-locale-driver");
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    for(auto* action:inspector_->findChildren<QPushButton*>())
+        if(action->property("nect-text-typography-action-object").isValid()&&action->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -8112,7 +8134,7 @@ QString format_text_font_receipt(const TextLayout& result) {
 }
 
 void Window::verify_text_typography_context(const TextTypographyContext& context) const {
-    if(host.session_id!=context.session)throw Error("SESSION_CONFLICT","The document changed. Copy this draft, cancel, and reopen the current Text.");
+    if(host.session_id!=context.session||host.session.document().id!=context.document)throw Error("SESSION_CONFLICT","The document changed. Copy this draft, cancel, and reopen the current Text.");
     if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The document was edited. Copy this draft, cancel, and reopen the latest Text.");
     const auto found=host.session.document().objects.find(context.object);
     if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=context.source)
@@ -8121,7 +8143,8 @@ void Window::verify_text_typography_context(const TextTypographyContext& context
        canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}}||
        canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard)
         throw Error("SELECTION_CONFLICT","The whole-Text selection changed. Copy this draft, cancel, and reopen the intended Text.");
-    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying typography.");
+    if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying typography.");
+    if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The gesture context changed. Copy this draft, cancel, and reopen the latest Text.");
 }
 
 QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
@@ -8131,9 +8154,45 @@ QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
     label("Authored settings apply to the entire Text, including Text on Path. Exact four-character tags are case-sensitive; spaces inside [brackets] are significant. Unsupported intent is retained.");
     const bool whole=object.kind==Kind::text&&canvas->selections()==std::vector<Canvas::Selection>{{object.id,{}}};
     const TextTypographyContext context{host.session_id,object.id,object.text->id,canvas->active_composition(),canvas->active_artboard(),
-        host.session.revision(),text_selection_generation_};
+        host.session.revision(),text_selection_generation_,host.session.document().id,host.session.gesture_generation(),host.session.gesture_active()};
     const auto action=[&](const QString& title,const QString& name,bool axis,const std::optional<std::string>& tag,bool remove,QHBoxLayout* row=nullptr) {
-        auto* button=new QPushButton(title,box);button->setObjectName(name);button->setEnabled(whole);
+        auto* button=new PreparedTextActionButton(title,box);button->setObjectName(name);button->setEnabled(whole);
+        button->setProperty("nect-text-typography-action-object",qs(object.id));button->setFocusPolicy(Qt::StrongFocus);
+        auto prepared_context=std::make_shared<TextTypographyContext>(context);
+        auto scalar_prepared=std::make_shared<bool>(false);
+        button->prepare=[this,prepared_context,scalar_prepared] {
+            bool ready=false;
+            perform([&]{
+                verify_text_typography_context(*prepared_context);
+                QPointer<QLineEdit> pending;
+                for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                    const auto data=input->property("nect-reference").toByteArray();
+                    if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                    const auto ref=read_ref(data);
+                    if(ref.object==prepared_context->object&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+                }
+                if(pending) {
+                    pending->setProperty("nect-finishing-text-typography",true);
+                    pending->setProperty("nect-text-typography-committed-revision",QVariant{});
+                    pending->editingFinished();
+                    const auto committed=pending?pending->property("nect-text-typography-committed-revision"):QVariant{};
+                    if(pending)pending->setProperty("nect-finishing-text-typography",false);
+                    if(!committed.isValid())return;
+                    auto advanced=*prepared_context;advanced.revision=committed.toULongLong();
+                    verify_text_typography_context(advanced);
+                    *prepared_context=std::move(advanced);*scalar_prepared=true;
+                }
+                ready=true;
+            });
+            return ready;
+        };
+        button->completed=[this,prepared_context,scalar_prepared] {
+            if(!*scalar_prepared)return;
+            const auto session=prepared_context->session;const auto document=prepared_context->document;
+            QTimer::singleShot(0,this,[this,session,document] {
+                if(host.session_id==session&&host.session.document().id==document)rebuild_inspector();
+            });
+        };
         const auto subject=axis?QString("additional axis"):QString("whole-text feature");
         const auto description=tag?subject+" ["+qs(*tag)+"]":subject;
         button->setAccessibleName((remove?"Remove ":tag?"Edit ":"Add ")+description);
@@ -8143,7 +8202,7 @@ QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
             ". Apply commits one Undo step; Cancel leaves authored settings unchanged.</qt>");
         if(tag)button->setProperty("font-tag",qs(*tag));
         if(row)row->addWidget(button);else rows->addWidget(button);
-        connect(button,&QPushButton::clicked,this,[this,context,axis,tag,remove]{perform([&]{edit_text_typography(context,axis,tag,remove);});});
+        connect(button,&QPushButton::clicked,this,[this,prepared_context,axis,tag,remove]{perform([&]{edit_text_typography(*prepared_context,axis,tag,remove);});});
     };
     label("Whole-text features · authored order")->setObjectName("text-font-features-heading");
     for(std::size_t index=0;index<object.text->font_features.size();++index) {
@@ -10661,6 +10720,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-locale-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-typography").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-typography-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(focus&&focus->property("nect-circle-source-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
@@ -10691,6 +10754,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-text-alignment-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-locale").toBool())
                 input->setProperty("nect-text-locale-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-typography").toBool())
+                input->setProperty("nect-text-typography-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
         };
         perform([&]{
             if(host.session_id!=input_session||host.session.document().id!=input_document)

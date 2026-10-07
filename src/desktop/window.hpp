@@ -206,6 +206,9 @@ private:
         QString session;
         Id object,source,composition,artboard;
         std::uint64_t revision=0,selection_generation=0;
+        Id document;
+        std::uint64_t gesture_generation=0;
+        bool preview=false;
     };
     void verify_text_typography_context(const TextTypographyContext& context) const;
     QLabel* add_text_typography(QVBoxLayout* layout,const Object& object);
