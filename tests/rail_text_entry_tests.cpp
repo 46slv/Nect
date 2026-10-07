@@ -1138,9 +1138,8 @@ void direction_link_pending_pointer(const std::string& mode){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores full original source/history");
     std::cout<<"text_direction_link_pending_pointer "<<mode<<": "<<checks<<" checks passed; Qt Window pointer route\n";
 }
-void layout_link_pending_pointer(const std::string& mode,bool frame_width=false){
-    const std::string scalar_field=frame_width?"text.frame_width":"text.font_size";
-    const int scalar_value=frame_width?777:64;
+void layout_link_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size"){
+    const int scalar_value=scalar_field=="text.font_size"?64:777;
     QTemporaryDir scratch;check(scratch.isValid(),"Sizing source owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -2319,10 +2318,15 @@ int main(int argc,char** argv){
             for(const auto* mode:{"valid","cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})layout_link_pending_pointer(mode);
             return 0;
         }
-        if(app.arguments().contains("--layout-frame-width-pending-pointer")){layout_link_pending_pointer("valid",true);return 0;}
+        if(app.arguments().contains("--layout-frame-width-pending-pointer")){layout_link_pending_pointer("valid","text.frame_width");return 0;}
         if(app.arguments().contains("--layout-frame-width-affected-pending-pointer")){
-            for(const auto* mode:{"cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})layout_link_pending_pointer(mode,true);
+            for(const auto* mode:{"cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})layout_link_pending_pointer(mode,"text.frame_width");
             std::cout<<"text_layout_frame_width_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--layout-frame-height-pending-pointer")){layout_link_pending_pointer("valid","text.frame_height");return 0;}
+        if(app.arguments().contains("--layout-frame-height-affected-pending-pointer")){
+            for(const auto* mode:{"cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})layout_link_pending_pointer(mode,"text.frame_height");
+            std::cout<<"text_layout_frame_height_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--direction-source-actions-pending-pointer")){
             for(const auto* action:{"edit","unlink","linked-edit"})direction_source_action_pending_pointer(action);
