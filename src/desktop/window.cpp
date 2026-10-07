@@ -4928,6 +4928,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
        weight&&weight->property("nect-retain-text-inspector").toBool())return;
     if(auto* driver=inspector_->findChild<QToolButton*>("text-family-driver");
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-weight-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -7022,7 +7024,16 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         });
         return ready;
     };
-    auto* weight_driver_button=new QToolButton(weight_row);weight_driver_button->setObjectName("text-weight-driver");
+    auto* weight_driver_button=new PreparedTextMenuButton;weight_driver_button->setObjectName("text-weight-driver");
+    weight_driver_button->setProperty("nect-text-weight-action-object",qs(id));
+    weight_driver_button->setFocusPolicy(Qt::StrongFocus);
+    weight_driver_button->prepare=weight->prepare;
+    weight_driver_button->closed=[this,frozen_session,weight_document,weight_scalar_prepared]{
+        if(!*weight_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,weight_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==weight_document)rebuild_inspector();
+        });
+    };
     weight_driver_button->setText(weight_is_driven?"Source…":"Drive…");weight_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* weight_menu=new QMenu(weight_driver_button);weight_driver_button->setMenu(weight_menu);weight_layout->addWidget(weight_driver_button);
     auto* link_weight=weight_menu->addAction("Link to Text weight…");
@@ -7034,29 +7045,43 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     link_weight->setEnabled(!weight_source_ids.empty());
     const bool replace_weight_driver=weight_is_driven;
-    connect(link_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision,replace_weight_driver,weight_source_ids]{
+    connect(link_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision,weight_gesture,replace_weight_driver,weight_source_ids]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                throw Error("SESSION_CONFLICT","Text source chooser belongs to another document");
+            if(host.session.revision()!=*prepared_weight_revision||host.session.gesture_generation()!=weight_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before linking its weight");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto weight_revision=*prepared_weight_revision;
         const auto target=Ref{id,"","text.weight"};const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,target.field,weight_source_ids,"Link Text weight");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,weight_document](QListWidgetItem* item,QListWidgetItem*){
+            if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=weight_document)return;
             const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
             if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,weight_document,composition,artboard]{
+            if(host.session_id==frozen_session&&host.session.document().id==weight_document){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,weight_revision,replace_weight_driver,selection,composition,artboard]{
+            [this,dialog,list,status,target,frozen_session,weight_document,weight_revision,weight_gesture,replace_weight_driver,selection,composition,artboard]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                        throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=target.field||!source.point.empty()||source.object==target.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=weight_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=weight_revision||host.session.gesture_generation()!=weight_gesture)
+                        throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                     host.session.apply({LinkTextWeight{target,source,replace_weight_driver}},weight_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -7064,7 +7089,14 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
-    connect(expression_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision,weight_state,weight_is_driven]{
+    connect(expression_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision,weight_state,weight_is_driven]{
+        if(host.session_id!=frozen_session||host.session.document().id!=weight_document) {
+            perform([&]{throw Error("SESSION_CONFLICT","Text weight belongs to another document");});return;
+        }
+        if(host.session.revision()!=*prepared_weight_revision) {
+            perform([&]{throw Error("STALE_CONTEXT","Text changed; refresh before editing its weight source");});return;
+        }
+        const auto weight_revision=*prepared_weight_revision;
         QDialog dialog(this);dialog.setObjectName("text-weight-expression-dialog");dialog.setWindowTitle("Text weight expression");
         auto* layout=new QVBoxLayout(&dialog);
         auto* editor=new ExpressionInput;editor->setObjectName("text-weight-expression-draft");
@@ -7081,9 +7113,10 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
         connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-            [this,&dialog,id,frozen_session,weight_revision,editor,replace,status]{
+            [this,&dialog,id,frozen_session,weight_document,weight_revision,editor,replace,status]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                        throw Error("SESSION_CONFLICT","Text belongs to another document");
                     host.session.apply({SetTextWeightExpression{{id,"","text.weight"},
                         Expression{editor->toPlainText().toStdString(),1},replace->isChecked()}},weight_revision);
                     host.edited();dialog.accept();
@@ -7092,9 +7125,10 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog.exec();
     });
-    connect(unlink_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextWeight{{id,"","text.weight"}}},weight_revision);host.edited();});
+    connect(unlink_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision]{
+        perform([&]{if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({UnlinkTextWeight{{id,"","text.weight"}}},*prepared_weight_revision);host.edited();});
     });
     form->addRow("Weight",weight_row);
     auto* weight_status=new QLabel(weight_row);weight_status->setObjectName("text-weight-state");
