@@ -10747,7 +10747,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     box->addWidget(input);
     if(semantic)add_semantic_scrub(box,input,targets,*semantic);
     const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
-    const bool circle_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y")&&
+    const bool circle_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="transform.tx"||ref.field=="transform.ty")&&
         d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.circle";
     const bool rectangle_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.width"||ref.field=="generator.height"||ref.field=="generator.center_x"||ref.field=="generator.center_y")&&
         d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.rectangle";
