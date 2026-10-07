@@ -445,6 +445,53 @@ void italic_pending_pointer(const std::string& mode){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores exact original source");
     std::cout<<"text_italic_pending_pointer valid: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
+void structure_pending_pointer(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Structure pending-pointer owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("structure-pointer-document","composition","board");
+    Object text;text.id="text";text.name="First Text";text.kind=Kind::text;
+    text.text=default_text("text-source","Retain 日本語 and style");
+    Object other;other.id="other";other.name="Second Text";other.kind=Kind::text;
+    other.text=default_text("other-source","Select exact other object");
+    document.objects.emplace(text.id,text);document.objects.emplace(other.id,other);
+    document.compositions.front().roots={text.id,other.id};
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    auto* tree=window.findChild<QDockWidget*>("structure")->findChild<QTreeWidget*>();
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&tree&&size,"Existing Structure and Text scalar field are reachable");
+    scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"64");events();
+    check(size->hasFocus()&&size->isModified()&&snapshot(window.host.session)==snapshot(expected),"Pending size is source/history neutral before Structure pointer");
+    QTreeWidgetItem* row=nullptr;
+    for(QTreeWidgetItemIterator i(tree);*i;++i)
+        if((*i)->data(0,Qt::UserRole).toString()=="other"&&(*i)->data(0,Qt::UserRole+1).toString().isEmpty()){row=*i;break;}
+    check(row,"Structure target resolves to the exact whole stable object ID");
+    tree->scrollToItem(row);events();
+    const auto position=tree->viewport()->mapTo(&window,tree->visualItemRect(row).center());
+    check(window.childAt(position)==tree->viewport(),"Actual Window pointer hits the existing Structure viewport target row");
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected),"First Structure click authors exactly the independent scalar and no selection state");
+    check(window.canvas->selected_object=="other"&&window.canvas->selected_point.empty(),"First Structure pointer selects the exact other whole object");
+    bool target_properties=false;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="other"&&ref.value("field").toString()=="text.font_size")target_properties=true;
+    }
+    check(target_properties,"First Structure pointer exposes the selected object's actual Properties");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Single scalar Undo restores full original source/history across selection");
+    std::cout<<"text_structure_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
+}
 void keyboard_focus_help(){
     QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -913,6 +960,7 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--structure-pending-pointer")){structure_pending_pointer();return 0;}
         if(app.arguments().contains("--italic-pending-pointer")){
             for(const auto* mode:{"valid","invalid","revision","document","plain"})italic_pending_pointer(mode);
             return 0;
