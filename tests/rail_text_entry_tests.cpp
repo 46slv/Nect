@@ -1504,10 +1504,11 @@ void locale_source_action_pending_pointer(const std::string& action){
 }
 void scalar_pick_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size",bool rectangle_centers=false,bool polygon_source=false,bool star_source=false){
     const bool polystar_source=polygon_source||star_source;
+    const bool count_source=scalar_field=="generator.points";
     const bool rectangle_source=rectangle_centers||scalar_field=="generator.width"||scalar_field=="generator.height";
     const bool vertical=scalar_field=="generator.height"||((rectangle_centers||polystar_source)&&scalar_field=="generator.center_y");
     const std::string field=mode=="generic"?"text.tracking":scalar_field;
-    const QString label=field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
+    const QString label=field=="generator.points"?"Points":field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     QTemporaryDir scratch;check(scratch.isValid(),"Text numeric picker owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -1516,9 +1517,9 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
     if(scalar_field.rfind("generator.",0)==0){
         text.name=rectangle_source?"Retained Rectangle Width target":"Retained Circle scalar target";text.kind=Kind::path;text.text.reset();
-        text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?(rectangle_centers?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?scalar_field.substr(10):"radius").literal=60;
+        text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?(rectangle_centers?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?scalar_field.substr(10):"radius").literal=count_source?5:60;
     }
-    Object source=text;source.id="source";source.name="Numeric picker source";if(scalar_field.rfind("generator.",0)==0){source.source->id="circle-pick-source";source.source->parameters.at(field.substr(10)).literal=72;}else{source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=72;}
+    Object source=text;source.id="source";source.name="Numeric picker source";if(scalar_field.rfind("generator.",0)==0){source.source->id="circle-pick-source";source.source->parameters.at(field.substr(10)).literal=count_source?20:72;}else{source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=count_source?20:72;}
     document.objects.emplace(text.id,text);document.objects.emplace(source.id,source);document.compositions.front().roots={text.id,source.id};
     if(scalar_field.rfind("generator.",0)==0){
         if((polystar_source||scalar_field!="generator.radius")&&document.objects.contains("source")){
@@ -1541,7 +1542,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     check(scroll&&size&&pick,"Existing Font size and numeric source picker available");scroll->ensureWidgetVisible(size);events();
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
     const bool pending=mode!="plain"&&mode!="generic";
-    if(pending){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    if(pending){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":(mode=="topology-drop"?"6":count_source?"10":"64"));events();}
     check(size->hasFocus()&&size->isModified()==pending&&snapshot(window.host.session)==snapshot(expected),"Pending Font size remains full-state neutral before source picker");
     if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field.rfind("generator.",0)==0?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-pick-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
@@ -1553,7 +1554,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
         if(scalar_field=="generator.radius"&&!polystar_source&&incoming.objects.contains("source"))incoming.objects.at("source").source->parameters.at("center_x").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         if(incoming.objects.contains("circle-ref-guard"))incoming.objects.at("circle-ref-guard").source->parameters.at("width").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         Session replacement(incoming);
-        if(std::string("entry")=="apply")replacement.apply({EditProperties{{{"text","",(star_source&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},64,false}},replacement.revision());
+        if(std::string("entry")=="apply")replacement.apply({EditProperties{{{"text","",(star_source&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},(count_source?10.0:64.0),false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
         window.host.session=replacement;expected=replacement;
     }
@@ -1561,7 +1562,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     const auto selection=window.canvas->selections();const auto position=pick->mapTo(&window,pick->rect().center());
     check(window.childAt(position)==pick,"Actual Window pointer hits numeric source picker");
     if(mode=="drag"||mode=="drag-cancel"){
-        QTest::mousePress(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();expected.apply({EditProperties{{target},64,false}},expected.revision());
+        QTest::mousePress(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();expected.apply({EditProperties{{target},(count_source?10.0:64.0),false}},expected.revision());
         check(snapshot(window.host.session)==snapshot(expected),"Whip press prepares only its own scalar before target freeze");
         if(mode=="drag-cancel"){
             QTest::keyClick(&window,Qt::Key_Escape);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Whip Escape restores target with only independent scalar");
@@ -1587,11 +1588,11 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     }
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
     QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");
-    if(mode=="invalid"||mode.rfind("entry-",0)==0){
+    if(mode=="invalid"||mode=="topology-drop"||mode.rfind("entry-",0)==0){
         check(!picker&&snapshot(window.host.session)==snapshot(expected),"Refused picker entry preserves incoming full source/history");
-        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type")?"PROPERTY_CONFLICT":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker entry identifies exact cause");return;
+        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type")?"PROPERTY_CONFLICT":mode=="topology-drop"?"MISSING_REFERENCE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker entry identifies exact cause");return;
     }
-    if(pending)expected.apply({EditProperties{{target},64,false}},expected.revision());
+    if(pending)expected.apply({EditProperties{{target},(count_source?10.0:64.0),false}},expected.revision());
     std::cerr<<field<<" numeric picker mode="<<mode<<" picker="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
     check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First source-picker pointer commits scalar and opens neutral picker");
     auto* list=picker->findChild<QListWidget*>("property-source-picker-list");auto* buttons=picker->findChild<QDialogButtonBox*>();QListWidgetItem* item=nullptr;
@@ -1604,7 +1605,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     }
     if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field.rfind("generator.",0)==0?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="apply-document"){
-        auto incoming=document;incoming.id="incoming-pick-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{target},64,false}},replacement.revision());
+        auto incoming=document;incoming.id="incoming-pick-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{target},(count_source?10.0:64.0),false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"Incoming picker document collides at exact revision");window.host.session=replacement;expected=replacement;
     }
     if(mode=="apply-source"||mode=="apply-type"){
@@ -1615,7 +1616,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
         if(scalar_field=="generator.radius"&&!polystar_source&&incoming.objects.contains("source"))incoming.objects.at("source").source->parameters.at("center_x").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         if(incoming.objects.contains("circle-ref-guard"))incoming.objects.at("circle-ref-guard").source->parameters.at("width").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         Session replacement(incoming);
-        if(std::string("apply")=="apply")replacement.apply({EditProperties{{{"text","",(star_source&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},64,false}},replacement.revision());
+        if(std::string("apply")=="apply")replacement.apply({EditProperties{{{"text","",(star_source&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},(count_source?10.0:64.0),false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
         window.host.session=replacement;expected=replacement;
     }
@@ -1640,6 +1641,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
 
 void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size",bool rectangle_centers=false,bool polygon_source=false,bool star_source=false){
     const bool polystar_source=polygon_source||star_source;
+    const bool count_source=scalar_field=="generator.points";
     const bool rectangle_source=rectangle_centers||scalar_field=="generator.width"||scalar_field=="generator.height";
     const bool vertical=scalar_field=="generator.height"||((rectangle_centers||polystar_source)&&scalar_field=="generator.center_y");
     QTemporaryDir scratch;check(scratch.isValid(),"Text scalar fx entry owns temporary state");
@@ -1650,7 +1652,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
     if(scalar_field.rfind("generator.",0)==0){
         text.name=rectangle_source?"Retained Rectangle Width target":"Retained Circle scalar target";text.kind=Kind::path;text.text.reset();
-        text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?(rectangle_centers?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?scalar_field.substr(10):"radius").literal=60;
+        text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?(rectangle_centers?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?scalar_field.substr(10):"radius").literal=count_source?5:60;
     }
     document.objects.emplace(text.id,text);document.compositions.front().roots={text.id};
     if(scalar_field.rfind("generator.",0)==0){
@@ -1665,7 +1667,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     }
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
     const std::string field=mode=="other-field"?"text.tracking":scalar_field;
-    const QString label=field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
+    const QString label=field=="generator.points"?"Points":field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* fx=nullptr;
     for(auto* input:window.findChildren<QLineEdit*>()){
         const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
@@ -1673,7 +1675,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     }
     for(auto* button:window.findChildren<QPushButton*>("property-expression"))if(button->accessibleName()==label+" expression editor")fx=button;
     check(scroll&&size&&fx,"Existing same-object Font size and inline fx controls available");scroll->ensureWidgetVisible(size);events();
-    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));if((mode!="plain"&&mode!="other-field")){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":mode=="expression-scalar"?"=40 + 2":"64");events();}
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));if((mode!="plain"&&mode!="other-field")){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":mode=="expression-scalar"?(count_source?"=5 + 5":"=40 + 2"):(mode=="topology-drop"?"6":count_source?"10":"64"));events();}
     check(size->hasFocus()&&size->isModified()==((mode!="plain"&&mode!="other-field"))&&snapshot(window.host.session)==snapshot(expected),"Font size draft remains fully authored-state neutral");
     if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field.rfind("generator.",0)==0?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-fx-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
@@ -1685,31 +1687,31 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
         if(scalar_field=="generator.radius"&&!polystar_source&&incoming.objects.contains("source"))incoming.objects.at("source").source->parameters.at("center_x").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         if(incoming.objects.contains("circle-ref-guard"))incoming.objects.at("circle-ref-guard").source->parameters.at("width").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         Session replacement(incoming);
-        if(std::string("entry")=="apply")replacement.apply({EditProperties{{{"text","",(star_source&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},64,false}},replacement.revision());
+        if(std::string("entry")=="apply")replacement.apply({EditProperties{{{"text","",(star_source&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},(count_source?10.0:64.0),false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
         window.host.session=replacement;expected=replacement;
     }
     if(mode=="entry-session")window.host.session_id="incoming-fx-entry-session";
     const auto position=fx->mapTo(&window,fx->rect().center());check(window.childAt(position)==fx,"Actual Window pointer hits existing Font size fx");
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
-    if(mode=="invalid"||mode.rfind("entry-",0)==0){
+    if(mode=="invalid"||mode=="topology-drop"||mode.rfind("entry-",0)==0){
         check(snapshot(window.host.session)==snapshot(expected),"Rejected fx entry preserves full incoming source/history without scalar mutation");
-        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type")?"PROPERTY_CONFLICT":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Rejected fx entry reports exact bound cause");return;
+        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type")?"PROPERTY_CONFLICT":mode=="topology-drop"?"MISSING_REFERENCE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Rejected fx entry reports exact bound cause");return;
     }
-    if(mode=="expression-scalar")expected.apply({SetExpression{{{"text","",field}},{"40 + 2",1},false}},expected.revision());
-    else if((mode!="plain"&&mode!="other-field"))expected.apply({EditProperties{{{"text","",field}},64,false}},expected.revision());
+    if(mode=="expression-scalar")expected.apply({SetExpression{{{"text","",field}},{(count_source?"5 + 5":"40 + 2"),1},false}},expected.revision());
+    else if((mode!="plain"&&mode!="other-field"))expected.apply({EditProperties{{{"text","",field}},(count_source?10.0:64.0),false}},expected.revision());
     QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
     std::cerr<<field<<" fx panel="<<(editor!=nullptr)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
     check(editor&&editor->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First fx pointer commits only scalar and opens existing inline neutral expression editor");
     auto* panel=window.findChild<QWidget*>("nect-expression-panel");QPushButton* apply=nullptr;
     for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;
     check(apply,"Existing inline Apply available");
-    check(editor->toPlainText()==(mode=="expression-scalar"?"40 + 2":(mode=="plain"||mode=="other-field")?QString::number(evaluate(expected.document()).at({"text","",field}),'g',17):"64"),"Inline initial source follows exactly its own committed scalar or expression");
-    editor->setPlainText(mode=="invalid-expression"?"broken(":"32 + 3");events();
+    check(editor->toPlainText()==(mode=="expression-scalar"?(count_source?"5 + 5":"40 + 2"):(mode=="plain"||mode=="other-field")?QString::number(evaluate(expected.document()).at({"text","",field}),'g',17):(mode=="topology-drop"?"6":count_source?"10":"64")),"Inline initial source follows exactly its own committed scalar or expression");
+    editor->setPlainText(mode=="invalid-expression"?"broken(":(count_source?"10 + 5":"32 + 3"));events();
     check(snapshot(window.host.session)==snapshot(expected),"Inline expression draft is fully source/history neutral");scroll->ensureWidgetVisible(apply);events();
     if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field.rfind("generator.",0)==0?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="apply-document"){
-        auto incoming=document;incoming.id="incoming-fx-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{{"text","",field}},64,false}},replacement.revision());
+        auto incoming=document;incoming.id="incoming-fx-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{{"text","",field}},(count_source?10.0:64.0),false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"Incoming fx Document collides at exact revision");window.host.session=replacement;expected=replacement;
     }
     if(mode=="apply-source"||mode=="apply-type"){
@@ -1720,7 +1722,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
         if(scalar_field=="generator.radius"&&!polystar_source&&incoming.objects.contains("source"))incoming.objects.at("source").source->parameters.at("center_x").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         if(incoming.objects.contains("circle-ref-guard"))incoming.objects.at("circle-ref-guard").source->parameters.at("width").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         Session replacement(incoming);
-        if(std::string("apply")=="apply")replacement.apply({EditProperties{{{"text","",(star_source&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},64,false}},replacement.revision());
+        if(std::string("apply")=="apply")replacement.apply({EditProperties{{{"text","",(star_source&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},(count_source?10.0:64.0),false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
         window.host.session=replacement;expected=replacement;
     }
@@ -1751,7 +1753,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
         window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
         check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Cancelled expression leaves scalar independently undoable");return;
     }
-    expected.apply({SetExpression{{{"text","",field}},{"32 + 3",1},false}},expected.revision());
+    expected.apply({SetExpression{{{"text","",field}},{(count_source?"10 + 5":"32 + 3"),1},false}},expected.revision());
     check(snapshot(window.host.session)==snapshot(expected),"Inline Apply equals canonical scalar then expression source/history");
     window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Expression Undo retains independent scalar");
     if((mode!="plain"&&mode!="other-field")){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();}check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores exact original Text source/style/history");
@@ -2585,6 +2587,27 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--star-rotation-whip-pending-pointer")){
             for(const auto* field:{"generator.rotation"}){scalar_pick_pending_pointer("drag",field,false,false,true);scalar_pick_pending_pointer("drag-cancel",field,false,false,true);}
             std::cout<<"text_star_rotation_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-points-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"generator.points"})for(const auto* action:{"fx","pick"}){
+                try{if(std::string(action)=="fx")scalar_fx_pending_pointer("valid",field,false,false,true);else scalar_pick_pending_pointer("valid",field,false,false,true);}
+                catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<action<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Star Points first-pointer entries satisfy the existing source contract");
+            std::cout<<"text_star_points_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-points-fx-affected-pending-pointer")){
+            for(const auto* field:{"generator.points"})for(const auto* mode:{"plain","cancel","invalid","topology-drop","expression-scalar","invalid-expression","entry-revision","entry-document","entry-session","entry-source","entry-type","apply-revision","apply-document","apply-session","apply-source","apply-type","apply-gesture","apply-cancelled-gesture","apply-selection"})scalar_fx_pending_pointer(mode,field,false,false,true);
+            std::cout<<"text_star_points_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-points-pick-affected-pending-pointer")){
+            for(const auto* field:{"generator.points"})for(const auto* mode:{"plain","cancel","invalid","topology-drop","entry-revision","entry-document","entry-session","entry-source","entry-type","apply-revision","apply-document","apply-session","apply-source","apply-type","apply-gesture","apply-cancelled-gesture"})scalar_pick_pending_pointer(mode,field,false,false,true);
+            std::cout<<"text_star_points_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-points-whip-pending-pointer")){
+            for(const auto* field:{"generator.points"}){scalar_pick_pending_pointer("drag",field,false,false,true);scalar_pick_pending_pointer("drag-cancel",field,false,false,true);}
+            std::cout<<"text_star_points_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--star-centers-entry-pending-pointer")){
             bool failed=false;
