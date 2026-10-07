@@ -4961,7 +4961,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     if(auto* driver=inspector_->findChild<QToolButton*>("text-locale-driver");
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
     for(auto* action:inspector_->findChildren<QPushButton*>())
-        if((action->property("nect-text-typography-action-object").isValid()||action->property("nect-text-path-action-object").isValid())&&action->property("nect-retain-text-inspector").toBool())return;
+        if((action->property("nect-text-typography-action-object").isValid()||action->property("nect-text-path-action-object").isValid()||action->property("nect-text-scalar-fx-action-object").isValid())&&action->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -10618,6 +10618,7 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
         try {
             if(host.session_id!=current.session||host.session.revision()!=current.revision)
                 throw Error("DRAFT_CONFLICT","Document changed. Cancel and reopen the draft against the current values.");
+            if(current.verify_context)current.verify_context();
             Session preview(host.session.document());preview.apply({SetExpression{targets,{current.source.toStdString(),1},current.replace_binding}},preview.revision());
             const auto values=evaluate(preview.document());const auto first=values.at(targets.front());
             const bool mixed=std::any_of(targets.begin(),targets.end(),[&](const auto& r){return values.at(r)!=first;});
@@ -10634,6 +10635,7 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
         const auto current=found->second;
         try {
             if(host.session_id!=current.session)throw Error("SESSION_CONFLICT","Expression belongs to another document");
+            if(current.verify_context)current.verify_context();
             canvas->cancel_interaction();host.session.apply({SetExpression{targets,{current.source.toStdString(),1},current.replace_binding}},current.revision);
             expression_drafts_.erase(key);host.edited();
         } catch(const std::exception& e){result->setText(QString::fromUtf8(e.what())+"\nCommitted result is unchanged.");result->setStyleSheet("color: #e4be82;");}
@@ -10709,7 +10711,9 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     input->setToolTip(input->toolTip()+"\nEnter =expression or use fx. += / -= makes a one-time relative edit.");
     box->addWidget(input);
     if(semantic)add_semantic_scrub(box,input,targets,*semantic);
-    auto* fx=new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
+    const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&ref.field=="text.font_size"&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
+    auto* prepared_fx=text_scalar_fx?new PreparedTextActionButton("fx"):nullptr;
+    QPushButton* fx=prepared_fx?static_cast<QPushButton*>(prepared_fx):new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
     fx->setObjectName("property-expression");
     fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
     if(formula)fx->setStyleSheet("color: #84d5eb;");
@@ -10722,15 +10726,42 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
     const auto field_session=host.session_id;
     const auto field_revision=host.session.revision();
-    auto expand=[this,column,row,input,targets,target_data,label,field_session,field_revision](QString source) {
+    auto expand=[this,column,row,input,targets,target_data,label,field_session,field_revision](QString source,std::optional<std::uint64_t> prepared_revision={},std::function<void()> verify_context={}) {
         if(host.session_id!=field_session)return;
         if(source.startsWith('='))source.remove(0,1);
         input->setModified(false);
-        if(!expression_drafts_.contains(target_data))expression_drafts_.emplace(target_data,ExpressionDraft{field_session,source,field_revision,false});
+        if(!expression_drafts_.contains(target_data))expression_drafts_.emplace(target_data,ExpressionDraft{field_session,source,prepared_revision.value_or(field_revision),false,std::move(verify_context)});
         if(!row->findChild<QWidget*>("nect-expression-panel"))add_expression_editor(column,target_data,targets,label);
     };
     const auto initial_expression=formula?qs(formula->source):(mixed?QString{}:QString::number(evaluated,'g',17));
-    connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
+    if(prepared_fx) {
+        prepared_fx->setProperty("nect-text-scalar-fx-action-object",qs(ref.object));prepared_fx->setFocusPolicy(Qt::StrongFocus);
+        auto context=std::make_shared<TextTypographyContext>(TextTypographyContext{field_session,ref.object,d.objects.at(ref.object).text->id,
+            canvas->active_composition(),canvas->active_artboard(),field_revision,text_selection_generation_,d.id,host.session.gesture_generation(),host.session.gesture_active()});
+        auto scalar_prepared=std::make_shared<bool>(false);
+        prepared_fx->prepare=[this,input,context,scalar_prepared] {
+            bool ready=false;perform([&]{
+                verify_text_typography_context(*context);
+                if(input->isModified()) {
+                    input->setProperty("nect-finishing-text-scalar-fx",true);input->setProperty("nect-text-scalar-fx-committed-revision",QVariant{});
+                    input->editingFinished();const auto committed=input->property("nect-text-scalar-fx-committed-revision");
+                    input->setProperty("nect-finishing-text-scalar-fx",false);if(!committed.isValid())return;
+                    auto advanced=*context;advanced.revision=committed.toULongLong();verify_text_typography_context(advanced);
+                    *context=std::move(advanced);*scalar_prepared=true;
+                }ready=true;
+            });return ready;
+        };
+        prepared_fx->completed=[this,context,scalar_prepared] {
+            if(!*scalar_prepared)return;const auto session=context->session;const auto document=context->document;
+            QTimer::singleShot(0,this,[this,session,document]{if(host.session_id==session&&host.session.document().id==document)rebuild_inspector();});
+        };
+        connect(fx,&QPushButton::clicked,this,[this,ref,context,expand]{perform([&]{
+            verify_text_typography_context(*context);const auto frozen=*context;
+            const auto formula=nect::property(host.session.document(),ref).expression;
+            const auto source=formula?qs(formula->source):QString::number(evaluate(host.session.document()).at(ref),'g',17);
+            expand(source,frozen.revision,[this,frozen]{verify_text_typography_context(frozen);});
+        });});
+    } else connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
@@ -10770,6 +10801,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-locale-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-scalar-fx").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-path").toBool()&&
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-path-action-object").toString()==qs(ref.object)&&
@@ -10808,6 +10843,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-text-alignment-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-locale").toBool())
                 input->setProperty("nect-text-locale-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-scalar-fx").toBool())
+                input->setProperty("nect-text-scalar-fx-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-path").toBool())
                 input->setProperty("nect-text-path-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-typography").toBool())

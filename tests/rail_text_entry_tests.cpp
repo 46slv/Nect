@@ -1500,6 +1500,79 @@ void locale_source_action_pending_pointer(const std::string& action){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original fixture and history");
     std::cout<<"text_locale_source_action_pending_pointer "<<action<<": "<<checks<<" checks passed; Qt Window pointer route\n";
 }
+void scalar_fx_pending_pointer(const std::string& mode){
+    QTemporaryDir scratch;check(scratch.isValid(),"Text scalar fx entry owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("scalar-fx-document","composition","board");
+    Object text;text.id="text";text.name="Font size fx target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
+    text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
+    document.objects.emplace(text.id,text);document.compositions.front().roots={text.id};
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    const std::string field=mode=="other-field"?"text.tracking":"text.font_size";const QString label=mode=="other-field"?"Tracking":"Font size";
+    Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* fx=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()){
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()==QString::fromStdString(field))size=input;
+    }
+    for(auto* button:window.findChildren<QPushButton*>("property-expression"))if(button->accessibleName()==label+" expression editor")fx=button;
+    check(scroll&&size&&fx,"Existing same-object Font size and inline fx controls available");scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));if((mode!="plain"&&mode!="other-field")){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":mode=="expression-scalar"?"=40 + 2":"64");events();}
+    check(size->hasFocus()&&size->isModified()==((mode!="plain"&&mode!="other-field"))&&snapshot(window.host.session)==snapshot(expected),"Font size draft remains fully authored-state neutral");
+    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-fx-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
+    if(mode=="entry-session")window.host.session_id="incoming-fx-entry-session";
+    const auto position=fx->mapTo(&window,fx->rect().center());check(window.childAt(position)==fx,"Actual Window pointer hits existing Font size fx");
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    if(mode=="invalid"||mode.rfind("entry-",0)==0){
+        check(snapshot(window.host.session)==snapshot(expected),"Rejected fx entry preserves full incoming source/history without scalar mutation");
+        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Rejected fx entry reports exact bound cause");return;
+    }
+    if(mode=="expression-scalar")expected.apply({SetExpression{{{"text","",field}},{"40 + 2",1},false}},expected.revision());
+    else if((mode!="plain"&&mode!="other-field"))expected.apply({EditProperties{{{"text","",field}},64,false}},expected.revision());
+    QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
+    std::cerr<<"Font size fx panel="<<(editor!=nullptr)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+    check(editor&&editor->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First fx pointer commits only scalar and opens existing inline neutral expression editor");
+    auto* panel=window.findChild<QWidget*>("nect-expression-panel");QPushButton* apply=nullptr;
+    for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;
+    check(apply,"Existing inline Apply available");
+    check(editor->toPlainText()==(mode=="expression-scalar"?"40 + 2":(mode=="plain"||mode=="other-field")?QString::number(evaluate(expected.document()).at({"text","",field}),'g',17):"64"),"Inline initial source follows exactly its own committed scalar or expression");
+    editor->setPlainText(mode=="invalid-expression"?"broken(":"32 + 3");events();
+    check(snapshot(window.host.session)==snapshot(expected),"Inline expression draft is fully source/history neutral");scroll->ensureWidgetVisible(apply);events();
+    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="apply-document"){
+        auto incoming=document;incoming.id="incoming-fx-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{{"text","",field}},64,false}},replacement.revision());
+        check(replacement.revision()==window.host.session.revision(),"Incoming fx Document collides at exact revision");window.host.session=replacement;expected=replacement;
+    }
+    if(mode=="apply-session")window.host.session_id="incoming-fx-apply-session";
+    if(mode=="apply-gesture"||mode=="apply-cancelled-gesture"){
+        window.host.session.begin_gesture(window.host.session.revision());if(mode=="apply-cancelled-gesture")window.host.session.cancel_gesture();
+    }
+    if(mode=="apply-selection"){
+        window.canvas->set_selections({});events();window.canvas->set_selection(text.id);events();
+        panel=window.findChild<QWidget*>("nect-expression-panel");check(panel,"Retained draft reappears after exact whole selection roundtrip");
+        apply=nullptr;for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;
+        check(apply,"Recreated inline Apply exists at selection boundary");scroll->ensureWidgetVisible(apply);events();
+    }
+    if(mode=="cancel")for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Cancel")apply=button;
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(&window,apply->rect().center()));events();
+    if(mode.rfind("apply-",0)==0||mode=="invalid-expression"){
+        check(snapshot(window.host.session)==snapshot(expected),"Refused inline Apply preserves full incoming source/history and neutral draft");
+        auto* result=window.findChild<QLabel*>("nect-expression-result");check(result&&result->text().contains("Committed result is unchanged"),"Refused inline Apply keeps existing visible recovery status");
+        if(mode=="apply-gesture"){check(window.host.session.gesture_active(),"Inline rejection retains active gesture");window.host.session.cancel_gesture();}
+        return;
+    }
+    if(mode=="cancel"){
+        check(snapshot(window.host.session)==snapshot(expected)&&!window.findChild<QWidget*>("nect-expression-panel"),"Cancel discards expression draft and preserves only independent scalar");
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+        check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Cancelled expression leaves scalar independently undoable");return;
+    }
+    expected.apply({SetExpression{{{"text","",field}},{"32 + 3",1},false}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected),"Inline Apply equals canonical scalar then expression source/history");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Expression Undo retains independent scalar");
+    if((mode!="plain"&&mode!="other-field")){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();}check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores exact original Text source/style/history");
+}
+
 void path_pending_pointer(const std::string& mode){
     QTemporaryDir scratch;check(scratch.isValid(),"Text Path entry owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -2113,6 +2186,9 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--scalar-fx-affected-pending-pointer")){for(const auto* mode:{"plain","cancel","invalid","expression-scalar","invalid-expression","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture","apply-selection"})scalar_fx_pending_pointer(mode);std::cout<<"text_scalar_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
+        if(app.arguments().contains("--scalar-fx-generic-pending-pointer")){scalar_fx_pending_pointer("other-field");std::cout<<"text_scalar_fx_generic_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
+        if(app.arguments().contains("--scalar-fx-pending-pointer")){scalar_fx_pending_pointer("valid");std::cout<<"text_scalar_fx_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--path-affected-pending-pointer")){for(const auto* mode:{"update","detach","plain","invalid","invalid-start","invalid-spacing","missing","entry-revision","entry-document","entry-session","entry-gesture","entry-cancelled-gesture"})path_pending_pointer(mode);std::cout<<"text_path_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--path-pending-pointer")){path_pending_pointer("attach");std::cout<<"text_path_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--alignment-source-actions-pending-pointer")){

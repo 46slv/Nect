@@ -120,6 +120,7 @@ private:
         QString session,source;
         std::uint64_t revision=0;
         bool replace_binding=false;
+        std::function<void()> verify_context;
     };
     struct ArtboardTemplateContext {
         QString session;
