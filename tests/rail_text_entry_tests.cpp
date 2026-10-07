@@ -4,6 +4,7 @@
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QCompleter>
 #include <QCursor>
 #include <QAbstractItemView>
@@ -388,6 +389,61 @@ void weight_pending_pointer(const std::string& mode){
     window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original source");
     std::cout<<"text_weight_pending_pointer valid: "<<checks<<" checks passed; Qt Window pointer route\n";
+}
+void italic_pending_pointer(const std::string& mode){
+    QTemporaryDir scratch;check(scratch.isValid(),"Italic pointer owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("italic-pointer-document","composition","board");
+    Object text;text.id="text";text.name="Italic target";text.kind=Kind::text;
+    text.text=default_text("text-source","Retain 日本語 and style");
+    document.objects.emplace(text.id,text);document.compositions.front().roots.push_back(text.id);
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    auto* italic=window.findChild<QCheckBox*>("text-italic");
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&italic&&size&&!italic->isChecked(),"Actual Font size and existing non-italic checkbox are available");
+    scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    if(mode!="plain") {QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),"Font size draft state stays neutral before Italic pointer");
+    scroll->ensureWidgetVisible(italic);events();
+    if(mode=="revision") {
+        window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
+        expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
+    }
+    if(mode=="document") {
+        auto incoming=document;incoming.id="incoming-italic-document";
+        window.host.session=Session(incoming);expected=window.host.session;
+    }
+    const auto position=italic->mapTo(&window,QPoint(8,italic->height()/2));
+    check(window.childAt(position)==italic,"Actual Window pointer resolves to the existing checkbox indicator");
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    if(mode=="invalid"||mode=="revision"||mode=="document") {
+        check(snapshot(window.host.session)==snapshot(expected),"Rejected Italic click preserves complete incoming source/history");
+        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="revision"?"STALE_CONTEXT":"SESSION_CONFLICT"),
+            "Rejected Italic click reports its exact cause");
+        std::cout<<"text_italic_pending_pointer "<<mode<<": "<<checks<<" checks passed\n";return;
+    }
+    if(mode!="plain")expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    auto changed=*expected.document().objects.at("text").text;changed.italic=true;
+    expected.apply({UpdateText{"text",changed}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected),"First Italic click authors exactly scalar plus separate italic command");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected),"One Italic Undo preserves the independent size commit");
+    if(mode=="plain") {
+        check(expected.document()==document,"No-draft Italic click retains one independent Undo");
+        std::cout<<"text_italic_pending_pointer plain: "<<checks<<" checks passed\n";return;
+    }
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores exact original source");
+    std::cout<<"text_italic_pending_pointer valid: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
 void keyboard_focus_help(){
     QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
@@ -857,6 +913,10 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--italic-pending-pointer")){
+            for(const auto* mode:{"valid","invalid","revision","document","plain"})italic_pending_pointer(mode);
+            return 0;
+        }
         if(app.arguments().contains("--weight-pending-pointer")){
             for(const auto* mode:{"valid","invalid","revision","document","late-revision","plain"})weight_pending_pointer(mode);
             return 0;

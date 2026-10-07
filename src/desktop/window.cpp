@@ -7080,8 +7080,12 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     });
     const Ref italic_ref{id,"","text.italic"};const auto italic_state=text_italic_property(host.session.document(),italic_ref);
     const auto italic_revision=host.session.revision();
+    const auto italic_document=host.session.document().id;
+    const auto italic_gesture=host.session.gesture_generation();
+    const bool italic_preview=host.session.gesture_active();
     auto* italic_row=new QWidget(box);auto* italic_layout=new QHBoxLayout(italic_row);italic_layout->setContentsMargins(0,0,0,0);
     auto* italic=new QCheckBox("Italic");italic->setObjectName("text-italic");italic->setChecked(italic_state.evaluated);
+    italic->setProperty("nect-text-italic-action-object",qs(id));
     italic->setEnabled(!italic_state.driver);if(italic_state.driver)italic->setToolTip("Unlink or replace the driver before editing the literal.");
     italic_layout->addWidget(italic);
     auto* italic_driver_button=new QToolButton(italic_row);italic_driver_button->setObjectName("text-italic-driver");
@@ -7151,8 +7155,37 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     italic_status->setText(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(italic_state.literal?"true":"false",driver_description,italic_state.evaluated?"true":"false"));
     italic_status->setWordWrap(true);form->addRow("",italic_status);
-    connect(italic,&QCheckBox::toggled,this,[this,update,italic_state](bool value){if(italic_state.driver)return;
-        perform([&]{update([&](auto& s){s.italic=value;});});});
+    connect(italic,&QCheckBox::toggled,this,[this,id,update,italic_state,frozen_session,italic_document,italic_revision,italic_gesture,italic_preview](bool value){
+        if(italic_state.driver)return;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=italic_revision||host.session.gesture_generation()!=italic_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing italic");
+            if(italic_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing italic");
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-italic",true);
+                pending->setProperty("nect-text-italic-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-italic-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-italic",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=italic_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=italic_gesture||host.session.gesture_active()||
+                   canvas->selected_object!=id||!canvas->selected_point.empty())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+            }
+            update([&](auto& s){s.italic=value;});
+        });
+    });
     auto choices=[&](const QString& name,const QString& label,const QStringList& labels,const std::vector<std::string>& values,
                      const std::string& selected,std::string TextSource::*member) {
         auto* combo=new QComboBox;combo->setObjectName(name);combo->addItems(labels);
@@ -10213,6 +10246,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-weight-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-italic").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-italic-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(focus&&focus->property("nect-circle-source-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
@@ -10235,6 +10272,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-text-family-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-weight").toBool())
                 input->setProperty("nect-text-weight-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-italic").toBool())
+                input->setProperty("nect-text-italic-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
         };
         perform([&]{
             if(host.session_id!=input_session||host.session.document().id!=input_document)
