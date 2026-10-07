@@ -176,6 +176,76 @@ void writing_pending_pointer(const std::string& mode){
         "Separate scalar Undo restores the complete original source");
     std::cout<<"text_writing_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
+void content_pending_pointer(const std::string& mode){
+    QTemporaryDir scratch;check(scratch.isValid(),"Content pointer owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("content-pointer-document","composition","board");
+    Object text;text.id="text";text.name="Content target";text.kind=Kind::text;
+    text.text=default_text("text-source","Retain 日本語 and style");
+    document.objects.emplace(text.id,text);document.compositions.front().roots.push_back(text.id);
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    auto* edit=window.findChild<QPushButton*>("edit-text-content");
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&edit&&size,"Actual Edit text action and Font size field exist");
+    scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    if(mode!="plain"){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),"Font size draft state is focused and neutral before Edit text");
+    scroll->ensureWidgetVisible(edit);events();
+    const auto point=edit->mapTo(&window,edit->rect().center());
+    check(window.childAt(point)==edit,"First Window pointer targets the actual Edit text action");
+    if(mode=="revision"){
+        expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
+        window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
+    }else if(mode=="document"){
+        auto incoming=document;incoming.id="incoming-document";window.host.session=Session(incoming);expected=window.host.session;
+    }else if(mode!="invalid"&&mode!="plain")expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    const bool refusal=mode=="invalid"||mode=="revision"||mode=="document";
+    bool opened=false,neutral=false,applied=false;
+    QTimer::singleShot(1000,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");
+        if(!dialog)return;opened=dialog->isVisible();
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!editor||!buttons){dialog->reject();return;}
+        QTest::keyClick(editor,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(editor,"Changed content");
+        neutral=snapshot(window.host.session)==snapshot(expected)&&editor->toPlainText()=="Changed content";
+        if(mode=="apply"){
+            QTest::mouseClick(buttons->button(QDialogButtonBox::Apply),Qt::LeftButton);applied=!dialog->isVisible();
+            if(dialog->isVisible())dialog->reject();
+        }else dialog->reject();
+    });
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,point);QTest::qWait(1100);events();
+    if(refusal){
+        check(!opened&&snapshot(window.host.session)==snapshot(expected),"Invalid draft/incoming context refuses dialog entry without partial source mutation");
+        const auto* cause=mode=="invalid"?"INVALID_VALUE":mode=="revision"?"REVISION_CONFLICT":"SESSION_CONFLICT";
+        check(window.statusBar()->currentMessage().contains(cause),"Refused content entry reports the exact missing validity/context");
+        std::cout<<"text_content_pending_pointer "<<mode<<": "<<checks<<" checks passed\n";return;
+    }
+    if(mode=="apply"){
+        auto changed=*expected.document().objects.at("text").text;changed.content="Changed content";
+        expected.apply({UpdateText{"text",changed}},expected.revision());
+        check(opened&&neutral&&applied&&snapshot(window.host.session)==snapshot(expected),"First pointer opens current source and Apply is a separate canonical content transaction");
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+        check(snapshot(window.host.session)==snapshot(expected),"Content Undo preserves independently committed Font size");
+    }
+    check(snapshot(window.host.session)==snapshot(expected),"First Edit text pointer commits exactly the ordinary scalar transaction");
+    check(opened,"First Edit text pointer opens its source dialog without a second click");
+    check(neutral&&snapshot(window.host.session)==snapshot(expected),"Owned source dialog draft/Cancel preserves complete post-scalar Session");
+    if(mode!="plain"){
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+        check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Independent scalar Undo restores the entire original source");
+    }
+    std::cout<<"text_content_pending_pointer "<<mode<<": "<<checks<<" checks passed; Qt Window pointer route\n";
+}
 void keyboard_focus_help(){
     QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -644,6 +714,10 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--content-pending-pointer")){
+            for(const auto* mode:{"cancel","apply","invalid","revision","document","plain"})content_pending_pointer(mode);
+            return 0;
+        }
         if(app.arguments().contains("--writing-pending-pointer")){
             for(const auto* mode:{"valid","cancel","invalid","revision","document","plain"})writing_pending_pointer(mode);
             return 0;

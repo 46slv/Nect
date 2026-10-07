@@ -6653,7 +6653,36 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* content_status=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(qs(content_state.literal).left(80),content_driver_name(content_state.driver),qs(content_state.evaluated).left(80)));
     content_status->setObjectName("text-content-state");content_status->setWordWrap(true);content_status->setTextFormat(Qt::PlainText);form->addRow("",content_status);
-    connect(edit,&QPushButton::clicked,this,[this,id]{perform([&]{edit_text_content(id);});});
+    edit->setProperty("nect-text-content-action-object",qs(id));
+    const auto content_document=host.session.document().id;
+    const auto content_gesture=host.session.gesture_generation();const bool content_preview=host.session.gesture_active();
+    connect(edit,&QPushButton::clicked,this,[this,id,frozen_session,content_document,content_revision,content_gesture,content_preview]{perform([&]{
+        if(host.session_id!=frozen_session||host.session.document().id!=content_document)
+            throw Error("SESSION_CONFLICT","Text belongs to another document");
+        if(host.session.revision()!=content_revision||host.session.gesture_generation()!=content_gesture)
+            throw Error("REVISION_CONFLICT","Text changed; reopen its Properties");
+        if(content_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+        if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its content");
+        QPointer<QLineEdit> pending;
+        for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+            const auto data=input->property("nect-reference").toByteArray();
+            if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+            const auto ref=read_ref(data);
+            if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+        }
+        if(pending) {
+            pending->setProperty("nect-finishing-text-content",true);
+            pending->setProperty("nect-text-content-committed-revision",QVariant{});
+            pending->editingFinished();
+            const auto committed=pending?pending->property("nect-text-content-committed-revision"):QVariant{};
+            if(pending)pending->setProperty("nect-finishing-text-content",false);
+            if(!committed.isValid())return;
+            if(host.session_id!=frozen_session||host.session.document().id!=content_document||
+               host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=content_gesture||host.session.gesture_active()||canvas->selected_object!=id)
+                throw Error("REVISION_CONFLICT","Text changed while finishing Font size");
+        }
+        edit_text_content(id);
+    });});
     auto update=[this,id,frozen_session](const std::function<void(TextSource&)>& change) {
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
         const auto found=host.session.document().objects.find(id);
@@ -10065,6 +10094,9 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         // Image actions finish their own pointer gesture before handling the
         // dimension draft; blur must not rebuild away the pressed button.
         const auto* focus=QApplication::focusWidget();
+        if(ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-content-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-writing").toBool()&&
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-writing-action-object").toString()==qs(ref.object)&&
@@ -10085,6 +10117,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-circle-source-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-writing").toBool())
                 input->setProperty("nect-text-writing-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-content").toBool())
+                input->setProperty("nect-text-content-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
         };
         perform([&]{
             if(host.session_id!=input_session||host.session.document().id!=input_document)
