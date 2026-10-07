@@ -834,6 +834,106 @@ void direction_link_pending_pointer(const std::string& mode){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores full original source/history");
     std::cout<<"text_direction_link_pending_pointer "<<mode<<": "<<checks<<" checks passed; Qt Window pointer route\n";
 }
+void layout_link_pending_pointer(const std::string& mode){
+    QTemporaryDir scratch;check(scratch.isValid(),"Sizing source owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("layout-link-pointer-document","composition","board");
+    Object text;text.id="text";text.name="Sizing target";text.kind=Kind::text;
+    text.text=default_text("text-source","Retain 日本語 and style");
+    Object other;other.id="other";other.name="Existing frame source";other.kind=Kind::text;
+    other.text=default_text("other-source","Retain source");other.text->layout="frame";
+    document.objects.emplace(text.id,text);document.objects.emplace(other.id,other);
+    document.compositions.front().roots={text.id,other.id};
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    auto* drive=window.findChild<QToolButton*>("text-layout-driver");QPointer<QMenu> menu=drive?drive->menu():nullptr;
+    const auto find_size=[&]()->QLineEdit*{
+        for(auto* input:window.findChildren<QLineEdit*>()){
+            const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+            if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")return input;
+        }
+        return nullptr;
+    };
+    auto* size=find_size();check(scroll&&drive&&menu&&size,"Existing Sizing driver and scalar available");
+    scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    if(mode!="plain"){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),"Sizing source scalar draft is neutral before the actual first pointer");
+    scroll->ensureWidgetVisible(drive);events();
+    if(mode=="entry-revision"){
+        window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
+        expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
+    }
+    if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
+    const auto position=drive->mapTo(&window,drive->rect().center());
+    check(window.childAt(position)==drive,"Actual Window pointer hits existing Sizing driver");
+    const bool reject_entry=mode=="invalid"||mode=="entry-revision"||mode=="entry-document";
+    if(mode!="plain"&&!reject_entry)expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    bool opened=false,neutral=false,dialog_open=false,choice=false,same_revision=true;
+    QString status;
+    QTimer::singleShot(QApplication::doubleClickInterval()+20,&window,[&]{
+        opened=menu&&menu->isVisible();neutral=snapshot(window.host.session)==snapshot(expected);
+        if(opened)QTest::mouseClick(menu,Qt::LeftButton,Qt::NoModifier,menu->actionGeometry(menu->actions().at(1)).center());
+    });
+    QTimer::singleShot(QApplication::doubleClickInterval()+1000,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-source-dialog");dialog_open=dialog&&dialog->isVisible();
+        if(!dialog_open){if(menu)menu->close();return;}
+        auto* source=dialog->findChild<QComboBox*>("text-layout-source");auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!source||!buttons||source->count()!=1){dialog->reject();return;}
+        QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,source->mapTo(dialog,QPoint(source->width()-8,source->height()/2)));
+        QTest::qWait(QApplication::doubleClickInterval()+20);
+        auto* view=source->view();const auto index=source->model()->index(0,0);
+        QTest::mouseClick(view->viewport(),Qt::LeftButton,Qt::NoModifier,view->visualRect(index).center());
+        choice=source->currentIndex()==0&&source->currentText().contains("other")&&snapshot(window.host.session)==snapshot(expected);
+        if(mode=="apply-revision"){
+            window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
+            expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
+        }
+        if(mode=="apply-document"){
+            auto incoming=document;incoming.id="incoming-apply-document";
+            Session replacement(incoming);replacement.apply({EditProperties{{{"text","","text.font_size"}},64,false}},replacement.revision());
+            same_revision=replacement.revision()==window.host.session.revision();window.host.session=replacement;expected=replacement;
+        }
+        if(mode=="apply-session")window.host.session_id="incoming-source-session";
+        auto* action=buttons->button(mode=="cancel"?QDialogButtonBox::Cancel:QDialogButtonBox::Apply);
+        QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,action->mapTo(dialog,action->rect().center()));
+        status=dialog->findChild<QLabel*>("text-layout-source-status")->text();
+        if(dialog->isVisible())dialog->reject();
+    });
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);QTest::qWait(QApplication::doubleClickInterval()+1100);events();
+    if(reject_entry){
+        check(snapshot(window.host.session)==snapshot(expected)&&!opened&&!dialog_open,"Invalid or changed Sizing entry is refused atomically before the source menu");
+        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"STALE_CONTEXT":"SESSION_CONFLICT"),"Sizing entry reports exact cause");
+        std::cout<<"text_layout_link_pending_pointer "<<mode<<": "<<checks<<" checks passed\n";return;
+    }
+    check(opened&&neutral&&dialog_open&&choice,"First Sizing pointer opens the existing chooser with neutral exact source selection");
+    if(mode=="apply-revision"||mode=="apply-document"||mode=="apply-session"){
+        check(same_revision,"Incoming chooser Document has same canonical revision");
+        check(snapshot(window.host.session)==snapshot(expected),"Changed Sizing chooser context refuses partial authored mutation");
+        check(status.contains(mode=="apply-revision"?"Text changed":"SESSION_CONFLICT")||status.contains(mode=="apply-revision"?"Text changed":"another document"),"Sizing chooser reports bound-context cause");
+        std::cout<<"text_layout_link_pending_pointer "<<mode<<": "<<checks<<" checks passed\n";return;
+    }
+    if(mode=="cancel"){
+        check(snapshot(window.host.session)==snapshot(expected),"Sizing chooser Cancel retains only independent scalar");
+        size=find_size();check(size,"Sizing Cancel exposes current scalar");scroll->ensureWidgetVisible(size);events();size->setFocus();
+        QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");QTest::keyClick(size,Qt::Key_Return);events();
+        expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+        check(snapshot(window.host.session)==snapshot(expected),"Sizing Cancel leaves scalar usable at exact current revision");
+    }else{
+        expected.apply({LinkTextLayout{{"text","","text.layout"},{"other","","text.layout"},false}},expected.revision());
+        std::cout<<"Layout Link actual-revision="<<window.host.session.revision()<<" expected="<<expected.revision()<<" status="<<status.toStdString()<<std::endl;
+        check(snapshot(window.host.session)==snapshot(expected),"First Sizing Link equals exact independent scalar and stable enum source command");
+    }
+    check(window.canvas->selected_object=="text"&&window.canvas->selected_point.empty(),"Sizing chooser retains exact target selection");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected),"One Sizing source or fresh scalar Undo retains independently committed size");
+    if(mode!="plain"){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();}
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores full original source/history");
+    std::cout<<"text_layout_link_pending_pointer "<<mode<<": "<<checks<<" checks passed; Qt Window pointer route\n";
+}
 void direction_source_action_pending_pointer(const std::string& action){
     QTemporaryDir scratch;check(scratch.isValid(),"Writing source action owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -899,6 +999,72 @@ void direction_source_action_pending_pointer(const std::string& action){
     window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original fixture and history");
     std::cout<<"text_direction_source_action_pending_pointer "<<action<<": "<<checks<<" checks passed; Qt Window pointer route\n";
+}
+void layout_source_action_pending_pointer(const std::string& action){
+    QTemporaryDir scratch;check(scratch.isValid(),"Sizing source action owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("layout-source-action-document","composition","board");
+    Object text;text.id="text";text.name="Sizing action target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
+    Object other;other.id="other";other.name="Existing frame source";other.kind=Kind::text;other.text=default_text("other-source","Retain source");other.text->layout="frame";
+    document.objects.emplace(text.id,text);document.objects.emplace(other.id,other);document.compositions.front().roots={text.id,other.id};
+    Session fixture(document);
+    if(action!="edit")fixture.apply({LinkTextLayout{{"text","","text.layout"},{"other","","text.layout"},false}},fixture.revision());
+    document=fixture.document();window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");auto* drive=window.findChild<QToolButton*>("text-layout-driver");QPointer<QMenu> menu=drive?drive->menu():nullptr;
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()){
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&drive&&menu&&size,"Existing Sizing source action controls available");scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");events();
+    check(size->hasFocus()&&size->isModified()&&snapshot(window.host.session)==snapshot(expected),"Sizing action scalar draft is neutral");
+    scroll->ensureWidgetVisible(drive);events();const auto position=drive->mapTo(&window,drive->rect().center());
+    check(window.childAt(position)==drive,"Actual Window pointer hits existing Sizing driver");
+    bool menu_open=false,neutral=false,dialog_open=false,choice=false;
+    expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+    QTimer::singleShot(QApplication::doubleClickInterval()+20,&window,[&]{
+        menu_open=menu&&menu->isVisible();neutral=snapshot(window.host.session)==snapshot(expected);
+        if(menu_open)QTest::mouseClick(menu,Qt::LeftButton,Qt::NoModifier,menu->actionGeometry(menu->actions().at(action=="unlink"?2:0)).center());
+    });
+    QTimer::singleShot(QApplication::doubleClickInterval()+1000,&window,[&]{
+        if(action=="unlink")return;
+        auto* dialog=window.findChild<QDialog*>("text-layout-dialog");dialog_open=dialog&&dialog->isVisible();
+        if(!dialog_open){if(menu)menu->close();return;}
+        auto* editor=dialog->findChild<QComboBox*>("text-layout-editor");auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!editor||!buttons){dialog->reject();return;}
+        if(action=="linked-edit"){
+            auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-layout-driver");
+            if(!unlink||!unlink->isVisible()){dialog->reject();return;}
+            QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,unlink->mapTo(dialog,unlink->rect().center()));
+            if(!unlink->isChecked()){dialog->reject();return;}
+        }
+        QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,editor->mapTo(dialog,QPoint(editor->width()-8,editor->height()/2)));
+        QTest::qWait(QApplication::doubleClickInterval()+20);
+        auto* view=editor->view();const auto index=editor->model()->index(action=="edit"?1:0,0);
+        QTest::mouseClick(view->viewport(),Qt::LeftButton,Qt::NoModifier,view->visualRect(index).center());
+        choice=editor->currentIndex()==(action=="edit"?1:0)&&snapshot(window.host.session)==snapshot(expected);
+        auto* apply=buttons->button(QDialogButtonBox::Apply);
+        QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(dialog,apply->rect().center()));
+        if(dialog->isVisible())dialog->reject();
+    });
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);QTest::qWait(QApplication::doubleClickInterval()+1100);events();
+    check(menu_open&&neutral&&(action=="unlink"||(dialog_open&&choice)),"First Sizing driver reaches neutral existing Edit or Unlink action");
+    if(action=="unlink")expected.apply({UnlinkTextLayout{{"text","","text.layout"}}},expected.revision());
+    else{
+        auto next=*expected.document().objects.at("text").text;next.layout=action=="edit"?"frame":"auto";next.layout_driver.reset();
+        std::vector<Command> commands;if(action=="linked-edit")commands.push_back(UnlinkTextLayout{{"text","","text.layout"}});commands.push_back(UpdateText{"text",next});
+        expected.apply(commands,expected.revision());
+    }
+    check(snapshot(window.host.session)==snapshot(expected),"Existing Sizing source action equals canonical command batch and full source/history");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected),"One Sizing action Undo restores source/driver and preserves independent size");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original fixture and history");
+    std::cout<<"text_layout_source_action_pending_pointer "<<action<<": "<<checks<<" checks passed; Qt Window pointer route\n";
 }
 void keyboard_focus_help(){
     QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
@@ -1368,6 +1534,14 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--layout-source-actions-pending-pointer")){
+            for(const auto* action:{"edit","unlink","linked-edit"})layout_source_action_pending_pointer(action);
+            return 0;
+        }
+        if(app.arguments().contains("--layout-link-pending-pointer")){
+            for(const auto* mode:{"valid","cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})layout_link_pending_pointer(mode);
+            return 0;
+        }
         if(app.arguments().contains("--direction-source-actions-pending-pointer")){
             for(const auto* action:{"edit","unlink","linked-edit"})direction_source_action_pending_pointer(action);
             return 0;

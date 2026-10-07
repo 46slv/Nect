@@ -4934,6 +4934,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
     if(auto* driver=inspector_->findChild<QToolButton*>("text-direction-driver");
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-layout-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -7351,13 +7353,69 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* layout_choice=new QComboBox;layout_choice->setObjectName("text-layout");layout_choice->addItems({"Auto size","Fixed frame"});
     layout_choice->setCurrentIndex(layout_state.evaluated=="frame"?1:0);layout_choice->setEnabled(false);
     layout_choice->setToolTip("Use Edit sizing to stage and apply a change.");layout_row_layout->addWidget(layout_choice);
-    auto* layout_driver_button=new QToolButton(layout_row);layout_driver_button->setObjectName("text-layout-driver");
+    const auto layout_document=host.session.document().id;
+    const auto layout_gesture=host.session.gesture_generation();
+    const bool layout_preview=host.session.gesture_active();
+    auto* layout_driver_button=new PreparedTextMenuButton;layout_driver_button->setObjectName("text-layout-driver");
+    layout_driver_button->setProperty("nect-text-layout-action-object",qs(id));
+    layout_driver_button->setFocusPolicy(Qt::StrongFocus);
+    auto prepared_layout_revision=std::make_shared<std::uint64_t>(layout_revision);
+    auto layout_scalar_prepared=std::make_shared<bool>(false);
+    layout_driver_button->prepare=[this,id,frozen_session,layout_document,prepared_layout_revision,layout_gesture,layout_preview,layout_scalar_prepared]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=layout_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_layout_revision||host.session.gesture_generation()!=layout_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its layout source");
+            if(layout_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its layout source");
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-layout",true);
+                pending->setProperty("nect-text-layout-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-layout-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-layout",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=layout_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=layout_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                *prepared_layout_revision=host.session.revision();*layout_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    layout_driver_button->closed=[this,frozen_session,layout_document,layout_scalar_prepared]{
+        if(!*layout_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,layout_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==layout_document)rebuild_inspector();
+        });
+    };
     layout_driver_button->setText(layout_state.driver?"Driver…":"Drive…");layout_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* layout_menu=new QMenu(layout_driver_button);layout_driver_button->setMenu(layout_menu);layout_row_layout->addWidget(layout_driver_button);
     auto* edit_layout=layout_menu->addAction("Edit sizing…");
     auto* link_layout=layout_menu->addAction("Link to Text sizing…");
     auto* unlink_layout=layout_menu->addAction("Unlink sizing");unlink_layout->setEnabled(layout_state.driver.has_value());
-    connect(edit_layout,&QAction::triggered,this,[this,id,frozen_session,layout_revision,layout_ref,layout_state]{
+    connect(edit_layout,&QAction::triggered,this,[this,id,frozen_session,layout_document,prepared_layout_revision,layout_gesture,layout_ref,layout_state]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=layout_document)
+                throw Error("SESSION_CONFLICT","Text sizing source belongs to another document");
+            if(host.session.revision()!=*prepared_layout_revision||host.session.gesture_generation()!=layout_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its sizing source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto layout_revision=*prepared_layout_revision;
         QDialog dialog(this);dialog.setObjectName("text-layout-dialog");dialog.setWindowTitle("Edit Text sizing");
         auto* box_layout=new QVBoxLayout(&dialog);
         auto* editor=new QComboBox(&dialog);editor->setObjectName("text-layout-editor");editor->addItems({"Auto size","Fixed frame"});
@@ -7369,10 +7427,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,layout_revision,layout_ref,layout_state,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,layout_document,layout_revision,layout_gesture,layout_ref,layout_state,editor,unlink,status]{
             try {
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-                if(host.session.revision()!=layout_revision)throw Error("STALE_CONTEXT","Text changed while the sizing editor was open; reopen it");
+                if(host.session_id!=frozen_session||host.session.document().id!=layout_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=layout_revision||host.session.gesture_generation()!=layout_gesture)throw Error("STALE_CONTEXT","Text changed while the sizing editor was open; reopen it");
+                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                 if(layout_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a sizing edit");
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
@@ -7394,7 +7453,18 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         layout_source_ids.push_back(source_id);layout_source_labels<<qs(source_object.name)+" — "+qs(source_id);
     }
     link_layout->setEnabled(!layout_source_ids.empty());const bool replace_layout_driver=layout_state.driver.has_value();
-    connect(link_layout,&QAction::triggered,this,[this,id,frozen_session,layout_revision,replace_layout_driver,layout_source_ids,layout_source_labels]{
+    connect(link_layout,&QAction::triggered,this,[this,id,frozen_session,layout_document,prepared_layout_revision,layout_gesture,replace_layout_driver,layout_source_ids,layout_source_labels]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=layout_document)
+                throw Error("SESSION_CONFLICT","Text sizing source belongs to another document");
+            if(host.session.revision()!=*prepared_layout_revision||host.session.gesture_generation()!=layout_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its sizing source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto layout_revision=*prepared_layout_revision;
         QDialog dialog(this);dialog.setObjectName("text-layout-source-dialog");dialog.setWindowTitle("Link Text sizing");
         auto* layout=new QVBoxLayout(&dialog);
         auto* search=new QLineEdit(&dialog);search->setObjectName("text-layout-source-search");
@@ -7417,10 +7487,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
         connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-            [this,&dialog,id,frozen_session,layout_revision,replace_layout_driver,layout_source_ids,source,status]{
+            [this,&dialog,id,frozen_session,layout_document,layout_revision,layout_gesture,replace_layout_driver,layout_source_ids,source,status]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-                    if(host.session.revision()!=layout_revision)throw Error("STALE_CONTEXT","Text changed while the source chooser was open; reopen it");
+                    if(host.session_id!=frozen_session||host.session.document().id!=layout_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                    if(host.session.revision()!=layout_revision||host.session.gesture_generation()!=layout_gesture)throw Error("STALE_CONTEXT","Text changed while the source chooser was open; reopen it");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                     if(source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a visible Text sizing source");
                     const int index=source->currentData().toInt();
                     if(index<0||static_cast<std::size_t>(index)>=layout_source_ids.size())
@@ -7432,9 +7503,10 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog.exec();
     });
-    connect(unlink_layout,&QAction::triggered,this,[this,frozen_session,layout_revision,layout_ref]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextLayout{layout_ref}},layout_revision);host.edited();});
+    connect(unlink_layout,&QAction::triggered,this,[this,frozen_session,layout_document,prepared_layout_revision,layout_gesture,layout_ref]{
+        perform([&]{if(host.session_id!=frozen_session||host.session.document().id!=layout_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.gesture_generation()!=layout_gesture)throw Error("STALE_CONTEXT","Text changed; refresh before unlinking its sizing source");
+            host.session.apply({UnlinkTextLayout{layout_ref}},*prepared_layout_revision);host.edited();});
     });
     layout_row_layout->addStretch();form->addRow("Sizing",layout_row);
     const auto layout_driver_name=[this](const std::optional<TextLayoutDriver>& driver) {
@@ -10429,6 +10501,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-italic-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-layout").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-layout-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(focus&&focus->property("nect-circle-source-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
@@ -10453,6 +10529,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-text-weight-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-italic").toBool())
                 input->setProperty("nect-text-italic-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-layout").toBool())
+                input->setProperty("nect-text-layout-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
         };
         perform([&]{
             if(host.session_id!=input_session||host.session.document().id!=input_document)
