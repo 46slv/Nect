@@ -492,6 +492,62 @@ void structure_pending_pointer(){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Single scalar Undo restores full original source/history across selection");
     std::cout<<"text_structure_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
+void family_drive_pending_pointer(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Family Drive menu owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("family-drive-pointer-document","composition","board");
+    Object text;text.id="text";text.name="Family Drive target";text.kind=Kind::text;
+    text.text=default_text("text-source","Retain 日本語 and style");
+    Object other;other.id="other";other.name="Existing source";other.kind=Kind::text;
+    other.text=default_text("other-source","Source choice stays untouched");
+    document.objects.emplace(text.id,text);document.objects.emplace(other.id,other);
+    document.compositions.front().roots={text.id,other.id};
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    auto* drive=window.findChild<QToolButton*>("text-family-driver");
+    QPointer<QMenu> popup=drive?drive->menu():nullptr;
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&drive&&popup&&size,"Existing family Drive menu and scalar are available");
+    scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"64");events();
+    check(size->hasFocus()&&size->isModified()&&snapshot(window.host.session)==snapshot(expected),"Pending size remains neutral before family Drive pointer");
+    scroll->ensureWidgetVisible(drive);events();
+    const auto position=drive->mapTo(&window,drive->rect().center());
+    check(window.childAt(position)==drive,"Actual Window pointer hits the existing family Drive button");
+    bool opened=false,neutral=false;
+    expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    QTimer::singleShot(250,&window,[&]{
+        opened=popup&&popup->isVisible();neutral=snapshot(window.host.session)==snapshot(expected);
+        if(opened)QTest::keyClick(popup,Qt::Key_Escape);
+    });
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);QTest::qWait(300);events();
+    check(snapshot(window.host.session)==snapshot(expected),"Family Drive pointer commits only the independent size command");
+    check(opened&&neutral,"First family Drive pointer opens its existing menu with source-neutral popup state");
+    check(!popup||!popup->isVisible(),"Existing family Drive Escape closes without choosing a source");
+    size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(size,"Drive Escape leaves a current usable Font size field");
+    scroll->ensureWidgetVisible(size);events();size->setFocus();
+    QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");QTest::keyClick(size,Qt::Key_Return);events();
+    expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected),"Scalar edit after Drive Escape uses fresh canonical context");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected),"Fresh scalar Undo preserves the initial independent size commit");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo after Drive Escape restores exact original source");
+    std::cout<<"text_family_drive_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
+}
 void keyboard_focus_help(){
     QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -960,6 +1016,7 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--family-drive-pending-pointer")){family_drive_pending_pointer();return 0;}
         if(app.arguments().contains("--structure-pending-pointer")){structure_pending_pointer();return 0;}
         if(app.arguments().contains("--italic-pending-pointer")){
             for(const auto* mode:{"valid","invalid","revision","document","plain"})italic_pending_pointer(mode);
